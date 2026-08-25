@@ -18,7 +18,7 @@ import {
 import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
-import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, showPlanHeading, type PlanGroup, waveKeyOf, waveSection, wavesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
+import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, sectionTally, showPlanHeading, type PlanGroup, waveKeyOf, waveSection, wavesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
@@ -3541,6 +3541,81 @@ describe('runLinkLabel — Show failure only where a failure is present', () => 
   it('says Open last run for a row that is not failing', () => {
     expect(runLinkLabel(row({ pr: { number: 9, url: 'u', draft: false, state: 'green' } })))
       .toBe('Open last run');
+  });
+});
+
+describe('sectionTally — a header counts the things rendered beneath it', () => {
+  // A server-derived wave, keyed on (plan, name), carrying the ONE section the
+  // server placed it in. `section` is what a grouped header must count against,
+  // exactly as `waveSummaryFor` and `wavesElsewhere` already read it.
+  const wave = (over: Partial<Wave> = {}): Wave => ({
+    plan: 'p', name: 'W', branches: ['feature/b'], verdict: 'complete',
+    section: 'done', complete: true, planWaveCount: 1, ...over,
+  });
+
+  it('counts plan heads and names both units where a grouped section folds waves', () => {
+    // DONE, plan-grouped: two plans, one holding two waves and one holding one.
+    // A reader sees two plan heads; the section's scope is three waves. Both are
+    // true and both are derivable — the header must state each and say which.
+    const rows = [
+      row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'merged', group: 'done' }),
+      row({ plan: 'alpha', wave: 'Two', branch: 'a2', state: 'merged', group: 'done' }),
+      row({ plan: 'beta', wave: 'One', branch: 'b1', state: 'merged', group: 'done' }),
+    ];
+    const waves: Wave[] = [
+      wave({ plan: 'alpha', name: 'One', branches: ['a1'] }),
+      wave({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
+      wave({ plan: 'beta', name: 'One', branches: ['b1'] }),
+    ];
+    const tally = sectionTally(rows, 'done', waves, 0);
+    expect(tally.plans).toBe(2);
+    expect(tally.waves).toBe(3);
+    expect(tally.differ).toBe(true);
+  });
+
+  it('renders one number for QUIET at 0/0 — agreement grows no redundant clause', () => {
+    // The degenerate case the plan names: an empty section whose two counts
+    // agree must not read `0 plans · 0 waves`.
+    const tally = sectionTally([], 'quiet', [], 0);
+    expect(tally.plans).toBe(0);
+    expect(tally.waves).toBe(0);
+    expect(tally.differ).toBe(false);
+  });
+
+  it('renders one number where plan heads and waves agree', () => {
+    // Two plans, one wave each: two heads, two waves. The numbers coincide, so
+    // the header states one — an ungrouped-looking section gains no clause.
+    const rows = [
+      row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'merged', group: 'done' }),
+      row({ plan: 'beta', wave: 'One', branch: 'b1', state: 'merged', group: 'done' }),
+    ];
+    const waves: Wave[] = [
+      wave({ plan: 'alpha', name: 'One', branches: ['a1'] }),
+      wave({ plan: 'beta', name: 'One', branches: ['b1'] }),
+    ];
+    const tally = sectionTally(rows, 'done', waves, 0);
+    expect(tally.plans).toBe(2);
+    expect(tally.waves).toBe(2);
+    expect(tally.differ).toBe(false);
+  });
+
+  it('folds issue rows into the visible count', () => {
+    // A grouped section's issue rows are lines the reader sees, so they count
+    // toward the plan (visible-line) figure — the NOT STARTED lesson, applied.
+    const rows = [
+      row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'merged', group: 'done' }),
+      row({ plan: 'alpha', wave: 'Two', branch: 'a2', state: 'merged', group: 'done' }),
+    ];
+    const waves: Wave[] = [
+      wave({ plan: 'alpha', name: 'One', branches: ['a1'] }),
+      wave({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
+    ];
+    const tally = sectionTally(rows, 'done', waves, 2);
+    // One plan head plus two issue rows visible → three; two waves in scope plus
+    // the two issues → four.
+    expect(tally.plans).toBe(3);
+    expect(tally.waves).toBe(4);
+    expect(tally.differ).toBe(true);
   });
 });
 

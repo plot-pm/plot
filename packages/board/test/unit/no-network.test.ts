@@ -68,22 +68,38 @@ describe('the board never reaches the network to read refs', () => {
     expect(board!.code).toMatch(/'show'/);
   });
 
-  it('reads the served branch ONLY in server-info.ts, never on a request path', () => {
-    // The branch the header names is a startup fact — the process serves one
-    // worktree for its whole life. `serverInfo()` runs on every /api/board
-    // response, so the read is memoised behind a null sentinel in
-    // `server-info.ts` and the fork fires once. This pins that by CONSTRUCTION:
-    // `--show-current` appears in exactly that file and nowhere else in the
-    // server. If it turned up in `index.ts` (the request handler) or `board.ts`
-    // (the per-request walker), the branch would be re-forked per poll — the
-    // very cost `no-network` exists to keep off this path.
+  it('reads branch names only in memoised helpers, never on a bare request path', () => {
+    // Two branch reads happen in the server, each with its own TTL cache:
+    //
+    // 1. `server-info.ts`: The branch the SERVER serves from. Memoised at
+    //    module level, TTL 5 s. Answers `server.branch` in the /api/board
+    //    payload, which is no longer drawn in the header but still travels
+    //    with the payload for UnreachableOverlay's sake.
+    //
+    // 2. `fleet.ts`: The branch the MAIN CHECKOUT is on — where the operator
+    //    actually works, as distinct from whichever worktree the board server
+    //    started in. Also TTL-memoised (5 s), because the main tree's branch
+    //    can change while the server runs (the operator `git checkout`).
+    //
+    // Both are acceptable here because the fork stays OFF THE REQUEST PATH:
+    // `git branch --show-current` fires at most once per TTL window, not once
+    // per poll. The cost this test pins is the 4 s poll-loop × 8 ms fork ≈ 20%
+    // blocking; a 5 s TTL cuts that to ≤ one fork per window and keeps the
+    // rest of the polls from blocking at all.
+    //
+    // What is NOT acceptable: the call appearing in `index.ts` (the request
+    // handler), `board.ts` (the per-request walker) or anywhere else that runs
+    // on every poll. Those files remain forbidden.
+    const allowed = new Set(['server-info.ts', 'fleet.ts']);
     const offenders = sources.filter(
-      (s) => s.file !== 'server-info.ts' && /--show-current/.test(s.code),
+      (s) => !allowed.has(s.file) && /--show-current/.test(s.code),
     );
     expect(offenders.map((s) => s.file)).toEqual([]);
-    // The positive half: not merely "absent elsewhere", but present where it
-    // belongs — deleting the read would pass the negative check too.
+    // The positive half: both expected files contain the call — deleting either
+    // would pass the negative check while breaking the feature.
     const info = sources.find((s) => s.file === 'server-info.ts');
+    const fleet = sources.find((s) => s.file === 'fleet.ts');
     expect(info!.code).toMatch(/--show-current/);
+    expect(fleet!.code).toMatch(/--show-current/);
   });
 });

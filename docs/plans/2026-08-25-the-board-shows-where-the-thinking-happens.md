@@ -252,7 +252,7 @@ nothing has that moment for a session that was always there.
 
 ## Waves
 
-### Shown (Branch: feature/the-header-names-the-master-agent)
+### Shown (Branch: feature/the-header-names-the-master-agent #415)
 
 The fleet payload carries the main checkout's branch and its host link, derived
 from git on the poll's own clock; `AgentList` renders the `Master Agent:` row
