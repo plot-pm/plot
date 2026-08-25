@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-25, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -109,25 +109,63 @@ with its docstring saying why the earlier contract was withdrawn.
 This is the same anti-contract shape `plan-row-wave-actions` needed when the
 second `⋯` was removed.
 
-### Not chosen: splitting `running` into finer states
+### The row says when a running worker is idle
 
-The measurement above shows `running` covering at least three conditions
-(thinking, between waves, idle-with-a-live-child). Tempting, and rejected here:
+`running` is honest and coarse. A second, secondary cue says which kind of
+running this is — **without adding a sixth state**.
 
-- It needs a **new source of truth** — CPU-to-elapsed ratio, or the child's
-  command — where this plan needs one word.
+The signal is already on the process table and needs no new bookkeeping.
+Measured on `bug/a-ready-pr-asks-for-you`, 2026-08-25:
+
+```
+shell pid 75455    cpu 0:00.01   elapsed 09:54:42     ← parked
+its claude child   cpu 1:06.77   elapsed 09:54:42     ← thinking
+```
+
+The loop shell is *always* near-zero CPU — it waits on its child — so the shell
+alone says nothing. **The child's CPU is the discriminator**, and reading it is
+what separates *a worker mid-thought* from *a worker whose child has gone*.
+Measured across the fleet: 9 of 11 shells at 0.01s, every one with a live child
+holding 1.5+ minutes.
+
+`plot-worker-state.sh` is the ONE answer to *is a worker running in this
+worktree?* and already answers eight states including `waiting` and `stalled`.
+The idle cue belongs there, not in a second implementation on the board — the
+board renders what the script reports.
+
+**It is a cue, not a state.** `AgentStateSchema` stays five, `isLiveState` and
+`isBrokenState` are untouched, and a row reads `running` with a mark beside it
+rather than a new word nothing else understands.
+
+### Not chosen: a sixth state in the enum
+
+The obvious alternative — `idle` beside `running`. Rejected on three counts:
+
 - `AgentStateSchema`'s size is **pinned by a test**, deliberately, so a sixth
-  state is a schema change with its own consumers.
-- `isLiveState` is a denylist and `isBrokenState` an allowlist; a new state
-  lands differently in each, which is a decision needing its own argument.
-
-A finer vocabulary may well be right. It is a separate plan, and it starts from
-a measurement this one supplies rather than from a rename.
+  member is a schema change with its own consumers.
+- `isLiveState` is a **denylist** and `isBrokenState` an **allowlist**, so a new
+  state is live-by-default and broken-never — it would silently join WORKING and
+  never WAITING ON YOU, which may be right but is a decision needing its own
+  argument.
+- An idle worker with a live child **is** running. Promoting a temporary
+  condition to a peer of `stalled` overstates it.
 
 ### Not chosen: keeping the sentence and adding a state word beside it
 
 Two fields saying nearly the same thing is how they drift. The column is the
 state; the reassurance was never a state.
+
+## Waves
+
+### Worded (Branch: bug/a-running-agent-reads-running)
+
+`agentStateStatus` returns `running` for a running agent, and the 18 assertions
+of `someone is on it` are rewritten to the new contract.
+
+### Marked (Branch: feature/a-running-worker-says-if-it-is-idle)
+
+`plot-worker-state.sh` reports whether a running worker's CHILD is doing work,
+the fleet payload carries it, and the row wears a secondary cue — no sixth state.
 
 ## Done when
 
@@ -143,7 +181,17 @@ state; the reassurance was never a state.
 4. The tests that asserted the phrase are **rewritten to assert the new
    contract**, with docstrings saying why it changed — not deleted, and not
    loosened to match whatever the code now emits.
-5. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+5. **A running worker whose child is doing work reads differently from one whose
+   child is not.** Asserted on both, because a cue that never fires and a cue
+   that always fires are equally useless — and the shell's own CPU is near-zero
+   in BOTH cases, so an implementation reading the shell passes neither.
+6. **`AgentStateSchema` still has exactly five members**, with its size pinned.
+   This is the assertion that keeps the cue a cue: an implementation that adds
+   `idle` as a sixth state satisfies item 5 and changes what `isLiveState` and
+   `isBrokenState` classify.
+7. A worker with no live child at all is unaffected — it is `stalled` or
+   `unknown` by the existing rules, and this plan does not touch them.
+8. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 

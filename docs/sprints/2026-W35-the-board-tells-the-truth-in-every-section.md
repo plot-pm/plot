@@ -179,6 +179,8 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-scan-asks-once-per-pulse-not-once-per-branch] An idle board stops exhausting the host's hourly budget — branch PR state resolves from the one repo-wide list the scan already fetches <!-- status: delivered, branches: 1/1 -->
 - [x] [a-count-answers-to-its-section] A count answers to the section beneath it — DONE reads `33` in its header over 13 visible rows; the two count different units. Found walking the v2.9.0 endgame
 - [x] [the-board-shows-where-the-thinking-happens] The Agents tab names the branch the master agent works on, and the header's unlabelled branch chip — which named the SERVER's checkout and was twice read as the operator's — is removed
+- [ ] [the-registry-lives-where-the-dispatcher-writes-it] A board served from a worktree with no `.plot/agents/` reads the dispatcher’s manifests — all 12 agents were synthesized with no session, so no row could offer Drop
+- [ ] [a-state-is-a-word-not-a-sentence] The agent state column reads a state — four states render their own name, `running` rendered `someone is on it` on all 11 WORKING rows
 
 ### Out of scope, and why — 27 open plans, 20 not in this sprint
 
