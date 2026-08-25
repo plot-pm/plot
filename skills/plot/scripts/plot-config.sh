@@ -27,6 +27,12 @@
 #   Project board | Branch prefixes | Plan directory | Active index |
 #   Delivered index | Sprint directory | Story directory | Story index |
 #   Plan template | Main branch | Board command
+#   Worker bound        seconds a single prompt run may take in the worker loop
+#                       before it is ended and the worker exits (no hop). Read by
+#                       plot-worker-loop.sh; default 3600 (~1h), `0` disables it.
+#                       Non-numeric or empty falls back to the default. It bounds
+#                       a HUNG agent — one whose CLI crashed without exiting — so
+#                       one dead worker cannot hold a slot for hours.
 #   Agent registry      the directory the dispatcher writes agent manifests to,
 #                       read by the board's registry. Default `.plot/agents`
 #                       (repo-relative, gitignored, hence per-worktree). A board

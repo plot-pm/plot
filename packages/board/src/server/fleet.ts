@@ -4871,6 +4871,11 @@ export function rowsFromPulse(
           // and a structural test asserts it. This carries that verdict
           // outward; it does not form a second one.
           worker: b.worker,
+          // WHICH KIND OF RUNNING, beside the state that says it is running at
+          // all. Forwarded exactly as `worker` is — the scan sampled the child's
+          // CPU once, and this carries that verdict outward rather than measuring
+          // liveness a second time on this side. Empty except beside `running`.
+          worker_activity: b.worker_activity,
           // THE PROCESSES, BESIDE THE AGENT — never instead of it. `worker`
           // above says which agent holds this branch; this says which processes
           // are running for it, and the WAITING ON A MACHINE section lists
@@ -5071,6 +5076,9 @@ export function rowsFromPulse(
       // `none`. Reporting `none` would be the invented observation: looking and
       // finding nothing sends a reader into this checkout, and nothing looked.
       worker: 'elsewhere',
+      // No worktree was visited, so no CPU was sampled and the activity cue
+      // answers nothing — "" for the same reason `worker` is `elsewhere` above.
+      worker_activity: '',
       // A PLANLESS branch is not in the pulse, so no conflict set was ever
       // computed for it and `conflictsKnown` is false — which is *not looked
       // at*, never *clean*. The one state reachable from PR data alone is

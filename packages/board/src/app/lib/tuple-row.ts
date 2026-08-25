@@ -720,7 +720,7 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     // it is an artifact link now, like every other named thing on the row.
     return {
       ...base,
-      status: workerStatus(row.worker) || base.status,
+      status: workerStatus(row.worker, row.worker_activity) || base.status,
       name: agent?.session
         ? { what: 'ticket', label: shortSessionId(agent.session), href: '' }
         : branchLink(row),
@@ -794,10 +794,23 @@ function prLink(pr: NonNullable<AgentRow['pr']>): TupleLink {
  * "" where the worker state says nothing about activity (`none`, `elsewhere`),
  * so the caller falls back to the branch's state rather than printing a word
  * about a worker this machine cannot see.
+ *
+ * A RUNNING WORKER SAYS WHICH KIND OF RUNNING. `running` is honest and coarse —
+ * it covers a worker mid-thought and a worker whose child crashed hours ago
+ * while the loop waited on it — so the `activity` cue splits the two: a busy
+ * child keeps the plain `working`, and a frozen one reads `idle`. This is a
+ * SECONDARY word on an existing state, not a sixth `worker` value: the enum is
+ * untouched, and only the rendered word differs. Where the cue is "" (a running
+ * worker whose CPU could not be sampled — an older pulse, a platform without
+ * `ps -o time`), it falls back to `working` so the cue never HIDES a running
+ * worker; absence of the measurement is not evidence the child is idle.
  */
-export function workerStatus(worker: AgentRow['worker']): string {
+export function workerStatus(
+  worker: AgentRow['worker'],
+  activity: AgentRow['worker_activity'] = '',
+): string {
   switch (worker) {
-    case 'running': return 'working';
+    case 'running': return activity === 'idle' ? 'idle' : 'working';
     case 'finished': return 'finished';
     case 'failed': return 'failed';
     case 'ended': return 'ended';

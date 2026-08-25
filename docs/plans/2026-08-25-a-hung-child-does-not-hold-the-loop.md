@@ -14,6 +14,8 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-25, Jan Wloka, `bug/the-loop-bounds-its-child`
+- **Started:** 2026-08-25, Jan Wloka, `bug/the-loop-clears-its-manifest`
+- **Started:** 2026-08-25, Jan Wloka, `bug/a-landed-branch-still-holds-a-slot`
 
 ## Changelog
 
@@ -195,7 +197,7 @@ bash alone, and a timed-out worker exits with its reason in the log instead of
 hopping. **Begins with the spike** above: subshell versus watchdog, decided by
 which survives Ctrl-C, a killed loop, and a child that ignores SIGTERM.
 
-### Reaped (Branch: bug/the-loop-clears-its-manifest)
+### Reaped (Branch: bug/the-loop-clears-its-manifest, PR: #429)
 
 `plot-worker-loop.sh` removes its manifest on **every** exit path via a `trap`,
 so a worker that ends stops appearing in the registry.

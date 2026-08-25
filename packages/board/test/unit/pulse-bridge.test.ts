@@ -30,7 +30,7 @@ const PULSE: FleetPulse = {
         // observed, which is this fixture's case.
         changed_ago_seconds: null,
         changed_at: null,
-        worker: 'elsewhere', worker_pid: '', worker_exit: '',
+        worker: 'elsewhere', worker_pid: '', worker_exit: '', worker_activity: '',
         // Written out rather than left to the schema's defaults, because this
         // fixture is compared WHOLE: `toEqual` against a parsed pulse fails the
         // moment a field is added, and a fixture that names every field is what
