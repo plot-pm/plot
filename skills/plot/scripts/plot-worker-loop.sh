@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: worker loop — implements then asks for the next wave.
 # Usage: plot-worker-loop.sh
-# Environment: PLOT_BRANCH, PLOT_WORKTREE, PLOT_SLUG (from dispatcher)
+# Environment: PLOT_BRANCH, PLOT_WORKTREE, PLOT_SLUG, PLOT_MANIFEST_FILE (from dispatcher)
 #
 # This is the looping shell the Worker command calls. After each branch
 # completes, it asks `--next` for another claimable branch OF THE SAME PLAN,
@@ -23,10 +23,48 @@
 # worker is one session continuing, not a second one spawning. This is why the
 # cap can be enforced without stalling the fleet — at the cap, work continues
 # through the workers already running.
+#
+# THE MANIFEST IS UPDATED ON EACH HOP. When a worker moves to a new branch,
+# the manifest's `branch` and `worktree` fields are updated, and `wavesCount`
+# is incremented. This keeps the registry accurate: a reader sees where the
+# worker IS, not where it started. The `session` and `pid` stay fixed — it is
+# the same worker, in a new place.
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="."
+
+# Update the manifest when the worker hops to a new branch.
+#
+# The manifest already carries `session`, `pid`, `startedAt` — these stay fixed.
+# This function updates `branch`, `worktree`, and increments `wavesCount`.
+#
+# WHY THE MANIFEST UPDATE IS NECESSARY. The registry synthesizes from manifests.
+# A worker that moved branches without updating the manifest would still appear
+# on its starting branch — the thing this whole wave exists to fix. The update
+# is made HERE rather than in dispatch because dispatch starts workers; this
+# script is the one that moves them.
+#
+# USES NODE because JSON manipulation in portable shell is brittle (BSD sed
+# interprets escape sequences differently, awk quoting varies), and node is
+# guaranteed present — the Worker command itself requires it. The one-liner
+# reads, updates, and writes atomically through a temp file.
+update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree
+  local manifest="$1" new_branch="$2" new_worktree="$3"
+  [ -f "$manifest" ] || return 0
+
+  local tmp="$manifest.plot-hop-tmp"
+  node -e '
+    const fs = require("fs");
+    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    manifest.branch = process.argv[2];
+    manifest.worktree = process.argv[3];
+    manifest.wavesCount = (manifest.wavesCount || 1) + 1;
+    fs.writeFileSync(process.argv[4], JSON.stringify(manifest, null, 2) + "\n");
+  ' "$manifest" "$new_branch" "$new_worktree" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+
+  mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
 
 # Read the prompt from the dedicated file. A file rather than a config key
 # because plot-config.sh strips `(...)` as prose, and the prompt legitimately
@@ -67,6 +105,14 @@ while true; do
   if ! git -C "$new_wt" push -u origin "$next_branch" 2>/dev/null; then
     git worktree remove --force "$new_wt" 2>/dev/null || true
     continue
+  fi
+
+  # Update the manifest to reflect the hop.
+  # The manifest tracks where the worker IS, so it must update before the worker
+  # starts on the new branch. Without this, the registry would show the worker
+  # on its starting branch forever.
+  if [ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ]; then
+    update_manifest_on_hop "$PLOT_MANIFEST_FILE" "$next_branch" "$new_wt"
   fi
 
   # Move to the new worktree and update environment for the next iteration.
