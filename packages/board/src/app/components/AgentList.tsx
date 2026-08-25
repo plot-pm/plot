@@ -472,6 +472,26 @@ export function AgentList({
   // Issue rows have no sprint field, so they always pass.
   const filteredIssues = fleet.issues;
 
+  // HOW MANY WORKERS THE FILTER HIDES — `the-filter-does-not-hide-a-worker`,
+  // wave Named. The WORKING section deliberately shows ALL live workers (a
+  // worker is a fact about the fleet, not about a reader's focus), but the
+  // control should name when a filter WOULD hide workers if applied. This
+  // count is passed to `ParallelAgentsStepper` to show "(N hidden by filter)".
+  //
+  // A worker's plan comes from the joined row — `row?.plan`. A worker with no
+  // joined row (e.g. on `main`, on a scratch branch, or between branches) has
+  // no plan to filter by and is never hidden. Only workers whose plan exists
+  // and would NOT pass the sprint filter are counted.
+  const workersHiddenByFilter = useMemo(() => {
+    if (sprintFilter.size === 0) return 0;
+    return workingRows.filter(({ row }) => {
+      // No plan → not hidden (would pass any filter)
+      if (!row?.plan) return false;
+      // Check if this plan FAILS the sprint filter
+      return !slugPassesSprintFilter(row.plan, selectedSprints, membership);
+    }).length;
+  }, [workingRows, sprintFilter, selectedSprints, membership]);
+
   // Degrade, do not hide: before the first scan lands this says so rather than
   // showing an empty list, which would read as "no agents are working".
   //
@@ -989,7 +1009,7 @@ export function AgentList({
                 <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
               )}
               {key === 'working' && (
-                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} working={fleetControlsOf(fleet).working} />
+                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} working={fleetControlsOf(fleet).working} hiddenByFilter={workersHiddenByFilter} />
               )}
             </h2>
             {/* The body goes, the header stays — including its count. Removed
