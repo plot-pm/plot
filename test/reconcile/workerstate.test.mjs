@@ -620,11 +620,20 @@ test('worker-state: a running worker whose child works reads apart from one whos
   // vary for you — the scan only calls it beside a `running` verdict, which
   // needs a live pid this test would otherwise have to fake with `process.pid`.
   //
-  // A SHORT INTERVAL keeps the test honest and quick: `PLOT_ACTIVITY_INTERVAL`
-  // overrides the sample gap. A child burning a busy loop moves its CPU clock
-  // within it; a sleeping child does not.
+  // THE INTERVAL IS GENEROUS ON PURPOSE, and 0.3 was too tight. The comparison
+  // is `-gt` on integer CENTISECONDS, so a busy child must be scheduled for at
+  // least 10ms of CPU inside the sample to read `working`. On a developer
+  // machine that is never in doubt; on a shared CI runner competing with other
+  // jobs it is — measured 2026-08-25, CI failed here with `actual: 'idle'`
+  // while the same test passed locally.
+  //
+  // The fix belongs in the test, not in the cue: shortening the production
+  // default would make real workers misread, and loosening the assertion to
+  // "either word" would delete the property item 5 exists to pin. A longer
+  // sample costs this one test a second and asks nothing of the scan, whose
+  // own default (0.4) is unchanged.
   const activity = (pid) => execFileSync('bash', ['-c',
-    `. ${JSON.stringify(shared)}; PLOT_ACTIVITY_INTERVAL=0.3 plot_worker_activity ${pid}`,
+    `. ${JSON.stringify(shared)}; PLOT_ACTIVITY_INTERVAL=1.5 plot_worker_activity ${pid}`,
     ], { encoding: 'utf8', timeout: 30_000 }).trim();
 
   // A shell with a BUSY grandchild — the child's clock advances across the
