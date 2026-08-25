@@ -17,6 +17,7 @@
 - **Started:** 2026-08-25, Jan Wloka, `bug/a-stalled-worker-needs-a-person`
 - **Started:** 2026-08-25, Jan Wloka, `feature/an-agent-row-can-be-dropped`
 - **Started:** 2026-08-25, Jan Wloka, `bug/working-lists-the-live-agents`
+- **Started:** 2026-08-25, Jan Wloka, `bug/the-scratch-filter-knows-the-fixture`
 
 ## Changelog
 
