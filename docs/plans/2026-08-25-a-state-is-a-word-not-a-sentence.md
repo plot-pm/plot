@@ -158,7 +158,7 @@ state; the reassurance was never a state.
 
 ## Waves
 
-### Worded (Branch: bug/a-running-agent-reads-running)
+### Worded (Branch: bug/a-running-agent-reads-running, PR: #421)
 
 `agentStateStatus` returns `running` for a running agent, and the 18 assertions
 of `someone is on it` are rewritten to the new contract.
