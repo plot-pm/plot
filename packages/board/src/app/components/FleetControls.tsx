@@ -160,10 +160,10 @@ export function ParallelAgentsStepper({ value, working }: { value: number; worki
     <span
       role="spinbutton"
       data-fleet-parallel-agents
-      aria-label="parallel agents"
+      aria-label="parallel agents cap"
       aria-valuenow={count}
       aria-valuemin={MIN_PARALLEL_AGENTS}
-      aria-valuetext={`${count} agents`}
+      aria-valuetext={`${count} agents cap`}
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'ArrowUp') {
@@ -207,27 +207,25 @@ export function ParallelAgentsStepper({ value, working }: { value: number; worki
         +
       </button>
       <span aria-hidden className="ml-0.5">
-        parallel agents
+        parallel agents (cap)
       </span>
       {/*
-        WHAT THE CAP IS BEING SPENT ON. The stepper alone states a budget and
-        never its balance, so a reader deciding whether to start something had to
-        count rows to learn whether the fleet had room.
+        THE REGISTRY SIZE — exactly what WORKING renders. One row per entry, so
+        one count, read twice: `agents.length` in the server, `.length` of the
+        rendered rows here. A cap and a measurement are different claims; this
+        is the measurement, the stepper states the cap.
 
-        COUNTS THE SAME THING THE DISPATCHER DOES — `liveAgentCount`, a live
-        process whose branch has NOT landed. Deriving a second count here is how
-        a control comes to disagree with the rule it describes, and a reader
-        acting on `9 free` that the dispatcher does not honour is worse served
-        than one shown nothing.
-
-        Absent rather than zero when the count is unknown: a pulse that could not
-        report agents must not render `0 working`, which reads as an idle fleet.
+        DOES NOT MATCH THE CAP'S BALANCE. Auto-dispatch counts only `running`
+        and `waiting` entries whose branches have not landed; this counts every
+        entry regardless of state or branch status. A fleet with 23 entries and
+        only 2 live workers shows `23 working` here and has 2 slots occupied
+        against the cap — both true, neither derived from the other.
       */}
       {typeof working === 'number' && (
         <span
           data-fleet-working
           className="ml-1.5 text-slate-500 dark:text-slate-400 tabular-nums"
-          title={`${working} of ${count} slots in use — a live worker whose branch has not landed`}
+          title={`${working} workers in the registry — all states, including finished and stalled`}
         >
           · {working} working
         </span>

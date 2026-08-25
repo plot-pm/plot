@@ -3188,18 +3188,20 @@ export const FleetSchema = z.object({
       autoDispatch: z.boolean(),
       parallelAgents: z.number().int(),
       /**
-       * How many slots are IN USE — the cap's balance, not another budget.
+       * How many workers are in WORKING — the registry size, one derivation
+       * read twice.
        *
-       * Derived by the server with `liveAgentCount`, the same rule the
-       * dispatcher measures the cap against: a live process whose branch has
-       * NOT landed. Published rather than re-derived in the client because
-       * `auto-dispatch.ts` is server-only, and a second implementation is how a
-       * control comes to disagree with the rule it describes.
+       * The WORKING section renders one row per registry entry (`agents`). This
+       * is that same count, computed server-side so the stepper's "N working"
+       * label matches the rows without re-deriving in the client. `agents.length`
+       * is the whole rule — every entry renders, so every entry is counted.
        *
-       * OPTIONAL, and absent is not zero. A payload from a server predating
-       * this field, or a pulse that could not read the registry, must render
-       * nothing rather than `0 working` — which reads as an idle fleet and is
-       * the exact claim such a pulse cannot make.
+       * This is NOT the cap's balance (that's `parallelAgents − liveAgentCount`,
+       * computed by auto-dispatch). It is the size of what the user sees in the
+       * WORKING section.
+       *
+       * OPTIONAL for backwards compatibility: a payload from a server predating
+       * this field should render no count rather than a wrong one.
        */
       working: z.number().int().optional(),
     })
