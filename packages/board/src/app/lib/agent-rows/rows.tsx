@@ -2018,6 +2018,7 @@ export function Row({
 export function RegistryRow({
   agent,
   row = null,
+  waves,
   onOpenPlan,
   card = null,
   dispatch,
@@ -2037,6 +2038,11 @@ export function RegistryRow({
    * row for the branch — the case a branch-join fix silently misses.
    */
   row?: AgentRow | null;
+  /**
+   * The fleet's waves — passed so a running worker can name its wave even when
+   * no branch row exists. `the-working-section-shows-every-worker`, wave Named.
+   */
+  waves?: Wave[];
   onOpenPlan?: AgentListProps['onOpenPlan'];
   /** This row's plan as a board card, or null where the board has none. */
   card?: Card | null;
@@ -2103,6 +2109,24 @@ export function RegistryRow({
       ? { what: 'branch' as const, label: agent.branch, href: row?.branchUrl ?? '' }
       : { what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' };
 
+  // A RUNNING WORKER NAMES ITS WAVE — looked up from `fleet.waves` by branch.
+  // `the-working-section-shows-every-worker`, wave Named.
+  //
+  // The joined row already carries `row.wave`, but the UNJOINED case (no branch
+  // row exists — a scratch branch, `main`, an unlisted branch) had nothing. Now
+  // it looks up the wave from the fleet, the same derivation that populated
+  // `row.wave` in the first place.
+  //
+  // Silent where the branch belongs to no wave: a `main` worker or a scratch
+  // branch has no wave to name, and `(unnamed)` is filtered out below as
+  // noise — the same rule `waveLabel` applies to a branch's wave badge.
+  const lookedUpWave = agent.branch
+    ? waves?.find((w) => w.branches.includes(agent.branch))
+    : undefined;
+  const waveName = lookedUpWave && lookedUpWave.name !== UNNAMED_WAVE
+    ? lookedUpWave.name
+    : null;
+
   // THE JOINED SHAPE reuses the branch row's own projection, but as an AGENT:
   // the WORKING row's subject is the worker, not the branch. `tupleFromRow`
   // routes on `row.kind`, and a worker's branch row is `kind: 'branch'` (the
@@ -2110,7 +2134,8 @@ export function RegistryRow({
   // the kind is what selects the agent arm: the session id as the name, and
   // worktree → branch → wave → plan as the artifact links. Everything the branch
   // knows still comes through the same projection; only the subject changes. The
-  // UNJOINED shape states only the registry's facts — worktree then branch.
+  // UNJOINED shape states only the registry's facts — worktree then branch, and
+  // now the WAVE where one was found.
   const base = row
     ? tupleFromRow({ ...row, kind: 'agent' }, agent)
     : {
@@ -2123,6 +2148,10 @@ export function RegistryRow({
             : []),
           ...(agent.branch
             ? [{ what: 'branch' as const, label: agent.branch, href: '' }]
+            : []),
+          // THE WAVE, where one was found by looking up `fleet.waves`.
+          ...(waveName
+            ? [{ what: 'wave' as const, label: waveName, href: '' }]
             : []),
         ],
         status: '',

@@ -924,6 +924,7 @@ export function AgentList({
                       key={agent.session || `branch:${agent.branch}` || `wt:${agent.worktree}`}
                       agent={agent}
                       row={row}
+                      waves={waves}
                       onOpenPlan={onOpenPlan}
                       card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
                       dispatch={dispatch}
