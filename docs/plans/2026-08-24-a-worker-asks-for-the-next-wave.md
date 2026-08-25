@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -17,6 +17,7 @@
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-cap-gates-auto-dispatch`
 - **Started:** 2026-08-25, Jan Wloka, `feature/a-worker-asks-for-the-next-wave`
 - **Started:** 2026-08-25, Jan Wloka, `feature/the-registry-follows-a-hopping-worker`
+- **Delivered:** 2026-08-25
 
 ## Changelog
 
@@ -247,7 +248,7 @@ the workers already running.
 - the `Worker command` loops: implement, ask `--next`, claim, move, implement;
   exit cleanly when `--next` has nothing
 
-### Followed (Branch: feature/the-registry-follows-a-hopping-worker) → #404
+### Followed (Branch: feature/the-registry-follows-a-hopping-worker, PR: #404)
 - the manifest records the branch a worker moved to and how many waves it has
   taken, so the registry names where a worker IS
 

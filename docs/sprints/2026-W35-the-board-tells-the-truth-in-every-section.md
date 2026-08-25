@@ -165,7 +165,7 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [one-wave-row-two-contents] One wave row, two contents — the row's slots disagreed between sections <!-- status: delivered, branches: 2/2 -->
 - [x] [the-board-says-how-many-workers-are-free] The control says how many workers are free, and counts only the busy ones <!-- status: delivered, pr: #375, branches: 1/1 -->
 - [x] [the-sprint-filter-says-what-it-filters] The Agents tab filters on sprint MEMBERSHIP — the old predicate admitted 53 plan rows with empty sprint fields beside the 2 genuine plan-less ones <!-- status: delivered, pr: #401, branches: 5/5 -->
-- [ ] [a-worker-asks-for-the-next-wave] A worker asks for the next wave rather than stopping at its own <!-- status: in progress, branches: 2/4 -->
+- [x] [a-worker-asks-for-the-next-wave] A worker asks for the next wave rather than stopping at its own <!-- status: delivered, pr: #404, branches: 4/4 -->
 - [ ] [the-working-section-shows-every-worker] WORKING renders one row per registry entry — 23 registry entries against 0 rows rendered, 6 agents whose branch the pulse never produced <!-- status: in progress, pr: #398, branches: 0/5 -->
 - [x] [the-agents-tab-filters-to-the-sprint] The Agents tab gains the sprint filter and states the sprint's progress and target release — the control this sprint's filtering work builds on <!-- status: delivered, branches: 6/6 -->
 - [x] [the-derivations-leave-the-component] The row derivations leave `AgentList.tsx` for modules grouped by subject, so two branches on unrelated section rules stop editing one file <!-- status: delivered, branches: 2/2 -->
