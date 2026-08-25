@@ -38,6 +38,35 @@ Parse `$ARGUMENTS`:
 - First word → `<slug>` (required)
 - `AUTOMERGE=true` anywhere → merge PRs after finalizing; default false
 
+## Setup
+
+Optional budget keys in the adopting project's `## Plot Config`. All have
+documented defaults — a project that sets none behaves as before, except that a
+run can no longer grind or go silent indefinitely.
+
+    ## Plot Config
+    - **Sprint max iterations:** 20
+    - **Sprint deadline:** 8h
+    - **Sprint heartbeat interval:** 5m
+    - **Sprint stall limit:** 3
+    - **Sprint on budget exhausted:** ship_partial
+
+| Key | Env override | Type | Default |
+|-----|--------------|------|---------|
+| `Sprint max iterations` | `RALPH_SPRINT_MAX_ITERATIONS` | integer, `0`=off | `20` |
+| `Sprint deadline` | `RALPH_SPRINT_DEADLINE` | duration (`30m`/`8h`/secs), `0`=off | `8h` |
+| `Sprint heartbeat interval` | `RALPH_SPRINT_HEARTBEAT_INTERVAL` | duration, `0`=off | `5m` |
+| `Sprint stall limit` | `RALPH_SPRINT_STALL_LIMIT` | integer, `0`=off | `3` |
+| `Sprint on budget exhausted` | `RALPH_SPRINT_ON_BUDGET_EXHAUSTED` | enum: `ship_partial` \| `fail` | `ship_partial` |
+
+`ship_partial` lands in-flight work, writes the handover, and exits 0 — a partial
+ship is a successful outcome. `fail` exits non-zero, for CI where a partial result
+must not read as success. Unrecognised value → `ship_partial` with a stderr warning.
+
+Precedence: **environment variable → `## Plot Config` → default.** Defaults are
+deliberately loose: run length varies by sprint, and a bound that fires during
+normal operation trains the user to raise it.
+
 ---
 
 ## DoD Compliance Checklist
@@ -49,17 +78,8 @@ When a DoD file exists (`docs/definition-of-done.md`), use this checklist to ver
 - `needs_docs`: Yes unless internal refactoring, test-only, or CI/infra
 - `needs_changeset`: Yes unless docs, tests, infra, or refactoring
 
-**Check PR compliance** (for PRs where the classification requires it):
-```bash
-# BDD check
-gh pr diff <n> --name-only | grep -E '\.(feature)$'
-
-# Docs check
-gh pr diff <n> --name-only | grep -E '(user-guide|admin-guide)\.md$'
-
-# Changeset check
-gh pr diff <n> --name-only | grep -E '\.changeset/.*\.md$'
-```
+**Check PR compliance** for whichever artifacts the classification requires:
+`gh pr diff <n> --name-only` and look for `.feature` files (BDD), `*-guide.md` (docs), `.changeset/*.md` (changeset).
 
 A PR is **DoD-compliant** when all required artifacts are present. A PR with DoD gaps is treated the same as a PR with failing CI — it cannot be finalized.
 
@@ -72,12 +92,8 @@ If no DoD file exists, skip all DoD checks.
 Read the sprint state before deciding what to do. This step always runs.
 
 ```bash
-# Get sprint status
 /plot-sprint <slug>
-
-# Check open PRs
-gh pr list --state open --json number,title,headRefName,baseRefName,isDraft \
-  --jq '.[] | "\(.number) \(if .isDraft then "DRAFT" else "READY" end) \(.headRefName) \(.title)"'
+gh pr list --state open --json number,title,headRefName,baseRefName,isDraft
 ```
 
 **Read the project's Definition of Done** if it exists:
@@ -100,18 +116,7 @@ cat docs/definition-of-done.md 2>/dev/null || echo "(no DoD file)"
 
 **Reading plan branches:** Find the plan file via `docs/plans/active/<slug>.md` or `docs/plans/delivered/<slug>.md` (resolve symlink). Search for a heading containing "Branches" (matches `## Branches`, `## Implementation Branches`, `### Implementation Branches`). Parse branch names from lines starting with `- ` followed by a backtick-quoted branch name. For each branch, check if a PR exists and its state (MERGED/OPEN/CLOSED) via `gh pr list --state all --head <branch-name>`.
 
-**For sprints with more than 3 open PRs:** use parallel subagents to gather CI and review status. Launch one Task agent per PR with the prompt below, collect all results before proceeding:
-
-```
-Check PR #<N> in repo <owner/repo>:
-1. Run: gh pr checks <N> --repo <owner/repo>
-   Return: "CI: pass" or "CI: fail — <failing check names>"
-2. Run: gh api repos/<owner/repo>/pulls/<N>/reviews
-   and: gh api repos/<owner/repo>/pulls/<N>/comments
-   Return: "reviewed: yes" or "reviewed: no", "unresolved: <count>"
-3. Check sprint item annotation for review_sha:
-   Return: "SHA changed since review: yes/no"
-```
+**For sprints with more than 3 open PRs:** gather CI and review status with one parallel subagent per PR — CI result, whether it has been reviewed, unresolved count, and whether the SHA moved since `review_sha`. Collect all results before proceeding.
 
 **After orienting, pick ONE step for this iteration — the first match wins:**
 - If open PRs have failing CI, unresolved comments, **or DoD compliance gaps** → **Step 1 only**
@@ -149,23 +154,10 @@ For each open PR with failing CI or unresolved review comments:
 4. Reply to any related review comments explaining the fix
 
 **Unresolved comments:**
-1. Find unresolved review threads using the GraphQL API:
-   ```bash
-   gh api graphql -f query='query { repository(owner: "<owner>", name: "<repo>") {
-     pullRequest(number: <N>) { reviewThreads(first: 50) { nodes {
-       id, isResolved, comments(first: 5) { nodes { body, author { login } } }
-   } } } } }' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)'
-   ```
-2. For each unresolved thread: read the comment, fix the underlying issue in code
-3. Push the fix
-4. Reply to the comment explaining what was done: `gh api repos/<owner>/<repo>/pulls/<N>/comments --method POST -f body="Fixed in <sha>: <explanation>"`
-5. **Resolve the thread** using the GitHub "Resolve conversation" API (NOT just replying — use the actual resolve mutation):
-   ```bash
-   gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "<thread-id>"}) {
-     thread { id, isResolved }
-   } }'
-   ```
-   The `threadId` comes from the GraphQL query in step 1. This is equivalent to clicking "Resolve conversation" in the GitHub UI.
+1. List unresolved threads: GraphQL `repository.pullRequest.reviewThreads`, selecting nodes where `isResolved == false` (you need each node's `id` and comments).
+2. For each: read the comment, fix the underlying issue in code, push.
+3. Reply naming the fix: `gh api repos/<owner>/<repo>/pulls/<N>/comments -f body="Fixed in <sha>: ..."`.
+4. **Resolve the thread** with the `resolveReviewThread` mutation using that node `id`. Replying is not resolving — the thread stays open until the mutation runs.
 
 Retry transient failures (network, flaky tests) up to 3 times before marking as blocked.
 
@@ -332,6 +324,20 @@ The sprint is BLOCKED because the RC requires human testing. Do not output COMPL
 
 ---
 
+## Deliverable and Budget
+
+Each iteration is judged against `deliverable-rubric.md` (this directory). **You do
+not assess your own completion** — the runner checks the rubric's local criteria
+and a verifier agent adjudicates the rest. Your account of the iteration is not
+consulted. Consecutive failures reach `Sprint stall limit` and end the run.
+
+The runner injects `BUDGET: ok | final | stalled`. On **`final`** (last iteration
+before a boundary) or **`stalled`**, land in-flight work, start nothing new, write
+`.ralph-state/handover.md`, and emit `BLOCKED`.
+
+**Handover:** what merged, what is in flight and its branch state, what was next
+and why it did not happen, the single next action for a human.
+
 ## Promise Signals
 
 Write a one-paragraph summary of what you accomplished this iteration, then output exactly one signal on its own line:
@@ -354,19 +360,10 @@ Write a one-paragraph summary of what you accomplished this iteration, then outp
 
 ## Common Mistakes
 
+Only failures whose cause is not obvious from their governing step.
+
 | Mistake | Effect | Prevention |
 |---------|--------|------------|
 | Running against a sprint in `Phase: Draft` | No items to work on; loop exhausts iterations | Check `Phase:` field in Step 0; output BLOCKED if not started |
-| Outputting BLOCKED after posting review comments | Loop exits; human must restart | BLOCKED only when truly stuck — review comments are normal iteration work |
-| Doing multiple steps in one iteration | Work is unfocused, harder to review, riskier to recover from | ONE step per iteration — the first matching step wins, then exit |
-| Building a new branch when open PRs exist for same plan | Review/fix/merge debt accumulates; merge conflicts grow | Step 3 is gated: no open PRs for this plan before building next branch |
-| Creating `feature/` branch for plan-only work | Wasted PR, confuses sprint state | Plan-only items commit directly to main |
 | Working in a stale worktree | New sprint items/merged PRs invisible to agent | ralph-sprint.sh now refreshes worktrees before the loop; if running manually, `git worktree remove` first |
-| Declaring BLOCKED with existing RC when new commits exist | RC is stale, needs re-tagging | Step 0 checks for commits after latest RC tag |
-| Checking `[x]` on a sprint item from ralph-plot-sprint | Plan branches left undelivered | NEVER check `[x]` — only `/plot-deliver` marks items complete |
-| Implementing "the whole plan" in one PR | Monolithic PR, misses plan's branch decomposition | Implement ONE branch per iteration — plans decompose for a reason |
-| Merging a PR with DoD gaps | BDD/docs permanently missing from the codebase | Step 2 gates on DoD compliance; Step 4 flags gaps as review comments |
-| Skipping BDD for a non-exempt feature | DoD violation | Classify against DoD exemptions in Step 3 before implementing |
 | Review findings lost in subagent return text | Findings never posted to GitHub; next iteration sees "no comments" | Every subagent MUST post findings via `gh api` directly — never rely on return text |
-| Merging multiple PRs in one iteration | Changes are hard to review; conflicts cascade | Merge at most 1 PR per iteration — each merge deserves its own cycle |
-| No signal emitted at end of iteration | Loop cannot distinguish progress from stuck | Always emit exactly one signal: CONTINUE, COMPLETE, or BLOCKED |
