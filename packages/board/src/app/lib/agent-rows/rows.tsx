@@ -19,6 +19,7 @@ import { TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus } from './stuck.js';
 import { type PlanGroup, elsewhereNote, planWaitingDays, waveKeyOf, waveSummaryFor } from './sections.js';
+import { roundsBadgeText } from '../../components/PlanCard.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
 import { briefGapNote, needsBrief, waitingTone } from './row-identity.js';
 import { type WaveGroup, groupedNote, waveDissent } from './waves.js';
@@ -512,7 +513,20 @@ export function PlanRow({
   // its own, and both empty renders nothing (the aside guards on it).
   const here = waveSummaryFor(group, waves);
   const away = elsewhereNote(elsewhere);
-  const summary = [here, away].filter(Boolean).join(' · ');
+  // THE INTERROGATION ROUNDS, where the plan has been through any.
+  //
+  // `roundsBadgeText` is `PlanCard`'s, reused rather than restated: the rule
+  // that `0 rounds` must never render — it would read as *interrogated and
+  // found nothing* — belongs to one function, and a second copy here is how the
+  // two tabs come to disagree about the same plan.
+  //
+  // MEASURED 2026-08-25 walking the v2.9.0 endgame, Stop 5.6: 40 of 120 cards
+  // carry `rounds` and the Board tab renders every one, while the Agents tab
+  // rendered none. The field was never in the fleet payload's rows — it is a
+  // fact about the PLAN, and the plan head is where a plan fact belongs. The
+  // card was already in reach here through `cardForPlanFile`; nothing asked it.
+  const rounds = card ? roundsBadgeText(card) : '';
+  const summary = [here, away, rounds].filter(Boolean).join(' · ');
   const foldable = expanded !== null;
   // THE PHASE IS THE PLAN'S, and slot 5 is where a fact about the plan is true.
   // Read from the group's rows rather than from a plan field, because a row is
