@@ -164,7 +164,7 @@ state; the reassurance was never a state.
 `agentStateStatus` returns `running` for a running agent, and the 18 assertions
 of `someone is on it` are rewritten to the new contract.
 
-### Marked (Branch: feature/a-running-worker-says-if-it-is-idle)
+### Marked (Branch: feature/a-running-worker-says-if-it-is-idle, PR: #424)
 
 `plot-worker-state.sh` reports whether a running worker's CHILD is doing work,
 the fleet payload carries it, and the row wears a secondary cue — no sixth state.
