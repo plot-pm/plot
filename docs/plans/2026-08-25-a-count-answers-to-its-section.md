@@ -22,82 +22,39 @@ section under it cannot disagree about the same fleet.
 
 ## Motivation
 
-> **Likely superseded — do not start.** `the-working-section-shows-every-worker`
-> wave *Counted* (`bug/the-working-count-is-the-rows`) was claimed 2026-08-25 and
-> is being implemented now. Its one-line design — *"`working` derives from the
-> set WORKING renders; the cap is labelled as a cap"* — answers the same defect
-> this plan describes, and answers it a third way neither draft of this plan
-> considered: rather than deciding whether the NUMBER should be filtered, it
-> relabels the stepper as the cap and lets the adjacent number be the rendered
-> set. That keeps `liveAgentCount` untouched — the objection this plan raises —
-> while making the two agree.
->
-> This plan stays Draft and unclaimed until that PR lands, then is read against
-> it and marked `Phase: Superseded` if it is covered. Recorded here rather than
-> deleted, because the measurement and the `liveAgentCount` reasoning are worth
-> keeping whichever design wins.
+### The measurement, and the half that #403 fixed
 
+The first report was `WORKING · 2 working` beside a section reading `none`.
+`the-working-section-shows-every-worker` wave *Counted* (#403) answers that
+half, and answers it better than either draft of this plan did: it makes
+`working` **`entry.agents.length`** — literally the size of the set WORKING
+renders — and relabels the stepper `parallel agents (cap)`. `liveAgentCount`
+stops being called for the DISPLAY number and keeps feeding the dispatcher
+(`auto-dispatch.ts:368`), so the objection this plan raised — a cap that moves
+when a reader toggles a control — does not arise. That half is settled.
 
-### The measurement
+**The other half is not, and it is the larger one.** Measured from
+`/api/fleet` with `Sprint only` ON, 2026-08-25:
 
-Taken from `/api/fleet` with `Sprint only` ON, 2026-08-25:
+| section | header says | rows the reader sees |
+|---|---|---|
+| DONE | **19** | **10** |
+| WAITING ON YOU | 11 | 7 |
+| NOT STARTED | 3 | 1 |
+| QUIET | 0 | 0 |
 
-```
-WORKING   2 working        ← the control
-WORKING   none             ← the section
-```
+Both numbers are correct and both are derivable. They count different things:
+`countOf = rows.length` (`AgentList.tsx:636`) counts **branch and wave rows**,
+while a plan-grouped section renders **plan heads**, each folded with its own
+wave count in parentheses — `(2)`, `(3)`, `(5)`. Adding the parentheses up
+reaches 19.
 
-Both describe the same fleet, in the same viewport, one line apart.
+So a reader looking at `DONE (19)` above ten rows cannot reconcile the two
+without expanding every head and doing the arithmetic. That is the same
+complaint as `2 working / none`, in the section where it is largest.
 
-### What this plan first got wrong
-
-The first draft blamed the sprint filter and proposed exempting WORKING from
-it. That diagnosis was wrong, and the correction is the useful part.
-
-The two hidden rows belong to plans that are **not** sprint members — the plan
-files say so (`Sprint:` empty, with `<!-- not a member of … -->` as an HTML
-comment, which is a note to a reader and not a value) and the sprint file
-contains zero occurrences of them. So the filter hid exactly what it was asked
-to hide, and exempting WORKING would have papered over an estate problem with a
-UI rule.
-
-**Two separate things were tangled together:**
-
-1. *Those plans should be sprint members.* True, and it is bookkeeping — the
-   plans get added to the sprint file. Not this plan's subject.
-2. *A control and its section can disagree.* Also true, and it does not depend
-   on those plans at all. That is this plan's subject.
-
-Fixing (1) makes today's symptom disappear while leaving (2) in place, waiting
-for the next filtered row. That is why (2) is worth its own plan.
-
-### The defect, stated without reference to the sprint
-
-`fleet.ts:5084` computes the control's number on the server:
-
-```ts
-{ ...readFleetControls(opts), working: liveAgentCount(entry.agents, entry.pulse) }
-```
-
-`liveAgentCount` (`auto-dispatch.ts:129`) counts registry entries in a live
-state whose branch has not landed. It consults **no filter** — correctly, since
-the same function feeds the auto-dispatch cap, and a cap that shrank when a
-reader toggled a UI control would be a much worse bug than this one.
-
-The rows, meanwhile, are filtered **client-side** in `AgentList` after the
-payload arrives. So the count and the rows have different authors, and any
-filter that removes a row makes them disagree. `Sprint only` is simply the
-first filter exact enough to demonstrate it.
-
-### Why the number must not be filtered instead
-
-`N working` is genuinely about the machine: it says how many slots of the
-parallel-agents cap are in use. That is true whatever a reader has chosen to
-look at, and it is what makes the stepper meaningful.
-
-So the fix is not to filter the count. It is to stop rendering a bare number
-beside a section that contradicts it — the number keeps its meaning and gains
-the context that resolves the apparent contradiction.
+QUIET agreeing at `0/0` is not a counter-example — it is the degenerate case,
+and it is why the fix must not simply swap one unit for the other.
 
 ### The rule this is an instance of
 
@@ -110,72 +67,58 @@ as screenshots rather than CI failures. The rule is checkable and general; the
 
 ## Design
 
-### The control says what its number covers
+### The header counts what the section renders
 
-`N working` stays a registry count — unfiltered, unchanged, still the cap's
-input. When a filter is hiding live workers, the control says so:
+A grouped section renders plan heads; its header counts plan heads. An
+ungrouped one renders rows; its header counts rows. One rule, applied to
+whichever unit the section actually shows — so the number is always the count
+of the things beneath it.
 
-```
-10 parallel agents · 2 working (2 hidden by filter)
-```
+### The total is not lost
 
-The number no longer contradicts the section, because it now names the gap
-itself.
+`DONE (10 plans · 19 waves)` keeps both facts and says which is which. The
+plan count matches what the reader can see; the wave count is the scope that
+`19` was reaching for. A section whose two numbers are equal — an ungrouped
+one — renders the single number, so nothing gains a redundant clause.
 
-### A filtered section says what it withheld
+### Not chosen: count rows and expand every head
 
-`none` must not be the whole answer when rows exist and were hidden:
+Making the number true by rendering 19 rows defeats the grouping, which exists
+because DONE is the section that grows fastest over a working day.
 
-```
-NOT STARTED   none — 5 hidden by Sprint only
-DONE (5)      33 hidden by Sprint only
-```
+### Not chosen: leave it and document the unit
 
-A reader who has forgotten the toggle is on currently sees an empty estate and
-no reason for it.
-
-### Not chosen: exempt WORKING from the filter
-
-The first draft's proposal. It fixes the symptom for one section and leaves the
-rule broken everywhere else — NOT STARTED and QUIET read `none` in the same
-screenshot, for the same reason, and neither would be helped.
-
-### Not chosen: filter `liveAgentCount`
-
-It feeds the auto-dispatch cap. A cap that moved when a reader toggled a UI
-control would let auto-dispatch start work it should have refused — a real
-defect traded for a cosmetic one.
+A tooltip explaining that the number counts waves while the rows are plans is
+a workaround for a number that is simply reporting the wrong unit.
 
 ## Waves
 
-### Named (Branch: bug/the-working-count-names-what-it-counts)
+### Counted (Branch: bug/a-section-counts-what-it-shows)
 
-The fleet control reports how many live workers the current filter is hiding, so
-its number and the section beneath it stop contradicting each other.
+A section's header counts the unit the section renders — plan heads where it
+groups, rows where it does not — and names both where they differ.
 
-### Counted (Branch: bug/a-filtered-section-says-what-it-hid)
+### Withheld (Branch: bug/a-filtered-section-says-what-it-hid)
 
 Each filtered section reports how many rows the filter withheld, so `none` is
 never the whole answer when rows exist.
 
 ## Done when
 
-1. With a filter hiding live workers, the control names the gap — its number and
-   the rows beneath it no longer contradict each other. Asserted with a worker
-   hidden AND with none hidden, because agreement in the unfiltered state is
-   what today's defect already satisfies.
-2. `liveAgentCount` is **unchanged**, and a test pins that the auto-dispatch cap
-   sees the same number whatever the UI filter is set to. This is the assertion
-   a naive implementation fails: filtering the count makes item 1 pass and
-   silently lets auto-dispatch start work over its cap.
-3. A filtered section with rows hidden says how many. A section with genuinely
-   no rows still says `none` — the two must stay distinguishable, so printing
-   `0 hidden` on an empty section fails.
-4. Every section still filters. The fix must not become *the filter stopped
-   working*: with `Sprint only` ON the shown/hidden split stays as measured
-   (WAITING ON YOU 10/17, WORKING 0/2, NOT STARTED 0/5, QUIET 0/6, DONE 5/33)
-   for an estate where those plans are non-members.
-5. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+1. Every section's header number equals the count of the things rendered
+   directly beneath it. Asserted per section, with plan-grouping ON and OFF —
+   a fix that only works grouped leaves the ungrouped sections wrong.
+2. Where a grouped section's plan count and wave count differ, the header
+   states both and says which is which.
+3. **QUIET at `0/0` still renders one number.** This is the assertion a naive
+   implementation fails: a section whose two counts agree must not grow a
+   redundant clause, and QUIET is where that first shows.
+4. `working` is left as #403 made it — `agents.length`, with the stepper
+   labelled as the cap. A test pins that `liveAgentCount` still feeds
+   `auto-dispatch.ts` and is NOT what the control renders.
+5. A filtered section with rows hidden says how many; a genuinely empty one
+   still says `none`, and the two stay distinguishable.
+6. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 
