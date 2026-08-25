@@ -176,6 +176,105 @@ const PR_LIMIT = 1000;
  */
 const ISSUE_LIMIT = 50;
 
+/* ------------------------------------------------------------------------ */
+/* Master agent branch — the main checkout's current branch                  */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * How long the master agent branch reading stands before re-asking git.
+ *
+ * The same 5 s TTL as `server-info.ts` (#410) and for the same reasons: the
+ * fork stays off the per-request path (fleet renders every 4 s), and a branch
+ * switch shows up within seconds. The per-request concern is amplified here
+ * because TWO git spawns are needed — one for `git worktree list`, one for
+ * `git branch --show-current` in the main checkout.
+ *
+ * DISTINCT FROM `server-info.ts` DELIBERATELY. That file caches
+ * `server.branch`, which is the branch the SERVER'S worktree is on. This is
+ * the MAIN CHECKOUT's branch, which may differ. The brief pins that the two
+ * must NOT share an implementation: `server.branch` is memoised once per
+ * process (the server serves one worktree for its whole life), while this one
+ * needs to follow a branch switch in a different tree. A shared helper would
+ * either break the test that pins the server's read-once or silently freeze
+ * this field on the branch the board started with.
+ */
+const MASTER_AGENT_BRANCH_TTL_MS = 5_000;
+
+/**
+ * Cached master agent branch and the time it was read.
+ *
+ * Module-level rather than in `CacheEntry`, for the same reason
+ * `server-info.ts` puts its branch cache at module level: the cache is per
+ * PROCESS, not per repo root. A process serves exactly one repo, and the
+ * master agent branch is a fact about that repo's main checkout — it is the
+ * same whether the request came through `/api/fleet` or `/api/board`.
+ */
+let masterAgentBranchCache: { branch: string; at: number } | null = null;
+
+/**
+ * The main checkout's path, from the first entry of `git worktree list`.
+ *
+ * `git worktree list` outputs lines like:
+ *   /path/to/repo  abc1234 [main]
+ *   /path/to/repo-wt-branch  def5678 [feature/foo]
+ *
+ * The first entry is always the main worktree (the original clone); linked
+ * worktrees follow. Verified 2026-08-25 on this machine.
+ */
+function mainCheckoutPath(repoRoot: string): string | null {
+  try {
+    const { execFileSync } = require('node:child_process');
+    const out = execFileSync('git', ['worktree', 'list'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }) as string;
+    const firstLine = out.split('\n')[0];
+    if (!firstLine) return null;
+    // The path ends at the first whitespace before the commit SHA.
+    const match = firstLine.match(/^(\S+)\s/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The branch the MAIN CHECKOUT is on — the operator's branch, where a person
+ * and the master agent do the concept work.
+ *
+ * NOT THE SERVER'S CHECKOUT. A board started in a linked worktree still reads
+ * the main checkout; naming the board's own tree was considered and rejected
+ * because that is `server.branch` again.
+ *
+ * Returns `''` for every failure: detached HEAD, not a git repo, unresolvable
+ * main checkout. The schema's default is `''`, and the renderer shows NO ROW
+ * rather than a placeholder.
+ */
+function readMasterAgentBranch(repoRoot: string): string {
+  const now = Date.now();
+  if (masterAgentBranchCache && now - masterAgentBranchCache.at < MASTER_AGENT_BRANCH_TTL_MS) {
+    return masterAgentBranchCache.branch;
+  }
+
+  let branch = '';
+  const mainPath = mainCheckoutPath(repoRoot);
+  if (mainPath) {
+    try {
+      const { execFileSync } = require('node:child_process');
+      const out = execFileSync('git', ['branch', '--show-current'], {
+        cwd: mainPath,
+        encoding: 'utf8',
+      }) as string;
+      branch = out.trim();
+    } catch {
+      branch = '';
+    }
+  }
+
+  masterAgentBranchCache = { branch, at: now };
+  return branch;
+}
+
 /** One PR as the host adapter reports it, collapsed to what the tab needs. */
 export interface PrRecord {
   number: number;
@@ -5299,5 +5398,17 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // Computed on the render clock for the same reason as `sprints`: a plan
     // whose status just moved shows on the next poll.
     estateTotals: estateTotals(opts, entry.pulse),
+    // The MAIN CHECKOUT's branch, read on the render clock with a TTL cache.
+    // Not `server.branch`, which is the worktree the board server started in.
+    // This is where the operator works — the first entry of `git worktree list`.
+    // Emitted unconditionally ('', which means "show nothing", on any failure)
+    // because the client casts this payload and a Zod `.default('')` never
+    // fires client-side.
+    masterAgentBranch: readMasterAgentBranch(opts.repoRoot),
+    // The prefix for constructing the master agent row's branch URL. The
+    // server already computes `branchUrl` for each row; this row is assembled
+    // client-side, so the prefix must travel with it. Empty for any host the
+    // board does not recognise — and empty renders as plain text.
+    branchUrlBase: entry.branchUrlBase,
   };
 }
