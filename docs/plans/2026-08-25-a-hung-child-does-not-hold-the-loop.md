@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-25, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -87,10 +87,40 @@ worker from a dead one, because the board reports both as `running`.
 
 ### The loop bounds the wait
 
-`timeout` around the prompt invocation at `plot-worker-loop.sh:88`. When it
+The prompt invocation at `plot-worker-loop.sh:88` runs under a bound. When it
 fires, the loop treats the branch as unfinished, logs why, and exits rather than
 hopping — a hung agent has left the worktree in a state nobody measured, and
 starting a second branch on top of that guess is worse than stopping.
+
+**The mechanism is measured before it is chosen, and that is this wave's first
+step.** The obvious phrasing — `timeout 1h . "$prompt_file"` — does not work:
+line 88 is `. "$prompt_file"`, a shell **builtin**, and `timeout(1)` execs a
+process. It cannot wrap a `source`. Two candidates survive, and neither is
+obviously right:
+
+| Candidate | Cost |
+|---|---|
+| `timeout $B bash -c '. "$f"'` | The prompt moves into a subshell, so every `PLOT_*` variable must be exported or `$PLOT_BRANCH` expands empty |
+| A bash watchdog: background sleep + `kill` | No context change, no dependency — but the watchdog is code that must clean up on **every** exit path |
+
+The spike answers one question for both: **does the bound survive Ctrl-C, a kill
+of the loop itself, and a child that ignores SIGTERM?** A bound that leaks its
+watchdog, or that dies with the shell it was meant to outlive, is worse than
+none — it looks like protection and is not.
+
+### `timeout(1)` is not assumed
+
+Measured on this machine: `timeout` resolves to `/opt/homebrew/bin/timeout` —
+**coreutils, not macOS.** A mac without Homebrew has neither `timeout` nor
+`gtimeout`, and Plot's other helpers assume nothing beyond POSIX tools and git.
+
+So the bound is implemented in **bash alone**. Reporting the absence and
+carrying on was rejected: it makes the protection vanish silently on exactly the
+systems that lack it, which converts a gate back into a rule (CLAUDE.md — *can
+you answer "did I complete this?" without doing the work?*). Documenting it as a
+prerequisite was rejected for the same reason Node 24 is different: Node is
+already required to run the board at all, coreutils is required by nothing else
+here.
 
 **This is a gate, not a rule** (CLAUDE.md). *"Never leave a worker hanging"* is
 advice an agent can rationalise past; a `timeout` is enforced by the shell on
@@ -152,8 +182,10 @@ STOP. Both are wanted; neither substitutes for the other.
 
 ### Bounded (Branch: bug/the-loop-bounds-its-child)
 
-`plot-worker-loop.sh` runs the prompt under a configurable `timeout`, and a
-timed-out worker exits with its reason in the log instead of hopping.
+`plot-worker-loop.sh` runs the prompt under a configurable bound implemented in
+bash alone, and a timed-out worker exits with its reason in the log instead of
+hopping. **Begins with the spike** above: subshell versus watchdog, decided by
+which survives Ctrl-C, a killed loop, and a child that ignores SIGTERM.
 
 ### Counted (Branch: bug/a-landed-branch-still-holds-a-slot)
 
@@ -173,14 +205,23 @@ start work beside workers that have not exited.
    never measured, so continuing would build on a guess.
 4. The bound is a `## Plot Config` key with the measured default; a project that
    sets nothing sees that default.
-5. `liveAgentCount` counts a live agent whose branch has landed. Asserted
+5. **The bound needs no `timeout(1)`.** Asserted with `timeout` and `gtimeout`
+   absent from `PATH` — measured here at `/opt/homebrew/bin/timeout`, so a mac
+   without Homebrew has neither. A gate that disappears where the tool is
+   missing is a rule.
+6. **The watchdog leaves nothing behind.** Asserted after a normal finish, a
+   timeout, and a kill of the loop itself: no orphaned sleep, no stray child.
+   This is the assertion the spike exists to inform, and the one a naive
+   implementation fails — a bound that outlives its worker is a new leak in the
+   fix for a leak.
+7. `liveAgentCount` counts a live agent whose branch has landed. Asserted
    directly, since this is the line that let the fleet reach 13 against a cap
    of 3.
-6. **`liveAgentBranches` names exactly the agents `liveAgentCount` counted.**
+8. **`liveAgentBranches` names exactly the agents `liveAgentCount` counted.**
    The two must not diverge — the refusal message explains the number.
-7. Auto-dispatch refuses to start while live agents ≥ cap, whatever their
+9. Auto-dispatch refuses to start while live agents ≥ cap, whatever their
    branches' merge state.
-8. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+10. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 
