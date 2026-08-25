@@ -2827,6 +2827,29 @@ export function isLiveState(state: string): boolean {
 }
 
 /**
+ * The registry states that mean a BROKEN WORKER — one that stopped without
+ * finishing and needs a person to look.
+ *
+ * `stalled` is work on the floor with no PR: the worker stopped without asking,
+ * and what it was doing is uncommitted. `unknown` is a question the board cannot
+ * answer: the pid is gone, no exit code was recorded, so the worker's fate is
+ * unknown. Both belong in WAITING ON YOU as problem reports.
+ *
+ * `finished` is NOT broken — the work reached review, and the PR carries it. A
+ * finished entry drains through the reconciliation; it needs no row of its own
+ * while the PR still does.
+ *
+ * An allowlist, unlike {@link isLiveState}: an unrecognised state is NOT broken,
+ * because calling it broken and filing it in WAITING ON YOU is a claim this
+ * function cannot verify. The fallback for an unknown state is WORKING — see
+ * `isLiveState` — so an unrecognised sixth state renders where a worker renders
+ * rather than where a problem report renders.
+ */
+export function isBrokenState(state: string): boolean {
+  return state === 'stalled' || state === 'unknown';
+}
+
+/**
  * One agent from the dispatcher's registry — a process with an identity that
  * outlives the branch it was launched on.
  *

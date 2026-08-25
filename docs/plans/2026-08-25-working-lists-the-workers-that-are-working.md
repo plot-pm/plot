@@ -15,6 +15,7 @@
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-25, Jan Wloka, `bug/working-lists-the-live-agents`
 - **Started:** 2026-08-25, Jan Wloka, `bug/a-stalled-worker-needs-a-person`
+- **Started:** 2026-08-25, Jan Wloka, `feature/an-agent-row-can-be-dropped`
 
 ## Changelog
 
@@ -335,7 +336,7 @@ does not weaken the gate — any *other* dirty path still keeps the entry.
 WORKING renders only `LIVE_STATES` entries, importing the set from
 `auto-dispatch.ts` rather than restating it, and its count follows those rows.
 
-### Stalled (Branch: bug/a-stalled-worker-needs-a-person)
+### Stalled (Branch: bug/a-stalled-worker-needs-a-person, PR: #412)
 
 A `stalled` or `unknown` entry reaches WAITING ON YOU as a problem report —
 abandoned work in the first case, an unanswerable question in the second. Five
