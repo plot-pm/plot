@@ -67,7 +67,7 @@ import { WAVE_LINKING_KINDS, groupByWave, waveLabel } from '../lib/agent-rows/wa
 // their marks and their menus are declared next door.
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, WaveRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
-import { workingAgentRows } from '../lib/agent-rows/working-agents.js';
+import { workingAgentRows, brokenAgentRows } from '../lib/agent-rows/working-agents.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
 // modules; the unit suite and `App.tsx` import them from here, and a second
@@ -359,6 +359,11 @@ export function AgentList({
   // filter. The join to a hidden row still carries that row's facts.
   const rowByBranch = new Map((fleet?.rows ?? []).map((r) => [r.branch, r]));
   const workingRows = workingAgentRows(fleet?.agents ?? [], rowByBranch);
+  // THE BROKEN AGENTS — `stalled` and `unknown` — for WAITING ON YOU.
+  // A problem report: the worker stopped and needs a person to look. Joined to
+  // branch rows by the same rule as `workingRows`, so the row's plan and PR
+  // travel with it where one exists.
+  const brokenRows = brokenAgentRows(fleet?.agents ?? [], rowByBranch);
 
   const [openWaves, setOpenWaves] = useState<Set<string>>(() => new Set());
   const waveKey = waveKeyOf;
@@ -633,7 +638,15 @@ export function AgentList({
         // agents is the tally — Done when #1, N entries → N rows — so `countOf`
         // answers the agents here and the rows everywhere else.
         const workingSection = key === 'working';
-        const countOf = workingSection ? workingRows.length : rows.length;
+        const waitingOnYouSection = key === 'waiting-on-you';
+        // THE COUNT IS OF WHAT THE SECTION HOLDS — branches, issues and broken
+        // agents where applicable. WORKING counts its registry entries, WAITING ON
+        // YOU adds issues and broken agents to its branch rows.
+        const countOf = workingSection
+          ? workingRows.length
+          : waitingOnYouSection
+            ? rows.length + brokenRows.length
+            : rows.length;
         // The plan scope the blocked-by jump needs ABOVE the row. WORKING orders
         // by agent, so there is no per-plan `<ul>` to tag the way the grouped
         // sections have; the section's own grid carries it instead. First match
@@ -656,6 +669,12 @@ export function AgentList({
         const issues = key === 'waiting-on-you' && fleet.issueAnswer === 'answered'
           ? filteredIssues
           : [];
+        // THE BROKEN AGENTS — `stalled` and `unknown` — for WAITING ON YOU only.
+        // A problem report, not a branch: the worker stopped and needs a person to
+        // look. Rendered AFTER the branch rows and the issues, because actionable
+        // work outranks problem reports — a PR a person can merge is more urgent
+        // than a worker a person can go check.
+        const broken = key === 'waiting-on-you' ? brokenRows : [];
         // Every waiting-group is grouped the same way, `done` included: it is
         // the group that grows fastest over a working day, so it is the first to
         // become a list one scrolls past. A rule with an exception for the group
@@ -690,9 +709,10 @@ export function AgentList({
         // An empty group is never foldable — it hides nothing, and its header
         // carries the HINT rather than `(0)`, which is the one thing in there
         // worth reading when there is nothing to list.
-        // Issue rows count toward the fold and the tally: they are rows a
-        // reader sees, and a section reading `(2)` above four lines is the
-        // mismatch NOT STARTED already had to fix once.
+        // Issue rows and broken agent rows count toward the fold and the tally:
+        // they are rows a reader sees, and a section reading `(2)` above four
+        // lines is the mismatch NOT STARTED already had to fix once. Broken
+        // agents are already in countOf for WAITING ON YOU, so only issues add.
         const collapsible = isCollapsible(countOf + issues.length);
         const isFolded = collapsible && collapsed.has(key);
         // The count and the hint occupy the same slot, and the count SURVIVES
@@ -1740,9 +1760,10 @@ export function AgentList({
                 // they open the section and look for the rows. A single site
                 // would leave whichever of those two readings unlabelled.
                 // `none` is only printed where there is nothing AT ALL. A
-                // section holding issue rows and no branches is not empty, and
-                // the word would sit above the rows contradicting them.
-                issues.length === 0 && (
+                // section holding issue rows or broken agent rows and no branches
+                // is not empty, and the word would sit above the rows contradicting
+                // them.
+                issues.length === 0 && broken.length === 0 && (
                 <li role="row" className="px-3 py-2 text-sm text-slate-400 dark:text-slate-600">
                   <span role="gridcell">
                     {key === 'waiting-on-machine' && answer !== 'answered'
@@ -1761,6 +1782,29 @@ export function AgentList({
                   issue={issue}
                   idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
                   issueAnswer={fleet.issueAnswer}
+                />
+              ))}
+              {/* THE BROKEN AGENTS — `stalled` and `unknown` — as problem reports.
+                  Rendered AFTER branches and issues: actionable work outranks
+                  problem reports, and the ordering says so. Each row is keyed by
+                  session where there is one and by branch otherwise, the same
+                  identity WORKING uses for its registry rows. */}
+              {broken.map(({ agent, row }) => (
+                <RegistryRow
+                  key={agent.session || `branch:${agent.branch}` || `wt:${agent.worktree}`}
+                  agent={agent}
+                  row={row}
+                  waves={waves}
+                  onOpenPlan={onOpenPlan}
+                  card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
+                  dispatch={dispatch}
+                  continueWith={continueWith}
+                  pulse={pulse}
+                  onStarting={onStarting}
+                  marked={row ? marked.has(rowKey(row)) : false}
+                  active={row ? active.has(rowKey(row)) : false}
+                  onRevealBranch={onRevealBranch}
+                  highlighted={agent.branch !== '' && agent.branch === highlightBranch}
                 />
               ))}
               {/* AN OUTAGE IS NOT AN ANSWER. A failed issue lookup says so, in
