@@ -15,6 +15,12 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Sprint directory:** docs/sprints/
 - **Plan template:** .plot/templates/plan.md
 - **Claim stale after:** 24
+- **Worker bound:** 3600
+<!-- Seconds a single prompt run may take before the worker loop ends it and
+     exits (without hopping to the next wave). Default 3600 (~1h): honest runs
+     on this estate were 9–29 min against hangs of up to 10 hours, so ~1h never
+     truncates real work. `0` disables the bound. See
+     skills/plot/scripts/plot-worker-loop.sh. -->
 - **Agent registry:** /Users/jwloka/Quatico/Agentic-Tools/plot/.plot/agents
 - **Board command:** pnpm board
 - **Worker command:** PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh

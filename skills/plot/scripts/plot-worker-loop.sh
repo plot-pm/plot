@@ -34,6 +34,26 @@ set -uo pipefail
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="."
 
+cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
+
+# THE BOUND ON A SINGLE PROMPT RUN, in seconds. A worker whose agent process
+# hangs — the `Error: No messages returned` rejection inside the CLI, which
+# leaves the process alive but never returning — otherwise holds the loop
+# forever: 11 such workers were measured on 2026-08-25, one for 10 hours.
+#
+# THE DEFAULT IS MEASURED, NOT GUESSED. Honest PR-creation-to-merge runs on this
+# estate were 9–29 min (#414, #417, #419, #416) against hangs of up to 10 hours
+# — two orders of magnitude of separation, so ~1 h never truncates real work. A
+# project whose waves are genuinely longer sets its own value (Principle 5).
+#
+# A NON-NUMERIC OR EMPTY VALUE FALLS BACK to the default rather than becoming a
+# `sleep` argument that errors — the same guard `plot-fleet-scan.sh` applies to
+# `Claim stale after`. `0` is preserved as written: a project that sets the
+# bound to 0 has explicitly disabled it, and the run below treats non-positive
+# as "no bound".
+WORKER_BOUND_SECONDS=$(cfg "Worker bound" "3600")
+case "$WORKER_BOUND_SECONDS" in (*[!0-9]*|'') WORKER_BOUND_SECONDS=3600 ;; esac
+
 # Update the manifest when the worker hops to a new branch.
 #
 # The manifest already carries `session`, `pid`, `startedAt` — these stay fixed.
@@ -81,11 +101,160 @@ fi
 main_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
 [ -z "$main_branch" ] && main_branch=main
 
-while true; do
-  # Run the worker prompt in the current worktree.
-  # The prompt file is sourced so $PLOT_BRANCH etc. expand at runtime.
+# ---------------------------------------------------------------------------
+# The bound on a single prompt run — bash alone, no timeout(1)
+# ---------------------------------------------------------------------------
+#
+# THE MECHANISM WAS SPIKED BEFORE IT WAS CHOSEN. The obvious phrasing,
+# `timeout $B . "$prompt_file"`, does not exist: line 108 sources a file, and
+# `. ` is a shell BUILTIN that runs in the loop's own process — `timeout(1)`
+# execs a new process and cannot wrap it. `timeout(1)` is also not assumable:
+# measured here it resolves to `/opt/homebrew/bin/timeout` (coreutils), and a
+# mac without Homebrew has neither `timeout` nor `gtimeout`. Plot's helpers
+# assume nothing beyond POSIX tools and git, so the bound is BASH ALONE.
+#
+# SO THE PROMPT RUNS IN A CHILD, NOT THE LOOP'S SHELL. `bash -c '. "$f"'` still
+# SOURCES the prompt file — `$PLOT_BRANCH` and friends expand at runtime exactly
+# as before — but now inside a process that can be killed. The dispatcher sets
+# those variables as an exported prefix assignment (plot-dispatch.sh), and the
+# loop re-exports them on each hop (below), so they survive the child.
+#
+# A WATCHDOG, NOT A HANDLER FOR THE ERROR. The `No messages returned` rejection
+# happens inside the CLI's own process and never yields an exit code — that IS
+# the defect. There is nothing to catch. A wall-clock bound catches the next,
+# unseen hang too; matching the log for that one string would recognise only the
+# hang already measured.
+#
+# THE WATCHDOG SIGNALS, IT DOES NOT RACE ON `wait -n`. An earlier version raced
+# the prompt against a watchdog `sleep` with `wait -n` and read the loser from
+# the survivor's liveness. Measured: on macOS's stock `/bin/bash` (3.2), which
+# has no `wait -n`, that builtin errors and returns instantly — the bound read
+# every prompt as an honest finish and never fired. The exact system this gate
+# is FOR — a mac with no Homebrew, hence no `timeout(1)` — is also the one with
+# only bash 3.2, so a bash-4.3 dependency would disable the bound precisely
+# where it is needed. So instead: a background watchdog sends SIGALRM to the
+# loop after the bound, a trap sets a flag and kills the prompt, and the loop
+# merely `wait`s on the prompt (a builtin every bash has). Works on 3.2 and 5.x.
+#
+# CLEANUP IS ON EVERY EXIT PATH. `run_bounded` tracks the prompt child and its
+# watchdog in file-scope variables, and a single EXIT trap reaps BOTH — so a
+# normal finish, a timeout, a Ctrl-C, and an outright kill of the loop all leave
+# no orphaned sleep and no stray child. A bound that outlived its worker would
+# be a new leak inside the fix for a leak.
+_prompt_child=""
+_watchdog_pid=""
+_timed_out=0
+
+# Kill a process and any descendants it spawned. The prompt child is
+# `bash -c '. "$f"'`, which itself launches the agent CLI as a grandchild;
+# killing only the immediate child would orphan that CLI, which is the very
+# thing being bounded.
+#
+# THE ROOT DIES FIRST, then its descendants — but the descendants are SNAPSHOT
+# before the root is killed. Two failures were measured and both are avoided:
+#
+#   * Reaping children BEFORE the root leaves a window in which the root shell —
+#     the sourced prompt — sees `sleep` die and runs its NEXT line before the
+#     kill reaches it (a `git push`, say, on a worktree the bound just declared
+#     unmeasured). Measured: "SHOULD NOT PRINT" printed.
+#   * Killing the root and THEN asking `pkill -P $root` finds nothing: SIGKILL
+#     reparents the orphaned grandchild to init, so it no longer matches the
+#     dead root's PID. Measured: the `sleep` leaked.
+#
+# So the child PIDs are collected first (`pgrep -P`), the root is killed to stop
+# it spawning or advancing, then the snapshot is killed. The agent CLI the
+# prompt had already launched is in that snapshot.
+_kill_tree() { # $1 = root pid
+  local root="$1" kid
+  [ -n "$root" ] || return 0
+  local kids
+  kids=$(pgrep -P "$root" 2>/dev/null || true)
+  kill -KILL "$root" 2>/dev/null || true
+  for kid in $kids; do
+    _kill_tree "$kid"
+  done
+}
+
+# The bound fired: a background watchdog sent SIGALRM. Record it and end the
+# prompt (and the agent CLI it spawned). The flag is what `run_bounded` reads
+# after `wait` returns to tell a fired bound from an honest finish.
+_on_alarm() {
+  _timed_out=1
+  [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
+}
+trap _on_alarm ALRM
+
+# THE MANIFEST IS REMOVED ON EVERY EXIT PATH. A worker that ends stops
+# appearing in the registry the moment it exits — the board's next pulse
+# will no longer see its row. The trap fires whether the loop ended normally
+# (--next returned no more work), broke on a failed cd or lost claim race,
+# or timed out via SIGALRM.
+#
+# THE SWEEP STAYS. A trap cannot run on SIGKILL, so the reconciliation sweep
+# is still the thing that catches a worker killed outright (kill -9). This
+# trap answers "I am leaving" — a cheaper, immediate cleanup. Reconciliation
+# answers "which entries no longer correspond to anything?" — a periodic
+# sweep that handles SIGKILL and orphaned manifests from crashes.
+_cleanup_on_exit() {
+  # Remove the manifest first — it is the externally visible registration.
+  [ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ] && rm -f "$PLOT_MANIFEST_FILE"
+
+  # Then clean up the watchdog and prompt child (if any are still running).
+  [ -n "$_watchdog_pid" ] && _kill_tree "$_watchdog_pid"
+  [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
+  _watchdog_pid=""
+  _prompt_child=""
+}
+trap _cleanup_on_exit EXIT
+
+# Run the prompt under the bound. Returns 0 if it finished on its own (whatever
+# its own exit status), or 124 — timeout(1)'s convention — if the bound fired.
+# A bound of 0 (explicitly disabled) runs the prompt with no watchdog at all.
+run_bounded() {
+  _timed_out=0
+
+  if [ "$WORKER_BOUND_SECONDS" -le 0 ]; then
+    # shellcheck source=/dev/null
+    bash -c '. "$1"' _ "$prompt_file"
+    return 0
+  fi
+
   # shellcheck source=/dev/null
-  . "$prompt_file"
+  bash -c '. "$1"' _ "$prompt_file" &
+  _prompt_child=$!
+
+  # The watchdog: after the bound, signal the loop's own PID. A compound
+  # subshell (`sleep; kill`) rather than `sleep && kill` so a killed sleep still
+  # cannot fire, and so `$$` inside it is the loop, not the subshell.
+  ( sleep "$WORKER_BOUND_SECONDS"; kill -ALRM "$$" 2>/dev/null ) &
+  _watchdog_pid=$!
+
+  # Block on the prompt. If the bound fires first, _on_alarm kills the prompt
+  # and this `wait` returns (interrupted); if the prompt finishes first, `wait`
+  # returns normally and the watchdog is still counting down. Either way, read
+  # the flag — set only by the alarm trap — to tell which happened.
+  wait "$_prompt_child" 2>/dev/null
+
+  # Stop the watchdog (a no-op if it already fired) and reap its sleep.
+  _kill_tree "$_watchdog_pid"
+  wait "$_watchdog_pid" 2>/dev/null || true
+  _watchdog_pid=""
+  _prompt_child=""
+
+  [ "$_timed_out" = 1 ] && return 124
+  return 0
+}
+
+while true; do
+  # Run the worker prompt in the current worktree, under the bound.
+  # The prompt file is sourced (inside a child) so $PLOT_BRANCH etc. expand at
+  # runtime. If the bound fires the worker EXITS rather than hopping: a hung
+  # agent has left the worktree in a state nobody measured, and starting a
+  # second branch on top of that guess is worse than stopping.
+  if ! run_bounded; then
+    echo "plot-worker-loop: prompt exceeded the ${WORKER_BOUND_SECONDS}s bound on ${PLOT_BRANCH:-?} — ending worker without hopping" >&2
+    exit 124
+  fi
 
   # Ask for the next claimable branch of the same plan.
   next_branch=$("$script_dir/plot-fleet-scan.sh" --next "$PLOT_SLUG" 2>/dev/null) || break

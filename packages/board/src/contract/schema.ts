@@ -985,6 +985,32 @@ export const WorkerStateSchema = z.enum([
 export type WorkerState = z.infer<typeof WorkerStateSchema>;
 
 /**
+ * Whether a RUNNING worker's child is actually doing work — the secondary cue
+ * that says WHICH kind of running a `running` worker is in.
+ *
+ * A CUE, NOT A STATE, and that distinction is the whole point. `worker` is the
+ * state; this is an attribute of one of its values. `running` is honest and
+ * coarse — measured across the fleet 2026-08-25 it covered a worker mid-thought,
+ * a worker between waves, and a worker whose child had crashed hours earlier
+ * while the loop waited on it, with 11 of 13 workers in that last, worst case.
+ * This tells the first from the last WITHOUT promoting `idle` to a sixth
+ * `worker` state and WITHOUT touching `AgentStateSchema`, whose five members are
+ * pinned by a test: an idle worker with a live child still IS running.
+ *
+ * `working` when the worker's descendant CPU is advancing, `idle` when its clock
+ * is frozen. `''` is the ONLY value beside every state but `running` — the cue
+ * answers nothing there, and empty is the one absent-value shape the other
+ * worker sibling fields (`worker_exit`, `worker_dirty_paths`) already use.
+ *
+ * THE DISCRIMINATOR IS THE CHILD'S CPU, NOT THE SHELL'S. The loop shell waits on
+ * its child and burns near-zero CPU in every case, so `plot-worker-state.sh`
+ * samples the whole descendant tree twice and compares — the growth is the
+ * signal. Measured on the process table with no new bookkeeping.
+ */
+export const WorkerActivitySchema = z.enum(['working', 'idle', '']);
+export type WorkerActivity = z.infer<typeof WorkerActivitySchema>;
+
+/**
  * The note the server composes for a branch no earlier wave blocks — the one
  * kind of `not-started` row a person can actually pick up.
  *
@@ -1450,6 +1476,22 @@ export const FleetBranchSchema = z.object({
    * records are already excluded upstream — they are not work.
    */
   worker_dirty_paths: z.array(z.string()).default([]),
+  /**
+   * Whether a `running` worker's child is doing work — `working`, `idle`, or "".
+   *
+   * The secondary cue beside `worker: 'running'`. `running` is honest and coarse
+   * — it covers a worker mid-thought and a worker whose child crashed hours ago
+   * while the loop waited on it — and this says which, without a sixth `worker`
+   * state. Empty on every other state, the same absent-value shape
+   * `worker_dirty_paths` above uses beside every state but `stalled`: the cue
+   * answers nothing where a worker is not running.
+   *
+   * Measured, not tracked. `plot-worker-state.sh` samples the worker's whole
+   * descendant CPU twice and reports the growth — the loop shell is near-zero
+   * CPU in every case, so only the CHILD's clock separates a busy worker from a
+   * dead one. Defaults to "" so a pulse from an older scan still validates.
+   */
+  worker_activity: WorkerActivitySchema.default(''),
   /**
    * The files that would collide merging this branch into the default branch.
    *
@@ -2633,6 +2675,19 @@ export const AgentRowSchema = z.object({
    * field: nobody could look, which licenses no claim about a worker either way.
    */
   worker: WorkerStateSchema.default('elsewhere'),
+  /**
+   * Whether a `running` worker's child is doing work — `FleetBranchSchema.
+   * worker_activity`, forwarded onto the row unchanged.
+   *
+   * The secondary cue beside `worker`. `workerStatus` reads it to say WHICH kind
+   * of running a `running` worker is in — a child mid-work reads differently
+   * from one whose clock is frozen — without a sixth `worker` state and without
+   * touching the registry's five-member `AgentStateSchema`. Empty on every state
+   * but `running`, where it answers nothing: the same absent-value shape the
+   * other worker fields use. Forwarded, never re-derived — the scan measured it
+   * once, and this carries that verdict outward.
+   */
+  worker_activity: WorkerActivitySchema.default(''),
   /**
    * The processes this board can see running for this branch — [] when it can
    * see none.

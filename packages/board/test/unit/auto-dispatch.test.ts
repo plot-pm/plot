@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   planAutoDispatch,
+  startableBranches,
   liveAgentCount,
   planSlug,
   type AutoDispatchPlan,
@@ -266,6 +267,66 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
     });
     // Budget = 3 − 1 in-flight = 2, but only feature/b is startable → max 1.
     expect(p).toEqual([{ slug: 'p', max: 1 }]);
+  });
+});
+
+describe('planAutoDispatch — a wip branch whose ref exists buys nothing', () => {
+  // THE MEASURED DEFECT, 2026-08-25. A `wip` branch carries real unlanded
+  // commits, which the scan can only derive by walking `origin/<branch>` — so a
+  // pulse `wip` ALWAYS has a ref, and `plot-dispatch.sh`'s claim push is
+  // refused (non-fast-forward) against a ref that exists. Budget spent naming
+  // that plan buys a dispatch the script discards, every pulse, forever.
+  it('spends a budget of 1 on the OPEN branch, skipping the earlier wip one', () => {
+    // The measured shape: the `wip` branch belongs to the EARLIER plan in file
+    // order (July sorts before August), so a fix that merely reordered plans by
+    // recency would pass — this one asserts document order is preserved and the
+    // wip plan contributes zero regardless.
+    const p = planAutoDispatch({
+      controls: controls(true, 1),
+      pulse: pulse([
+        ['2026-07-25-stale.md', 'approved', [wave('W', 'eligible', [['feature/stale', 'wip']])]],
+        ['2026-08-25-fresh.md', 'approved', [wave('W', 'eligible', [['feature/fresh', 'open']])]],
+      ]),
+      liveCount: 0,
+      inFlight: new Set(),
+    });
+    expect(p).toEqual([{ slug: 'fresh', max: 1 }]);
+  });
+
+  it('names no plan whose only startable branch is a wip with a ref', () => {
+    const p = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: pulse([['2026-07-25-stale.md', 'approved', [
+        wave('W', 'eligible', [['feature/stale', 'wip']]),
+      ]]]),
+      liveCount: 0,
+      inFlight: new Set(),
+    });
+    expect(p).toEqual([]);
+  });
+
+  it('still dispatches the open branch of a wave that also holds a stale wip', () => {
+    // A mixed wave: the open branch is real work a dispatch can claim; the wip
+    // one is refused. The budget lands on the open one and the wip is not
+    // double-charged against it.
+    const p = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: pulse([['2026-08-25-mixed.md', 'approved', [
+        wave('W', 'eligible', [['feature/stale', 'wip'], ['feature/fresh', 'open']]),
+      ]]]),
+      liveCount: 0,
+      inFlight: new Set(),
+    });
+    expect(p).toEqual([{ slug: 'mixed', max: 1 }]);
+  });
+});
+
+describe('startableBranches — a wip ref is not offered to start', () => {
+  it('offers the open branch and withholds the wip one', () => {
+    const p = pulse([['2026-08-25-mixed.md', 'approved', [
+      wave('W', 'eligible', [['feature/stale', 'wip'], ['feature/fresh', 'open']]),
+    ]]]);
+    expect(startableBranches(p, 'mixed', new Set())).toEqual(['feature/fresh']);
   });
 });
 

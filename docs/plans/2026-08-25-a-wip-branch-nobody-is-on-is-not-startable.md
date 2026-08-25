@@ -2,17 +2,18 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-25, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-25, Jan Wloka, `bug/auto-dispatch-skips-an-occupied-branch`
 
 ## Changelog
 
@@ -147,15 +148,17 @@ budget spent on a no-op.
 
 ## Waves
 
-### Seen (Branch: feature/the-pulse-says-a-branch-is-claimed)
+### Spent (Branch: bug/auto-dispatch-skips-an-occupied-branch, PR: #427)
 
-The pulse reports whether each branch has a ref holding it, derived by the scan
-from the refs it already walks.
+`planAutoDispatch` counts a `wip` branch as startable only when a dispatch could
+act on it, and names the ones it skipped.
 
-### Spent (Branch: bug/auto-dispatch-skips-a-claimed-branch)
-
-`planAutoDispatch` counts only unclaimed branches as startable, and names the
-claimed ones it skipped.
+**One wave, not two.** The first draft split this into a pulse change and a
+planner change, on the belief that the pulse could not see a claim. It can — the
+scan already derives `claimed` from empty markers and `wip` from real commits
+(`plot-fleet-scan.sh:2528`), and the registry already says which branches hold a
+live worker. Nothing new needs collecting; the planner needs to stop counting
+what it cannot use.
 
 ## Done when
 

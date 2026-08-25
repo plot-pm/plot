@@ -152,9 +152,47 @@ export function liveAgentBranches(agents: AgentEntry[], pulse?: FleetPulse): str
  * merged or deferred. The claim ref is the one mechanism that makes a taken
  * branch safe, and the pulse reflects it as `state: 'claimed'`; a startable
  * branch is one no ref has taken and no merge has closed.
+ *
+ * STATE-ONLY, and it stays that way. `wip` means *there is work here*, and
+ * accepting it is deliberate — a wave someone began and abandoned should be
+ * resumable. This is the ROW predicate's original purpose and the client's
+ * `isStartable(row)` keeps the same shape; auto-dispatch layers a second
+ * question on top of it in {@link dispatchable}, never inside here.
  */
 function isStartable(state: string): boolean {
   return state === 'open' || state === 'wip';
+}
+
+/**
+ * Whether the branch's own ref already blocks a claim `plot-dispatch.sh` would
+ * try to push — the difference between *is there work here?* and *would spawning
+ * a dispatch change anything?*.
+ *
+ * A pulse only ever reports `wip` for a branch whose ref EXISTS: the scan
+ * derives `wip` by walking `origin/<branch>`'s commits (`plot-fleet-scan.sh`,
+ * `branch_state` gates on `remote_ref_exists` before the walk, and `wip`
+ * requires real commits beyond main). `plot-dispatch.sh` claims by pushing an
+ * empty commit and REFUSES a non-fast-forward against a ref that is already
+ * there — Plot's whole locking mechanism. So auto-dispatch spending budget on a
+ * `wip` branch buys a dispatch the script immediately discards, every pulse,
+ * forever. `open` is the opposite: no ref, no work, nothing to refuse.
+ *
+ * The refs-as-truth invariant is why `state === 'wip'` is the ref signal and no
+ * new field is added or read: a pulse `wip` implies the ref, and a `wip` with no
+ * ref cannot be emitted. That is also why {@link isStartable} still accepts
+ * `wip` — a `wip` with no ref would be startable if the scan could report one.
+ */
+function refBlocksClaim(state: string): boolean {
+  return state === 'wip';
+}
+
+/**
+ * Would a dispatch of this branch this pulse actually claim it? Startable AND
+ * not already blocked by its own ref. This, not {@link isStartable}, is the
+ * question auto-dispatch spends budget against — see {@link refBlocksClaim}.
+ */
+function dispatchable(state: string): boolean {
+  return isStartable(state) && !refBlocksClaim(state);
 }
 
 export interface PlanAutoDispatchInput {
@@ -209,7 +247,10 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
     for (const wave of plan.waves) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
-        if (isStartable(b.state) && !inFlight.has(b.branch)) startable += 1;
+        // `dispatchable`, not `isStartable`: a `wip` branch whose ref already
+        // exists is work a dispatch cannot claim, so naming its plan spends
+        // budget on a spawn the script refuses — see {@link refBlocksClaim}.
+        if (dispatchable(b.state) && !inFlight.has(b.branch)) startable += 1;
       }
     }
     if (startable === 0) continue;
@@ -243,7 +284,35 @@ export function startableBranches(
     for (const wave of plan.waves) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
-        if (isStartable(b.state) && !inFlight.has(b.branch)) out.push(b.branch);
+        // The spawn side must mark exactly what a dispatch will claim, so this
+        // uses the same `dispatchable` rule the planner counts by: a `wip` ref
+        // is refused, so it is neither dispatched nor marked in flight.
+        if (dispatchable(b.state) && !inFlight.has(b.branch)) out.push(b.branch);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The branches auto-dispatch DECLINED to start because their own ref already
+ * blocks a claim — a `wip` branch whose commits the pulse could only see by
+ * walking an existing `origin/<branch>` ref. See {@link refBlocksClaim}.
+ *
+ * Named across every approved plan's eligible waves so the refusal can be
+ * reported once per pulse: a budget that buys nothing is the failure this wave
+ * removes, and a budget WITHHELD for a stated reason is a decision the operator
+ * can act on. Skips branches already in flight — those are this board's own
+ * dispatches, not a claim it is declining.
+ */
+export function skippedClaimedBranches(pulse: FleetPulse, inFlight: Set<string>): string[] {
+  const out: string[] = [];
+  for (const plan of pulse.plans) {
+    if (plan.phase !== 'approved') continue;
+    for (const wave of plan.waves) {
+      if (wave.verdict !== 'eligible') continue;
+      for (const b of wave.branches) {
+        if (refBlocksClaim(b.state) && !inFlight.has(b.branch)) out.push(b.branch);
       }
     }
   }
@@ -387,6 +456,23 @@ export function maybeAutoDispatch(
         );
       }
       return pruned;
+    }
+  }
+
+  // NAMES A CLAIMED BRANCH IT SKIPPED, ONCE PER PULSE. A `wip` branch whose ref
+  // already exists cannot be claimed — `plot-dispatch.sh` refuses it — so the
+  // budget is withheld rather than spent on a refusal (the measured defect,
+  // 2026-08-25). Silently withholding it is what made the budget look broken:
+  // the only recourse was to replay the planner by hand against the pulse JSON.
+  // Logged here, off the cap path, so a cap refusal and a claim skip are two
+  // distinct sentences and neither repeats the other. One call per pulse.
+  if (controls.autoDispatch) {
+    const skipped = skippedClaimedBranches(pulse, pruned);
+    if (skipped.length > 0) {
+      console.log(
+        `auto-dispatch: skipping claimed branch(es) a dispatch cannot start ` +
+        `(ref already exists): ${skipped.join(', ')}`,
+      );
     }
   }
 
