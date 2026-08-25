@@ -604,7 +604,7 @@ export function bashCleanliness(worktrees: string[]): boolean[] {
   const program = `
     PLOT_WORKER_RECORD='\\.plot-worker\\.'
     PLOT_EDITOR_LEFTOVER='\\.(tmp[0-9]*|swp|orig|rej|bak)$'
-    PLOT_TOOL_SCRATCH='(^|/)\\.(playwright-mcp|plot/agents|omc/state)(/|$)'
+    PLOT_TOOL_SCRATCH='(^|/)\\.(playwright-mcp|plot/agents|plot/state|omc/state)(/|$)'
     for wt in "$@"; do
       if [ ! -d "$wt" ]; then
         printf 'dirty\\0'
