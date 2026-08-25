@@ -373,6 +373,76 @@ export function showPlanHeading(group: PlanGroup): boolean {
 }
 
 /**
+ * What a section's header must say beneath itself — `{ plans, waves, differ }`.
+ *
+ * **THE RULE:** any count the board renders beside a section is derivable from
+ * that section's rows, or says what else it counts. The defect this closes was
+ * `DONE (19)` above ten visible rows: the header counted branch and wave rows
+ * while the section rendered plan heads, each folded with its own wave count.
+ * Ten heads, nineteen waves — both true, neither reconcilable without expanding
+ * every head and doing the arithmetic.
+ *
+ * **`plans` COUNTS WHAT THE READER SEES.** It is derived the way the component
+ * renders, group by group, rather than assumed to be `groupByPlan(...).length`:
+ * a group renders as ONE head where it folds (NOT STARTED always; elsewhere when
+ * every row is wave-grouped, or when a plan heading earns its place), and as its
+ * own top-level lines otherwise — a wave row per grouped wave plus each loose
+ * row. Summing the per-group render keeps the header equal to the section BY
+ * CONSTRUCTION, so a section that only partly folds cannot drift.
+ *
+ * **`waves` IS THE SCOPE THE BARE NUMBER WAS REACHING FOR** — the count of
+ * top-level rows a reader reaches by expanding every head: one row per wave the
+ * section groups, plus each loose branch (a deferred branch is its own row, not
+ * a wave nobody reached). Derivable from the same rows, one level down.
+ *
+ * **`differ`** is the whole point of returning both. Where the two agree — an
+ * ungrouped section, or an empty one — the caller renders a single number, so
+ * `QUIET (0)` never grows into `QUIET (0 plans · 0 waves)`. Where they diverge,
+ * the header states each and says which: `DONE (10 plans · 19 waves)`.
+ *
+ * `issues` are rows the reader sees and reaches (unplanned tickets in WAITING ON
+ * YOU), so they count toward BOTH figures — the NOT STARTED lesson, that a tally
+ * reading `(2)` above four lines is the mismatch this rule exists to forbid.
+ *
+ * WORKING is not passed here: it renders the registry, one row per agent, and
+ * its count is `agents.length` — `the-working-section-shows-every-worker`, wave
+ * *Counted* (#403). This helper answers the five branch sections.
+ *
+ * Exported for test — the QUIET-at-0/0 and the partly-folded cases are the two a
+ * naive `groupByPlan(...).length` gets wrong while looking right on a fully
+ * folded DONE.
+ */
+export function sectionTally(
+  rows: AgentRow[],
+  section: WaitingGroup,
+  waves: Wave[] | undefined,
+  issueCount: number,
+): { plans: number; waves: number; differ: boolean } {
+  const countsPlans = section === 'not-started';
+  let planLines = 0;
+  let waveLines = 0;
+  for (const group of groupByPlan(rows)) {
+    const grouped = waveGroupsFor(group.rows, section, waves);
+    const loose = ungroupedRows(group.rows, section, waves);
+    // The top-level rows a reader reaches by expanding this group's head: one
+    // per grouped wave, plus every row no wave claimed.
+    const groupWaves = grouped.length + loose.length;
+    waveLines += groupWaves;
+    // Does this group RENDER AS ONE HEAD, or as its own lines? The three
+    // predicates the component decides with, read here so the count cannot
+    // disagree with the render.
+    const planHeads = !countsPlans && Boolean(group.plan)
+      && loose.length === 0 && grouped.length > 0;
+    const headed = !countsPlans && section !== 'waiting-on-you'
+      && showPlanHeading(group);
+    planLines += countsPlans || planHeads || headed ? 1 : groupWaves;
+  }
+  const plans = planLines + issueCount;
+  const wavesCount = waveLines + issueCount;
+  return { plans, waves: wavesCount, differ: plans !== wavesCount };
+}
+
+/**
  * How long this PLAN has been waiting, in days — the clock that ticks in NOT
  * STARTED, read off the group's own rows.
  *

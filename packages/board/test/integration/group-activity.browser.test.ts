@@ -326,14 +326,20 @@ describe('a group heading carries the activity of the rows behind it', () => {
   });
 
   it('leaves the tally saying exactly what it always said', async () => {
-    // `(2)` separates ABSENT from EMPTY — a distinction this board paid for —
-    // and that job is not being extended. No second figure, no `(2, 1 active)`:
-    // the reader opening a group does not need to know whether it is one row or
-    // three, they need to know whether opening it is worth it.
+    // The tally separates ABSENT from EMPTY — a distinction this board paid for —
+    // and that job is not being extended by the activity mark. No `active`, no
+    // `(1, 1 active)`: the reader opening a group needs to know whether opening
+    // it is worth it, not whether it is one row or three.
+    //
+    // `(1)`, not `(2)`: QUIET holds one plan head (`plant-tomatoes`, two quiet
+    // branches folded into its one wave), and the header counts the head the
+    // reader sees — `a-section-counts-what-it-shows`. The two figures agree
+    // (one plan, one wave), so the header stays a single number and grows no
+    // `· waves` clause.
     const page = await open();
     await expect.poll(() => toggleFor(page, 'quiet').count()).toBe(1);
     const text = await toggleFor(page, 'quiet').innerText();
-    expect(text).toContain('(2)');
+    expect(text).toContain('(1)');
     expect(text).not.toMatch(/active|\(\d+\s*,/);
   });
 

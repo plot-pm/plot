@@ -1958,9 +1958,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.goto(`${baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
-      // The counts say the twenty rows are there and hidden.
-      await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(8)');
-      expect(await heading(page, 'Done').textContent()).toContain('(14)');
+      // The header counts the PLAN HEADS the reader sees, not the rows folded
+      // beneath them: QUIET holds `beans` (7 dormant branches, one wave) beside
+      // `ghost-plan`, and DONE holds `beans` (13 merged) beside `plant-tomatoes`
+      // — two heads each. The twenty rows are still there and hidden; the count
+      // no longer double-reports them as the section's number. The footer
+      // assertion below is what proves the collapse.
+      await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(2)');
+      expect(await heading(page, 'Done').textContent()).toContain('(2)');
       // And the footer is inside the viewport — the assertion the complaint was
       // actually about.
       //

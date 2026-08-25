@@ -57,7 +57,7 @@ import { splitBranch } from '../lib/tuple-row.js';
 export { splitBranch };
 import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
-import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, wavesElsewhere, waveKeyOf } from '../lib/agent-rows/sections.js';
+import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, wavesElsewhere, waveKeyOf } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prNote } from '../lib/agent-rows/host-notes.js';
 import { isUnbegun, rowKey } from '../lib/agent-rows/row-identity.js';
@@ -744,22 +744,36 @@ export function AgentList({
               : hostCannotReportCi(fleet.rows)
                 ? HOST_CANNOT_REPORT_HINT
                 : hint;
-        // THE TALLY COUNTS WHAT THE SECTION SHOWS.
+        // THE TALLY COUNTS WHAT THE SECTION SHOWS — and where a grouped section
+        // renders plan heads over more waves than heads, it names both units and
+        // says which is which.
         //
-        // Everywhere else that is rows, and the number matches what a reader
-        // sees. In NOT STARTED it stopped matching when the section learned to
-        // render one row per PLAN: a five-wave plan is one visible line and
-        // five rows, so the heading read `(6)` above three lines. Measured on
-        // screen with `working-shows-the-agent` folded.
+        // A count beside a section must be derivable from that section's rows,
+        // or say what else it counts. Everywhere the section renders one line
+        // per row, the number is that count and matches what a reader sees. But
+        // a grouped section renders plan HEADS, each folded with its own wave
+        // count — so `DONE (19)` sat above ten heads, the header counting waves
+        // while the reader counted plans. `sectionTally` derives both figures
+        // the way the component renders, group by group, so the header equals
+        // the section by construction: `plans` is the visible-line count,
+        // `waves` the scope a reader reaches by expanding every head.
         //
-        // Counting the same thing the section renders is also what makes the
-        // number safe to fold: the branches behind an expander are described by
-        // their plan's own summary (`3 waves, first eligible`), so nothing is
-        // hidden by the smaller figure — it moves up a level with the rows.
-        const shown = (countsPlans ? grouped.length : countOf) + issues.length;
+        // WORKING is the exception the plan preserves (Done when #4): it renders
+        // the REGISTRY, one row per agent, and its number is `agents.length` —
+        // `the-working-section-shows-every-worker`, wave Counted (#403). It has
+        // no plan grouping to fold, so it keeps the single figure.
+        const tallyOf = workingSection
+          ? { plans: countOf, waves: countOf, differ: false }
+          : sectionTally(rows, key, waves, issues.length);
+        // WHERE THE TWO AGREE, ONE NUMBER — an ungrouped or empty section gains
+        // no redundant clause, so QUIET at 0/0 stays `(0)` and never
+        // `(0 plans · 0 waves)` (Done when #3). Where they differ, both, named.
+        const shownLabel = tallyOf.differ
+          ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.waves} wave${tallyOf.waves === 1 ? '' : 's'})`
+          : `(${tallyOf.plans})`;
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-            {countOf + issues.length > 0 ? `(${shown})` : emptyHint}
+            {countOf + issues.length > 0 ? shownLabel : emptyHint}
           </span>
         );
         // Whether anything in this section is moving — and at which pace. The
