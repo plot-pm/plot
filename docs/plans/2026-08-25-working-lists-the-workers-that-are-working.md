@@ -329,7 +329,7 @@ does not weaken the gate — any *other* dirty path still keeps the entry.
 
 ## Waves
 
-### Live (Branch: bug/working-lists-the-live-agents)
+### Live (Branch: bug/working-lists-the-live-agents, PR: #411)
 
 WORKING renders only `LIVE_STATES` entries, importing the set from
 `auto-dispatch.ts` rather than restating it, and its count follows those rows.
