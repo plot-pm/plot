@@ -134,7 +134,7 @@ unnecessary.
 
 ## Waves
 
-### Named (Branch: feature/the-registry-directory-is-configured)
+### Named (Branch: feature/the-registry-directory-is-configured, PR: #420)
 
 The manifest directory is read through `plot-config.sh` with today's path as the
 default, so a board served from any worktree finds the dispatcher's registry.
