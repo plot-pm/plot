@@ -654,6 +654,14 @@ export function AgentList({
           row break (35–36 px rows, `py-2`), and 16 px was not it. */}
       <div data-sections className="space-y-8">
       {(() => { const sectionedRows = rowsBySection(filteredRows);
+        // THE UNFILTERED ROWS, for computing how many each section hides. A
+        // section that says `(3)` while hiding 5 looks complete when it is
+        // not — the spec says a filtered section must say what it withheld.
+        // ONLY COMPUTED WHEN A FILTER IS ACTIVE: when no filter applies, every
+        // row is shown and no section hides anything to report.
+        const unfilteredSectionedRows = sprintFilter.size > 0
+          ? rowsBySection(fleet.rows)
+          : sectionedRows;
         // THE SERVER-DERIVED WAVES, bound once beside the rows so every
         // `waveGroupsFor`/`ungroupedRows` call below asks the same list rather
         // than re-reading `fleet.waves` seven times. `undefined` on a cast
@@ -679,6 +687,15 @@ export function AgentList({
         const rows = key === 'waiting-on-machine'
           ? sectionedRows.filter(inMachineSection)
           : sectionedRows.filter((r) => r.group === key);
+        // HOW MANY ROWS THE FILTER WITHHELD from this section. The spec says
+        // `none` is never the whole answer when rows exist, and a section
+        // showing 13 of 46 looks complete — both cases need the hidden count.
+        // ONLY COMPUTED WHEN A FILTER IS ACTIVE: `unfilteredSectionedRows ===
+        // sectionedRows` otherwise, so `hiddenCount` is zero by construction.
+        const unfilteredRows = key === 'waiting-on-machine'
+          ? unfilteredSectionedRows.filter(inMachineSection)
+          : unfilteredSectionedRows.filter((r) => r.group === key);
+        const hiddenCount = unfilteredRows.length - rows.length;
         // WORKING RENDERS FROM THE REGISTRY, so its body, its count and its fold
         // are the AGENTS, not the branch rows `rows` holds for it. Every other
         // section is untouched: `workingSection` gates only WORKING, and the
@@ -820,9 +837,16 @@ export function AgentList({
         const shownLabel = tallyOf.differ
           ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.waves} wave${tallyOf.waves === 1 ? '' : 's'})`
           : `(${tallyOf.plans})`;
+        // THE HIDDEN SUFFIX. A filtered section says what it withheld, so
+        // `none` is never the whole answer when rows exist and the reader has
+        // forgotten the toggle is on. ONLY PRINTED WHERE HIDING HAPPENED:
+        // printing `0 hidden` on an unfiltered section fails (Done when #5).
+        const hiddenSuffix = hiddenCount > 0
+          ? ` — ${hiddenCount} hidden by Sprint only`
+          : '';
         const tally = (
           <span className="font-normal normal-case tracking-normal text-slate-400 dark:text-slate-600">
-            {countOf + issues.length > 0 ? shownLabel : emptyHint}
+            {countOf + issues.length > 0 ? shownLabel : emptyHint}{hiddenSuffix}
           </span>
         );
         // Whether anything in this section is moving — and at which pace. The
