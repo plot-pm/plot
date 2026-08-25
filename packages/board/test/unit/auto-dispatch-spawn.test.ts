@@ -10,7 +10,7 @@
 // It never runs the real script: a stub `plot-dispatch.sh` records its arguments
 // to a marker file and exits, so no worktree is made and nothing is pushed. The
 // detached spawn is settled for with a short wait.
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -140,6 +140,29 @@ describe('maybeAutoDispatch — the spawn half', () => {
     await settle();
     expect(runs()).toEqual([]);
     expect(next.has('feature/a')).toBe(false);
+  });
+
+  it('names a wip branch it skipped, once per pulse, and dispatches the open one', async () => {
+    // Item 4 of the plan: the refusal that removed the budget must be visible.
+    // Replaying the planner by hand against the pulse JSON is how this defect
+    // was found; nobody should need to. The name is logged AT MOST ONCE per
+    // pulse — a line repeated every 5 s is noise, not a diagnostic.
+    const { opts, runs } = fixture();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const p = pulse([
+      ['2026-07-25-stale.md', 'approved', [wave('W', 'eligible', [['feature/stale', 'wip']])]],
+      ['2026-08-25-fresh.md', 'approved', [wave('W', 'eligible', [['feature/fresh', 'open']])]],
+    ]);
+    maybeAutoDispatch(opts, p, on(1), [], new Set());
+    await settle();
+    // The budget landed on the open branch, not the wip one it skipped.
+    expect(runs()).toEqual(['--max 1 fresh']);
+    const skipLines = log.mock.calls
+      .map((c) => String(c[0]))
+      .filter((line) => line.includes('feature/stale'));
+    expect(skipLines).toHaveLength(1);
+    expect(skipLines[0]).toContain('feature/stale');
+    log.mockRestore();
   });
 
   it('fans out two approved plans, splitting one budget across them', async () => {
