@@ -82,29 +82,6 @@ export function planSlug(file: string): string {
  */
 
 /**
- * Every branch this pulse reports as landed — merged, or deferred by the plan.
- *
- * Built once per call rather than per agent: the pulse is walked in full for a
- * membership test that every entry then asks, and the walk is over waves the
- * scan has already derived.
- *
- * NOTE: This function is kept for backward compatibility but is no longer used
- * by liveAgentCount/liveAgentBranches. A landed branch still holds a machine
- * slot — see bug/a-landed-branch-still-holds-a-slot.
- */
-function landedBranches(pulse: FleetPulse): Set<string> {
-  const landed = new Set<string>();
-  for (const plan of pulse.plans ?? []) {
-    for (const wave of plan.waves ?? []) {
-      for (const b of wave.branches ?? []) {
-        if (b.state === 'merged' || b.deferred) landed.add(b.branch);
-      }
-    }
-  }
-  return landed;
-}
-
-/**
  * How many registry entries occupy a concurrency slot right now.
  *
  * Read from the registry the scan just refreshed, so it is this pulse's liveness
