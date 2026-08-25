@@ -100,8 +100,15 @@ obviously right:
 
 | Candidate | Cost |
 |---|---|
-| `timeout $B bash -c '. "$f"'` | The prompt moves into a subshell, so every `PLOT_*` variable must be exported or `$PLOT_BRANCH` expands empty |
-| A bash watchdog: background sleep + `kill` | No context change, no dependency — but the watchdog is code that must clean up on **every** exit path |
+| `timeout $B bash -c '. "$f"'` | Needs `timeout(1)`, which the next section shows cannot be assumed |
+| A bash watchdog: background sleep + `kill` | No dependency — but the watchdog is code that must clean up on **every** exit path |
+
+**One objection against the subshell turned out to be wrong**, and recording it
+matters because it was the reason the choice looked settled: the prompt's
+variables do NOT expand empty there. `plot-dispatch.sh:1038` sets them as a
+prefix assignment (`PLOT_BRANCH=… PLOT_WORKTREE=… plot-worker-loop.sh`), so they
+are in the environment and survive any subshell. The loop's own `export` at
+lines 120–121 keeps that true after a hop.
 
 The spike answers one question for both: **does the bound survive Ctrl-C, a kill
 of the loop itself, and a child that ignores SIGTERM?** A bound that leaks its
@@ -187,6 +194,24 @@ bash alone, and a timed-out worker exits with its reason in the log instead of
 hopping. **Begins with the spike** above: subshell versus watchdog, decided by
 which survives Ctrl-C, a killed loop, and a child that ignores SIGTERM.
 
+### Reaped (Branch: bug/the-loop-clears-its-manifest)
+
+`plot-worker-loop.sh` removes its manifest on **every** exit path via a `trap`,
+so a worker that ends stops appearing in the registry.
+
+**Measured, and it is why the eleven persisted as rows.** The loop has no `trap`
+at all today: it ends by falling out of `while true` when `--next` exits 1, by
+`break` on a failed `cd`, and — once this plan lands — by timeout. None of those
+removes `$PLOT_MANIFEST_FILE`. The entry then survives until the automatic
+reconciliation clears it, which requires the worktree to be verifiably clean;
+a hung worker's rarely is.
+
+**This changes who owns registry cleanup**, and that is deliberate. Today the
+reconciliation is the only remover, and it is a *sweep* — it answers *which
+entries no longer correspond to anything?* A worker deleting its own manifest as
+it exits answers a different, cheaper question: *I am leaving.* The sweep stays;
+it is what catches a worker that was killed outright and never ran its trap.
+
 ### Counted (Branch: bug/a-landed-branch-still-holds-a-slot)
 
 `liveAgentCount` counts every live agent, landed or not, so auto-dispatch cannot
@@ -214,14 +239,21 @@ start work beside workers that have not exited.
    This is the assertion the spike exists to inform, and the one a naive
    implementation fails — a bound that outlives its worker is a new leak in the
    fix for a leak.
-7. `liveAgentCount` counts a live agent whose branch has landed. Asserted
+7. **The manifest is gone after every exit path** — normal end, `break`, and
+   timeout — asserted for each separately. The three paths are separate `exit`s
+   today, so a `trap` on only one of them passes a single-case test and leaves
+   the defect.
+8. **A worker killed with SIGKILL still leaves its manifest**, and the
+   reconciliation still clears it. This is the assertion that keeps the sweep:
+   a trap cannot run on SIGKILL, so the cheap path must not become the only one.
+9. `liveAgentCount` counts a live agent whose branch has landed. Asserted
    directly, since this is the line that let the fleet reach 13 against a cap
    of 3.
-8. **`liveAgentBranches` names exactly the agents `liveAgentCount` counted.**
+10. **`liveAgentBranches` names exactly the agents `liveAgentCount` counted.**
    The two must not diverge — the refusal message explains the number.
-9. Auto-dispatch refuses to start while live agents ≥ cap, whatever their
+11. Auto-dispatch refuses to start while live agents ≥ cap, whatever their
    branches' merge state.
-10. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+12. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 
