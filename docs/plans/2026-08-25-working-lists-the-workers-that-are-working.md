@@ -343,7 +343,7 @@ abandoned work in the first case, an unanswerable question in the second. Five
 and seven entries respectively today, against ten rows that section shows under
 `Sprint only`.
 
-### Dropped (Branch: feature/an-agent-row-can-be-dropped)
+### Dropped (Branch: feature/an-agent-row-can-be-dropped, PR: #416)
 
 A row states why its entry survives reconciliation, and offers `Drop this
 agent` where the session has ended — the registry entry only, refusing a
