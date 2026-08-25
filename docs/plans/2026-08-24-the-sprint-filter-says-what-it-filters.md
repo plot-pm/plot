@@ -17,6 +17,7 @@
 - **Started:** 2026-08-24, Jan Wloka, `bug/the-agents-tab-filters-on-membership`
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-sprint-control-names-its-state`
 - **Started:** 2026-08-24, Jan Wloka, `feature/a-sprint-counts-every-member`
+- **Started:** 2026-08-25, Jan Wloka, `feature/the-filter-shows-what-it-excludes`
 
 ## Changelog
 
