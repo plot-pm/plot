@@ -6,7 +6,7 @@
 
 - **Phase:** Delivered
 - **Type:** feature
-- **Sprint:** <!-- optional -->
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
