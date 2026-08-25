@@ -14,6 +14,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-25, Jan Wloka, `feature/the-registry-directory-is-configured`
+- **Started:** 2026-08-25, Jan Wloka, `bug/the-drop-writes-where-the-registry-reads`
 
 ## Changelog
 
