@@ -152,8 +152,27 @@ The twelve that remain are held by **one tracked test fixture**,
 every board suite rewrites. #407's scratch filter names `.playwright-mcp`,
 `.plot/agents` and `.omc/state` but not this path, so a worker that did nothing
 but run its tests keeps a permanently dirty worktree and is never dropped.
-Measured: **8 of 15 dirty worktrees are blocked by that path alone**. Reported
-on the PR (#407 comment) rather than blocking its merge.
+Reported on the PR (#407 comment) rather than blocking its merge.
+
+**Re-measured 2026-08-25 against the sixteen entries the board actually holds,
+and the first number was the wrong population.** Counting *dirty worktrees in
+the repo* gave 8 of 15; counting *registry entries that fail to reconcile* gives
+a different and more useful split:
+
+| why the entry stays | count |
+|---|---|
+| worktree clean, but state is not provably ended | **13** |
+| worktree dirty with the fixture alone | 4 |
+
+So the fixture blocks four, not eight — and the larger cause is something else
+entirely. `dropSettledWorkers` keeps an entry unless the session has **ended**,
+and `unknown` is precisely *not provably ended*: the pid is gone, no exit code
+was recorded, and inventing "finished" from that is the guess the function
+refuses to make. Thirteen clean worktrees sit behind that refusal.
+
+That refusal is right, and it is the strongest argument for Wave `Live`: the
+registry cannot become clean by reasoning alone, so the SECTION must not depend
+on it being clean.
 
 **Draining faster is not the fix, though — it is a second fix.** Even a
 perfectly reconciled registry answers *which sessions exist*, and WORKING asks
@@ -215,10 +234,22 @@ section's subject.
 ### Scratch (Branch: bug/the-scratch-filter-knows-the-fixture)
 
 `PLOT_TOOL_SCRATCH` names the tiny-garden pulse fixture, so a worker that only
-ran the test suite reconciles like any other.
+ran the test suite reconciles like any other. Four entries here, not the eight
+an earlier count claimed — see the re-measurement above. Kept as its own wave
+because those four are genuinely stuck on a filter gap, and because the fix is
+one line in a place the other two waves do not touch.
 
 ## Done when
 
+0. A `stalled` entry appears in **WAITING ON YOU** — confirmed as the
+   destination during interrogation, over QUIET and over a new `STALLED`
+   section. The reasoning: WAITING ON YOU means *you cannot proceed without a
+   person*, which is exactly what a worker stopped with uncommitted work is.
+   QUIET asks *still thinking, or dead?* — a question this entry has already
+   answered. A seventh section would grow the domain model to name a state the
+   existing six already have a home for. The cost accepted: WAITING ON YOU then
+   holds PRs and agents together, which is a mixture of row kinds rather than a
+   mixture of subjects — the subject stays *needs you*.
 1. With a registry holding entries in all five states, WORKING renders exactly
    the `running` and `waiting` ones, and the header equals that number.
    Asserted over the whole `AgentStateSchema` enum, with its size pinned — a
