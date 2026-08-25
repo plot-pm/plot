@@ -69,6 +69,16 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     ready: true,
     error: null,
     rows,
+    // WORKING renders from the registry since
+    // `the-working-section-shows-every-worker`, so a WORKING row appears only
+    // where an agent names its branch.
+    agents: rows
+      .filter((r) => r.group === 'working')
+      .map((r) => ({
+        session: `s-${r.branch}`, branch: r.branch, worktree: `/wt/plot-wt-${r.branch}`,
+        command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0,
+        state: 'running' as const,
+      })),
     summary: {
       plans: 2, waves: 2, branches: rows.length,
       claimed: 0, eligible: 1, blocked: 0, deferred: 0,
@@ -316,8 +326,10 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       const box = await branch.boundingBox();
       expect(box?.width ?? 0).toBeGreaterThan(0);
       expect(box?.height ?? 0).toBeGreaterThan(0);
-      // And the text itself is not blanked or replaced.
-      expect(await page.getByText('last commit 3 min ago').first().count()).toBe(1);
+      // And the text itself is not blanked or replaced. `beans-a` is a WORKING
+      // row, which renders from the registry now — its worker's status is the
+      // line a reader keeps, where a branch row would show its commit note.
+      expect(await page.getByText('someone is on it').first().count()).toBe(1);
     } finally {
       await page.close();
     }

@@ -808,6 +808,36 @@ export function workerStatus(worker: AgentRow['worker']): string {
 }
 
 /**
+ * The display word for an agent's registry state.
+ *
+ * All FIVE registry states render with their own labels — the plan
+ * `the-working-section-shows-every-worker` settles that. `running` is the
+ * only state that says *someone is on it*; an idle, stalled, finished or
+ * unrecognised worker says its own condition plainly, because a row whose
+ * usual state is a lie teaches its reader to ignore the row.
+ *
+ * This differs from `workerStatus`, which reads a ROW's `worker` field —
+ * that field carries what the scan saw *on the branch*, while this reads
+ * what the registry saw *in the worktree*. The registry's vocabulary is
+ * the five-way enum; the row's is the seven-way one with `failed` and
+ * `ended`.
+ *
+ * @param state The agent registry state — `running`, `waiting`, `stalled`,
+ *              `finished`, or `unknown`.
+ * @returns The status word to display in the WORKING section row.
+ */
+export function agentStateStatus(state: AgentEntry['state']): string {
+  switch (state) {
+    case 'running': return 'someone is on it';
+    case 'waiting': return 'waiting on you';
+    case 'stalled': return 'stalled';
+    case 'finished': return 'finished';
+    case 'unknown': return 'unknown';
+    default: return '';
+  }
+}
+
+/**
  * The version a release row is about, or "" — read from the branch, never
  * invented.
  *

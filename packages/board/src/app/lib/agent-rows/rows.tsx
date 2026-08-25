@@ -14,7 +14,7 @@ import {
   isSpikeWave,
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
-import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText } from '../tuple-row.js';
+import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
 import { TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus } from './stuck.js';
@@ -1979,6 +1979,268 @@ export function Row({
         </>
       }
     />
+  );
+}
+
+/**
+ * A registry entry rendered as a WORKING row, joined to a branch row where one
+ * exists.
+ *
+ * THE WORKING SECTION RENDERS FROM THE REGISTRY —
+ * `the-working-section-shows-every-worker`, wave 1 (Shown). Every agent in
+ * `fleet.agents` gets a row whether or not a branch row exists for it, because a
+ * worker in a worktree is a fact about the FLEET while its branch's state is a
+ * fact about the WORK, and the section used to derive the first from the second.
+ *
+ * ## Two shapes, one status word
+ *
+ * **Where a branch row exists** the tuple is `tupleFromRow(row, agent)` — the
+ * SAME projection the branch's own row uses, so the worker row carries what that
+ * row knows (plan, wave, PR) by the join used everywhere else. A merged branch's
+ * row still sits in DONE; this one joins to it and renders in WORKING, and both
+ * are true at once.
+ *
+ * **Where none exists** — `main`, a `…-recut` scratch branch, a branch no plan
+ * lists — the tuple states only what the REGISTRY knows: the worktree and the
+ * branch. *Absent is not false*: it says nothing about a plan it cannot name
+ * rather than inventing an empty field.
+ *
+ * In BOTH shapes the status comes from `agent.state`, not from the row's
+ * `worker` field. `tupleFromRow` reads `worker` (the scan's view of the BRANCH);
+ * the registry's five-way state is the view of the WORKTREE, and it is the one
+ * that narrows `someone is on it` to a genuinely running worker. A row whose
+ * usual state is a lie teaches its reader to ignore it, so an idle, stalled,
+ * finished or unknown worker each says its own condition — Done when #5.
+ *
+ * The wave name a running worker's row will carry is a SEPARATE wave (`Named`);
+ * here the wave arrives only as whatever a joined branch row already carries.
+ */
+export function RegistryRow({
+  agent,
+  row = null,
+  onOpenPlan,
+  card = null,
+  dispatch,
+  continueWith,
+  pulse = 0,
+  onStarting,
+  marked = false,
+  active = false,
+  onRevealBranch,
+  highlighted = false,
+}: {
+  /** The agent registry entry — the source of truth for a WORKING row. */
+  agent: AgentEntry;
+  /**
+   * The branch row this agent holds, if one exists in `fleet.rows`. Joined by
+   * the caller on `agent.branch === row.branch`; null where the pulse names no
+   * row for the branch — the case a branch-join fix silently misses.
+   */
+  row?: AgentRow | null;
+  onOpenPlan?: AgentListProps['onOpenPlan'];
+  /** This row's plan as a board card, or null where the board has none. */
+  card?: Card | null;
+  /** Whether this server will act on dispatch. */
+  dispatch?: DispatchInfo;
+  /** Whether this server will act on Continue with an answer. */
+  continueWith?: DispatchInfo;
+  /** The pulse counter. */
+  pulse?: number;
+  /** A click is outstanding (true) or has settled (false). */
+  onStarting?: (active: boolean) => void;
+  /** This row's status changed within the last `CHANGE_MARK_MS`. */
+  marked?: boolean;
+  /** Something is being written to this row. */
+  active?: boolean;
+  /** Reveal a branch's row — forwarded to the agent panel. */
+  onRevealBranch?: AgentListProps['onRevealBranch'];
+  /** This row is the branch just revealed from an agent panel. */
+  highlighted?: boolean;
+}) {
+  const [logOpen, setLogOpen] = useState(false);
+
+  // THE STATUS IS THE REGISTRY'S, always. `agent.state` is the worktree's
+  // liveness — the fact that narrows `someone is on it` to a running worker —
+  // where the row's `worker` field is the scan's view of the branch. This is
+  // the whole point of rendering from the registry, so it overrides whatever a
+  // joined row's projection would otherwise say.
+  const status = agentStateStatus(agent.state);
+
+  // AN AGENT ACTS, IT DOES NOT CHANGE — so the age is not *since last change*
+  // but two labelled clocks: how long this run has been going, and how long it
+  // has been silent. `startedAt` is a launch fact; `lastActivity` is read from
+  // the transcript and optional. Both measured against now, the same clock the
+  // agent panel's `agoLabel` uses.
+  const sessionSeconds = agent.startedAt
+    ? Math.floor((Date.now() - new Date(agent.startedAt).getTime()) / 1000)
+    : null;
+  const sessionText = sessionSeconds !== null ? tupleAgeText(Math.floor(sessionSeconds / 60)) : '';
+  const idleSeconds = agent.lastActivity
+    ? Math.floor((Date.now() - new Date(agent.lastActivity).getTime()) / 1000)
+    : null;
+  const idleText = idleSeconds !== null ? tupleAgeText(Math.floor(idleSeconds / 60)) : '';
+  // THE SESSION CLOCKS WHERE THE REGISTRY HAS THEM, else the row's own age. An
+  // agent acts rather than changes, so its clocks are *how long has it run* and
+  // *how long silent* — but both are optional (a manifest with no `startedAt`,
+  // a transcript this board cannot read), and a blank age slot says less than
+  // the branch's commit age a joined row already carries. So the registry
+  // clocks REPLACE the row's age only when there is one to show; absent, the
+  // base tuple's age stands.
+  const sessionAge = sessionText
+    ? {
+        text: [sessionText, idleText && `idle ${idleText}`].filter(Boolean).join(' · '),
+        label: 'session',
+      }
+    : null;
+
+  // THE NAME IS THE SESSION ID, shortened, with no href — the transcript is a
+  // local file the ROW opens, not an address. Where the entry has no session
+  // (a synthesized worktree with no manifest) the branch names the row instead,
+  // and where it has neither the worktree does.
+  const name = agent.session
+    ? { what: 'ticket' as const, label: shortSessionId(agent.session), href: '' }
+    : agent.branch
+      ? { what: 'branch' as const, label: agent.branch, href: row?.branchUrl ?? '' }
+      : { what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' };
+
+  // THE JOINED SHAPE reuses the branch row's own projection, but as an AGENT:
+  // the WORKING row's subject is the worker, not the branch. `tupleFromRow`
+  // routes on `row.kind`, and a worker's branch row is `kind: 'branch'` (the
+  // server tags no row `agent` — this row is the first producer), so forcing
+  // the kind is what selects the agent arm: the session id as the name, and
+  // worktree → branch → wave → plan as the artifact links. Everything the branch
+  // knows still comes through the same projection; only the subject changes. The
+  // UNJOINED shape states only the registry's facts — worktree then branch.
+  const base = row
+    ? tupleFromRow({ ...row, kind: 'agent' }, agent)
+    : {
+        kind: 'agent' as const,
+        kindLabel: KIND_LABEL.agent,
+        name,
+        links: [
+          ...(agent.worktree
+            ? [{ what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' }]
+            : []),
+          ...(agent.branch
+            ? [{ what: 'branch' as const, label: agent.branch, href: '' }]
+            : []),
+        ],
+        status: '',
+        age: { text: '', label: '' },
+      };
+  // ABSENT IS NOT FALSE, applied to the wave. `tupleFromRow`'s agent arm carries
+  // `row.wave` straight through, so an UNNAMED wave — the absence of a division,
+  // which the server spells `(unnamed)` for a plan with no `### ` headings —
+  // would render a `(unnamed)` link beside the branch. A parenthesised non-answer
+  // is worse than nothing, the same rule `waveLabel` applies to a branch's wave
+  // badge, so it is dropped here rather than shown.
+  const links = base.links.filter((l) => !(l.what === 'wave' && l.label === UNNAMED_WAVE));
+  const tuple = { ...base, links, status, ...(sessionAge ? { age: sessionAge } : {}) };
+
+  // THE BRANCH'S NOTE, where a branch row carries one — *last commit 3 min ago*,
+  // *claimed, no known worker*. It is a sentence the status word cannot hold, and
+  // it is the channel that survives reduced motion and a screen reader; a worker
+  // with no branch row has none. The PR's own condition is dropped from it, the
+  // same `noteWithoutPr` the branch row applies.
+  const note = row ? noteWithoutPr(row.note, row.pr) : '';
+
+  return (
+    <>
+      <TupleRowView
+        tuple={tuple}
+        onOpenPlan={onOpenPlan}
+        // THE NAME OPENS THE PANEL — the session has no address, so the name is
+        // text and this makes it the control, the same as a branch agent row.
+        // Only where there is a branch to look a worktree up by: the panel keys
+        // its log on the branch, and a between-branches agent has none.
+        onNameClick={agent.session && agent.branch ? () => setLogOpen(true) : undefined}
+        // The scroll target the agent panel's BRANCH fact aims at, keyed on the
+        // branch like the branch agent row's — so a reveal lands on whichever of
+        // the two rows the branch has.
+        id={agent.branch ? `agent-row-${agent.branch}` : undefined}
+        rowAttr={{
+          'data-agent-row': '',
+          // THE WAVE HOOK, so a blocker being WORKED ON stays reachable.
+          //
+          // `BlockedByMark` scrolls to `[data-wave-list="<plan>"]
+          // [data-wave-row="<wave>"]`. A blocker that has not completed sits in
+          // WORKING with a live worker — exactly the case a reader needs, since
+          // that is where attention has to go. WORKING used to render wave rows
+          // and carried this attribute; the registry keying replaced them with
+          // agent rows and took it away, so the query matched nothing and the
+          // mark went dead. Measured 2026-08-25: `agents-tab` › *reveals a
+          // blocker that is being WORKED on right now*, 0 matches.
+          //
+          // The row is an AGENT and still says so. Carrying the wave hook too
+          // does not make it a wave row — it makes the wave it is working on
+          // addressable. A row with no branch, or whose branch belongs to no
+          // wave, carries neither: absent is not empty.
+          ...(row?.wave ? { 'data-wave-row': row.wave } : {}),
+        }}
+        iconTone={
+          agent.state === 'stalled' ? 'error'
+            : agent.state === 'waiting' ? 'warn'
+              : agent.state === 'finished' ? 'success'
+                : undefined
+        }
+        // THE SAME MARKS THE BRANCH AGENT ROW DRAWS, and by the same rules — a
+        // travelling dot whose PACE reads the worktree (`activityPace`: fast
+        // while a lock is held or files are dirty, slow while a claimed worker
+        // only thinks), and the unpushed mark beside it where the branch holds
+        // commits its remote has not seen. Both read the JOINED row's local
+        // signals, so a worker with no branch row (nothing to observe locally)
+        // shows neither.
+        marks={
+          <>
+            {active && row && <ActivityMark pace={activityPace(row)} inTrack />}
+            {row && isUnpushed(row) && <UnpushedMark ahead={row.localAhead} inTrack />}
+          </>
+        }
+        extra={marked ? <ChangeMark /> : null}
+        // THE BRANCH'S NOTE IN SLOT 4, the sentence a status word cannot say —
+        // the same placement and tone the branch row gives it. A worker with no
+        // branch row has no note, and the slot stays empty.
+        aside={
+          note ? (
+            <span
+              data-row-note
+              data-waiting-on={row?.waitingOn ?? undefined}
+              className={`min-w-0 truncate max-sm:whitespace-normal ${waitingTone(row?.waitingOn ?? null)}`}
+              title={note}
+            >
+              {note}
+            </span>
+          ) : null
+        }
+        // THE MENU IS THE BRANCH'S, where a branch row exists to carry it: its
+        // log, its dispatch, its reveal. A worker with no row has no branch
+        // record to act on, so it offers none.
+        menu={
+          row ? (
+            <BranchMenu
+              row={row}
+              card={card ?? null}
+              dispatch={dispatch}
+              pulse={pulse}
+              onStarting={onStarting}
+              continueWith={continueWith}
+              onOpenPlan={onOpenPlan}
+              onRevealBranch={onRevealBranch}
+            />
+          ) : null
+        }
+        highlighted={highlighted}
+      />
+      {logOpen && (
+        <WorkerLogModal
+          branch={agent.branch}
+          onClose={() => setLogOpen(false)}
+          canContinue={continueWith}
+          onOpenPlan={onOpenPlan ? (planFile) => void onOpenPlan(planFile) : undefined}
+          onRevealBranch={onRevealBranch}
+        />
+      )}
+    </>
   );
 }
 

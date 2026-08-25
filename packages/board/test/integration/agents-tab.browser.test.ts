@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startServer, expandAgentFolds } from '../helpers.mjs';
-import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Wave } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type Wave } from '../../src/contract/schema.js';
 
 /**
  * The Agents tab, driven in a REAL browser against the shipped artifact.
@@ -29,6 +29,19 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   // Default: wip state → someone-is-on-it. Startable rows override to start-work.
   startability: 'someone-is-on-it' as const,
   ...over,
+});
+
+/**
+ * A registry entry, the source of a WORKING row since
+ * `the-working-section-shows-every-worker`. WORKING renders one row per
+ * REGISTRY entry, joined to a branch row by `branch`; a WORKING branch that
+ * names no agent no longer renders, so every branch this fixture puts in
+ * `working` needs an entry here for its row to appear.
+ */
+const agent = (over: Partial<AgentEntry> = {}): AgentEntry => ({
+  session: 'sess0000', branch: 'feature/x', worktree: '/wt/plot-wt-x',
+  command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0,
+  state: 'running', ...over,
 });
 
 /** A pulse carrying the cases the plan's *Done when* list names. */
@@ -124,12 +137,26 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
       startability: 'start-work' as const,
     }),
   ];
+  // WORKING RENDERS FROM THE REGISTRY — one row per agent, joined to its branch
+  // row. So a fixture's WORKING branches each need an entry, and a fixture with
+  // none needs none. DERIVED FROM THE FINAL ROWS (after `over`) rather than
+  // hand-listed, so a test that reroutes the working rows to another section, or
+  // supplies its own row set, gets exactly the agents its rows imply — no
+  // hand-listed set leaks a beans agent into a fixture that never mentions it.
+  //
+  // An explicit `over.agents` wins, for the fixtures that need a specific
+  // session id or order (`waveFleet`); everything else takes the derivation.
+  const finalRows = (over.rows ?? rows);
+  const agents: AgentEntry[] = over.agents ?? finalRows
+    .filter((r) => r.group === 'working')
+    .map((r) => agent({ session: `s-${r.branch}`, branch: r.branch }));
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds: 1,
     ready: true,
     error: null,
     rows,
+    agents,
     summary: {
       plans: 3, waves: 3, branches: rows.length,
       claimed: 0, eligible: 1, blocked: 0, deferred: 0,
@@ -1609,7 +1636,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const still = await openAgentsReducedMotion();
     try {
       const li = rowFor(still, 'feature/beans-a');
-      await expect.poll(() => li.textContent()).toContain('last commit 3 min ago');
+      // WORKING RENDERS THE AGENT NOW, so the information the motion decorates is
+      // the worker's status and its plan — not the branch's last-commit note,
+      // which is a branch row's. The claim is unchanged: what a moving row says,
+      // a still one says too. `someone is on it` is the running worker's word.
+      await expect.poll(() => li.textContent()).toContain('someone is on it');
       expect(await li.textContent()).toContain('beans');
       // 200 minutes → 3h, the same age the moving row shows. Read from the AGE
       // SLOT by its own hook rather than from `span:last` — the row's last span
@@ -2648,6 +2679,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    */
   function waveFleet(): Fleet {
     return fleet({
+      // WORKING renders from the registry, so its own WORKING branches — the
+      // ones this fixture asserts about — need entries, and the inherited
+      // beans/toms agents must NOT leak in (their branches are not in these
+      // rows). One entry per branch this fixture places in `working`.
+      agents: [
+        agent({ session: 'trutha01', branch: 'feature/truth-a' }),
+        agent({ session: 'flata001', branch: 'feature/flat-a' }),
+        agent({ session: 'plaina01', branch: 'feature/plain-a' }),
+        agent({ session: 'plainb02', branch: 'feature/plain-b' }),
+      ],
       rows: [
         // Multi-wave plan `layered`: wave Truth (working) and wave Fold (two
         // not-started branches). Two waves, three branches, two sections.
@@ -2690,7 +2731,15 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(waveFleet());
     try {
       const truth = rowFor(page, 'feature/truth-a');       // WORKING
-      await expect.poll(() => truth.locator('[data-wave]').textContent()).toBe('Truth');
+      // WORKING RENDERS THE AGENT, NOT THE BRANCH, since
+      // `the-working-section-shows-every-worker`. `truth-a`'s WORKING row is now
+      // its worker's row, joined to the branch row, and it carries the wave as
+      // an artifact LINK (`data-wave-link`) rather than the branch-cell BADGE
+      // (`data-wave`) a branch row draws. The reachability the badge existed for
+      // survives whole — the wave is beside the branch either way — and the
+      // running worker's row NAMING its wave as its own subject is a later wave
+      // (`Named`). So the WORKING half of this claim checks the link.
+      await expect.poll(() => truth.locator('[data-wave-link]').getAttribute('data-wave-link')).toBe('Truth');
       // IN NOT STARTED THE WAVE IS A ROW, not a badge — and the branch is
       // reachable under it. Measured: `fold-a` renders with zero `[data-wave]`
       // badges, and that is the design rather than a loss.
@@ -2713,13 +2762,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         // rule that drops a grouped row's plan link.
         expect(await li.locator('[data-wave]').count(), `${b} repeats its wave`).toBe(0);
       }
-      // IN THE BRANCH CELL, not in slot 2 — the whole point of the move, and the
-      // assertion that fails if the badge is rendered in the old place.
-      const branchCell = truth.locator('[role="gridcell"]').nth(BRANCH_CELL);
-      expect(await branchCell.locator('[data-wave]').count()).toBe(1);
-      // And slot 2 holds the KIND, not the wave and not a phase.
+      // THE WAVE LINK RIDES IN SLOT 4, the agent row's artifact slot — reachable
+      // beside the branch, the whole point of the move. And slot 2 holds the
+      // KIND, not the wave and not a phase.
       const kindCell = truth.locator('[role="gridcell"]').nth(KIND_CELL);
-      expect(await kindCell.locator('[data-wave]').count()).toBe(0);
+      expect(await kindCell.locator('[data-wave-link], [data-wave]').count()).toBe(0);
       expect(await kindCell.locator('[data-kind]').count()).toBe(1);
       expect(await truth.locator('[data-phase]').count()).toBe(0);
     } finally {
@@ -2739,7 +2786,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(waveFleet());
     try {
       const flat = rowFor(page, 'feature/flat-a');
-      await expect.poll(() => flat.locator('[data-wave]').textContent()).toBe('Layout');
+      // `flat-a` is a WORKING row, so its worker's row carries the wave as an
+      // artifact LINK now — the branch-cell badge is a branch row's, and WORKING
+      // renders the agent. The named single wave still prints; the count gate
+      // that suppressed it is gone. (`data-wave-link`, not `data-wave`.)
+      await expect.poll(() => flat.locator('[data-wave-link]').getAttribute('data-wave-link')).toBe('Layout');
     } finally {
       await page.close();
     }

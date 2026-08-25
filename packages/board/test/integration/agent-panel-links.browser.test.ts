@@ -39,6 +39,16 @@ function fleet(rows: AgentRow[]): Fleet {
     generatedAt: new Date().toISOString(),
     ageSeconds: 1, readRef: 'abc', readRefAge: 1, localHead: 'abc',
     ready: true, error: null, shrink: null, rows,
+    // WORKING renders from the registry since
+    // `the-working-section-shows-every-worker`, so the worker row this suite
+    // opens the panel from appears only where an agent names the branch.
+    agents: rows
+      .filter((r) => r.group === 'working')
+      .map((r) => ({
+        session: `s-${r.branch}`, branch: r.branch, worktree: '/tmp/wt',
+        command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0,
+        state: 'running' as const,
+      })),
     summary: {
       plans: 1, waves: 1, branches: rows.length,
       claimed: rows.length, eligible: 0, blocked: 0, deferred: 0,

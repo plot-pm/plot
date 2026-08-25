@@ -137,6 +137,29 @@ async function slotsOf(page: Page, wave: string) {
 }
 
 describe('a wave row is a wave row in every section', () => {
+  // WHAT THIS FILE CLAIMS, AND WHAT IT STOPPED CLAIMING ON 2026-08-25.
+  //
+  // It was written for `a-wave-row-is-a-wave-row-everywhere` (#392), and its
+  // subject was WORKING: a wave rendered there through `<Row>` as a BRANCH row,
+  // so the same wave read as a wave in NOT STARTED and as a branch here.
+  //
+  // `the-working-section-shows-every-worker` (#398) then re-keyed WORKING on the
+  // REGISTRY: one row per live agent, because a worker rendered as a property of
+  // its branch is invisible whenever its branch has no row — measured at 23
+  // registry entries against 0 rows in WORKING, with 6 agents whose branch the
+  // pulse never produced.
+  //
+  // The two cannot both hold, and the operator chose the registry. So the claim
+  // *the WORKING row is a wave row* is RETIRED, and the three claims that do not
+  // depend on WORKING's keying are kept and still asserted:
+  //
+  //   - a wave row in NOT STARTED renders as a wave, with its own name in slot 3
+  //   - the worker's facts (status, pid note) reach the row that represents it
+  //   - WORKING carries NO plan head — it orders by agent, never by plan
+  //
+  // Retiring the first without keeping these three would drop live regression
+  // cover along with the obsolete assertion. `working-shows-every-agent.browser
+  // .test.ts` owns what WORKING renders now; this file owns what survived.
   let browser: Browser;
   let server: { kill: () => void; port: number };
   let baseURL: string;
@@ -164,89 +187,58 @@ describe('a wave row is a wave row in every section', () => {
     return page;
   }
 
-  it('renders the WORKING row as a wave row, not a branch row', async () => {
+  it('renders a wave row as a wave in NOT STARTED — its own name in slot 3', async () => {
     const page = await open();
     try {
-      // THE ROW EXISTS AS A WAVE ROW. Before the fix the WORKING wave rendered
-      // through `<Row>` and carried `data-agent-row`/`data-tuple-kind="wave"`
-      // but no `data-wave-row`, so the section had no wave list at all.
-      const working = page.locator(`[data-wave-row="${WORKING_WAVE}"]`);
-      await expect.poll(() => working.count()).toBe(1);
-      expect(await working.getAttribute('data-tuple-kind')).toBe('wave');
+      // THE SURVIVING HALF OF #392's FIRST CLAIM. WORKING no longer renders wave
+      // rows at all, but a wave in a wave-grouped section still must: the defect
+      // #392 fixed was a wave rendering through `<Row>` and losing its name to a
+      // badge, and NOT STARTED is where that is still observable.
+      const ns = page.locator(`[data-wave-row="${NOT_STARTED_WAVE}"]`);
+      await expect.poll(() => ns.count()).toBe(1);
+      expect(await ns.getAttribute('data-tuple-kind')).toBe('wave');
+
+      const slots = await slotsOf(page, NOT_STARTED_WAVE);
+      // Slot 2 is the kind. The label is `Wave`, uppercased by CSS, and
+      // `.innerText` honours the transform while the attribute does not.
+      expect(slots.kindLabel).toBe('wave');
+      expect(slots.kindLabelText).toBe('WAVE');
+      // Slot 3 leads with the wave's OWN NAME — asserted BY NAME, because
+      // "not the branch name" also passes on an empty slot.
+      expect(slots.name).toBe(NOT_STARTED_WAVE);
     } finally {
       await page.close();
     }
   });
 
-  it('fills the same slots in WORKING as a wave row does in NOT STARTED', async () => {
-    const page = await open();
-    try {
-      const working = await slotsOf(page, WORKING_WAVE);
-      const notStarted = await slotsOf(page, NOT_STARTED_WAVE);
-
-      // SLOT 2 — the kind, `WAVE`, identical in both sections. The source label
-      // is `Wave` (`KIND_LABEL.wave`), and the cell wears `text-transform:
-      // uppercase`, so `.innerText` — which honours CSS transforms — reads back
-      // `WAVE`. The hook attribute carries the untransformed kind. Asserted in
-      // both sections AND for equality between them, so the kind cannot read one
-      // way in WORKING and another in NOT STARTED.
-      expect(working.kindLabel).toBe('wave');
-      expect(working.kindLabelText).toBe('WAVE');
-      expect(working.kindLabel).toBe(notStarted.kindLabel);
-      expect(working.kindLabelText).toBe(notStarted.kindLabelText);
-
-      // SLOT 3 — the wave's OWN NAME leads, asserted BY NAME (items 1, 1b). Not
-      // "not the branch name" — that passes on an empty slot; the name itself.
-      expect(working.name).toBe(WORKING_WAVE);
-      expect(notStarted.name).toBe(NOT_STARTED_WAVE);
-      // The branch name is NOT in slot 3 — it is demoted there today.
-      expect(working.name).not.toBe(WORKING_BRANCH);
-      // Same PROJECTION for the name in both sections — a wave's name is a text
-      // `plan` link wherever it renders.
-      expect(working.nameAttr).toBe(notStarted.nameAttr);
-
-      // SLOT 4 — the branch (and its plan) travel together, beside the name,
-      // exactly as a NOT STARTED wave of one carries them. The branch is asserted
-      // BY VALUE (`data-branch`) rather than by rendered text, since `BranchLabel`
-      // folds the name into aria-hidden, truncated halves.
-      expect(working.linkWhats).toContain('branch');
-      expect(working.linkBranches).toContain(WORKING_BRANCH);
-      expect(notStarted.linkWhats).toContain('branch');
-    } finally {
-      await page.close();
-    }
-  });
-
-  it('keeps the worker facts on the WORKING wave row (item 3)', async () => {
-    const page = await open();
-    try {
-      const working = await slotsOf(page, WORKING_WAVE);
-      // A LIVE WORKER BECOMES THE STATUS — `soleRowStatus` returns `working` for
-      // a running worker on a non-finished row. The wave keeps its identity and
-      // the worker becomes what slot 5 says.
-      expect(working.status).toContain('working');
-      // The pid note survives on the row — the wave of one inherits its branch's
-      // note, so `worker running (pid …)` is not lost.
-      expect(working.rowText).toContain(WORKER_PID_NOTE);
-    } finally {
-      await page.close();
-    }
-  });
+  // THE WORKER-FACTS CLAIM MOVED, rather than being deleted.
+  //
+  // #392 asserted it here on a WAVE row: a live worker becomes the status, and
+  // `worker running (pid …)` survives onto the row. Under the registry keying
+  // WORKING renders from `fleet.agents`, and this file's fixture supplies no
+  // registry — so the section is empty here and the assertion would be testing
+  // its own fixture, not the board. Tried it: the section's innerText read back
+  // as the column headers plus `none`.
+  //
+  // `working-shows-every-agent.browser.test.ts` asserts it with a real registry
+  // (`reads *someone is on it* only for a running worker`), which is where the
+  // claim can actually be observed. Duplicating it here against an empty section
+  // would be a test that passes for the wrong reason, or fails for one.
 
   it('shows NO plan head in WORKING (item 2) — it still orders by agent', async () => {
     const page = await open();
     try {
-      // WORKING never groups by plan (`waveGroupsFor` returns [] for it), so no
-      // `PlanRow` heads it — `data-tuple-kind="plan"` and the plan-actions menu
-      // are both absent from the section. A fix that started grouping WORKING to
-      // make the wave render would fail here. The section's grid is scoped by its
-      // `aria-label`, the hook `AgentList` gives each group's `<ul role="grid">`.
+      // UNCHANGED BY THE RE-KEYING, and the reason it is kept verbatim: both
+      // designs agree WORKING never groups by plan. Under #392 that held because
+      // `waveGroupsFor` returns [] for the section; under #398 it holds because
+      // the rows are agents, which no plan heads. A fix that started grouping
+      // WORKING — for either design — fails here.
       const workingGrid = page.locator('ul[role="grid"][aria-label="Working — agent branches"]');
       await expect.poll(() => workingGrid.count()).toBe(1);
       expect(await workingGrid.locator('li[data-tuple-kind="plan"]').count()).toBe(0);
       expect(await workingGrid.locator('[data-plan-actions]').count()).toBe(0);
-      // And the wave row IS in this section — the scope is proven non-vacuous.
-      expect(await workingGrid.locator(`[data-wave-row="${WORKING_WAVE}"]`).count()).toBe(1);
+      // NON-VACUOUS: the section has rows, so the two zeroes above mean something.
+      expect(await workingGrid.locator('li').count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }
