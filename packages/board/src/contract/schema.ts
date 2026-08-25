@@ -3219,6 +3219,20 @@ export const FleetSchema = z.object({
    * 2026-08-22.
    */
   sprints: z.array(FleetSprintSchema).default([]),
+  /**
+   * Estate-wide counts over ALL plans, the same three buckets the sprint counts
+   * use. Shown in the sprint control when the filter is OFF, so a reader sees
+   * the effect of turning it on: "21 members" versus "112 plans".
+   *
+   * Computed by the same derivation as the sprint counts (`open + wip + done =
+   * total`), which is the plan's requirement — one derivation, two scopes, so
+   * the numbers cannot disagree about what a bucket means.
+   *
+   * Defaults to zeroes so a payload from an older server still validates, and
+   * zeroes beside `ready: false` read as *nothing measured yet* rather than
+   * *an empty estate*. The same rule the stuck counts already follow.
+   */
+  estateTotals: SprintCountsSchema.default({ total: 0, open: 0, wip: 0, done: 0 }),
 });
 export type Fleet = z.infer<typeof FleetSchema>;
 

@@ -579,11 +579,17 @@ export function AgentList({
           release target, and status counts. Disabled but visible when no
           sprint is Active, showing estate totals so the control teaches
           readers it exists. Placed before the sections so it is above the
-          list. */}
+          list.
+
+          Estate totals are shown when the filter is OFF; sprint numbers when
+          ON. This is the "Compared" wave of the-sprint-filter-says-what-it-
+          filters plan: a reader sees the effect of turning the filter on
+          before touching it. */}
       <SprintFilter
         sprints={activeSprints}
         selected={sprintFilter}
         onToggle={toggleSprintFilter}
+        estateTotals={fleet.estateTotals}
       />
 
       {/* THE SECTIONS, spaced apart from each other and from nothing else.
