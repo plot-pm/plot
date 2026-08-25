@@ -111,7 +111,7 @@ a workaround for a number that is simply reporting the wrong unit.
 A section's header counts the unit the section renders — plan heads where it
 groups, rows where it does not — and names both where they differ.
 
-### Withheld (Branch: bug/a-filtered-section-says-what-it-hid)
+### Withheld (Branch: bug/a-filtered-section-says-what-it-hid, PR: #417)
 
 Each filtered section reports how many rows the filter withheld, so `none` is
 never the whole answer when rows exist.
