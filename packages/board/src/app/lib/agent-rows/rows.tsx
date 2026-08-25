@@ -2158,7 +2158,25 @@ export function RegistryRow({
         // branch like the branch agent row's — so a reveal lands on whichever of
         // the two rows the branch has.
         id={agent.branch ? `agent-row-${agent.branch}` : undefined}
-        rowAttr={{ 'data-agent-row': '' }}
+        rowAttr={{
+          'data-agent-row': '',
+          // THE WAVE HOOK, so a blocker being WORKED ON stays reachable.
+          //
+          // `BlockedByMark` scrolls to `[data-wave-list="<plan>"]
+          // [data-wave-row="<wave>"]`. A blocker that has not completed sits in
+          // WORKING with a live worker — exactly the case a reader needs, since
+          // that is where attention has to go. WORKING used to render wave rows
+          // and carried this attribute; the registry keying replaced them with
+          // agent rows and took it away, so the query matched nothing and the
+          // mark went dead. Measured 2026-08-25: `agents-tab` › *reveals a
+          // blocker that is being WORKED on right now*, 0 matches.
+          //
+          // The row is an AGENT and still says so. Carrying the wave hook too
+          // does not make it a wave row — it makes the wave it is working on
+          // addressable. A row with no branch, or whose branch belongs to no
+          // wave, carries neither: absent is not empty.
+          ...(row?.wave ? { 'data-wave-row': row.wave } : {}),
+        }}
         iconTone={
           agent.state === 'stalled' ? 'error'
             : agent.state === 'waiting' ? 'warn'
