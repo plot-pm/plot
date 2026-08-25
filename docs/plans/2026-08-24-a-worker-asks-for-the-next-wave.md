@@ -242,7 +242,7 @@ the workers already running.
 - `maybeAutoDispatch` refuses at the cap and names the branches holding the
   slots; `plot-dispatch.sh` warns and proceeds
 
-### Asked (Branch: feature/a-worker-asks-for-the-next-wave)
+### Asked (Branch: feature/a-worker-asks-for-the-next-wave, PR: #402)
 - the `Worker command` loops: implement, ask `--next`, claim, move, implement;
   exit cleanly when `--next` has nothing
 
