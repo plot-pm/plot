@@ -773,18 +773,28 @@ export function PlanRow({
       // disjoint act-family carries its own trigger. These are additional to the
       // plan acts, never in place of them — a Draft one-wave plan shows both.
       menu={
-        <>
-          <PlanActions plan={group.plan} card={card} approve={approve} commission={commission} deliver={deliver} implement={implement} dispatch={dispatch} pulse={pulse} onApproving={onApproving} />
-          {soleWave?.verdict === 'eligible' && card && dispatch ? (
-            <WaveActions
-              wave={soleWave.name || UNNAMED_WAVE}
-              card={card}
-              dispatch={dispatch}
-              pulse={pulse ?? 0}
-              onStarting={onStarting}
-            />
-          ) : null}
-        </>
+        /* ONE menu, two sections — never two menus. The sole wave's `Start
+           work` is a section INSIDE `PlanActions` rather than a second `⋯`
+           beside it: two adjacent three-dot buttons look identical and hold
+           different acts, so the operator had to open both to learn which was
+           which. */
+        <PlanActions
+          plan={group.plan}
+          card={card}
+          approve={approve}
+          commission={commission}
+          deliver={deliver}
+          implement={implement}
+          dispatch={dispatch}
+          pulse={pulse}
+          onApproving={onApproving}
+          soleWave={
+            soleWave?.verdict === 'eligible' && card && dispatch
+              ? (soleWave.name || UNNAMED_WAVE)
+              : undefined
+          }
+          onStarting={onStarting}
+        />
       }
     />
   );

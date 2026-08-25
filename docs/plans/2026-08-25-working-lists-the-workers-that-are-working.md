@@ -17,6 +17,7 @@
 - **Started:** 2026-08-25, Jan Wloka, `bug/a-stalled-worker-needs-a-person`
 - **Started:** 2026-08-25, Jan Wloka, `feature/an-agent-row-can-be-dropped`
 - **Started:** 2026-08-25, Jan Wloka, `bug/working-lists-the-live-agents`
+- **Started:** 2026-08-25, Jan Wloka, `bug/the-scratch-filter-knows-the-fixture`
 
 ## Changelog
 
@@ -356,7 +357,7 @@ section where a reader cannot close them, and a plan that ends there has moved
 the heap rather than cleared it. The plan is the largest open one in the sprint
 because the defect has four parts, not because it grew.
 
-### Scratch (Branch: bug/the-scratch-filter-knows-the-fixture)
+### Scratch (Branch: bug/the-scratch-filter-knows-the-fixture, PR: #419)
 
 `PLOT_TOOL_SCRATCH` names the tiny-garden pulse fixture, so a worker that only
 ran the test suite reconciles like any other. Four entries here, not the eight

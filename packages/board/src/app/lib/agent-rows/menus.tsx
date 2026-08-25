@@ -1290,9 +1290,33 @@ export function PlanActions({
   dispatch,
   pulse = 0,
   onApproving,
+  soleWave,
+  onStarting,
 }: {
   plan: string;
   card: Card | null;
+  /**
+   * The name of the plan's ONE eligible wave, where it has exactly one and that
+   * wave's row is folded into this one.
+   *
+   * Present, it adds a *Wave* section to this menu holding the `Start work` that
+   * the wave's own row would have carried. Absent — the ordinary case — nothing
+   * changes.
+   *
+   * **This exists so a row wears ONE `⋯`.** A sole-wave plan row used to render
+   * `WaveActions` as a SIBLING of this component, so the row grew two adjacent
+   * three-dot buttons with no way to tell which held which act: the operator had
+   * to open both to find out. Two controls that look identical and do different
+   * things is worse than either alone — the same defect the header's unlabelled
+   * branch chip had, one grammar over.
+   *
+   * The acts do not merge into one list, because they answer different subjects:
+   * everything else here acts on the PLAN, and this acts on a WAVE. They are
+   * separated by a labelled rule rather than flattened.
+   */
+  soleWave?: string;
+  /** Threaded to the wave section's `StartWorkButton`; see {@link WaveActions}. */
+  onStarting?: (active: boolean) => void;
   approve?: DispatchInfo;
   /**
    * Whether the server will act on Commission design, and why not — the OTHER
@@ -1377,7 +1401,7 @@ export function PlanActions({
   // its own refusal inside — a refusal is not an absence. So the `⋯` opens when a
   // draft act will act OR the plan is deliverable OR it has eligible work, and
   // the buttons below render whenever their own gate passes.
-  const canOpen = draftWillAct || canDeliver || approvedWillShow;
+  const canOpen = draftWillAct || canDeliver || approvedWillShow || Boolean(soleWave);
   // The dim button's tooltip names a refusal only when there IS one to name —
   // an act present and declined. The reason of whichever act this plan offers
   // leads, so the sentence points at a real binding rather than a generic one.
@@ -1416,7 +1440,14 @@ export function PlanActions({
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
-      {(isDraftPlan || canDeliver || hasEligible) && (
+      {/* `soleWave` joins the render gate, and must: it is the row's ONLY act
+          in the ordinary sole-wave case. `hasEligible` reads
+          `card.waveSummary.eligible`, which a payload can leave at 0 while the
+          fleet still reports one eligible wave — and before this the row's
+          trigger came from the SIBLING `WaveActions`, which had no such gate.
+          Folding the act inward without widening the gate would delete the
+          control on exactly the rows this fix is about. */}
+      {(isDraftPlan || canDeliver || hasEligible || soleWave) && (
         <button
           type="button"
           data-plan-actions={plan}
@@ -1487,6 +1518,31 @@ export function PlanActions({
                 onDispatching={onApproving}
               />
             </div>
+          )}
+          {/* THE WAVE SECTION — the acts of the one wave folded into this row.
+              Everything above acts on the PLAN; this acts on a WAVE, so it sits
+              under a labelled rule rather than joining the list. A reader
+              scanning the menu can see which subject each item takes without
+              opening it, which is exactly what two identical `⋯` buttons could
+              not tell them. */}
+          {soleWave && dispatch && (
+            <>
+              <div
+                role="separator"
+                data-wave-section={soleWave}
+                className="mt-1 border-t border-slate-200 px-2 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-700 dark:text-slate-500"
+              >
+                Wave {soleWave}
+              </div>
+              <div role="menuitem" className="px-2 py-1 text-left">
+                <StartWorkButton
+                  card={card}
+                  dispatch={dispatch}
+                  pulse={pulse}
+                  onStarting={onStarting}
+                />
+              </div>
+            </>
           )}
         </div>
       )}
