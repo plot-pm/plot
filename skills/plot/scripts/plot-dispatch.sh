@@ -1036,6 +1036,7 @@ start_worker() {
   local stamp_now
   stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
+      PLOT_SLUG="$slug" \
       PLOT_SESSION_ID="$session" \
       PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
       PLOT_STAMP_STARTED="$stamp_now" \
