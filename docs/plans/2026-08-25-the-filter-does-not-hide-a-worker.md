@@ -132,7 +132,7 @@ defect traded for a cosmetic one.
 
 ## Waves
 
-### Named (Branch: bug/the-working-count-names-what-it-counts)
+### Named (Branch: bug/the-working-count-names-what-it-counts, PR: #413)
 
 The fleet control reports how many live workers the current filter is hiding, so
 its number and the section beneath it stop contradicting each other.
