@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-25, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -282,6 +282,21 @@ registry entry and nothing else: no worktree deleted, no branch touched, no
 process signalled. A registry entry is bookkeeping, and dropping it is a
 bookkeeping act — which is what makes it safe behind a button at all.
 
+**The loopback boundary is the whole permission**, the same one every write
+route rests on: *whoever reaches this address is sitting at the machine that
+owns the worktrees, and that IS the permission* (`write-gate.ts`). No second
+check, and deliberately so — the gate is enforced ONCE in the router precisely
+because a per-handler shape is the kind this repo calls a rule, correct today
+and correct tomorrow only if every future route remembers. `/api/dispatch`
+starts agents and `/api/approve` merges pull requests behind that same
+sentence; dropping a bookkeeping row is the smaller act of the three.
+
+**A failed drop leaves the row standing and says why.** `drop failed: EACCES
+/…/.plot/agents/…` on the row, the same language a refused Approve or Deliver
+already speaks. Not optimistic removal: a row that vanishes and returns on the
+next pulse reads as a bug in the board rather than as a failure of the drop,
+and this plan exists because the board said things that were not so.
+
 It refuses a `running` entry. Not a nicety: the entry is how auto-dispatch
 counts its slots, and dropping a live one lets the fleet start work over its cap.
 
@@ -329,7 +344,13 @@ and seven entries respectively today, against ten rows that section shows under
 
 A row states why its entry survives reconciliation, and offers `Drop this
 agent` where the session has ended — the registry entry only, refusing a
-`running` one.
+`running` one, and leaving the row standing with the reason when the drop
+fails.
+
+Kept in this plan rather than split off: `Live` sends thirteen entries to a
+section where a reader cannot close them, and a plan that ends there has moved
+the heap rather than cleared it. The plan is the largest open one in the sprint
+because the defect has four parts, not because it grew.
 
 ### Scratch (Branch: bug/the-scratch-filter-knows-the-fixture)
 
@@ -364,17 +385,21 @@ one line in a place the other two waves do not touch.
    forgetting the destination silently deletes the row that most needs a person.
 5. A worktree dirty *only* with the tiny-garden pulse fixture reconciles as
    clean; a worktree dirty with anything else does not.
-6. **`Drop this agent` removes the registry entry and NOTHING else.** Asserted
+6. **A failed drop leaves the row and names the failure.** Asserted with the
+   registry made unwritable: the row survives, the reason is on it, and nothing
+   was removed optimistically.
+7. **`Drop this agent` removes the registry entry and NOTHING else.** Asserted
    on the filesystem: the worktree still exists, the branch still exists, no
    signal was sent.
-7. **It refuses a `running` entry**, and names why. The assertion a naive
+8. **It refuses a `running` entry**, and names why. The assertion a naive
    implementation fails: that entry is how auto-dispatch counts its slots, so
    dropping a live one lets the fleet start work over its cap.
-8. **`/api/registry/drop` is in `write-gate.test.ts`'s `WRITE_ROUTES`.** That
+9. **`/api/registry/drop` is in `write-gate.test.ts`'s `WRITE_ROUTES`**, and
+   the loopback gate is its ONLY authorisation — no second check in the handler. That
    file says of itself why this is not a formality: a route added as a list
    entry once *"merged cleanly, typechecked, and was the one ungated write
    endpoint"*.
-9. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+10. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 
@@ -399,7 +424,7 @@ before the release rather than after.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {
       "q": "WORKING filters to LIVE_STATES \u2014 where does a `stalled` worker go?",
@@ -440,6 +465,26 @@ before the release rather than after.
       "q": "Does the sprint filter empty WORKING? (the first draft assumed so)",
       "a": "No \u2014 refuted by reading AgentList.tsx:356: WORKING is built from fleet.agents UNFILTERED, with the comment 'a WORKER is a fact about the fleet, and hiding it because its plan is off-focus is the empty-section defect wearing a filter'. All four running workers are on sprint plans anyway. The question was withdrawn",
       "category": "edgeCases"
+    },
+    {
+      "q": "Is the loopback boundary enough for a route that deletes a registry entry?",
+      "a": "Yes \u2014 the same boundary every write route rests on, enforced ONCE in the router. /api/dispatch starts agents and /api/approve merges PRs behind it; dropping a bookkeeping row is the smaller act. A per-handler second check is the shape this repo calls a rule",
+      "category": "security"
+    },
+    {
+      "q": "What happens when the drop fails \u2014 a locked registry file, missing permissions?",
+      "a": "The row stays and names the failure, the language a refused Approve already speaks. Not optimistic removal: a row that vanishes and returns reads as a board bug, and this plan exists because the board said things that were not so",
+      "category": "errors"
+    },
+    {
+      "q": "Does Wave Dropped belong in this plan at all, or in its own?",
+      "a": "In this plan. Wave Live sends thirteen entries to a section where a reader cannot close them; a plan that ends there has moved the heap rather than cleared it. Four waves because the defect has four parts",
+      "category": "tradeOffs"
+    },
+    {
+      "q": "Dispatch now, or after 2.9.0?",
+      "a": "Now. Two endgame failures depend on it (Stop 1.1 and 4.2), and the fleet delivered waves in 20-40 minutes tonight",
+      "category": "domain"
     }
   ],
   "deferredItems": [],
@@ -457,7 +502,7 @@ before the release rather than after.
       "accessibility": false
     },
     "nonFunctional": {
-      "security": false,
+      "security": true,
       "performance": true,
       "scalability": false
     },
