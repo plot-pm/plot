@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import type { FleetControls } from './fleet-controls.js';
-import type { FleetPulse } from '../contract/schema.js';
+import { LIVE_STATES, type FleetPulse } from '../contract/schema.js';
 import type { AgentEntry } from './registry.js';
 import { dispatchLogPath } from './dispatch.js';
 
@@ -69,17 +69,17 @@ export function planSlug(file: string): string {
 }
 
 /**
- * The states that OCCUPY A SLOT — the count the cap is measured against.
+ * The states that OCCUPY A SLOT are exactly the LIVE ones — {@link LIVE_STATES},
+ * imported from the contract rather than restated here.
  *
- * `running` is a live process. `waiting` is a worker that stopped to ask a
- * person and whose worktree still holds its half-done branch: it is not
- * finished, and starting another agent against the cap while it waits would let
- * the fleet exceed the stepper the moment a worker paused. `finished`,
- * `stalled` and `unknown` do NOT occupy a slot — a finished worker has handed
- * its branch back, a stalled one left the desk (its work is a separate problem
- * the board surfaces elsewhere), and `unknown` is not a claim of liveness.
+ * The cap is measured against the same set the board's WORKING section renders,
+ * so the dispatcher and the board cannot drift on what a worker is. Starting
+ * another agent against the cap while one merely `waits` would let the fleet
+ * exceed the stepper the moment a worker paused, which is why `waiting` counts;
+ * `finished`, `stalled` and `unknown` do not.
+ *
+ * @see LIVE_STATES for why the definition lives in `schema.ts` and not here.
  */
-const LIVE_STATES = new Set<AgentEntry['state']>(['running', 'waiting']);
 
 /**
  * Every branch this pulse reports as landed — merged, or deferred by the plan.
