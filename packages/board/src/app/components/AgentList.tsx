@@ -235,6 +235,7 @@ export function AgentList({
   reslice,
   deliver,
   implement,
+  drop,
   continueWith,
   idea,
   pulse = 0,
@@ -1905,6 +1906,7 @@ export function AgentList({
                   card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
                   dispatch={dispatch}
                   continueWith={continueWith}
+                  drop={drop}
                   pulse={pulse}
                   onStarting={onStarting}
                   marked={row ? marked.has(rowKey(row)) : false}

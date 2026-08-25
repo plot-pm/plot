@@ -1039,6 +1039,12 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // Whether a given plan has eligible work rides on each card's own
     // `waveSummary`, which the fleet fills in, not this walker.
     implement: { available: false, reason: '' },
+    // And once more for dropping a broken agent's manifest — the ninth write
+    // route, and the same socket question: who can reach localhost can remove a
+    // file from this disk. Unavailable here means *this walker cannot say*,
+    // never *the answer is no*, exactly as the eight above. Whether a given
+    // agent can be dropped rides on its state, which the endpoint checks.
+    drop: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     // The plan slugs the board actually found, so a sprint member naming a
     // renamed or deleted plan is flagged rather than silently dropped. `slug` on

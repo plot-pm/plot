@@ -74,6 +74,11 @@ const WRITE_ROUTES = [
   // loopback boundary: a control that decides whether a fleet runs must not be
   // reachable by a phone reading the board over Tailscale.
   { path: '/api/fleet-controls', body: { autoDispatch: true } },
+  // Drop removes a registry manifest — the board's manual reconciliation for
+  // agent entries the automatic resolver cannot clear. It is a write all the
+  // same and gated by the same loopback boundary: a control that removes a
+  // record must not be reachable by a phone reading the board over Tailscale.
+  { path: '/api/registry/drop', body: { session: 'test-session-id' } },
 ];
 
 /** Give a spawn that should NOT have happened time to leave its mark. */
@@ -141,7 +146,7 @@ describe('the write gate: bound off loopback, the write endpoints refuse', () =>
     // endpoint fails here until it is covered, which is the only version of
     // "the gate covers all of them" that survives someone else's merge.
     const artifact = fs.readFileSync(ARTIFACT, 'utf8');
-    const declared = [...artifact.matchAll(/path:\s*"(\/api\/[a-z-]+)",\s*verb:/g)].map((m) => m[1]);
+    const declared = [...artifact.matchAll(/path:\s*"(\/api\/[a-z/-]+)",\s*verb:/g)].map((m) => m[1]);
     assert.ok(declared.length > 0, 'the router table should be readable in the artifact');
     assert.deepEqual(
       [...declared].sort(),

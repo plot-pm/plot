@@ -670,6 +670,23 @@ export const BoardSchema = z.object({
    */
   implement: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
+   * Whether "Drop this agent" will act — the ninth capability, and the simplest
+   * of the write routes: it removes a registry manifest from this disk, nothing
+   * more. It answers the same localhost binding the eight above do — dropping is
+   * a write, and the same boundary applies. It stays its own field for the reason
+   * every flag above it records: one flag for two capabilities is how they diverge
+   * when a later change makes only one of them local.
+   *
+   * **It answers only half the question the control needs.** This field says
+   * whether THIS BOARD can act; whether a given agent is LIVE — `running` or
+   * `waiting` — is checked by the endpoint itself. A row renders no Drop action
+   * for a live worker, but the server refuses anyway if the client somehow asks.
+   *
+   * Same default as the eight above: an older server sends nothing and a newer
+   * client hides the control rather than offering one that 403s.
+   */
+  drop: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
    * Newest release checklist, for the Testing column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.
