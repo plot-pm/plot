@@ -46,6 +46,22 @@ export interface ImplementButtonProps {
   implement: DispatchInfo;
   /** Reports that a click is outstanding (true) or has settled (false). */
   onActing?: (active: boolean) => void;
+  /**
+   * The word on the control, when the reader's question is not *implement this
+   * plan*. A row missing its brief asks a narrower one — see
+   * {@link WriteBriefButton} — and the answer is the same route, the same POST
+   * body, the same outcome. Only the word differs, because only the question
+   * does. Defaults to *Implement*.
+   */
+  label?: string;
+  /** The word while a click is outstanding. Defaults to *implementing…*. */
+  actingLabel?: string;
+  /**
+   * The hover title when the control will act. A caller that renames the
+   * control renames what it promises, so the two travel together. The refusal
+   * reason still wins when it cannot act — that is not the caller's to override.
+   */
+  title?: string;
 }
 
 type State =
@@ -54,7 +70,14 @@ type State =
   | { kind: 'prepared' }
   | { kind: 'failed'; message: string };
 
-export function ImplementButton({ slug, implement, onActing }: ImplementButtonProps) {
+export function ImplementButton({
+  slug,
+  implement,
+  onActing,
+  label = 'Implement',
+  actingLabel = 'implementing…',
+  title,
+}: ImplementButtonProps) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const running = state.kind === 'running';
 
@@ -165,14 +188,14 @@ export function ImplementButton({ slug, implement, onActing }: ImplementButtonPr
         // the page has dimmed.
         aria-disabled={blocked || undefined}
         aria-busy={running}
-        title={implement.available ? `Implement ${slug} — prepare a wave with /plot-implement` : implement.reason}
+        title={implement.available ? (title ?? `Implement ${slug} — prepare a wave with /plot-implement`) : implement.reason}
         className={
           blocked
             ? `cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600${running ? ` ${ACTING_CLASS}` : ''}`
             : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
         }
       >
-        {running ? 'implementing…' : 'Implement'}
+        {running ? actingLabel : label}
         {/* Beside the word, never instead of it — motion must not be the only
             carrier of a fact, and the label is what a screen reader gets. */}
         {running && <ActingSpinner />}

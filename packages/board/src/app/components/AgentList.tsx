@@ -1055,6 +1055,7 @@ export function AgentList({
                       onOpenPlan={onOpenPlan}
                       card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
                       dispatch={dispatch}
+                      implement={implement}
                       continueWith={continueWith}
                       pulse={pulse}
                       onStarting={onStarting}
@@ -1352,6 +1353,7 @@ export function AgentList({
                                           inWaveGroup
                                           card={cardForPlanFile?.(r.planFile) ?? null}
                                           dispatch={dispatch}
+                                          implement={implement}
                                           continueWith={continueWith}
                                           pulse={pulse}
                                           onStarting={onStarting}
@@ -1386,6 +1388,7 @@ export function AgentList({
                                 inPlanGroup
                                 card={cardForPlanFile?.(r.planFile) ?? null}
                                 dispatch={dispatch}
+                                implement={implement}
                                 continueWith={continueWith}
                                 pulse={pulse}
                                 onStarting={onStarting}
@@ -1697,6 +1700,7 @@ export function AgentList({
                               // branch row's word; a wave speaks for itself.
                               groupedWord={wg.verdict ?? undefined}
                               soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
+                              implement={implement}
                               continueWith={continueWith}
                               onOpenPlan={onOpenPlan}
                               onRevealBranch={onRevealBranch}
@@ -1719,6 +1723,7 @@ export function AgentList({
                                     inWaveGroup
                                     card={cardForPlanFile?.(r.planFile) ?? null}
                                     dispatch={dispatch}
+                                    implement={implement}
                                     continueWith={continueWith}
                                     pulse={pulse}
                                     onStarting={onStarting}
@@ -1767,6 +1772,7 @@ export function AgentList({
                             marked={marked.has(rowKey(r))}
                             card={cardForPlanFile?.(r.planFile) ?? null}
                             dispatch={dispatch}
+                            implement={implement}
                             pulse={pulse}
                             onStarting={onStarting}
                             // The one branch this wave holds — its status, age, PR,
@@ -1795,6 +1801,7 @@ export function AgentList({
                           // are startable ever use it.
                           card={cardForPlanFile?.(r.planFile) ?? null}
                           dispatch={dispatch}
+                          implement={implement}
                           continueWith={continueWith}
                           pulse={pulse}
                           onStarting={onStarting}
@@ -1905,6 +1912,7 @@ export function AgentList({
                   onOpenPlan={onOpenPlan}
                   card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
                   dispatch={dispatch}
+                  implement={implement}
                   continueWith={continueWith}
                   drop={drop}
                   pulse={pulse}

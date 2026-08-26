@@ -16,9 +16,10 @@ import { ImplementButton } from '../../components/ImplementButton.js';
 import { isDraft, isApproved } from '../../components/PlanCard.js';
 import { StartWorkButton } from '../../components/StartWorkButton.js';
 import { ACTING_CLASS, ActingSpinner } from '../../components/ui/ActingSpinner.js';
+import { WriteBriefButton } from '../../components/WriteBriefButton.js';
 import { offersChangedFiles } from './stuck.js';
 import { changedFilesLabel } from './actions.js';
-import { isStartable } from './row-identity.js';
+import { isStartable, needsBrief } from './row-identity.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
 import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
@@ -219,6 +220,15 @@ export function storyRefusal(): string {
 export function menuState(items: {
   canStart: boolean;
   canResolve: boolean;
+  /**
+   * This row needs its brief written before it can be dispatched — see
+   * {@link needsBrief}.
+   *
+   * Joins `enabled` with `implementWillAct`, for the same reason `canStart`
+   * joins with `serverWillAct`: it asks the server to spawn `/plot-implement`,
+   * which is a write.
+   */
+  canWriteBrief: boolean;
   hasRun: boolean;
   /**
    * This row is an agent, so it has a log to offer — see {@link showsWorkerLog}.
@@ -271,18 +281,21 @@ export function menuState(items: {
   // the row offers a plan act, which is exactly the drift this file removes
   // rather than leaves unreachable.
   serverWillAct: boolean;
+  /** Whether `/api/implement` will act — the gate for `canWriteBrief`. */
+  implementWillAct: boolean;
 }): { present: boolean; enabled: boolean } {
   const {
-    canStart, canResolve, hasRun, hasLog, hasStatus, hasOpen,
-    hasChangedFiles, serverWillAct,
+    canStart, canResolve, canWriteBrief, hasRun, hasLog, hasStatus, hasOpen,
+    hasChangedFiles, serverWillAct, implementWillAct,
   } = items;
   return {
     present:
-      canStart || canResolve || hasRun || hasLog || hasStatus || hasOpen ||
+      canStart || canResolve || canWriteBrief || hasRun || hasLog || hasStatus || hasOpen ||
       hasChangedFiles,
     enabled:
       (canStart && serverWillAct) ||
       (canResolve && serverWillAct) ||
+      (canWriteBrief && implementWillAct) ||
       hasRun ||
       hasLog ||
       hasStatus ||
@@ -390,6 +403,7 @@ export function BranchMenu({
   row,
   card,
   dispatch,
+  implement,
   pulse,
   onStarting,
   onTaken,
@@ -400,6 +414,9 @@ export function BranchMenu({
   row: AgentRow;
   card: Card | null;
   dispatch?: DispatchInfo;
+  /** Whether the server will act on Implement — same binding as `dispatch`, used
+      by WriteBriefButton for rows that need a brief. */
+  implement?: DispatchInfo;
   // No `approve`/`commission`: the two plan-level acts left the branch menu for
   // the plan head (`PlanActions`), so this wrapper no longer forwards them.
   pulse: number;
@@ -420,6 +437,7 @@ export function BranchMenu({
         row={row}
         card={card}
         dispatch={dispatch}
+        implement={implement}
         pulse={pulse}
         onStarting={onStarting}
         onTaken={onTaken}
@@ -454,6 +472,7 @@ export function RowActions({
   row,
   card,
   dispatch,
+  implement,
   pulse,
   onStarting,
   onTaken,
@@ -464,6 +483,9 @@ export function RowActions({
   row: AgentRow;
   card: Card | null;
   dispatch?: DispatchInfo;
+  /** Whether the server will act on Implement — used by WriteBriefButton for
+      rows that need a brief written before they can be dispatched. */
+  implement?: DispatchInfo;
   // NO `approve` OR `commission` HERE. Both were the branch row's twins of
   // plan-level acts, and both moved to the plan head (`PlanActions`). A branch
   // row's menu now carries only branch-level acts, so it neither takes the two
@@ -506,6 +528,20 @@ export function RowActions({
   // this job.
   const menu = useRef<HTMLDivElement>(null);
   const canStart = Boolean(card && dispatch && isStartable(row));
+  // WRITE BRIEF — the act a row offers where it needs its brief written.
+  //
+  // `needsBrief(row)` is the predicate: this branch is otherwise startable but
+  // lacks the specification a worker reads first. The button calls
+  // `/api/implement`, which runs `/plot-implement`, which writes the brief.
+  // Same route as the plan head's Implement button, different label because the
+  // reader's question is different: "I need this branch's brief" rather than
+  // "prepare the whole wave".
+  //
+  // Needs a card (for the slug) and an implement binding (for availability).
+  const canWriteBrief = Boolean(card && implement && needsBrief(row));
+  // Whether `/api/implement` will act — the same question Implement asks, read
+  // from the same binding.
+  const implementWillAct = implement?.available ?? false;
   // THE OTHER ACT A ROW CAN OFFER, and the reason this menu had to stop asking
   // only about starting.
   //
@@ -623,8 +659,8 @@ export function RowActions({
   // the answer.
   const hasChangedFiles = offersChangedFiles(row.stuck);
   const { present: hasItems, enabled } = menuState({
-    canStart, canResolve, hasRun: Boolean(runUrl), hasLog, hasStatus,
-    hasOpen: Boolean(openUrl), hasChangedFiles, serverWillAct,
+    canStart, canResolve, canWriteBrief, hasRun: Boolean(runUrl), hasLog, hasStatus,
+    hasOpen: Boolean(openUrl), hasChangedFiles, serverWillAct, implementWillAct,
   });
   const reason =
     canStart && !serverWillAct && dispatch?.reason
@@ -797,6 +833,28 @@ export function RowActions({
                   onStarting={onStarting}
                 />
               </span>
+            </div>
+          )}
+          {/* WRITE BRIEF — the act that writes this branch's brief.
+
+              Shown where `needsBrief(row)` is true: the branch is otherwise
+              startable but lacks the specification a worker reads first. Calls
+              `/api/implement`, which runs `/plot-implement`, which writes the
+              brief. Same route as the plan head's Implement button — the slug
+              is the plan's, so `/plot-implement` prepares the whole wave — but
+              the label says what the click does for THIS row.
+
+              THE MENU ITEM REPLACES THE TEXT in the "needs a brief" line. The
+              row still says "needs a brief" and names the path; the menu offers
+              the action that clears it. Different roles, same fact. */}
+          {canWriteBrief && card && implement && (
+            <div role="menuitem" className="px-2 py-1 text-left">
+              <WriteBriefButton
+                slug={card.slug}
+                branch={row.branch}
+                implement={implement}
+                onActing={onStarting}
+              />
             </div>
           )}
           {/* THE RUN, moved here from an inline link in the stuck cell — and
