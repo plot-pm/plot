@@ -94,6 +94,19 @@ only for the legacy default, where it is still doing its job.
 That means the prefix cannot be a constant. It is a property of the root: a
 shared root prefixes, a dedicated root does not.
 
+**This leaves two naming conventions coexisting permanently, and that is the
+intended outcome rather than a transition cost.** The prefix exists to make
+Plot's worktrees identifiable *among unrelated directories* — it is a workaround
+for sharing a parent with other projects. Inside a dedicated root the directory
+name already says what they are, so the prefix would be answering a question
+nobody is asking. A repo that never adopts the key keeps its prefix and is
+untouched.
+
+The obvious alternative — prefix everywhere, one convention to learn — was
+considered and rejected: it keeps a workaround alive in the case that removed
+the need for it. The real cost of two conventions is paid in path-guessing, and
+the section below closes that by requiring every read to ask git.
+
 ### What must NOT start guessing paths
 
 `held_worktree` asks **git** which worktree holds a branch, and its comment
@@ -130,6 +143,16 @@ So the migration is opt-in and idempotent, not automatic:
 
 A mixed estate must be an ordinary state, not a transition to be completed.
 
+**`--migrate` is built rather than deferred, and the reason is this estate.**
+Measured 2026-08-26: 26 worktrees, of which only 4 are real Plot checkouts and
+the rest are scratch. Letting them converge by attrition — each removed by
+`plot-reap.sh` as its work lands — was considered, and it works for the ones
+that finish. It does nothing for the two whose PRs closed unmerged while their
+work reached main by other routes: the reaper reads `mergedAt` and refuses them
+forever, so attrition leaves exactly the worktrees a person would most want
+moved. A mode that moves an idle checkout, and says why it skipped the others,
+converges the cases attrition cannot.
+
 ### Open Questions
 
 - [ ] Should `.worktrees/` be added to `.gitignore` by this change, or by
@@ -137,10 +160,14 @@ A mixed estate must be an ordinary state, not a transition to be completed.
       it from whichever command writes their config. Probably here **and**
       there — but a `.gitignore` line that appears without being asked for is a
       write to a file the user owns.
-- [ ] `plot-dispatch.sh:613` puts a temp worktree at `$wt_root/.plot-start-…`.
-      Under the new root that lands inside `.worktrees/`, which is fine — but
-      confirm it is cleaned up, since a leftover there is now inside the repo
-      rather than beside it.
+- [x] `plot-dispatch.sh:613` puts a temp worktree at `$wt_root/.plot-start-…`.
+      **Verified 2026-08-26: it is cleaned up.** Line 656 runs
+      `git worktree remove --force`, and no `.plot-start-*` exists on this
+      machine or in `git worktree list`. But the removal ends `|| true`, so a
+      failure is silent — and under the new root the leftover would sit INSIDE
+      the repo rather than beside it, where `git status` would see a directory
+      the operator never made. A Done-when now asserts the absence rather than
+      trusting the line.
 
 ## Done when
 
@@ -158,10 +185,34 @@ A mixed estate must be an ordinary state, not a transition to be completed.
 - `plot-resolve-artifact.sh` finds a worktree it did not create.
 - `--migrate` moves an idle worktree and **refuses** one with a live worker or
   unlanded work, naming what it skipped.
+- **After a booking, no `.plot-start-*` remains under the worktree root.** The
+  removal at `plot-dispatch.sh:656` already does this and is verified to work,
+  but it ends `|| true`: a failure leaves a stray worktree that, under the new
+  root, is inside the repo. The assertion is cheap and the silence is not this
+  plan's to fix.
 - A worktree under `.worktrees/` does not make the main repo dirty, and its
   files do not answer the marker grep. Asserted in the repo, not only in the
   scratch probe this plan measured.
 - `pnpm test`, `pnpm run test:e2e` green.
+
+### Interrogated again 2026-08-26
+
+Round two, on the three things round one left as assumptions.
+
+The temp booking worktree was **verified** rather than argued: `plot-dispatch.sh:656`
+removes it and nothing is left on disk. What survives is the `|| true`, which
+makes a failed removal silent — tolerable beside the repo, worse inside it — so
+the open question became a Done-when assertion instead of a fix.
+
+Two naming conventions coexisting was confirmed as the intended outcome, not a
+transition cost: the prefix is a workaround for a shared parent, and keeping it
+under a dedicated root would preserve a workaround in the case that removes its
+reason. Prefixing everywhere was considered and rejected on that ground.
+
+`--migrate` was confirmed as worth building, on evidence attrition cannot cover:
+two of this estate's worktrees hold work whose PRs closed unmerged, so
+`plot-reap.sh` refuses them permanently. Convergence by attrition would leave
+precisely the checkouts a person most wants moved.
 
 ## Waves
 
@@ -188,17 +239,53 @@ without it.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
-    {"q": "Would nesting worktrees inside the repo break git status / the marker grep?", "a": "No - measured: .gitignore + --exclude-standard excludes them from both. The objection was withdrawn", "category": "technical"},
-    {"q": "Can existing worktrees be moved?", "a": "Not while a worker is live; migration is opt-in, idempotent, and a mixed estate is an ordinary state", "category": "implementation"}
+    {
+      "q": "Would nesting worktrees inside the repo break git status / the marker grep?",
+      "a": "No - measured: .gitignore + --exclude-standard excludes them from both. The objection was withdrawn",
+      "category": "technical"
+    },
+    {
+      "q": "Can existing worktrees be moved?",
+      "a": "Not while a worker is live; migration is opt-in, idempotent, and a mixed estate is an ordinary state",
+      "category": "implementation"
+    },
+    {
+      "q": "Is the temp booking worktree cleaned up?",
+      "a": "Verified yes at dispatch:656, no leftovers on disk; the silent || true became a Done-when assertion",
+      "category": "technical"
+    },
+    {
+      "q": "Two naming conventions coexisting forever \u2014 right?",
+      "a": "Yes; the prefix is a workaround for a shared parent and has no job under a dedicated root",
+      "category": "tradeOffs"
+    },
+    {
+      "q": "Is the --migrate wave worth building?",
+      "a": "Yes; attrition cannot reach the two worktrees whose PRs closed unmerged, which plot-reap.sh refuses forever",
+      "category": "tradeOffs"
+    }
   ],
   "deferredItems": [],
   "categoriesCovered": {
-    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "technical": {
+      "stack": true,
+      "architecture": true,
+      "implementation": true
+    },
     "domain": false,
-    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
-    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "ux": {
+      "happyPath": false,
+      "edgeCases": false,
+      "errors": false,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": false,
+      "scalability": false
+    },
     "tradeOffs": true
   }
 }
