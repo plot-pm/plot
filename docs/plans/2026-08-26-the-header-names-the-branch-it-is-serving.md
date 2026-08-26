@@ -66,32 +66,81 @@ the difference has not been found. **That is the plan: find it.**
 
 ## Design
 
-### Instrument before theorising
+### FOUND 2026-08-26: a dynamic `require` inside an ESM bundle
 
-Five hypotheses were tested and eliminated by measurement. The sixth will not be
-found by reading either — the next step is to make the running server say what
-it sees: log `repoRoot`, the first line of `git worktree list`, the regex match,
-and the `git branch --show-current` result, once, at startup.
+The cause is one line. `readMasterAgentBranch` (`fleet.ts:275`) reaches for
+`child_process` at call time:
 
-**Do not fix it before it is reproduced.** A change that makes the value appear
-without explaining why it was empty is a change nobody can trust — and this
-field has a nearby precedent for that: `tiny-garden shares the parent .git`,
-where `git branch --show-current` returned the suite's own branch rather than
-the fixture's.
+```ts
+const { execFileSync } = require('node:child_process');
+```
 
-### A hypothesis worth testing first
+It is not the only one. `mainCheckoutPath` (`fleet.ts:239`) does the same
+thing, and it runs FIRST — so it throws, returns `null`, and
+`readMasterAgentBranch` never reaches the line above: `if (mainPath)` is false
+and the function returns `''` without trying.
 
-The board runs under `node --watch`, which spawns a **child** process. If the
-child's cwd or environment differs from the parent's — or if `execFileSync`
-inherits something unexpected — the derivation could see a different repo than
-the shell does. That is testable from the instrumentation above and is the
-cheapest thing to check.
+**The board artifact is an ESM bundle**, and `require` does not exist there. The
+bundler emits a shim whose fallback is exactly this:
 
-### The empty value must not be silent either way
+```js
+function(e){ if (typeof require<"u") return require.apply(this,arguments);
+             throw Error('Dynamic require of "'+e+'" is not supported') }
+```
 
-Whatever the cause, an empty branch is currently indistinguishable from *the
-board did not look*. This is the story's own subject: a blank that reads as a
-fact. Where the branch genuinely cannot be determined, the row should say so.
+Reproduced verbatim against the shipped shim:
+
+```
+$ node -e '<the shim>; try { yd("node:child_process") } catch(e){ console.log(e.message) }'
+Dynamic require of "node:child_process" is not supported
+```
+
+So the call throws **every time**, the bare `catch { branch = '' }` swallows it,
+and the function returns `''` — indistinguishable from the detached-HEAD case it
+was written to report.
+
+### The sibling function three lines away does it correctly
+
+The minified artifact shows both, side by side:
+
+| function | how it gets `execFileSync` | result |
+|---|---|---|
+| `readMasterAgentBranch` | `yd("node:child_process")` — the **shim** | throws → `''` |
+| the neighbouring reader | `zg(...)` — a **static import** | works |
+
+One file, one bundle, two spellings of the same need. The static import is the
+one that survives bundling.
+
+### Why every earlier hypothesis was correct AND irrelevant
+
+The ruled-out list was sound; it simply could not reach this, because the defect
+is deterministic and environmental rather than stateful:
+
+- **works standalone, empty in-process** — standalone runs had `require`
+  available; the bundle does not
+- **a clean restart changes nothing** — it never worked in the bundle, so there
+  was no state to clear
+- **the artifact "contains the call"** — it does. The call is present and always
+  throws
+- **cache TTL, `PLOT_REPO_ROOT`, the regex, the detached worktree** — all fine,
+  and none of them are on the failing path
+
+### The fix, and the thing that hid it
+
+Replace the dynamic `require` with the static import the rest of the module
+already uses.
+
+**And narrow the `catch`.** A bare `catch { branch = '' }` turned a
+`Dynamic require … is not supported` into *the main checkout is on a detached
+HEAD* — a plausible, wrong, silent answer. That collapse is the reason a
+one-line bug survived a full investigation that correctly eliminated five other
+causes.
+
+This is the same rule the estate keeps arriving at from different directions:
+[[a-degraded-scan-says-why]] for the scan's `2>/dev/null`,
+[[the-adapter-checks-the-cli-it-got]] for `bb`'s swallowed stderr. **A failure
+that cannot be told apart from a legitimate empty answer will be read as the
+empty answer.**
 
 ## Waves
 
@@ -100,19 +149,26 @@ fact. Where the branch genuinely cannot be determined, the row should say so.
 Instrument the derivation, reproduce the empty value inside the server, fix the
 cause, and say in this plan what it was.
 
+
 ## Done when
 
-1. **The cause is named in this plan.** Not "it works now" — what differed
-   between the process and the shell.
-2. The Agents tab's Master Agent row shows the branch the main checkout is on.
-3. **A detached main checkout still renders something honest** — the row says
-   the branch could not be determined rather than rendering blank. Absent is not
-   a fact.
-4. A regression test covers the derivation at the level the bug lives at — if it
-   is process-level, a unit test over the pure function will not catch it, and
-   the test must reach further.
-5. `pnpm run test:board` green; artifact rebuilt and committed.
-
+1. **`/api/fleet` reports the main checkout's branch** where that checkout is on
+   one. Asserted against the running board, not only against the function.
+2. **`readMasterAgentBranch` uses a static import**, not a dynamic `require`.
+   The artifact is ESM; the dynamic form throws on every call.
+3. **A genuine detached HEAD still reports `''`**, and the renderer still shows
+   no row. The empty answer was always correct for that case — it was being
+   produced for the wrong reason.
+4. **A failure to RUN git is distinguishable from a detached HEAD.** The bare
+   `catch` is what let a bundling error read as a legitimate empty branch; the
+   two must not collapse to the same value silently.
+5. **BOTH dynamic `require` calls are fixed.** `fleet.ts` carries two —
+   `mainCheckoutPath:239` and `readMasterAgentBranch:276` — and they are on the
+   SAME path, not one live and one latent. `mainCheckoutPath` throws FIRST and
+   returns `null`, so `readMasterAgentBranch` never reaches its own `require`:
+   `if (mainPath)` is false and it returns `''`. Fixing only the second changes
+   nothing at all.
+6. `pnpm run test:board`, `pnpm run typecheck` green.
 ## Notes
 
 ### Time spent before writing this
@@ -120,3 +176,53 @@ cause, and say in this plan what it was.
 Roughly twenty minutes of live debugging, mid-sprint, with five hypotheses
 eliminated and none confirmed. Recorded because the next person should start
 from the instrumentation rather than re-running those five.
+
+### Interrogated 2026-08-26 — and the round found the cause
+
+This plan's whole design was *"instrument, then theorise"*, because the cause had
+survived a careful investigation. The interrogation ran the instrumentation
+instead of designing it, and the bug fell out in three steps:
+
+1. `/api/fleet` **still** reported `""` after the board was restarted from a
+   correctly-tracking worktree — killing the last standing hypothesis.
+2. `AgentList.tsx:628` says an empty value *"means detached HEAD"*, and the main
+   checkout is demonstrably on `bug/a-head-counts-its-own-waves`. So the empty
+   was being produced for a reason the renderer does not know about.
+3. `readMasterAgentBranch` calls `require('node:child_process')` **inside an ESM
+   bundle**. Reproduced against the artifact's own shim: *Dynamic require of
+   "node:child_process" is not supported*.
+
+The plan can now be implemented rather than investigated: swap the dynamic
+`require` for the static import, and narrow the `catch` that made a bundling
+error look like a detached HEAD.
+
+**The lesson is the `catch`, not the `require`.** Five hypotheses were correctly
+eliminated and the sixth was unreachable, because the failure had been given the
+same value as a legitimate answer. The estate has now met this three times in one
+day — the scan's `2>/dev/null`, `bb`'s swallowed stderr, and this.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "Does the bug still reproduce after the board was restarted from a tracking worktree?",
+      "a": "Yes — /api/fleet still reports empty, which eliminates the last standing hypothesis",
+      "category": "technical"
+    },
+    {
+      "q": "Why does the derivation work standalone but not in-process?",
+      "a": "readMasterAgentBranch uses a dynamic require inside an ESM bundle; the shim throws and a bare catch swallows it",
+      "category": "technical"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": { "stack": true, "architecture": true, "implementation": true },
+    "domain": false,
+    "ux": { "happyPath": false, "edgeCases": true, "errors": true, "accessibility": false },
+    "nonFunctional": { "security": false, "performance": false, "scalability": false },
+    "tradeOffs": false
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
