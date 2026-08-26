@@ -60,9 +60,28 @@ export const PlanMetaSchema = z.object({
     })).default([]),
   })).default([]),
   prs: z.array(z.number()).default([]),
-  /** Plot 2 ceremony fields (absent on pre-Plot-2 plans). */
+  /**
+   * The plan's recorded answer to *how is approval given* — `pr`, `in-session`,
+   * `ballot`, … — absent (`NONE`) on pre-Plot-2 plans.
+   *
+   * ITS SINGLE INTERNAL USE IS THE WHOLE OF ITS CONTRACT, and this comment is
+   * that contract stated. `planStatus` reads it once, at the draft-side split:
+   * `review === 'pr'` is the channel that leaves a plan PR to observe, so a
+   * draft plan on it is `open` (out for approval) and one on any other channel
+   * is `draft`. Nothing else reads it and nothing renders it — the *word*
+   * `in-session` never reaches a row, only the `open`/`draft` decision it
+   * drives. That is deliberate: the board groups by `phase`, and the channel is
+   * an input to one derived status, not a fact a card surfaces on its own.
+   *
+   * `impl` — the plan's *where implementation happens* answer — was the twin of
+   * this field and was REMOVED 2026-08-26: the parser emitted it, the schema
+   * declared it, and no producer, consumer or renderer ever read it. A field
+   * declared and read nowhere is the defect `setup-names-an-unread-key` (PR
+   * #452) warns users about, and the rule this plan settles — *no field joins
+   * the schema without a consumer* — run backwards. Zod strips the key the
+   * parser still emits; nothing downstream referenced it.
+   */
   review: z.string().default('NONE'),
-  impl: z.string().default('NONE'),
   /**
    * The Design transition record as written — a date, who, and what was done.
    *
