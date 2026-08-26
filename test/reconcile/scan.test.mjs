@@ -1158,3 +1158,354 @@ test('scan: a prose wave name does NOT fail the parse — the plan is not malfor
   assert.doesNotMatch(pwSections['5'], /2026-03-01-prose\.md/);
   assert.match(pwSections['8'], /2026-03-01-prose\.md/);
 });
+
+// ---------------------------------------------------------------------------
+// PR state handling: absent, failed, and zero-open-PR cases.
+//
+// A SIXTH fixture covering the three failures that the old code collapsed into
+// one word ("degraded"): CLI absent, CLI failed (429/401/network), and CLI
+// succeeded with zero open PRs. The measured bug was that all three produced
+// the same signal, so a rate-limited API read as "no CLI installed" and section
+// 3 listed every branch as stale.
+//
+// These tests cover:
+// 1. A rate-limited call reports pr_source=failed, not degraded, with the error
+// 2. An absent CLI reports pr_source=absent
+// 3. A successful call returning zero open PRs reports gh/bb, never degraded
+// 4. Section 3 is suppressed (no rows) when pr_source is failed/absent
+// 5. stale= reports 0 when section 3 was not evaluated
+// 6. Both arms (gh and bb) are tested — the measured bug was in bb, but gh had
+//    the same latent defect
+// ---------------------------------------------------------------------------
+
+let psTmp, psRepo, psBin;
+
+// Stub that simulates a failing CLI call — exits non-zero with an error message.
+function makeFailingGhStub(dir, errorMsg, exitCode = 1) {
+  fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+echo "${errorMsg}" >&2
+exit ${exitCode}
+`);
+  fs.chmodSync(path.join(dir, 'gh'), 0o755);
+}
+
+// Stub that simulates a failing bb call — exits non-zero with an error message.
+function makeFailingBbStub(dir, errorMsg, exitCode = 1) {
+  fs.writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+echo "${errorMsg}" >&2
+exit ${exitCode}
+`);
+  fs.chmodSync(path.join(dir, 'bb'), 0o755);
+}
+
+// Stub that simulates a successful gh call with zero open PRs.
+function makeEmptyGhStub(dir) {
+  const argvLog = path.join(dir, 'gh.argv');
+  fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
+# Return empty output — zero open PRs, but exit 0 (success).
+exit 0
+`);
+  fs.chmodSync(path.join(dir, 'gh'), 0o755);
+  return argvLog;
+}
+
+// Stub that simulates a successful bb call with zero open PRs.
+function makeEmptyBbStub(dir) {
+  const argvLog = path.join(dir, 'bb.argv');
+  fs.writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
+# Return empty JSON array — zero open PRs, exit 0.
+echo '[]'
+exit 0
+`);
+  fs.chmodSync(path.join(dir, 'bb'), 0o755);
+  return argvLog;
+}
+
+function createPrStateFixture(originUrl) {
+  psTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-'));
+  const origin = path.join(psTmp, 'origin.git');
+  psRepo = path.join(psTmp, 'repo');
+  git(psTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(psTmp, 'clone', '-q', origin, psRepo);
+  git(psRepo, 'config', 'user.email', 'test@example.invalid');
+  git(psRepo, 'config', 'user.name', 'Plot Test');
+  git(psRepo, 'config', 'commit.gpgsign', 'false');
+  git(psRepo, 'remote', 'set-url', 'origin', originUrl);
+  git(psRepo, 'remote', 'add', 'store', origin);
+
+  const w = (rel, content) => {
+    const p = path.join(psRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+
+  // A plan with an unmerged branch — would be reported as orphan if section 3 ran.
+  w('plans/2026-04-01-test.md', `# Test
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`bug/test-branch\` — work in progress
+`);
+
+  fs.mkdirSync(path.join(psRepo, 'plans', 'active'), { recursive: true });
+  fs.mkdirSync(path.join(psRepo, 'plans', 'delivered'), { recursive: true });
+  fs.symlinkSync('../2026-04-01-test.md', path.join(psRepo, 'plans', 'active', 'test.md'));
+
+  git(psRepo, 'add', '-A');
+  git(psRepo, 'commit', '-q', '-m', 'plans');
+
+  // bug/test-branch: unmerged work.
+  git(psRepo, 'checkout', '-q', '-b', 'bug/test-branch');
+  w('test.txt', 'wip\n');
+  git(psRepo, 'add', 'test.txt');
+  git(psRepo, 'commit', '-q', '-m', 'test wip');
+  git(psRepo, 'checkout', '-q', 'main');
+
+  git(psRepo, 'push', '-q', 'store', 'main', 'bug/test-branch');
+  git(psRepo, 'fetch', '-q', 'store');
+  for (const b of ['main', 'bug/test-branch']) {
+    git(psRepo, 'update-ref', `refs/remotes/origin/${b}`, `refs/remotes/store/${b}`);
+  }
+  git(psRepo, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+}
+
+function cleanupPrStateFixture() {
+  if (psTmp) fs.rmSync(psTmp, { recursive: true, force: true });
+  if (psBin) fs.rmSync(psBin, { recursive: true, force: true });
+  psTmp = psRepo = psBin = null;
+}
+
+// --- GitHub tests ---
+
+test('scan: a rate-limited gh call reports pr_source=failed with the error', () => {
+  createPrStateFixture('https://github.com/plot-pm/fixture.git');
+  try {
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    makeFailingGhStub(psBin, 'HTTP 429: rate limit exceeded', 1);
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: `${psBin}:${process.env.PATH}` },
+    });
+    assert.match(out, /PR state: FAILED/);
+    assert.match(out, /HTTP 429/);
+    const footer = out.trim().split('\n').at(-1);
+    assert.match(footer, /\bpr_source=failed\b/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
+
+test('scan: an absent gh reports pr_source=absent', () => {
+  createPrStateFixture('https://github.com/plot-pm/fixture.git');
+  try {
+    // Create a PATH with NO gh command.
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    // Stub for all commands EXCEPT gh.
+    for (const tool of ['git', 'dirname', 'basename', 'sed', 'grep', 'awk',
+                        'readlink', 'cat', 'env', 'tr', 'bash', 'jq', 'head', 'mktemp', 'date']) {
+      let resolved;
+      try {
+        resolved = execFileSync('/usr/bin/env', ['which', tool], { encoding: 'utf8' }).trim();
+      } catch { continue; }
+      if (resolved) fs.symlinkSync(resolved, path.join(psBin, tool));
+    }
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: psBin },
+    });
+    assert.match(out, /PR state: ABSENT/);
+    assert.match(out, /gh not found on PATH/);
+    const footer = out.trim().split('\n').at(-1);
+    assert.match(footer, /\bpr_source=absent\b/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
+
+test('scan: gh returning zero open PRs reports pr_source=gh, not degraded', () => {
+  createPrStateFixture('https://github.com/plot-pm/fixture.git');
+  try {
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    makeEmptyGhStub(psBin);
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: `${psBin}:${process.env.PATH}` },
+    });
+    assert.match(out, /PR state: gh pr list/);
+    const footer = out.trim().split('\n').at(-1);
+    assert.match(footer, /\bpr_source=gh\b/);
+    // Must NOT report degraded.
+    assert.doesNotMatch(out, /PR state: DEGRADED/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
+
+test('scan: section 3 suppressed when gh fails — no rows, stale=0', () => {
+  createPrStateFixture('https://github.com/plot-pm/fixture.git');
+  try {
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    makeFailingGhStub(psBin, 'HTTP 429: rate limit exceeded', 1);
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: `${psBin}:${process.env.PATH}` },
+    });
+    const sections = splitSections(out);
+    // Section 3 should say it was not evaluated.
+    assert.match(sections['3'], /not evaluated.*PR state unknown/);
+    // The branch should NOT appear — no rows when suppressed.
+    assert.doesNotMatch(sections['3'], /bug\/test-branch.*orphan/);
+    // stale= should be 0.
+    const footer = out.trim().split('\n').at(-1);
+    assert.match(footer, /\bstale=0\b/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
+
+// --- Bitbucket tests ---
+
+test('scan: a rate-limited bb call reports pr_source=failed with the error', () => {
+  createPrStateFixture('https://bitbucket.org/plot-pm/fixture.git');
+  try {
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    makeFailingBbStub(psBin, 'error: HTTP 429 — Rate limit for this resource has been exceeded', 1);
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: `${psBin}:${process.env.PATH}` },
+    });
+    assert.match(out, /PR state: FAILED/);
+    assert.match(out, /HTTP 429/);
+    const footer = out.trim().split('\n').at(-1);
+    assert.match(footer, /\bpr_source=failed\b/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
+
+test('scan: an absent bb reports pr_source=absent', () => {
+  createPrStateFixture('https://bitbucket.org/plot-pm/fixture.git');
+  try {
+    // Create a PATH with NO bb command.
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    for (const tool of ['git', 'dirname', 'basename', 'sed', 'grep', 'awk',
+                        'readlink', 'cat', 'env', 'tr', 'bash', 'jq', 'head', 'mktemp', 'date']) {
+      let resolved;
+      try {
+        resolved = execFileSync('/usr/bin/env', ['which', tool], { encoding: 'utf8' }).trim();
+      } catch { continue; }
+      if (resolved) fs.symlinkSync(resolved, path.join(psBin, tool));
+    }
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: psBin },
+    });
+    assert.match(out, /PR state: ABSENT/);
+    assert.match(out, /bb not found on PATH/);
+    const footer = out.trim().split('\n').at(-1);
+    assert.match(footer, /\bpr_source=absent\b/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
+
+test('scan: bb returning zero open PRs reports pr_source=bb, not degraded', () => {
+  createPrStateFixture('https://bitbucket.org/plot-pm/fixture.git');
+  try {
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    makeEmptyBbStub(psBin);
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: `${psBin}:${process.env.PATH}` },
+    });
+    assert.match(out, /PR state: bb pr list/);
+    const footer = out.trim().split('\n').at(-1);
+    assert.match(footer, /\bpr_source=bb\b/);
+    // Must NOT report degraded.
+    assert.doesNotMatch(out, /PR state: DEGRADED/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
+
+test('scan: section 3 suppressed when bb fails — no rows, stale=0', () => {
+  createPrStateFixture('https://bitbucket.org/plot-pm/fixture.git');
+  try {
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    makeFailingBbStub(psBin, 'error: HTTP 429 — Rate limit for this resource has been exceeded', 1);
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: `${psBin}:${process.env.PATH}` },
+    });
+    const sections = splitSections(out);
+    // Section 3 should say it was not evaluated.
+    assert.match(sections['3'], /not evaluated.*PR state unknown/);
+    // The branch should NOT appear — no rows when suppressed.
+    assert.doesNotMatch(sections['3'], /bug\/test-branch.*orphan/);
+    // stale= should be 0.
+    const footer = out.trim().split('\n').at(-1);
+    assert.match(footer, /\bstale=0\b/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
+
+test('scan: the error text reaches the reader — the CLI\'s own words', () => {
+  // Done-when 5: the CLI's own error text reaches the reader, beside the state.
+  createPrStateFixture('https://github.com/plot-pm/fixture.git');
+  try {
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    makeFailingGhStub(psBin, 'gh: API rate limit exceeded for user ID 12345', 1);
+    const out = execFileSync('bash', [scan, '--no-fetch'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: `${psBin}:${process.env.PATH}` },
+    });
+    // The error text should appear in the header.
+    assert.match(out, /API rate limit exceeded for user ID 12345/);
+    // And also in section 3's suppression message.
+    const sections = splitSections(out);
+    assert.match(sections['3'], /API rate limit exceeded/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
+
+test('scan: --no-pr still prints rows (today\'s behaviour preserved)', () => {
+  // Done-when 8: --no-pr keeps today's behaviour — rows are printed.
+  createPrStateFixture('https://github.com/plot-pm/fixture.git');
+  try {
+    psBin = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-ps-bin-'));
+    // No gh stub needed — --no-pr skips the call entirely.
+    const out = execFileSync('bash', [scan, '--no-fetch', '--no-pr'], {
+      encoding: 'utf8', cwd: psRepo,
+      env: { ...process.env, PATH: `${psBin}:${process.env.PATH}` },
+    });
+    const sections = splitSections(out);
+    // Section 3 should print the branch — not suppressed.
+    assert.match(sections['3'], /bug\/test-branch.*orphan/);
+    // pr_source should be off, not failed/absent.
+    const footer = out.trim().split('\n').at(-1);
+    assert.match(footer, /\bpr_source=off\b/);
+    // stale= should be 1, not 0 — the section was evaluated.
+    assert.match(footer, /\bstale=1\b/);
+  } finally {
+    cleanupPrStateFixture();
+  }
+});
