@@ -107,6 +107,49 @@ is the same predicate, applied to what is already there.
 `.plot/agents` in `tiny-garden` is a tracked fixture, and hand-deletion is how
 the synthesized-row trap was discovered.
 
+### Why the guard fired when there was nothing to guard
+
+The mechanism, at `drop.ts:110`:
+
+```ts
+function classifyState(entry, liveness) {
+  if (!entry.worktree) return 'unknown';   // manifest records NO path
+  if (!liveness) return 'unknown';
+  try {
+    const [answer] = liveness([entry.worktree]);
+    if (answer === 'running' || answer === 'finished'
+     || answer === 'waiting' || answer === 'stalled') return answer;
+  } catch {
+    // Liveness check failed — cannot verify, cannot drop.
+  }
+  return 'unknown';
+}
+```
+
+It probes a path that no longer exists, gets an answer outside the four it
+accepts, and falls through to `unknown`.
+
+**It never asks whether the worktree exists.** There is a check for
+`!entry.worktree` — the manifest recording no path at all — and none for the
+path being recorded and ABSENT. `fs.existsSync(entry.worktree)` is one line, and
+it is not there.
+
+So three unlike situations collapse into one word:
+
+| situation | means | `classifyState` |
+|---|---|---|
+| probe says nothing recognisable | cannot check | `unknown` |
+| liveness resolver missing | cannot check | `unknown` |
+| **worktree deleted** | **definitely nothing running** | `unknown` |
+
+Only the first two mean *might be alive*. The `catch` comment states the
+conflation outright — *"cannot verify, cannot drop"* — and for a deleted
+worktree *cannot verify* and *might be running* are opposites.
+
+**The information was available and unconsulted.** That is a different defect
+from misjudging evidence: the guard did not weigh the worktree's absence and
+decide wrongly; it never looked.
+
 ### The guard is independently wrong, and that is a SECOND fix
 
 An earlier draft rejected touching *Drop this agent* — "fix the producer, not the
