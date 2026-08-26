@@ -5,13 +5,18 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** infra
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** <!-- optional, tracker issue(s) this plan answers -->
 - **Story:** <!-- optional, story slug this plan is part of -->
 - **Review:** pr
 - **Impl:** same branch
+- **Approved:** 2026-08-26, eins78, plan reviewed on PR #439
+
+## Approval
+
+- **Assignee:** eins78
 
 ## Changelog
 
@@ -221,13 +226,17 @@ iterates over an explicit list.
 2. Merge the v2.9.0 version pull request. `0.8.0` ships as a stable release and
    `latest` advances. Independent of this work.
 3. This pull request: remove `board-rc`, add `board-release-candidate`, fix D2,
-   add a `plot` changeset.
+   correct the `latest` claim, add a `plot` changeset.
 4. First release candidate: `0.8.1-rc.1`, cut by `/plot-release rc`.
 5. Registry cleanup.
 
-Step 3 may precede step 2. Removing the snapshot job does not affect a release
-that does not depend on it. Step 4 must follow step 2, or the base version
-predicts `0.8.0`, whose prerelease range holds the 31 snapshots.
+Step 3 merges after step 2 (decided 2026-08-26). Removing the snapshot job does
+not affect the v2.9.0 release, so the ordering is a release-hygiene choice rather
+than a dependency: v2.9.0 ships under the publishing behaviour it was developed
+under, and the change to that behaviour lands in the release that follows.
+
+Step 4 must follow step 2. Otherwise the base version predicts `0.8.0`, whose
+prerelease range holds the 31 snapshots.
 
 ### Adopter impact
 
@@ -237,8 +246,22 @@ predicts `0.8.0`, whose prerelease range holds the 31 snapshots.
 | D2 fix | no — this repository's CI | none |
 | `/plot-release rc` | yes | unchanged |
 | `npx @plot-pm/board` in `plot-board-setup` | yes | resolves `latest`; unaffected |
+| `plot-board-setup/README.md` `latest` claim | yes | text only; the precedence rule it explains is unchanged |
 | Repoint the `rc` dist-tag | registry | no shipped skill directs adopters to `@rc` |
 | Deprecate the 709 snapshots | registry | all are prereleases; none is `latest` |
+
+### The `latest` claim in plot-board-setup
+
+`skills/plot-board-setup/README.md` states that `@plot-pm/board` publishes
+`0.3.0` as `latest` while the plugin ships a newer build, and gives that as the
+reason artefact precedence places the plugin first. The registry holds `0.7.0`
+(measured 2026-08-26), so the figure is wrong.
+
+The correction replaces the figure with a command that reads the registry, and
+does not substitute a newer figure. A version number in shipped documentation
+goes stale on the next release, which is how this line became wrong. The
+precedence rule it explains is unchanged, because the lag it describes recurs
+whenever the plugin ships ahead of a stable release.
 
 ### Verification
 
@@ -281,12 +304,13 @@ test.
 
 ### Open Questions
 
-- [ ] The v2.9.0 version pull request must merge before the first release
-      candidate is cut, or the base version predicts `0.8.0`. This does not block
-      this branch.
-- [ ] `skills/plot-board-setup/README.md` cites `0.3.0` as npm `latest`; the
-      registry holds `0.7.0` (measured 2026-08-26). Correct it on this branch, or
-      in a separate docs plan?
+None. Both were resolved at approval:
+
+- **This change ships after v2.9.0** (decided 2026-08-26). Step 3 waits for step
+  2 rather than proceeding independently.
+- **The `latest` claim is corrected on this branch** (decided 2026-08-26), by
+  replacing the version figure with a pointer to the registry rather than a
+  newer figure.
 
 ## Branches
 
@@ -294,8 +318,9 @@ test.
 
 - `infra/release-candidate-publishing` — remove the `board-rc` job; add the
   tag-triggered `board-release-candidate` job with both conditions; fix D2 at
-  both occurrences; add a `plot` changeset. The plan rides this branch, and one
-  pull request carries plan and code.
+  both occurrences; correct the `latest` claim in
+  `skills/plot-board-setup/README.md`; add a `plot` changeset. The plan rides
+  this branch, and one pull request carries plan and code.
 
 ## Notes
 
