@@ -1,7 +1,7 @@
 # The plan file states what the board shows
 
-> A plan's interrogation is recorded where every other lifecycle fact is
-> recorded — in `## Status`, visible to a person reading the file.
+> A plan states its interrogation rounds in `## Status`, where every other
+> lifecycle fact is stated and where a person reading the file will see them.
 
 ## Status
 
@@ -19,118 +19,131 @@
 
 ## Changelog
 
-- A plan states its interrogation rounds in `## Status`, where a reader sees
-  them. `/challenge-the-plan` writes the field; the parser prefers it and keeps
-  reading the metadata comment for the 44 plans written before it.
+- A plan states its interrogation rounds as `Rounds:` in `## Status`.
+  `/challenge-the-plan` writes it; `plot-plan-meta.sh` prefers it and keeps
+  reading the metadata comment, so the 40 plans that carry only a comment go on
+  reporting correctly.
 
 ## Motivation
 
-### The measurement
+### One file, two records, neither visible together
 
-**44 plans carry a `CHALLENGE-THE-PLAN-METADATA` block. All 44 hide it.**
+A plan's interrogation is recorded **twice in the same file**, by the same agent,
+in the same run — and the two writes are independent:
 
-Not one states its rounds anywhere a person reading the plan would see. The
-number lives in an HTML comment below the last paragraph:
+| record | where in the file | who writes it | a reader sees it |
+|---|---|---|---|
+| prose | `## Notes`, mid-document | Phase 5 | **yes** |
+| `CHALLENGE-THE-PLAN-METADATA` | HTML comment, last lines | Phase 5b | **no** |
 
-```html
-<!-- CHALLENGE-THE-PLAN-METADATA
-{
-  "round": 2,
-  ...
-END-CHALLENGE-THE-PLAN-METADATA -->
+The comment is what the board reads. Every markdown renderer hides it, so the
+number the board displays appears nowhere a person reading the plan can see.
+
+### Measured on the estate, 2026-08-26
+
+```
+both prose and block:  6
+block only:           34   ← the board shows a count; the prose says nothing
+prose only:            7   ← the prose says "Interrogated 2026-08-22"; the board shows nothing
 ```
 
-Every markdown renderer hides it. On GitHub, in an editor preview, in the board's
-own plan view — a plan interrogated four times looks identical to one never
-interrogated at all.
+Seven plans state an interrogation the board cannot see — including
+`an-interrogation-leaves-a-record`, the plan that introduced the block. It
+documents its own interrogation in prose and never got one.
 
-### The board says it and the file does not
+Two of those seven are a recorded decision: the back-fill brief
+`the-six-say-they-were-challenged` names `an-approved-plan-offers-its-two-starts`
+and `approval-hands-the-work-to-agents` as deliberately excluded. The other five
+are not.
 
-Since #433 the Agents tab renders `2 rounds` as a badge beside the phase, and the
-Board tab has rendered it for longer. So the board is the **only** place a human
-encounters the fact, while Plot's stated design is that the plan file is the
-source of truth and the board derives from it.
+### Why a third location is the right answer, having considered it not being one
 
-That inverts the direction for exactly one field.
+The obvious objection to this plan is that a plan file already carries two
+records of one fact, and adding a `Rounds:` field makes three. That objection
+was taken seriously and does not survive:
 
-### It is not a parser gap
+- **The prose is not a record of the count.** It is narrative — *"Interrogated
+  2026-08-22"* — and the back-fill had to READ it to derive counts, which is
+  precisely why `questionHistory` was left empty: *"the questions and answers
+  cannot be reconstructed from prose after the fact."* Prose is where the
+  interrogation is described; it is not where the count is stated.
+- **The comment is not a record for a person.** It is the skill's resumable
+  state, and its `"round"` line exists so the parser can read it. No reader
+  sees it.
 
-Worth stating plainly, because the obvious diagnosis is wrong:
-`plot-plan-meta.sh` **does** parse the block and emits `rounds`, deliberately and
-carefully — `""` means *no readable round*, never zero. `board.ts:950` reads it.
-The chain works end to end.
+So the file has a *narrative* and a *machine state*, and no place where a person
+can read the count. `## Status` is that place — it already holds Phase, Type,
+Sprint, Story, Review, Impl and every transition record.
 
-Nothing is broken. The fact is simply recorded where only a machine looks.
+### It is a fact of the same kind as the ones already there
 
-### Why it matters more than tidiness
-
-The rounds count is the state of the discovery work. A reader deciding whether a
-Draft plan is ready to approve wants to know whether it has been interrogated —
-and the file they are reading to make that decision does not say.
-
-The one plan whose block we read closely made the cost explicit in its own note:
-
-> *Back-filled 2026-08-22: this plan was interrogated twice … the round count is
-> recorded, but the questionHistory could not be reconstructed from prose after
-> the fact, so it is left empty rather than invented.*
-
-Someone had to reconstruct the count from prose because the plan never stated it.
+`Approved:`, `Started:`, `Delivered:` and `Released:` are all transition records
+written by tooling into `## Status` and read by people. `Rounds:` is the same
+shape: written by a command, read by whoever is deciding whether a Draft plan is
+ready to approve. That decision is made while reading the plan, and today the
+plan does not say.
 
 ## Design
 
-### A `Rounds:` field in `## Status`
-
-Where `Sprint:`, `Issue:`, `Story:`, `Review:` and `Impl:` already live:
+### The field
 
 ```markdown
-- **Rounds:** 2 <!-- interrogation rounds — written by /challenge-the-plan -->
+- **Rounds:** 2
 ```
 
-Optional and absent by default, like `Sprint:` and `Story:`. A plan that was
-never interrogated says nothing, which is the honest reading — and is NOT the
-same as `0`, a distinction the parser already protects.
+Optional and absent by default, like `Sprint:` and `Story:`. A plan never
+interrogated says nothing — which is not `0`. `0` would read as *interrogated and
+found nothing*, a distinction both the parser and `roundsBadgeText` already
+protect, and this must not contradict them.
+
+**A bare count.** No date: the plan's git history holds when, `## Notes` holds
+what the rounds settled, and a field that duplicates either invites the drift
+this plan is about.
 
 ### The field wins; the comment still counts
 
 `plot-plan-meta.sh` reads `Rounds:` when present and falls back to the metadata
-block otherwise. Both, in that order, permanently:
+block otherwise. Both, in that order, permanently — this is not a migration
+window:
 
-- **44 existing plans** carry only the comment. A parser that stopped reading it
-  would make 44 plans' rounds vanish from the board the day this lands.
-- `/challenge-the-plan` writes the block as its own **resumable state** — it
-  holds `questionHistory` and `categoriesCovered`, which the skill re-reads to
-  avoid repeating questions across rounds. That is not a plan-format record and
-  should not move.
+- **40 plans carry only the comment.** A parser that stopped reading it would
+  blank 40 plans' rounds on the board the day this lands.
+- The comment remains `/challenge-the-plan`'s **resumable state**: it holds
+  `questionHistory` and `categoriesCovered`, re-read at the start of a run so a
+  second interrogation continues rather than restarting. That is not a
+  plan-format record and does not move.
 
-So the comment keeps its job, and the field is added beside it rather than
-replacing it. **No migration of the 44.** They gain the field the next time they
-are interrogated, and read correctly until then.
+### Phase 5b writes both, from one value
 
-### `/challenge-the-plan` writes both
+The skill already reads the block, increments `round`, and writes it back in
+place. It additionally sets `Rounds:` **from the same incremented value**, in the
+same step. One write, one source, so the two cannot disagree by construction —
+which is the answer to *why will these not drift like the other two do*.
 
-At the end of a round it already rewrites the metadata block. It additionally
-sets `Rounds:` in `## Status`, inserting the line after `Impl:` where the
-template will declare it.
+### Not chosen: migrate the 40
 
-### Not chosen: migrate the 44 plans
+A script could back-fill every plan carrying a block. Rejected: the fallback
+makes it unnecessary, and rewriting 40 plan files to add a field no reader has
+yet missed is churn against a repo where the plan file is the record. They gain
+it on their next interrogation and read correctly until then.
 
-A one-off script could back-fill every existing plan. Rejected: the parser
-fallback makes it unnecessary, and rewriting 44 plan files to add a field none of
-their readers has missed yet is churn against a repo where plan files are the
-record. They gain it naturally on their next round.
+### Not chosen: report prose/comment disagreement as drift
 
-### Not chosen: move `questionHistory` into `## Status`
+`plot-reconcile-scan.sh` could add a section comparing the prose paragraphs to
+the block, the way section 9 reports sprint drift. Tempting — the 34/7 split
+above is exactly the kind of thing that scan surfaces well.
 
-Only the ROUND COUNT is a plan fact. The question history is a skill's working
-state — verbose, sometimes empty, and meaningful only to the next interrogation
-round. Putting it in `## Status` would make the section unreadable to serve one
-consumer that already has what it needs.
+Rejected as this plan's subject: it measures a divergence between a NARRATIVE
+and a COUNT, which cannot be made exact. *"Interrogated again 2026-08-22"* is one
+round; a paragraph merely mentioning the word is not. A scan section that
+mis-classifies prose would report drift nobody can act on. Worth its own plan if
+the estate ever needs it; not a prerequisite for stating the count.
 
 ### Not chosen: have the board write the field
 
-The board can already display the number. Teaching it to write into plan files
-would make it a producer of plan facts rather than a reader of them, which is the
-inversion this plan exists to remove.
+The board displays the number today. Teaching it to write into plan files would
+make it a producer of plan facts rather than a reader of them — the inversion
+this plan exists to remove, applied in the other direction.
 
 ## Waves
 
@@ -138,45 +151,74 @@ inversion this plan exists to remove.
 
 `plot-plan-meta.sh` reads `Rounds:` from `## Status`, preferring it over the
 metadata block and falling back to the block when the field is absent. The
-template declares the field. Contract tests cover: field only, block only, both
-(field wins), neither (absent, not zero).
+template declares the field. Contract tests cover the four cases.
 
 ### Written (Branch: infra/challenge-the-plan-states-its-rounds)
 
-`/challenge-the-plan` writes `Rounds:` into `## Status` at the end of each round,
-alongside the metadata block it already maintains.
+`skills/challenge-the-plan/` Phase 5b writes `Rounds:` into `## Status` from the
+same value it writes into the block. Only the repo skill: a personal
+`~/.claude/skills/challenge-the-plan/` override exists on at least one machine
+and records an `## Open Points` section instead of a block — it is not Plot's to
+change.
 
 ## Done when
 
-1. **A plan with `Rounds: 3` in `## Status` parses as `rounds=3`**, with no
+1. **A plan with `Rounds: 3` in `## Status` parses as `rounds=3`** with no
    metadata block present at all.
 2. **A plan with only the metadata block still parses**, unchanged — asserted
-   against one of the 44. This is the item a fix that *replaces* the source
-   fails, and it would silently blank 44 plans on the board.
-3. **Field beats block** where a plan carries both and they disagree. They will
-   disagree during the transition, and a reader trusts what the file says.
-4. **Neither present → absent, not zero.** `0 rounds` reads as *interrogated and
-   found nothing*, a rule `roundsBadgeText` already owns and this must not
-   contradict.
-5. **`/challenge-the-plan` writes the field** on a plan that has none, inserting
-   it after `Impl:`, and updates it on a plan that already has one.
-6. **The 44 existing plans are untouched** — no migration commit. Asserted by the
-   diff: the wave changes scripts, template and tests, no `docs/plans/*.md`.
+   against one of the 40 real ones. This is the item a fix that REPLACES the
+   source fails, and it would silently blank 40 plans on the board.
+3. **The field beats the block** where a plan carries both and they disagree.
+   They will disagree during the transition, and a reader trusts what the file
+   says.
+4. **Neither present → absent, not zero.** Asserted directly, because `0` and
+   absent are different answers and the board renders them differently.
+5. **Phase 5b writes both from one value** — asserted by running a round on a
+   plan with no field and checking that the field and the block's `"round"`
+   agree afterwards.
+6. **The 40 existing plans are untouched.** Asserted by the diff: the waves
+   change scripts, template, skill and tests, and no `docs/plans/*.md`.
 7. `pnpm test`, `pnpm run test:reconcile` green.
 
 ## Notes
 
-### The board was right and the file was quiet
+### Interrogated 2026-08-26
 
-This plan exists because a reader asked, of a rendered board, *"but the plan file
-does not state anything about it?"* — and was correct. The badge was real, the
-parse was sound, and the file still did not say. A fact can be machine-readable,
-correctly derived, honestly displayed, and still absent from the document that is
-supposed to be its source.
+One round, in-session. It changed the plan twice.
 
-### It is one instance, and the only one found
+The first version proposed the field on the strength of *"44 plans carry the
+block and all 44 hide it"* — true, but it treated the comment as the only
+existing record. Reading `skills/challenge-the-plan/` and the back-fill brief
+`the-six-say-they-were-challenged` showed a second one: the prose paragraphs in
+`## Notes`, which the back-fill used as its SOURCE and refused to invent beyond.
+So the question became whether a third location is defensible at all, and the
+plan now argues that explicitly rather than assuming it.
 
-The other fields the board shows — phase, type, sprint, story, review, impl, and
-every transition record — are all read from `## Status`. `rounds` is the single
-exception in the parser's output. This plan closes that one gap rather than
-proposing a principle.
+The second change came from measuring the two existing records against each
+other: 34 plans have a count with no narrative, 7 have a narrative with no count.
+That divergence is the evidence that neither existing location is a reliable
+place for a reader to look — and it is also why the reconcile-scan idea was
+considered and rejected, since comparing prose to a count cannot be made exact.
+
+The wave `Written` was narrowed in the same round: two `challenge-the-plan`
+skills exist on this machine and they persist state differently. Only the repo's
+is Plot's to change.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Which challenge-the-plan skill should write Rounds:?", "a": "The repo skill only; the userSettings override is out of Plot's scope", "category": "technical"},
+    {"q": "How is the metadata block updated with respect to the plan file?", "a": "Two independent writes by the same agent in one run — Phase 5 rewrites the prose, Phase 5b rewrites the comment; no code writes either, and nothing binds them", "category": "technical"},
+    {"q": "Both records are in the same file — does a third location still make sense?", "a": "Yes: the prose is narrative and the comment is machine state, so neither is a place a person reads a count. Status is.", "category": "tradeOffs"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": false,
+    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
