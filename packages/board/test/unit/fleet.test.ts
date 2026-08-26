@@ -15,7 +15,7 @@ import {
   estateReport,
 } from '../../src/server/fleet.js';
 import {
-  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, toBoardPhase, unknownPhaseNote,
+  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, PR_UNKNOWN_NOTE, toBoardPhase, unknownPhaseNote,
   type AgentRow, type FleetPulse,
 } from '../../src/contract/schema.js';
 import { showsWorkerLog } from '../../src/app/components/AgentList.js';
@@ -909,6 +909,78 @@ describe('classify', () => {
     expect(humanAge(1440)).toBe('1 day');
     expect(humanAge(30300)).toBe('21 days');
     expect(classify('wip', 'eligible', 30300, QUIET).note).toMatch(/21 days/);
+  });
+
+  // AN UNKNOWN PR WITHHOLDS THE VERDICT — Done-when 3 from
+  // `an-unreachable-host-is-not-an-answer`.
+  //
+  // `unknown` is a GAP, not a state. The wave verdict from the scan says
+  // `eligible`, but the host could not answer — a spent quota, an unreachable
+  // server, a backend the board cannot ask. The row may not claim readiness
+  // from a gap: `eligible` is an answer about the host, and the host did not
+  // answer.
+  it('withholds the verdict when the PR is unknown, even though the wave is eligible (Done-when 3)', () => {
+    // The 17th parameter is `prUnknown` — see `classifyGroup`. When true and
+    // the wave verdict would be `eligible`, the verdict is withheld.
+    const r = classify(
+      'open',    // state: no ref yet
+      'eligible', // verdict from scan
+      null,      // age
+      QUIET,
+      null,      // pr (not in open-only map)
+      false, 0,  // localDirty, localAhead
+      'approved', // planPhase
+      'none',    // worker
+      '',        // workerExit
+      '',        // workerPid
+      false,     // localLocked
+      [],        // workerDirtyPaths
+      '',        // workerQuestion
+      false,     // held
+      '',        // localWorktree
+      true);     // prUnknown — the host could not be asked
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toBe(PR_UNKNOWN_NOTE);
+    // The verdict is WITHHELD, not negated: it is null, not `blocked`.
+    expect(r.verdict).toBeNull();
+  });
+
+  it('still says eligible when the PR is readable, even with prUnknown=false explicitly', () => {
+    // The complement of the test above: when the host DID answer, the verdict
+    // passes through. This pins that the parameter defaults to false and that
+    // the check is only for `prUnknown && verdict === 'eligible'`.
+    const r = classify(
+      'open', 'eligible', null, QUIET,
+      null, false, 0, 'approved', 'none', '', '', false, [], '', false, '', false);
+    expect(r.group).toBe('not-started');
+    expect(r.note).toBe(ELIGIBLE_NOTE);
+    // The verdict IS passed through when the host answered.
+    expect(r.verdict).toBe('eligible');
+  });
+
+  // Done-when 4 from `an-unreachable-host-is-not-an-answer`:
+  // That row STILL reads `merged` where git says merged, and still names its
+  // wave, plan and branch. Nothing git answers is withheld.
+  it('still reads merged for a merged branch even when prUnknown is true (Done-when 4)', () => {
+    // The branch merged — git answered. Only the PR is unknown, and the PR
+    // does not decide a merged branch's group. This assertion is what stops
+    // an over-fix: a naive implementation that blanks the row throws away
+    // facts git answered.
+    const r = classify(
+      'merged', 'complete', 5, QUIET,
+      null, false, 0, 'approved', 'none', '', '', false, [], '', false, '', true);
+    expect(r.group).toBe('done');
+    expect(r.note).toBe('merged');
+  });
+
+  it('does not withhold the verdict for a blocked wave even when prUnknown is true', () => {
+    // `blocked` is the scan's answer about wave ordering, not about the host.
+    // A blocked branch stays blocked whether or not the PR is readable.
+    const r = classify(
+      'open', 'blocked', null, QUIET,
+      null, false, 0, 'approved', 'none', '', '', false, [], '', false, '', true);
+    expect(r.group).toBe('not-started');
+    expect(r.note).toMatch(/earlier wave/);
   });
 });
 
@@ -4502,5 +4574,41 @@ describe('the all-unknown PR trigger raises the outage banner', () => {
     const prAtWrites = source.split('\n').filter((l) => /entry\.prAt = Date\.now\(\)/.test(l));
     expect(prAtWrites, `expected exactly one prAt write (the happy path), saw:\n${prAtWrites.join('\n')}`)
       .toHaveLength(1);
+  });
+});
+
+describe('an unknown PR withholds the verdict in classifyGroup', () => {
+  // Wave `Withheld` of `an-unreachable-host-is-not-an-answer`. The row-level
+  // half of the outage fix: a row whose PR is `unknown` does not read
+  // `eligible`, while keeping every fact git still answers.
+  const source = readFileSync(
+    new URL('../../src/server/fleet.ts', import.meta.url), 'utf8');
+
+  it('checks prUnknown && verdict === eligible before returning ELIGIBLE_NOTE (Done-when 3)', () => {
+    // The fix is a guard ABOVE the eligible arm. This pins that the check
+    // exists and uses the shape `prUnknown && verdict === 'eligible'`.
+    expect(source).toMatch(/if \(prUnknown && verdict === 'eligible'\)/);
+  });
+
+  it('sends an unknown-PR row to waiting-on-you, not to not-started', () => {
+    // `waiting-on-you` rather than `not-started`, because the errand is
+    // explicitly about the reader: check your connection, wait for the quota
+    // to reset, look at the banner that names the outage.
+    expect(source).toMatch(/if \(prUnknown && verdict === 'eligible'\) \{[\s\S]*?group: 'waiting-on-you'/);
+  });
+
+  it('uses PR_UNKNOWN_NOTE for the row note, host-agnostic (Done-when 7)', () => {
+    // The note is a constant — `PR_UNKNOWN_NOTE` — not a string literal here.
+    // That makes the wording host-agnostic: the constant's docblock states
+    // the rule for *an origin*, not for GitHub, so any backend added later
+    // inherits it instead of re-deciding.
+    expect(source).toMatch(/if \(prUnknown && verdict === 'eligible'\) \{[\s\S]*?note: PR_UNKNOWN_NOTE/);
+  });
+
+  it('passes held?.state === "unknown" from rowsFromPulse to classify', () => {
+    // The detection: `held` is from `prsByHeadMap`, the any-state map. When
+    // `held.state === 'unknown'`, the host answered but could not report the
+    // PR's state. That propagates to classify as `prUnknown`.
+    expect(source).toMatch(/held\?\.state === 'unknown'\)/);
   });
 });
