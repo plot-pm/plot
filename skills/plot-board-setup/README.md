@@ -168,9 +168,12 @@ PLOT_NPM_BIN=/nonexistent` is what reproduces it.
 - **`CI` is a single key.** A project on GitHub Actions or GitLab CI would want
   the same key with a differently-named companion. Generalising to
   `CI instance:` was considered and deferred until a second CI system exists.
-- **npm `latest` lags the plugin.** `@plot-pm/board` publishes 0.3.0 as
-  `latest` while the plugin ships a newer build, which is why artifact
-  precedence puts the plugin first.
+- **npm `latest` lags the plugin.** `@plot-pm/board` publishes a stable release
+  as `latest` while the plugin ships a newer build, which is why artifact
+  precedence puts the plugin first. Compare
+  `npm view @plot-pm/board version` against the plugin's bundled artifact rather
+  than trusting a version written here — a number in this file describes the day
+  it was written, and the lag recurs on every release.
 - **`--start`'s ownership check is a heuristic.** Comparing served cards against
   `plan_files` catches the measured case — another checkout's board on 7777 —
   but two worktrees of the *same* repo serve near-identical payloads and are not
