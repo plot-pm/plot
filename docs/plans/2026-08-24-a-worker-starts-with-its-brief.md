@@ -137,7 +137,7 @@ invoke a skill; `plot-dispatch.sh` cannot.
 
 ## Waves
 
-### Checked (Branch: bug/auto-dispatch-waits-for-a-brief)
+### Checked (Branch: bug/auto-dispatch-waits-for-a-brief, PR: #431)
 - **first**, the spike: how far behind main a board checkout runs, and what one
   `git cat-file -e origin/main:…` per candidate costs inside the pulse — the two
   numbers that decide where the check reads from. Record the answer in this plan.
