@@ -17,6 +17,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-26, Jan Wloka, `infra/a-plan-states-its-rounds`
+- **Started:** 2026-08-26, Jan Wloka, `infra/challenge-the-plan-states-its-rounds`
 
 ## Changelog
 
