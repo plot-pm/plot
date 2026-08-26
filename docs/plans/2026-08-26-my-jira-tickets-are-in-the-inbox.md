@@ -17,6 +17,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-26, Jan Wloka, `feature/a-plan-cites-a-jira-key`
+- **Started:** 2026-08-26, Jan Wloka, `feature/jira-issues-reach-the-inbox`
 
 ## Changelog
 
