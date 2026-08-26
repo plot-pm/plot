@@ -142,11 +142,33 @@ rebase risk, not breakage risk.
 
 ### Open Questions
 
-- [ ] Bitbucket reports `checks: "unknown"` unconditionally — `bb pr list`
-      carries no rollup. So `--loose` on Bitbucket will always degrade to strict
-      under this rule. That is the honest outcome and matches the adapter's
-      existing stance, but it means the flag becomes a no-op there and should
-      probably **say so** rather than silently doing nothing.
+- [x] Bitbucket reports `checks: "unknown"` unconditionally — **no longer true.**
+      Settled 2026-08-26: PR #450 landed the Jenkins backend, `ci_backend()`
+      resolves independently of `Git host`, and the hardcoded `checks:"unknown"`
+      on the Bitbucket arm is gone. A Bitbucket repo declaring `CI: jenkins`
+      now gets a real rollup, so `--loose` works there.
+
+      What survives is the narrower case: **Bitbucket with no CI backend
+      configured** still cannot produce a rollup, and `--loose` degrades to
+      strict. That is honest — but it must **say so**, which is now the
+      *A degradation is announced* item in `## Done when`.
+
+### A degradation that says nothing is indistinguishable from a bug
+
+`--loose` degrading to strict is the correct behaviour where readiness cannot be
+verified. Doing it *silently* is the failure shape this estate has met three
+times in one day:
+
+- `plot-reconcile-scan.sh`'s `2>/dev/null` turned a 429 into *no CLI available*
+- `bb`'s errors on stdout turned an unknown flag into *this repo has no PRs*
+- `readMasterAgentBranch`'s bare `catch` turned a bundling error into
+  *detached HEAD*
+
+Each gave a failure the same value as a legitimate answer. A `--loose` that
+quietly behaves like strict is the same mistake: an operator who passed the flag
+and sees strict behaviour has no way to tell *the rollup said not-green* from
+*the rollup could not be had*. Both are correct refusals; only one is about
+their PR.
 
 ## Done when
 
@@ -161,7 +183,13 @@ rebase risk, not breakage risk.
   with a PATH-stubbed CLI, the technique #228 used.
 - Strict mode is byte-identical — no behaviour change off the flag.
 - The comment and the code agree; whichever is edited, they say the same thing.
-- `pnpm test` and `pnpm run test:e2e` green.
+- **A degradation is announced.** Where the rollup cannot be had at all
+  (Bitbucket with no CI backend), `--loose` says it is falling back to strict
+  rather than silently behaving like it. Asserted on a stubbed host that emits
+  `unknown` for every PR.
+- `pnpm run validate` and `pnpm run test:e2e` green. **Note `pnpm test` is NOT a
+  test run in this repo** — it is `skills add . --list` and prints an installer
+  listing.
 
 ## Waves
 
@@ -182,3 +210,55 @@ not do what it says.
 The bounded severity is recorded deliberately: nothing on the live board is
 wrong today, and a plan that overstated this would earn a fix aimed at a problem
 nobody has.
+
+### Interrogated 2026-08-26
+
+One round, spent verifying rather than extending — the plan arrived with its
+argument already made, so the question was whether it is still true.
+
+**The defect is real and still live.** `pr_ready` ends on
+`grep -q '"draft":false'` and never reads a check result; the scan's
+`prefill_pr_states` still calls `pr-list --state all --limit N` **without
+`--rich`**, so the rollup genuinely is not available today. The rollup
+vocabulary is exactly the five words the plan's table names.
+
+**One thing had moved underneath it, in both halves:**
+
+- The sibling `the-scan-asks-once-per-pulse-not-once-per-branch` **landed
+  first**. `pr_ready` no longer looks like the version quoted in Motivation — it
+  now pre-filters through `host_pr_state "$br" --ask` before the host call. The
+  plan's "whichever lands first" reasoning is settled: the SOURCE change won,
+  and this plan is now purely the PREDICATE change.
+- The Bitbucket open question was overtaken by PR #450 the same day. See above —
+  it is resolved, and what remains of it became the *A degradation is
+  announced* item in `## Done when`.
+
+Both are the same lesson this repo keeps re-learning: a plan written days ago
+describes an estate that has since moved, and the cheap check is worth more than
+the careful argument.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "Is the defect still live, or did a sibling plan fix it?",
+      "a": "Live: pr_ready still ends on draft:false and never reads checks; prefill_pr_states still lacks --rich. The sibling landed the SOURCE change only",
+      "category": "technical"
+    },
+    {
+      "q": "Bitbucket always degrades to strict — still true after the Jenkins backend landed?",
+      "a": "No. #450 made ci_backend() independent of Git host and removed the hardcoded checks:unknown; only Bitbucket with no CI backend degrades, and it must announce it",
+      "category": "technical"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": { "stack": true, "architecture": true, "implementation": true },
+    "domain": false,
+    "ux": { "happyPath": false, "edgeCases": true, "errors": true, "accessibility": false },
+    "nonFunctional": { "security": false, "performance": true, "scalability": false },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
