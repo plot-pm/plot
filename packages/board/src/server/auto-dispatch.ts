@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import type { FleetControls } from './fleet-controls.js';
 import { LIVE_STATES, type FleetPulse } from '../contract/schema.js';
@@ -378,11 +378,10 @@ export function findMissingBriefs(repoRoot: string, candidates: string[]): Set<s
       // `git cat-file -e` exits 0 if the object exists, non-zero otherwise.
       // spawnSync is synchronous, which is fine: we're already on the scan's
       // success path and the cost is measured and bounded.
-      const result = require('node:child_process').spawnSync(
-        'git',
-        ['cat-file', '-e', gitPath],
-        { cwd: repoRoot, stdio: 'ignore' },
-      );
+      const result = spawnSync('git', ['cat-file', '-e', gitPath], {
+        cwd: repoRoot,
+        stdio: 'ignore',
+      });
       if (result.status !== 0) {
         missing.add(branch);
       }
