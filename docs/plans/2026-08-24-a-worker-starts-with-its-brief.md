@@ -17,6 +17,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-26, Jan Wloka, `bug/auto-dispatch-waits-for-a-brief`
+- **Started:** 2026-08-26, Jan Wloka, `feature/the-board-offers-to-write-a-brief`
 
 ## Changelog
 
