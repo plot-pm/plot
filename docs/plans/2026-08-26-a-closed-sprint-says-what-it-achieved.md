@@ -140,7 +140,7 @@ function and leaving two spellings of one rule behind is how they drift.
 
 ## Waves
 
-### Reconciled (Branch: bug/closing-a-sprint-reconciles-its-tally)
+### Reconciled (Branch: bug/closing-a-sprint-reconciles-its-tally, PR: #457)
 
 `/plot-sprint close` ticks unchecked items whose plan is delivered or released,
 annotating each with the phase that justified it, and names every item it could
