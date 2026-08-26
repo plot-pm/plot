@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
@@ -13,7 +13,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 2
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -178,6 +178,10 @@ the backend.
    Jenkins' documentation, not measured — no build was running during the spike.
    Verify against a live build and correct the Design's table if it differs.
 9. `pnpm run validate`, `pnpm run test:reconcile` green.
+## Approval
+
+- **Assignee:** Jan Wloka
+
 ## Notes
 
 ### Interrogated 2026-08-26
