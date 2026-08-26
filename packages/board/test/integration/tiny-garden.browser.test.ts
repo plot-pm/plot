@@ -58,11 +58,19 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
     }
   });
 
-  it('bug (b): the sprint filter appears from inline values despite no sprint directory', async () => {
+  it('offers a sprint that has a file under active/', async () => {
     const page = await openBoard();
     try {
       // The trigger carries aria-label="All sprints" (MultiSelect).
+      //
+      // THE FIXTURE GAINED A SPRINT FILE for this. It previously had none, and
+      // the filter still listed `spring-planting` — derived from `card.sprint`
+      // on the plans. That union is gone: a plan's `Sprint:` field is history
+      // and does not clear when its sprint closes, so deriving options from it
+      // offered closed sprints beside open ones with nothing to tell them apart.
       expect(await page.getByLabel('All sprints').isVisible()).toBe(true);
+      await page.getByLabel('All sprints').click();
+      expect(await page.getByRole('checkbox', { name: 'Spring planting' }).isVisible()).toBe(true);
     } finally {
       await page.close();
     }
@@ -76,14 +84,14 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       // on 2 plans (Draft + Approved); 3 plans carry no sprint at all.
       const countIn = (label: string) =>
         page.locator('label', { hasText: label }).locator('span[aria-hidden]').textContent();
-      await expect.poll(() => countIn('spring-planting')).toBe('2');
+      await expect.poll(() => countIn('Spring planting')).toBe('2');
       expect(await countIn('No sprint')).toBe('3');
     } finally {
       await page.close();
     }
   });
 
-  it('bug (b): selecting an inline sprint filters the board', async () => {
+  it('selecting an active sprint filters the board', async () => {
     const page = await openBoard();
     try {
       expect(await page.locator('article').count()).toBe(8);
@@ -91,7 +99,7 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       await page.getByLabel('All sprints').click();
       // Options are Radix checkboxes named by their wrapping label — distinct
       // from the identically-worded sprint badges on cards.
-      await page.getByRole('checkbox', { name: 'spring-planting' }).click();
+      await page.getByRole('checkbox', { name: 'Spring planting' }).click();
 
       // Only plant-tomatoes (Draft) + fix-leaky-hose (Approved) carry it.
       await expect.poll(() => page.locator('article').count()).toBe(2);

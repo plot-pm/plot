@@ -30,40 +30,45 @@ function mkBoard(
 }
 
 describe('sprintFilterOptions', () => {
-  it('derives options from inline card.sprint values when the directory is empty', () => {
-    // The bug-(b) case: no sprint directory, but plans carry inline sprints.
-    const opts = sprintFilterOptions(mkBoard(['beta', 'alpha', undefined]));
+  // THE FILTER OFFERS ACTIVE SPRINTS, AND ONLY THOSE.
+  //
+  // It used to union in every distinct `card.sprint`, so any sprint slug written
+  // on any plan became an option. Measured 2026-08-26, hours after the W35
+  // sprint closed: three options, all Closed, while the Agents header read *No
+  // active sprint*. A plan's `Sprint:` field is history and never clears.
+
+  it('offers the sprints in the directory', () => {
+    const opts = sprintFilterOptions(
+      mkBoard([], [{ slug: 'beta-week', title: 'Beta week' }, { slug: 'alpha-week', title: 'Alpha week' }]),
+    );
     expect(opts).toEqual([
-      { value: 'alpha', label: 'alpha' },
-      { value: 'beta', label: 'beta' },
+      { value: 'alpha-week', label: 'Alpha week' },
+      { value: 'beta-week', label: 'Beta week' },
     ]);
   });
 
-  it('prefers the directory title when a slug appears in both sources', () => {
-    const opts = sprintFilterOptions(
-      mkBoard(['alpha-week'], [{ slug: 'alpha-week', title: 'Alpha week' }]),
-    );
+  it('does NOT offer a sprint that only a plan mentions', () => {
+    // THE ANTI-CONTRACT, and the whole defect. `collectSprints` reads
+    // `<sprintDir>/active/`, so a closed sprint has no entry — but the plans
+    // that shipped in it still carry its slug. Deriving from those made a
+    // finished sprint indistinguishable from a running one.
+    const opts = sprintFilterOptions(mkBoard(['closed-last-week', 'closed-last-week']));
+    expect(opts).toEqual([]);
+  });
+
+  it('is empty when no sprint is active, whatever the plans say', () => {
+    // Accepted deliberately: an empty control beats a list nobody can act on.
+    const opts = sprintFilterOptions(mkBoard(['a', 'b', 'c'], []));
+    expect(opts).toEqual([]);
+  });
+
+  it('uses the directory title, never the raw slug', () => {
+    const opts = sprintFilterOptions(mkBoard(['alpha-week'], [{ slug: 'alpha-week', title: 'Alpha week' }]));
     expect(opts).toEqual([{ value: 'alpha-week', label: 'Alpha week' }]);
   });
 
-  it('unions directory sprints with inline-only sprints', () => {
-    const opts = sprintFilterOptions(
-      mkBoard(['inline-only'], [{ slug: 'dir-only', title: 'Directory only' }]),
-    );
-    expect(opts).toEqual([
-      { value: 'dir-only', label: 'Directory only' },
-      { value: 'inline-only', label: 'inline-only' },
-    ]);
-  });
-
-  it('de-duplicates a sprint referenced by several plans', () => {
-    const opts = sprintFilterOptions(mkBoard(['shared', 'shared', 'shared']));
-    expect(opts).toEqual([{ value: 'shared', label: 'shared' }]);
-  });
-
-  it('returns [] for a null board and a board with no sprints anywhere', () => {
+  it('handles a null board', () => {
     expect(sprintFilterOptions(null)).toEqual([]);
-    expect(sprintFilterOptions(mkBoard([undefined, undefined]))).toEqual([]);
   });
 });
 

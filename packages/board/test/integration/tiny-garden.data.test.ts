@@ -41,9 +41,19 @@ describe('tiny-garden: data layer (built artifact + real helpers)', () => {
     expect(slugs).not.toContain('lettuce-bolted');
   });
 
-  it('leaves board.sprints empty (no sprint directory) yet carries inline card.sprint', async () => {
+  it('carries card.sprint for sprints that have NO file — they are facts, not filter options', async () => {
+    // The fixture has ONE sprint file (`active/spring-planting.md`). The plans
+    // reference three more inline — `summer-harvest`, the long one, and so on —
+    // and those values stay on the cards: a plan's `Sprint:` field is history
+    // and does not clear when its sprint ends.
+    //
+    // What changed 2026-08-26 is that they are no longer FILTER OPTIONS. The
+    // filter derives from `board.sprints` alone, so a sprint with no file under
+    // `active/` is not offered. See `sprintFilterOptions`: measured hours after
+    // the W35 sprint closed, the filter listed three sprints, all Closed, while
+    // the Agents header read *No active sprint*.
     const board = await fetchBoard(server.port);
-    expect(board.sprints).toEqual([]);
+    expect(board.sprints.map((s) => s.slug)).toEqual(['spring-planting']);
     const cards = bySlug(board);
     expect(cards['plant-tomatoes'].sprint).toBe('spring-planting');
     expect(cards['fix-leaky-hose'].sprint).toBe('spring-planting');
