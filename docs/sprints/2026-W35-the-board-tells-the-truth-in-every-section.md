@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Active
+- **Phase:** Closed
 - **Start:** 2026-08-23
 - **End:** 2026-09-02
 - **Release:** 2.9.0
@@ -155,12 +155,12 @@ in practice, promote it rather than letting the rules go untested.
 ### Could Have
 
 - [x] [the-name-track-holds-the-name] The name track holds the name — 80% of plan slugs exceed the visible width while the branch beside them renders in full <!-- status: delivered, branches: 1/1 -->
-- [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
+- [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live <!-- deferred: 2026-08-26 — sprint closed on its release; plan is Draft with no ref pushed, so nothing was started and nothing is lost. Available for the next sprint. -->
 - [x] [the-blocking-wave-is-found-wherever-it-is] The blocked mark finds its target across sections — and says so when it cannot
 - [x] [the-board-says-which-branch-it-serves] The header names the branch the board is serving from <!-- status: delivered, branches: 1/1 -->
-- [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
-- [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
-- [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
+- [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them <!-- deferred: 2026-08-26 — sprint closed on its release; plan is Draft with no ref pushed, so nothing was started and nothing is lost. Available for the next sprint. -->
+- [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains <!-- deferred: 2026-08-26 — sprint closed on its release; plan is Draft with no ref pushed, so nothing was started and nothing is lost. Available for the next sprint. -->
+- [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft <!-- deferred: 2026-08-26 — sprint closed on its release; plan is Draft with no ref pushed, so nothing was started and nothing is lost. Available for the next sprint. -->
 
 <!-- ADDED 2026-08-25, mid-sprint. These six plans were WRITTEN during the
      sprint, each in response to a defect found while working on it — reported
@@ -225,6 +225,25 @@ that record rather than deleted.
   board truth. It has its own plan and can run in any timebox.
 
 ## Notes
+
+### Closed 2026-08-26, seven days early
+
+The sprint closed on its RELEASE rather than its date: **v2.9.0 shipped
+2026-08-26**, and the sprint's `Release:` field named it. The declared End was
+2026-09-02.
+
+Final tally — **Must 8/8, Should 10/10, Could 18/22**. The four open Could
+Haves are deferred above: each is a Draft plan with no ref pushed, so none was
+started and none is lost.
+
+The success condition was *a board a reader opens after the release containing
+no row its section forbids*. It was walked on a live board and signed
+in-session, 37 of 41 checklist items, with four left open and named rather than
+glossed — the GitHub idle rate unmeasured, `sprint_drift` unread, the
+blocked-mark jump not checkable for want of a blocked wave, and the rounds
+badge answered by its own PR rather than by a reader. None is a correctness
+finding; all four carry to the next release, per the checklist's own rule that
+an unticked box is a question and a blank one is worse than a failure.
 
 ### Scope Changes
 

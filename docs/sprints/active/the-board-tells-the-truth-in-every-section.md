@@ -1,1 +1,0 @@
-../2026-W35-the-board-tells-the-truth-in-every-section.md
