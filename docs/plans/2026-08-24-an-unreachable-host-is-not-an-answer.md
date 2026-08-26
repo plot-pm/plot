@@ -167,7 +167,7 @@ visible rather than only effective.
 ### Told (Branch: bug/an-unreachable-host-says-so, PR: #446)
 - an all-unknown PR refresh records an outage; the banner names it and the reset
 
-### Withheld (Branch: bug/an-unknown-pr-withholds-its-verdict)
+### Withheld (Branch: bug/an-unknown-pr-withholds-its-verdict, PR: #454)
 - a row whose PR is `unknown` says the host could not be asked, and keeps every
   fact git still answers
 
