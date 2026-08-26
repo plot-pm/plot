@@ -112,7 +112,7 @@ instance — this repo has none.
 reporting both in `issues`. Independent of the backend and a prerequisite for it
 being useful.
 
-### Listed (Branch: feature/jira-issues-reach-the-inbox)
+### Listed (Branch: feature/jira-issues-reach-the-inbox, PR: #453)
 
 `issue-list` and `issue-view` resolve through Jira under `Tracker: jira`,
 emitting the existing contract.
