@@ -4,13 +4,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** infra
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 
 ## Changelog
 
