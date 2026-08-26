@@ -1272,3 +1272,249 @@ test('host: the Jenkins arm rides on the Bitbucket backend too — CI is orthogo
   assert.equal(row.checks, 'failing', 'Jenkins fills what bb leaves unknown');
   assert.deepEqual(row.failing_checks, ['webbloqs/continuous-build-multi/feature/red']);
 });
+
+// --- Jira issue-list / issue-view: REST, no CLI, pinned to the contract ------
+//
+// `Tracker: jira` sends the two issue ops through Jira's REST API, DISPATCHED ON
+// `Tracker` and INDEPENDENT of `Git host` — a Bitbucket repo tracking in Jira is
+// the normal enterprise case. There is no Jira instance here, so every test
+// drives a stubbed `curl` that emits a chosen body and HTTP status, reproducing
+// the adapter's `-w '\n%{http_code}'` shape. The stub also RECORDS its argv, so
+// the read-only rule and the token-not-in-the-URL rule are asserted, not assumed.
+//
+// The THREE OUTCOMES are the point, and the story's name is the reason: an empty
+// inbox says *you have no tickets*. So an auth failure, a network failure and an
+// HTTP error must all be exit 3 with empty stdout — never an empty list. There is
+// NO exit-4 for Jira (a configured Jira CAN be asked), unlike the bitbucket arm.
+
+// A `curl` stub: prints a body then a status line (the adapter's -w shape) and
+// records argv one line per arg. `status` is the HTTP code; `curlExit` lets a
+// test simulate a transport failure (curl itself failing: DNS, TLS, refused).
+function makeJiraCurlStub({ body = '{}', status = 200, curlExit = 0 } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-jira-'));
+  const argvFile = path.join(dir, 'curl.argv');
+  // The body is base64'd into the stub so an arbitrary JSON payload (quotes,
+  // newlines, unicode) survives the shell heredoc without escaping games.
+  const b64 = Buffer.from(body, 'utf8').toString('base64');
+  const stubBody = `#!/usr/bin/env bash
+printf '%s\\n' "$@" > "${argvFile}"
+${curlExit !== 0 ? `exit ${curlExit}\n` : ''}printf '%s' "$(printf '%s' '${b64}' | base64 -d)"
+printf '\\n%s' '${status}'
+`;
+  writeFileSync(path.join(dir, 'curl'), stubBody);
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  return { dir, argvFile };
+}
+
+// The env every Jira call needs: the tracker scheme+URL and the auth pair.
+// `PLOT_TRACKER` carries `jira <baseUrl>`, the same shape config would hold.
+const JIRA_ENV = {
+  PLOT_TRACKER: 'jira https://acme.atlassian.net',
+  JIRA_EMAIL: 'me@acme.test',
+  JIRA_API_TOKEN: 'tok-secret',
+  // Keep PLOT_HOST empty so the arm proves it dispatches on Tracker, not backend.
+  PLOT_HOST: '',
+};
+
+function runJira(args, stub, extraEnv = {}) {
+  return spawnSync('bash', [adapter, ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, ...JIRA_ENV, ...extraEnv },
+  });
+}
+
+const JIRA_SEARCH_OK = JSON.stringify({
+  issues: [
+    { key: 'PROJ-123', fields: { summary: 'Tickets reach the inbox', created: '2026-08-20T09:00:00.000+0000' } },
+    { key: 'PROJ-99', fields: { summary: 'An older ticket', created: '2026-08-10T09:00:00.000+0000' } },
+  ],
+});
+
+test('host: issue-list jira emits the {number,title,url,createdAt} contract, key as number', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows, [
+    { number: 'PROJ-123', title: 'Tickets reach the inbox', url: 'https://acme.atlassian.net/browse/PROJ-123', createdAt: '2026-08-20T09:00:00.000+0000' },
+    { number: 'PROJ-99', title: 'An older ticket', url: 'https://acme.atlassian.net/browse/PROJ-99', createdAt: '2026-08-10T09:00:00.000+0000' },
+  ]);
+  // `number` is the Jira KEY, a string — #447 taught plot-plan-meta.sh to read it.
+  assert.equal(typeof rows[0].number, 'string');
+});
+
+test('host: issue-list jira dispatches on Tracker, independent of the git host', () => {
+  // A Bitbucket repo tracking in Jira: PLOT_HOST=bitbucket, but the issue op must
+  // still go to Jira's REST API, never to `bb`. The proof is that a `bb` stub is
+  // never invoked — curl carries the whole call.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list'], stub, { PLOT_HOST: 'bitbucket' });
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(rows.length, 2, 'the Jira arm answers even under Git host: bitbucket');
+});
+
+test('host: issue-list jira sends Basic auth via --user, never the token in the URL', () => {
+  // The token must not land in argv as part of the URL (it would leak into any
+  // process listing). --user carries it, and the URL is the plain REST path.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  runJira(['issue-list'], stub);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.match(argv, /^--user$/m);
+  assert.match(argv, /^me@acme\.test:tok-secret$/m, 'Basic credentials go through --user');
+  // The URL argument is the REST path with NO embedded credentials.
+  const urlLine = argv.split('\n').find((l) => l.startsWith('https://'));
+  assert.equal(urlLine, 'https://acme.atlassian.net/rest/api/2/search/jql');
+  assert.ok(!urlLine.includes('tok-secret'), 'the token is never in the URL');
+});
+
+test('host: issue-list jira reads only — never a POST or a write verb', () => {
+  // READ-ONLY, asserted. curl defaults to GET; the adapter must never pass
+  // -X POST/PUT/DELETE or -d/--data (a write body). --data-urlencode is a GET
+  // query param under -G and is allowed; a bare -d would change the method.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  runJira(['issue-list'], stub);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  for (const write of ['-X', '--request', '-d', '--data', '--data-binary', '--data-raw']) {
+    assert.ok(!argv.includes(write), `issue-list must not send ${write} (that would write)`);
+  }
+});
+
+test('host: issue-list jira honours --limit as maxResults', () => {
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  runJira(['issue-list', '--limit', '7'], stub);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  assert.match(argv, /^maxResults=7$/m, '--limit becomes the Jira maxResults page bound');
+});
+
+test('host: issue-list jira reports an empty inbox as an answered 0, not a failure', () => {
+  // The third outcome, and the one that must NOT be confused with the others:
+  // the tracker answered and there are none. Exit 0, empty stdout.
+  const stub = makeJiraCurlStub({ body: '{"issues":[]}' });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 0);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-list jira treats an auth failure as exit 3, NEVER an empty inbox', () => {
+  // THE FAILURE THIS STORY IS NAMED FOR. A 401 must not read as *you have no
+  // tickets* — it exits 3 with empty stdout and Jira's own message on stderr.
+  const stub = makeJiraCurlStub({
+    body: '{"errorMessages":["Client must be authenticated to access this resource."],"errors":{}}',
+    status: 401,
+  });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 3, 'an auth failure is the question failing, not an empty answer');
+  assert.notEqual(res.status, 4, 'a configured Jira CAN be asked — there is no exit 4 here');
+  assert.equal(res.stdout.trim(), '', 'no empty list may reach the board as "no tickets"');
+  assert.match(res.stderr, /401/);
+});
+
+test('host: issue-list jira treats a 5xx outage as exit 3', () => {
+  const stub = makeJiraCurlStub({ body: '{"errorMessages":["Internal server error"]}', status: 503 });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 3);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /503/);
+});
+
+test('host: issue-list jira treats a transport failure (curl non-zero) as exit 3', () => {
+  // DNS/TLS/connection-refused: curl itself exits non-zero and prints no HTTP
+  // status. A network failure is not an empty inbox.
+  const stub = makeJiraCurlStub({ curlExit: 6 });
+  const res = runJira(['issue-list'], stub);
+  assert.equal(res.status, 3);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-list jira exits 3 when JIRA_API_TOKEN is absent — not an empty inbox', () => {
+  // A missing token is a CONFIG error the op cannot proceed past. Degrading to
+  // an empty list would wear the exact mask this story removes.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list'], stub, { JIRA_API_TOKEN: '' });
+  assert.equal(res.status, 3);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /JIRA_API_TOKEN|authenticated/i);
+});
+
+test('host: issue-list jira exits 3 when no base URL is configured', () => {
+  // `Tracker: jira` with no URL cannot be asked at all — a config error, exit 3.
+  const stub = makeJiraCurlStub({ body: JIRA_SEARCH_OK });
+  const res = runJira(['issue-list'], stub, { PLOT_TRACKER: 'jira' });
+  assert.equal(res.status, 3);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-view jira returns {number,title,body,url} with a plain-string body', () => {
+  // v2, not v3: `description` is a plain string here, the problem statement
+  // /plot-idea receives — not an ADF tree to walk.
+  const stub = makeJiraCurlStub({
+    body: JSON.stringify({
+      key: 'PROJ-123',
+      fields: { summary: 'Tickets reach the inbox', description: 'The inbox is blank where it matters.\n\nMake Jira answerable.' },
+    }),
+  });
+  const res = runJira(['issue-view', 'PROJ-123'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.number, 'PROJ-123');
+  assert.equal(out.title, 'Tickets reach the inbox');
+  assert.equal(out.body, 'The inbox is blank where it matters.\n\nMake Jira answerable.');
+  assert.equal(out.url, 'https://acme.atlassian.net/browse/PROJ-123');
+  // The URL argument targets the v2 issue endpoint keyed by the Jira key.
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  assert.ok(argv.includes('https://acme.atlassian.net/rest/api/2/issue/PROJ-123'));
+});
+
+test('host: issue-view jira fills a null description as "" rather than the word null', () => {
+  const stub = makeJiraCurlStub({
+    body: JSON.stringify({ key: 'PROJ-5', fields: { summary: 'Terse', description: null } }),
+  });
+  const res = runJira(['issue-view', 'PROJ-5'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout).body, '');
+});
+
+test('host: issue-view jira treats a missing key (404) as a failure, not an empty body', () => {
+  // The key was read off issue-list moments ago, so a 404 means the tracker
+  // moved under the board — a fact worth surfacing, not a blank to plan on.
+  const stub = makeJiraCurlStub({
+    body: '{"errorMessages":["Issue does not exist or you do not have permission to see it."],"errors":{}}',
+    status: 404,
+  });
+  const res = runJira(['issue-view', 'PROJ-999'], stub);
+  assert.equal(res.status, 3);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /404/);
+});
+
+test('host: issue-view jira reads only — never a write verb', () => {
+  const stub = makeJiraCurlStub({
+    body: JSON.stringify({ key: 'PROJ-1', fields: { summary: 's', description: 'b' } }),
+  });
+  runJira(['issue-view', 'PROJ-1'], stub);
+  const argv = readFileSync(stub.argvFile, 'utf8').split('\n');
+  for (const write of ['-X', '--request', '-d', '--data', '--data-binary', '--data-raw']) {
+    assert.ok(!argv.includes(write), `issue-view must not send ${write}`);
+  }
+});
+
+test('host: an absent Tracker leaves the GitHub issue arm exactly as it was', () => {
+  // Done-when 2 / Done-when 7: the Jira arm is opt-in. With no Tracker key, a
+  // GitHub repo resolves through `gh issue list` unchanged, and curl is never
+  // called. Proven by a gh stub answering while the curl stub records nothing.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-notracker-'));
+  writeFileSync(path.join(dir, 'gh'),
+    '#!/usr/bin/env bash\nprintf \'%s\' \'[{"number":7,"title":"gh issue","url":"https://gh.test/7","createdAt":"2026-08-01T00:00:00Z"}]\'\n');
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  const curlArgv = path.join(dir, 'curl.argv');
+  writeFileSync(path.join(dir, 'curl'), `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${curlArgv}"\n`);
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  const res = spawnSync('bash', [adapter, 'issue-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'github', PLOT_TRACKER: '' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(JSON.parse(res.stdout.trim()).number, 7, 'the GitHub arm answers unchanged');
+  assert.ok(!existsSync(curlArgv), 'curl is never called when Tracker is absent');
+});
