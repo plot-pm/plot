@@ -1,5 +1,5 @@
 import { RELEASE_BRANCH } from '../contract/schema.js';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -235,20 +235,25 @@ let masterAgentBranchCache: { branch: string; at: number } | null = null;
  * worktrees follow. Verified 2026-08-25 on this machine.
  */
 function mainCheckoutPath(repoRoot: string): string | null {
+  let out: string;
   try {
-    const { execFileSync } = require('node:child_process');
-    const out = execFileSync('git', ['worktree', 'list'], {
+    out = execFileSync('git', ['worktree', 'list'], {
       cwd: repoRoot,
       encoding: 'utf8',
     }) as string;
-    const firstLine = out.split('\n')[0];
-    if (!firstLine) return null;
-    // The path ends at the first whitespace before the commit SHA.
-    const match = firstLine.match(/^(\S+)\s/);
-    return match ? match[1] : null;
-  } catch {
+  } catch (err) {
+    // Failure to RUN git — not a repo, git absent, spawn error. Distinct from
+    // "git ran and reported nothing usable" below, which returns null cleanly.
+    // A silent null here is what let a bundling error read as a detached HEAD.
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[fleet] git worktree list failed in ${repoRoot}: ${message}`);
     return null;
   }
+  const firstLine = out.split('\n')[0];
+  if (!firstLine) return null;
+  // The path ends at the first whitespace before the commit SHA.
+  const match = firstLine.match(/^(\S+)\s/);
+  return match ? match[1] : null;
 }
 
 /**
@@ -262,6 +267,12 @@ function mainCheckoutPath(repoRoot: string): string | null {
  * Returns `''` for every failure: detached HEAD, not a git repo, unresolvable
  * main checkout. The schema's default is `''`, and the renderer shows NO ROW
  * rather than a placeholder.
+ *
+ * The empty value is not silent, though: a genuine detached HEAD returns `''`
+ * quietly (git ran and reported no branch), while a FAILURE to run git is
+ * logged before it collapses to `''`. The two are the same value but not the
+ * same event — conflating them silently is what let a bundling error read as a
+ * detached HEAD and hid a one-line bug through a full investigation.
  */
 function readMasterAgentBranch(repoRoot: string): string {
   const now = Date.now();
@@ -273,13 +284,19 @@ function readMasterAgentBranch(repoRoot: string): string {
   const mainPath = mainCheckoutPath(repoRoot);
   if (mainPath) {
     try {
-      const { execFileSync } = require('node:child_process');
       const out = execFileSync('git', ['branch', '--show-current'], {
         cwd: mainPath,
         encoding: 'utf8',
       }) as string;
+      // git ran. An empty result here is a genuine detached HEAD — the
+      // renderer shows no row, which is correct for that case.
       branch = out.trim();
-    } catch {
+    } catch (err) {
+      // git FAILED to run. That is not a detached HEAD; it is an unreadable
+      // checkout, and it must not silently masquerade as one. Log it so the
+      // empty answer is distinguishable from the legitimate empty above.
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(`[fleet] git branch --show-current failed in ${mainPath}: ${message}`);
       branch = '';
     }
   }
