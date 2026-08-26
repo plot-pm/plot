@@ -204,7 +204,19 @@ END-CHALLENGE-THE-PLAN-METADATA -->
    `categoriesCovered`, and write the block **in place** — replace the existing
    block, do not append a new one. A second block would freeze the count: the
    parser reads only the first `"round":` line it finds.
-3. The block must stay a multi-line HTML comment with `round` on its own line as
+3. **In the same step, write `- **Rounds:** N` to `## Status`** using the same
+   incremented value. This is the field a person reads; the block is machine
+   state. Both writes, one value — they cannot disagree by construction.
+
+   **The write is replace-or-insert-after-`Impl:`, and touches nothing else:**
+   - If a `- **Rounds:**` line exists in `## Status` → replace that line
+   - If it does not → insert `- **Rounds:** N` immediately after `- **Impl:**`
+
+   Never a rewrite of the section, never a reflow, never an insert computed from
+   a line number. `## Status` holds `Phase:`, `Type:`, and the `Approved:` /
+   `Started:` / `Delivered:` / `Released:` transition records — facts nothing in
+   the repo can reconstruct. A greedy match there destroys history.
+4. The block must stay a multi-line HTML comment with `round` on its own line as
    `"round": <integer>` — that exact line is the only thing `plot-plan-meta.sh`
    reads out of the block, and it reports it as the plan's `rounds`. A
    single-line `<!-- … -->` block is treated as a placeholder and produces no
