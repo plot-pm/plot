@@ -39,7 +39,7 @@ reads as support.
 
 ### The four states already exist and are not ours to redefine
 
-`pr-list --rich` reports `checks` as `passing | failing | pending | none`, plus
+`pr-list --rich` reports `checks` as `green | failing | pending | none` (plus `unknown`), plus
 `failing_checks` naming which. A Jenkins backend fills those four, and adds no
 fifth.
 
@@ -78,14 +78,14 @@ observed: `blue`, `red`, `yellow`, `disabled`.
 
 | Jenkins | means | `checks` |
 |---|---|---|
-| `blue` | last build succeeded | `passing` |
+| `blue` | last build succeeded | `green` |
 | `red` | last build FAILED | `failing` |
 | `yellow` | **UNSTABLE** — ran, tests failed, no error | `failing` |
 | `disabled` / absent | no build to report | `none` |
 | `*_anime` suffix | a build is RUNNING | `pending` |
 
 **`yellow` maps to `failing`, deliberately.** Jenkins frames UNSTABLE as
-*not red*, and mapping it to `passing` would be faithful to that framing and
+*not red*, and mapping it to `green` would be faithful to that framing and
 wrong here: a branch whose tests failed would read green on a board people use
 to decide what is ready. Showing a fact a team cannot otherwise see is this
 sprint's whole subject, and a false green is worse than the blank it replaces.
@@ -157,7 +157,7 @@ the backend.
 
 ## Done when
 
-1. A branch with a passing Jenkins build reports `checks: "passing"`; a failing
+1. A branch with a passing Jenkins build reports `checks: "green"`; a failing
    one reports `failing` **and** names the job in `failing_checks`.
 2. **A branch with no job reports `none`, not `failing`.** Absent is not failed —
    the same rule the adapter already keeps for an empty GitHub rollup.
@@ -173,7 +173,7 @@ the backend.
    percent-encoded (`bugfix%2Ffoo`), 27 of 45 in the measured job, and an
    equality join without decoding misses them AS `none` — indistinguishable from
    having no build.
-7. **`yellow` (UNSTABLE) reports `failing`, not `passing`.** A branch whose
+7. **`yellow` (UNSTABLE) reports `failing`, not `green`.** A branch whose
    tests failed must not read green on a board used to decide readiness.
 8. **A RUNNING build reports `pending`.** The `*_anime` convention is read from
    Jenkins' documentation, not measured — no build was running during the spike.
@@ -234,6 +234,20 @@ three host CLIs, found the same day, by asking rather than assuming.
 - [ ] Does a running build really carry the `*_anime` suffix? Read from Jenkins'
       docs, not observed — nothing was building during the spike. Done-when 8
       makes verifying it the implementation's job.
+
+### Corrected 2026-08-26: the success word is `green`, not `passing`
+
+This plan said `checks` reports `passing`. **It reports `green`** — the real
+vocabulary in `plot-host.sh` is `green | failing | pending | none | unknown`.
+
+The implementing worker found it by reading the source rather than trusting the
+brief, and committed *"map Jenkins blue to green, the board's success word"*.
+The plan, the colour table and the brief have been corrected to match.
+
+Worth recording because the mistake was avoidable twice over: the adapter's own
+comment block spells the vocabulary out, and that block was read during this
+plan's round 2 while confirming `checks:"unknown"` exists. A term repeated
+confidently across a plan and a brief is not evidence of itself.
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {

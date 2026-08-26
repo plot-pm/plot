@@ -41,14 +41,14 @@ cache, and do not add a per-branch call.
 
 | Jenkins | means | `checks` |
 |---|---|---|
-| `blue` | last build succeeded | `passing` |
+| `blue` | last build succeeded | `green` |
 | `red` | last build FAILED | `failing` |
 | `yellow` | **UNSTABLE** — ran, tests failed, no error | `failing` |
 | `disabled` / absent | no build to report | `none` |
 | `*_anime` suffix | a build is RUNNING | `pending` |
 
 **`yellow` → `failing` is a decision, not an oversight.** Jenkins frames
-UNSTABLE as *not red*; mapping it to `passing` would be faithful to Jenkins and
+UNSTABLE as *not red*; mapping it to `green` would be faithful to Jenkins and
 wrong here, because a branch whose tests failed would read green on a board
 people use to decide what is ready.
 
@@ -121,7 +121,7 @@ because a naive implementation passes without them:
 
 - **Item 4** — an unreachable Jenkins is detected WITHOUT `$?`.
 - **Item 6** — a branch whose name contains `/` joins correctly (the 60% miss).
-- **Item 7** — `yellow` reports `failing`, not `passing`.
+- **Item 7** — `yellow` reports `failing`, not `green`.
 - **Item 8** — a RUNNING build reports `pending`; verify `*_anime` for real.
 
 Plus the repo's gates: `pnpm run validate`, `pnpm run test:reconcile`. Node 24
