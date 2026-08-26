@@ -145,7 +145,7 @@ everything.
 
 ## Waves
 
-### Reported (Branch: feature/a-jenkins-build-has-a-status)
+### Reported (Branch: feature/a-jenkins-build-has-a-status, PR: #450)
 
 `plot-host.sh` resolves `checks` through `jen` for a multibranch job under
 `CI: jenkins`, filling the existing four states from one `job list --json` call
