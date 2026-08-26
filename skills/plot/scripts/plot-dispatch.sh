@@ -91,6 +91,47 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=plot-worker-state.sh
 . "$script_dir/plot-worker-state.sh"
 
+# ---------------------------------------------------------------------------
+# WHERE THE WORKTREES LIVE, and by what name
+# ---------------------------------------------------------------------------
+#
+# Two facts, resolved together because the second is a PROPERTY OF THE FIRST:
+# the root directory the worktrees sit in, and the prefix their directory names
+# carry. `plot-wt-` exists to make Plot's worktrees identifiable AMONG UNRELATED
+# directories — it is a workaround for sharing a parent with other projects.
+# Under a dedicated `Worktree root:` the directory already says what they are,
+# so the prefix answers a question nobody is asking and is dropped. The legacy
+# default keeps it, where it is still doing its job. Two conventions coexist
+# permanently, and that is the intended outcome, not a transition cost.
+#
+#   `Worktree root:` absent  → repo_root/.. , prefix `plot-wt-`   (today's behaviour)
+#   relative value           → repo_root/<value> , NO prefix
+#   absolute value           → <value> as given , NO prefix
+#
+# THIS FUNCTION ONLY COMPOSES A ROOT AND A PREFIX. It is the CREATION side. Every
+# read of "which worktree holds this branch" asks `git worktree list` instead —
+# see THE HELD-BRANCH GATE. A second naming convention gives path-guessing a
+# second way to be wrong, so path-guessing is confined to creation alone.
+resolve_wt_root() { # $1=repo_root → sets globals wt_root, wt_prefix
+  local rr="$1" configured
+  configured=$("$script_dir/plot-config.sh" get "Worktree root" "")
+  if [ -z "$configured" ]; then
+    # The legacy default: beside the repo, prefixed. No existing checkout moves.
+    wt_root=$(cd "$rr/.." && pwd)
+    wt_prefix="plot-wt-"
+    return
+  fi
+  case "$configured" in
+    /*) wt_root="$configured" ;;                 # absolute: taken as given
+    *)  wt_root="$rr/$configured" ;;             # relative: against the repo root
+  esac
+  # Normalise away a trailing slash so composed paths never double it. The
+  # directory may not exist yet (created on first dispatch), so this is pure
+  # string work, not a `cd`.
+  wt_root="${wt_root%/}"
+  wt_prefix=""
+}
+
 dry_run=0
 no_start=0
 mode=dispatch
@@ -132,7 +173,9 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; ex
 # inspectable and stoppable even if the plan was since delivered or rejected.
 # Refusing to show a running worker because of a phase change would strand it.
 repo_root_early=$(git rev-parse --show-toplevel)
-wt_root_early=$(cd "$repo_root_early/.." && pwd)
+resolve_wt_root "$repo_root_early"
+wt_root_early="$wt_root"
+wt_prefix_early="$wt_prefix"
 
 # States: "running <pid>" | "finished <pid>" | "waiting <pid> (answer it)"
 #       | "stalled <pid> (work unfinished)" | "failed <pid> (exit N)"
@@ -203,7 +246,7 @@ worker_state() { # $1=worktree [$2=branch]
 
 if [ "$mode" = "status" ]; then
   n_live=0 n_done=0 n_waiting=0 n_stalled=0 n_failed=0 n_ended=0 n_none=0
-  for wt in "$wt_root_early"/plot-wt-*; do
+  for wt in "$wt_root_early"/"$wt_prefix_early"*; do
     [ -d "$wt" ] || continue
     br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
     st=$(worker_state "$wt" "$br")
@@ -237,7 +280,7 @@ if [ "$mode" = "stop" ]; then
     echo "  Refusing to guess — stopping the wrong worker discards its work." >&2
     exit 1
   fi
-  wt="$wt_root_early/plot-wt-$(printf '%s' "$stop_branch" | tr '/' '-')"
+  wt="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
   [ -d "$wt" ] || { echo "plot-dispatch: no worktree for '$stop_branch' at $wt" >&2; exit 1; }
   st=$(worker_state "$wt" "$stop_branch")
   case "$st" in
@@ -464,10 +507,14 @@ esac
 # MAIN was resolved and origin fetched above, before the phase gate — the gate
 # needs the shared ref to read the plan from it.
 
-# Worktrees live beside the repo, not inside it: a worktree nested in the repo
-# would show up in its own status and in every glob.
+# Where the worktrees live and what their names carry — see resolve_wt_root.
+# The default is beside the repo with the `plot-wt-` prefix; a `Worktree root:`
+# key relocates them (and drops the prefix, which was only earning its keep
+# among unrelated sibling directories). A nested root is made invisible to
+# `git status` and the marker grep by a `.gitignore` line, not by living
+# outside the repo.
 repo_root=$(git rev-parse --show-toplevel)
-wt_root=$(cd "$repo_root/.." && pwd)
+resolve_wt_root "$repo_root"
 
 n_dispatched=0 n_reused=0 n_skipped=0 n_started=0
 
@@ -565,7 +612,7 @@ read_parallel_agents_cap() {
 # These are the slots that count against the cap.
 count_live_workers() {
   local n=0 wt br st
-  for wt in "$wt_root"/plot-wt-*; do
+  for wt in "$wt_root"/"$wt_prefix"*; do
     [ -d "$wt" ] || continue
     br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
     st=$(worker_state "$wt" "$br")
@@ -579,7 +626,7 @@ count_live_workers() {
 # Get the branches currently occupying slots (for the warning message).
 live_worker_branches() {
   local wt br st
-  for wt in "$wt_root"/plot-wt-*; do
+  for wt in "$wt_root"/"$wt_prefix"*; do
     [ -d "$wt" ] || continue
     br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "?")
     st=$(worker_state "$wt" "$br")
@@ -1149,8 +1196,15 @@ uncommitted_files() { # $1=worktree → paths, one per line
 ARTIFACT_PATH="skills/plot/scripts/board/board-server.mjs"
 
 # The worktree for a branch, by the same name-flattening rule dispatch uses.
+#
+# This COMPOSES a path and is used only where composition is right: the
+# in-flight file report below, which asks "if this branch WERE dispatched, where
+# would its worktree be", for a branch this run has not itself created. It is the
+# creation rule read forward, not a "which worktree holds this branch" query —
+# those ask git (held_worktree). The prefix follows the root, empty under a
+# dedicated `Worktree root:`.
 worktree_for() { # $1=branch
-  printf '%s/plot-wt-%s' "$wt_root" "$(printf '%s' "$1" | tr '/' '-')"
+  printf '%s/%s%s' "$wt_root" "$wt_prefix" "$(printf '%s' "$1" | tr '/' '-')"
 }
 
 # ---------------------------------------------------------------------------
@@ -1373,7 +1427,7 @@ if [ "$dry_run" = 1 ]; then
       n_skipped=$((n_skipped + 1))
       continue
     fi
-    echo "would dispatch $br → $wt_root/plot-wt-$(printf '%s' "$br" | tr '/' '-')"
+    echo "would dispatch $br → $(worktree_for "$br")"
     report_in_flight "$br"
     n_dispatched=$((n_dispatched + 1))
   done < <("$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null)
@@ -1404,7 +1458,7 @@ while :; do
   # bug/api are different work and must not share a worktree (a shared path
   # also makes --stop act on whichever claimed it first).
   suffix=$(printf '%s' "$branch" | tr '/' '-')
-  wt="$wt_root/plot-wt-$suffix"
+  wt="$wt_root/$wt_prefix$suffix"
 
   if [ "$dry_run" = 1 ]; then
     echo "would dispatch $branch → $wt"
