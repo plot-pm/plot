@@ -2024,3 +2024,149 @@ test('dispatch: the session id reaches the worker as PLOT_SESSION_ID', () => {
   assert.equal(fs.readFileSync(seen, 'utf8').trim(), m.session,
     'the worker saw the same session id the manifest records');
 });
+
+// ---------------------------------------------------------------------------
+// WHERE THE WORKTREES LIVE — the `Worktree root:` config key
+// ---------------------------------------------------------------------------
+//
+// The root is a `## Plot Config` key, and the `plot-wt-` prefix is a PROPERTY
+// OF THE ROOT rather than a constant: a shared root (the default, beside the
+// repo) prefixes because it shares a directory with unrelated projects; a
+// dedicated root does not, because the directory already says what these are.
+// Two conventions coexist permanently, by design. These tests hold both halves,
+// and the one that matters most: a repo declaring NOTHING is untouched.
+
+/**
+ * A self-contained repo with a one-branch plan, whose CLAUDE.md carries the
+ * given extra config lines. Returns { tmp, repo }. Same idiom as the
+ * session-env test above; kept local so each root test gets a clean estate.
+ */
+function rootRepo(extraConfig = '') {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wtroot-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + extraConfig);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-root.md'),
+    '# Root\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/one` — one\n');
+  fs.symlinkSync('../2026-01-01-root.md', path.join(r, 'plans', 'active', 'root.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  return { tmp: t, repo: r };
+}
+
+// THE ASSERTION THAT KEEPS 26 CHECKOUTS WORKING. A repo that never adopts the
+// key dispatches exactly where it does today, prefix intact. An implementation
+// that silently relocates them passes every other assertion in this file, so
+// this is asserted directly and first.
+test('dispatch: a repo declaring nothing keeps the legacy root and prefix', () => {
+  const { tmp: t, repo: r } = rootRepo();
+  try {
+    const out = execFileSync('bash', [dispatch, '--dry-run', '--offline', 'root'],
+      { encoding: 'utf8', cwd: r });
+    // Beside the repo, with the prefix.
+    const beside = path.join(path.dirname(r), 'plot-wt-feature-one');
+    assert.match(out, new RegExp(`would dispatch feature/one → \\S*/plot-wt-feature-one`),
+      `default dispatch must be beside the repo with the prefix:\n${out}`);
+    assert.doesNotMatch(out, /\.worktrees/, 'nothing configured must not invent a nested root');
+    void beside;
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+// A DEDICATED ROOT RELOCATES AND DROPS THE PREFIX. The directory name becomes
+// the flattened branch, because the directory itself already says these are
+// Plot's.
+test('dispatch: a relative Worktree root nests the worktrees and drops the prefix', () => {
+  const { tmp: t, repo: r } = rootRepo('- **Worktree root:** .worktrees/\n');
+  try {
+    const out = execFileSync('bash', [dispatch, '--dry-run', '--offline', 'root'],
+      { encoding: 'utf8', cwd: r });
+    // Under the repo, in .worktrees/, named for the flattened branch — no prefix.
+    assert.match(out, /would dispatch feature\/one → \S*\/\.worktrees\/feature-one\b/,
+      `a dedicated root must nest and drop the prefix:\n${out}`);
+    assert.doesNotMatch(out, /plot-wt-/, 'the prefix has no job under a dedicated root');
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});
+
+// AN ABSOLUTE ROOT IS TAKEN AS GIVEN, not appended to the repo root.
+test('dispatch: an absolute Worktree root is honoured as given', () => {
+  const abs = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-absroot-'));
+  const { tmp: t, repo: r } = rootRepo(`- **Worktree root:** ${abs}\n`);
+  try {
+    const out = execFileSync('bash', [dispatch, '--dry-run', '--offline', 'root'],
+      { encoding: 'utf8', cwd: r });
+    // The exact directory, not <repo>/<abs>.
+    assert.match(out, new RegExp(`would dispatch feature/one → ${abs.replace(/[/\\.]/g, '\\$&')}/feature-one\\b`),
+      `an absolute root must be used verbatim:\n${out}`);
+    assert.doesNotMatch(out, new RegExp(`${r.replace(/[/\\.]/g, '\\$&')}.*${abs.replace(/[/\\.]/g, '\\$&')}`),
+      'an absolute root must not be appended to the repo root');
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+    fs.rmSync(abs, { recursive: true, force: true });
+  }
+});
+
+// A NESTED WORKTREE DOES NOT DIRTY THE REPO, and its files do not answer the
+// marker grep — asserted IN a real dispatch, not only in the scratch probe the
+// plan measured. `.worktrees/` in `.gitignore` plus `--exclude-standard` is the
+// whole mitigation; this proves it holds after the dispatcher actually creates
+// a worktree there and plants both an untracked file and a PLOT-BLOCKED marker.
+test('dispatch: a nested worktree stays invisible to git status and the marker grep', () => {
+  const { tmp: t, repo: r } = rootRepo('- **Worktree root:** .worktrees/\n');
+  try {
+    fs.writeFileSync(path.join(r, '.gitignore'), '.worktrees/\n');
+    git(r, 'add', '.gitignore');
+    git(r, 'commit', '-qm', 'ignore worktrees');
+
+    // A real fan-out under the nested root (no worker started).
+    execFileSync('bash', [dispatch, '--offline', '--no-start', 'root'],
+      { encoding: 'utf8', cwd: r });
+
+    const wt = path.join(r, '.worktrees', 'feature-one');
+    assert.ok(fs.existsSync(wt), 'the worktree must have been created under .worktrees/');
+
+    // AFTER A BOOKING, NO `.plot-start-*` REMAINS UNDER THE ROOT. The removal at
+    // book_start ends `|| true`, so its success is asserted rather than trusted —
+    // under a nested root a leftover would sit inside the repo. (Gitignored, so
+    // invisible to status, which is exactly why the absence is checked on disk.)
+    const leftovers = fs.readdirSync(path.join(r, '.worktrees'))
+      .filter((n) => n.startsWith('.plot-start-'));
+    assert.deepEqual(leftovers, [], `a booking worktree leaked under the root: ${leftovers}`);
+
+    // Plant the two things the objection worried about: an untracked file and a
+    // blocked marker, both INSIDE the nested worktree.
+    fs.writeFileSync(path.join(wt, 'scratch.txt'), 'untracked\n');
+    fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED.md'), 'PLOT-BLOCKED: is this seen?\n');
+
+    // git status sees nothing — the ignored directory is excluded.
+    assert.equal(git(r, 'status', '--porcelain').trim(), '',
+      'a nested worktree must not make the main repo dirty');
+
+    // The marker grep, run the way plot-reconcile does, finds nothing.
+    let markerHit = '';
+    try {
+      markerHit = execFileSync('git',
+        ['grep', '-lIE', '--untracked', '--exclude-standard', 'PLOT-BLOCKED:', '--', '.'],
+        { encoding: 'utf8', cwd: r });
+    } catch (err) {
+      // git grep exits 1 with no match — that is the PASS here.
+      markerHit = err.stdout ?? '';
+    }
+    assert.equal(markerHit.trim(), '',
+      'a marker inside a nested, ignored worktree must not answer the grep');
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+  }
+});

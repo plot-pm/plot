@@ -375,6 +375,40 @@ test('a dry run changes nothing and says so', () => {
   assert.ok(!fs.existsSync(path.join(stubDir, 'pnpm.log')));
 });
 
+// THE LOOKUP ASKS GIT, IT DOES NOT GUESS THE PATH. The measured failure that
+// forced held_worktree to ask git lives here too: a hand-made worktree named
+// for the branch with its TYPE dropped, matching NEITHER the `plot-wt-<branch>`
+// creation rule nor a bare `<branch>` dedicated-root name. A resolver that
+// reconstructed the path would create a SECOND worktree on the branch (or fail),
+// and git refuses a second checkout — so the repair would never reach the one
+// desk the work is actually on. This plants that worktree and asserts the repair
+// happened INSIDE it.
+test('finds a worktree it did not create, whose name matches no convention', () => {
+  makeRepo();
+  writePnpmStub({ build: 0, tests: 0 });
+
+  // A name a human would pick — not `plot-wt-feature-x`, not `feature-x`. This is
+  // the exact population the git-vs-guess distinction exists to cover.
+  const wt = path.join(path.dirname(repo), 'hand-made-x');
+  git(repo, 'worktree', 'add', '-q', wt, 'feature/x');
+  git(wt, 'fetch', '-q', 'origin');
+
+  const { out, code } = run('feature/x', { expectFail: false });
+  assert.equal(code, 0, out);
+  assert.equal(footer(out).outcome, 'pushed');
+
+  // IT REUSED THE HAND-MADE WORKTREE rather than composing a fresh path: the
+  // `step:` line names it by its real (symlink-resolved) directory, and no
+  // second worktree was registered. Matching the basename dodges macOS's
+  // /var → /private/var symlink without weakening the claim — a guessed path
+  // would have said `plot-wt-feature-x` or `feature-x`, never `hand-made-x`.
+  assert.match(out, /reusing worktree \S*\/hand-made-x\b/,
+    'the repair must run in the worktree git reported, not a guessed path');
+  const registered = git(repo, 'worktree', 'list', '--porcelain')
+    .split('\n').filter((l) => l.startsWith('worktree ')).length;
+  assert.equal(registered, 2, 'exactly the main repo and the one hand-made worktree — no guessed third');
+});
+
 // THE ARTIFACT PATH IS ONE FACT IN TWO LANGUAGES. The script cannot import the
 // board's contract constant and the contract cannot read the script, so the
 // pairing is asserted rather than trusted — a rename on one side that missed the

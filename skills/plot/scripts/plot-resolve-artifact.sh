@@ -108,13 +108,46 @@ MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^o
 [ -n "$MAIN" ] || MAIN="main"
 
 repo_root=$(git rev-parse --show-toplevel)
-wt_root=$(cd "$repo_root/.." && pwd)
-# The same name-flattening rule plot-dispatch.sh uses, so a branch already
-# dispatched is repaired in the worktree it is already checked out in rather
-# than in a second copy of itself. Two worktrees on one branch is not merely
-# untidy — git refuses the second checkout, and the two would fight over the
+
+# WHICH WORKTREE HOLDS THIS BRANCH — ASK GIT, do not reconstruct the path from
+# the branch name.
+#
+# MEASURED, and recorded at length in plot-dispatch.sh's held_worktree: a
+# hand-made worktree is named for the branch with its TYPE dropped, so a gate
+# that guessed `plot-wt-<flattened>` missed a worktree with six modified files
+# in it. This site had the same shape — it composed `plot-wt-<flattened>` under
+# `repo_root/..` — and this change would make the guess worse, not better: the
+# new `Worktree root:` key introduces a SECOND naming convention, giving a
+# path guess a second way to be wrong. So the read asks git, and only the
+# CREATE-a-fresh-one fallback below composes a name (via dispatch's rule, so the
+# fresh worktree lands where dispatch would have put it).
+#
+# `git worktree list --porcelain` emits `worktree <path>` then `branch
+# refs/heads/<name>` per entry; the branch line is matched and the path taken
+# from the preceding one. A branch already dispatched is thus repaired in the
+# worktree it is already checked out in rather than in a second copy of itself —
+# git refuses a second checkout of one branch, and the two would fight over the
 # same index if it did not.
-wt="$wt_root/plot-wt-$(printf '%s' "$branch" | tr '/' '-')"
+wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$branch" '
+  /^worktree /  { path = substr($0, 10) }
+  /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+
+# No existing worktree holds it — compose the path a fresh one will take, by the
+# same root+prefix rule plot-dispatch.sh uses. Under a `Worktree root:` key the
+# root moves and the `plot-wt-` prefix drops; absent it, today's behaviour.
+if [ -z "$wt" ]; then
+  wt_root=$("$script_dir/plot-config.sh" get "Worktree root" "")
+  if [ -z "$wt_root" ]; then
+    wt_root=$(cd "$repo_root/.." && pwd)
+    wt="$wt_root/plot-wt-$(printf '%s' "$branch" | tr '/' '-')"
+  else
+    case "$wt_root" in
+      /*) : ;;
+      *)  wt_root="$repo_root/$wt_root" ;;
+    esac
+    wt="${wt_root%/}/$(printf '%s' "$branch" | tr '/' '-')"
+  fi
+fi
 
 if [ "$dry_run" = 1 ]; then
   echo "step: would use worktree $wt"

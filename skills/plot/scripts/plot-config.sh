@@ -42,6 +42,14 @@
 #                       the board finds the registry wherever it was started.
 #                       Absent = the default, so a single-checkout project is
 #                       unaffected.
+#   Worktree root       where /plot-dispatch creates fleet worktrees. A relative
+#                       value resolves against the repo root, an absolute one is
+#                       taken as given. Absent = the default `repo_root/..` with
+#                       the `plot-wt-` prefix — today's behaviour, so no existing
+#                       checkout moves. Under a dedicated root the prefix is
+#                       dropped: the directory already says these are Plot's. Read
+#                       only by the CREATION path; every "which worktree holds this
+#                       branch" read asks `git worktree list` instead.
 # Agent-runner keys (optional; Plot hardcodes no agent tooling, Principle 5):
 #   Worker command      how /plot-dispatch runs an agent headless on a worktree.
 #                       `none` = asked, and this repo starts workers by hand —
