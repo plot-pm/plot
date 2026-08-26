@@ -104,6 +104,18 @@ Story: [[the-board-is-blank-where-it-matters]].
       directly and is not reached by it. Measured 2026-08-26 on
       `quatico/ewz-leg`.
 
+- [ ] [a-dispatch-hands-over-a-brief] A board **Start work** hands the worker its
+      brief. The `Worker command`'s first instruction is to read it, and a
+      dispatch that starts without one sends an agent to re-derive settled
+      decisions — the race this sprint lost four times in one day.
+- [ ] [the-budget-is-spent-where-it-is-needed] GraphQL sits at 0/5000 while REST
+      is untouched at 4999/5000. The board asks the host the same question
+      through the exhausted bucket. Directly relevant to the enterprise stack,
+      where a 429 already broke every `bb` call on this machine.
+- [ ] [a-claimed-branch-is-not-startable] Auto-dispatch spends its budget only on
+      branches a dispatch can claim. **Was filed against W34, which has closed**
+      — moved here rather than left orphaned in a finished timebox.
+
 ### Could Have
 
 - [ ] [the-header-names-the-branch-it-is-serving] The Master Agent row names the branch the board is serving, instead of rendering blank where a fact belongs
@@ -120,6 +132,22 @@ Story: [[the-board-is-blank-where-it-matters]].
 - [ ] [a-closed-sprint-says-what-it-achieved] Closing reconciles the tally
       against plan phases. Written today after two closed sprints were found
       understating their own results.
+
+- [ ] [a-citation-is-not-a-claim] `## Branches` cites other plans' branches to
+      declare dependencies, and the parser reads every backticked name as a
+      branch to dispatch. A prose mention becomes a work item.
+- [ ] [a-branch-with-work-is-visible] A branch carrying real work is visible to
+      the fleet rather than filtered out of it.
+- [ ] [a-ticket-becomes-a-plan-or-a-story] A ticket gets one of two treatments —
+      `/plot-idea` for a plan, `/story-tracking` for a story — from the board,
+      where the operator already is.
+- [ ] [the-plan-file-states-what-the-board-shows] A plan states its interrogation
+      rounds in `## Status`, where every other lifecycle fact lives. Measured
+      today: the parser reads `rounds` ONLY from the challenge metadata block, so
+      the Status field is decorative.
+- [ ] [release-candidate-publishing] The board package publishes to npm when a
+      release candidate is cut, and at no other time; the per-push prerelease job
+      is removed.
 
 ## Notes
 

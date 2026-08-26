@@ -8,7 +8,7 @@
 - **Type:** infra
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
-- **Story:** <!-- optional -->
+- **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-26, Jan Wloka, in-session

@@ -149,7 +149,7 @@ into a wrong answer. The stderr is captured and reported, exactly as
 
 ## Waves
 
-### Checked (Branch: bug/the-adapter-checks-the-cli-it-got)
+### Checked (Branch: bug/the-adapter-checks-the-cli-it-got, PR #460)
 
 `plot-host.sh` establishes `bb`'s capability before relying on it, stops
 discarding its stderr, and exits 3 with the reason where the CLI cannot do what

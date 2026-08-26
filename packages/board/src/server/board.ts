@@ -953,6 +953,18 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // on the card's OWN phase, not the plan's: an approved plan whose waves have
     // all merged has been bumped out of Development, and the Ready/In-progress
     // badge is a Development affordance that must not ride along into Testing.
+    //
+    // SETTLED 2026-08-26 (the-board-reads-approval-not-phase): the phase gate
+    // is KEPT, not moved onto `started_raw`. The two conditions — `phase ===
+    // 'Development'` here and `started` (`started_raw.length > 0`) above — agree
+    // on every plan today and diverge in exactly one case: a plan bumped out of
+    // Development that still carries `Started:` records (all its waves merged, so
+    // its card sits in Testing as `deliverable`). There, `started` is true but
+    // the phase is not Development, and the gate is RIGHT to withhold the badge:
+    // Ready/In-progress answers *can an agent pick this up*, and a plan whose
+    // work has all landed is past that question. Gating on `started_raw` would
+    // ride the Development affordance into Testing — the very thing this comment
+    // forbids. The phase is the correct gate; the record is not.
     if (phase === 'Development') card.started = started;
     // Computed for every plan that HAS waves, single-wave ones included. The
     // old `> 1` guard was right about "2 waves · 3 branches" being noise on a
