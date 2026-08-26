@@ -16,6 +16,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-26, Jan Wloka, `bug/closing-a-sprint-reconciles-its-tally`
 
 ## Changelog
 
