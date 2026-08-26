@@ -3910,7 +3910,7 @@ describe('the cadence knows what a refresh costs', () => {
 
   it('never SHORTENS a backoff below the cost-aware cadence either', () => {
     // The direction that would be a real defect: a 120 s ceiling backoff on
-    // Bitbucket, where the ordinary cadence is already 180 s. The backoff is
+    // Bitbucket, where the ordinary cadence is already 240 s. The backoff is
     // shorter, and it is still honoured exactly — a backoff is a floor on when
     // the host may be called, not a ceiling on how long the board may wait, and
     // the gate that follows it is the ordinary one again.
@@ -3925,10 +3925,11 @@ describe('the cadence knows what a refresh costs', () => {
 
   it('returns an ordinary Bitbucket failure to the COST-AWARE cadence, not the naive one', () => {
     // A VPN blip is not a quota, so it rejoins the ordinary rhythm — and on
-    // Bitbucket the ordinary rhythm is the stretched one. Rejoining at 60 s
-    // would let every failure quietly reopen the defect.
+    // Bitbucket the ordinary rhythm is the stretched one (240 s now the issue
+    // call is counted). Rejoining at 60 s would let every failure quietly
+    // reopen the defect.
     const due = prNextDueAt(1_000, null, 5_000, 'bitbucket');
-    expect(due).toEqual({ at: 181_000, hard: false });
+    expect(due).toEqual({ at: 241_000, hard: false });
   });
 
   it('derives the cost from the backend and never from counting responses', () => {
