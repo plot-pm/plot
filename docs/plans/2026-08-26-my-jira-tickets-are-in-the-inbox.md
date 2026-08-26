@@ -105,7 +105,7 @@ instance — this repo has none.
 
 ## Waves
 
-### Keyed (Branch: feature/a-plan-cites-a-jira-key)
+### Keyed (Branch: feature/a-plan-cites-a-jira-key, PR: #447)
 
 `plot-plan-meta.sh` accepts `PROJ-123` in the `Issue:` field alongside `#228`,
 reporting both in `issues`. Independent of the backend and a prerequisite for it
