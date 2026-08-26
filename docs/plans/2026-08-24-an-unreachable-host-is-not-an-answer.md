@@ -65,6 +65,34 @@ outage would have failed it.
 
 ## Design
 
+### Why the banner does not fire today, exactly
+
+`prError` already exists — `fleet.ts:522`, in the schema, and rendered. It is
+set in **one place only: a `catch`** (`fleet.ts:1720`).
+
+The quota failure does not throw. `gh` answers, the fetch succeeds, every PR
+comes back `state: 'unknown'`, and the success path runs `entry.prError = null`
+one line before. So the field is right, the plumbing is right, and the banner is
+silent because **nothing on the success path ever looks at what came back**.
+
+That makes this wave a second, CONTENT-BASED trigger beside the existing
+exception-based one — not new plumbing. And it makes the existing trigger a
+regression risk: a content check that replaces the catch rather than joining it
+would lose every failure that *does* throw, which is most of them.
+
+### The banner says how stale the retained data is
+
+The catch keeps the last good map rather than blanking it, deliberately — the
+comment records why: *"an empty PR map would quietly move every row back to its
+git-only group, which looks like state changing rather than data missing."*
+
+Right call, and it leaves a reader looking at PR data of unknown age. The banner
+therefore names it: *"PR data unavailable — showing data from 14 minutes ago"*.
+
+**This is free.** `prAgeSeconds` is already in the payload and already rendered
+elsewhere in the fleet header (`AgentList.tsx:1988`, `· PR data 45s ago`). The
+work is putting it where the reader connects it to the failure, not computing it.
+
 ### The rule is about ORIGINS, not about GitHub
 
 Written from a measured GitHub failure — the quota ran out and every PR read
@@ -159,7 +187,14 @@ visible rather than only effective.
    this one is about where the rule lives.
 8. **The banner is one banner and names its origins.** Asserted with two origins
    dark at once, producing one message naming both — not two messages.
-9. `pnpm run test:board` green; artifact rebuilt and committed.
+9. **A THROWN failure still sets `prError` and still shows the banner.** The
+   new content-based trigger JOINS the existing catch rather than replacing it —
+   a check that replaced it would lose every failure that does throw, which is
+   most of them.
+10. **The banner names the age of the data still on screen**, from
+   `prAgeSeconds`. The retained map is deliberate; a reader cannot tell a
+   14-minute-old board from a live one without being told.
+11. `pnpm run test:board` green; artifact rebuilt and committed.
 
 ## Notes
 
@@ -197,9 +232,25 @@ better argument in isolation; it loses because these origins fail TOGETHER —
 one expired credential, one VPN off — and four messages for one cause reads as
 four problems.
 
+### Interrogated again 2026-08-26
+
+Round two, on the mechanism rather than the rule.
+
+It found why the banner is silent, precisely: `prError` exists and is set in ONE
+place, a `catch`. The quota failure does not throw — `gh` answers, every PR
+reads `unknown`, and the success path nulls the field one line earlier. So this
+wave adds a content-based trigger BESIDE the exception one, and Done-when 9 now
+pins that the thrown path keeps working, since a replacement would lose the
+majority of failures.
+
+It also found that the banner can name the age of the data for free:
+`prAgeSeconds` is already in the payload and already rendered in the fleet
+header. The retained map is deliberate and right; a reader still cannot tell a
+14-minute-old board from a live one without being told.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {
       "q": "Should the rule generalise beyond GitHub now?",
@@ -210,6 +261,16 @@ four problems.
       "q": "One banner or one per origin?",
       "a": "One, naming the origins \u2014 they fail together, and four messages for one cause reads as four problems",
       "category": "ux"
+    },
+    {
+      "q": "Why does the banner not fire today?",
+      "a": "prError is set only in a catch; the quota failure does not throw, so the success path nulls it \u2014 the fix is a content-based trigger BESIDE the exception one",
+      "category": "technical"
+    },
+    {
+      "q": "Should the banner name how stale the retained data is?",
+      "a": "Yes \u2014 prAgeSeconds is already in the payload and rendered elsewhere, so it is free",
+      "category": "ux"
     }
   ],
   "deferredItems": [],
@@ -217,7 +278,7 @@ four problems.
     "technical": {
       "stack": false,
       "architecture": true,
-      "implementation": false
+      "implementation": true
     },
     "domain": false,
     "ux": {
