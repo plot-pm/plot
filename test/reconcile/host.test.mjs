@@ -959,3 +959,316 @@ printf '%b' '${BB_LIST_ANSI.replace(/'/g, `'\\''`)}'
     assert.ok(!argv.split('\n').includes(write), `issue ops must not ${write}`);
   }
 });
+
+// --- pr-list --rich: the Jenkins arm (CI: jenkins) -------------------------
+//
+// `checks` on a Jenkins repo is a fact the git host cannot supply: `gh`/`bb`
+// carry a GitHub/Bitbucket check rollup, and a team that runs CI on Jenkins has
+// none. So when `CI: jenkins` is declared, the adapter joins a multibranch
+// job's per-branch build colour onto the host's PR rows, keyed on branch name.
+//
+// The spike (2026-08-26, jen 0.2.0) settled the shape: ONE `job list --json`
+// call returns every branch as `{_class,name,color}`, names arrive
+// percent-encoded, and the colour vocabulary is blue|red|yellow|disabled plus
+// a documented `*_anime` suffix while a build runs.
+//
+// `CI` and `Git host` are INDEPENDENT keys, so the arm runs over whichever
+// backend produced the rows. These tests pass the job payload through a stubbed
+// `jen`; the stub answers `job list` regardless of the path and the tests assert
+// the join, the `-I` slug, and the single call.
+//
+// THE MULTIBRANCH JOB PATH is the one Jenkins coordinate the plan did not carry:
+// the plan said "the job path derives from the branch name", but a multibranch
+// job's CONTAINER path (`webbloqs/continuous-build-multi`) cannot derive from a
+// branch name like `bugfix/foo` — the branch is a CHILD of that container. The
+// brief forbids a new `Jenkins job path` config KEY, so the container is read
+// off the `Jenkins instance` value: `<slug>/<job/path>`, split on the first `/`
+// (`-I <slug>`, `job list <job/path>`). A bare-host instance lists at root. This
+// is the open point resolved without a new key — see the PR.
+function makeJenkinsRepo({ instance = 'ci.test/webbloqs/continuous-build-multi', gitHost = 'github' } = {}) {
+  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-jen-'));
+  writeFileSync(path.join(repo, 'CLAUDE.md'),
+    `## Plot Config\n\n- **Git host:** ${gitHost}\n- **CI:** jenkins\n- **Jenkins instance:** ${instance}\n`);
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  return repo;
+}
+
+// A `jen` stub: records argv (one line per invocation), emits the job-list
+// fixture for `job list`, and reproduces the auth-status behaviour for `auth
+// status` — including that jen exits 0 while printing NOT reachable, the trap
+// Done-when 4 exists for. `authReachable:false` prints the failure wording and
+// STILL exits 0.
+function makeJenStub({ jobsJson = '[]', authReachable = true, jobListExit = 0 } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-jenbin-'));
+  const callsFile = path.join(dir, 'jen.calls');
+  const authLine = authReachable
+    ? 'Jenkins auth:  OK — someone@example.test'
+    : 'Jenkins auth:  NOT reachable';
+  const body = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${callsFile}"
+# jen [-I slug] [--json] <group> <sub> [path] — consume -I's VALUE too, or the
+# slug is mistaken for the group.
+group=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -I) shift 2 ;;
+    --json) shift ;;
+    *) group="$1"; break ;;
+  esac
+done
+if [ "$group" = auth ]; then
+  printf '%s\\n' 'Keycloak:      signed in'
+  printf '%s\\n' '${authLine}'
+  exit 0
+fi
+if [ "$group" = job ]; then
+  printf '%s' '${jobsJson.replace(/'/g, `'\\''`)}'
+  exit ${jobListExit}
+fi
+exit 0
+`;
+  writeFileSync(path.join(dir, 'jen'), body);
+  chmodSync(path.join(dir, 'jen'), 0o755);
+  return { dir, callsFile };
+}
+
+// gh/bb stubs live in a SEPARATE dir from the jen stub; a run needs both on
+// PATH. This merges two stub dirs into one PATH prefix.
+function runJenkins(args, { repo, hostStubs, jen, extraEnv = {} }) {
+  return execFileSync('bash', [adapter, ...args], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+      PLOT_HOST: '',
+      ...extraEnv,
+    },
+  });
+}
+
+function runJenkinsAllowFail(args, { repo, hostStubs, jen, extraEnv = {} }) {
+  const res = spawnSync('bash', [adapter, ...args], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      PATH: `${jen.dir}:${hostStubs.dir}:${process.env.PATH}`,
+      PLOT_HOST: '',
+      ...extraEnv,
+    },
+  });
+  return { code: res.status, stdout: res.stdout, stderr: res.stderr };
+}
+
+// The measured colour vocabulary, one branch per colour. Slashes arrive
+// percent-encoded — every name containing one did, 27 of 45 in the spike.
+const JEN_JOBS = JSON.stringify([
+  { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: 'feature%2Fgreen', color: 'blue' },
+  { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: 'feature%2Fred', color: 'red' },
+  { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: 'feature%2Funstable', color: 'yellow' },
+  { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: 'feature%2Fdisabled', color: 'disabled' },
+  { _class: 'org.jenkinsci.plugins.workflow.job.WorkflowJob', name: 'feature%2Frunning', color: 'blue_anime' },
+]);
+
+// gh rows for every join case, so one job-list fixture drives many assertions.
+const ghRowsFor = (heads) =>
+  JSON.stringify(heads.map((h, i) => ({
+    number: 100 + i, title: h, state: 'OPEN', headRefName: h, isDraft: false,
+    statusCheckRollup: [], mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN',
+    reviewDecision: null, url: `https://example.test/pr/${100 + i}`,
+  })));
+
+const rowsByHead = (out) => {
+  const m = new Map();
+  for (const line of out.trim().split('\n').filter(Boolean)) {
+    const r = JSON.parse(line);
+    m.set(r.head, r);
+  }
+  return m;
+};
+
+test('host: Jenkins blue reports green (success), red reports failing and names the job', () => {
+  // Done-when 1: pass/fail come from Jenkins, and a failure names the job in
+  // failing_checks — the same detail the GitHub arm keeps. `blue` is `green`,
+  // the adapter's (and the board's) success word — the plan's prose said
+  // "passing", but the board's checkWord() renders any word but its four as
+  // `unknown`, so the STATE is what the plan settles, not the label.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green', 'feature/red']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
+
+  assert.equal(rows.get('feature/green').checks, 'green');
+  assert.deepEqual(rows.get('feature/green').failing_checks, []);
+  assert.equal(rows.get('feature/red').checks, 'failing');
+  assert.deepEqual(rows.get('feature/red').failing_checks,
+    ['webbloqs/continuous-build-multi/feature/red'],
+    'a failing Jenkins branch names its FULLY-QUALIFIED job, so a reader knows which build to open');
+});
+
+test('host: Jenkins yellow (UNSTABLE) reports failing, not passing', () => {
+  // Done-when 7. Jenkins frames UNSTABLE as *not red*; mapping it to passing
+  // would read green on a board used to decide readiness for a branch whose
+  // tests failed. It is failing, deliberately.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/unstable']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
+  assert.equal(rows.get('feature/unstable').checks, 'failing');
+  assert.deepEqual(rows.get('feature/unstable').failing_checks,
+    ['webbloqs/continuous-build-multi/feature/unstable']);
+});
+
+test('host: a running Jenkins build (*_anime) reports pending', () => {
+  // Done-when 8. The `_anime` suffix is Jenkins' documented convention for a
+  // build in progress. A running build is neither pass nor fail yet — pending,
+  // exactly as the GitHub arm reports an in-progress check.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/running']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
+  assert.equal(rows.get('feature/running').checks, 'pending');
+  assert.deepEqual(rows.get('feature/running').failing_checks, [],
+    'a running build has not failed — no job name to report yet');
+});
+
+test('host: a disabled Jenkins job reports none, not failing', () => {
+  // Done-when 2: absent is not failed. `disabled` (and an absent job) mean no
+  // build to report — `none`, the same honest gap the GitHub arm keeps for an
+  // empty rollup, never `failing`.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/disabled']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
+  assert.equal(rows.get('feature/disabled').checks, 'none');
+});
+
+test('host: a branch with no Jenkins job at all reports none', () => {
+  // Done-when 2, the other half: a PR whose branch has no job in the multibranch
+  // listing is `none` — no build exists, not a failed one.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/never-built']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
+  assert.equal(rows.get('feature/never-built').checks, 'none');
+  assert.deepEqual(rows.get('feature/never-built').failing_checks, []);
+});
+
+test('host: a slashed branch name joins after decoding the percent-encoding', () => {
+  // Done-when 6, the 60% miss. Jenkins returns `feature%2Fred`; Plot's head is
+  // `feature/red`. An equality join without decoding misses every slashed branch
+  // AS none — indistinguishable from having no build. This is the whole point of
+  // the arm being tested on encoded names.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/red']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
+  assert.equal(rows.get('feature/red').checks, 'failing',
+    'the slashed branch must join its red build, not fall through to none');
+});
+
+test('host: one job-list call serves every branch — no per-branch call', () => {
+  // Done-when 5, free by the spike: a multibranch job returns every branch in
+  // one `job list`. Joining locally means the scan pays for Jenkins once per
+  // refresh, never once per branch on the 5s pulse.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green', 'feature/red', 'feature/unstable']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen });
+  const calls = callsOf(jen.callsFile).filter((c) => c.includes('job list'));
+  assert.equal(calls.length, 1, 'exactly one job list, regardless of branch count');
+});
+
+test('host: the Jenkins arm splits the instance into an -I slug and a job path', () => {
+  // `Jenkins instance: ci.test/webbloqs/continuous-build-multi` splits on the
+  // FIRST `/`: `-I ci.test` (the instance slug jen's -I takes) and
+  // `job list webbloqs/continuous-build-multi` (the multibranch container). This
+  // is how the container path travels without a forbidden new config key.
+  const repo = makeJenkinsRepo({ instance: 'ci.test/webbloqs/continuous-build-multi' });
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen });
+  const jobCall = callsOf(jen.callsFile).find((c) => c.includes('job list'));
+  assert.match(jobCall, /-I ci\.test\b/, 'the -I slug is the instance value up to the first /');
+  assert.match(jobCall, /job list webbloqs\/continuous-build-multi/,
+    'the job path is the remainder of the instance value');
+});
+
+test('host: an unreachable Jenkins marks rows unknown and does NOT blank the list', () => {
+  // The brief's reconciliation of Done-when 4. `jen auth status` prints
+  // `Jenkins auth: NOT reachable` and EXITS 0 — so `$?` cannot detect it; the
+  // wording must. And one dead Jenkins must not blank the whole PR list, which
+  // is what a hard exit 3 would do (fleet.ts rejects a non-zero pr-list and
+  // keeps the last good map). So the rows survive as `checks:"unknown"` — the
+  // fifth state the adapter already documents for exactly this — and the op
+  // still exits 0 so the list is emitted.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green', 'feature/red']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, authReachable: false });
+  const res = runJenkinsAllowFail(['pr-list', '--rich'], { repo, hostStubs, jen });
+  assert.equal(res.code, 0, 'a dead Jenkins must not blank the whole PR list');
+  const rows = rowsByHead(res.stdout);
+  assert.equal(rows.get('feature/green').checks, 'unknown');
+  assert.equal(rows.get('feature/red').checks, 'unknown');
+  assert.match(res.stderr, /jenkins/i, 'the failure is named on stderr, never swallowed');
+});
+
+test('host: CI jenkins but no instance configured exits 3 — the op cannot proceed', () => {
+  // The other side of Done-when 4: exit 3 is right when the OP itself cannot
+  // run. A `CI: jenkins` repo with no `Jenkins instance` is a misconfiguration,
+  // not a transient outage — there is no instance to ask, and degrading rows to
+  // `unknown` would hide a config error that only a person can fix.
+  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-jen-noinst-'));
+  writeFileSync(path.join(repo, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Git host:** github\n- **CI:** jenkins\n');
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green']) });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const res = runJenkinsAllowFail(['pr-list', '--rich'], { repo, hostStubs, jen });
+  assert.equal(res.code, 3, 'no instance is a config error the op cannot proceed past');
+  assert.match(res.stderr, /instance/i);
+});
+
+test('host: a repo without CI jenkins reads its GitHub rollup exactly as today', () => {
+  // Done-when 3: the arm is inert unless `CI: jenkins` is declared. A GitHub
+  // repo with a real rollup still collapses it the same way, and `jen` is never
+  // called.
+  const repo = mkdtempSync(path.join(tmpdir(), 'plot-host-nojen-'));
+  writeFileSync(path.join(repo, 'CLAUDE.md'), '## Plot Config\n\n- **Git host:** github\n');
+  execFileSync('git', ['init', '-q'], { cwd: repo });
+  const hostStubs = makeStubs({
+    ghJson: JSON.stringify([{
+      number: 7, title: 't', state: 'OPEN', headRefName: 'feature/x', isDraft: false,
+      statusCheckRollup: [{ name: 'validate', conclusion: 'FAILURE' }],
+      mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null,
+      url: 'https://example.test/pr/7',
+    }]),
+  });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const out = runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen });
+  const row = JSON.parse(out.trim());
+  assert.equal(row.checks, 'failing');
+  assert.deepEqual(row.failing_checks, ['validate']);
+  assert.equal(callsOf(jen.callsFile).filter((c) => c.includes('job list')).length, 0,
+    'jen is not called when CI is not jenkins');
+});
+
+test('host: the Jenkins arm rides on the Bitbucket backend too — CI is orthogonal', () => {
+  // `CI` and `Git host` are independent keys. A Bitbucket repo with Jenkins gets
+  // its PR list from `bb` (checks:"unknown") and its `checks` from `jen`, joining
+  // two hosts in one --rich row. The arm must not be bolted to the GitHub branch.
+  const repo = makeJenkinsRepo({ gitHost: 'bitbucket' });
+  const hostStubs = makeStubs({
+    bbJson: JSON.stringify([{
+      id: 3, title: 't', state: 'OPEN', source: { branch: { name: 'feature/red' } },
+      links: { html: { href: 'https://example.test/pr/3' } },
+    }]),
+  });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const out = runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen });
+  const row = JSON.parse(out.trim());
+  assert.equal(row.head, 'feature/red', 'the Bitbucket row still normalizes');
+  assert.equal(row.checks, 'failing', 'Jenkins fills what bb leaves unknown');
+  assert.deepEqual(row.failing_checks, ['webbloqs/continuous-build-multi/feature/red']);
+});

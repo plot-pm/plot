@@ -117,6 +117,151 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() { echo "plot-host: $*" >&2; exit 1; }
 
+# Exit 3 — reserved for "the op itself cannot proceed", distinct from `die`'s
+# generic 1. A Jenkins overlay with no instance to ask is such a case: a config
+# error a person must fix, not a transient the board should retry past.
+die3() { echo "plot-host: $*" >&2; exit 3; }
+
+# --- Jenkins CI integration ------------------------------------------------
+# A repo may declare `CI: jenkins` independently of `Git host`. When it does,
+# build status (`checks`) is resolved through `jen` — a multibranch job's
+# branches in one call, joined locally to the PR list the host provides.
+#
+# The colour table (plan "i-can-see-whether-my-build-passed", measured spike):
+#   blue         → passing        (last build succeeded)
+#   red          → failing        (last build FAILED)
+#   yellow       → failing        (UNSTABLE: ran, tests failed, no error)
+#   *_anime      → pending        (a build is RUNNING)
+#   disabled     → none           (no build to report)
+#   absent       → none           (branch exists, job not yet built)
+#
+# `yellow` maps to `failing`, deliberately: a branch whose tests failed must
+# not read green on a board used to decide readiness. It reports `failing`
+# and names the job in `failing_checks`, so the difference is visible.
+#
+# Branch names arrive URL-encoded (measured: 27 of 45 names in a production
+# job). Decoded before the join; Done-when 6 is the test.
+#
+# `jen` exits 0 while printing "NOT reachable" — Done-when 4 checks the output
+# rather than $?. When Jenkins is unreachable, `checks:"unknown"` is returned
+# per row rather than blanking the entire list, and exit 3 is reserved for
+# when the operation itself cannot proceed.
+
+# Resolve CI backend: $PLOT_CI (for tests), then `CI` key, default "".
+# Non-jenkins values (github-actions, none, "") mean "no separate CI fetch".
+# The CI system this repo runs its builds on: `jenkins`, `github-actions`, or
+# `none`. Independent of the Git host — a Bitbucket repo can build on Jenkins,
+# and this key is what pairs the two. `PLOT_CI` overrides for tests.
+ci_backend() {
+  if [ -n "${PLOT_CI:-}" ]; then
+    printf '%s\n' "$PLOT_CI" | tr '[:upper:]' '[:lower:]'
+    return
+  fi
+  bash "$here/plot-config.sh" get "CI" "" | tr '[:upper:]' '[:lower:]'
+}
+
+# Fetch Jenkins build statuses for every branch in a multibranch job, in ONE
+# call, and return them as a JSON object keyed by DECODED branch name.
+#
+# $1 = Jenkins instance value from config: `<slug>` or `<slug>/<job/path>`.
+#      The slug is what `jen -I` takes; the remainder (after the first `/`) is
+#      the multibranch job's container path. The plan said the job path "derives
+#      from the branch name", but a multibranch container (`webbloqs/…`) is the
+#      PARENT of the branch and cannot — so the container travels here, on the
+#      instance value, WITHOUT a new config key (the brief forbids one). A job
+#      path in `PLOT_JENKINS_JOB` overrides, for a caller that has it separately.
+#
+# Output on stdout: a SINGLE object `{"status":"ok|failed|unknown","map":{…}}`.
+# Status is returned IN the payload rather than in a variable because the caller
+# reads this through `$(…)`, a subshell whose variable assignments never reach
+# the parent — the earlier draft set a global here and it was always empty.
+#
+#   ok      — Jenkins answered; `map` holds branch→{color,checks,job}
+#   failed  — Jenkins is unreachable (`jen auth status` says so, while EXITING
+#             0 — Done-when 4: the wording decides, never `$?`), or the listing
+#             was empty/garbled. `map` is {}; the caller renders rows `unknown`.
+#   unknown — the auth wording was unrecognised; degrade to failure-shaped
+#             (cannot verify), never to ok. `map` is {}.
+jenkins_build_map() {
+  local instance="$1"
+  local slug job
+  slug="${instance%%/*}"
+  if [ -n "${PLOT_JENKINS_JOB:-}" ]; then
+    job="$PLOT_JENKINS_JOB"
+  elif [ "$instance" = "$slug" ]; then
+    # A bare-host instance carries no job path; list at the root scope. A repo
+    # whose multibranch job sits at the root joins; otherwise no branch matches
+    # and every row reads `none` — honest, and the open point's fallback.
+    job=""
+  else
+    job="${instance#*/}"
+  fi
+
+  # Auth FIRST — `jen` exits 0 even when Jenkins is unreachable, so the exit
+  # code is worthless here and the `Jenkins auth:` line is the only witness.
+  # `NOT reachable` must be tested BEFORE `reachable` (it contains it).
+  # The `Jenkins auth:` line carries the verdict. Its FAILURE wording is stable
+  # (`NOT reachable`, measured 2026-08-18) and tested first because it contains
+  # the success word. Its SUCCESS wording is `OK` on jen 0.2.0 (measured live
+  # 2026-08-26: `Jenkins auth:  OK — user@host`) — older notes said `reachable`,
+  # so both are accepted. Anything else on that line is UNRECOGNISED → degrade to
+  # failure-shaped (cannot verify), never to ok — the probe's `classify` rule.
+  local auth_out=""
+  auth_out=$(jen -I "$slug" auth status 2>&1) || true
+  if printf '%s' "$auth_out" | grep -qiE 'jenkins auth:[[:space:]]*not reachable'; then
+    printf '{"status":"failed","map":{}}\n'; return 0
+  fi
+  if ! printf '%s' "$auth_out" | grep -qiE 'jenkins auth:[[:space:]]*(ok|reachable)'; then
+    printf '{"status":"unknown","map":{}}\n'; return 0
+  fi
+
+  # One call, every branch — the spike's whole point (Done-when 5).
+  local out=""
+  out=$(jen -I "$slug" job list ${job:+"$job"} --json 2>&1) || true
+  if [ -z "$out" ] || ! printf '%s' "$out" | jq -e 'type=="array"' >/dev/null 2>&1; then
+    printf '{"status":"failed","map":{}}\n'; return 0
+  fi
+
+  # Transform to `branch → {color, checks, job}`, decoding percent-encoded names
+  # (Done-when 6: `feature%2Ffoo` → `feature/foo`, else every slashed branch
+  # misses AS `none`). The plan's colour table, mapped to the FOUR `checks` words
+  # the adapter already reports and the board already renders:
+  #   blue                 → green    (success; the board's success word — its
+  #                                     `checkWord()` maps anything but green|
+  #                                     pending|failing|none to `unknown`, so the
+  #                                     plan's prose word "passing" would render
+  #                                     as *cannot read the checks*. The state,
+  #                                     not the word, is what the plan settles.)
+  #   red | yellow         → failing  (yellow is UNSTABLE — tests failed; NOT green)
+  #   *_anime              → pending  (a build is running)
+  #   disabled | absent    → none     (no build to report — absent is not failed)
+  printf '%s' "$out" | jq -c --arg job "$job" '
+    def urldecode:
+      gsub("%(?<h>[0-9A-Fa-f]{2})";
+        "\(.h | explode | reduce .[] as $c (0; . * 16 + (if $c >= 97 then $c - 87 elif $c >= 65 then $c - 55 else $c - 48 end)) | [.] | implode)");
+    def color_to_checks:
+      if . == null or . == "" then "none"
+      elif endswith("_anime") then "pending"
+      elif . == "blue" then "green"
+      elif . == "red" or . == "yellow" then "failing"
+      else "none"
+      end;
+    # `job` NAMES the specific failing build for `failing_checks` — the whole
+    # point of naming it is so a reader knows which Jenkins job to open. That is
+    # the branch job, qualified by its container: `<container>/<branch>` (or the
+    # branch alone when the container is the root). NOT the container path, which
+    # every branch would share and none of which is the one that failed.
+    { status: "ok",
+      map: ([.[]
+             | (.name | urldecode) as $branch
+             | { key: $branch,
+                 value: { color: .color,
+                          checks: (.color | color_to_checks),
+                          job: (if $job == "" then $branch else "\($job)/\($branch)" end) } }]
+            | from_entries) }
+  '
+}
+
 # A LOOKUP MISS AND A TRANSPORT FAILURE ARE TWO ANSWERS, AND THE CLI GIVES ONE
 # EXIT CODE FOR BOTH.
 #
@@ -477,6 +622,43 @@ case "$op" in
     done
     limit_args=()
     [ -n "$limit" ] && limit_args=(--limit "$limit")
+
+    # --- Jenkins CI integration (orthogonal to Git host) ---
+    # When `CI: jenkins` is configured, build status comes from Jenkins rather
+    # than the Git host. One call per refresh, joined locally — Done-when 5.
+    #
+    # `CI` and `Git host` are SEPARATE keys, so this runs ABOVE the backend
+    # branch and overlays whichever backend produced the rows (Done-when 3).
+    #
+    # Two failure directions, kept apart deliberately:
+    #   - The OP CANNOT PROCEED (`CI: jenkins` but no instance to ask) — a config
+    #     error only a person can fix. EXIT 3, the code the header reserves for
+    #     "the op itself cannot proceed". Blanking would look like a transient.
+    #   - Jenkins is UNREACHABLE — the rows survive as `checks:"unknown"` and the
+    #     op still exits 0. A hard exit here would blank the WHOLE PR list, since
+    #     the board rejects a non-zero pr-list and keeps its last good map; one
+    #     dead Jenkins must not darken every row. This reconciles Done-when 4's
+    #     "exits 3" with the brief's "prefer unknown on the affected rows".
+    ci="$(ci_backend)"
+    jen_map=""
+    jen_status=""
+    if [ "$ci" = "jenkins" ] && [ "$rich" = 1 ]; then
+      jen_instance=$(bash "$here/plot-config.sh" get "Jenkins instance" "" 2>/dev/null || echo "")
+      [ -n "$jen_instance" ] || jen_instance="${JENKINS_INSTANCE:-}"
+      if [ -z "$jen_instance" ]; then
+        die3 "CI is jenkins but no Jenkins instance is configured (set a 'Jenkins instance' key)"
+      fi
+      jen_payload=$(jenkins_build_map "$jen_instance")
+      jen_status=$(printf '%s' "$jen_payload" | jq -r '.status // "failed"' 2>/dev/null || echo "failed")
+      jen_map=$(printf '%s' "$jen_payload" | jq -c '.map // {}' 2>/dev/null || echo "{}")
+      # A failed/unknown Jenkins is still an active overlay: it marks rows
+      # `unknown` rather than leaving them at the backend's answer. So the arm is
+      # "on" whenever CI is jenkins, and $jen_status carries whether it answered.
+      if [ "$jen_status" != "ok" ]; then
+        echo "plot-host: jenkins unreachable ($jen_status) — checks reported as unknown" >&2
+      fi
+    fi
+
     if [ "$be" = "github" ]; then
       if [ "$rich" = 1 ]; then
         # `checks` has FOUR states, and two of them mean "a person is the
@@ -539,32 +721,73 @@ case "$op" in
         # human concludes.
         #
         # Free: same GraphQL response, same call, no extra request.
-        gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-          --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url \
-          | jq -c '.[] | {
-              number:.number, title:.title, state:.state, head:.headRefName,
-              draft:.isDraft,
-              checks:(
-                if (.statusCheckRollup|length) == 0 then "none"
-                elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
-                         | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
-                           or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED") then "failing"
-                elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
-                         | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED"
-                           or $c=="WAITING" or $c==null) then "pending"
-                else "green" end),
-              mergeable:(
-                if .mergeable=="CONFLICTING" or .mergeStateStatus=="DIRTY" then "conflicting"
-                elif .mergeable=="MERGEABLE" then "mergeable"
-                else "unknown" end),
-              review:(.reviewDecision // ""),
-              url:.url,
-              failing_checks:[
-                .statusCheckRollup[]? | select((if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
-                  | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
-                    or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED")
-                | (.name // .context // "")] | map(select(. != ""))
-            }'
+        #
+        # --- Jenkins override ---
+        # When `CI: jenkins` is configured, checks come from Jenkins instead of
+        # GitHub's statusCheckRollup. Done-when 3 verifies this is orthogonal:
+        # a GitHub repo without Jenkins still reads its own rollup exactly as
+        # before.
+        if [ "$ci" = "jenkins" ]; then
+          # GitHub PR list, but `checks` comes from Jenkins, joined on branch
+          # name. `statusCheckRollup` is NOT even requested — the GitHub rollup
+          # is irrelevant for a Jenkins team, and asking for it would be a slower
+          # query for a field this arm discards.
+          #   $jstatus != "ok"  → Jenkins could not answer; every row `unknown`.
+          #   $jentry == null   → the branch has no Jenkins job; `none`.
+          #   otherwise         → the joined colour's `checks`, job named on fail.
+          gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url \
+            | jq -c --argjson jmap "$jen_map" --arg jstatus "$jen_status" '.[] |
+              ($jmap[.headRefName] // null) as $jentry |
+              {
+                number:.number, title:.title, state:.state, head:.headRefName,
+                draft:.isDraft,
+                checks:(
+                  if $jstatus != "ok" then "unknown"
+                  elif $jentry == null then "none"
+                  else $jentry.checks
+                end),
+                mergeable:(
+                  if .mergeable=="CONFLICTING" or .mergeStateStatus=="DIRTY" then "conflicting"
+                  elif .mergeable=="MERGEABLE" then "mergeable"
+                  else "unknown" end),
+                review:(.reviewDecision // ""),
+                url:.url,
+                failing_checks:(
+                  if $jentry != null and $jentry.checks == "failing"
+                  then [$jentry.job]
+                  else []
+                end)
+              }'
+        else
+          # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
+          gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url \
+            | jq -c '.[] | {
+                number:.number, title:.title, state:.state, head:.headRefName,
+                draft:.isDraft,
+                checks:(
+                  if (.statusCheckRollup|length) == 0 then "none"
+                  elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
+                           | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
+                             or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED") then "failing"
+                  elif any(.statusCheckRollup[]; (if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
+                           | $c=="PENDING" or $c=="IN_PROGRESS" or $c=="QUEUED"
+                             or $c=="WAITING" or $c==null) then "pending"
+                  else "green" end),
+                mergeable:(
+                  if .mergeable=="CONFLICTING" or .mergeStateStatus=="DIRTY" then "conflicting"
+                  elif .mergeable=="MERGEABLE" then "mergeable"
+                  else "unknown" end),
+                review:(.reviewDecision // ""),
+                url:.url,
+                failing_checks:[
+                  .statusCheckRollup[]? | select((if (.conclusion // "") != "" then .conclusion else (.status // .state) end) as $c
+                    | $c=="FAILURE" or $c=="ERROR" or $c=="CANCELLED"
+                      or $c=="TIMED_OUT" or $c=="ACTION_REQUIRED")
+                  | (.name // .context // "")] | map(select(. != ""))
+              }'
+        fi
       else
         gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
           --json number,title,state,headRefName \
@@ -576,6 +799,12 @@ case "$op" in
       # checks:"unknown" and mergeable:"unknown" — a consumer must render those
       # as "unavailable", never as green and never as clean. An honest gap beats
       # an invented answer, and absent is not false.
+      #
+      # --- Jenkins CI fills that gap ---
+      # When `CI: jenkins` is configured, checks come from Jenkins — the same
+      # integration GitHub uses, which is why it is ABOVE the backend branch.
+      # Bitbucket's `unknown` becomes a real value.
+      #
       # `bb pr list` has no --limit: it returns a fixed page (50 at 1.0.0).
       # Forwarding it errors with `unknown flag`, and dropping it silently
       # would serve a short page as if it were the whole set — the quiet wrong
@@ -590,10 +819,41 @@ case "$op" in
       # is the exact failure this translation exists to remove.
       bb_states="$(bb_states_for "$state")" || exit 1
       if [ "$rich" = 1 ]; then
-        for _s in $bb_states; do
-          bb pr list --state "$_s" --json \
-            | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}'
-        done
+        if [ "$ci" = "jenkins" ]; then
+          # Bitbucket PR list, `checks` filled from Jenkins — the SAME overlay
+          # the GitHub arm uses, which is why it lives above the backend branch.
+          # `bb`'s standing `unknown` becomes a real value where Jenkins answers.
+          for _s in $bb_states; do
+            bb pr list --state "$_s" --json \
+              | jq -c --argjson jmap "$jen_map" --arg jstatus "$jen_status" '.[] |
+                ($jmap[.source.branch.name] // null) as $jentry |
+                {
+                  number:.id, title:.title,
+                  state:(if .state=="DECLINED" then "CLOSED" else .state end),
+                  head:.source.branch.name,
+                  draft:(.draft // false),
+                  checks:(
+                    if $jstatus != "ok" then "unknown"
+                    elif $jentry == null then "none"
+                    else $jentry.checks
+                  end),
+                  mergeable:"unknown",
+                  review:"",
+                  url:(.links.html.href // ""),
+                  failing_checks:(
+                    if $jentry != null and $jentry.checks == "failing"
+                    then [$jentry.job]
+                    else []
+                  end)
+                }'
+          done
+        else
+          # Bitbucket without Jenkins: checks remain unknown
+          for _s in $bb_states; do
+            bb pr list --state "$_s" --json \
+              | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}'
+          done
+        fi
       else
         for _s in $bb_states; do
           bb pr list --state "$_s" --json \
