@@ -13,6 +13,7 @@
 - **Review:** pr
 - **Impl:** same branch
 - **Approved:** 2026-08-26, eins78, plan reviewed on PR #439
+- **Started:** 2026-08-26, eins78, `infra/release-candidate-publishing`
 
 ## Approval
 
@@ -316,8 +317,8 @@ None. Both were resolved at approval:
 
 ### Release-candidate publishing
 
-- `infra/release-candidate-publishing` — remove the `board-rc` job; add the
-  tag-triggered `board-release-candidate` job with both conditions; fix D2 at
+- `infra/release-candidate-publishing` → #439 — remove the `board-rc` job; add
+  the tag-triggered `board-release-candidate` job with both conditions; fix D2 at
   both occurrences; correct the `latest` claim in
   `skills/plot-board-setup/README.md`; add a `plot` changeset. The plan rides
   this branch, and one pull request carries plan and code.
