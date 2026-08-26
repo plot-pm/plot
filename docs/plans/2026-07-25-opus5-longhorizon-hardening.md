@@ -768,7 +768,7 @@ subject rather than by reading the diff:
 - **challenge-budget** — the question-budget shape reached challenge-the-plan
   independently
 
-### Recovered (Branch: infra/recover-opus5-hardening)
+### Recovered (Branch: infra/recover-opus5-hardening, PR: #423)
 
 The four things measurably still missing from main, taken from #57 onto a fresh
 branch cut from current main — no rebase, no conflict:
