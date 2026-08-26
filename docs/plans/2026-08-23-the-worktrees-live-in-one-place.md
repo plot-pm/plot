@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** 2026-08-26, Jan Wloka, `infra/the-worktree-root-is-configurable`
+- **Started:** 2026-08-26, Jan Wloka, `infra/idle-worktrees-can-be-migrated`
 
 ## Changelog
 
