@@ -173,7 +173,7 @@ this plan exists to remove, applied in the other direction.
 
 ## Waves
 
-### Stated (Branch: infra/a-plan-states-its-rounds)
+### Stated (Branch: infra/a-plan-states-its-rounds, PR: #438)
 
 `plot-plan-meta.sh` reads `Rounds:` from `## Status`, preferring it over the
 metadata block and falling back to the block when the field is absent. The
