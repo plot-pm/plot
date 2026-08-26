@@ -381,41 +381,59 @@ if [ "$mode" = "migrate" ]; then
       continue
     fi
 
-    # REFUSAL 1: A live worker process.
-    # Reuse the same check plot-reap.sh uses — a worker pid file with a live process.
-    if [ -f "$wt/.plot-worker.pid" ]; then
-      pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
-      if [ -n "$pid" ] && ps -p "$pid" >/dev/null 2>&1; then
+    # TWO INDEPENDENT CONDITIONS, because the brief names two: a worktree moves
+    # only with NO LIVE WORKER **AND** NO UNLANDED WORK. They are separate
+    # measurements, exactly as they are in plot-reap.sh, and folding them into
+    # one verdict is a hole: plot_worker_state answers "is a WORKER running or
+    # waiting here", and it is keyed on the worker RECORDS (`.plot-worker.pid`,
+    # `.plot-worker.exit`). A hand-made worktree that never ran a Plot worker has
+    # no records and reads `none` no matter how dirty its tree is — and the
+    # hand-made worktrees are precisely the estate this mode exists to tidy. So
+    # liveness and unlanded-work are asked as two questions below.
+
+    # REFUSAL 1 & 2 — a LIVE WORKER, from the ONE shared answer. The brief is
+    # explicit: plot_worker_state is the single answer to "is a worker running
+    # in this worktree", sourced by both dispatch and the fleet scan. It carries
+    # what a bare `ps` cannot — pid-reuse detection via the manifest's
+    # `startedAt`, and the `waiting` state a PLOT-BLOCKED* marker produces.
+    # Re-implementing either here is the drift the codebase fought to remove.
+    wstate_row=$(plot_worker_state "$wt")
+    state=$(printf '%s' "$wstate_row" | cut -f1)
+    case "$state" in
+      running)
+        pid=$(printf '%s' "$wstate_row" | cut -f2)
         printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "worker alive (pid $pid)"
         n_skipped=$((n_skipped + 1))
-        continue
-      fi
-    fi
+        continue ;;
+      waiting)
+        # The shared classifier reports `waiting` when a blocked marker exists:
+        # a worker stopped to ask a person something. Moving it breaks the
+        # checkout the answer is owed to.
+        printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "blocked marker — needs a person"
+        n_skipped=$((n_skipped + 1))
+        continue ;;
+    esac
 
-    # REFUSAL 2: A PLOT-BLOCKED* marker — a worker waiting on a person.
-    if ls "$wt"/PLOT-BLOCKED* >/dev/null 2>&1; then
-      printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "PLOT-BLOCKED marker — needs a person"
-      n_skipped=$((n_skipped + 1))
-      continue
-    fi
-
-    # REFUSAL 3: Uncommitted changes.
-    # Use the same filter as plot-worker-state.sh to exclude editor leftovers.
-    status_output=$(git -C "$wt" status --porcelain 2>/dev/null || true)
-    dirty=$(plot_worker_dirty_filter "$status_output")
+    # REFUSAL 3 — UNCOMMITTED WORK, measured independently of any worker record.
+    # `plot_worker_dirty` applies the shared filter (editor leftovers and Plot's
+    # own bookkeeping do not count), so this fires on real work only.
+    dirty=$(plot_worker_dirty "$wt" | head -1 | cut -c1-40)
     if [ -n "$dirty" ]; then
-      first_dirty=$(printf '%s' "$dirty" | head -1 | cut -c1-40)
-      printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "uncommitted: $first_dirty"
+      printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "uncommitted: $dirty"
       n_skipped=$((n_skipped + 1))
       continue
     fi
 
-    # REFUSAL 4: Unpushed commits.
-    # A branch with commits not on its upstream has unlanded work.
+    # REFUSAL 4 — UNPUSHED COMMITS. Work that exists only on this machine.
+    # Only the branch's OWN upstream answers "pushed?"; an absent upstream leaves
+    # the question unanswerable, and an unanswered question is not a refusal —
+    # the same principle plot_worker_task_state reached the hard way (counting
+    # against origin/main marked every clean branch stalled in a remote-less
+    # repo). So no upstream falls through to "movable", not to "keep".
     if [ -n "$br" ]; then
       ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo "")
       case "$ahead" in
-        ''|0|*[!0-9]*) ;;  # No upstream or zero ahead is fine
+        ''|0|*[!0-9]*) ;;  # no upstream, or nothing ahead: not a refusal
         *) printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "unpushed commits ($ahead ahead)"
            n_skipped=$((n_skipped + 1))
            continue ;;
