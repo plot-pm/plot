@@ -12,9 +12,33 @@ report*:
 
 | Layer | Responsibility |
 |-------|----------------|
-| `skills/plot/scripts/plot-board-probe.sh` | Facts only. Node version, repo shape, artifact location, config presence, plan count, CLI auth states. Decides nothing. |
+| `skills/plot/scripts/plot-board-probe.sh` | Facts only — *can the board run here?* Node version, repo shape, artifact location, config presence, plan count, CI signals, CLI auth states. Decides nothing. |
+| `skills/plot/scripts/plot-detect-repo.sh` | Facts only — *what is this repo?* Inferred git host, `ticket_prefix`, commit style. Decides nothing; every field is a proposal a human confirms. |
 | `skills/plot/scripts/plot-board-verify.sh` | The resource guarantee. Starts the board on an OS-assigned port, fetches `/api/board`, reaps the server via `trap` on every exit path. |
-| `skills/plot-board-setup/SKILL.md` | Judgment. Which artifact to recommend, whether Jenkins keys are warranted, what an empty board means, whose board is on port 7777, what to tell the user. |
+| `skills/plot-board-setup/SKILL.md` | Judgment. Which artifact to recommend, whether Jenkins keys are warranted, which tracker/CI to propose vs ask for, what an empty board means, whose board is on port 7777, what to tell the user. |
+
+## Why two probes, merged in the skill
+
+Setup asks two questions — *can the board run here?* and *what is this repo?* —
+and each has its own collector. `plot-board-probe.sh` answers the first;
+`plot-detect-repo.sh` (which `/plot-init` already uses) answers the second, and
+is the only script that carries a `ticket_prefix`.
+
+The composition lives in `SKILL.md`, not in either script. Adding `ticket_prefix`
+to the probe was rejected: it would put two scripts in the business of detecting
+one thing, and the probe's contract has other callers who would inherit a field
+they never asked for. Manifesto Principle 3 — scripts collect and report, the
+skill interprets and adapts — puts the merge exactly where the judgment is.
+
+The `ticket_prefix` signal is **one-directional**, and that is the whole design.
+A repeated prefix (`plot-detect-repo.sh` requires ≥2 occurrences in 80 subjects)
+is strong evidence *for* a Jira tracker, so it proposes `Tracker: jira` with the
+evidence named. Its absence proves nothing — measured across 70 repos, 32 of 64
+Bitbucket repos carried no prefix — so silence *asks* the open question and never
+proposes `Tracker: none`. A wrong `Tracker` has the Jenkins slug's danger: it
+sends `issue-list` to the wrong system, which answers with an empty list the
+board renders as *you have no tickets*. So unattended it refuses rather than
+guesses — except where a prefix was actually found, which is a real signal.
 
 ## Why the gate asserts cards, not HTTP 200
 
