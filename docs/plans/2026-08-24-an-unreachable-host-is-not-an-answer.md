@@ -65,6 +65,44 @@ outage would have failed it.
 
 ## Design
 
+### The rule is about ORIGINS, not about GitHub
+
+Written from a measured GitHub failure — the quota ran out and every PR read
+`unknown` — but the rule it establishes is host-agnostic, and this sprint is
+about to add three more origins that can fail the same way for different
+reasons: an expired Jira token, an unreachable Jenkins instance, a Bitbucket
+tracker that is switched off.
+
+**Stated once, here, so the new backends inherit it rather than each deciding
+again:** an origin that could not be asked propagates as a **gap**, never as an
+answer. A gap withholds every verdict that depends on it, and withholds nothing
+else. That is the same rule `plot-host.sh` already keeps with exit 4 — *cannot
+be asked is not empty* — carried through to the surface, which is the only place
+a reader can tell the difference.
+
+The backends are not this plan's work. The rule is, and it costs nothing to
+state it in the general form while there is one implementation to check it
+against.
+
+### One banner, and it names which origins are dark
+
+Done-when 2 draws the line at *one gap is a gap* — a single unknown PR among
+readable ones raises nothing. With four origins the question sharpens: a board
+can show a healthy PR list and a dead Jenkins.
+
+**One banner, naming the origins it covers**: *"tickets and builds unavailable —
+Jira, Jenkins"*. Not one per section.
+
+Per-section messages were considered — put the message where the blank is, which
+is where the reader is confused — and rejected on the shape of the failure. These
+origins fail together far more often than separately: one expired credential,
+one network partition, one VPN off. Four separate messages for one cause reads
+as four problems, and a reader who fixes the first still sees three. One banner
+naming three origins reads as one cause, which it usually is.
+
+The per-section blank still needs to say it is not an answer, but that is a
+label, not a banner, and it belongs with the backend that produced it.
+
 ### `unknown` propagates as a gap, not as a state
 
 Where every PR in a refresh comes back `unknown`, the fleet records that the
@@ -115,7 +153,13 @@ visible rather than only effective.
    wave, plan and branch. Nothing git answers is withheld.
 5. **The banner names the reset time** where the host supplied one.
 6. **Checklist Stop 6's second item passes** — the item this defect fails today.
-7. `pnpm run test:board` green; artifact rebuilt and committed.
+7. **The rule is written host-agnostically** — the propagation and withholding
+   are stated for *an origin*, not for the GitHub PR map, so a backend added
+   later inherits it instead of re-deciding. Asserted by reading, not by a test:
+   this one is about where the rule lives.
+8. **The banner is one banner and names its origins.** Asserted with two origins
+   dark at once, producing one message naming both — not two messages.
+9. `pnpm run test:board` green; artifact rebuilt and committed.
 
 ## Notes
 
@@ -135,3 +179,59 @@ IDLE board — it never claimed to bound an active fleet, and an operator who ru
 five agents should expect to spend quota.
 
 What is defective is that spending it looked like work needing review.
+
+### Interrogated 2026-08-26
+
+One round, and both answers widened the plan without adding work to it.
+
+It was written for a measured GitHub failure and read as a GitHub plan. The
+sprint it now belongs to adds three origins that fail the same way for different
+reasons, so the rule is restated host-agnostically — an ORIGIN that could not be
+asked propagates as a gap — and the new backends inherit it rather than each
+deciding again. No wave changes; the generalisation is in where the rule is
+stated.
+
+The banner became one banner naming its origins, rather than one per section.
+Per-section messages put the text where the reader is confused, which is the
+better argument in isolation; it loses because these origins fail TOGETHER —
+one expired credential, one VPN off — and four messages for one cause reads as
+four problems.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "Should the rule generalise beyond GitHub now?",
+      "a": "Yes \u2014 state it host-agnostically so new backends inherit it; do not add backends here",
+      "category": "technical"
+    },
+    {
+      "q": "One banner or one per origin?",
+      "a": "One, naming the origins \u2014 they fail together, and four messages for one cause reads as four problems",
+      "category": "ux"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {
+      "stack": false,
+      "architecture": true,
+      "implementation": false
+    },
+    "domain": false,
+    "ux": {
+      "happyPath": false,
+      "edgeCases": true,
+      "errors": true,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": false,
+      "scalability": false
+    },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
