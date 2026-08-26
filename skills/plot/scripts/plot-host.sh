@@ -224,8 +224,14 @@ jenkins_build_map() {
 
   # Transform to `branch → {color, checks, job}`, decoding percent-encoded names
   # (Done-when 6: `feature%2Ffoo` → `feature/foo`, else every slashed branch
-  # misses AS `none`). The colour table is the plan's:
-  #   blue                 → passing
+  # misses AS `none`). The plan's colour table, mapped to the FOUR `checks` words
+  # the adapter already reports and the board already renders:
+  #   blue                 → green    (success; the board's success word — its
+  #                                     `checkWord()` maps anything but green|
+  #                                     pending|failing|none to `unknown`, so the
+  #                                     plan's prose word "passing" would render
+  #                                     as *cannot read the checks*. The state,
+  #                                     not the word, is what the plan settles.)
   #   red | yellow         → failing  (yellow is UNSTABLE — tests failed; NOT green)
   #   *_anime              → pending  (a build is running)
   #   disabled | absent    → none     (no build to report — absent is not failed)
@@ -236,7 +242,7 @@ jenkins_build_map() {
     def color_to_checks:
       if . == null or . == "" then "none"
       elif endswith("_anime") then "pending"
-      elif . == "blue" then "passing"
+      elif . == "blue" then "green"
       elif . == "red" or . == "yellow" then "failing"
       else "none"
       end;

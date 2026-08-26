@@ -13,7 +13,9 @@ rows locally. `CI` and `Git host` are independent keys, so the overlay rides on
 either backend: a Bitbucket repo with Jenkins gets its PR list from `bb` and its
 `checks` from `jen`.
 
-The colour table is the plan's: `blue`→`passing`, `red`/`yellow`→`failing`
+The colour table is the plan's, mapped to the four `checks` words the board
+renders: `blue`→`green` (the success word — the plan's prose said "passing", but
+the board reads any word but its four as `unknown`), `red`/`yellow`→`failing`
 (`yellow` is UNSTABLE — tests failed, and a false green on a readiness board is
 worse than the blank it replaces), `*_anime`→`pending` (a build is running),
 `disabled`/absent→`none` (absent is not failed). Branch names arrive

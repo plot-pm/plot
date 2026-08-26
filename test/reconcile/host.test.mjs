@@ -1088,15 +1088,18 @@ const rowsByHead = (out) => {
   return m;
 };
 
-test('host: Jenkins blue reports passing, red reports failing and names the job', () => {
-  // Done-when 1: passing/failing come from Jenkins, and a failure names the job
-  // in failing_checks — the same detail the GitHub arm keeps.
+test('host: Jenkins blue reports green (success), red reports failing and names the job', () => {
+  // Done-when 1: pass/fail come from Jenkins, and a failure names the job in
+  // failing_checks — the same detail the GitHub arm keeps. `blue` is `green`,
+  // the adapter's (and the board's) success word — the plan's prose said
+  // "passing", but the board's checkWord() renders any word but its four as
+  // `unknown`, so the STATE is what the plan settles, not the label.
   const repo = makeJenkinsRepo();
   const hostStubs = makeStubs({ ghJson: ghRowsFor(['feature/green', 'feature/red']) });
   const jen = makeJenStub({ jobsJson: JEN_JOBS });
   const rows = rowsByHead(runJenkins(['pr-list', '--rich'], { repo, hostStubs, jen }));
 
-  assert.equal(rows.get('feature/green').checks, 'passing');
+  assert.equal(rows.get('feature/green').checks, 'green');
   assert.deepEqual(rows.get('feature/green').failing_checks, []);
   assert.equal(rows.get('feature/red').checks, 'failing');
   assert.deepEqual(rows.get('feature/red').failing_checks,
