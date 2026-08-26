@@ -91,6 +91,7 @@ Story: [[the-board-is-blank-where-it-matters]].
 
 ### Could Have
 
+- [ ] [the-header-names-the-branch-it-is-serving] The Master Agent row names the branch the board is serving, instead of rendering blank where a fact belongs
 - [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
 - [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
 - [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
