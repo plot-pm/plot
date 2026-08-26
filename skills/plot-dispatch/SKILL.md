@@ -34,7 +34,9 @@ parallel work is a decision. This command therefore never runs itself, and
 `--dry-run` exists so the decision can be taken with the facts in hand.
 
 **Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--allow-local] <slug>`,
-or `--status` / `--stop <branch>` to inspect or stop running workers.
+or `--status` / `--stop <branch>` to inspect or stop running workers, or
+`--migrate [--yes]` to move idle legacy worktrees into the configured
+`Worktree root:`.
 
 ## Model Guidance
 
@@ -364,6 +366,33 @@ branch name (containing `/`); there is deliberately no "stop everything".
 
 Stopping leaves the worktree and the claim in place: the branch stays taken
 until you release it. Releasing is `/plot-reconcile`'s job.
+
+## Migrating existing worktrees into the configured root
+
+A repo can adopt a `Worktree root:` after it already has worktrees living in
+the legacy default (beside the repo, `plot-wt-*`). New dispatches go to the
+configured root immediately; the worktrees already on disk stay where they are
+and keep working. **A mixed estate is an ordinary state, not a transition to
+complete — `--migrate` is never required.**
+
+```bash
+../plot/scripts/plot-dispatch.sh --migrate         # dry-run: what WOULD move, and what is skipped
+../plot/scripts/plot-dispatch.sh --migrate --yes   # actually move the idle ones
+```
+
+**The refusals are the feature.** `git worktree move` on a checkout an agent is
+writing to breaks it mid-run, so `--migrate` moves a worktree only when it has
+**no live worker and no unlanded work**, and names every one it skipped with the
+reason — modelled on `plot-reap.sh`, which refuses on measurements rather than
+judgements. It skips a worktree with a live worker (asked through the same
+`plot-worker-state.sh` the fleet uses), a `PLOT-BLOCKED*` marker, uncommitted
+changes, or unpushed commits. A refused worktree is not an error.
+
+`--dry-run` is the default, like `plot-reap.sh`; `--yes` moves. A repo declaring
+no `Worktree root:` has nothing to migrate, and the mode says so rather than
+inventing a destination. It touches no branch and no ref — a move is
+re-creatable with `git worktree move` back — and it works regardless of plan
+phase, since it operates on the estate rather than one plan.
 
 ## Guardrails
 
