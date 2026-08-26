@@ -15,6 +15,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** 2026-08-26, Jan Wloka, `bug/an-unreachable-host-says-so`
+- **Started:** 2026-08-26, Jan Wloka, `bug/an-unknown-pr-withholds-its-verdict`
 
 ## Changelog
 
