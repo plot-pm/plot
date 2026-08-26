@@ -9,7 +9,7 @@
 - **Phase:** Active
 - **Start:** 2026-08-26
 - **End:** 2026-09-09
-- **Release:** 2.10.0
+- **Release:** 2.11.0
 
 ## Sprint Goal
 
@@ -125,3 +125,10 @@ only on PR #408, so the sprint names a slug `docs/plans/` cannot resolve until
 that merges. The reconcile scan will report it as sprint drift, correctly.
 
 ### Scope Changes
+
+- 2026-08-26: retargeted from **2.10.0** to **2.11.0** before any work started.
+  Four changesets were already merged on main — the changeset package-name
+  guard, both waves of `Rounds:` in `## Status`, and the sprint-filter fix — and
+  one is a `minor`, so they compute to 2.10.0 and cannot ship as a patch. The
+  sprint's target was a claim about the future with no work behind it yet, which
+  makes it the cheap side to move.
