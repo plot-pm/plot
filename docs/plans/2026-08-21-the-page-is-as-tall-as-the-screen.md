@@ -7,7 +7,7 @@
 
 - **Phase:** Draft
 - **Type:** bug
-- **Sprint:** the-board-tells-the-truth-in-every-section
+- **Sprint:** the-board-serves-an-enterprise-stack
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches

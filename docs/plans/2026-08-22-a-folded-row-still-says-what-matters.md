@@ -6,7 +6,7 @@
 
 - **Phase:** Draft
 - **Type:** feature
-- **Sprint:** the-board-tells-the-truth-in-every-section
+- **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session

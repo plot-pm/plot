@@ -84,6 +84,10 @@ Story: [[the-board-is-blank-where-it-matters]].
 
 ### Could Have
 
+- [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
+- [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
+- [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
+- [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
 - [ ] [the-worktrees-live-in-one-place] Worktrees under a configurable root.
       Interrogated twice, Draft, unrelated to the enterprise stack but ready.
 - [ ] [a-closed-sprint-says-what-it-achieved] Closing reconciles the tally
@@ -107,6 +111,19 @@ It does not: a backend nobody can configure is a backend nobody uses, and the
 current skill records `Tracker: jira` for a tracker no code reads. The setup
 skill and the backends are the same feature seen from two ends.
 
+### Six Coulds against three Musts
+
+Worth naming rather than leaving as an accident of arithmetic. The Musts are
+what this sprint is FOR — an enterprise team seeing its tickets and its builds.
+The six Coulds are ready work that had nowhere else to sit: four deferred when
+the last sprint closed early on its release, two written along the way.
+
+That is a legitimate shape for a sprint with a clear subject and a healthy
+backlog, and it is also the shape that most easily loses its subject. If
+capacity gets spent bottom-up, this sprint delivers six board improvements and
+no enterprise support — which would satisfy the tally and miss the point. The
+Musts are the gate; the Coulds are what a spare agent picks up.
+
 ### What this sprint does not claim
 
 Nothing here makes Plot *multi-host at once*. A repo has one git host, one
@@ -125,6 +142,14 @@ only on PR #408, so the sprint names a slug `docs/plans/` cannot resolve until
 that merges. The reconcile scan will report it as sprint drift, correctly.
 
 ### Scope Changes
+
+- 2026-08-26: pulled in the **four Could Haves deferred when
+  `the-board-tells-the-truth-in-every-section` closed**. Each is a Draft plan
+  with no ref pushed — nothing was started, so nothing was lost — and each was
+  deferred because that sprint closed on its release seven days early, not
+  because the work was judged unnecessary. They keep the Could tier here: they
+  are ready, they are not what this sprint is FOR, and a sprint whose Coulds
+  outnumber its Musts should say so rather than pretend they are the subject.
 
 - 2026-08-26: **my-bitbucket-issues-are-in-the-inbox** moved Must → Should
   during interrogation. Its own plan says it may correctly deliver nothing — its
