@@ -16,6 +16,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-26, Jan Wloka, `bug/the-header-names-its-branch`
 
 ## Changelog
 
@@ -144,7 +145,7 @@ empty answer.**
 
 ## Waves
 
-### Found (Branch: bug/the-header-names-its-branch)
+### Found (Branch: bug/the-header-names-its-branch, PR: #459)
 
 Instrument the derivation, reproduce the empty value inside the server, fix the
 cause, and say in this plan what it was.

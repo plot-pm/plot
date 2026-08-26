@@ -4,13 +4,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Rounds:** 1
 
 ## Changelog
@@ -293,11 +294,15 @@ unwritable today.
   The two may not meet at all, and that has to be established before the work
   is described.
 
-### Loud (Branch: feature/the-loud-things-stay-open)
+### Loud (Branch: feature/the-loud-things-stay-open, PR #455)
 - A folded head **names the exceptions beneath it**, and a fold holding one does
   not default closed. `claimed twice` lives on the branch row and vanishes on
   fold; this is the plan's own rule — hide repetition, never exceptions — and
   the only part of it still unbuilt.
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Notes
 

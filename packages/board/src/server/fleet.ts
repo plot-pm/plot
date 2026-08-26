@@ -10,6 +10,7 @@ import {
   FINISHED_PLAN_NOTE,
   FleetScanLineSchema,
   isLiveState,
+  PR_UNKNOWN_NOTE,
   toBoardPhase,
   unknownPhaseNote,
   WaveVerdictSchema,
@@ -2911,12 +2912,33 @@ function classifyGroup(
    * reconstructed path would name a directory that does not exist where they
    * are reading.
    *
-   * LAST, BECAUSE IT IS THE NEWEST — the rule `held`, `workerQuestion` and
-   * `workerDirtyPaths` each record above, and for the reason recorded there:
-   * inserting a parameter mid-list shifts every spread-tuple caller in the
-   * suite silently past the compiler, and this file has paid that once already.
+   * The note above this line had `LAST, BECAUSE IT IS THE NEWEST`; see
+   * `prUnknown` below for the current last.
    */
   localWorktree = '',
+  /**
+   * Whether this branch's PR could not be read from the origin — see
+   * `PR_UNKNOWN_NOTE`. When true and the wave verdict would otherwise be
+   * `eligible`, the verdict is WITHHELD: the row says the host could not be
+   * asked rather than claiming the branch is ready for an agent.
+   *
+   * Withholds the VERDICT, not the row. A branch with an unknown PR still
+   * names its wave, plan, and branch, and still reads `merged` where git says
+   * merged. Only the verdict — the claim that an agent may take it — is what
+   * the host's answer supplies, and only that part is withheld.
+   *
+   * Host-agnostic by design. The same rule applies whether the origin is
+   * GitHub, Bitbucket, or any backend added later: an origin that could not
+   * be asked propagates as a gap, never as a value a verdict can be computed
+   * from. See `PR_UNKNOWN_NOTE` for the statement that backends inherit.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST — the rule `localWorktree`, `held`,
+   * `workerQuestion` and `workerDirtyPaths` each record above, and for the
+   * reason recorded there: inserting a parameter mid-list shifts every
+   * spread-tuple caller in the suite silently past the compiler, and this
+   * file has paid that once already.
+   */
+  prUnknown = false,
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -3273,6 +3295,24 @@ function classifyGroup(
     // shape as the blocker search above — an allowlist of one good value, so
     // every other input inherits the bad answer.
     if (verdict === 'blocked') return { group: 'not-started', note: BLOCKED_NOTE };
+    // AN UNKNOWN PR WITHHOLDS THE VERDICT, NOT THE ROW.
+    //
+    // The wave verdict from the scan says `eligible`, but the host could not
+    // answer — a spent quota, an unreachable server, a backend the board
+    // cannot ask. The row may not claim readiness from a gap: `eligible` is
+    // an answer about the host, and the host did not answer.
+    //
+    // `waiting-on-you` RATHER THAN `not-started`, because the errand is
+    // explicitly about the reader: check your connection, wait for the quota
+    // to reset, look at the banner that names the outage. It is the same
+    // section an unreadable `mergeable` field goes to, for the same reason.
+    //
+    // EVERYTHING ELSE STAYS. Git answered, and the branch still carries its
+    // wave, its plan, its git state. Only the PR-derived verdict is withheld;
+    // Done-when 4 is the assertion that a naive fix does not blank the row.
+    if (prUnknown && verdict === 'eligible') {
+      return { group: 'waiting-on-you', note: PR_UNKNOWN_NOTE };
+    }
     if (verdict === 'eligible') return { group: 'not-started', note: ELIGIBLE_NOTE };
     // `complete` AND EVERY UNRECOGNISED VERDICT, INCLUDING "", and the answer is
     // deliberately the OLD sentence rather than a new one.
@@ -3681,7 +3721,17 @@ export function machineProcesses(
 export function classify(
   ...args: Parameters<typeof classifyGroup>
 ): { group: WaitingGroup; note: string; verdict: WaveVerdict | null } {
-  return { ...classifyGroup(...args), verdict: waveVerdict(args[1]) };
+  // The verdict is WITHHELD when the PR is unknown and the wave verdict would
+  // be `eligible`. `args[16]` is `prUnknown`; `args[1]` is the wave verdict
+  // string. See the arm in `classifyGroup` for the group/note side; this is
+  // the verdict side, and both must agree.
+  const prUnknown = args[16] ?? false;
+  const waveVerdictStr = args[1];
+  const withholdVerdict = prUnknown && waveVerdictStr === 'eligible';
+  return {
+    ...classifyGroup(...args),
+    verdict: withholdVerdict ? null : waveVerdict(waveVerdictStr),
+  };
 }
 
 /**
@@ -4682,7 +4732,16 @@ export function rowsFromPulse(
           // which is a place a reader navigates TO. A broken agent's row has to
           // carry the location itself — it is read in a list, often over a
           // terminal, by someone deciding whether to open anything at all.
-          b.local_worktree);
+          b.local_worktree,
+          // Whether this branch's PR could not be read from the origin — see
+          // `PR_UNKNOWN_NOTE`. `held` is the any-state map (merged, closed,
+          // unknown alike), so `state === 'unknown'` here means the host
+          // answered but could not report the PR's state — a spent quota, an
+          // unreachable server, a backend that returned successfully with no
+          // data. When true and the wave verdict would be `eligible`, the
+          // verdict is withheld: the row says the host could not be asked
+          // rather than claiming the branch is ready for an agent.
+          held?.state === 'unknown');
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.

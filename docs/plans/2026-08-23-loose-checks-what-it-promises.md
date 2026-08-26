@@ -4,13 +4,15 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-26, Jan Wloka, in-session
+- **Started:** 2026-08-26, Jan Wloka, `bug/loose-checks-the-rollup`
 
 ## Changelog
 
@@ -196,6 +198,10 @@ their PR.
 
 ### Verified (Branch: bug/loose-checks-the-rollup)
 - `pr_ready` reads the check rollup from the scan's existing `pr-list` call and accepts only `green`; `--loose` degrades to strict wherever the rollup cannot be had
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Notes
 

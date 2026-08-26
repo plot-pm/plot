@@ -5,17 +5,18 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-26, Jan Wloka, `bug/closing-a-sprint-reconciles-its-tally`
 
 ## Changelog
 
@@ -139,7 +140,7 @@ function and leaving two spellings of one rule behind is how they drift.
 
 ## Waves
 
-### Reconciled (Branch: bug/closing-a-sprint-reconciles-its-tally)
+### Reconciled (Branch: bug/closing-a-sprint-reconciles-its-tally, PR: #457)
 
 `/plot-sprint close` ticks unchecked items whose plan is delivered or released,
 annotating each with the phase that justified it, and names every item it could
@@ -172,6 +173,10 @@ sprints as well as active ones, with a machine-countable footer field.
    entire population this plan is about.
 6. **The scan gates nothing** — its footer count is advisory, like `index_drift`.
 7. `pnpm test`, `pnpm run test:reconcile` green.
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Notes
 
