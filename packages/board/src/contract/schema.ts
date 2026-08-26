@@ -1225,6 +1225,30 @@ export function blockedNote(wave: string | null, outstanding?: number): string {
     : `blocked by ${wave} — ${outstanding} outstanding`;
 }
 
+/**
+ * The note for a branch whose PR state could not be read from the origin.
+ *
+ * `unknown` is a GAP, not a state. An origin that could not be asked — a
+ * spent GitHub quota, an unreachable Bitbucket, a Jenkins with no credentials
+ * — propagates as *the question was not answered*, never as a value a verdict
+ * can be computed from. This is the same rule `plot-host.sh` states for its
+ * three-outcome issue ops and `plot-board-probe.sh` states for `auth`: being
+ * wrong in the reassuring direction is the worst way to be wrong.
+ *
+ * A row carrying this note belongs in `waiting-on-you`, not `not-started`.
+ * The wave verdict is WITHHELD, not negated: git answered and the branch
+ * might well be eligible, but the board cannot say so without the host.
+ *
+ * Unlike `ELIGIBLE_NOTE`, this note does NOT make a row startable. The
+ * distinction is a single boolean: a reader seeing this knows the
+ * board is degraded, and `/plot-dispatch` would refuse the branch for the
+ * same reason the row withholds the verdict.
+ *
+ * Host-agnostic deliberately — stated for *an origin*, not for the GitHub PR
+ * map, so a backend added later inherits it instead of re-deciding.
+ */
+export const PR_UNKNOWN_NOTE = 'cannot read the PR — the host could not be asked';
+
 export const FleetBranchSchema = z.object({
   branch: z.string(),
   state: BranchStateSchema,
