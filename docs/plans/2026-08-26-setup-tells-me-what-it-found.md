@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
@@ -13,7 +13,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 3
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -138,6 +138,35 @@ a `CI:` key that sends every build-status lookup to the wrong system.
 This is the general rule for every inferred field, not a special case for CI:
 **one signal proposes, two signals ask.**
 
+### Setup reads two probes, because it asks two questions
+
+**Measured 2026-08-26: `/plot-board-setup` never calls `plot-detect-repo.sh`.**
+Zero references. It reads only `plot-board-probe.sh` — and that script has **no
+`ticket_prefix` field**, while its `git_host` is *the configured key*, not an
+inferred one.
+
+So the tracker signal below lives in a script this skill does not invoke, and
+the host "inference" the plan credited it with is really a config read. Wave 1
+must therefore wire the data in, not merely add a question.
+
+**The skill calls both scripts and merges their reports.** Each keeps the job it
+already has:
+
+| script | answers |
+|---|---|
+| `plot-board-probe.sh` | *can the board run here?* — node, artifact, CLIs, auth |
+| `plot-detect-repo.sh` | *what is this repo?* — git host, ticket prefix, commit style |
+
+**Not chosen: add `ticket_prefix` to the probe.** It would give the skill one
+data source, at the cost of two scripts answering one question — either
+duplicated detection logic or the probe shelling out to `detect-repo`. Both are
+the drift this repo designs against, and the probe's contract has other callers
+that would inherit a field they never asked for.
+
+Composition belongs in the skill, which is the component whose job is
+interpretation (Manifesto Principle 3: scripts collect and report, skills
+interpret and adapt).
+
 ### The ticket prefix IS a tracker signal — measured, not assumed
 
 An earlier round rejected inferring a tracker from commit messages as
@@ -226,8 +255,16 @@ A written key with no consumer is recorded with a warning naming the gap.
    is one-directional: 32 of 64 Bitbucket repos carry no prefix, so absence
    proves nothing. An implementation that reads absence as *no tracker* passes
    item 8 and silently writes the wrong answer for half the population.
-10. `pnpm run validate` green. **Note `pnpm test` is NOT a test run in this
+10. **Setup invokes `plot-detect-repo.sh` as well as `plot-board-probe.sh`,
+    and neither script grows the other's field.** It calls only the probe today,
+    which has no `ticket_prefix` at all — so item 8 is unreachable without this,
+    and the probe's contract must survive unchanged for its other callers.
+11. `pnpm run validate` green. **Note `pnpm test` is NOT a test run in this
     repo** — it is `skills add . --list` and prints an installer listing.
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Notes
 
