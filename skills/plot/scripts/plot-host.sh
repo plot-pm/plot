@@ -73,6 +73,17 @@
 #                                 confident "no tickets". A failed lookup exits
 #                                 non-zero with an empty stdout, never a silent
 #                                 empty list — an outage is not an answer.
+#                                 JIRA ANSWERS when `Tracker: jira` is declared,
+#                                 through the REST API (no CLI), DISPATCHED ON
+#                                 `Tracker` and INDEPENDENT of `Git host` — a
+#                                 Bitbucket repo tracking in Jira is normal. The
+#                                 inbox is the caller's open unresolved tickets
+#                                 (JQL overridable via PLOT_JIRA_JQL). There is
+#                                 NO exit-4 for Jira: a configured Jira can be
+#                                 asked, so a 401/403/5xx or a network failure is
+#                                 the question FAILING (exit 3), never an empty
+#                                 inbox — an auth gap must not read *you have no
+#                                 tickets*, the failure this story is named for.
 #   issue-view <number>           ONE open issue as a single JSON object:
 #                                 {"number":N,"title":"…","body":"…","url":"…"}
 #                                 STILL READ-ONLY — the second issue op, and it
@@ -95,6 +106,12 @@
 #                                 named a number it read off this same adapter,
 #                                 so its absence is a fact worth surfacing rather
 #                                 than a blank to plan on.
+#                                 JIRA ANSWERS via GET /rest/api/2/issue/<key>
+#                                 (v2 for a plain-string body, not v3's ADF tree)
+#                                 when `Tracker: jira` — same `Tracker` dispatch
+#                                 as issue-list. Jira answers 404 for a missing
+#                                 key, which is exit 3 here (the tracker moved),
+#                                 never an empty body.
 #   pr-body <number> --body B     replace the PR description
 #
 # Backend resolution: $PLOT_HOST (github|bitbucket) wins — useful for tests —
@@ -420,6 +437,130 @@ bb_assert_issue_version() {
     return 3
   fi
   return 0
+}
+
+# --- Jira issue support (REST, no CLI) --------------------------------------
+#
+# `Tracker` is a `## Plot Config` key INDEPENDENT of `Git host`: a Bitbucket
+# repo tracking in Jira is the normal enterprise case. So the two issue ops
+# dispatch on `tracker()`, NOT `backend()` — the PR ops keep dispatching on
+# `backend()`, and `jira` is never a value of it (it is not a git host).
+#
+# Absent (or `plot`/`github-issues`/an unrecognised scheme) means today's
+# behaviour: the issue ops resolve through `backend()` exactly as before. This
+# is opt-in; a GitHub repo that declares no `Tracker` is unaffected (Done-when 2).
+#
+# The value carries the base URL after the scheme (`jira https://acme.atlassian.net`),
+# the same shape `plot-plan-meta.sh` reads the FIRST token of to gate the key
+# form and the Jenkins arm reads the container path off `Jenkins instance` —
+# so no new config key is needed. `PLOT_TRACKER` overrides for tests.
+#
+# NO CLI DEPENDENCY, deliberately (the plan settles this): `gh` and `bb` are
+# already two binaries an adopter installs, and Jira is the tracker most likely
+# behind corporate SSO — a third binary would make it the hardest path to adopt.
+# The REST API is reached with `curl` and shaped with `jq`, as the other ops
+# shell out and shape.
+#
+# READ-ONLY in both directions, like every issue op: only GET is ever issued,
+# never a POST/PUT that would write a label, an assignee or a transition. A plan
+# referencing an issue is Plot's record, not the tracker's.
+#
+# The v2 REST endpoints are used, not v3, for ONE reason: v3 returns `description`
+# as an ADF document (a nested JSON tree), while v2 returns it as a plain string.
+# The board wants the body as a problem statement for /plot-idea, and the
+# Bitbucket arm already treats the body as a best-effort text lift — a string is
+# the honest match, and walking an ADF tree in jq would be ceremony for no gain.
+# `summary` is a plain string in both. See the PR for this judgement call.
+
+# Resolve the tracker scheme and its base URL from config. Prints two lines:
+# the lowercased scheme (`jira`, `github-issues`, `plot`, …) and the base URL
+# (possibly empty). `PLOT_TRACKER` overrides — a test passes `jira https://…`.
+tracker_raw() {
+  if [ -n "${PLOT_TRACKER:-}" ]; then
+    printf '%s\n' "$PLOT_TRACKER"
+    return
+  fi
+  bash "$here/plot-config.sh" get "Tracker" ""
+}
+
+tracker_scheme() {
+  tracker_raw | awk '{print tolower($1)}'
+}
+
+tracker_base_url() {
+  # The base URL is the SECOND token; a bare `jira` with no URL yields "".
+  # PLOT_JIRA_BASE_URL overrides, for a caller that has the URL separately.
+  if [ -n "${PLOT_JIRA_BASE_URL:-}" ]; then
+    printf '%s\n' "$PLOT_JIRA_BASE_URL"
+    return
+  fi
+  tracker_raw | awk '{print $2}' | sed 's:/*$::'
+}
+
+# The env var scheme for Jira auth. The plan left the EXACT names open, to be
+# confirmed against a real instance; these follow Jira Cloud's documented Basic
+# scheme (email + API token, base64'd into an Authorization header):
+#   JIRA_EMAIL      the account email
+#   JIRA_API_TOKEN  a Jira Cloud API token (id.atlassian.com/manage/api-tokens)
+# A missing token is a CONFIG error the op cannot proceed past — exit 3, never
+# an empty inbox. An empty inbox says *you have no tickets*, the exact failure
+# this whole story is named for; an auth gap must never wear that mask.
+#
+# This guard is called in the MAIN shell, BEFORE the `$(jira_curl …)` capture —
+# `die3` exits the whole script only from there, not from inside a command
+# substitution where it would end only the subshell and leak a second error.
+jira_require_config() {
+  if [ -z "$(tracker_base_url)" ]; then
+    die3 "Tracker is jira but no base URL is configured (write 'Tracker: jira https://your.atlassian.net' or set PLOT_JIRA_BASE_URL)"
+  fi
+  if [ -z "${JIRA_EMAIL:-}" ] || [ -z "${JIRA_API_TOKEN:-}" ]; then
+    die3 "Jira needs JIRA_EMAIL and JIRA_API_TOKEN in the environment — an unauthenticated Jira must not read as an empty inbox"
+  fi
+}
+
+jira_curl() {
+  # $1 = path (e.g. /rest/api/2/search/jql?...), remaining args appended to curl.
+  # Config is assumed present — jira_require_config ran in the caller's shell.
+  local path="$1"; shift
+  local base
+  base="$(tracker_base_url)"
+  # -sS: quiet progress, but keep errors. -w writes the HTTP status on its own
+  # line AFTER the body so the caller can split the two. --user does the Basic
+  # base64 for us; the token never appears in argv of any child process here.
+  curl -sS \
+    --user "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+    -H 'Accept: application/json' \
+    -w '\n%{http_code}' \
+    "$base$path" "$@"
+}
+
+# Split a jira_curl response into (body, status) and enforce the three outcomes.
+# Prints the JSON body on stdout on success; on failure prints nothing on stdout,
+# the diagnostic on stderr, and returns 3. A transport failure (curl non-zero:
+# DNS, TLS, connection refused) and an HTTP error (401/403/404/5xx) are BOTH the
+# question failing — exit 3. There is no exit-4 case for Jira: a configured Jira
+# CAN be asked; if it cannot be reached, that is a failure to answer, not a host
+# that structurally has no tracker (the bitbucket-DISABLED case exit 4 is for).
+jira_check() {
+  local raw="$1" curl_rc="$2"
+  local status body
+  if [ "$curl_rc" -ne 0 ]; then
+    echo "plot-host: jira request failed (curl exit $curl_rc) — a network failure is not an empty inbox" >&2
+    return 3
+  fi
+  # The status is the last line; the body is everything before it.
+  status="$(printf '%s' "$raw" | tail -n1)"
+  body="$(printf '%s' "$raw" | sed '$d')"
+  if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+    # Name the status AND Jira's own errorMessages if it sent any (it returns
+    # {"errorMessages":[…],"errors":{…}} on 4xx). 401/403 are the auth failures
+    # this story exists to keep out of the inbox; 5xx is an outage. Both are 3.
+    local detail
+    detail="$(printf '%s' "$body" | jq -r 'try (.errorMessages | join("; ")) catch empty' 2>/dev/null)"
+    echo "plot-host: jira HTTP $status${detail:+ — $detail}" >&2
+    return 3
+  fi
+  printf '%s' "$body"
 }
 
 backend() {
@@ -923,7 +1064,45 @@ case "$op" in
     done
     limit_args=()
     [ -n "$limit" ] && limit_args=(--limit "$limit")
-    if [ "$be" = "github" ]; then
+    if [ "$(tracker_scheme)" = "jira" ]; then
+      # Jira, resolved through the REST API — DISPATCHED ON `Tracker`, never on
+      # `backend()`: a Bitbucket repo tracking in Jira is the normal enterprise
+      # case, so the git host is irrelevant here (see the Jira helpers up top).
+      #
+      # The inbox is "my open tickets": assigned to me and unresolved. That is
+      # the story's title — *my Jira tickets are in the inbox* — and it maps the
+      # board's "open tracker issues no plan references" onto the person reading
+      # the board. `PLOT_JIRA_JQL` overrides it for a team that wants a wider or
+      # narrower inbox. ORDER BY created DESC so the newest ticket is first, the
+      # same order `createdAt` gives the GitHub arm.
+      jira_require_config
+      jql="${PLOT_JIRA_JQL:-assignee = currentUser() AND resolution = EMPTY ORDER BY created DESC}"
+      # maxResults bounds ONE page. The inbox is small by construction (a
+      # person's open tickets), so no nextPageToken loop is needed; the caller's
+      # --limit caps it, else Jira's default page. v2 `search/jql` takes the same
+      # params as v3 but returns `summary`/`description` as plain strings.
+      max="${limit:-50}"
+      # jq builds the query string so a JQL with spaces/quotes is encoded once,
+      # not hand-escaped. --data-urlencode via curl -G keeps the token out of the
+      # URL and the JQL correctly encoded.
+      raw="$(jira_curl "/rest/api/2/search/jql" \
+               -G \
+               --data-urlencode "jql=$jql" \
+               --data-urlencode "fields=summary,created" \
+               --data-urlencode "maxResults=$max")"; curl_rc=$?
+      body="$(jira_check "$raw" "$curl_rc")" || exit $?
+      # `number` is the Jira KEY (PROJ-123), a string — #447 taught the parser to
+      # read that form. `url` is built from the base + /browse/<key>; Jira's
+      # search payload carries no browse URL, and the base is ours to know
+      # (Principle 3: this script is the one place that knows a host URL's shape).
+      base="$(tracker_base_url)"
+      printf '%s' "$body" | jq -c --arg base "$base" '.issues[]? | {
+          number: .key,
+          title: (.fields.summary // ""),
+          url: ($base + "/browse/" + .key),
+          createdAt: (.fields.created // "")
+        }'
+    elif [ "$be" = "github" ]; then
       # `gh issue list` — not `gh api /issues`. On GitHub every PR IS an issue,
       # so the REST endpoint returns both, and every open PR would arrive here
       # as a signal nobody had planned. The `gh` subcommand filters PRs out;
@@ -1001,7 +1180,30 @@ case "$op" in
     # 4 to `unsupported` and anything else to `failed` must not need a second
     # table to read this op.
     num="${1:?issue-view needs an issue number}"; shift
-    if [ "$be" = "github" ]; then
+    if [ "$(tracker_scheme)" = "jira" ]; then
+      # Jira, dispatched on `Tracker` not `backend()` — the same rule issue-list
+      # follows. `num` is a Jira KEY (PROJ-123), read off issue-list moments ago.
+      #
+      # v2, not v3: `description` arrives as a plain string here, where v3 returns
+      # an ADF tree. The body is a problem statement for /plot-idea, so a string
+      # is the right shape — see the Jira helpers up top for the full reasoning.
+      #
+      # A missing issue is a FAILURE, not an empty body — exactly as the GitHub
+      # and Bitbucket arms treat it: the caller named a key it read off this same
+      # adapter, so its absence (Jira answers 404) means the tracker moved under
+      # the board. jira_check turns that 404 into exit 3 with empty stdout.
+      jira_require_config
+      raw="$(jira_curl "/rest/api/2/issue/$num" \
+               -G --data-urlencode "fields=summary,description")"; curl_rc=$?
+      body_json="$(jira_check "$raw" "$curl_rc")" || exit $?
+      base="$(tracker_base_url)"
+      printf '%s' "$body_json" | jq -c --arg base "$base" '{
+          number: .key,
+          title: (.fields.summary // ""),
+          body: (.fields.description // ""),
+          url: ($base + "/browse/" + .key)
+        }'
+    elif [ "$be" = "github" ]; then
       if out="$(gh issue view "$num" --json number,title,body,url 2>/tmp/plot-host-err.$$)"; then
         rm -f "/tmp/plot-host-err.$$"
         jq -c '{number:.number,title:(.title // ""),body:(.body // ""),url:(.url // "")}' <<<"$out"
