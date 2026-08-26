@@ -117,28 +117,36 @@ export function withSprintCounts(
 }
 
 /**
- * Sprint filter options, unioned from two sources:
- *  1. the sprint *directory* (`board.sprints`) — these carry human titles;
- *  2. the sprint values written *inline on plans* (`card.sprint`) — a plan can
- *     reference a sprint that has no directory entry, and that sprint must still
- *     be filterable.
+ * Sprint filter options — the ACTIVE sprints, and only those.
  *
- * Directory titles win when a slug appears in both; inline-only sprints fall
- * back to their raw slug as the label. Sorted for stable rendering. This is why
- * the sprint filter can be non-empty even when the sprint directory is: the
- * board carries the fact (card.sprint) and the client composes the filter.
+ * `board.sprints` is `collectSprints`' read of `<sprintDir>/active/`, so a
+ * sprint that has been closed has no entry and is not offered. That is the whole
+ * rule.
+ *
+ * **It used to union in `card.sprint` as well**, so any sprint slug written on
+ * any plan became an option. Measured 2026-08-26, hours after W35 closed: the
+ * filter offered three sprints — all Closed — while the Agents tab header
+ * correctly read *No active sprint*. Two views of one fact, disagreeing, because
+ * a plan's `Sprint:` field is HISTORY and does not clear when its sprint ends.
+ * 133 plans carry one; three sprints have ever existed; none is active. The
+ * filter looked like three sprints were running.
+ *
+ * The union was not unreasonable — it made *what shipped in W35?* answerable,
+ * and 35 plans can answer it. It is dropped anyway: a control that offers a
+ * closed sprint beside an open one, with nothing to tell them apart, states
+ * something untrue in order to keep a query available. The query can come back
+ * behind a label that says *closed*, which needs the phase, which needs the
+ * sprint FILE — `collectSprints` reads only `active/` today, so the phase is
+ * simply not in reach from here.
+ *
+ * A consequence, accepted deliberately: **the filter is empty when no sprint is
+ * active**, and `MultiSelect` renders nothing rather than a list nobody can act
+ * on. An empty control and an honest one are the same control here.
  */
 export function sprintFilterOptions(board: Board | null): FilterOption[] {
-  const labels = new Map<string, string>();
-  for (const s of board?.sprints ?? []) labels.set(s.slug, s.title);
-  for (const col of board?.columns ?? []) {
-    for (const card of col.cards) {
-      if (card.sprint && !labels.has(card.sprint)) labels.set(card.sprint, card.sprint);
-    }
-  }
-  return [...labels.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([value, label]) => ({ value, label }));
+  return (board?.sprints ?? [])
+    .map((s) => ({ value: s.slug, label: s.title }))
+    .sort((a, b) => a.value.localeCompare(b.value));
 }
 
 /**
