@@ -199,7 +199,7 @@ fields and `pnpm run test:reconcile` tests it.
 | `file` | path | `YYYY-MM-DD-<slug>.md` |
 | `title` · `type` | text | `feature` · `bug` · `docs` · `infra` |
 | **`phase`** | **status** | Discovery · Development · Endgame · Released *(+ Design, defined and unused)* |
-| `review` · `impl` | ceremony | `pr`·`in-session`·`ballot` / `own-branches`·`same-branch`·`other-repo`·`none` |
+| `review` | ceremony | `pr`·`in-session`·`ballot` — read by `planStatus` for the `open`/`draft` split; that use is the whole of its contract |
 | `sprint` · `story` · `assignee` · `issues[]` | belonging | free text / ids |
 | `approved` · `delivered` · `released` · `design` | **record, text** | the raw line; display only |
 | `started[]` | **record, array** | one entry per started branch — its LENGTH is a fact |
@@ -214,6 +214,13 @@ approval record. Deriving phase from records would demote all four. Only
 `started[]` may be read structurally, and only for its length.
 
 **Absent by design:** there is no partial approval. A plan is Draft or Approved.
+
+**`impl` is not carried.** The parser emits it (*where implementation happens* —
+`own-branches`·`same-branch`·`other-repo`·`none`), but the board reads it
+nowhere, so it was removed from `PlanMetaSchema` on 2026-08-26 rather than left
+declared and unread — the defect `setup-names-an-unread-key` (PR #452) warns
+users about. Zod strips the key the parser still emits. No field joins the
+schema without a consumer, and this is that rule run backwards.
 
 ## WAVE
 

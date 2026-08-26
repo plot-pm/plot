@@ -129,6 +129,33 @@ describe('PlanMetaSchema — waves', () => {
   });
 });
 
+describe('PlanMetaSchema — the ceremony fields the board carries', () => {
+  const base = { file: 'docs/plans/x.md', format: 'canonical', phase: 'approved' };
+
+  it('carries `review`, whose one use is the `open`/`draft` split', () => {
+    // `review` is read exactly once, by `planStatus`: `review === 'pr'` is the
+    // channel that leaves a plan PR to observe. It reaches a reader — Done-when
+    // 2's first branch — and that single internal use is the whole of its
+    // contract. Nothing renders the word.
+    expect(PlanMetaSchema.parse({ ...base, review: 'pr' }).review).toBe('pr');
+    expect(PlanMetaSchema.parse({ ...base, review: 'in-session' }).review).toBe('in-session');
+    // Defaulted so a pre-Plot-2 plan (no ceremony fields) still validates.
+    expect(PlanMetaSchema.parse(base).review).toBe('NONE');
+  });
+
+  it('does NOT carry `impl` — a field declared and read nowhere is removed', () => {
+    // The defect this wave settles. `plot-plan-meta.sh` still emits `impl`, but
+    // the board read it nowhere, so it left `PlanMetaSchema` on 2026-08-26
+    // rather than sit declared and unread — the very thing PR #452 warns board
+    // adopters about. Zod strips the key the parser sends; the typed object has
+    // no `impl` property. This test is the gate that keeps it gone: re-adding
+    // the field to the schema without a consumer turns it green again.
+    const parsed = PlanMetaSchema.parse({ ...base, impl: 'own-branches' }) as Record<string, unknown>;
+    expect(parsed.impl).toBeUndefined();
+    expect('impl' in parsed).toBe(false);
+  });
+});
+
 describe('WaveSummarySchema — plan shape and git occupancy, kept apart', () => {
   const base = {
     slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md',
