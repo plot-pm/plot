@@ -144,7 +144,7 @@ invoke a skill; `plot-dispatch.sh` cannot.
   numbers that decide where the check reads from. Record the answer in this plan.
 - then: auto-dispatch does not start a wave whose brief is absent, and names it
 
-### Offered (Branch: feature/the-board-offers-to-write-a-brief)
+### Offered (Branch: feature/the-board-offers-to-write-a-brief, PR: #432)
 - the row offers **Write brief**, running `/plot-implement` for that wave
 
 ## Done when
