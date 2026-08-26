@@ -518,6 +518,7 @@ Reconciled 3 items whose plans have shipped:
 > mechanical and objective, not a judgement. The only question this step might
 > ask is "should I tick items the estate says are done?", and the answer is
 > always yes. Name the items it ticked and the items it could not resolve.
+> `PLOT-UNASKED: Tick <n> items the estate says are done? — default — reconciled; <n> ticked, <m> unresolvable and named`
 
 #### 2b. False-Positive Completion Check
 
