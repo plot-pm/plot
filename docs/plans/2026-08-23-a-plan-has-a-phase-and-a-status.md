@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `feature/a-plan-reports-its-status`
 - **Delivered:** 2026-08-24
+- **Released:** 2026-08-26, 2.9.0
 
 ## Approval
 

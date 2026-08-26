@@ -4,8 +4,9 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Delivered:** 2026-08-26
+- **Released:** 2026-08-26, 2.9.0
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Story:** plot-gates

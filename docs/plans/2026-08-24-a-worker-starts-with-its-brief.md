@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** <!-- not a member of the-board-tells-the-truth-in-every-section -->
 - **Issue:** <!-- optional -->
@@ -15,7 +15,7 @@
 - **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** 2026-08-26
-- **Released:** <!-- YYYY-MM-DD, version -->
+- **Released:** 2026-08-26, 2.9.0
 - **Started:** 2026-08-26, Jan Wloka, `bug/auto-dispatch-waits-for-a-brief`
 - **Started:** 2026-08-26, Jan Wloka, `feature/the-board-offers-to-write-a-brief`
 

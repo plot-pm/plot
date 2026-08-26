@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** <!-- not a member of the-board-tells-the-truth-in-every-section -->
 - **Issue:** <!-- optional -->
@@ -12,8 +12,7 @@
 - **Approved:** 2026-08-25, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** 2026-08-25
-- **Released:** <!-- YYYY-MM-DD, version -->
-
+- **Released:** 2026-08-26, 2.9.0
 ## Changelog
 
 Every count the board renders beside a section is derivable from that

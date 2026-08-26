@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** working-shows-the-agent
 - **Story:** plot-planning-model
@@ -16,6 +16,7 @@
 - **Started:** 2026-08-22, Jan Wloka, `bug/the-plan-row-carries-the-plan-decisions`
 - **Started:** 2026-08-22, Jan Wloka, `feature/an-approved-plan-offers-start-work`
 - **Delivered:** 2026-08-23
+- **Released:** 2026-08-23, 2.8.0
 
 ## Approval
 

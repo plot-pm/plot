@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -18,6 +18,7 @@
 - **Started:** 2026-08-25, Jan Wloka, `feature/a-worker-asks-for-the-next-wave`
 - **Started:** 2026-08-25, Jan Wloka, `feature/the-registry-follows-a-hopping-worker`
 - **Delivered:** 2026-08-25
+- **Released:** 2026-08-26, 2.9.0
 
 ## Changelog
 

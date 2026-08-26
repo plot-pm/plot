@@ -6,8 +6,9 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches
@@ -17,6 +18,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-plan-row-offers-deliver`
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-phase-after-development-is-testing`
 - **Delivered:** 2026-08-23
+- **Released:** 2026-08-26, 2.9.0
 
 ## Approval
 

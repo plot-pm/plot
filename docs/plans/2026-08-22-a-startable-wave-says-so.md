@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** working-shows-the-agent
 - **Story:** plot-board
@@ -16,6 +16,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `bug/an-eligible-wave-takes-the-actionable-tone`
 - **Delivered:** 2026-08-23
+- **Released:** 2026-08-26, 2.9.0
 
 ## Approval
 

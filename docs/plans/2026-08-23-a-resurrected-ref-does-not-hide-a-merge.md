@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `bug/a-resurrected-ref-does-not-hide-a-merge`
 - **Delivered:** 2026-08-23
+- **Released:** 2026-08-26, 2.9.0
 
 ## Approval
 

@@ -10,8 +10,9 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
@@ -22,6 +23,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `bug/a-release-is-its-version`
 - **Started:** 2026-08-23, Jan Wloka, `bug/the-wave-leaves-the-kind-alone`
 - **Delivered:** 2026-08-24
+- **Released:** 2026-08-26, 2.9.0
 
 ## Approval
 

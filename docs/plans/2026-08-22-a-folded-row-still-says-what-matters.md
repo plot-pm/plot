@@ -6,7 +6,7 @@
 
 - **Phase:** Draft
 - **Type:** feature
-- **Sprint:** <!-- optional -->
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session

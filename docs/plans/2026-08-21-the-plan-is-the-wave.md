@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-planning-model
 - **Review:** pr
@@ -15,6 +15,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-plan-row-carries-wave-actions`
 - **Started:** 2026-08-23, Jan Wloka, `feature/one-wave-renders-as-its-plan`
 - **Delivered:** 2026-08-24
+- **Released:** 2026-08-26, 2.9.0
 
 ## Changelog
 

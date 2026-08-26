@@ -4,9 +4,9 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
-- **Sprint:** <!-- optional -->
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-23, Jan Wloka, in-session
 - **Started:** 2026-08-23, Jan Wloka, `bug/a-finished-row-is-not-active`
 - **Delivered:** 2026-08-23
+- **Released:** 2026-08-26, 2.9.0
 
 ## Approval
 

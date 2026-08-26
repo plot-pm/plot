@@ -14,7 +14,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session
@@ -24,6 +24,7 @@
 - **Started:** 2026-08-20, Jan Wloka, `bug/an-agent-is-not-a-machine-you-wait-on`
 - **Started:** 2026-08-20, Jan Wloka, `feature/a-broken-agent-needs-you`
 - **Delivered:** 2026-08-24
+- **Released:** 2026-08-26, 2.9.0
 
 ## Changelog
 

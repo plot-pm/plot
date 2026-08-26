@@ -7,6 +7,7 @@
 
 - **Phase:** Draft
 - **Type:** bug
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Story:** plot-board
 - **Review:** pr
 - **Impl:** own branches

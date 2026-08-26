@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -20,6 +20,7 @@
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-agents-tab-filters-to-the-sprint`
 - **Started:** 2026-08-24, Jan Wloka, `feature/the-board-filter-reads-the-sprint-file`
 - **Delivered:** 2026-08-24
+- **Released:** 2026-08-26, 2.9.0
 
 ## Approval
 

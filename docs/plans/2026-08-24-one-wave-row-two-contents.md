@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -16,6 +16,7 @@
 - **Approved:** 2026-08-24, Jan Wloka, in-session
 - **Started:** 2026-08-24, Jan Wloka, `bug/a-wave-row-speaks-its-own-verdict`
 - **Delivered:** 2026-08-25
+- **Released:** 2026-08-26, 2.9.0
 
 ## Changelog
 

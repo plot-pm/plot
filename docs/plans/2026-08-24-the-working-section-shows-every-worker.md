@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -20,6 +20,7 @@
 - **Started:** 2026-08-25, Jan Wloka, `bug/a-ready-pr-asks-for-you`
 - **Started:** 2026-08-25, Jan Wloka, `bug/the-registry-drops-a-settled-worker`
 - **Delivered:** 2026-08-25
+- **Released:** 2026-08-26, 2.9.0
 
 ## Changelog
 

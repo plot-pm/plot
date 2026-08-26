@@ -7,8 +7,9 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
@@ -18,6 +19,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `feature/reconcile-counts-unsliced-waves`
 - **Started:** 2026-08-23, Jan Wloka, `feature/the-board-offers-a-reslice`
 - **Delivered:** 2026-08-23
+- **Released:** 2026-08-26, 2.9.0
 
 ## Approval
 

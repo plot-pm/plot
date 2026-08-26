@@ -4,9 +4,9 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
-- **Sprint:** <!-- optional -->
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
@@ -21,6 +21,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `bug/done-holds-finished-plans-only`
 - **Started:** 2026-08-23, Jan Wloka, `feature/a-split-plan-counts-what-is-elsewhere`
 - **Delivered:** 2026-08-23
+- **Released:** 2026-08-26, 2.9.0
 
 ## Approval
 
