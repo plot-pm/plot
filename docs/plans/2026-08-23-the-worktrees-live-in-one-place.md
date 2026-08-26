@@ -224,7 +224,7 @@ precisely the checkouts a person most wants moved.
 - `Worktree root` config key, default unchanged; the prefix becomes a property of the root; `plot-resolve-artifact.sh` stops composing a path; `.gitignore` gains the directory
 
 
-### Moved (Branch: infra/idle-worktrees-can-be-migrated)
+### Moved (Branch: infra/idle-worktrees-can-be-migrated, PR: #448)
 - `--migrate` moves worktrees with no live worker and no unlanded work, refuses the rest, and reports both
 
 ## Notes
