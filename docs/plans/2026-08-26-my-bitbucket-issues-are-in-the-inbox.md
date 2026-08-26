@@ -81,9 +81,52 @@ Establish whether Bitbucket issues can be listed at all; if so, `issue-list` and
 
 ## Notes
 
+### Interrogated 2026-08-26
+
+One round. Moved from Must to Should in the sprint: a plan whose own first
+Done-when is *establish whether this is possible*, and which says it may
+correctly deliver nothing, is not what a Must reads like. Most Bitbucket teams
+track in Jira and never enable the issue tracker, in which case the Jira plan is
+the one that serves them. The measurement is still worth doing — it retires a
+refusal that has stood since the adapter was written.
+
 ### This plan may correctly deliver nothing
 
 Recorded deliberately. Its value is in settling a refusal that has stood since
 the adapter was written, and an outcome of *the refusal is right, here is the
 evidence* retires a question that would otherwise be re-asked. It is the
 smallest Must in the sprint for exactly that reason.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "Is this a Must?",
+      "a": "No \u2014 demoted to Should; it may correctly deliver nothing and the Jira plan serves the same population",
+      "category": "tradeOffs"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {
+      "stack": false,
+      "architecture": true,
+      "implementation": false
+    },
+    "domain": false,
+    "ux": {
+      "happyPath": false,
+      "edgeCases": false,
+      "errors": false,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": true,
+      "scalability": false
+    },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->

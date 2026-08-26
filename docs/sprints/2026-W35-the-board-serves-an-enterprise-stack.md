@@ -61,9 +61,6 @@ Stories: [[the-board-is-blank-where-it-matters]] (the first three),
       path. The probe already finds `jen`, a Jenkinsfile, and the instance —
       `plot-host.sh` has no `jen` reference at all, so the trail ends before the
       board.
-- [ ] [my-bitbucket-issues-are-in-the-inbox] My Bitbucket issues appear in the inbox instead of an empty section that reads as *you have no tickets*
-      on Bitbucket. Exit 4 is honest — *cannot be asked* is not *empty* — but a
-      team whose tickets live in Bitbucket sees an empty inbox forever.
 - [ ] [setup-tells-me-what-it-found] Setup tells me what it found in my repo and asks only what it could not work out — and never records a key nothing reads
       tracker and CI from real signals and asks only what it cannot settle,
       writing every answer into `## Plot Config`. It currently asks and refuses
@@ -73,6 +70,9 @@ Stories: [[the-board-is-blank-where-it-matters]] (the first three),
 
 Story: [[the-board-is-blank-where-it-matters]].
 
+- [ ] [my-bitbucket-issues-are-in-the-inbox] My Bitbucket issues appear in the inbox instead of an empty section that reads as *you have no tickets*
+      on Bitbucket. Exit 4 is honest — *cannot be asked* is not *empty* — but a
+      team whose tickets live in Bitbucket sees an empty inbox forever.
 - [ ] [the-pr-list-join-is-silently] The Bitbucket 50-per-state page cap
       (issue #333). Past 50 PRs the join is silently partial and a branch reads
       *no PR* — the fabricated verdict the scan refuses everywhere else. A plan
@@ -125,6 +125,13 @@ only on PR #408, so the sprint names a slug `docs/plans/` cannot resolve until
 that merges. The reconcile scan will report it as sprint drift, correctly.
 
 ### Scope Changes
+
+- 2026-08-26: **my-bitbucket-issues-are-in-the-inbox** moved Must → Should
+  during interrogation. Its own plan says it may correctly deliver nothing — its
+  first Done-when is a measurement of whether `bb` or the API can list issues at
+  all — and most Bitbucket teams track in Jira and never enable the tracker. A
+  Must that might close as *the refusal was right* is mis-tiered; the Jira plan
+  already serves the population that matters.
 
 - 2026-08-26: retargeted from **2.10.0** to **2.11.0** before any work started.
   Four changesets were already merged on main — the changeset package-name

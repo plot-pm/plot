@@ -59,9 +59,33 @@ unchanged and this backend must not be the exception that starts writing.
 would never link a Jira-tracked plan to its ticket, and the inbox could not tell
 that a ticket already has a plan — which is the whole point of the inbox.
 
-That makes the parser a **second wave, not an open question**. It is small and
-independent: the field accepts `PROJ-123` alongside `#228`, both reported in
-`issues`.
+That makes the parser a **second wave, not an open question**, and the stake is
+higher than a display detail. `fleet.ts:1401` defines the inbox as *"open tracker
+issues no plan references"*, matched through this field — so a Jira ticket would
+sit in the inbox **forever**, under a heading saying nobody has decided about it,
+after a plan for it was written and delivered.
+
+### The key form is read only where the tracker says so
+
+`- **Issue:** PROJ-123` is accepted where `## Plot Config` declares a non-GitHub
+`Tracker:`; `#228` is read everywhere, as today.
+
+**This gives `plot-plan-meta.sh` its first configuration dependency, and that is
+the cost.** Measured 2026-08-26: the script reads no config at all, and eight
+callers parse plans through it — the board's artifact, `plot-sprint-candidates.sh`,
+four skills and their READMEs. Each inherits *the plan format now depends on
+where you are*.
+
+The alternative — accept any `LETTERS-digits` token unconditionally — needs no
+config and works for Linear and others for free. It was rejected because the
+plan format would then silently reclassify existing prose: a plan whose `Issue:`
+line says `WONT-FIX` or `TODO-later` starts reporting an issue reference, and the
+inbox would hide a real ticket on the strength of it. **A format that guesses is
+worse than a format that asks**, and the tracker key already exists to be asked.
+
+The dependency must therefore be narrow: the parser reads ONE key, treats an
+unreadable config as *GitHub* (today's behaviour), and never fails a parse for
+want of configuration.
 
 ### Which CLI
 
@@ -93,14 +117,70 @@ emitting the existing contract.
    and failed. An empty list would be the fabricated verdict this adapter
    refuses everywhere.
 4. `issue-view` returns one issue's body, and writes nothing to Jira.
-5. **A plan citing `Issue: PLOT-412` reports it in `issues`**, and one citing
-   `#228` still reports `228`. Measured today: the Jira form parses as `[]`.
-6. `pnpm test`, `pnpm run test:reconcile` green.
+5. **Under `Tracker: jira`, a plan citing `Issue: PLOT-412` reports it in
+   `issues`**, and one citing `#228` still reports `228`. Measured today: the
+   Jira form parses as `[]`.
+6. **Without a tracker key, `PLOT-412` still parses as absent.** The default is
+   today's behaviour, so no existing repo changes meaning — and a plan whose
+   `Issue:` line holds prose is not reclassified as carrying a reference.
+7. **An unreadable or missing `## Plot Config` never fails a parse.** The parser
+   has no config dependency today and eight callers rely on that; the new one
+   must degrade to GitHub rather than error.
+8. `pnpm test`, `pnpm run test:reconcile` green.
 
 ## Notes
+
+### Interrogated 2026-08-26
+
+One round. It raised the stake and narrowed the mechanism.
+
+The stake: `fleet.ts:1401` defines the inbox as *open tracker issues no plan
+references*, so an unparsed Jira key does not merely fail to display — it keeps
+a decided ticket in the inbox permanently. That moved `Keyed` from a convenience
+to a prerequisite.
+
+The mechanism: the key form is read only where `Tracker:` declares a non-GitHub
+tracker. Accepting any `LETTERS-digits` token was rejected — it would reclassify
+existing prose (`WONT-FIX`, `TODO-later`) as issue references and hide real
+tickets. The cost is `plot-plan-meta.sh`'s first config dependency, across eight
+callers, and the plan states it rather than absorbing it quietly.
 
 ### Open Points
 
 - [ ] Which CLI or API, and how it authenticates. Needs a real instance.
 - [x] Does `Issue:` need to accept `PLOT-412`? **Yes — measured, it parses as
       `[]` today.** Now wave `Keyed` rather than a question.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "How far should the Issue: key form go?",
+      "a": "Only where Tracker: declares a non-GitHub tracker; accepting any PROJ-123 would reclassify prose",
+      "category": "technical"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {
+      "stack": false,
+      "architecture": true,
+      "implementation": false
+    },
+    "domain": false,
+    "ux": {
+      "happyPath": false,
+      "edgeCases": false,
+      "errors": false,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": true,
+      "scalability": false
+    },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->

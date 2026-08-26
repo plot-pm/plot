@@ -70,8 +70,25 @@ were both built to avoid. One call per refresh, joined locally.
 
 ### Reported (Branch: feature/a-jenkins-build-has-a-status)
 
-`plot-host.sh` resolves `checks` through `jen` for a multibranch job under
+**Opens with a spike, and the design follows it.** Whether `jen` can report many
+branches' build status in ONE call decides the shape of everything after: one
+call per refresh needs no cache, one call per branch needs one, and building a
+cache that turns out to be unnecessary is the waste this measurement avoids.
+
+Measure two things and record both in this plan before writing the backend:
+
+1. Can `jen` list a multibranch job's branches with their last build result in a
+   single invocation, or is it one call per branch?
+2. What does that call cost, against the PR timer's cadence — not the 5-second
+   scan's, since this joins the PR refresh.
+
+Then: `plot-host.sh` resolves `checks` through `jen` for a multibranch job under
 `CI: jenkins`, filling the existing four states.
+
+**If the answer is one-call-per-branch and the cost is prohibitive**, the honest
+fallback is Done-when 2's `none` for branches not covered, plus a note in this
+plan saying which shapes are supported. Partial support that says what it does
+not cover beats a cache built on a guess.
 
 ## Done when
 
@@ -85,14 +102,58 @@ were both built to avoid. One call per refresh, joined locally.
    same as a branch having no build, and a consumer must be able to tell.
 5. **No per-branch call joins the scan's path.** Asserted by the existing
    no-network test.
-6. `pnpm test`, `pnpm run test:reconcile` green.
+6. **The spike's two numbers are in this plan** before the backend is written,
+   and the design names which of them decided it.
+7. `pnpm test`, `pnpm run test:reconcile` green.
 
 ## Notes
+
+### Interrogated 2026-08-26
+
+One round, on cost. Whether `jen` can report many branches in one call decides
+whether this needs a cache at all, and building one on a guess is the waste the
+measurement avoids — so the wave now opens with a spike and the design follows
+it, the same shape that worked for the brief-source question earlier today.
 
 ### Open Points
 
 - [ ] Non-multibranch Jenkins setups: report `none`, or ask for a job-name
       pattern in `## Plot Config`? The second is more capable and more to
       configure.
-- [ ] Does `jen` expose a build's status per branch in one call, or is it one
-      call per job? Decides whether Done-when 5 is free or needs a cache.
+- [x] Does `jen` expose build status for many branches in one call? **Now the
+      wave's opening spike** rather than a question — it decides whether
+      Done-when 5 is free or needs a cache, so it is measured first.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "One call or one per branch?",
+      "a": "Unknown \u2014 the wave now opens with a spike measuring it, and names which number decided the design",
+      "category": "nonFunctional"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {
+      "stack": false,
+      "architecture": true,
+      "implementation": false
+    },
+    "domain": false,
+    "ux": {
+      "happyPath": false,
+      "edgeCases": false,
+      "errors": false,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": true,
+      "scalability": false
+    },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
