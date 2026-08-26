@@ -1,5 +1,263 @@
 # plot
 
+## 2.9.0
+
+### Minor Changes
+
+- [#350](https://github.com/plot-pm/plot/pull/350) [`31ab482`](https://github.com/plot-pm/plot/commit/31ab4820373d8292d18d588f787f7a1419536e47) Thanks [@jwloka](https://github.com/jwloka)! - plot-deliver: verify by matching merged PR heads to branch names where a plan carries no `→ #N` annotation
+
+  `/plot-deliver` verified PRs only through the `→ #N` annotations in a plan's
+  `## Branches` section — written by the implementing worker, and, measured
+  2026-08-23, absent in most plans (12 of 16 in the active sprint carried zero).
+  So the delivery check refused on exactly the plans it exists to move, and
+  clearing them by hand cost a morning of back-filling 21 annotations first.
+
+  `plot-impl-status.sh` now reads the Branches section per BRANCH rather than per
+  annotation. A line carrying `→ #N` resolves by that number as before (and a
+  cross-repo `→ owner/repo#N` still routes to its repo — a form head-matching
+  could never reach). A line WITHOUT one falls back to matching the branch NAME
+  against the heads of merged PRs, fetched once through `plot-host.sh pr-list
+--state merged`. This is the same derivation `plot-reconcile-scan.sh` already
+  applies in section 2: _the missing annotation and the missing delivery share a
+  cause, so an annotation-dependent check is blind to exactly the plans it exists
+  to catch._
+
+  Decided and enforced:
+
+  - **The gate is not weakened.** A branch with no merged PR head and no
+    annotation resolves nothing — never a fabricated MERGED — so a plan with an
+    unmerged branch still refuses and the caller names it. Finding an
+    un-annotated PR is a convenience; deciding a plan is deliverable is the same
+    check.
+  - **Annotations, where present, win.** Head-matching is a fallback for the
+    un-annotated line, never an override of an annotated one.
+  - **The host is asked through `plot-host.sh` only** — the merged-PR list and
+    the per-PR state both route through the adapter, so no direct `gh`/`bb` call
+    enters the delivery path.
+  - **The merged-PR list is fetched once per plan**, at top level (not lazily
+    inside a `$(...)` subshell, which would refetch per branch), and only when
+    some branch is un-annotated — an annotated-only plan pays nothing.
+
+  <!--
+  bumps:
+    skills:
+      plot-deliver: minor
+  -->
+
+- [#335](https://github.com/plot-pm/plot/pull/335) [`9401ea3`](https://github.com/plot-pm/plot/commit/9401ea3c2e00199d045991c92a40aa5004742bab) Thanks [@jwloka](https://github.com/jwloka)! - Add `/plot-reslice`: a spoke command that slices a plan's multi-branch wave
+  into one wave per branch. It reads the entangled branches — their diffs, PRs
+  and conflicts — proposes one named wave each in an argued dependency order,
+  asks a person to confirm the order, then rewrites only the plan's
+  `## Branches` section, leaving the branch names and the rest of the file
+  untouched. A plan already one-branch-per-wave yields no proposal, a
+  `complete` wave is left alone, and unattended it stops with a `PLOT-UNASKED:`
+  line rather than writing the source of truth without confirmation.
+
+  <!--
+  bumps:
+    skills:
+      plot-reslice: minor
+  -->
+
+- [#341](https://github.com/plot-pm/plot/pull/341) [`c6cc01d`](https://github.com/plot-pm/plot/commit/c6cc01df3979800b3086537f69ce55178640e2d3) Thanks [@jwloka](https://github.com/jwloka)! - `plot-reconcile-scan.sh` gains a section reporting unsliced waves: every `### `
+  wave heading that carries more than one branch line, named with its plan file,
+  its heading and its branch count, plus a machine-countable `unsliced_waves=`
+  footer entry the way each existing section has one. A wave holds exactly one
+  branch (MANIFESTO.md); one holding several is a shape `/plot-reslice` can
+  repair, so each finding prints `reslice: /plot-reslice <slug>`.
+
+  It REPORTS and repairs nothing — the Principle 3 split: this collects,
+  `/plot-reslice` and a person conclude. The section is deliberately non-blocking:
+  it is placed as section 7 (index drift renumbered to 8) and kept out of the
+  `attention=` count that gates `/plot-deliver` and the `/plot` hygiene line,
+  because an unsliced wave is a shape to fix, not a branch that cannot move.
+  Branch counts come from `plot-plan-meta.sh`'s `waves[]` — never a second parser —
+  so a backticked branch name in a plan's prose is not counted; a phase-less file
+  is skipped (it is not a plan); and a `complete` wave is history that still
+  counts, since hiding it would misreport the estate.
+
+  The `/plot-deliver` delivery-landed gate is unaffected: its stop marker
+  (`sed -n '/^== 7./q;p'`) already excludes the two non-blocking sections at 7
+  and 8, so it needs no change; only its prose is updated to name the new section.
+  `/plot-reconcile` (the scan's interpreter) and `/plot`'s hygiene line have their
+  prose, example footers and Automation Output updated to name the new section and
+  its `unsliced_waves=` count and to renumber index drift to 8.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+      plot-deliver: patch
+      plot-reconcile: patch
+  -->
+
+- [#358](https://github.com/plot-pm/plot/pull/358) [`fc99e19`](https://github.com/plot-pm/plot/commit/fc99e190722adaf8741a54008c09302d47f9704f) Thanks [@jwloka](https://github.com/jwloka)! - `plot-plan-meta.sh` gains a top-level `long_wave_names` array: every wave name
+  longer than a threshold judgement (`LONG_WAVE_NAME_MAX`, set clear of the
+  estate's longest legitimate name `Offered first` at 13 and the 53-character
+  offender), in document order, empty when every name is a label. It is a REPORT,
+  never a refusal — `waves[]` is unchanged, no name is shortened or dropped, and
+  the plan still parses in full. Added as a NEW field, never a change to an
+  existing one, so every consumer of the existing shape is untouched.
+
+  `plot-reconcile-scan.sh` gains a section reporting those names: every over-long
+  wave heading, named with its plan file and the name, plus a machine-countable
+  `prose_wave_names=` footer entry the way each existing section has one. A wave
+  name is a label (Shaped, Gated, Offered first); a sentence-length heading is a
+  plan-authoring mistake the board can only render badly, so each finding prints
+  `rename: shorten the wave heading in prose <slug>`.
+
+  Like the unsliced-wave section it copies, it is deliberately non-blocking: it is
+  placed as section 8 (index drift renumbered to 9) and kept out of the
+  `attention=` count that gates `/plot-deliver` and the `/plot` hygiene line,
+  because a prose name is a shape to fix, not a branch that cannot move. The name
+  is read from `plot-plan-meta.sh`'s `long_wave_names` — never a second scan of
+  the file — so a backticked name in a plan's prose is not a wave name, and a
+  phase-less file is skipped (it is not a plan).
+
+  The `/plot-deliver` delivery-landed gate is unaffected: its stop marker
+  (`sed -n '/^== 7./q;p'`) already excludes every non-blocking section at 7 and
+  beyond, so it needs no change; only its prose is updated to name the new section
+  and renumber index drift to 9. `/plot-reconcile` (the scan's interpreter) and
+  `/plot`'s hygiene line have their prose, example footers and Automation Output
+  updated to name the new section and its `prose_wave_names=` count.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+      plot-deliver: patch
+      plot-reconcile: patch
+  -->
+
+- [#402](https://github.com/plot-pm/plot/pull/402) [`c55244d`](https://github.com/plot-pm/plot/commit/c55244df82a6e9b94438834cade88dcb04a0d198) Thanks [@jwloka](https://github.com/jwloka)! - A worker now loops to take the next wave of its plan.
+
+  After completing its branch, a worker calls `plot-fleet-scan.sh --next "$PLOT_SLUG"` to ask for another claimable branch of the same plan. If one exists, it claims it via the standard ref-push mechanism, creates a worktree, and continues implementing — reusing the session that built the first wave rather than exiting and waiting for dispatch to start a new one.
+
+  When `--next` finds nothing to start (exit 1), the loop exits cleanly. A hopping worker takes no new slot against the cap, which is the property that makes continued work free.
+
+  Implementation notes:
+
+  - `plot-dispatch.sh` now exports `PLOT_SLUG` so the worker knows which plan to query
+  - The Worker command now calls `plot-worker-loop.sh`, a helper script that implements the claim-hop loop
+  - The actual `claude -p` invocation lives in `.plot/worker-prompt.sh`, sourced by the loop script — this avoids the `plot-config.sh` parser stripping `$(...)` as parenthetical prose
+
+  <!--
+  bumps:
+    skills:
+      plot-dispatch: minor
+  -->
+
+### Patch Changes
+
+- [#372](https://github.com/plot-pm/plot/pull/372) [`223b5e7`](https://github.com/plot-pm/plot/commit/223b5e73d615ddd66bd0ed7b13cf6cd0f2e6c2de) Thanks [@jwloka](https://github.com/jwloka)! - A branch whose pull request has merged now reads `merged` even when its ref
+  still exists. GitHub deletes the ref at merge, but a worktree that still holds
+  the branch can push it back afterwards — which a fleet does routinely — and a
+  squash merge rewrites the work onto a different commit, so the local walk sees
+  commits the default branch lacks and calls finished work `wip`.
+
+  Measured 2026-08-23: a merged branch read `wip` for three hours, its wave
+  reported "3 merged, the rest not yet" over four merged branches, and the plan
+  sat in Development with nothing left to do. `wip` is the worst of the wrong
+  answers because it claims an agent is working there, so a leftover worktree
+  reads as an occupied desk.
+
+  The state comes from the pull-request list the scan already fetches once, so
+  this adds no host request. Only `MERGED` may override the local walk, and only
+  toward `merged`: an open pull request over unlanded commits is still `wip`.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#370](https://github.com/plot-pm/plot/pull/370) [`5d6bac8`](https://github.com/plot-pm/plot/commit/5d6bac8e595399f6e43149fd9aece9cd481164c4) Thanks [@jwloka](https://github.com/jwloka)! - The fleet scan no longer asks the git host about branches a complete PR list
+  already accounts for. Measured on this repo: 29 host calls per scan became 1,
+  because 28 of them were branches an approved plan names that nobody has started
+  — no ref, no PR — each paying a round trip to re-learn it still had no PR, on
+  every five-second pulse. One board spent roughly 3,600 calls an hour that way
+  and emptied a 5,000/hour budget in about 78 minutes.
+
+  Absence is only an answer when the list is known whole, so `.list-complete` is
+  written solely when the parsed row count is both above zero and below the
+  request limit: a list returned at the limit may be truncated, and an empty list
+  is a silent failure rather than a repository without pull requests. Where
+  neither holds, the host is asked exactly as before.
+
+  `PLOT_SCAN_ASK_ALWAYS=1` restores the previous behaviour on the next scan
+  without a rebuild.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [`cae2930`](https://github.com/plot-pm/plot/commit/cae29301c3e6e14a57d03e35eca84f0d63894e80) Thanks [@jwloka](https://github.com/jwloka)! - Sprint scope changes mid-flight admit dispatched work only: a plan may join a
+  running sprint once its branch is claimed, not merely because it is written or
+  approved. Unstarted plans belong to the next sprint's planning.
+
+  <!--
+  bumps:
+    skills:
+      plot-sprint: minor
+  -->
+
+- [#376](https://github.com/plot-pm/plot/pull/376) [`ba79563`](https://github.com/plot-pm/plot/commit/ba79563ce68986c5951efc5fd513bc7dae799be7) Thanks [@jwloka](https://github.com/jwloka)! - The plan estate moves from `## Branches` to the `## Waves` heading form, where a
+  wave's branch and pull request live in the heading rather than mixed into the
+  description prose:
+
+  ```
+  old:  - `branch/name` — description → #PR
+  new:  ### WaveName (Branch: branch/name, PR: #PR)
+        - description
+  ```
+
+  88 plans migrate. The parser emits identical JSON from both forms — verified
+  per file before and after, with the single documented exception that an unnamed
+  wave gains the derived name `Implementation` (18 plans, all Delivered or
+  Released).
+
+  22 plans stay on the old form: the new heading holds ONE branch per wave, and
+  those carry several. The parser supports both indefinitely, so this is a
+  migration the estate completes only as those plans are sliced.
+
+- [#404](https://github.com/plot-pm/plot/pull/404) [`61e333d`](https://github.com/plot-pm/plot/commit/61e333db2303df225567d1d45a095334367a5321) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    skills:
+      plot-dispatch: patch
+  -->
+
+  feat(plot): manifest tracks worker's current branch and wave count
+
+  When a worker hops to a new branch via plot-worker-loop.sh, the manifest
+  now updates to reflect:
+
+  - The new branch the worker is on
+  - The new worktree path
+  - A wavesCount field tracking how many waves the worker has taken
+
+  This keeps the registry accurate: readers see where a worker IS, not
+  where it started. The session and pid stay fixed — it's the same worker,
+  in a new place.
+
+- [#380](https://github.com/plot-pm/plot/pull/380) [`2784a05`](https://github.com/plot-pm/plot/commit/2784a05b753cbf3851d8397ab627574984a3e8ae) Thanks [@jwloka](https://github.com/jwloka)! - reconcile: add section 9 — sprint drift
+
+  A plan whose `Sprint:` field disagrees with the sprint file listing it, or is
+  empty while a sprint lists it, is now reported. Also reports sprint members
+  whose slug names no plan.
+
+  The sprint file is the truth; when a plan's `Sprint:` disagrees, the plan's
+  field is what needs editing, not the sprint file's membership. The section is
+  ACTIONABLE BUT NON-BLOCKING — it carries its own footer counter (`sprint_drift=`)
+  and does not affect the `attention=` count that gates delivery.
+
+  <!--
+  bumps:
+    skills:
+      plot-reconcile: patch
+  -->
+
 ## 2.7.0
 
 ### Minor Changes
@@ -46,13 +304,13 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   keys are read back by the skill to check auth against the right instance, and
   the skill says plainly that the board does not yet display Jenkins status.
 
-  <!--
-  bumps:
-    skills:
-      plot-board-setup: minor
-      plot-init: patch
-      plot: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot-board-setup: minor
+        plot-init: patch
+        plot: patch
+    -->
 
 - [#253](https://github.com/plot-pm/plot/pull/253) [`2e389a1`](https://github.com/plot-pm/plot/commit/2e389a12eef6c928fc8b8127103b1c04df8c512d) Thanks [@jwloka](https://github.com/jwloka)! - plot-sprint: sprint creation proposes the plans that serve the goal
 
@@ -240,12 +498,12 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   `/plot-idea` unattended stops without one and writes no plan file, which is
   exactly the exit-0-having-done-nothing failure `docs/unattended.md` documents.
 
-  <!--
-  bumps:
-    skills:
-      plot: minor
-      plot-idea: minor
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: minor
+        plot-idea: minor
+    -->
 
 - [#242](https://github.com/plot-pm/plot/pull/242) [`5c2cf58`](https://github.com/plot-pm/plot/commit/5c2cf58faaade305776a7bc1a6cc52a570260058) Thanks [@jwloka](https://github.com/jwloka)! - The board renders what has arrived
 
@@ -767,13 +1025,13 @@ plan (decision log / note?)`. What changes is the claim, and that it no longer
   slices the report at section 7 (`sed -n '/^== 7\./q;p'`) before grepping, so the
   sections that mean _defect_ still block and the convenience section never does.
 
-  <!--
-  bumps:
-    skills:
-      plot: minor
-      plot-reconcile: minor
-      plot-deliver: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: minor
+        plot-reconcile: minor
+        plot-deliver: patch
+    -->
 
 - [#265](https://github.com/plot-pm/plot/pull/265) [`e50de93`](https://github.com/plot-pm/plot/commit/e50de93c0d075efa36ee4b211cf62542ee0f3a7e) Thanks [@jwloka](https://github.com/jwloka)! - plot: the two pre-Approved gates know the Design phase
 
@@ -1054,11 +1312,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   the throttle is `feature/every-host-consumer-slows-down`; the banner and the note
   that say a spent budget from an unreachable host are the two `Says` branches.
 
-  <!--
-  bumps:
-    skills:
-      plot: minor
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: minor
+    -->
 
 ### Patch Changes
 
@@ -1799,12 +2057,12 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-      bumps:
-        skills:
-          plot: minor
-          plot-dispatch: minor
-          plot-fleet: minor
-      -->
+        bumps:
+          skills:
+            plot: minor
+            plot-dispatch: minor
+            plot-fleet: minor
+        -->
 
   plot: `finished` is not a verdict
 
@@ -2030,11 +2288,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#215](https://github.com/plot-pm/plot/pull/215) [`2175cb5`](https://github.com/plot-pm/plot/commit/2175cb561ec6d4e6cd1518e131b3a32556ebd73e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-        bumps:
-          skills:
-            plot: patch
-            plot-dispatch: patch
-        -->
+          bumps:
+            skills:
+              plot: patch
+              plot-dispatch: patch
+          -->
 
   plot: the phase gate reads the plan from the shared ref
 
@@ -2277,11 +2535,11 @@ kill` guard inside `cleanup` would abort the trap whenever `pid` was empty and
   skip the tempfile removal — the handler that exists to prevent a leak would
   become one.
 
-        <!--
-        bumps:
-          skills:
-            plot: patch
-        -->
+          <!--
+          bumps:
+            skills:
+              plot: patch
+          -->
 
 - [#214](https://github.com/plot-pm/plot/pull/214) [`890163c`](https://github.com/plot-pm/plot/commit/890163cb551d97c1e5bd34279ad2cbc4d0922e3b) Thanks [@jwloka](https://github.com/jwloka)! - Board test suite retries git calls when index.lock is held by the servers scan
 
