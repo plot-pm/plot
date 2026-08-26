@@ -99,7 +99,11 @@ Story: [[the-board-is-blank-where-it-matters]].
 - [ ] [the-header-names-the-branch-it-is-serving] The Master Agent row names the branch the board is serving, instead of rendering blank where a fact belongs
 - [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
 - [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
-- [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
+- [x] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains <!-- status: closed not-a-defect, 2026-08-26 -->
+      **No change shipped.** Measured against the running board: the wrapper
+      starts at the document origin and overflow is exactly 0 at any viewport
+      that holds the content. The 13px was the board's own rows at a viewport
+      too short for them.
 - [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
 - [ ] [the-worktrees-live-in-one-place] Worktrees under a configurable root.
       Interrogated twice, Draft, unrelated to the enterprise stack but ready.
@@ -155,6 +159,10 @@ only on PR #408, so the sprint names a slug `docs/plans/` cannot resolve until
 that merges. The reconcile scan will report it as sprint drift, correctly.
 
 ### Scope Changes
+
+- 2026-08-26: **the-page-is-as-tall-as-the-screen** closed as not-a-defect.
+  Its premise (a 13px wrapper offset) was falsified by measurement; the wave is
+  retired unbuilt and the plan kept as the record.
 
 - 2026-08-26: **my-bitbucket-issues-are-in-the-inbox** moved back Should → Must,
   hours after being demoted. The demotion argued it might be moot — its own first

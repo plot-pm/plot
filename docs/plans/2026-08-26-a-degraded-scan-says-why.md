@@ -279,3 +279,34 @@ Both open questions are settled:
       machine and a reader each get what they need.
 
 The plan also had no `## Done when` section; it now has nine items.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "Does the diagnosis hold against the source?",
+      "a": "Yes, and it is two bugs: the bitbucket arm pipes bb into jq so $? is jq's, while the github arm has no emptiness guard and is correct only because gh exits 1",
+      "category": "technical"
+    },
+    {
+      "q": "Retry a 429 before giving up?",
+      "a": "No — a silent retry hides the rate limit from the person being throttled",
+      "category": "tradeOffs"
+    },
+    {
+      "q": "Named states or verbatim exit code plus stderr?",
+      "a": "Named — pr_source is machine-countable and other tooling greps it; the CLI's stderr travels beside it as human-readable detail",
+      "category": "technical"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": { "stack": true, "architecture": true, "implementation": true },
+    "domain": false,
+    "ux": { "happyPath": false, "edgeCases": true, "errors": true, "accessibility": false },
+    "nonFunctional": { "security": false, "performance": false, "scalability": false },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
