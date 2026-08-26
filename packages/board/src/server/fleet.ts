@@ -89,44 +89,56 @@ const PR_REFRESH_MS = 60_000;
 const PR_BACKOFF_MAX_MS = 120_000;
 
 /**
- * What ONE PR refresh costs, in host requests, on each backend.
+ * What ONE refresh costs, in host requests, on each backend.
  *
  * The number the cadence above was missing. `PR_REFRESH_MS` reasons about a
  * refresh as a unit — "60 s between refreshes" — and that reasoning is only
- * about spending if a refresh is one request. On GitHub it is. On Bitbucket it
- * is three, and the adapter has known that all along while the board did not:
- * `plot-host.sh` expands `--state all` into `open`, `merged` and `declined`
- * because `bb` has no `all` state, so the one call this file makes fans out
- * into three round trips before it returns.
+ * about spending if a refresh is one request. On GitHub the PR list is one
+ * call. On Bitbucket it is three: `plot-host.sh` expands `--state all` into
+ * `open`, `merged` and `declined` because `bb` has no `all` state, so the one
+ * call this file makes fans out into three round trips before it returns.
  *
- * Measured against `bitbucket.org/quatico/ekzweb` (issue #226), 60 s cadence:
+ * `issue-list` used to cost ZERO on Bitbucket — the adapter exited 4 before
+ * touching the network — and this table counted only `pr-list` on that basis.
+ * `bb` gained issue support and `plot-host.sh` now ANSWERS for Bitbucket by
+ * calling `bb issue list`, so the same refresh that runs `pr-list` now also
+ * reaches the tracker: ONE more request (a single `bb issue list` call — bb has
+ * no `all` for issues either, but `--state new --state open` is one invocation
+ * and one round trip). `runs` still costs zero (bb has no run listing).
  *
- *     GitHub      1 request  x 60 refreshes =  60 requests / hour
- *     Bitbucket   3 requests x 60 refreshes = 180 requests / hour
+ * This is the NAIVE per-refresh cost — what one refresh would spend if the
+ * cadence did not stretch. `prRefreshMsFor` multiplies `PR_REFRESH_MS` by it,
+ * so the hourly spend stays 60 on both hosts; the higher a host's per-refresh
+ * cost, the further apart its refreshes. Measured against
+ * `bitbucket.org/quatico/ekzweb` (issue #226):
  *
- * A board left open a working day made ~1400 Bitbucket requests just watching,
- * and reached `HTTP 429 — Rate limit for this resource has been exceeded`
- * account-wide, with every `bb` call from the operator's own shell failing too.
+ *     GitHub      1 request  → refresh every  60 s → 60 requests / hour
+ *     Bitbucket   4 requests → refresh every 240 s → 60 requests / hour
+ *                 (3 for pr-list --state all, 1 for issue-list)
  *
- * ONLY `pr-list` is counted, and that is not an omission. The refresh also runs
- * `issue-list` and `runs`, and on Bitbucket both cost ZERO requests: `bb`
- * exposes no issue listing (`plot-host.sh` exits 4 before touching the network)
- * and no run listing (the Bitbucket arm is empty). So on the host this branch
- * exists for, `pr-list` is the whole bill — counting the calls that cannot be
- * made would overstate it and slow the board down for requests nobody sends.
+ * Before the cadence stretched, an un-throttled 60 s tick spent 4 × 60 = 240
+ * Bitbucket requests an hour. A board left open a working day made ~1400
+ * Bitbucket requests just watching, and reached `HTTP 429 — Rate limit for this
+ * resource has been exceeded` account-wide, with every `bb` call from the
+ * operator's own shell failing too. That is why the issue call is counted the
+ * moment it becomes real rather than in a follow-up: an under-counted cost
+ * under-stretches the cadence, and an under-stretched cadence against an
+ * already-hit limit is the failure this measurement exists to prevent.
  *
  * A backend absent from this table costs 1 — the naive assumption, kept as the
  * default so a host added later behaves exactly as every host did before, and
  * is slowed only once someone measures what it really costs.
  */
 const PR_REQUESTS_PER_REFRESH: Record<string, number> = {
-  // One `gh pr list --state all` call, whatever the states asked for.
+  // One `gh pr list --state all` call, whatever the states asked for; the
+  // GitHub `issue-list` and `runs` calls ride the same GraphQL budget and the
+  // board's own measurement treats the refresh as one unit there.
   github: 1,
-  // `bb` has no `all` state, so `--state all` is three calls: open, merged,
-  // declined. Do not "fix" this by inventing an `all` — it would fabricate an
-  // answer the host cannot give. This branch makes the cadence aware of the
-  // cost; removing the cost is not available.
-  bitbucket: 3,
+  // Three for `pr-list --state all` (open, merged, declined — `bb` has no `all`
+  // state) plus one for `issue-list`, which now reaches the network instead of
+  // exiting 4. Do not "fix" the three by inventing an `all` — it would fabricate
+  // an answer the host cannot give.
+  bitbucket: 4,
 };
 
 /**
@@ -1250,7 +1262,7 @@ async function fetchGraphqlResetMs(cwd: string): Promise<number | null> {
  * periods apart spends the same number of requests per hour on every host.
  *
  *     github      60_000 x 1 =  60_000 ms  ->  60 refreshes,  60 requests / hour
- *     bitbucket   60_000 x 3 = 180_000 ms  ->  20 refreshes,  60 requests / hour
+ *     bitbucket   60_000 x 4 = 240_000 ms  ->  15 refreshes,  60 requests / hour
  *
  * DERIVED, NOT CONFIGURED, and the plan's open point is answered that way on
  * purpose: a configured cadence is a second number that must be kept true, and
@@ -1265,7 +1277,7 @@ async function fetchGraphqlResetMs(cwd: string): Promise<number | null> {
  * number it was. The uncommon case must not slow the common one down.
  *
  * The trade is stated rather than hidden: a Bitbucket board's PR badges are up
- * to three minutes old instead of one. That is the right side to err on for
+ * to four minutes old instead of one. That is the right side to err on for
  * data whose events are minutes-scale anyway — and the alternative is not a
  * fresher board but a rate-limited one, which is how this was measured.
  */

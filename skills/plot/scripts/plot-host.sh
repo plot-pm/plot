@@ -58,13 +58,21 @@
 #                                 `url` is "" when the host omits it, and a
 #                                 consumer renders the number as plain text
 #                                 rather than inventing an address — the rule
-#                                 pr-list's `url` already follows.
-#                                 EXIT 4 on bitbucket: bb has no issue listing,
-#                                 and 4 says *this host cannot answer* where an
-#                                 empty list would say *there are none*. A
-#                                 failed lookup exits non-zero with an empty
-#                                 stdout, never a silent empty list — an outage
-#                                 is not an answer.
+#                                 pr-list's `url` already follows. On bitbucket
+#                                 `url` and `createdAt` are BOTH "": `bb issue
+#                                 list` prints neither.
+#                                 BITBUCKET NOW ANSWERS by parsing `bb issue
+#                                 list` (no --json), pinned to bb 0.6.0. EXIT 4
+#                                 narrows rather than disappears: it is the
+#                                 tracker-DISABLED case (bb answers 404/410),
+#                                 which stays *this host cannot answer* where an
+#                                 empty list would say *there are none*. A call
+#                                 that failed on an enabled tracker, or any error
+#                                 wording this adapter does not recognise, exits
+#                                 3 — guessing 4 would turn a broken call into a
+#                                 confident "no tickets". A failed lookup exits
+#                                 non-zero with an empty stdout, never a silent
+#                                 empty list — an outage is not an answer.
 #   issue-view <number>           ONE open issue as a single JSON object:
 #                                 {"number":N,"title":"…","body":"…","url":"…"}
 #                                 STILL READ-ONLY — the second issue op, and it
@@ -78,12 +86,15 @@
 #                                 one issue somebody chose — a call whose cadence
 #                                 is a human's.
 #                                 Same three outcomes as issue-list, same codes:
-#                                 EXIT 4 on bitbucket (bb has no issue read),
-#                                 EXIT 3 on a lookup that failed. An issue that
-#                                 does not exist is a FAILURE here, not an empty
-#                                 body: the caller named a number it read off
-#                                 this same adapter, so its absence is a fact
-#                                 worth surfacing rather than a blank to plan on.
+#                                 BITBUCKET NOW ANSWERS via `bb issue view`
+#                                 (pinned to 0.6.0); `url` comes from the view's
+#                                 footer. EXIT 4 is the tracker-DISABLED case,
+#                                 EXIT 3 a lookup that failed or an unrecognised
+#                                 error. An issue that does not exist is a
+#                                 FAILURE here, not an empty body: the caller
+#                                 named a number it read off this same adapter,
+#                                 so its absence is a fact worth surfacing rather
+#                                 than a blank to plan on.
 #   pr-body <number> --body B     replace the PR description
 #
 # Backend resolution: $PLOT_HOST (github|bitbucket) wins — useful for tests —
@@ -190,6 +201,80 @@ bb_states_for() {
     open|merged|declined|superseded) printf '%s\n' "$1" ;;
     *) die "unknown --state '$1' for the bitbucket backend (open|merged|closed|declined|superseded|all)" ;;
   esac
+}
+
+# --- Bitbucket issue support (bb issue list / view) -------------------------
+#
+# `bb` gained issue commands, and this adapter refused them for a year on the
+# strength of a message that was true when written and stopped being true after
+# an upstream release. The two ops now ANSWER for Bitbucket by parsing `bb`'s
+# text — it has no `--json` for issues — and the parse is DECLARED against the
+# format it targets so a column reshuffle upstream fails loudly rather than
+# mis-reading a title.
+#
+# Everything below was MEASURED against the installed CLI on 2026-08-26:
+#
+#   $ bb --version   → bb version 0.6.0
+#   $ bb issue list  (row)  #%03d <STATE>  <title>   by <reporter>
+#   $ bb issue list  (head)  :: Showing N of M issues in ORG/SLUG
+#   $ bb issue view  (line 1, bold) <title>
+#   $ bb issue list  (error) An error occurred: <message>   ← on STDOUT, ANSI
+#
+# The format is craftamap/bb's, read from its source at the 0.6.0 tag
+# (cmd/commands/issue/{list,view}): the row is printed with literal spaces, not
+# a tabwriter, and the ID is zero-padded to three digits.
+BB_ISSUE_VERSION="0.6.0"
+
+# Strip ANSI SGR escapes. `bb` colours everything — the ID green, the state
+# badge on a coloured background, the reporter grey — and an unstripped line
+# carries `\033[...m` runs that would land inside a parsed title. `bb` also
+# writes its ERRORS coloured, on stdout, so the same stripper runs before the
+# error text is matched: an ANSI-wrapped "An error occurred" must be recognised
+# as an error, not parsed as an issue (the trap the GitHub arm's stdout-is-data
+# shape walks straight into).
+bb_strip_ansi() {
+  # ESC [ ... <final-byte>. LC_ALL=C so the byte class is bytes, not locale
+  # graphemes — the escape is 7-bit regardless of the title's encoding.
+  LC_ALL=C sed $'s/\033\\[[0-9;]*[A-Za-z]//g'
+}
+
+# `bb` prints failure as `... An error occurred: <message>` on STDOUT and exits
+# 1 for EVERYTHING — a disabled tracker, a network outage, "Are you sure this is
+# a bitbucket repo?". The exit code cannot split them, so this matches the
+# WORDING, and the split falls one way only:
+#
+#   recognised "tracker cannot be asked" wording → exit 4 (cannot be asked)
+#   ANY other error text                         → exit 3 (the call failed)
+#
+# Guessing 4 from an unrecognised message would turn a broken call into a
+# confident "you have no tickets" — the exact failure this branch exists to fix
+# — so an unrecognised error MUST be 3. Bitbucket answers 404/410 for a repo
+# whose issue tracker is disabled (and for a repo that is not a Bitbucket repo
+# at all); both are *this host cannot be asked about issues*, which is what 4
+# means. Reads the already-stripped, already-lowercased error text.
+bb_issue_exit_code() {
+  local err="$1"
+  if LC_ALL=C grep -qiE 'are you sure this is a bitbucket repo|\b40[34]\b|not found|no issue tracker|issue tracker.*(disabled|not enabled)|repository not found' <<<"$err"; then
+    echo 4
+  else
+    echo 3
+  fi
+}
+
+# Assert the format the parse below was written against. `bb` puts its version
+# on stdout as `bb version X.Y.Z (sha)`; a version this parse was not tested on
+# fails LOUDLY rather than silently mis-reading a column that may have moved.
+# `PLOT_BB_SKIP_VERSION_CHECK` exists for the test harness, whose stub bb has no
+# meaningful version — the parse is exercised against captured fixture text.
+bb_assert_issue_version() {
+  [ -n "${PLOT_BB_SKIP_VERSION_CHECK:-}" ] && return 0
+  local v
+  v="$(bb --version 2>/dev/null | bb_strip_ansi | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ "$v" != "$BB_ISSUE_VERSION" ]; then
+    echo "plot-host: bb issue parse targets $BB_ISSUE_VERSION but found '${v:-unknown}' — refusing to mis-read a format that may have moved" >&2
+    return 3
+  fi
+  return 0
 }
 
 backend() {
@@ -597,11 +682,51 @@ case "$op" in
         exit 3
       fi
     else
-      # bb has no issue listing, the same limit `runs` documents. Exit 4 rather
-      # than an empty list, so a consumer renders "this host cannot say"
-      # instead of a section implying the tracker is empty.
-      echo "plot-host: bitbucket has no issue listing (bb exposes none)" >&2
-      exit 4
+      # `bb issue list` — measured against bb 0.6.0. Three things the GitHub arm
+      # cannot be copied for, each invisible while it works (see the helpers up
+      # top): (1) `bb` prints errors to STDOUT, so stdout is NOT unconditionally
+      # data; (2) it has no `--limit`, so the caller's bound is honoured HERE,
+      # after parsing; (3) the list carries no per-issue URL, so `url` is "" —
+      # the same answer the header documents for a host that omits it.
+      bb_assert_issue_version || exit $?
+      # `--state new,open` is bb's own default for `issue list` and is what
+      # "open tracker issues" means; stated explicitly so a bb default change
+      # cannot silently widen it. bb has no `all` for issues, so this is ONE
+      # call (the request-budget comment in fleet.ts counts exactly this).
+      raw="$(bb issue list --state new --state open 2>&1)"; rc=$?
+      raw="$(bb_strip_ansi <<<"$raw")"
+      if [ "$rc" -ne 0 ]; then
+        # bb's error is on stdout, now folded into `raw`. Report it and choose
+        # 4-vs-3 from its wording — never parse it as an issue (Done-when 6).
+        echo "plot-host: $raw" >&2
+        exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"
+      fi
+      # A row is `#NNN <STATE> <title>   by <reporter>`. Anchor on the `#NNN`
+      # prefix (the header line ` :: Showing …` has none and is skipped for
+      # free), lift the number, strip the known state badge word, then drop the
+      # trailing `   by <reporter>` on its three-space separator. The state
+      # vocabulary is bb 0.6.0's issue states — pinned by the version assert.
+      count=0
+      while IFS= read -r line; do
+        [[ "$line" =~ ^#0*([0-9]+)[[:space:]]+(.*)$ ]] || continue
+        num="${BASH_REMATCH[1]}"
+        rest="${BASH_REMATCH[2]}"
+        # Strip the leading state badge word (NEW/OPEN/RESOLVED/…) and its
+        # padding; the title starts after it.
+        rest="$(sed -E 's/^(NEW|OPEN|ON HOLD|INVALID|RESOLVED|DUPLICATE|WONTFIX|CLOSED)[[:space:]]+//' <<<"$rest")"
+        # Drop the trailing reporter: bb prints three spaces then `by <name>`.
+        title="$(sed -E 's/[[:space:]]{2,}by [^[:space:]].*$//' <<<"$rest")"
+        # `url` is "" — bb issue list prints none; a consumer renders the number
+        # as plain text, the rule the header states.
+        jq -cn --argjson number "$num" --arg title "$title" \
+          '{number:$number,title:$title,url:"",createdAt:""}'
+        count=$((count + 1))
+        # Honour the caller's --limit HERE: bb has no --limit, so a bound the
+        # caller asked for is enforced by the adapter after parsing (Done-when 7).
+        if [ -n "$limit" ] && [ "$count" -ge "$limit" ]; then
+          break
+        fi
+      done <<<"$raw"
     fi
     ;;
 
@@ -633,10 +758,55 @@ case "$op" in
         exit 3
       fi
     else
-      # The same standing fact issue-list reports, with the same code: bb
-      # exposes no issue commands at all, so this host cannot be asked.
-      echo "plot-host: bitbucket has no issue read (bb exposes none)" >&2
-      exit 4
+      # `bb issue view <n>` — measured against bb 0.6.0. The output, once ANSI
+      # is stripped, is:
+      #
+      #   <title>
+      #   <STATE> • <reporter> opened <createdOn>
+      #   Type: … • Priority: … • Assignee: …
+      #   [Component/Milestone/Version — conditional]
+      #   <body, rendered markdown, possibly many lines>
+      #   [comments…]
+      #   View this issue on Bitbucket.org: <url>
+      #
+      # The same error discipline as issue-list: bb writes failures to stdout
+      # and exits 1 for everything, so match the wording for 4-vs-3 and never
+      # parse an error as an issue.
+      bb_assert_issue_version || exit $?
+      raw="$(bb issue view "$num" 2>&1)"; rc=$?
+      raw="$(bb_strip_ansi <<<"$raw")"
+      if [ "$rc" -ne 0 ]; then
+        echo "plot-host: $raw" >&2
+        exit "$(bb_issue_exit_code "$(tr '[:upper:]' '[:lower:]' <<<"$raw")")"
+      fi
+      # Title is the first line. URL is lifted from the footer, which is bb's
+      # only place that prints one for a viewed issue — so the contract's `url`
+      # is real here even though issue-list's is "".
+      title="$(sed -n '1p' <<<"$raw")"
+      url="$(grep -oE 'https?://[^[:space:]]+' <<<"$(grep -F 'View this issue on Bitbucket' <<<"$raw")" | head -1)"
+      # Body is the block between the metadata head and the footer. The head is
+      # the title + the two fixed meta lines (state, Type:) plus an optional
+      # Component/Milestone/Version line; the tail is the footer. This is the
+      # problem statement /plot-idea receives, read once per human click. It is
+      # a best-effort lift of rendered markdown, not a byte-exact round-trip:
+      # bb has no --json for issues, so the version pin is what keeps it honest.
+      body="$(awk '
+        NR==1 { next }                                   # title
+        NR==2 { next }                                   # state • reporter
+        /^Type: / { seen_type=1; next }                  # Type/Priority/Assignee
+        /^(Component|Milestone|Version): / && !started { next }
+        /^View this issue on Bitbucket/ { exit }         # footer ends the body
+        { started=1; print }
+      ' <<<"$raw" | sed -e 's/[[:space:]]*$//' )"
+      # Trim leading/trailing blank lines the render leaves around the body.
+      # Portable (no `tac`): awk buffers, then prints from the first non-blank
+      # line to the last one seen.
+      body="$(awk '
+        { lines[NR]=$0; if ($0 ~ /[^[:space:]]/) { if (!first) first=NR; last=NR } }
+        END { for (i=first; i<=last; i++) print lines[i] }
+      ' <<<"$body")"
+      jq -cn --argjson number "$num" --arg title "$title" --arg body "$body" --arg url "$url" \
+        '{number:$number,title:$title,body:$body,url:$url}'
     fi
     ;;
 

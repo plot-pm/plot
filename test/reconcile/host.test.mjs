@@ -736,18 +736,10 @@ test('host: issue-view fills absent fields rather than emitting null', () => {
   assert.equal(out.url, '');
 });
 
-test('host: issue-view exits 4 on bitbucket — cannot be asked, not "no issue"', () => {
-  const bb = makeStubs({ bbJson: '{}' });
-  const res = spawnSync('bash', [adapter, 'issue-view', '5'], {
-    encoding: 'utf8',
-    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
-  });
-  // The SAME code issue-list uses for the same standing fact, so a consumer
-  // needs one mapping rather than two.
-  assert.equal(res.status, 4);
-  assert.equal(res.stdout.trim(), '', 'nothing parseable, so nothing can be mistaken for an issue');
-  assert.match(res.stderr, /bitbucket has no issue read/);
-});
+// NOTE: the old test here asserted `issue-view exits 4 on bitbucket — bb has no
+// issue read`. That refusal was true when written and stopped being true after
+// bb gained issue commands, so bitbucket now ANSWERS. The bitbucket issue tests
+// live below, against a stub bb that emits captured 0.6.0 output.
 
 test('host: issue-view exits non-zero with empty stdout when the lookup fails', () => {
   // AN OUTAGE IS NOT AN ANSWER. A failed read must not arrive as an issue with
@@ -775,4 +767,195 @@ test('host: issue-view treats a missing issue as a failure, not an empty body', 
   });
   assert.notEqual(res.status, 0);
   assert.equal(res.stdout.trim(), '');
+});
+
+// --- bitbucket issue-list / issue-view: parse bb's text, pinned to 0.6.0 ----
+//
+// bb gained `issue list` and `issue view`, so the adapter that refused them for
+// a year now ANSWERS by parsing their output — bb has no --json for issues.
+// Every fixture below is the MEASURED bb 0.6.0 shape (read from craftamap/bb at
+// the 0.6.0 tag on 2026-08-26): the list row is `#%03d <STATE>  <title>   by
+// <reporter>` with ANSI colour on the id/state/reporter, the header is ` ::
+// Showing N of M issues in ORG/SLUG`, and bb writes its ERRORS to STDOUT,
+// colour-coded, exiting 1 for everything.
+//
+// A stub bb that emits chosen text with a chosen exit code and answers
+// `--version`. The parse is exercised against fixture text, never a live call —
+// this repo is on GitHub and bb refuses it outright.
+function makeBbIssueStub({ out = '', code = 0, version = 'bb version 0.6.0 (deadbeef)' } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bbissue-'));
+  const body = `#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then printf '%s\\n' '${version.replace(/'/g, `'\\''`)}'; exit 0; fi
+# issue list / issue view both print the fixture on STDOUT (where bb puts both
+# its data AND its errors) and exit with the chosen code.
+printf '%b' '${out.replace(/'/g, `'\\''`)}'
+exit ${code}
+`;
+  writeFileSync(path.join(dir, 'bb'), body);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir };
+}
+
+// The measured 0.6.0 list, ANSI and all. Note issue #17's title contains the
+// word "by" — the reporter is split on the THREE-space separator, so a naive
+// `s/ by .*//` would truncate it and this fixture is what catches that.
+const BB_LIST_ANSI =
+  '\\033[34m :: \\033[0mShowing 2 of 2 issues in acme/widget\\n' +
+  '#\\033[32m003\\033[0m \\033[48;5;12m OPEN \\033[0m    Fix the login redirect loop   \\033[38;5;242mby Alice\\033[0m\\n' +
+  '#\\033[32m017\\033[0m \\033[48;5;55m NEW \\033[0m     Add dark mode by default   \\033[38;5;242mby Bob\\033[0m\\n';
+
+const BB_VIEW_ANSI =
+  '\\033[1mFix the login redirect loop\\033[0m\\n' +
+  '\\033[48;5;12m OPEN \\033[0m • \\033[38;5;242mAlice opened 2026-08-01T10:00:00+00:00\\033[0m\\n' +
+  'Type: bug • Priority: major • Assignee: Alice\\n' +
+  'The redirect after login loops forever.\\n\\nSteps: log in, watch the URL bounce.\\n' +
+  '\\033[38;5;242mView this issue on Bitbucket.org: https://bitbucket.org/acme/widget/issues/3\\033[0m\\n';
+
+// bb's error shape: `An error occurred: <message>` on STDOUT, ANSI-coded, exit 1.
+const bbError = (msg) =>
+  `\\033[31m:: \\033[0m\\033[1mAn error occurred: \\033[0m${msg}\\n`;
+
+function runBb(args, stub, extraEnv = {}) {
+  return spawnSync('bash', [adapter, ...args], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket', ...extraEnv },
+  });
+}
+
+test('host: issue-list bitbucket emits the {number,title,url,createdAt} contract', () => {
+  const stub = makeBbIssueStub({ out: BB_LIST_ANSI });
+  const res = runBb(['issue-list'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.deepEqual(rows, [
+    { number: 3, title: 'Fix the login redirect loop', url: '', createdAt: '' },
+    // The title with "by" in it survives whole — split on three spaces, not " by ".
+    { number: 17, title: 'Add dark mode by default', url: '', createdAt: '' },
+  ]);
+  // url and createdAt are "" on bitbucket: bb issue list prints neither.
+});
+
+test('host: issue-list bitbucket never parses an ANSI error as an issue', () => {
+  // Done-when 6. bb writes errors to STDOUT; a stdout-is-data implementation
+  // would emit `An error occurred: …` as a title. The wording here is
+  // unrecognised, so it must be a failure — exit 3, empty stdout.
+  const stub = makeBbIssueStub({ out: bbError('429 Rate limit for this resource has been exceeded'), code: 1 });
+  const res = runBb(['issue-list'], stub);
+  assert.notEqual(res.status, 0);
+  assert.equal(res.stdout.trim(), '', 'an error message must never reach stdout as an issue');
+  assert.doesNotMatch(res.stdout, /An error occurred/);
+});
+
+test('host: issue-list --limit N truncates after parsing (bb has no --limit)', () => {
+  // Done-when 7. bb issue list has no --limit, so the adapter honours the
+  // caller's bound itself, after parsing.
+  const stub = makeBbIssueStub({ out: BB_LIST_ANSI });
+  const res = runBb(['issue-list', '--limit', '1'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const rows = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(rows.length, 1);
+  assert.equal(JSON.parse(rows[0]).number, 3);
+});
+
+test('host: issue-list bitbucket exits 4 when the tracker is DISABLED', () => {
+  // Done-when 3. Bitbucket answers 404 for a repo whose issue tracker is off;
+  // that is *cannot be asked*, not an empty list.
+  const stub = makeBbIssueStub({ out: bbError('404 Not Found'), code: 1 });
+  const res = runBb(['issue-list'], stub);
+  assert.equal(res.status, 4);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-list bitbucket exits 4 for "Are you sure this is a bitbucket repo?"', () => {
+  // The measured wording for a repo bb cannot resolve at all — also *cannot be
+  // asked*, so 4 rather than a confident empty list.
+  const stub = makeBbIssueStub({ out: bbError('Are you sure this is a bitbucket repo?'), code: 1 });
+  const res = runBb(['issue-list'], stub);
+  assert.equal(res.status, 4);
+});
+
+test('host: issue-list bitbucket defaults an UNRECOGNISED error to 3, never 4', () => {
+  // Done-when 5 — the assertion a naive implementation fails. Mapping any
+  // failure to 4 turns a broken call into "no tickets"; the safe default is 3.
+  const stub = makeBbIssueStub({ out: bbError('the server did something entirely new'), code: 1 });
+  const res = runBb(['issue-list'], stub);
+  assert.equal(res.status, 3, 'an unrecognised error is a failed call, not "no tickets"');
+  assert.notEqual(res.status, 4);
+});
+
+test('host: issue-list bitbucket reports an enabled-but-empty tracker as answered', () => {
+  // The third distinct outcome: the tracker answered and there are none. Exit 0,
+  // empty stdout — NOT exit 4 (cannot ask) and NOT exit 3 (failed).
+  const stub = makeBbIssueStub({
+    out: '\\033[34m :: \\033[0mShowing 0 of 0 issues in acme/widget\\n',
+  });
+  const res = runBb(['issue-list'], stub);
+  assert.equal(res.status, 0);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-list bitbucket pins bb 0.6.0 and fails loudly on a version it has not seen', () => {
+  // Done-when 2. The parse is declared against 0.6.0; a version it was not
+  // tested on fails rather than mis-reading a column that may have moved.
+  const stub = makeBbIssueStub({ out: BB_LIST_ANSI, version: 'bb version 0.7.0 (feed)' });
+  const res = runBb(['issue-list'], stub);
+  assert.notEqual(res.status, 0);
+  assert.equal(res.status, 3);
+  assert.match(res.stderr, /0\.6\.0/);
+  assert.equal(res.stdout.trim(), '', 'no rows parsed against an untested format');
+});
+
+test('host: issue-view bitbucket returns {number,title,body,url} from bb view text', () => {
+  const stub = makeBbIssueStub({ out: BB_VIEW_ANSI });
+  const res = runBb(['issue-view', '3'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.number, 3);
+  assert.equal(out.title, 'Fix the login redirect loop');
+  // THE BODY IS THE POINT — the problem statement /plot-idea receives. The two
+  // metadata head lines and the footer are stripped; the body between survives.
+  assert.equal(out.body, 'The redirect after login loops forever.\n\nSteps: log in, watch the URL bounce.');
+  // url comes from the view's footer — bb prints one there even though the list
+  // does not.
+  assert.equal(out.url, 'https://bitbucket.org/acme/widget/issues/3');
+});
+
+test('host: issue-view bitbucket exits 4 when the tracker is disabled', () => {
+  const stub = makeBbIssueStub({ out: bbError('404 Not Found'), code: 1 });
+  const res = runBb(['issue-view', '5'], stub);
+  assert.equal(res.status, 4);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-view bitbucket defaults an unrecognised error to 3', () => {
+  const stub = makeBbIssueStub({ out: bbError('a novel failure'), code: 1 });
+  const res = runBb(['issue-view', '5'], stub);
+  assert.equal(res.status, 3);
+});
+
+test('host: bitbucket issue ops never write to the tracker', () => {
+  // READ-ONLY, asserted: bb also exposes create/update/delete/comment, and Plot
+  // deliberately uses none of them — a plan referencing an issue is Plot's
+  // record, not the tracker's. The stub records its argv so the assertion is on
+  // what was actually invoked.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bbwrite-'));
+  const argvFile = path.join(dir, 'bb.argv');
+  writeFileSync(path.join(dir, 'bb'), `#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then printf 'bb version 0.6.0\\n'; exit 0; fi
+printf '%s\\n' "$@" >> "${argvFile}"
+printf '%b' '${BB_LIST_ANSI.replace(/'/g, `'\\''`)}'
+`);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  spawnSync('bash', [adapter, 'issue-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  spawnSync('bash', [adapter, 'issue-view', '3'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  const argv = existsSync(argvFile) ? readFileSync(argvFile, 'utf8') : '';
+  for (const write of ['create', 'update', 'delete', 'comment', 'edit']) {
+    assert.ok(!argv.split('\n').includes(write), `issue ops must not ${write}`);
+  }
 });
