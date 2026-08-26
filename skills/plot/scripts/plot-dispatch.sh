@@ -2,10 +2,17 @@
 # Plot helper: fan out one worktree + one worker per eligible branch.
 # Usage: plot-dispatch.sh [--dry-run] [--no-start] [--offline] [--max N]
 #                         [--allow-local] <slug>
+#        plot-dispatch.sh --migrate [--yes] [--max N]
 #   --status    list fleet worktrees with worker pid, liveness, and last log
 #               line; then exit. Works regardless of plan phase.
 #   --stop <br> stop the worker on <br> (branch required — never "all").
+#   --migrate   move legacy worktrees into the configured `Worktree root:`. An
+#               idle worktree (no live worker, no unlanded work) is moved; a
+#               busy one is skipped with the reason. Requires a `Worktree root:`
+#               config — without one there is no destination. --dry-run by
+#               default; --yes to actually move.
 #   --dry-run   print what would happen; create nothing, push nothing
+#   --yes       with --migrate, actually move the worktrees (default is dry-run)
 #   --no-start  create worktrees and claim refs, but start no workers
 #   --offline   skip `git fetch`
 #   --max N     dispatch at most N branches this run (default: all eligible)
@@ -140,10 +147,13 @@ offline=""
 allow_local=0
 max=0
 slug=""
+migrate_yes=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)  dry_run=1 ;;
     --status)   mode=status ;;
+    --migrate)  mode=migrate ;;
+    --yes)      migrate_yes=1 ;;
     # Only a value containing "/" is taken as the branch: otherwise a bare
     # `--stop <slug>` would silently treat the plan slug as a branch name and
     # stop the wrong thing (or nothing) without saying so.
@@ -156,7 +166,7 @@ while [ $# -gt 0 ]; do
                   ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
                 esac
                 shift ;;
-    -h|--help)  sed -n '2,16p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,23p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -295,6 +305,176 @@ if [ "$mode" = "stop" ]; then
     finished*|waiting*|stalled*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
     *)      echo "$stop_branch has no worker" ;;
   esac
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Migration mode: move legacy worktrees into the configured root
+# ---------------------------------------------------------------------------
+#
+# THE REFUSALS ARE THE FEATURE. `git worktree move` on a checkout an agent is
+# writing to breaks it mid-run. So this mode moves a worktree only when it has
+# NO LIVE WORKER AND NO UNLANDED WORK, and names every one it skipped with the
+# reason. Modelled on plot-reap.sh, which refuses on five MEASUREMENTS rather
+# than judgements.
+#
+# A MIXED ESTATE IS AN ORDINARY STATE, NOT A TRANSITION TO COMPLETE. Existing
+# worktrees stay where they are and keep working; every read asks git, so a
+# mixed estate is not a special case. `--migrate` must never be required — a
+# repo that adopts `Worktree root:` and never migrates is correctly configured.
+#
+# That is why this is opt-in and idempotent rather than automatic, and why a
+# worktree it refuses is not an error.
+if [ "$mode" = "migrate" ]; then
+  # Resolve where worktrees SHOULD go — the configured root.
+  configured_root=$("$script_dir/plot-config.sh" get "Worktree root" "")
+  if [ -z "$configured_root" ]; then
+    echo "plot-dispatch --migrate: no 'Worktree root:' configured — nothing to migrate."
+    echo "  When Worktree root is absent, worktrees live beside the repo (plot-wt-*)."
+    echo "  To migrate, first add a 'Worktree root:' key to ## Plot Config."
+    exit 0
+  fi
+
+  # Resolve the target root to an absolute path.
+  case "$configured_root" in
+    /*) target_root="$configured_root" ;;
+    *)  target_root="$repo_root_early/$configured_root" ;;
+  esac
+  target_root="${target_root%/}"
+
+  # Create the target directory if needed.
+  if [ "$migrate_yes" = 1 ] && [ ! -d "$target_root" ]; then
+    mkdir -p "$target_root" 2>/dev/null || {
+      echo "plot-dispatch --migrate: cannot create '$target_root'" >&2
+      exit 1
+    }
+  fi
+
+  # The legacy location: beside the repo, with `plot-wt-` prefix.
+  legacy_root=$(cd "$repo_root_early/.." && pwd)
+  legacy_prefix="plot-wt-"
+
+  # If the configured root is the same as the legacy root, there is nothing to
+  # migrate — the worktrees are already in the right place (only the prefix
+  # would change, and renaming worktrees for a prefix is not worth the churn).
+  if [ "$target_root" = "$legacy_root" ]; then
+    echo "plot-dispatch --migrate: target root matches legacy root ($legacy_root)."
+    echo "  Worktrees are already in the right place — nothing to migrate."
+    exit 0
+  fi
+
+  n_moved=0 n_skipped=0 n_would=0
+  dry_label="would move"
+  [ "$migrate_yes" = 1 ] && dry_label="moved"
+
+  printf '%-8s %-52s %s\n' "verdict" "worktree" "reason"
+
+  for wt in "$legacy_root"/"$legacy_prefix"*; do
+    [ -d "$wt" ] || continue
+    # Extract the branch from the worktree.
+    br=$(git -C "$wt" branch --show-current 2>/dev/null || echo "")
+
+    # If we hit --max, stop processing.
+    if [ "$max" -gt 0 ] && [ "$((n_moved + n_would))" -ge "$max" ]; then
+      printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "--max $max reached"
+      n_skipped=$((n_skipped + 1))
+      continue
+    fi
+
+    # TWO INDEPENDENT CONDITIONS, because the brief names two: a worktree moves
+    # only with NO LIVE WORKER **AND** NO UNLANDED WORK. They are separate
+    # measurements, exactly as they are in plot-reap.sh, and folding them into
+    # one verdict is a hole: plot_worker_state answers "is a WORKER running or
+    # waiting here", and it is keyed on the worker RECORDS (`.plot-worker.pid`,
+    # `.plot-worker.exit`). A hand-made worktree that never ran a Plot worker has
+    # no records and reads `none` no matter how dirty its tree is — and the
+    # hand-made worktrees are precisely the estate this mode exists to tidy. So
+    # liveness and unlanded-work are asked as two questions below.
+
+    # REFUSAL 1 & 2 — a LIVE WORKER, from the ONE shared answer. The brief is
+    # explicit: plot_worker_state is the single answer to "is a worker running
+    # in this worktree", sourced by both dispatch and the fleet scan. It carries
+    # what a bare `ps` cannot — pid-reuse detection via the manifest's
+    # `startedAt`, and the `waiting` state a PLOT-BLOCKED* marker produces.
+    # Re-implementing either here is the drift the codebase fought to remove.
+    wstate_row=$(plot_worker_state "$wt")
+    state=$(printf '%s' "$wstate_row" | cut -f1)
+    case "$state" in
+      running)
+        pid=$(printf '%s' "$wstate_row" | cut -f2)
+        printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "worker alive (pid $pid)"
+        n_skipped=$((n_skipped + 1))
+        continue ;;
+      waiting)
+        # The shared classifier reports `waiting` when a blocked marker exists:
+        # a worker stopped to ask a person something. Moving it breaks the
+        # checkout the answer is owed to.
+        printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "blocked marker — needs a person"
+        n_skipped=$((n_skipped + 1))
+        continue ;;
+    esac
+
+    # REFUSAL 3 — UNCOMMITTED WORK, measured independently of any worker record.
+    # `plot_worker_dirty` applies the shared filter (editor leftovers and Plot's
+    # own bookkeeping do not count), so this fires on real work only.
+    dirty=$(plot_worker_dirty "$wt" | head -1 | cut -c1-40)
+    if [ -n "$dirty" ]; then
+      printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "uncommitted: $dirty"
+      n_skipped=$((n_skipped + 1))
+      continue
+    fi
+
+    # REFUSAL 4 — UNPUSHED COMMITS. Work that exists only on this machine.
+    # Only the branch's OWN upstream answers "pushed?"; an absent upstream leaves
+    # the question unanswerable, and an unanswered question is not a refusal —
+    # the same principle plot_worker_task_state reached the hard way (counting
+    # against origin/main marked every clean branch stalled in a remote-less
+    # repo). So no upstream falls through to "movable", not to "keep".
+    if [ -n "$br" ]; then
+      ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo "")
+      case "$ahead" in
+        ''|0|*[!0-9]*) ;;  # no upstream, or nothing ahead: not a refusal
+        *) printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "unpushed commits ($ahead ahead)"
+           n_skipped=$((n_skipped + 1))
+           continue ;;
+      esac
+    fi
+
+    # This worktree is idle — it can be moved.
+    # Compute the destination path: the target root plus the branch name
+    # (flattened, no prefix).
+    if [ -n "$br" ]; then
+      dest_name=$(printf '%s' "$br" | tr '/' '-')
+    else
+      # Fallback: use the existing directory name minus the legacy prefix.
+      dest_name=$(basename "$wt")
+      dest_name="${dest_name#$legacy_prefix}"
+    fi
+    dest="$target_root/$dest_name"
+
+    if [ "$migrate_yes" = 1 ]; then
+      # Actually move the worktree.
+      if git worktree move "$wt" "$dest" 2>/dev/null; then
+        printf '%-8s %-52s %s\n' "moved" "$(basename "$wt")" "→ $dest"
+        n_moved=$((n_moved + 1))
+      else
+        printf '%-8s %-52s %s\n' "FAILED" "$(basename "$wt")" "git worktree move refused"
+        n_skipped=$((n_skipped + 1))
+      fi
+    else
+      printf '%-8s %-52s %s\n' "would" "$(basename "$wt")" "→ $dest"
+      n_would=$((n_would + 1))
+    fi
+  done
+
+  if [ "$migrate_yes" = 1 ]; then
+    echo "summary: moved=$n_moved skipped=$n_skipped"
+  else
+    echo "summary: would_move=$n_would skipped=$n_skipped dry_run=1"
+    if [ "$n_would" -gt 0 ]; then
+      echo "  Run with --yes to actually move the worktrees."
+    fi
+  fi
   exit 0
 fi
 

@@ -1106,3 +1106,138 @@ test('plan-meta: a fenced ## Branches example is illustration too (latent bug, n
     'the real section wins, not the fenced example');
   assert.deepEqual(meta.prs, [5], 'and only its PR counts');
 });
+
+// `Issue:` under a non-GitHub tracker — a plan can cite a tracker KEY
+// (`PROJ-123`) as well as GitHub's `#N`. The board's inbox is "open tracker
+// issues no plan references", matched through this field: an unparsed Jira key
+// leaves a delivered ticket in the inbox permanently, filed as undecided.
+//
+// The tracker is read from `## Plot Config` (this script's first configuration
+// dependency), or named directly with `--tracker` — which is what these tests
+// use, because a fixture parsed outside any repo has no Plot Config to read.
+
+test('parser: a Jira tracker reads a key, and #N still reads too (item 5)', () => {
+  // Under `Tracker: jira`, `PLOT-412` reports `PLOT-412` — and `#228` still
+  // reports `228`, unchanged. Both live in `issues`; GitHub numbers stay JSON
+  // numbers, tracker keys are JSON strings, numbers sorted before keys.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-jira-'));
+  const f = path.join(dir, '2026-01-01-keyed.md');
+  writeFileSync(f, `# A plan under a Jira tracker
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Issue:** PLOT-412, #228
+`);
+  const meta = JSON.parse(
+    execFileSync('bash', [parser, f, '--tracker', 'jira'], { encoding: 'utf8' }).trim());
+  assert.deepEqual(meta.issues, [228, 'PLOT-412'],
+    'the number reads as a number, the key as a string, numbers first');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: --tracker matches the first token, so `jira <url>` counts', () => {
+  // `plot-config.sh get Tracker` can return the scheme with a URL after it
+  // (`jira https://acme.atlassian.net`); the gate keys on the FIRST token.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-jiraurl-'));
+  const f = path.join(dir, '2026-01-01-keyed.md');
+  writeFileSync(f, `# A plan under a Jira tracker with a URL
+
+## Status
+
+- **Phase:** Approved
+- **Issue:** PROJ-7
+`);
+  const meta = JSON.parse(execFileSync(
+    'bash', [parser, f, '--tracker', 'jira https://acme.atlassian.net'],
+    { encoding: 'utf8' }).trim());
+  assert.deepEqual(meta.issues, ['PROJ-7'], 'the scheme token gates, not the whole value');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: linear is a key tracker too, and a plan can cite several', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-linear-'));
+  const f = path.join(dir, '2026-01-01-multi.md');
+  writeFileSync(f, `# A plan answering several tracker keys
+
+## Status
+
+- **Phase:** Approved
+- **Issue:** ENG-99, ENG-2, #10
+`);
+  const meta = JSON.parse(
+    execFileSync('bash', [parser, f, '--tracker', 'linear'], { encoding: 'utf8' }).trim());
+  // Numbers sorted numerically, then keys sorted lexically; duplicates dropped.
+  assert.deepEqual(meta.issues, [10, 'ENG-2', 'ENG-99'],
+    'sorted and deduped across both shapes');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: without a tracker key, PLOT-412 parses as absent (item 6)', () => {
+  // THE ITEM A PERMISSIVE REGEX PASSES ITEM 5 WITHOUT. The default is GitHub —
+  // today's behaviour, so no existing repo changes meaning. A key form is read
+  // ONLY where a tracker is named; here none is, so `PLOT-412` is not a
+  // reference and `#228` is the only issue. This must hold with no --tracker
+  // flag AND with an explicit GitHub tracker.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-nokey-'));
+  const f = path.join(dir, '2026-01-01-plain.md');
+  writeFileSync(f, `# A plan with a key-shaped Issue but no tracker
+
+## Status
+
+- **Phase:** Approved
+- **Issue:** PLOT-412, #228
+`);
+  const dflt = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }).trim());
+  assert.deepEqual(dflt.issues, [228],
+    'no tracker named → only #N is a reference, the key is prose');
+  const gh = JSON.parse(execFileSync(
+    'bash', [parser, f, '--tracker', 'github-issues'], { encoding: 'utf8' }).trim());
+  assert.deepEqual(gh.issues, [228], 'an explicit GitHub tracker is the same as none');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: a key tracker still refuses non-issue LETTERS-word tokens', () => {
+  // "Accepting any LETTERS-digits token unconditionally was rejected": a plan
+  // whose `Issue:` says `WONT-FIX` or `TODO-later` would otherwise start
+  // reporting an issue reference, and the inbox would hide a real ticket on the
+  // strength of it. The key form requires a DIGIT suffix, so a word suffix
+  // never matches — even under a Jira tracker.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-wontfix-'));
+  const f = path.join(dir, '2026-01-01-word.md');
+  writeFileSync(f, `# A plan whose Issue line is a word, not a key
+
+## Status
+
+- **Phase:** Draft
+- **Issue:** WONT-FIX, TODO-later
+`);
+  const meta = JSON.parse(
+    execFileSync('bash', [parser, f, '--tracker', 'jira'], { encoding: 'utf8' }).trim());
+  assert.deepEqual(meta.issues, [], 'a word suffix is not an issue key, tracker or no');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('parser: an unreadable or empty tracker never fails a parse (item 7)', () => {
+  // Configuration absence is not a parse failure. An empty `--tracker` (the
+  // shape a missing `## Plot Config` produces) yields valid JSON with today's
+  // GitHub behaviour — the parse succeeds and the record is complete.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-emptytracker-'));
+  const f = path.join(dir, '2026-01-01-plan.md');
+  writeFileSync(f, `# A plan parsed with an empty tracker value
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Issue:** PLOT-412, #228
+`);
+  // An empty value must not throw, must emit one valid JSON line, and must fall
+  // back to GitHub — proving no configuration failure ever reaches the parse.
+  const raw = execFileSync('bash', [parser, f, '--tracker', ''], { encoding: 'utf8' }).trim();
+  const meta = JSON.parse(raw);
+  assert.equal(meta.format, 'canonical', 'the record parsed in full');
+  assert.deepEqual(meta.issues, [228], 'empty tracker is GitHub, the safe default');
+  rmSync(dir, { recursive: true, force: true });
+});

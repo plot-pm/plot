@@ -17,6 +17,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-26, Jan Wloka, `feature/a-bitbucket-issue-is-a-ticket`
 
 ## Changelog
 
@@ -140,7 +141,7 @@ been hit once.
 
 ## Waves
 
-### Asked (Branch: feature/a-bitbucket-issue-is-a-ticket)
+### Asked (Branch: feature/a-bitbucket-issue-is-a-ticket, PR: #449)
 
 `issue-list` and `issue-view` answer for Bitbucket through `bb issue list` and
 `bb issue view`, parsing their text output, pinning the `bb` version, keeping

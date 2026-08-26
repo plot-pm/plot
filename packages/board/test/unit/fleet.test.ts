@@ -4464,3 +4464,43 @@ describe('the deferral reason travels from the plan to the row', () => {
     expect(row.state).toBe('deferred');
   });
 });
+
+describe('the all-unknown PR trigger raises the outage banner', () => {
+  // `refreshPrs` makes a real `bash plot-host.sh pr-list` subprocess call and is
+  // not exported, so the trigger's shape is pinned by reading the source — the
+  // same idiom `costs no host call` uses above, and for the same reason: the two
+  // traps this branch exists to avoid live in a code path no unit fixture drives.
+  const source = readFileSync(
+    new URL('../../src/server/fleet.ts', import.meta.url), 'utf8');
+
+  it('fires only when EVERY PR is unknown, never on a single gap (Done-when 2)', () => {
+    // One gap is a gap. A trigger on "any unknown" would fire constantly — the
+    // distinction is the whole point of the plan. `.every` is the guard, and
+    // `.length > 0` keeps an EMPTY map (no PRs exist) from reading as an outage.
+    expect(source).toMatch(/allPrs\.length > 0 && allPrs\.every\(\(pr\) => pr\.state === 'unknown'\)/);
+  });
+
+  it('sets prError and raises the banner on the all-unknown path (Done-when 1)', () => {
+    // The success path nulled prError one line before this; the content trigger
+    // is what sets it when the host answered with a map that is entirely dark.
+    const trigger = source.slice(source.indexOf('const allUnknown'));
+    expect(trigger).toMatch(/if \(allUnknown\) \{[\s\S]*?entry\.prError = message;/);
+  });
+
+  it('JOINS the catch rather than replacing it — a thrown failure still sets prError (Done-when 9)', () => {
+    // Most failures DO throw. A content check that replaced the catch would lose
+    // all of them, so the catch must still set prError. This asserts the catch
+    // block survives beside the new trigger.
+    expect(source).toMatch(/\} catch \(err\) \{[\s\S]*?entry\.prError = message;/);
+  });
+
+  it('does not update prAt on the outage path, so the age stays honest (Done-when 10)', () => {
+    // The retained map is kept but NOT re-dated: `prAgeSeconds` must report the
+    // last successful fetch, not the failed one, or the banner would name a
+    // freshness the data does not have. `prAt = Date.now()` belongs to the happy
+    // path only — it appears once, inside the `else`.
+    const prAtWrites = source.split('\n').filter((l) => /entry\.prAt = Date\.now\(\)/.test(l));
+    expect(prAtWrites, `expected exactly one prAt write (the happy path), saw:\n${prAtWrites.join('\n')}`)
+      .toHaveLength(1);
+  });
+});

@@ -65,6 +65,17 @@ function recorderConfig(dumpFile, prefix = 'PLOT_UNATTENDED=1 ') {
   return `${PLAN_CONFIG}- **Worker command:** ${prefix}sh -c 'env > ${dumpFile}'\n`;
 }
 
+/**
+ * Build a clean environment for dispatch that does NOT inherit PLOT_UNATTENDED.
+ * This test must detect whether dispatch itself injects the variable, which it
+ * cannot do if the variable leaks from the test runner (e.g. a Claude session).
+ */
+function cleanEnvForDispatch() {
+  const env = { ...process.env };
+  delete env.PLOT_UNATTENDED;
+  return env;
+}
+
 /** Dispatch one worker in a fresh sandbox and return the environment it got. */
 function launchAndCaptureEnv(name, prefix) {
   const sb = makeSandbox({ name, config: '' });
@@ -77,7 +88,10 @@ function launchAndCaptureEnv(name, prefix) {
   dispatchablePlan(sb.work);
   try {
     // No --no-start: starting the worker is the whole point of this test.
-    runScript('plot-dispatch.sh', ['--offline', '--max', '1', 'unattended-flow'], { cwd: sb.work });
+    // Use a clean env so the control test can detect whether dispatch itself
+    // injects PLOT_UNATTENDED (it must not — the variable comes from Worker command).
+    execFileSync('bash', [path.join(SCRIPTS, 'plot-dispatch.sh'), '--offline', '--max', '1', 'unattended-flow'],
+      { cwd: sb.work, encoding: 'utf8', env: cleanEnvForDispatch() });
 
     // The worker is detached, so wait for the recorder to land its file.
     const deadline = Date.now() + 15000;
