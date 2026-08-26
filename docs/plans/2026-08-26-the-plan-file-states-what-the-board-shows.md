@@ -100,6 +100,14 @@ protect, and this must not contradict them.
 what the rounds settled, and a field that duplicates either invites the drift
 this plan is about.
 
+**It reads the way every other optional field already reads.** `Sprint:`,
+`Story:` and `Assignee:` each resolve from `## Status` **or** YAML front matter,
+and each treats an HTML-comment placeholder as absent rather than as a value. So
+`Rounds:` resolves in that order — `## Status`, front matter, then the metadata
+block — and `- **Rounds:** <!-- optional -->` reports nothing. Following the
+existing shape means there is no new rule to learn and no second spelling of
+*absent*.
+
 ### The field wins; the comment still counts
 
 `plot-plan-meta.sh` reads `Rounds:` when present and falls back to the metadata
@@ -119,6 +127,23 @@ The skill already reads the block, increments `round`, and writes it back in
 place. It additionally sets `Rounds:` **from the same incremented value**, in the
 same step. One write, one source, so the two cannot disagree by construction —
 which is the answer to *why will these not drift like the other two do*.
+
+**The Status write is replace-or-insert-after-`Impl:`, and touches nothing
+else.** This is the riskiest edit in the plan and the constraint is deliberate:
+until now Phase 5b replaced an HTML comment at the foot of the file, where a bad
+regex damages nothing. `## Status` holds `Phase:`, `Type:` and every transition
+record, and a greedy match there could destroy an `Approved:` or `Delivered:`
+line — facts nothing else in the repo can reconstruct.
+
+So the write has exactly two behaviours:
+
+- a `- **Rounds:**` line exists → replace that line
+- it does not → insert one immediately after `- **Impl:**`
+
+Never a rewrite of the section, never a reflow, never an insert computed from a
+line number. **Insert-only was considered and rejected**: it is safer still, but
+the field would freeze at `1` and never record a second round, which is the
+whole fact being stated.
 
 ### Not chosen: migrate the 40
 
@@ -178,7 +203,13 @@ change.
    agree afterwards.
 6. **The 40 existing plans are untouched.** Asserted by the diff: the waves
    change scripts, template, skill and tests, and no `docs/plans/*.md`.
-7. `pnpm test`, `pnpm run test:reconcile` green.
+7. **The 645 contract tests stay green**, plus the four new cases. `Stated`
+   changes `plot-plan-meta.sh` — the plan-format contract every Plot script is
+   downstream of — and those tests are the gate: a field that breaks any plan's
+   parse fails them. A test that parsed the live `docs/plans/` estate was
+   considered and rejected, since it couples the suite to the repo's own
+   contents rather than to the format.
+8. `pnpm test`, `pnpm run test:reconcile` green.
 
 ## Notes
 
@@ -204,20 +235,77 @@ The wave `Written` was narrowed in the same round: two `challenge-the-plan`
 skills exist on this machine and they persist state differently. Only the repo's
 is Plot's to change.
 
+### Interrogated again 2026-08-26
+
+Round two, on implementation rather than premise. It found that the field needed
+no invention: `Sprint:`, `Story:` and `Assignee:` already resolve from `##
+Status` or front matter, with an HTML-comment placeholder meaning absent, so
+`Rounds:` follows a shape that exists rather than adding one.
+
+It also named the plan's sharpest risk, which round one had not: Phase 5b has
+until now only replaced an HTML comment at the foot of a file, where a bad regex
+costs nothing. Writing into `## Status` puts it beside `Approved:` and
+`Delivered:` — records nothing in the repo can reconstruct. The write is
+therefore constrained to replace-or-insert-after-`Impl:`, and insert-only was
+rejected explicitly because it would freeze the count at one.
+
+The blast radius was settled as the 645 contract tests, and a test parsing the
+live estate rejected for coupling the suite to the repo's contents.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
-    {"q": "Which challenge-the-plan skill should write Rounds:?", "a": "The repo skill only; the userSettings override is out of Plot's scope", "category": "technical"},
-    {"q": "How is the metadata block updated with respect to the plan file?", "a": "Two independent writes by the same agent in one run — Phase 5 rewrites the prose, Phase 5b rewrites the comment; no code writes either, and nothing binds them", "category": "technical"},
-    {"q": "Both records are in the same file — does a third location still make sense?", "a": "Yes: the prose is narrative and the comment is machine state, so neither is a place a person reads a count. Status is.", "category": "tradeOffs"}
+    {
+      "q": "Which challenge-the-plan skill should write Rounds:?",
+      "a": "The repo skill only; the userSettings override is out of Plot's scope",
+      "category": "technical"
+    },
+    {
+      "q": "How is the metadata block updated with respect to the plan file?",
+      "a": "Two independent writes by the same agent in one run \u2014 Phase 5 rewrites the prose, Phase 5b rewrites the comment; no code writes either, and nothing binds them",
+      "category": "technical"
+    },
+    {
+      "q": "Both records are in the same file \u2014 does a third location still make sense?",
+      "a": "Yes: the prose is narrative and the comment is machine state, so neither is a place a person reads a count. Status is.",
+      "category": "tradeOffs"
+    },
+    {
+      "q": "Should Rounds: follow the existing two-source Status/front-matter pattern?",
+      "a": "Yes \u2014 match it, placeholder means absent; no new rule to learn",
+      "category": "technical"
+    },
+    {
+      "q": "How should Phase 5b's write into ## Status be constrained?",
+      "a": "Replace-or-insert-after-Impl, touching nothing else; insert-only rejected as it freezes the count at 1",
+      "category": "technical"
+    },
+    {
+      "q": "What guards the blast radius of changing plot-plan-meta.sh?",
+      "a": "The 645 contract tests plus four new cases; a live-estate test rejected as coupling the suite to repo contents",
+      "category": "nonFunctional"
+    }
   ],
   "deferredItems": [],
   "categoriesCovered": {
-    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "technical": {
+      "stack": true,
+      "architecture": true,
+      "implementation": true
+    },
     "domain": false,
-    "ux": {"happyPath": false, "edgeCases": false, "errors": false, "accessibility": false},
-    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "ux": {
+      "happyPath": false,
+      "edgeCases": false,
+      "errors": false,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": false,
+      "scalability": false
+    },
     "tradeOffs": true
   }
 }
