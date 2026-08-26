@@ -188,6 +188,15 @@ export interface PlanAutoDispatchInput {
    * branch is neither re-dispatched nor double-charged.
    */
   inFlight: Set<string>;
+  /**
+   * Branches whose brief does not exist on `origin/main`. A wave with no brief
+   * is not started — see `a-worker-starts-with-its-brief.md`.
+   *
+   * INJECTED, not computed here, so `planAutoDispatch` stays pure. The caller
+   * reads git once per pulse and passes the set; this function treats it as any
+   * other exclusion filter.
+   */
+  missingBriefs: Set<string>;
 }
 
 /**
@@ -205,7 +214,7 @@ export interface PlanAutoDispatchInput {
  * pulse, is the property the whole wave exists to guarantee.
  */
 export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan[] {
-  const { controls, pulse, liveCount, inFlight } = input;
+  const { controls, pulse, liveCount, inFlight, missingBriefs } = input;
   if (!controls.autoDispatch) return [];
 
   let budget = controls.parallelAgents - (liveCount + inFlight.size);
@@ -220,8 +229,9 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
     if (plan.phase !== 'approved') continue;
 
     // Every startable branch across this plan's ELIGIBLE waves, minus the ones
-    // already in flight. A blocked or complete wave contributes nothing: the
-    // scan's verdict is the eligibility arithmetic, not re-derived here.
+    // already in flight or missing a brief. A blocked or complete wave
+    // contributes nothing: the scan's verdict is the eligibility arithmetic,
+    // not re-derived here.
     let startable = 0;
     for (const wave of plan.waves) {
       if (wave.verdict !== 'eligible') continue;
@@ -229,7 +239,15 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
         // `dispatchable`, not `isStartable`: a `wip` branch whose ref already
         // exists is work a dispatch cannot claim, so naming its plan spends
         // budget on a spawn the script refuses — see {@link refBlocksClaim}.
-        if (dispatchable(b.state) && !inFlight.has(b.branch)) startable += 1;
+        // A branch with no brief is excluded too — the worker would spend its
+        // first hour re-deriving what the brief already says.
+        if (
+          dispatchable(b.state) &&
+          !inFlight.has(b.branch) &&
+          !missingBriefs.has(b.branch)
+        ) {
+          startable += 1;
+        }
       }
     }
     if (startable === 0) continue;
@@ -255,6 +273,7 @@ export function startableBranches(
   pulse: FleetPulse,
   slug: string,
   inFlight: Set<string>,
+  missingBriefs: Set<string> = new Set(),
 ): string[] {
   const out: string[] = [];
   for (const plan of pulse.plans) {
@@ -266,7 +285,14 @@ export function startableBranches(
         // The spawn side must mark exactly what a dispatch will claim, so this
         // uses the same `dispatchable` rule the planner counts by: a `wip` ref
         // is refused, so it is neither dispatched nor marked in flight.
-        if (dispatchable(b.state) && !inFlight.has(b.branch)) out.push(b.branch);
+        // A branch with no brief is excluded too.
+        if (
+          dispatchable(b.state) &&
+          !inFlight.has(b.branch) &&
+          !missingBriefs.has(b.branch)
+        ) {
+          out.push(b.branch);
+        }
       }
     }
   }
@@ -296,6 +322,77 @@ export function skippedClaimedBranches(pulse: FleetPulse, inFlight: Set<string>)
     }
   }
   return out;
+}
+
+/**
+ * All branches that auto-dispatch would consider starting this pulse — the
+ * candidates whose briefs must exist before a dispatch is allowed.
+ *
+ * Returns every dispatchable branch across approved plans' eligible waves, minus
+ * those already in flight. The result is the set `findMissingBriefs` checks.
+ */
+export function dispatchCandidates(pulse: FleetPulse, inFlight: Set<string>): string[] {
+  const out: string[] = [];
+  for (const plan of pulse.plans) {
+    if (plan.phase !== 'approved') continue;
+    for (const wave of plan.waves) {
+      if (wave.verdict !== 'eligible') continue;
+      for (const b of wave.branches) {
+        if (dispatchable(b.state) && !inFlight.has(b.branch)) out.push(b.branch);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The brief path for a branch — `.plot/briefs/<slug>.md`, where slug is the
+ * branch name after its last `/`. This is the convention `/plot-implement`
+ * writes and the `Worker command` reads.
+ */
+export function briefPath(branch: string): string {
+  const slug = branch.split('/').pop() ?? branch;
+  return `.plot/briefs/${slug}.md`;
+}
+
+/**
+ * Branches from `candidates` whose brief does not exist on `origin/main`.
+ *
+ * Reads git, not the filesystem, so the board cannot be wrong about main
+ * even when its own checkout lags. Measured cost: ~8-27 ms per branch, so
+ * 11 candidates cost ~100-300 ms against the 5 s pulse cadence — affordable.
+ *
+ * The spike's numbers (2026-08-26): a board checkout 20+ commits behind held
+ * 150 briefs where main held 157. Three briefs that exist would have read as
+ * missing under a filesystem check. This is why we read git.
+ *
+ * @param repoRoot The repository root where git is run
+ * @param candidates Branches to check
+ * @returns The subset of candidates whose brief is missing
+ */
+export function findMissingBriefs(repoRoot: string, candidates: string[]): Set<string> {
+  const missing = new Set<string>();
+  for (const branch of candidates) {
+    const gitPath = `origin/main:${briefPath(branch)}`;
+    try {
+      // `git cat-file -e` exits 0 if the object exists, non-zero otherwise.
+      // spawnSync is synchronous, which is fine: we're already on the scan's
+      // success path and the cost is measured and bounded.
+      const result = require('node:child_process').spawnSync(
+        'git',
+        ['cat-file', '-e', gitPath],
+        { cwd: repoRoot, stdio: 'ignore' },
+      );
+      if (result.status !== 0) {
+        missing.add(branch);
+      }
+    } catch {
+      // If git fails entirely, treat as missing — the worker would face the
+      // same problem.
+      missing.add(branch);
+    }
+  }
+  return missing;
 }
 
 /**
@@ -361,6 +458,7 @@ export function runAutoDispatch(
   pulse: FleetPulse,
   plans: AutoDispatchPlan[],
   inFlight: Set<string>,
+  missingBriefs: Set<string> = new Set(),
 ): string[] {
   const newlyInFlight: string[] = [];
   for (const plan of plans) {
@@ -384,7 +482,7 @@ export function runAutoDispatch(
     // Mark the branches this invocation may claim so the next pulse counts them
     // before the detached script has pushed their refs. Capped at `max`: the
     // script starts at most that many.
-    const branches = startableBranches(pulse, plan.slug, inFlight).slice(0, plan.max);
+    const branches = startableBranches(pulse, plan.slug, inFlight, missingBriefs).slice(0, plan.max);
     newlyInFlight.push(...branches);
   }
   return newlyInFlight;
@@ -455,14 +553,42 @@ export function maybeAutoDispatch(
     }
   }
 
+  // Check which dispatchable branches lack a brief on origin/main. A wave with
+  // no brief is not started — see `a-worker-starts-with-its-brief.md`.
+  //
+  // This is the impure side: `findMissingBriefs` spawns `git cat-file -e` per
+  // candidate. The cost is ~8-27 ms per branch (measured 2026-08-26), so 11
+  // candidates add ~100-300 ms to the pulse — affordable against the 5 s cadence.
+  //
+  // The check reads `origin/main`, not the filesystem, so the board cannot be
+  // wrong about main even when its own checkout lags. The spike measured a
+  // checkout 20+ commits behind main, missing 7 briefs — filesystem reads would
+  // have refused starts that should have happened.
+  const candidates = controls.autoDispatch ? dispatchCandidates(pulse, pruned) : [];
+  const missingBriefs = controls.autoDispatch
+    ? findMissingBriefs(opts.repoRoot, candidates)
+    : new Set<string>();
+
+  // Log which branches auto-dispatch is skipping for missing briefs, once per
+  // pulse. Same pattern as the claimed-branch skip above: a refusal nobody sees
+  // is the defect this wave removes.
+  if (controls.autoDispatch && missingBriefs.size > 0) {
+    const missing = [...missingBriefs];
+    console.log(
+      `auto-dispatch: skipping branch(es) with no brief on origin/main ` +
+      `(run /plot-implement first): ${missing.join(', ')}`,
+    );
+  }
+
   const plans = planAutoDispatch({
     controls,
     pulse,
     liveCount,
     inFlight: pruned,
+    missingBriefs,
   });
   if (plans.length === 0) return pruned;
-  const newly = runAutoDispatch(opts, pulse, plans, pruned);
+  const newly = runAutoDispatch(opts, pulse, plans, pruned, missingBriefs);
   const next = new Set(pruned);
   for (const b of newly) next.add(b);
   return next;

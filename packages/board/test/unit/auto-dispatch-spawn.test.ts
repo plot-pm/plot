@@ -29,11 +29,44 @@ afterEach(() => {
   }
 });
 
-/** A scratch repo plus a stub scripts dir whose plot-dispatch.sh records args. */
-function fixture(): { opts: { repoRoot: string; scriptsDir: string }; runs: () => string[] } {
+/** A scratch repo plus a stub scripts dir whose plot-dispatch.sh records args.
+ * Now initializes as a real git repo with origin/main containing briefs for
+ * the branches the tests use — see `a-worker-starts-with-its-brief.md` for
+ * why auto-dispatch reads briefs from git, not the filesystem.
+ */
+function fixture(briefBranches: string[] = []): {
+  opts: { repoRoot: string; scriptsDir: string };
+  runs: () => string[];
+} {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-auto-repo-'));
   const scriptsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-auto-scripts-'));
   made.push(repoRoot, scriptsDir);
+
+  // Initialize git repo and create briefs on origin/main.
+  // Auto-dispatch reads briefs from `origin/main:.plot/briefs/<slug>.md`, so
+  // the test must set up real git refs — not just files in the working tree.
+  const { execSync } = require('node:child_process');
+  execSync('git init --initial-branch=main', { cwd: repoRoot, stdio: 'ignore' });
+  execSync('git config user.email "test@test.local"', { cwd: repoRoot, stdio: 'ignore' });
+  execSync('git config user.name "Test"', { cwd: repoRoot, stdio: 'ignore' });
+
+  // Create briefs for the branches auto-dispatch should be allowed to start.
+  const briefsDir = path.join(repoRoot, '.plot/briefs');
+  fs.mkdirSync(briefsDir, { recursive: true });
+  for (const branch of briefBranches) {
+    const slug = branch.split('/').pop() ?? branch;
+    fs.writeFileSync(path.join(briefsDir, `${slug}.md`), `# Brief for ${branch}\n`);
+  }
+  if (briefBranches.length > 0) {
+    execSync('git add .plot/briefs', { cwd: repoRoot, stdio: 'ignore' });
+  }
+
+  // Initial commit + set up origin/main ref pointing to the same commit.
+  fs.writeFileSync(path.join(repoRoot, 'README.md'), '# Test\n');
+  execSync('git add README.md', { cwd: repoRoot, stdio: 'ignore' });
+  execSync('git commit -m "initial"', { cwd: repoRoot, stdio: 'ignore' });
+  execSync('git update-ref refs/remotes/origin/main HEAD', { cwd: repoRoot, stdio: 'ignore' });
+
   const marker = path.join(scriptsDir, 'dispatch-ran.txt');
   fs.writeFileSync(
     path.join(scriptsDir, 'plot-dispatch.sh'),
@@ -82,7 +115,8 @@ const running = (branch: string): AgentEntry => ({
 
 describe('maybeAutoDispatch — the spawn half', () => {
   it('spawns plot-dispatch.sh with --max and the slug for an eligible approved wave', async () => {
-    const { opts, runs } = fixture();
+    // With brief for feature/a on origin/main.
+    const { opts, runs } = fixture(['feature/a']);
     const p = pulse([['2026-08-22-ship-it.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
     const next = maybeAutoDispatch(opts, p, on(5), [], new Set());
     await settle();
@@ -91,7 +125,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
   });
 
   it('spawns NOTHING while the switch is off', async () => {
-    const { opts, runs } = fixture();
+    const { opts, runs } = fixture(['feature/a']);
     const p = pulse([['2026-08-22-ship-it.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
     const next = maybeAutoDispatch(opts, p, off(5), [], new Set());
     await settle();
@@ -105,7 +139,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
     // pushed no claim), must dispatch nothing — 1 − 1 in-flight = 0. An
     // implementation passing `--max 1` every pulse would run the stub twice and
     // reach 2N.
-    const { opts, runs } = fixture();
+    const { opts, runs } = fixture(['feature/a', 'feature/b']);
     const p = pulse([['2026-08-22-ship-it.md', 'approved', [
       wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
     ]]]);
@@ -122,7 +156,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
   it('lowering the cap below the live count withholds the next dispatch and kills nothing', async () => {
     // Two running workers, cap lowered to 1: the budget is negative, nothing new
     // starts, and this function has no kill path — the two are untouched.
-    const { opts, runs } = fixture();
+    const { opts, runs } = fixture(['feature/a']);
     const agents = [running('feature/x'), running('feature/y')];
     const p = pulse([['2026-08-22-ship-it.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
     maybeAutoDispatch(opts, p, on(1), agents, new Set());
@@ -134,7 +168,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
     // feature/a was dispatched last pulse; a running agent now holds it, so the
     // registry has caught up — the in-flight mark is retired and the slot is
     // counted through the registry, not double-charged.
-    const { opts, runs } = fixture();
+    const { opts, runs } = fixture(['feature/a']);
     const p = pulse([['2026-08-22-ship-it.md', 'approved', [wave('W', 'eligible', [['feature/a', 'wip']])]]]);
     const next = maybeAutoDispatch(opts, p, on(1), [running('feature/a')], new Set(['feature/a']));
     await settle();
@@ -147,7 +181,8 @@ describe('maybeAutoDispatch — the spawn half', () => {
     // Replaying the planner by hand against the pulse JSON is how this defect
     // was found; nobody should need to. The name is logged AT MOST ONCE per
     // pulse — a line repeated every 5 s is noise, not a diagnostic.
-    const { opts, runs } = fixture();
+    // Note: feature/stale is wip (has a ref), so no brief is needed. feature/fresh needs one.
+    const { opts, runs } = fixture(['feature/fresh']);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const p = pulse([
       ['2026-07-25-stale.md', 'approved', [wave('W', 'eligible', [['feature/stale', 'wip']])]],
@@ -168,7 +203,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
   it('fans out two approved plans, splitting one budget across them', async () => {
     // Cap 3, four eligible branches over two plans → total 3, each plan capped at
     // its share in document order: plan one takes 2, plan two takes 1.
-    const { opts, runs } = fixture();
+    const { opts, runs } = fixture(['feature/a', 'feature/b', 'feature/c', 'feature/d']);
     const p = pulse([
       ['2026-08-22-one.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]],
       ['2026-08-22-two.md', 'approved', [wave('W', 'eligible', [['feature/c', 'open'], ['feature/d', 'open']])]],

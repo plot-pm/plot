@@ -5,6 +5,8 @@ import {
   liveAgentCount,
   liveAgentBranches,
   planSlug,
+  briefPath,
+  dispatchCandidates,
   type AutoDispatchPlan,
 } from '../../src/server/auto-dispatch.js';
 import { FleetPulseSchema, type FleetPulse } from '../../src/contract/schema.js';
@@ -176,6 +178,7 @@ describe('planAutoDispatch — the switch gate', () => {
       pulse: pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(p).toEqual([]);
   });
@@ -186,6 +189,7 @@ describe('planAutoDispatch — the switch gate', () => {
       pulse: pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     // max is capped at the plan's ONE startable branch, not the raw budget of 5:
     // there is no sense asking the script to start more than the plan offers.
@@ -200,6 +204,7 @@ describe('planAutoDispatch — only approved plans, only eligible waves', () => 
       pulse: pulse([['2026-08-22-d.md', 'draft', [wave('W', 'eligible', [['feature/a', 'open']])]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(p).toEqual([]);
   });
@@ -210,6 +215,7 @@ describe('planAutoDispatch — only approved plans, only eligible waves', () => 
       pulse: pulse([['2026-08-22-b.md', 'approved', [wave('W', 'blocked', [['feature/a', 'open']])]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(p).toEqual([]);
   });
@@ -220,6 +226,7 @@ describe('planAutoDispatch — only approved plans, only eligible waves', () => 
       pulse: pulse([['2026-08-22-c.md', 'approved', [wave('W', 'complete', [['feature/a', 'merged']])]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(p).toEqual([]);
   });
@@ -234,6 +241,7 @@ describe('planAutoDispatch — only approved plans, only eligible waves', () => 
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(p).toEqual([]);
   });
@@ -251,6 +259,7 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
       ]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(total(p)).toBe(3);
   });
@@ -266,6 +275,7 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
       ]]]),
       liveCount: 2,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(total(p)).toBe(1);
   });
@@ -281,6 +291,7 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
       ]]]),
       liveCount: 1,
       inFlight: new Set(['feature/z', 'feature/y']),
+      missingBriefs: new Set(),
     });
     // 3 − (1 live + 2 in-flight) = 0.
     expect(total(p)).toBe(0);
@@ -294,6 +305,7 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
       ]]]),
       liveCount: 5, // over cap — lowering the number mid-flight
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(p).toEqual([]);
   });
@@ -309,6 +321,7 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
       ]]]),
       liveCount: 0,
       inFlight: new Set(['feature/a']),
+      missingBriefs: new Set(),
     });
     // Budget = 3 − 1 in-flight = 2, but only feature/b is startable → max 1.
     expect(p).toEqual([{ slug: 'p', max: 1 }]);
@@ -334,6 +347,7 @@ describe('planAutoDispatch — a wip branch whose ref exists buys nothing', () =
       ]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(p).toEqual([{ slug: 'fresh', max: 1 }]);
   });
@@ -346,6 +360,7 @@ describe('planAutoDispatch — a wip branch whose ref exists buys nothing', () =
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(p).toEqual([]);
   });
@@ -361,6 +376,7 @@ describe('planAutoDispatch — a wip branch whose ref exists buys nothing', () =
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(p).toEqual([{ slug: 'mixed', max: 1 }]);
   });
@@ -386,6 +402,7 @@ describe('planAutoDispatch — re-eligibility on a later pulse', () => {
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     // One startable branch (feature/a) → max 1, capped below the budget of 5.
     expect(before).toEqual([{ slug: 'p', max: 1 }]);
@@ -400,7 +417,137 @@ describe('planAutoDispatch — re-eligibility on a later pulse', () => {
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
+      missingBriefs: new Set(),
     });
     expect(after).toEqual([{ slug: 'p', max: 1 }]);
+  });
+});
+
+// Wave: a-worker-starts-with-its-brief.md. A branch with no brief is not
+// started by auto-dispatch. The worker would spend its first hour re-deriving
+// what the brief already says — measured 2026-08-24: eight minutes on one
+// wave and unknown on another.
+
+describe('briefPath — the path from branch to brief', () => {
+  it('puts the branch suffix under .plot/briefs as .md', () => {
+    expect(briefPath('bug/foo-bar')).toBe('.plot/briefs/foo-bar.md');
+    expect(briefPath('feature/the-feature')).toBe('.plot/briefs/the-feature.md');
+  });
+
+  it('handles a branch with no prefix', () => {
+    expect(briefPath('standalone')).toBe('.plot/briefs/standalone.md');
+  });
+
+  it('takes the last segment after any nested prefix', () => {
+    // wip/spike/foo → foo.md
+    expect(briefPath('wip/spike/foo')).toBe('.plot/briefs/foo.md');
+  });
+});
+
+describe('dispatchCandidates — branches auto-dispatch would consider', () => {
+  it('returns every dispatchable branch across approved plans', () => {
+    const p = pulse([
+      ['2026-08-22-one.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]],
+      ['2026-08-22-two.md', 'approved', [wave('W', 'eligible', [['feature/c', 'open']])]],
+    ]);
+    expect(dispatchCandidates(p, new Set())).toEqual(['feature/a', 'feature/b', 'feature/c']);
+  });
+
+  it('excludes branches already in flight', () => {
+    const p = pulse([['2026-08-22-one.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+    ]]]);
+    expect(dispatchCandidates(p, new Set(['feature/a']))).toEqual(['feature/b']);
+  });
+
+  it('excludes wip branches whose ref blocks a claim', () => {
+    const p = pulse([['2026-08-22-one.md', 'approved', [
+      wave('W', 'eligible', [['feature/wip', 'wip'], ['feature/open', 'open']]),
+    ]]]);
+    expect(dispatchCandidates(p, new Set())).toEqual(['feature/open']);
+  });
+
+  it('excludes branches of draft plans', () => {
+    const p = pulse([['2026-08-22-draft.md', 'draft', [
+      wave('W', 'eligible', [['feature/a', 'open']]),
+    ]]]);
+    expect(dispatchCandidates(p, new Set())).toEqual([]);
+  });
+
+  it('excludes branches of blocked waves', () => {
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'blocked', [['feature/a', 'open']]),
+    ]]]);
+    expect(dispatchCandidates(p, new Set())).toEqual([]);
+  });
+});
+
+describe('planAutoDispatch — missingBriefs excludes branches', () => {
+  it('does not dispatch a branch whose brief is missing', () => {
+    const p = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: pulse([['2026-08-22-p.md', 'approved', [
+        wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+      ]]]),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(['feature/a']),
+    });
+    // Only feature/b is dispatchable; feature/a has no brief.
+    expect(p).toEqual([{ slug: 'p', max: 1 }]);
+  });
+
+  it('returns nothing when all branches lack briefs', () => {
+    const p = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: pulse([['2026-08-22-p.md', 'approved', [
+        wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+      ]]]),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(['feature/a', 'feature/b']),
+    });
+    expect(p).toEqual([]);
+  });
+
+  it('does not spend budget on a branch with no brief', () => {
+    // Budget 1, two branches, one lacks a brief. The one WITH a brief gets
+    // the slot, not the one without.
+    const p = planAutoDispatch({
+      controls: controls(true, 1),
+      pulse: pulse([['2026-08-22-p.md', 'approved', [
+        wave('W', 'eligible', [['feature/nobr', 'open'], ['feature/yesbr', 'open']]),
+      ]]]),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(['feature/nobr']),
+    });
+    expect(p).toEqual([{ slug: 'p', max: 1 }]);
+    // And the branch chosen is the one with a brief:
+    expect(startableBranches(
+      pulse([['2026-08-22-p.md', 'approved', [
+        wave('W', 'eligible', [['feature/nobr', 'open'], ['feature/yesbr', 'open']]),
+      ]]]),
+      'p',
+      new Set(),
+      new Set(['feature/nobr']),
+    )).toEqual(['feature/yesbr']);
+  });
+});
+
+describe('startableBranches — missingBriefs filter', () => {
+  it('excludes branches with missing briefs from the startable list', () => {
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+    ]]]);
+    expect(startableBranches(p, 'p', new Set(), new Set(['feature/a']))).toEqual(['feature/b']);
+  });
+
+  it('still works with an empty missingBriefs set', () => {
+    // The default behavior — no briefs are missing.
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+    ]]]);
+    expect(startableBranches(p, 'p', new Set())).toEqual(['feature/a', 'feature/b']);
   });
 });
