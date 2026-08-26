@@ -5,14 +5,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -87,9 +87,18 @@ The dependency must therefore be narrow: the parser reads ONE key, treats an
 unreadable config as *GitHub* (today's behaviour), and never fails a parse for
 want of configuration.
 
-### Which CLI
+### The REST API, not a CLI
 
-Open. `jira` (ankitpokhrel/jira-cli) and `acli` are candidates, as is the REST
+Jira Cloud's REST API with a token from the environment, called the way every
+other host op is called — a shell out with `jq` shaping the result into the
+existing contract.
+
+**No CLI dependency**, deliberately. `gh` and `bb` are already two binaries an
+adopter must install; a third would make the Jira path the hardest to adopt of
+the three, for the tracker most likely to be behind a corporate SSO. The API is
+testable against any instance, including one this repo does not have.
+
+### Which `jira` (ankitpokhrel/jira-cli) and `acli` are candidates, as is the REST
 API with a token. The choice belongs to whoever can test against a real
 instance — this repo has none.
 
@@ -147,24 +156,54 @@ callers, and the plan states it rather than absorbing it quietly.
 
 ### Open Points
 
-- [ ] Which CLI or API, and how it authenticates. Needs a real instance.
+- [x] Which CLI or API? **The REST API with an environment token** — no CLI
+      dependency, since `gh` and `bb` are already two binaries an adopter must
+      install and Jira is the one most likely behind corporate SSO.
+- [ ] Exactly which token scheme and env var name. Needs one real instance to
+      confirm against; the wave stops rather than guessing (see below).
 - [x] Does `Issue:` need to accept `PLOT-412`? **Yes — measured, it parses as
       `[]` today.** Now wave `Keyed` rather than a question.
 
+### Interrogated again 2026-08-26
+
+Round two, on shipping order and the open CLI question.
+
+The plan stays ONE plan. `Keyed` is the unblocker — `Listed` is useless without
+it — but the wave order already enforces that, so splitting would add
+bookkeeping to express something the plan already says. Both waves are approved;
+only `Keyed` is dispatched, and `Listed` waits behind it.
+
+The CLI question is answered: **the REST API with an environment token, no CLI**.
+`gh` and `bb` are already two binaries an adopter must install, and Jira is the
+tracker most likely to sit behind corporate SSO — a third binary would make the
+Jira path the hardest to adopt of the three. What remains open is narrower: the
+exact token scheme and env var name, which needs one real instance. `Listed`
+stops rather than guessing it.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {
       "q": "How far should the Issue: key form go?",
       "a": "Only where Tracker: declares a non-GitHub tracker; accepting any PROJ-123 would reclassify prose",
+      "category": "technical"
+    },
+    {
+      "q": "Should the plan split so Keyed can ship alone?",
+      "a": "No \u2014 one plan, approve both, dispatch Keyed only; the wave order already enforces it",
+      "category": "tradeOffs"
+    },
+    {
+      "q": "Which CLI or API for Jira?",
+      "a": "The REST API with an environment token \u2014 no CLI dependency; gh and bb are already two binaries and Jira is most likely behind SSO",
       "category": "technical"
     }
   ],
   "deferredItems": [],
   "categoriesCovered": {
     "technical": {
-      "stack": false,
+      "stack": true,
       "architecture": true,
       "implementation": false
     },
