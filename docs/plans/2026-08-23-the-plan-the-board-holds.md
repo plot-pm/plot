@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Rounds:** 1
+- **Started:** 2026-08-26, Jan Wloka, `feature/the-board-reads-approval-not-phase`
 
 ## Changelog
 
