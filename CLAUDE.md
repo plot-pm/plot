@@ -239,6 +239,14 @@ Choose the level the way semver asks:
 
 CI validates that every skill named in a `bumps:` block is a real directory
 under `skills/` — a typo fails the build rather than silently bumping nothing.
+
+It also validates the changeset's own **package** name, which must be `plot` or
+`@plot-pm/board`. This is a separate check because it fails differently: an
+unknown package makes `changeset version` abort the **entire** release rather
+than skip the file. Measured 2026-08-26 — six changesets named `@plot-pm/plot`,
+`@plot-pm/skills` and `plot-deliver`, so the release PR could not regenerate and
+sat at 8 of 98 changesets for four days, 355 commits behind main, with nothing
+reporting why. Run `./scripts/check-changeset-packages.sh` locally to check.
 The plugin version in the three metadata files (`package.json`,
 `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) follows from
 the same release, at least as high as the largest skill bump in it.

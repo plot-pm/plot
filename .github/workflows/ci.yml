@@ -96,6 +96,13 @@ jobs:
         timeout-minutes: 15
         run: pnpm --filter @plot-pm/board exec vitest run
 
+      # NOT gated on pull_request: an unknown package name aborts `changeset
+      # version` for the WHOLE repo, so it must fail on main too — the four-day
+      # silent freeze of the v2.9.0 release PR is what this exists to prevent,
+      # and that PR was never itself a pull_request event on these files.
+      - name: Changesets name real workspace packages
+        run: ./scripts/check-changeset-packages.sh
+
       - name: Check for changeset
         if: github.event_name == 'pull_request'
         run: |
