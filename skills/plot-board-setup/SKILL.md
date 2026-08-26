@@ -235,6 +235,23 @@ proposed prefix or answered outright. Write it only when confirmed or proposed
 from a `ticket_prefix` — **never `Tracker: none` from an unanswered question**,
 because absence of a prefix is not absence of a tracker.
 
+**Warn when the key has no backend.** `plot-host.sh issue-list` resolves issues
+through the **Git host** — `github` or `bitbucket` — not through a separate
+tracker system. A `Tracker: jira` or `Tracker: linear` is recorded but unread:
+the board's inbox will show nothing until a backend for that tracker lands.
+When writing such a key, say so:
+
+> Recorded `Tracker: jira`. Note: no backend reads this yet — the board's inbox
+> sources issues from the git host, not from Jira. A Jira backend is planned;
+> until then, the inbox will be empty.
+
+**Derive, do not hardcode.** The backends that `plot-host.sh issue-list` can ask
+are exactly those that match its `if [ "$be" = "github" ]; then … else …` shape:
+`github` and `bitbucket`. Any other `Tracker` value is unread today. When a new
+backend lands — `jira`, `linear`, etc. — the warning must stop firing for it.
+The check the skill performs: if the confirmed `Tracker` value is neither
+`github` nor `bitbucket`, warn that no backend reads it yet.
+
 Then hand over the start command:
 
 ```bash
@@ -407,6 +424,7 @@ verification, run against the board that stays up.
 | No `ticket_prefix` | Ask which tracker; never propose `Tracker: none` from silence |
 | Both CI signals present | Ask which runs the PRs; do not tie-break on the git host |
 | Tracker unresolved, unattended | Refuse the key; a wrong tracker serves an empty inbox reading as *no tickets* |
+| Tracker has no backend | Write the key with a warning: *recorded; no backend reads this yet* — the inbox will be empty until the backend lands |
 | Node < 20 | Report the requirement, still write config, skip 4b |
 | CWD is not the repo root | Warn prominently — the board compares realpaths, and branch-staged plans silently vanish otherwise |
 | A CLI is absent | Skip its check; absence is not failure |
