@@ -112,7 +112,7 @@ the release it is meant to serve.
 
 <!-- Items moved here during the sprint when they will not make the timebox -->
 
-- [ ] [working-shows-the-agent] Waves *Machine*, *Registry* — WAITING ON A MACHINE from local processes, and agent identity that outlives a branch. Out by the goal, not by capacity.
+- [x] [working-shows-the-agent] Waves *Machine*, *Registry* — WAITING ON A MACHINE from local processes, and agent identity that outlives a branch. Out by the goal, not by capacity. <!-- released v2.7.0; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
 
 > *Answer* was here too until 2026-08-19, when the three read-only waves had all
 > merged and it was pulled into Should Have by an explicit decision. The sprint
@@ -129,6 +129,13 @@ the release it is meant to serve.
      leave the operator opening a terminal to find out what was happening? -->
 
 ## Notes
+
+### Reconciled 2026-08-26
+
+Closed 2026-08-23 with one item unticked. That item's plan reached
+`Phase: Released` afterwards; the box was never re-ticked. Ticked on the plan's
+own phase, and the sprint now reports 11 of 11.
+
 
 Runs concurrently with `2026-W34-the-board-tells-the-truth`, which shares three
 Should Haves with it — the branches dispatched 2026-08-19 belong to both

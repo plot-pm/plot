@@ -26,29 +26,29 @@ this timebox is measuring.
 
 ### Must Have
 
-- [ ] [not-yet-asked-is-not-nothing] The board distinguishes "not checked yet" from "nothing pending" — PRs #220 (merged), #221 (in review)
-- [ ] [finished-is-not-a-verdict] A worker that stopped is not one that finished — PRs #218, #219 (both merged)
-- [ ] [a-stale-ref-outranks-the-host] An unpruned tracking ref stops disabling the host lookup — PR #222 (merged)
-- [ ] [one-place-for-what-a-row-can-do] Every row action lives in its menu — PR #224 (in review)
+- [x] [not-yet-asked-is-not-nothing] The board distinguishes "not checked yet" from "nothing pending" — PRs #220 (merged), #221 (in review) <!-- released v2.5.2; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
+- [x] [finished-is-not-a-verdict] A worker that stopped is not one that finished — PRs #218, #219 (both merged) <!-- released v2.5.2; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
+- [x] [a-stale-ref-outranks-the-host] An unpruned tracking ref stops disabling the host lookup — PR #222 (merged) <!-- released v2.5.2; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
+- [x] [one-place-for-what-a-row-can-do] Every row action lives in its menu — PR #224 (in review) <!-- released v2.5.2; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
 
 ### Should Have
 
-- [ ] [the-board-never-shrinks-on-a-success] Deliver — both waves merged (#211, #217)
-- [ ] [the-board-answers-agents] Deliver wave 1 (#212), decide whether wave 2 belongs in this timebox
-- [ ] [plot-board-setup] Deliver — waves merged as #208, #209
+- [x] [the-board-never-shrinks-on-a-success] Deliver — both waves merged (#211, #217) <!-- released v2.5.1; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
+- [x] [the-board-answers-agents] Deliver wave 1 (#212), decide whether wave 2 belongs in this timebox <!-- released v2.7.0; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
+- [x] [plot-board-setup] Deliver — waves merged as #208, #209 <!-- released v2.7.0; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
 - [x] Set the 32 delivered-but-unreleased plans to Released — measured by `plot-reconcile-scan.sh`, unreleased_delivered=32 <!-- done: 2026-08-23, the sweep now reports unreleased_delivered=2 -->
 
 ### Could Have
 
-- [ ] [the-repair-exists-but-nothing-calls-it] The pulse repairs an artifact conflict without being asked
-- [ ] [the-pulse-measures-progress-not-elapsed-time] `changed_ago_seconds`, so a long job and a stuck one stop looking the same
-- [ ] Decide PR #57 — conflicts resolved, `test:board` still failing after 23 days open <!-- moved: 2026-08-23 to 2026-W35, still undecided at 29 days -->
+- [x] [the-repair-exists-but-nothing-calls-it] The pulse repairs an artifact conflict without being asked <!-- released v2.7.0; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
+- [x] [the-pulse-measures-progress-not-elapsed-time] `changed_ago_seconds`, so a long job and a stuck one stop looking the same <!-- released v2.7.0; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
+- [x] Decide PR #57 — conflicts resolved, `test:board` still failing after 23 days open <!-- moved: 2026-08-23 to 2026-W35; DECIDED 2026-08-25 — closed unmerged at 31 days after measuring each change against main per file. Four of six had reached main by other routes; the remaining four documents were recovered on a fresh branch as #423, and the ralph budget machinery rebuilt against current main as #425 rather than rebased off a 1738-commit-behind branch. -->
 
 ### Deferred
 
 <!-- Items moved here during the sprint when they will not make the timebox -->
 
-- [ ] [the-index-is-derived] Draft, three waves — too large for four days and not blocking anything
+- [x] [the-index-is-derived] Draft, three waves — too large for four days and not blocking anything <!-- released v2.7.0; ticked 2026-08-26 on the plan's own phase, not on a re-reading of the work -->
 - [ ] A release window: dispatch refuses while a release PR is open (drafted, not yet committed)
 
 ## Retrospective
@@ -58,6 +58,26 @@ this timebox is measuring.
      the plans and the board did not already drive? -->
 
 ## Notes
+
+### Reconciled 2026-08-26
+
+Closed 2026-08-22 reporting **1 of 13 done**. Ten of the twelve remaining items
+were plans that reached `Phase: Released` afterwards, and nobody re-ticked the
+boxes — so the file understated what the timebox achieved by an order of
+magnitude.
+
+Ticked on each plan's OWN phase, read from `plot-plan-meta.sh`, never on a
+re-reading of the work. PR #57 was decided 2026-08-25 (closed unmerged, its
+content recovered as #423 and #425) and is ticked with that record.
+
+**One item is genuinely unbuilt**: *a release window — dispatch refuses while a
+release PR is open*. It was never planned, and the sprint said so at the time
+("drafted, not yet committed").
+
+The asymmetry that caused this is now itself a plan: `/plot-sprint close`
+refuses a CHECKED box over an undelivered plan — a false completion — and
+nothing guards the inverse, an unchecked box over a released one.
+
 
 Created 2026-08-18 as the first real use of `/plot-sprint`, six months after
 the skill shipped. The measurement that prompted it: 0 of 53 plans carry a

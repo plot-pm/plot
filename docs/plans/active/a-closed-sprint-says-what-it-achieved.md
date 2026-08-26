@@ -1,0 +1,1 @@
+../2026-08-26-a-closed-sprint-says-what-it-achieved.md
