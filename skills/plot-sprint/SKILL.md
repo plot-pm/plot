@@ -69,8 +69,9 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 |-------|-----------|-------|
 | Create, commit, start | Small | Git commands, templates, file ops |
 | Status | Small | File existence checks for delivery state are mechanical; no judgment needed |
-| Close | Mid | False-positive detection (cross-reference `[x]` against `docs/plans/delivered/`) plus existing checkbox parsing |
-| Release state (close step 2b) | Small | `plot-sprint-release.sh` plus `git tag --list`; reports, never refuses |
+| Reconcile checkboxes (close step 2a) | Small | `plot-plan-meta.sh` to read phase; tick if `delivered` or `released`; mechanical |
+| False-positive check (close step 2b) | Mid | `plot-plan-meta.sh` to read phase; a checked box over an undelivered plan needs resolution |
+| Release state (close step 2c) | Small | `plot-sprint-release.sh` plus `git tag --list`; reports, never refuses |
 | Propose plans from the goal (create step 4) | **Frontier** | Reading a goal against each plan's title, story and changelog is semantic, not lexical: the measured case — goal *"the board tells the truth"*, plan *"none printed before the first fetch"* — shares no word and is the same subject, and word overlap ranks it last. **Fallback below Frontier:** list everything grouped by story and say that is what happened; a fallback that does not announce itself is read as a ranking |
 
 Every other sprint operation is structural (Small or Mid). The proposal step is
@@ -472,15 +473,79 @@ Find sprint file, check Phase is `Active`.
 Parse the sprint file for checkbox items in each tier:
 
 - Count checked `- [x]` vs unchecked `- [ ]` items per tier
-- **For each `[x]` item with a `[slug]` reference, verify the plan is actually delivered:**
-  - Check `docs/plans/delivered/<slug>.md` (file or symlink) exists
-  - If the plan is in `docs/plans/active/<slug>.md` or missing entirely, this is a **false-positive completion**
+
+#### 2a. Reconcile Checkboxes Against Plan Phases
+
+**Before** checking for false positives, reconcile unchecked items whose plans
+are already delivered or released. For each `- [ ]` item with a `[slug]`
+reference:
+
+```bash
+../plot/scripts/plot-plan-meta.sh docs/plans/*/<slug>.md 2>/dev/null
+```
+
+Read the plan's `phase` field from the JSON output. If the phase is `delivered`
+or `released`:
+
+1. Tick the checkbox: `- [ ]` → `- [x]`
+2. Annotate the line with the phase that justified the tick:
+   `- [x] [slug] description <!-- reconciled: <phase> -->`
+
+**Why this step exists.** `/plot-deliver` moves the plan and nobody re-ticks
+the box by hand, so an item whose plan shipped after sprint planning reads as
+incomplete even though the work is done. Reconciling at close time is the
+moment the tally stops being recomputed and becomes the record — the ONE place
+it matters that the checkbox reflects what actually happened.
+
+**An item with no resolvable plan is left alone and named.** These sprints
+carry bare prose lines — "Decide PR #57…", "A release window: dispatch
+refuses…" — with no phase to read. A step that ticks what it cannot verify is
+the false completion the false-positive guard exists to prevent.
+
+Present the reconciliation results:
+
+```
+Reconciled 3 items whose plans have shipped:
+  - [slug-a] — plan is released
+  - [slug-b] — plan is delivered
+  - [slug-c] — plan is delivered
+
+1 item could not be resolved (no plan file):
+  - Decide PR #57 approach
+```
+
+> **Unattended (`PLOT_UNATTENDED=1`):** perform the reconciliation — it is
+> mechanical and objective, not a judgement. The only question this step might
+> ask is "should I tick items the estate says are done?", and the answer is
+> always yes. Name the items it ticked and the items it could not resolve.
+
+#### 2b. False-Positive Completion Check
+
+**After reconciliation**, check for false positives: items marked `[x]` whose
+plans are NOT delivered or released. For each `[x]` item with a `[slug]`
+reference:
+
+```bash
+../plot/scripts/plot-plan-meta.sh docs/plans/*/<slug>.md 2>/dev/null
+```
+
+Read the plan's `phase` field. If the phase is anything OTHER than `delivered`
+or `released` (i.e., `draft`, `design`, `approved`, or `NONE` for missing
+files), this is a **false-positive completion**.
+
+**Both directions now read the phase, not the directory.** The existing guard
+used to check `docs/plans/active/<slug>.md` vs `docs/plans/delivered/<slug>.md`.
+That was the directory, not the phase — and `/plot-deliver` made the phase edit
+the transition while making the index write best-effort, precisely so a
+delivered plan whose symlink move failed would not be treated as undelivered.
+Reading the phase respects that design; reading the directory would refuse on
+the bookkeeping of a plan that shipped.
 
 Present results, listing any false positives **before** the totals:
 
 ```
 ⚠ False-positive completions detected:
-  - [slug] — checked but plan is in active/ (not delivered)
+  - [slug] — checked but plan phase is draft (not delivered)
   - [slug] — checked but plan file not found
 
 Must Have:  2/4 complete (1 false positive)
@@ -508,7 +573,7 @@ If must-haves are incomplete, present three options:
 2. Move incomplete must-haves to Deferred — move each unchecked `- [ ]` line from `### Must Have` to `### Deferred`, preserving the original text
 3. Hold off (don't close yet)
 
-#### 2b. Report the Release State
+#### 2c. Report the Release State
 
 If the sprint declares a `Release:` target, say where it stands — and **do not
 refuse on it, ever.**
@@ -530,9 +595,9 @@ that would not let one end is lying about what a timebox is. The retrospective
 is where a slipped release gets discussed, and it can only discuss what close
 reported.
 
-This is deliberately unlike step 2's false-positive check, which *does* hold the
-close: that one catches a claim contradicted by the estate, which is a mistake
-to fix. An uncut release is not a mistake — it is news.
+This is deliberately unlike step 2b's false-positive check, which *does* hold
+the close: that one catches a claim contradicted by the estate, which is a
+mistake to fix. An uncut release is not a mistake — it is news.
 
 > **Unattended (`PLOT_UNATTENDED=1`):** stop. All three options are live and
 > none is safe by default — closing over unfinished Must Haves and deferring
@@ -659,7 +724,7 @@ Read the sprint file and display:
 - Time remaining (days until end date; "ended N days ago" if past)
 - MoSCoW progress: Must N/M, Should N/M, Could N/M
 - For plan-backed items with annotations: show PR number, status, and branch
-- **False-positive flag:** for `[x]` items with `[slug]` refs, if the plan is not in `docs/plans/delivered/`, prefix the line with `⚠ ` and note `(plan not delivered)`. This makes the discrepancy visible during routine status checks, not just at close time.
+- **False-positive flag:** for `[x]` items with `[slug]` refs, run `plot-plan-meta.sh` and check the plan's phase. If the phase is anything other than `delivered` or `released`, prefix the line with `⚠ ` and note `(plan phase: <phase>)`. This makes the discrepancy visible during routine status checks, not just at close time.
 
 #### 3. Summary
 
@@ -675,5 +740,5 @@ Read the sprint file and display:
 
 | Mistake | Effect | Prevention |
 |---------|--------|------------|
-| Closing a sprint with `[x] [slug]` items whose plans are still in `active/` | Sprint reads as complete but plans remain undelivered; `/plot-deliver` later reverts the plan to Draft | Step 2 of close runs a false-positive check; resolve via `/plot-deliver` or uncheck before closing |
+| Closing a sprint with `[x] [slug]` items whose plans' phase is not `delivered` or `released` | Sprint reads as complete but plans remain undelivered; `/plot-deliver` later reverts the plan to Draft | Step 2b of close runs a false-positive check via `plot-plan-meta.sh`; resolve via `/plot-deliver` or uncheck before closing |
 | Squash-merging a sprint planning PR | Readiness/defer/dates collapse into one commit; reasoning lost | Default to `--merge` (matches `plot-approve` for plan PRs) — squash is for messy WIP, not planning |
