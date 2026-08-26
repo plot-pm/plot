@@ -12,6 +12,7 @@
 - **Story:** setup-asks-what-the-repo-already-knows
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 3
 - **Approved:** <!-- YYYY-MM-DD, who, channel -->
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
@@ -137,13 +138,47 @@ a `CI:` key that sends every build-status lookup to the wrong system.
 This is the general rule for every inferred field, not a special case for CI:
 **one signal proposes, two signals ask.**
 
-### Not chosen: infer a tracker from commit messages
+### The ticket prefix IS a tracker signal — measured, not assumed
 
-Tempting — Jira keys in the log are a strong signal. Rejected as unmeasured: a
-`PROJ-123` in a commit message may be a coincidence, a quoted upstream issue, or
-a different tracker entirely. The origin URL and the Jenkinsfile are structural;
-a commit message is prose. Structural signals only, until someone measures the
-prose one.
+An earlier round rejected inferring a tracker from commit messages as
+*"unmeasured — a `PROJ-123` may be a coincidence"*. That rejection was written
+against a mechanism this repo **already ships**: `plot-detect-repo.sh:79` scans
+80 commit subjects for `ABC-123` and reports the prefix only if it appears at
+least **twice**.
+
+So it was measured, across the 70 git repositories on the machine this sprint's
+population lives on:
+
+```
+host distribution        prefix found        crosstab
+  bitbucket  64            yes  32             bitbucket + prefix    32
+  github      5            no   38             bitbucket + none      32
+  none        1                                github    + none       5
+```
+
+The 32 prefixes: `MCHW2C`(8) `QUACDS`(6) `EWZREL`(4) `CDSTLZ`(4) `LNTNGP24`(3)
+`EWZKUS`(3) `MGNLCKE` `LIPRET` `EWZLEG` `EKZREL2`.
+
+**Zero false positives.** Every one is a real project key; the `>= 2` threshold
+was enough. The coincidence the rejection feared did not occur once in 70 repos.
+
+**Perfect precision, half recall.** Every repo with a prefix is Bitbucket-hosted
+and Jira-tracked; every GitHub repo has none. But **32 of 64 Bitbucket repos
+carry no prefix**, so the signal is one-directional:
+
+- a prefix is strong evidence **for** a Jira tracker
+- its absence is **not** evidence against one
+
+That asymmetry is what makes it safe to use. A found prefix proposes
+`Tracker: jira` **with the evidence attached** — *"found `QUACDS-*` in 6 of 80
+commits"* — and a human confirms. A missing prefix asks the open question
+exactly as today, because nothing was learned.
+
+**What the prefix does NOT prove is which system hosts it.** `ABC-123` is Jira's
+convention, but Linear and GitHub issues can carry prefixed keys too. In this
+population the correlation is perfect; in a repo that is not this population it
+is a proposal, not a fact. That is why it proposes and never asserts — and why
+it still refuses when unattended, like the Jenkins slug.
 
 ## Waves
 
@@ -183,14 +218,25 @@ A written key with no consumer is recorded with a warning naming the gap.
 7. **The existing host and CI proposals are asserted against a Bitbucket remote
    and a Jenkinsfile**, not only against this repo's shape. They were written
    for a GitHub-shaped repo and this sprint's population is not one.
-8. `pnpm test` green.
+8. **A repeated ticket prefix proposes `Tracker: jira`, with the evidence
+   named** — *"found `QUACDS-*` in 6 of 80 commits"*. Measured across 70 repos:
+   32 carried a prefix, **zero were false positives**, and every one was a
+   Jira-tracked Bitbucket repo.
+9. **No prefix asks the open question — it never proposes `none`.** The signal
+   is one-directional: 32 of 64 Bitbucket repos carry no prefix, so absence
+   proves nothing. An implementation that reads absence as *no tracker* passes
+   item 8 and silently writes the wrong answer for half the population.
+10. `pnpm run validate` green. **Note `pnpm test` is NOT a test run in this
+    repo** — it is `skills add . --list` and prints an installer listing.
 
 ## Notes
 
 ### Open Points
 
-- [ ] Is a Jira key in commit messages a usable signal? Rejected here as
-      unmeasured; worth measuring on a real customer repo before revisiting.
+- [x] Is a Jira key in commit messages a usable signal? **YES, measured
+      2026-08-26 across 70 repos** — 32 prefixes, zero false positives, perfect
+      precision against Bitbucket/Jira, but only half recall. It PROPOSES a
+      tracker; its absence proves nothing. Done-when 8 and 9.
 
 ### Interrogated 2026-08-26
 
@@ -222,9 +268,39 @@ shape: the wrong system answers, with an empty list, and the board renders an
 empty inbox reading as *you have no tickets*. So Tracker inherits the refusal
 verbatim.
 
+### Interrogated a third time 2026-08-26 — the rejection was stale
+
+Round three challenged this plan's own "Not chosen" section and found it arguing
+against a mechanism the repo already ships.
+
+The section rejected inferring a tracker from commit messages as *unmeasured*.
+But `plot-detect-repo.sh:79` has been doing exactly that, with a coincidence
+guard (`>= 2` occurrences in 80 subjects). So the round measured it across the
+**70 git repositories on this machine** rather than reasoning about it further:
+
+- **32 repos carried a prefix. Zero false positives.** Every one a real project
+  key. The feared coincidence never occurred.
+- **Perfect precision:** all 32 were Bitbucket-hosted, Jira-tracked; all 5
+  GitHub repos had no prefix.
+- **Half recall:** 32 of 64 Bitbucket repos carry no prefix.
+
+That asymmetry is the finding. A prefix is strong evidence FOR a Jira tracker;
+its absence is not evidence against one. So it proposes with the evidence
+attached and never treats silence as an answer — Done-when 8 and 9, where 9 is
+the one a naive implementation fails while passing 8.
+
+**This is the third plan in two days whose premise dissolved when someone ran
+the check instead of reasoning about it** — after `bb issue list` (exists) and
+`jen job list` (one call, 0.17 s). The pattern is now explicit in this repo:
+a plan that says *unmeasured* is naming a task, not a conclusion.
+
+Also corrected: Done-when's `pnpm test` was not a test command. In this repo
+`pnpm test` runs `skills add . --list` and prints an installer listing; the
+skill gate is `pnpm run validate`.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {
       "q": "What if a repo has both a Jenkinsfile and workflows?",
