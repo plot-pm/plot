@@ -211,6 +211,29 @@ The bounded severity is recorded deliberately: nothing on the live board is
 wrong today, and a plan that overstated this would earn a fix aimed at a problem
 nobody has.
 
+### The rollup is free on GitHub and N+1 on Bitbucket
+
+Measured 2026-08-26 against Quatico's `bb` 1.9.0, whose own help says it:
+
+> `checks` costs one extra API call per PR (build statuses are per-commit), so
+> it is computed only when named. Asking for other fields, or a bare `--json`,
+> costs nothing extra.
+
+**This plan's cost argument holds only for GitHub**, where `plot-host.sh`
+records the rollup as riding the same GraphQL response — *"same call, no extra
+request"*. On Bitbucket, asking for `checks` on N PRs is N extra API calls,
+against a host that produced an **account-wide HTTP 429** on this machine the
+same day.
+
+So `--rich` on the scan's single `pr-list` is free on GitHub and expensive on
+Bitbucket, and the implementation must not treat them alike. The honest options
+are to ask for `checks` only on the branches `--loose` is actually about, or to
+accept the degradation the item above already requires it to announce.
+
+**`mergeable` is not available on Bitbucket at all** and never will be —
+measured against six open PRs by `agent-skills`: REST API v2 exposes no such
+field. Do not plan around obtaining it.
+
 ### Interrogated 2026-08-26
 
 One round, spent verifying rather than extending — the plan arrived with its
