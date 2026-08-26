@@ -44,6 +44,45 @@ to research.
 
 ## Design
 
+### Half of this is already built, and the plan was wrong to imply otherwise
+
+**Measured 2026-08-26.** `/plot-board-setup` step 2 is called *"Propose, then
+confirm"*, and it already does:
+
+> *Detected: Node 24 · git root is the CWD · plugin artifact · `docs/plans/`
+> with 7 plans · host `github`, `gh` authenticated · `jen` installed,
+> `Jenkinsfile` present, Jenkins token missing.*
+> *Proposed: … Add `CI: jenkins` and `Jenkins instance: apps` to Plot Config.*
+
+It presents one block the user corrects rather than composes, and asks only what
+the probe could not answer. Git host, CI and Jenkins instance are all handled.
+
+**`Tracker` appears ZERO times in the entire skill.** That is the real gap, and
+it is exactly the key this sprint's Jira backend will read.
+
+So wave 1 is **Tracker plus an audit**, not a rebuild. The audit matters because
+the existing inferences were written for a GitHub-shaped repo and this sprint's
+population is not one: a Bitbucket remote and a Jira-tracked estate are cases
+nobody has run this skill against.
+
+### A wrong Tracker is as dangerous as a wrong Jenkins slug
+
+The skill already refuses to guess a Jenkins instance when unattended, and its
+reason is precise:
+
+> `jen -I <bogus> auth status` prints `Keycloak: signed in` and exits 0, so a
+> guessed slug buys a green light that verifies nothing.
+
+**`Tracker` has the same shape.** A wrong `Tracker: jira` sends `issue-list` to
+the wrong system, which answers — with an empty list. The board then renders an
+empty inbox, which reads as *you have no tickets*: the exact failure the story
+`the-board-is-blank-where-it-matters` is named for, caused by the tool meant to
+prevent it.
+
+So `Tracker` inherits the Jenkins rule verbatim: **infer only from structural
+signals, and when unattended, refuse rather than guess.** No key is better than
+a wrong key, and this is the second field where that is demonstrably true.
+
 ### Infer, propose, confirm — never assert
 
 Every inferred value is a **proposal a human confirms**, the rule
@@ -110,9 +149,10 @@ prose one.
 
 ### Proposed (Branch: feature/setup-proposes-what-it-found)
 
-Setup infers git host, tracker and CI from the structural signals the probes
-already report, presents them as one confirmation, and asks only for what it
-could not infer.
+Setup proposes the **Tracker** — the one key it never mentions today — and the
+existing host/CI proposals are **audited against this sprint's population**: a
+Bitbucket remote, a Jira-tracked repo, a repo with both CI signals. Nothing is
+assumed working because it works on a GitHub-shaped repo.
 
 ### Warned (Branch: feature/setup-names-an-unread-key)
 
@@ -136,7 +176,14 @@ A written key with no consumer is recorded with a warning naming the gap.
 5. **The unattended path still refuses rather than guessing.** The existing
    `PLOT-UNASKED` lines still fire, and inference does not become a licence to
    assume under `PLOT_UNATTENDED=1`.
-6. `pnpm test` green.
+6. **A wrong Tracker is refused, not guessed, when unattended.** Same rule the
+   skill already applies to a Jenkins instance, and for the same reason: the
+   wrong tracker answers with an empty list, and an empty inbox reads as *you
+   have no tickets*.
+7. **The existing host and CI proposals are asserted against a Bitbucket remote
+   and a Jenkinsfile**, not only against this repo's shape. They were written
+   for a GitHub-shaped repo and this sprint's population is not one.
+8. `pnpm test` green.
 
 ## Notes
 
@@ -156,14 +203,43 @@ proposes, two signals ask.** Tie-breaking on the git host was rejected because i
 is wrong for precisely this sprint's population, a team on GitHub running
 Jenkins, and it would be wrong silently.
 
+### Interrogated again 2026-08-26
+
+Round two read the skill instead of the plan, and found the plan overstated the
+work.
+
+`/plot-board-setup` step 2 is already *"Propose, then confirm"* — it presents a
+detected/proposed block and asks only what the probe could not answer, for git
+host, CI and the Jenkins instance. **`Tracker` appears zero times in the skill.**
+That is the gap, and it is the key this sprint's Jira backend reads. Wave 1
+narrows to Tracker plus an audit of the existing inferences against a Bitbucket
+remote and a Jira-tracked repo — cases the skill has never been run on.
+
+The second answer imported a rule the skill had already derived elsewhere. It
+refuses to guess a Jenkins instance because a bogus slug prints *"signed in"*
+and exits 0 — a green light that verifies nothing. A wrong `Tracker` is the same
+shape: the wrong system answers, with an empty list, and the board renders an
+empty inbox reading as *you have no tickets*. So Tracker inherits the refusal
+verbatim.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {
       "q": "What if a repo has both a Jenkinsfile and workflows?",
       "a": "Ask, naming both \u2014 one signal proposes, two signals ask; tie-breaking on the git host is silently wrong for GitHub+Jenkins teams",
       "category": "ux"
+    },
+    {
+      "q": "What is wave 1 actually for, given propose-then-confirm already exists?",
+      "a": "Tracker (zero mentions in the skill) plus an audit of the existing host/CI inferences against a Bitbucket/Jira repo",
+      "category": "technical"
+    },
+    {
+      "q": "Does a wrong Tracker carry the Jenkins slug's danger?",
+      "a": "Yes \u2014 it answers with an empty list, and an empty inbox reads as 'you have no tickets'; refuse rather than guess when unattended",
+      "category": "domain"
     }
   ],
   "deferredItems": [
@@ -179,7 +255,7 @@ Jenkins, and it would be wrong silently.
       "architecture": true,
       "implementation": false
     },
-    "domain": false,
+    "domain": true,
     "ux": {
       "happyPath": true,
       "edgeCases": true,
