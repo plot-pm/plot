@@ -439,6 +439,128 @@ bb_assert_issue_version() {
   return 0
 }
 
+# --- bb capability check (--json support) ------------------------------------
+#
+# TWO TOOLS SHARE THE NAME `bb`. craftamap/bb is a Go binary that does NOT
+# support `--json` for PR commands. Quatico's `bb` (a shell wrapper) does.
+# Their version numbers name different products: craftamap 0.6.0 is not
+# "older than" Quatico 1.0.0 — they are unrelated.
+#
+# The adapter passes `--json` to `bb pr list`. Against craftamap that is
+# `Error: unknown flag: --json`, swallowed by any 2>/dev/null, and jq exits 0
+# on empty input — so every Bitbucket PR list reads as *no PRs*.
+#
+# Worse: craftamap 0.6.0 panics (SIGSEGV) under an HTTP 429. A segfaulting CLI
+# is indistinguishable from a quiet one when stderr is discarded.
+#
+# The capability is per-FLAG, not per-version. On one machine, on one day:
+#   plugin cache (bb 1.0.0)  : --json yes, checks no
+#   plugin marketplace (1.9.0): --json yes, checks yes
+#   craftamap fallback (0.6.0): --json NO
+#
+# So: CHECK THE CAPABILITY, ONCE PER RUN. `BB_CAP_*` are cached on first call.
+# A bb without `--json` exits 3 with the reason naming WHICH bb answered.
+
+# Cached capability state — empty until first call to bb_require_json.
+BB_CAP_CHECKED=""
+BB_CAP_HAS_JSON=""
+BB_CAP_IDENTITY=""    # "craftamap/0.6.0" or "quatico/1.2.3" or "unknown/<ver>"
+
+# Identify which bb is on PATH. Returns a string like "quatico/1.9.0" or
+# "craftamap/0.6.0" or "unknown/<version>" or "unknown/unknown".
+#
+# The identification is BEHAVIOURAL, not by reading a vendor field that may not
+# exist: craftamap/bb prints `bb version X.Y.Z (sha)` and Quatico's prints
+# `bb version X.Y.Z` (no sha) with a distinctive banner. The shape decides.
+bb_identify() {
+  local ver_out ver_stripped
+  ver_out="$(bb --version 2>&1)" || {
+    # bb not found or exited non-zero — cannot proceed
+    echo "unknown/unavailable"
+    return
+  }
+  ver_stripped="$(bb_strip_ansi <<<"$ver_out")"
+
+  local version
+  version="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$ver_stripped" | head -1)"
+  [ -z "$version" ] && version="unknown"
+
+  # craftamap/bb includes a git sha in parentheses: `bb version 0.6.0 (abc1234)`
+  # Quatico's does not — it prints only `bb version X.Y.Z`.
+  if grep -qE '\([0-9a-f]+\)' <<<"$ver_stripped"; then
+    echo "craftamap/$version"
+  elif grep -qi 'quatico\|plugin' <<<"$ver_stripped"; then
+    echo "quatico/$version"
+  else
+    # Unknown provenance — report the version so a human can tell
+    echo "unknown/$version"
+  fi
+}
+
+# Test whether the bb on PATH supports `--json` for PR commands.
+# Returns 0 if it does, non-zero otherwise.
+#
+# The test is BEHAVIOURAL: call `bb pr list --json --help` (or similar) and
+# see if it rejects `--json`. We cannot rely on version numbers because two
+# products share the name and their versions are unrelated.
+#
+# Note: `bb pr list --json --state open` would contact the network; we want a
+# purely local check. craftamap's `bb pr list --help --json` exits 1 with
+# "unknown flag: --json" on stderr (and sometimes stdout). Quatico's accepts it.
+bb_test_json_support() {
+  # Ask for help with --json — a bb that does not understand it will complain.
+  # Capture both streams since bb writes errors to stdout.
+  local out rc
+  out="$(bb pr list --help --json 2>&1)"; rc=$?
+
+  # craftamap 0.6.0 rejects --json with `Error: unknown flag: --json`
+  if grep -qiE 'unknown flag.*--json|invalid.*--json|--json.*not' <<<"$out"; then
+    return 1
+  fi
+
+  # If help succeeded (even partially), assume --json is supported
+  if [ "$rc" = 0 ]; then
+    return 0
+  fi
+
+  # Non-zero exit with no clear rejection — inspect further
+  # A "not a bitbucket repo" error is about the repo, not the flag
+  if grep -qiE 'not a bitbucket repo|repository not found' <<<"$out"; then
+    # Could not test properly, but that is a repo issue, not a capability one.
+    # We will discover the real failure when the actual call is made.
+    return 0
+  fi
+
+  # Unknown failure — treat as unsupported to be safe
+  return 1
+}
+
+# Require that bb supports --json. Called once before the first bb PR call.
+# Exits 3 with a diagnostic if bb cannot do what the adapter needs.
+# Caches the result so subsequent calls are free.
+bb_require_json() {
+  # Skip check if already done
+  [ -n "$BB_CAP_CHECKED" ] && return 0
+  BB_CAP_CHECKED=1
+
+  # Allow tests to skip this (their stubs may not implement --help)
+  if [ -n "${PLOT_BB_SKIP_CAP_CHECK:-}" ]; then
+    BB_CAP_HAS_JSON=1
+    BB_CAP_IDENTITY="stub/test"
+    return 0
+  fi
+
+  BB_CAP_IDENTITY="$(bb_identify)"
+
+  if ! bb_test_json_support; then
+    BB_CAP_HAS_JSON=0
+    die3 "bb on PATH ($BB_CAP_IDENTITY) does not support --json for PR commands — install Quatico's bb or ensure it is first on PATH"
+  fi
+
+  BB_CAP_HAS_JSON=1
+  return 0
+}
+
 # --- Jira issue support (REST, no CLI) --------------------------------------
 #
 # `Tracker` is a `## Plot Config` key INDEPENDENT of `Git host`: a Bitbucket
@@ -620,6 +742,8 @@ case "$op" in
           '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
       fi
     else
+      # Establish that bb supports --json BEFORE calling it — Done-when 5.
+      bb_require_json
       if [[ "$ref" =~ ^[0-9]+$ ]]; then
         if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json 2>/tmp/plot-host-err.$$)"; then
           rm -f "/tmp/plot-host-err.$$"
@@ -953,6 +1077,8 @@ case "$op" in
       if [ -n "$limit" ]; then
         echo "plot-host: bitbucket ignores --limit $limit; bb returns a fixed page (50 at 1.0.0)" >&2
       fi
+      # Establish that bb supports --json BEFORE calling it — Done-when 5.
+      bb_require_json
       # Resolve the states BEFORE the loop. `for s in $(bb_states_for …)` runs
       # the helper in a subshell, where `die` exits that subshell only: the
       # loop would then iterate an empty list and the command would succeed

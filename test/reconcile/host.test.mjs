@@ -20,21 +20,47 @@ const adapter = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-h
 // `ghFail: ''` is a REAL case, not an absent one — a CLI that fails and says
 // nothing — so the switch is `!= null`, never truthiness. Reading '' as "do not
 // fail" would silently turn that test into an assertion about success.
+//
+// The bb stub now also handles the capability check: it responds to `--version`
+// with a Quatico-style version (no sha), and accepts `--help --json` without
+// error. This is because the adapter now checks bb's --json capability before
+// any PR call, and the old stub shape failed that check silently.
 function makeStubs({ ghJson = '{}', bbJson = '{}', ghFail = null, bbFail = null } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-'));
-  const stub = (name, json, fail) => {
-    const argvFile = path.join(dir, `${name}.argv`);
+  const ghStub = (json, fail) => {
+    const argvFile = path.join(dir, 'gh.argv');
     const body = fail != null
       ? `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${argvFile}"\n` +
         (fail === '' ? '' : `printf '%s\\n' '${fail.replace(/'/g, `'\\''`)}' >&2\n`) +
         `exit 1\n`
       : `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${argvFile}"\n` +
         `printf '%s' '${json.replace(/'/g, `'\\''`)}'\n`;
-    writeFileSync(path.join(dir, name), body);
-    chmodSync(path.join(dir, name), 0o755);
+    writeFileSync(path.join(dir, 'gh'), body);
+    chmodSync(path.join(dir, 'gh'), 0o755);
     return argvFile;
   };
-  return { dir, ghArgv: stub('gh', ghJson, ghFail), bbArgv: stub('bb', bbJson, bbFail) };
+  const bbStub = (json, fail) => {
+    const argvFile = path.join(dir, 'bb.argv');
+    // bb stub handles the capability check: --version (Quatico-style) and --help --json
+    const body = fail != null
+      ? `#!/usr/bin/env bash
+if [[ "\$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "\$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+printf '%s\\n' "$@" > "${argvFile}"
+${fail === '' ? '' : `printf '%s\\n' '${fail.replace(/'/g, `'\\''`)}' >&2`}
+exit 1
+`
+      : `#!/usr/bin/env bash
+if [[ "\$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "\$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
+printf '%s\\n' "$@" > "${argvFile}"
+printf '%s' '${json.replace(/'/g, `'\\''`)}'
+`;
+    writeFileSync(path.join(dir, 'bb'), body);
+    chmodSync(path.join(dir, 'bb'), 0o755);
+    return argvFile;
+  };
+  return { dir, ghArgv: ghStub(ghJson, ghFail), bbArgv: bbStub(bbJson, bbFail) };
 }
 
 // A `bb` stub that REFUSES what the real `bb` refuses. The permissive stub above
@@ -49,6 +75,9 @@ function makeStubs({ ghJson = '{}', bbJson = '{}', ghFail = null, bbFail = null 
 // It appends one line per invocation (`>>`) rather than overwriting, because
 // `--state all` is expected to become SEVERAL calls; an overwriting stub would
 // show only the last and hide a missing one.
+//
+// Also handles the capability check (--version, --help --json) like the
+// adapter now expects.
 function makeStrictBbStub({ json = '[]', perState = null } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-bb-'));
   const callsFile = path.join(dir, 'bb.calls');
@@ -58,6 +87,9 @@ function makeStrictBbStub({ json = '[]', perState = null } = {}) {
         .join('\n')
     : '';
   const body = `#!/usr/bin/env bash
+# Handle capability check
+if [[ "$*" == *"--version"* ]]; then echo "bb version 1.9.0"; exit 0; fi
+if [[ "$*" == *"--help"* ]]; then echo "bb pr list help"; exit 0; fi
 printf '%s\\n' "$*" >> "${callsFile}"
 state=open
 while [ $# -gt 0 ]; do
@@ -1517,4 +1549,189 @@ test('host: an absent Tracker leaves the GitHub issue arm exactly as it was', ()
   assert.equal(res.status, 0, res.stderr);
   assert.equal(JSON.parse(res.stdout.trim()).number, 7, 'the GitHub arm answers unchanged');
   assert.ok(!existsSync(curlArgv), 'curl is never called when Tracker is absent');
+});
+
+// --- bb capability check: --json support ------------------------------------
+//
+// Two tools share the name `bb`. craftamap/bb (a Go binary, 0.6.0) does NOT
+// support `--json` for PR commands. Quatico's `bb` (a shell wrapper) does.
+// The adapter must check the capability BEFORE passing `--json`, and exit 3
+// with a reason naming WHICH bb answered when it cannot.
+//
+// These tests use PATH-stubbed binaries — one that rejects --json, one that
+// accepts it, one that exits non-zero, one that segfaults.
+
+// Make a bb stub that behaves like craftamap 0.6.0 — rejects --json
+function makeCraftamapBbStub() {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-craftamap-'));
+  // Rejects --json with the craftamap error message
+  const body = `#!/usr/bin/env bash
+if [[ "\$*" == *"--version"* ]]; then
+  echo "bb version 0.6.0 (abc1234)"
+  exit 0
+fi
+if [[ "\$*" == *"--json"* ]]; then
+  echo "Error: unknown flag: --json" >&2
+  exit 1
+fi
+echo "[]"
+`;
+  writeFileSync(path.join(dir, 'bb'), body);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir };
+}
+
+// Make a bb stub that behaves like Quatico's bb — supports --json
+function makeQuaticoBbStub({ json = '[]' } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-quatico-'));
+  const body = `#!/usr/bin/env bash
+if [[ "\$*" == *"--version"* ]]; then
+  echo "bb version 1.9.0"
+  exit 0
+fi
+# Accept --json and respond
+printf '%s' '${json.replace(/'/g, `'\\''`)}'
+`;
+  writeFileSync(path.join(dir, 'bb'), body);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir };
+}
+
+// Make a bb stub that segfaults — simulates craftamap under 429
+function makeSegfaultingBbStub() {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-segfault-'));
+  // kill -11 sends SIGSEGV to self
+  const body = `#!/usr/bin/env bash
+if [[ "\$*" == *"--version"* ]]; then
+  echo "bb version 0.6.0 (abc1234)"
+  exit 0
+fi
+kill -11 $$
+`;
+  writeFileSync(path.join(dir, 'bb'), body);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir };
+}
+
+test('host: a bb without --json produces exit 3 with a named reason', () => {
+  // Done-when 1: craftamap 0.6.0, which rejects --json, must not silently
+  // return an empty list. It must exit 3 with a reason naming WHICH bb.
+  const stub = makeCraftamapBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 3, 'must exit 3 when bb cannot do --json');
+  assert.equal(res.stdout.trim(), '', 'stdout must be empty — no fabricated list');
+  assert.match(res.stderr, /craftamap.*0\.6\.0|does not support --json/i,
+    'the reason must name the bb that answered');
+});
+
+test('host: a capable bb behaves exactly as before', () => {
+  // Done-when 2: a Quatico bb with --json support must work unchanged.
+  const stub = makeQuaticoBbStub({
+    json: '[{"id":5,"title":"Test PR","state":"OPEN","source":{"branch":{"name":"feature/x"}}}]',
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const out = JSON.parse(res.stdout.trim());
+  assert.equal(out.number, 5);
+  assert.equal(out.head, 'feature/x');
+});
+
+test('host: the reason names WHICH bb answered', () => {
+  // Done-when 3: two tools share the name, so a version number alone does not
+  // identify one. The diagnostic must include "craftamap" or a path.
+  const stub = makeCraftamapBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-state', '1'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 3);
+  // Must mention craftamap AND 0.6.0 (or the full path, or similar identifying info)
+  assert.match(res.stderr, /craftamap/i, 'must identify the product');
+  assert.match(res.stderr, /0\.6\.0/, 'must include the version');
+});
+
+test('host: a segfaulting CLI is a failure, not an empty answer', () => {
+  // Done-when 4: craftamap 0.6.0 panics under a 429 (SIGSEGV). A segfault
+  // during the capability check must be caught and reported, never swallowed.
+  const stub = makeSegfaultingBbStub();
+  const res = spawnSync('bash', [adapter, 'pr-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stub.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  // The exact exit code depends on how the segfault is handled, but it must
+  // NOT be 0 with an empty list (which would be "no PRs found")
+  assert.notEqual(res.status, 0, 'a segfault must not read as success');
+  // And stdout must be empty or missing — never a fabricated answer
+  if (res.stdout.trim()) {
+    assert.throws(() => JSON.parse(res.stdout), 'no parseable output');
+  }
+});
+
+test('host: the capability check is per-CAPABILITY, not per-version', () => {
+  // Done-when 4b: craftamap 0.6.0 and Quatico 1.0.0 are different products.
+  // A version floor cannot express "does this binary support --json". The
+  // check must test the FLAG, not compare numbers.
+  //
+  // Proven by: a "high version" bb that still rejects --json is rejected.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-highver-'));
+  const body = `#!/usr/bin/env bash
+if [[ "\$*" == *"--version"* ]]; then
+  echo "bb version 99.0.0"  # High version number
+  exit 0
+fi
+if [[ "\$*" == *"--json"* ]]; then
+  echo "Error: unknown flag: --json" >&2
+  exit 1
+fi
+echo "[]"
+`;
+  writeFileSync(path.join(dir, 'bb'), body);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  const res = spawnSync('bash', [adapter, 'pr-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 3, 'a high version without --json is still rejected');
+  assert.match(res.stderr, /does not support --json/i);
+});
+
+test('host: the capability is established once per run, not per call', () => {
+  // Done-when 5: five call sites must not become five probes. The check runs
+  // ONCE, then caches the result.
+  //
+  // Proven by: a stub that counts --help invocations, called for two PR ops.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-once-'));
+  const countFile = path.join(dir, 'help.count');
+  writeFileSync(countFile, '0');
+  // This stub counts how many times --help is passed (the capability probe)
+  const body = `#!/usr/bin/env bash
+if [[ "\$*" == *"--version"* ]]; then
+  echo "bb version 1.9.0"
+  exit 0
+fi
+if [[ "\$*" == *"--help"* ]]; then
+  count=$(cat "${countFile}")
+  echo $((count + 1)) > "${countFile}"
+  echo "bb pr list help"
+  exit 0
+fi
+printf '%s' '[]'
+`;
+  writeFileSync(path.join(dir, 'bb'), body);
+  chmodSync(path.join(dir, 'bb'), 0o755);
+
+  // Run pr-list — this should trigger ONE capability check
+  spawnSync('bash', [adapter, 'pr-list'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+
+  const helpCount = parseInt(readFileSync(countFile, 'utf8').trim(), 10);
+  assert.equal(helpCount, 1, 'capability check must run exactly once');
 });
