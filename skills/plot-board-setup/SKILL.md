@@ -58,8 +58,8 @@ purpose is to reap the server it started.
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| 1. Probe | Small | One script call, JSON out |
-| 2. Propose and confirm | Mid | Turning signals into a proposal is judgment |
+| 1. Probe | Small | Two script calls, JSON out; merge without transforming |
+| 2. Propose and confirm | Mid | Turning signals into proposals — and reading a one-directional signal (prefix proposes, silence asks) — is judgment |
 | 3. Write config | Small | Append known keys to a known section |
 | 4. Verify | Small | Run commands, compare to documented output shapes |
 | 5. Diagnose an empty board | Mid | Mapping a parse failure to a human cause |
@@ -76,14 +76,29 @@ purpose is to reap the server it started.
 
 ### 1. Probe
 
+Setup asks two questions, so it reads two probes:
+
 ```bash
-../plot/scripts/plot-board-probe.sh
+../plot/scripts/plot-board-probe.sh    # can the board run here?
+../plot/scripts/plot-detect-repo.sh    # what is this repo?
 ```
 
-Read-only. It reports the Node version, whether the CWD is the repo root, where
-a board artifact lives, whether a `## Plot Config` exists, how many plan files
-there are, the configured git host, and the install/auth state of `gh`, `bb`,
-and `jen`.
+Both are read-only. Merge their reports; **neither script grows the other's
+field** — the composition lives here, in the skill, because interpreting two
+collectors into one proposal is the skill's job (Manifesto Principle 3: scripts
+collect and report, skills interpret and adapt). The probe's contract has other
+callers, so it must not be asked to carry a `ticket_prefix` it never had.
+
+`plot-board-probe.sh` reports the Node version, whether the CWD is the repo
+root, where a board artifact lives, whether a `## Plot Config` exists, how many
+plan files there are, the CI signals present (`ci_signals.jenkinsfile`,
+`ci_signals.gh_workflows`), and the install/auth state of `gh`, `bb`, and `jen`.
+Its `git_host` is the **configured** `Git host` key, not an inference — empty
+until something writes it.
+
+`plot-detect-repo.sh` answers what the probe cannot: the git host **inferred**
+from origin's URL, and a `ticket_prefix` inferred from the commit log. These are
+the structural signals setup proposes from.
 
 **If `has_plot_config` is false, stop.** Board setup presupposes adoption —
 point at `/plot-init` and do not re-implement it here.
@@ -98,13 +113,74 @@ point at `/plot-init` and do not re-implement it here.
 Present one block the user corrects rather than composes:
 
 > Detected: Node 24 · git root is the CWD · plugin artifact · `docs/plans/`
-> with 7 plans · host `github`, `gh` authenticated · `jen` installed,
-> `Jenkinsfile` present, Jenkins token missing.
+> with 7 plans · origin is `bitbucket`, `bb` authenticated · `Jenkinsfile`
+> present · `QUACDS-*` in 6 of 80 commit subjects · `jen` installed, Jenkins
+> token missing.
 >
 > Proposed: start via the plugin artifact with a `plot-board` alias. Add
-> `CI: jenkins` and `Jenkins instance: apps` to Plot Config.
+> `Git host: bitbucket`, `CI: jenkins`, `Tracker: jira` and
+> `Jenkins instance: apps` to Plot Config.
 
-Ask only what the probe could not answer:
+**One signal proposes, two signals ask.** Every inferred field is a *proposal*
+built from a single structural signal. Where two signals point different ways,
+setup does not tie-break — it asks, naming what it found. This is the general
+rule below, not a special case for any one field.
+
+Turn the merged signals into proposals:
+
+- **Git host** — propose `plot-detect-repo.sh`'s inferred `git_host`
+  (`bitbucket` from a `bitbucket.org` origin). It is a proposal, not a config
+  read: the probe's `git_host` is empty until this write.
+- **CI** — see the both-signals rule below. A lone `Jenkinsfile` proposes
+  `CI: jenkins`; a lone `.github/workflows/` proposes `CI: github-actions`.
+- **Tracker** — a repeated ticket prefix is strong evidence **for** a Jira
+  tracker. When `plot-detect-repo.sh` reports a non-empty `ticket_prefix`,
+  propose `Tracker: jira` **with the evidence named**:
+
+  > Found `QUACDS-*` in 6 of 80 commit subjects → propose `Tracker: jira`.
+
+  The prefix is one-directional. `ABC-123` is Jira's convention, but Linear and
+  GitHub issues carry prefixed keys too — perfect correlation in this
+  population, a proposal never an assertion anywhere else. So it *proposes*, and
+  a human confirms. **Absence proves nothing** (half of Bitbucket repos carry no
+  prefix): an empty `ticket_prefix` is not evidence against a tracker, so it
+  **asks** the open question below and **never proposes `Tracker: none`** from
+  silence.
+
+**The CI both-signals rule (Item 1b).** Where `ci_signals.jenkinsfile` **and**
+`ci_signals.gh_workflows` are both true, setup **does not propose** — it asks,
+naming both:
+
+> Found a `Jenkinsfile` and 3 workflow files. Which runs your PRs?
+
+Do **not** tie-break on the git host. A team on GitHub running Jenkins is
+common — it is exactly this sprint's user — and a silent wrong `CI:` key sends
+every build-status lookup to the wrong system.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** refuse the key rather than guessing
+> which CI runs the PRs — a wrong `CI:` is worse than an absent one, for the
+> same reason a wrong Jenkins instance is. Write no `CI` key and disclose:
+>
+> `PLOT-UNASKED: which CI runs the PRs — refused — both signals present, no CI key written`
+
+Ask only what the merged probes could not answer:
+
+- **The tracker** — when no `ticket_prefix` was found, ask which tracker the
+  repo uses (`plot` · `jira` · `github-issues` · `linear`). Silence is not a
+  proposal, and it is never `none` by default.
+
+  > **Unattended (`PLOT_UNATTENDED=1`):** refuse the key rather than guessing a
+  > tracker. A wrong `Tracker` has the Jenkins slug's exact shape: a wrong
+  > `Tracker: jira` sends `issue-list` to the wrong system, which answers with
+  > an **empty list**, and the board renders an empty inbox that reads as *you
+  > have no tickets* — the very failure this command exists to prevent. Write no
+  > `Tracker` key and disclose:
+  >
+  > `PLOT-UNASKED: which tracker — refused — no Tracker key written; inbox source unverified`
+  >
+  > A found `ticket_prefix` is a structural signal, so `Tracker: jira` may still
+  > be **proposed** unattended and recorded as such — the refusal is for the
+  > *absence* of a signal, not for its presence.
 
 - **The Jenkins instance** — when `jen` is installed, `ci_signals.jenkinsfile`
   is true, and no instance resolved from config or `JENKINS_INSTANCE`.
@@ -136,10 +212,15 @@ Append only the **missing** keys to the hub doc's `## Plot Config`, never
 replacing existing content:
 
 ```markdown
-- **Git host:** github
+- **Git host:** bitbucket
 - **CI:** jenkins
 - **Jenkins instance:** apps
+- **Tracker:** jira
 ```
+
+Write only the keys the user **confirmed** or a structural signal
+**proposed** — never a key inferred from silence, and never a value the user
+overrode.
 
 `Git host` is read by `plot-host.sh` and may already be set by `/plot-init`;
 write it only when absent.
@@ -148,6 +229,11 @@ write it only when absent.
 yet render Jenkins status** — they are recorded and verified, and a board
 consumer is separate work. Claiming a rendering that does not exist is the
 failure this whole command is built to avoid.
+
+`Tracker` records which system holds the repo's tickets, confirmed from the
+proposed prefix or answered outright. Write it only when confirmed or proposed
+from a `ticket_prefix` — **never `Tracker: none` from an unanswered question**,
+because absence of a prefix is not absence of a tracker.
 
 Then hand over the start command:
 
@@ -317,6 +403,10 @@ verification, run against the board that stays up.
 |---|---|
 | No `## Plot Config` | Stop; point at `/plot-init` |
 | No artifact anywhere | Stop; report the plugin and npm routes |
+| A repeated `ticket_prefix` | Propose `Tracker: jira`, name the evidence; a human confirms |
+| No `ticket_prefix` | Ask which tracker; never propose `Tracker: none` from silence |
+| Both CI signals present | Ask which runs the PRs; do not tie-break on the git host |
+| Tracker unresolved, unattended | Refuse the key; a wrong tracker serves an empty inbox reading as *no tickets* |
 | Node < 20 | Report the requirement, still write config, skip 4b |
 | CWD is not the repo root | Warn prominently — the board compares realpaths, and branch-staged plans silently vanish otherwise |
 | A CLI is absent | Skip its check; absence is not failure |
