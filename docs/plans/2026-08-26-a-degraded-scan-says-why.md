@@ -12,6 +12,7 @@
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -141,15 +142,97 @@ section was not evaluated, and the reason travels in `pr_source`. A consumer
 counting `stale=12` from an unevaluated section is being told a number that was
 never measured.
 
-### Open Questions
+### Both arms, one mechanism — the exit status of the CLI, not the pipe
 
-- [ ] Should `failed` be retried once before giving up? A 429 is transient by
-      definition. Argues for: a single retry costs one call and rescues the
-      common case. Argues against: `/plot-reconcile` is read-only and fast, and
-      a retry loop hides the rate limit rather than reporting it.
-- [ ] Is `absent` vs `failed` the right split, or should the exit code and the
-      first stderr line simply be passed through verbatim? Verbatim is harder to
-      consume programmatically but impossible to render misleadingly.
+**Verified 2026-08-26 in `plot-reconcile-scan.sh:203`.** The two arms fail in
+*different* ways, and only one of them was measured:
+
+```sh
+# bitbucket arm — TWO 2>/dev/null, and a pipe
+if out=$(bb pr list --state open --json 2>/dev/null \
+           | jq -r '.[] | "\(.id) \(.source.branch.name)"' 2>/dev/null) \
+   && [ -n "$out" ]; then
+```
+
+Under a pipeline `$?` is **jq's**, not `bb`'s. A 429 makes `bb` fail, `jq` reads
+empty input and exits **0**, so `[ -n "$out" ]` is the only thing that notices —
+and it fires identically for a repo that genuinely has no open PRs. That is the
+measured incident.
+
+```sh
+# github arm — NO [ -n "$out" ] guard at all
+if out=$(gh pr list -R "$slug" --state open --json number,headRefName \
+           --jq '...' 2>/dev/null); then
+  PR_SOURCE="gh"; ...
+```
+
+`gh` exits 1 on failure, so today the `if` catches it. **The gh arm is correct
+by luck of exit codes, not by design**: it has no emptiness guard, so anything
+that made that call exit 0 with empty output — a pipe added later, a `--jq`
+filter that swallows an error shape — would set `PR_SOURCE="gh"`, claim the host
+answered, and print *every* branch as an orphan. Strictly worse than the
+Bitbucket failure, and silent.
+
+So the fix is **one mechanism in both arms**: capture stderr, test the CLI's own
+exit status rather than the pipeline's (`PIPESTATUS`/`pipefail` or splitting the
+call from the parse), and let emptiness be a value.
+
+Fixing only the measured arm would leave one function with two failure
+semantics, and would leave the plan's own rule — *an empty result must be a
+value, not a failure* — applied to `bb` and not to `gh`.
+
+### The contract: named states, with the CLI's own words beside them
+
+`pr_source` stays a **named state** (`absent | failed | gh | bb`), because the
+scan's footer is machine-countable by design and other tooling greps it. The
+CLI's first stderr line travels as human-readable detail *beside* the state, not
+instead of it:
+
+```
+PR state: FAILED — bb exited 1: «HTTP 429 — Rate limit for this resource has
+been exceeded». Section 3 not evaluated.
+```
+
+**Verbatim passthrough was rejected.** Emitting only the exit code and stderr is
+impossible to render misleadingly, but forces every consumer to parse
+CLI-specific prose — and the two CLIs word the same failure differently. A named
+state that a machine reads plus a reason a human reads gives both readers what
+they need.
+
+### No retry, deliberately
+
+A 429 is transient, so one retry would rescue the common case. Rejected:
+`/plot-reconcile` is a fast read-only sweep, and a silent retry **hides the rate
+limit rather than reporting it** — the operator whose account is being throttled
+is exactly the person who needs to know. A sweep that quietly takes twice as
+long under throttling has replaced a visible fault with an invisible one.
+
+The measured incident is the argument: the operator's own `bb` calls were failing
+too. Reporting the 429 tells them why; retrying past it does not.
+
+## Done when
+
+1. **A rate-limited call reports `failed`, not `absent`.** The measured case:
+   `bb` installed, authenticated and correct, the API returning 429.
+2. **An absent CLI still reports `absent`** — the only case the current message
+   describes, and the only one the operator fixes by installing something.
+3. **A successful call returning zero open PRs reports `gh`/`bb`, never
+   degraded.** Today indistinguishable from a rate-limited call; both are
+   "empty output, exit 0".
+4. **Both arms are asserted, not just the measured one.** The gh arm has no
+   emptiness guard and survives on exit codes alone; a test that only covers
+   `bb` would pass while leaving the worse failure in place.
+5. **The CLI's own error text reaches the reader**, beside the state rather than
+   instead of it.
+6. **Section 3 prints NO rows when PR state is unknown** — it prints the reason
+   and the count. Rows that cannot be verified are not printed at all; a caveat
+   in the header does not license a confident claim in every row.
+7. **`stale=` reports 0 when the section was not evaluated.** A consumer reading
+   `stale=12` from an unevaluated section is being handed a number nobody
+   measured.
+8. **`--no-pr` keeps today's behaviour.** A reader who passed that flag asked
+   for the merge-state view and knows what it costs.
+9. `pnpm run validate`, `pnpm run test:reconcile` green.
 
 ## Branches
 
@@ -171,3 +254,28 @@ The first diagnosis was wrong and is worth recording: the obvious reading is
 «the script only knows `gh`». It knows `bb` — the arm exists, the pattern
 matches, the command is right. Believing the obvious reading would have shipped
 a fix for a bug that was not there.
+
+### Interrogated 2026-08-26
+
+One round, and it verified the diagnosis against the source rather than
+accepting it — the plan's own Notes warn that the obvious reading of this bug
+was wrong once already.
+
+The diagnosis holds, and the code showed the failure is **two different bugs**,
+not one. The Bitbucket arm pipes `bb` into `jq` with `2>/dev/null` on both, so
+`$?` is jq's and a 429 arrives as "empty output, exit 0" — the measured case.
+The GitHub arm has **no emptiness guard at all** and is correct only because
+`gh` happens to exit 1; anything that made that call exit 0 empty would claim
+the host answered and call every branch an orphan. Hence Done-when 4.
+
+Both open questions are settled:
+
+- [x] **Retry a 429?** No. A silent retry hides the rate limit from the one
+      person who needs to see it, and the measured incident had the operator's
+      own `bb` calls failing too.
+- [x] **Named states or verbatim passthrough?** Named — `pr_source` is
+      machine-countable by design and other tooling greps it. The CLI's first
+      stderr line travels beside the state as human-readable detail, so a
+      machine and a reader each get what they need.
+
+The plan also had no `## Done when` section; it now has nine items.
