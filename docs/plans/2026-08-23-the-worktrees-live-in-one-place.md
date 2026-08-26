@@ -6,7 +6,7 @@
 
 - **Phase:** Draft
 - **Type:** infra
-- **Sprint:** <!-- optional -->
+- **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session

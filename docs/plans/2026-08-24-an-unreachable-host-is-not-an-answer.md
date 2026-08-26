@@ -8,9 +8,9 @@
 
 - **Phase:** Draft
 - **Type:** bug
-- **Sprint:** <!-- not a member of the-board-tells-the-truth-in-every-section -->
+- **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
-- **Story:** <!-- optional -->
+- **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
 
