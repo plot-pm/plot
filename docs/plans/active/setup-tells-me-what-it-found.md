@@ -1,0 +1,1 @@
+../2026-08-26-setup-tells-me-what-it-found.md
