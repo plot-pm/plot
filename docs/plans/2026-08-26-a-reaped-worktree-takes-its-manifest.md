@@ -107,12 +107,85 @@ is the same predicate, applied to what is already there.
 `.plot/agents` in `tiny-garden` is a tracked fixture, and hand-deletion is how
 the synthesized-row trap was discovered.
 
-### Not chosen: let the board drop an unverifiable entry
+### Why the guard fired when there was nothing to guard
 
-Widening *Drop this agent* to accept "the worktree is gone" would clear the rows
-without touching the reaper. Rejected: it puts a destructive escape hatch on the
-one refusal that protects a live worker's record, to work around a caller that
-should not have left the entry behind. Fix the producer, not the guard.
+The mechanism, at `drop.ts:110`:
+
+```ts
+function classifyState(entry, liveness) {
+  if (!entry.worktree) return 'unknown';   // manifest records NO path
+  if (!liveness) return 'unknown';
+  try {
+    const [answer] = liveness([entry.worktree]);
+    if (answer === 'running' || answer === 'finished'
+     || answer === 'waiting' || answer === 'stalled') return answer;
+  } catch {
+    // Liveness check failed — cannot verify, cannot drop.
+  }
+  return 'unknown';
+}
+```
+
+It probes a path that no longer exists, gets an answer outside the four it
+accepts, and falls through to `unknown`.
+
+**It never asks whether the worktree exists.** There is a check for
+`!entry.worktree` — the manifest recording no path at all — and none for the
+path being recorded and ABSENT. `fs.existsSync(entry.worktree)` is one line, and
+it is not there.
+
+So three unlike situations collapse into one word:
+
+| situation | means | `classifyState` |
+|---|---|---|
+| probe says nothing recognisable | cannot check | `unknown` |
+| liveness resolver missing | cannot check | `unknown` |
+| **worktree deleted** | **definitely nothing running** | `unknown` |
+
+Only the first two mean *might be alive*. The `catch` comment states the
+conflation outright — *"cannot verify, cannot drop"* — and for a deleted
+worktree *cannot verify* and *might be running* are opposites.
+
+**The information was available and unconsulted.** That is a different defect
+from misjudging evidence: the guard did not weigh the worktree's absence and
+decide wrongly; it never looked.
+
+### The guard is independently wrong, and that is a SECOND fix
+
+An earlier draft rejected touching *Drop this agent* — "fix the producer, not the
+guard." That was too quick, and a reader asked the question that undoes it:
+**the worktrees were already gone.**
+
+`drop.ts:198` reasons: *I cannot determine this agent's state, so it might be
+alive, so refuse.* But the reason it could not determine the state is that the
+worktree **had been deleted**. A missing worktree is not ambiguity — it is the
+most conclusive evidence available that nothing is running there. The guard
+treated the strongest possible proof of *dead* as though it were *unmeasurable*.
+
+It even has the precedent one step earlier. Step 1 returns `dropped: true` for
+*"no manifest found — already removed or never existed"* — the route already
+accepts *nothing is there* as a valid drop. It checks for a missing MANIFEST and
+never for a missing WORKTREE.
+
+Compare `plot-reap.sh`, which gets this right: it refuses on **measurements** —
+a live pid, uncommitted changes, a marker file. `drop.ts` refuses on the
+**absence** of a measurement, without asking why it is absent.
+
+So there are two defects, not one, and either alone leaves a hole:
+
+| | fix |
+|---|---|
+| the reaper strands manifests | remove the manifest with the worktree |
+| the guard cannot clear a stranded one | a GONE worktree is droppable, not unknown |
+
+Fixing only the reaper leaves every manifest stranded by any other means —
+a hand-removed worktree, a pruned checkout, a moved root — permanently
+undroppable. Fixing only the guard leaves the reaper producing rows a person
+must then clear by hand.
+
+**The refusal narrows; it does not disappear.** `unknown` with a worktree that
+EXISTS still refuses, and must: that is the live-worker case the guard was
+written for.
 
 ### Not chosen: have the board sweep orphans on every pulse
 
@@ -139,8 +212,14 @@ clears manifests whose worktree is already absent.
 4. **The worktree is removed BEFORE the manifest.** Asserted by making the
    worktree removal fail: the manifest must survive. Reversing the order leaves a
    live worktree unregistered, which synthesizes an `unknown` row.
-5. **`Drop this agent` still refuses an unverifiable LIVE entry.** This plan
-   removes the cause; it must not weaken the guard.
+5. **A drop on an entry whose worktree is GONE succeeds.** Measured today:
+   seven such rows refused, advising the reader to "check the worktree
+   manually" — a directory that did not exist.
+5b. **`Drop this agent` still refuses `unknown` where the worktree EXISTS.**
+   That is the live-worker case the guard was written for, and this plan
+   narrows the refusal rather than removing it. Asserted both ways, because a
+   fix that drops every `unknown` passes item 5 and discards a running agent's
+   record.
 6. `pnpm run validate`, `pnpm run test:reconcile` green.
 
 ## Notes
