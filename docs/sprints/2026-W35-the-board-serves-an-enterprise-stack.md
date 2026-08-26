@@ -81,6 +81,13 @@ Story: [[the-board-is-blank-where-it-matters]].
 - [ ] [an-unreachable-host-is-not-an-answer] A host that cannot be reached must
       not read as a host with nothing to say. Draft plan on main; the enterprise
       stack multiplies the ways a call can fail.
+- [ ] [a-degraded-scan-says-why] `/plot-reconcile` reported `pr_source=degraded`
+      — *no git-host CLI available* — with `bb` installed, authenticated and
+      correct; the call had returned HTTP 429. Twelve branches were listed as
+      orphans, **nine of them heads of open PRs**, each with a command inviting
+      deletion. The sibling above fixes `plot-host.sh`; the scan calls `gh`/`bb`
+      directly and is not reached by it. Measured 2026-08-26 on
+      `quatico/ewz-leg`.
 
 ### Could Have
 
