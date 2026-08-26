@@ -11,10 +11,13 @@
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- The board reads the plan facts it needs from the plan-format contract rather than re-deriving them, so a plan's approval, assignee and story reach the row that renders them.
+- The board carries no plan field it does not read: `impl` either reaches a
+  reader or leaves the schema, `review` states its contract, and the last fact
+  inferred from a phase is settled.
 
 <!-- Board impact: this IS the board. packages/board/src/contract/schema.ts and
      src/server/fleet.ts — which PlanMeta fields reach an AgentRow. Rebuild. -->
@@ -43,21 +46,63 @@ work         waves[] · branches[] · prs[] · issues[] · malformed_prs[]
 release      changelog[]
 ```
 
-### What the board reads
+### What the board reads — RE-MEASURED 2026-08-26
 
-Five: `plan`, `planFile`, `phase`, `brief`, `version`.
+**The claim below was true when written and is not now.** Measured against main
+by grepping every `meta.<field>` in `board.ts` and `fleet.ts`:
 
-**Twenty-one fields the plan states about itself never reach a row.** The ones
-that matter for what the board is currently getting wrong:
+```
+parser emits          27 fields   (26 when this plan was written; `long_wave_names` since)
+board consumes        16 of them
+still unread          11
+```
 
-| field | what it would answer |
-|---|---|
-| `approved_raw` | *who approved this, when, through which channel* |
-| `started_raw[]` | *which branches were actually started, and when* |
-| `assignee` | *whose plan is this* |
-| `sprint` · `story` | *what does this belong to* |
-| `impl` | *own branches / same branch / other repo* — where work happens |
-| `review` | *pr / in-session / ballot* — how approval is given |
+Every field this plan's original table named — `approved_raw`, `started_raw`,
+`assignee`, `sprint`, `story` — **is already consumed**. They were delivered by
+sibling work between 2026-08-23 and today (the plan-status and sprint-membership
+plans in particular), not by this one.
+
+The eleven unread fields are mostly internal by design: `phase_raw`,
+`phase_alt_raw`, `review_raw` and `impl_raw` are the un-normalised twins of
+fields the board already reads; `format`, `long_wave_names` and `malformed_prs`
+are parser diagnostics; `branches` and `changelog` are covered by `waves` and by
+the release flow.
+
+### What actually survives — two facts and one inference
+
+**1. `impl` is declared and read NOWHERE.** Measured: it appears exactly once in
+the whole board, at `contract/schema.ts:65`:
+
+```ts
+impl: z.string().default('NONE'),
+```
+
+No producer, no consumer, no renderer. **This is the failure this very sprint
+shipped a warning about**: `setup-names-an-unread-key` (PR #452) now warns a
+user when `/plot-board-setup` writes a key no backend reads. Plot is doing to
+its own schema what the setup skill now warns users about.
+
+**2. `review` is consumed but never surfaced.** One use, at `board.ts:507`:
+
+```ts
+return meta.review === 'pr' ? 'open' : 'draft';
+```
+
+That is an internal decision about how to render a plan PR's state. The plan's
+recorded answer to *how is approval given* never reaches a reader.
+
+**3. One fact is still inferred from phase**, at `board.ts:956`:
+
+```ts
+if (phase === 'Development') card.started = started;
+```
+
+The comment defends it deliberately — the Ready/In-progress badge is a
+Development affordance that must not ride into Testing. **That is a real
+argument**, and this plan should test it rather than assume it wrong: the
+question is whether the gate belongs on the phase or on `started_raw` being
+present, which are the same set today and diverge on a plan bumped out of
+Development with started branches.
 
 ### Phase is already modelled, and modelled well
 
@@ -215,42 +260,35 @@ Recorded so the next reader does not add them:
       drift visible on the board rather than only in the sweep. Attractive, and
       out of scope here.
 
+
 ## Done when
 
-- **No `*_raw` string is split, matched or destructured anywhere in the board.**
-  Asserted by construction — the only permitted operations on a record are
-  *render it* and, for the array-valued `started`, *count it*. This is the
-  assertion that keeps the next reader from adding a date parser.
-- A row carries the plan's `approved` record **as text**, and it is empty for a
-  Draft — the live shape is `a-dispatch-hands-over-a-brief`, Draft with an empty
-  `Approved:`.
-- **No record drives a decision.** Asserted by construction: grouping, section
-  and phase read `phase`, never a `*_raw`. A test that renders the records but
-  also routes on them passes every display assertion and reintroduces the
-  coupling this split exists to prevent.
-- A **released** plan with no `released_raw` still reads as released — three
-  such plans exist today, and deriving phase from records would demote them.
-- A row carries `started[]`, and an approved-but-unstarted plan is
-  distinguishable from one whose branches merely have no activity. That pair is
-  indistinguishable today, and a test that only checks the field exists misses it.
-- `assignee`, `sprint`, `story`, `review`, `impl` reach the row as the parser
-  states them, with `""` rendering as absent rather than as a value.
-- **No field is re-parsed.** Asserted by construction: every new field traces to
-  a `PlanMeta` key, and a test fails if a plan fact is read from anywhere but the
-  parser's output.
-- `toBoardPhase` is unchanged — this plan adds records beside the phase, it does
-  not touch the mapping.
-- `pnpm run test:board` and `pnpm run test:reconcile` green.
+1. **`impl` either reaches a reader or leaves the schema.** A field declared and
+   read nowhere is the defect `setup-names-an-unread-key` warns users about;
+   Plot should not carry one itself. Either outcome closes it — what is refused
+   is leaving it declared and unread.
+2. **`review` reaches a reader, or its single internal use is the whole of its
+   contract and says so.** Today it decides a PR's rendered state at
+   `board.ts:507` and answers nothing a reader can see.
+3. **The `phase === 'Development'` gate at `board.ts:956` is settled either
+   way** — kept with its argument tested, or moved onto `started_raw`. It is
+   NOT assumed wrong: the existing comment gives a reason, and the two
+   conditions differ only for a plan bumped out of Development that still has
+   started branches.
+4. **No field is added to the schema without a consumer in the same change.**
+   The rule this plan's own finding argues for.
+5. `pnpm run test:board`, `pnpm run typecheck` green.
 
 ## Waves
 
-
-### Carried (Branch: feature/the-row-carries-the-plans-records)
-- `approved`, `started[]`, `assignee`, `sprint`, `story`, `review`, `impl` reach the row verbatim from `PlanMeta`
-
+### Carried (Branch: feature/the-row-carries-the-plans-records) <!-- deferred: delivered by siblings 2026-08-26 — approved/started/assignee/sprint/story all reach the row already -->
+- Retired. Measured 2026-08-26: every field this wave named is already consumed
+  by `board.ts`. What it asked for exists.
 
 ### Read (Branch: feature/the-board-reads-approval-not-phase)
-- the places that infer approval from phase read the record instead; absent stays absent
+- `impl` reaches a reader or leaves the schema; `review` reaches a reader or
+  states its contract; the one `phase === 'Development'` inference is settled
+  with its argument tested rather than assumed.
 
 ## Notes
 
@@ -265,3 +303,67 @@ twenty-six fields never leave the parser.
 This is the opposite of the wave, where the model is genuinely absent. Recorded
 side by side because the two entities need different work and the same question
 produced both.
+
+### Interrogated 2026-08-26 — and most of it had already shipped
+
+One round, spent counting rather than designing.
+
+The plan's headline — *"the board reads five of them and re-derives things the
+other twenty-one already answer"* — was true on 2026-08-23 and is not now.
+Measured by grepping every `meta.<field>` on main: the parser emits **27** and
+the board consumes **16**. Every field the plan's own table named as missing
+(`approved_raw`, `started_raw`, `assignee`, `sprint`, `story`) already reaches a
+row, delivered by sibling plans in the intervening three days.
+
+So wave 1 was retired unbuilt: what it asked for exists.
+
+What the count *did* find is sharper than what the plan was looking for.
+**`impl` appears exactly once in the entire board** — its own schema
+declaration — with no producer, consumer or renderer. That is precisely the
+defect this sprint shipped a warning for in PR #452: a key recorded and never
+read. Plot was doing to its own schema what `/plot-board-setup` now warns users
+about.
+
+`review` is the softer version of the same thing: consumed once, internally, to
+decide how a plan PR renders — and never surfaced as the fact it records.
+
+The one inference that survives (`phase === 'Development'` gating
+`card.started`) is deliberately **not** assumed wrong. Its comment gives a real
+argument, and the two conditions differ only for a plan bumped out of
+Development with started branches. The wave settles it either way rather than
+presuming the record must win.
+
+**The lesson is the same one three plans hit today**: a plan is a measurement
+with a shelf life. This one cost a single grep to re-date, and the re-dating
+turned a large stale plan into a small true one.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "Does the board still read only five of the parser's fields?",
+      "a": "No — 16 of 27 on main; every field the plan named as missing is already consumed, so wave 1 was retired unbuilt",
+      "category": "technical"
+    },
+    {
+      "q": "What survives the re-measurement?",
+      "a": "impl is declared and read nowhere (the unread-key defect #452 warns about), review is consumed but never surfaced, and one phase-derived fact remains",
+      "category": "technical"
+    },
+    {
+      "q": "Is the phase === Development gate wrong?",
+      "a": "Not assumed so — its comment argues a real case; the wave settles it either way",
+      "category": "tradeOffs"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": { "stack": false, "architecture": true, "implementation": true },
+    "domain": true,
+    "ux": { "happyPath": false, "edgeCases": true, "errors": false, "accessibility": false },
+    "nonFunctional": { "security": false, "performance": false, "scalability": false },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
