@@ -1703,15 +1703,50 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
         if (!held || prOutranks(pr, held)) byHead.set(pr.head, pr);
       }
     }
-    entry.prs = map;
-    entry.prsByNumber = byNumber;
-    entry.prsByHead = byHead;
-    await refreshRuns(opts, entry, map);
-    entry.prAt = Date.now();
-    const due = prNextDueAt(startedAt, null, Date.now(), backend);
-    entry.prNextAt = due.at;
-    entry.prNextIsBackoff = due.hard;
-    entry.prError = null;
+    // CONTENT-BASED TRIGGER: an all-unknown PR map is the shape a quota failure
+    // takes when gh returns successfully. The host answered, but every PR came
+    // back `state: 'unknown'`, which is indistinguishable from "could not reach
+    // the host" at this boundary — except that it does not throw.
+    //
+    // A SINGLE unknown among readable ones does NOT raise the banner (Done-when
+    // item 2): one gap is a gap; this fires only when the WHOLE map is dark.
+    // An EMPTY map is not evidence of an outage — it means no PRs exist.
+    const allPrs = Array.from(byNumber.values());
+    const allUnknown = allPrs.length > 0 && allPrs.every((pr) => pr.state === 'unknown');
+
+    if (allUnknown) {
+      // The outage path: keep the LAST GOOD map so rows stay classified as they
+      // were, but record the failure so the banner fires. The rule is the same
+      // one the catch already states — an empty map looks like state changing
+      // rather than data missing — and this path is the content-based join of it.
+      //
+      // prAt is NOT updated: it stays at the last successful fetch, so
+      // `prAgeSeconds` tells the reader how old the data on screen actually is.
+      //
+      // The message mirrors the rate-limit detection in the catch: a message
+      // that names the condition lets `prNote` choose the right wording, and a
+      // rate limit here gets the same backoff the catch would apply.
+      const message = 'all PRs returned unknown — the host could not be reached';
+      entry.prError = message;
+      const resetReader = backend === 'github'
+        ? () => fetchGraphqlResetMs(opts.repoRoot)
+        : undefined;
+      const backoff = await rateLimitBackoffMs(message, Date.now(), resetReader);
+      const due = prNextDueAt(startedAt, backoff, Date.now(), backend);
+      entry.prNextAt = due.at;
+      entry.prNextIsBackoff = due.hard;
+    } else {
+      // The happy path: the host answered and at least some PRs are readable.
+      entry.prs = map;
+      entry.prsByNumber = byNumber;
+      entry.prsByHead = byHead;
+      await refreshRuns(opts, entry, map);
+      entry.prAt = Date.now();
+      const due = prNextDueAt(startedAt, null, Date.now(), backend);
+      entry.prNextAt = due.at;
+      entry.prNextIsBackoff = due.hard;
+      entry.prError = null;
+    }
   } catch (err) {
     // Same rule as the pulse: a failure keeps the last good map rather than
     // blanking it. An empty PR map would quietly move every row back to its
