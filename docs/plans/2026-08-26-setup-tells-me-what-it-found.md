@@ -212,7 +212,7 @@ it still refuses when unattended, like the Jenkins slug.
 
 ## Waves
 
-### Proposed (Branch: feature/setup-proposes-what-it-found)
+### Proposed (Branch: feature/setup-proposes-what-it-found, PR: #451)
 
 Setup proposes the **Tracker** — the one key it never mentions today — and the
 existing host/CI proposals are **audited against this sprint's population**: a
