@@ -193,6 +193,22 @@ Ask only what the merged probes could not answer:
   >
   > `PLOT-UNASKED: which Jenkins instance — refused — no Jenkins instance key written; jen auth unverified`
 
+- **The worktree root** — where `/plot-dispatch` puts its worktrees. Propose
+  `.worktrees` when the repo has none configured and `.gitignore` can carry it;
+  the default is the repo's PARENT, which scatters `plot-wt-*` directories
+  beside the checkout and mixes them with unrelated repos.
+
+  **Propose, do not assume.** A repo whose worktrees already live beside it has
+  a working arrangement, and moving them is `--migrate`'s job on a person's say
+  — not setup's. Where `plot-wt-*` siblings already exist, say how many were
+  found and that they stay put unless migrated.
+
+  > **Unattended (`PLOT_UNATTENDED=1`):** write no `Worktree root` key. The
+  > default is documented and harmless, and a key written unasked would relocate
+  > every future worktree on a repo nobody was consulted about. Disclose:
+  >
+  > `PLOT-UNASKED: gather worktrees under .worktrees? — default — no Worktree root key written; dispatch keeps using the repo's parent`
+
 - **Alias or project script** — a shared repo may prefer a `package.json`
   script. **Default when unasked: print an alias and write nothing**, because an
   alias touches no tracked file and so cannot surprise a shared repository.
