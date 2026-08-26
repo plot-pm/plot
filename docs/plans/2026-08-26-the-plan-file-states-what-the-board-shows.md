@@ -180,7 +180,7 @@ this plan exists to remove, applied in the other direction.
 metadata block and falling back to the block when the field is absent. The
 template declares the field. Contract tests cover the four cases.
 
-### Written (Branch: infra/challenge-the-plan-states-its-rounds)
+### Written (Branch: infra/challenge-the-plan-states-its-rounds, PR: #440)
 
 `skills/challenge-the-plan/` Phase 5b writes `Rounds:` into `## Status` from the
 same value it writes into the block. Only the repo skill: a personal
