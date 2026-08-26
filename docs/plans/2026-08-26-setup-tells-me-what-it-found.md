@@ -219,7 +219,7 @@ existing host/CI proposals are **audited against this sprint's population**: a
 Bitbucket remote, a Jira-tracked repo, a repo with both CI signals. Nothing is
 assumed working because it works on a GitHub-shaped repo.
 
-### Warned (Branch: feature/setup-names-an-unread-key)
+### Warned (Branch: feature/setup-names-an-unread-key, PR: #452)
 
 A written key with no consumer is recorded with a warning naming the gap.
 
