@@ -838,6 +838,7 @@ export function WaveRow({
   marked = false,
   card = null,
   dispatch,
+  implement,
   reslice,
   pulse,
   onStarting,
@@ -876,6 +877,9 @@ export function WaveRow({
   card?: Card | null;
   /** Whether this server will dispatch, and why not. */
   dispatch?: DispatchInfo;
+  /** Whether this server will act on Implement — used by WriteBriefButton for
+      rows that need a brief written before they can be dispatched. */
+  implement?: DispatchInfo;
   /**
    * Whether this server will reslice, and why not — used ONLY on an
    * `unsliced-wave` row, where it drives the *Slice this wave* menu. Absent
@@ -1316,6 +1320,7 @@ export function WaveRow({
               row={soleRow}
               card={card ?? null}
               dispatch={dispatch}
+              implement={implement}
               pulse={pulse}
               onStarting={onStarting}
               continueWith={continueWith}
@@ -1392,6 +1397,7 @@ export function Row({
   onOpenPlan,
   card = null,
   dispatch,
+  implement,
   continueWith,
   pulse = 0,
   onStarting,
@@ -1456,6 +1462,9 @@ export function Row({
   card?: Card | null;
   /** Whether this server will act on Start work, and why not. */
   dispatch?: DispatchInfo;
+  /** Whether this server will act on Implement — used by WriteBriefButton for
+      rows that need a brief written before they can be dispatched. */
+  implement?: DispatchInfo;
   // No `approve`/`commission`: those are plan-level acts on the plan head
   // (`PlanActions`), not on a branch/PR/release row. This row's menu carries
   // only branch-level acts, so it needs neither binding.
@@ -1895,6 +1904,7 @@ export function Row({
           row={row}
           card={card}
           dispatch={dispatch}
+          implement={implement}
           pulse={pulse}
           onStarting={onStarting}
           continueWith={continueWith}
@@ -2059,6 +2069,7 @@ export function RegistryRow({
   onOpenPlan,
   card = null,
   dispatch,
+  implement,
   continueWith,
   drop,
   pulse = 0,
@@ -2086,6 +2097,8 @@ export function RegistryRow({
   card?: Card | null;
   /** Whether this server will act on dispatch. */
   dispatch?: DispatchInfo;
+  /** Whether this server will act on Implement — used by WriteBriefButton. */
+  implement?: DispatchInfo;
   /** Whether this server will act on Continue with an answer. */
   continueWith?: DispatchInfo;
   /**
@@ -2302,6 +2315,7 @@ export function RegistryRow({
               row={row}
               card={card ?? null}
               dispatch={dispatch}
+              implement={implement}
               pulse={pulse}
               onStarting={onStarting}
               continueWith={continueWith}
