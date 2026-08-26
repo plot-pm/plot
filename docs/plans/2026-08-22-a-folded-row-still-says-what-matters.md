@@ -294,7 +294,7 @@ unwritable today.
   The two may not meet at all, and that has to be established before the work
   is described.
 
-### Loud (Branch: feature/the-loud-things-stay-open)
+### Loud (Branch: feature/the-loud-things-stay-open, PR #455)
 - A folded head **names the exceptions beneath it**, and a fold holding one does
   not default closed. `claimed twice` lives on the branch row and vanishes on
   fold; this is the plan's own rule — hide repetition, never exceptions — and

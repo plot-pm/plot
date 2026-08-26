@@ -182,7 +182,18 @@ all_branches=$(git branch -r 2>/dev/null \
 # repo can carry extra remotes on other git hosts; letting gh/bb resolve "any"
 # remote would silently enumerate the wrong repo's PRs). Unknown host →
 # degraded (git merge-state only).
+#
+# PR_SOURCE states (named states, machine-countable):
+#   absent  — no CLI installed matching the host
+#   failed  — CLI present but call failed (429, 401, network error)
+#   gh/bb   — CLI present, call succeeded (including zero open PRs)
+#   off     — deliberately skipped via --no-pr/--offline
+#   degraded — legacy state, kept for backwards compatibility when host unknown
+#
+# PR_ERROR carries the CLI's first stderr line, beside the state. A machine
+# reads the state; a human reads the reason.
 PR_SOURCE="degraded"
+PR_ERROR=""            # first stderr line from the CLI, if failed
 open_prs=""            # head branch names, one per open PR
 open_pr_heads=""       # "<number> <head>" lines, same PRs — section 3 names the
                        # PR a branch is contained in, which needs the number.
@@ -208,46 +219,92 @@ pr_head_branches() { # $1="<number> <head>" lines → head lines
 }
 
 load_open_pr_branches() {
-  local url slug out
+  local url slug out err rc tmpstderr cli
   url=$(git remote get-url origin 2>/dev/null) || return 0
+  tmpstderr=$(mktemp)
+  # Clean up the temp file on return. Use /bin/rm to avoid PATH issues.
+  trap "/bin/rm -f '$tmpstderr' 2>/dev/null" RETURN
+
   case "$url" in
     *github.com*)
+      cli="gh"
+      if ! command -v gh >/dev/null 2>&1; then
+        PR_SOURCE="absent"; PR_ERROR="gh not found on PATH"; return 0
+      fi
       # Pin gh to origin's repo so a second GitHub remote can't win.
       slug=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/]+/[^/]+)$#\1#')
       # number AND head in one call: the head alone answers "is this branch the
       # PR's head", the number is needed to name the PR a branch is contained
       # in (section 3). Still ONE call — the extra field is free.
-      if out=$(gh pr list -R "$slug" --state open --json number,headRefName \
-                 --jq '.[] | "\(.number) \(.headRefName)"' 2>/dev/null); then
-        PR_SOURCE="gh"; open_pr_heads="$out"; open_prs=$(pr_head_branches "$out")
-        # Merged counterpart, same call shape, same repo pin. Bundled: ONE
-        # call for all plans, so cost is constant in plan count.
-        if out=$(gh pr list -R "$slug" --state merged --limit "$MERGED_PR_LIMIT" \
-                   --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' 2>/dev/null); then
-          merged_pr_heads="$out"
-        fi
+      #
+      # SEPARATE call from parse: capture the CLI's own exit status, not jq's.
+      # A 429 makes gh exit non-zero; testing `$?` after a pipe loses that.
+      out=$(gh pr list -R "$slug" --state open --json number,headRefName \
+              --jq '.[] | "\(.number) \(.headRefName)"' 2>"$tmpstderr")
+      rc=$?
+      err=$(head -1 "$tmpstderr" 2>/dev/null)
+      if [ "$rc" -ne 0 ]; then
+        PR_SOURCE="failed"; PR_ERROR="${err:-gh exited $rc}"; return 0
+      fi
+      # SUCCESS — empty output is a VALUE (zero open PRs), not a failure.
+      PR_SOURCE="gh"; open_pr_heads="$out"; open_prs=$(pr_head_branches "$out")
+      # Merged counterpart, same call shape, same repo pin. Bundled: ONE
+      # call for all plans, so cost is constant in plan count.
+      if out=$(gh pr list -R "$slug" --state merged --limit "$MERGED_PR_LIMIT" \
+                 --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' 2>/dev/null); then
+        merged_pr_heads="$out"
       fi
       ;;
+
     *bitbucket*)
+      cli="bb"
+      if ! command -v bb >/dev/null 2>&1; then
+        PR_SOURCE="absent"; PR_ERROR="bb not found on PATH"; return 0
+      fi
       # bb >=3.1 (agent-skills#18) is gh-symmetric for this call; older bb
       # rejects the field argument and falls back to the full-object form.
       # Full-object form FIRST here, unlike gh: it is the only bb shape known
       # to carry the PR id, and Bitbucket names it `.id`, not `.number` (see
-      # the merged list below). The field-list form is kept as the fallback —
-      # it answers "is this branch a PR head" but not "which PR", so section 3
-      # degrades to the head test alone rather than naming a wrong PR.
-      if out=$(bb pr list --state open --json 2>/dev/null \
-                 | jq -r '.[] | "\(.id) \(.source.branch.name)"' 2>/dev/null) \
-         && [ -n "$out" ]; then
-        PR_SOURCE="bb"; open_pr_heads="$out"; open_prs=$(pr_head_branches "$out")
-      elif out=$(bb pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null); then
-        PR_SOURCE="bb"; open_prs="$out"
-      fi
-      if [ "$PR_SOURCE" = "bb" ]; then
-        if out=$(bb pr list --state merged --json 2>/dev/null \
-                   | jq -r '.[] | "\(.id) \(.source.branch.name)"' 2>/dev/null); then
-          merged_pr_heads="$out"
+      # the merged list below).
+      #
+      # SEPARATE call from parse: under a pipeline `$?` is jq's, not bb's.
+      # A 429 makes bb fail; jq reads empty input and exits 0, so the only
+      # thing that noticed was `[ -n "$out" ]` — indistinguishable from a repo
+      # with zero open PRs. This is the measured bug.
+      #
+      # Use `set -o pipefail` locally or split the call. We split for clarity.
+      local bb_raw
+      bb_raw=$(bb pr list --state open --json 2>"$tmpstderr")
+      rc=$?
+      err=$(head -1 "$tmpstderr" 2>/dev/null)
+      if [ "$rc" -ne 0 ]; then
+        # Try the fallback form (older bb).
+        bb_raw=$(bb pr list --state open --json headRefName 2>"$tmpstderr")
+        rc=$?
+        err=$(head -1 "$tmpstderr" 2>/dev/null)
+        if [ "$rc" -ne 0 ]; then
+          PR_SOURCE="failed"; PR_ERROR="${err:-bb exited $rc}"; return 0
         fi
+        # Fallback succeeded — parse with --jq '.[].headRefName'.
+        out=$(printf '%s' "$bb_raw" | jq -r '.[].headRefName' 2>/dev/null)
+        if [ $? -ne 0 ]; then
+          PR_SOURCE="failed"; PR_ERROR="jq parse failed on bb output"; return 0
+        fi
+        # SUCCESS — empty output is a VALUE (zero open PRs).
+        PR_SOURCE="bb"; open_prs="$out"
+        return 0
+      fi
+      # Full-object form succeeded — parse for id and branch.
+      out=$(printf '%s' "$bb_raw" | jq -r '.[] | "\(.id) \(.source.branch.name)"' 2>/dev/null)
+      if [ $? -ne 0 ]; then
+        PR_SOURCE="failed"; PR_ERROR="jq parse failed on bb output"; return 0
+      fi
+      # SUCCESS — empty output is a VALUE (zero open PRs).
+      PR_SOURCE="bb"; open_pr_heads="$out"; open_prs=$(pr_head_branches "$out")
+      # Merged counterpart, same call shape.
+      if out=$(bb pr list --state merged --json 2>/dev/null \
+                 | jq -r '.[] | "\(.id) \(.source.branch.name)"' 2>/dev/null); then
+        merged_pr_heads="$out"
       fi
       ;;
   esac
@@ -264,8 +321,10 @@ else
 fi
 
 # Open-PR info is trustworthy only from a real git-host listing. When it isn't
-# (degraded = no CLI, or off = deliberately skipped), the stale-branch section
-# leans on git merge-state alone and may over-list — so it warns to confirm.
+# (absent/failed/degraded/off), the stale-branch section leans on git
+# merge-state alone — and when pr_source is absent or failed, section 3 is
+# suppressed entirely (no rows printed) because the predicate "no open PR"
+# cannot be evaluated.
 case "$PR_SOURCE" in gh|bb) pr_reliable=1 ;; *) pr_reliable=0 ;; esac
 
 echo "plot-reconcile sweep — $(git rev-parse --short "origin/$MAIN" 2>/dev/null) on origin/$MAIN"
@@ -275,6 +334,13 @@ elif [ "$PR_SOURCE" = off ]; then
   echo "PR state: skipped (--no-pr) — git merge-state only; no git-host network call."
   echo "          (stale-branch section may over-list branches with an open PR;"
   echo "           run /plot-reconcile without --offline for the precise list.)"
+elif [ "$PR_SOURCE" = absent ]; then
+  echo "PR state: ABSENT — no git-host CLI (gh/bb) found on PATH."
+  echo "          Section 3 (stale branches) not evaluated — cannot determine which"
+  echo "          branches have an open PR without a working CLI."
+elif [ "$PR_SOURCE" = failed ]; then
+  echo "PR state: FAILED — $PR_ERROR"
+  echo "          Section 3 (stale branches) not evaluated — the git-host call failed."
 else
   echo "PR state: DEGRADED — no git-host CLI (gh/bb) available; using git merge-state only."
   echo "          (stale-branch section may over-list branches with an open PR;"
@@ -658,17 +724,53 @@ echo
 
 # ---------------------------------------------------------------------------
 # 3. Stale branches
+#
+# When PR state is ABSENT or FAILED, the predicate "no open PR" cannot be
+# evaluated — printing rows would be printing confident claims from unverified
+# input. The section is suppressed: no rows, but the reason and branch count
+# are stated so the reader knows what was NOT checked.
+#
+# When PR state is OFF (--no-pr/--offline), the caller asked for git merge-state
+# only and knows what it costs — rows are printed with a warning, as before.
+#
+# stale= reports 0 when the section was not evaluated, because a consumer
+# counting stale=12 from an unevaluated section is being handed a number nobody
+# measured.
 # ---------------------------------------------------------------------------
 
 echo "== 3. Stale branches =="
 stale_out=""
 claims_out=""
 contained_out=""
+
+# Count how many branches are ahead of main — the number we would have reported
+# if PR state were available. Only counted when suppressing; otherwise derived
+# from the findings themselves.
+n_ahead_of_main=0
+
+# Suppression decision: absent or failed mean the open-PR list is unknown, so
+# the orphan/stale classification cannot run. Off (--no-pr) and degraded
+# (unknown host) print rows with a warning, preserving the old behaviour for
+# readers who know what they asked for.
+section3_suppressed=0
+case "$PR_SOURCE" in absent|failed) section3_suppressed=1 ;; esac
+
 while IFS= read -r b; do
   [ -n "$b" ] || continue
   case "$b" in
     "$MAIN"|release/*) continue ;;   # protected set (main + release/*)
   esac
+
+  # If suppressed, still count branches ahead of main for the advisory message.
+  if [ "$section3_suppressed" = 1 ]; then
+    is_merged=0
+    if printf '%s\n' "$merged_branches" | grep -qx "$b"; then is_merged=1; fi
+    if [ "$is_merged" = 0 ]; then
+      n_ahead_of_main=$((n_ahead_of_main + 1))
+    fi
+    continue
+  fi
+
   has_open_pr=0
   if [ "$pr_reliable" = 1 ] && printf '%s\n' "$open_prs" | grep -qx "$b"; then has_open_pr=1; fi
   is_merged=0
@@ -729,19 +831,33 @@ while IFS= read -r b; do
   fi
   n_stale=$((n_stale + 1))
 done <<< "$all_branches"
-if [ -n "$stale_out" ]; then printf '%b' "$stale_out"; else echo "  (none)"; fi
-if [ -n "$claims_out" ]; then
-  echo
-  echo "  -- claims (empty branches taken by a worker) --"
-  printf '%b' "$claims_out"
-fi
-# Printed rather than silent: the section stays honest about what it examined
-# and rejected. A scan that quietly drops findings is what this plan was
-# written to fix — "silence reads as health".
-if [ -n "$contained_out" ]; then
-  echo
-  echo "  -- contained in an open PR (work in flight, not stale) --"
-  printf '%b' "$contained_out"
+
+# Output depends on whether the section was suppressed.
+if [ "$section3_suppressed" = 1 ]; then
+  # Section not evaluated — no rows, but say why and report the count.
+  if [ "$PR_SOURCE" = absent ]; then
+    echo "  (not evaluated — PR state unknown: $PR_ERROR)"
+  else
+    echo "  (not evaluated — PR state unknown: $PR_ERROR)"
+  fi
+  echo "  $n_ahead_of_main branches are ahead of $MAIN; whether any is stale cannot be decided"
+  echo "  without the open-PR list. Re-run once the git host answers."
+  # stale= stays 0 — nobody measured it.
+else
+  if [ -n "$stale_out" ]; then printf '%b' "$stale_out"; else echo "  (none)"; fi
+  if [ -n "$claims_out" ]; then
+    echo
+    echo "  -- claims (empty branches taken by a worker) --"
+    printf '%b' "$claims_out"
+  fi
+  # Printed rather than silent: the section stays honest about what it examined
+  # and rejected. A scan that quietly drops findings is what this plan was
+  # written to fix — "silence reads as health".
+  if [ -n "$contained_out" ]; then
+    echo
+    echo "  -- contained in an open PR (work in flight, not stale) --"
+    printf '%b' "$contained_out"
+  fi
 fi
 echo
 

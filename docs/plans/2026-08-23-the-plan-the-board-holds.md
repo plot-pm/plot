@@ -287,7 +287,7 @@ Recorded so the next reader does not add them:
 - Retired. Measured 2026-08-26: every field this wave named is already consumed
   by `board.ts`. What it asked for exists.
 
-### Read (Branch: feature/the-board-reads-approval-not-phase)
+### Read (Branch: feature/the-board-reads-approval-not-phase, PR: #458)
 - `impl` reaches a reader or leaves the schema; `review` reaches a reader or
   states its contract; the one `phase === 'Development'` inference is settled
   with its argument tested rather than assumed.
