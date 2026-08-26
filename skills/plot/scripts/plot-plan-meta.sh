@@ -201,11 +201,18 @@
 set -uo pipefail
 
 prefixes='idea|feature|bug|docs|infra'
+tracker_override=''      # set by --tracker; overrides the config read below
+tracker_override_set=0
 files=()
 missing=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --prefixes) prefixes="${2:?--prefixes needs a value}"; shift 2 ;;
+    # --tracker names the tracker directly, bypassing plot-config.sh. It exists
+    # for the contract tests (which parse fixtures outside any repo whose Plot
+    # Config could name a tracker) and for a caller that has already resolved
+    # the value once. An empty value means "GitHub", the same as no config.
+    --tracker) tracker_override="${2-}"; tracker_override_set=1; shift 2 ;;
     -*) echo "plot-plan-meta: unknown flag: $1" >&2; shift ;;
     *)
       if [ -f "$1" ]; then files+=("$1"); else missing+=("$1"); fi
@@ -225,7 +232,33 @@ done
 
 [ ${#files[@]} -gt 0 ] || exit 0
 
-awk -v PREFIXES="$prefixes" '
+# Read the tracker config to determine whether tracker-key issue references
+# (`PROJ-123`) are parsed in addition to GitHub's `#N`.
+#
+# THIS IS THE FIRST CONFIGURATION DEPENDENCY THIS SCRIPT HAS — keep it narrow:
+# read ONE key, an unreadable or missing config means GitHub (today's
+# behaviour), and NEVER fail a parse for want of configuration. plot-config.sh
+# exits 0 for all cases and prints an empty string when the key is absent, so a
+# repo with no `## Plot Config` at all still parses exactly as it does today.
+if [ "$tracker_override_set" -eq 1 ]; then
+  tracker="$tracker_override"
+else
+  script_dir="$(dirname "${BASH_SOURCE[0]}")"
+  tracker=$("$script_dir/plot-config.sh" get Tracker 2>/dev/null || true)
+fi
+# The value may carry a URL after the scheme (`jira https://…`), so match the
+# FIRST token, lowercased. Only a tracker whose keys are `LETTERS-digits` —
+# jira, linear — enables the key form; github, github-issues, plot, and absent
+# all keep `#N`-only, unchanged. An unrecognized token stays GitHub too: a
+# guess here would let `WONT-FIX` masquerade as an issue reference and hide a
+# real ticket, which the plan interrogation explicitly rejected.
+tracker_scheme=$(printf '%s' "$tracker" | tr '[:upper:]' '[:lower:]' | awk '{print $1}')
+case "$tracker_scheme" in
+  jira|linear) parse_key_issues=1 ;;
+  *) parse_key_issues=0 ;;
+esac
+
+awk -v PREFIXES="$prefixes" -v PARSE_KEY_ISSUES="$parse_key_issues" '
 function jesc(s) {
   gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); gsub(/\t/, "\\t", s)
   return s
@@ -316,7 +349,7 @@ function reset_state() {
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
 }
-function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, i, j, out, sorted_b, sorted_p, sorted_i, nb, np, ni) {
+function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assignee, review, impl, design, approved, delivered, issue, issue2, i, j, v, is_dup, out, sorted_b, sorted_p, sorted_i, nb, np, ni, num_issues, str_issues, n_num_i, n_str_i, issue_is_str) {
   if (fm_status != "" || fm_phase != "") {
     fmt = "frontmatter"
     praw = (fm_status != "") ? fm_status : fm_phase
@@ -350,9 +383,26 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   # A LIST, because one plan can answer several signals; the plan that
   # introduced this field subsumes three.
   issue = strip_placeholder((fm_issue != "") ? fm_issue : canon_issue)
+  # GitHub-style `#N` is parsed everywhere, regardless of tracker.
   while (match(issue, /#[0-9]+/)) {
     issues[++n_issues] = substr(issue, RSTART + 1, RLENGTH - 1)
     issue = substr(issue, RSTART + RLENGTH)
+  }
+  # Jira-style `PROJ-123` is parsed ONLY when Tracker: names a non-GitHub
+  # tracker (jira, linear). PARSE_KEY_ISSUES is set by the shell before the awk
+  # invocation, based on plot-config.sh reading the Tracker key. Missing config
+  # defaults to 0 (GitHub behaviour), so this never fires in a repo with no
+  # config — the test in this branch proves that (Done-when item 6).
+  #
+  # THE PATTERN is `[A-Z]+-[0-9]+` anchored to word boundaries by iterating
+  # through the string. A greedy match of the whole field would capture only
+  # one; the loop mirrors the `#N` extraction above.
+  if (PARSE_KEY_ISSUES == 1) {
+    issue2 = strip_placeholder((fm_issue != "") ? fm_issue : canon_issue)
+    while (match(issue2, /[A-Z][A-Z0-9]*-[0-9]+/)) {
+      issues[++n_issues] = substr(issue2, RSTART, RLENGTH)
+      issue2 = substr(issue2, RSTART + RLENGTH)
+    }
   }
   # Insertion sort + dedupe (portable: no gawk asort).
   nb = 0
@@ -369,13 +419,36 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     for (j = np; j >= 1 && sorted_p[j] > prs[i]+0; j--) sorted_p[j+1] = sorted_p[j]
     sorted_p[j+1] = prs[i]+0; np++
   }
-  ni = 0
+  # Issues: sort numeric (GitHub) issues first, then string (Jira) keys.
+  # Separate into two arrays, sort each, then concatenate.
+  n_num_i = 0; n_str_i = 0
   for (i = 1; i <= n_issues; i++) {
-    for (j = 1; j <= ni && sorted_i[j] != issues[i]+0; j++) ;
-    if (j <= ni) continue
-    for (j = ni; j >= 1 && sorted_i[j] > issues[i]+0; j--) sorted_i[j+1] = sorted_i[j]
-    sorted_i[j+1] = issues[i]+0; ni++
+    v = issues[i]
+    if (v ~ /^[0-9]+$/) {
+      # Numeric: check for duplicate, then insert sorted.
+      is_dup = 0
+      for (j = 1; j <= n_num_i; j++) if (num_issues[j] == v + 0) { is_dup = 1; break }
+      if (!is_dup) {
+        for (j = n_num_i; j >= 1 && num_issues[j] > v + 0; j--) num_issues[j+1] = num_issues[j]
+        num_issues[j+1] = v + 0; n_num_i++
+      }
+    } else {
+      # String (Jira key): check for duplicate, then insert sorted.
+      is_dup = 0
+      for (j = 1; j <= n_str_i; j++) if (str_issues[j] == v) { is_dup = 1; break }
+      if (!is_dup) {
+        for (j = n_str_i; j >= 1 && str_issues[j] > v; j--) str_issues[j+1] = str_issues[j]
+        str_issues[j+1] = v; n_str_i++
+      }
+    }
   }
+  # Concatenate: numeric first, then string (matches the field ordering the
+  # board expects — GitHub issues before Jira keys when both are present).
+  ni = 0
+  for (i = 1; i <= n_num_i; i++) sorted_i[++ni] = num_issues[i]
+  for (i = 1; i <= n_str_i; i++) sorted_i[++ni] = str_issues[i]
+  delete issue_is_str
+  for (i = 1; i <= n_str_i; i++) issue_is_str[str_issues[i]] = 1
   out = "{\"file\":\"" jesc(cur_file) "\",\"format\":\"" fmt "\""
   out = out ",\"phase_raw\":\"" jesc(praw) "\",\"phase\":\"" norm_phase(praw) "\""
   out = out ",\"phase_alt_raw\":\"" jesc(palt_raw) "\",\"phase_alt\":\"" norm_phase(palt_raw) "\""
@@ -387,7 +460,13 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out "],\"prs\":["
   for (i = 1; i <= np; i++) out = out (i > 1 ? "," : "") sorted_p[i]
   out = out "],\"issues\":["
-  for (i = 1; i <= ni; i++) out = out (i > 1 ? "," : "") sorted_i[i]
+  for (i = 1; i <= ni; i++) {
+    # Numeric issues output as JSON numbers; string issues (Jira keys) as quoted.
+    if (sorted_i[i] in issue_is_str)
+      out = out (i > 1 ? "," : "") "\"" jesc(sorted_i[i]) "\""
+    else
+      out = out (i > 1 ? "," : "") sorted_i[i]
+  }
   out = out "],\"malformed_prs\":["
   for (i = 1; i <= n_malformed_prs; i++) out = out (i > 1 ? "," : "") "\"" jesc(malformed_prs[i]) "\""
   out = out "]"
