@@ -17,6 +17,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-26, Jan Wloka, `feature/a-bitbucket-issue-is-a-ticket`
 
 ## Changelog
 
