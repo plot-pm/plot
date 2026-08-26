@@ -4,7 +4,8 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
+- **Delivered:** 2026-08-26
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Story:** plot-gates
@@ -788,10 +789,20 @@ built to prove. It is **not** in the recovery branch, because it is code rather
 than prose and its interaction with four weeks of runner changes was not
 measured. It stays on the consolidated branch, which is left on the remote.
 
-**That makes this plan's tracer question still open**, and the honest reading is
-that the plan is delivered in its documentation and undelivered in its
-mechanism. The plan *a-hung-child-does-not-hold-the-loop* (2026-08-25) now covers the same
-ground for the worker loop, measured on a live failure.
+**That was true when written, and stopped being true hours later.** The
+mechanism reached main as **#425** (*the runner bounds its own run*, merged
+2026-08-25T20:06Z) — `RALPH_SPRINT_DEADLINE`, `ship_partial|fail`, the two
+`## Plot Config` keys and the budget line in the startup report. Verified on
+main 2026-08-26 by reading `ralph-sprint.sh` rather than this paragraph.
+
+So the tracer question is closed, and by the route the plan predicted: the
+wall-clock budget and ship-partial machinery exist, cut fresh against current
+main rather than rebased off a four-week-old branch. The plan
+*a-hung-child-does-not-hold-the-loop* (2026-08-25) covers the same ground for
+the worker loop, measured on a live failure.
+
+A plan's own assessment of itself ages like any other document. This one said
+*undelivered in its mechanism* for one evening.
 
 
 ## Backlog — surfaced, deliberately deferred
