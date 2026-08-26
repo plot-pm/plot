@@ -5,8 +5,17 @@ name: Release
 #   • push to main       → `release` job — changesets opens/updates the version
 #                          PR, or (on a changeset-free push) tags + creates the
 #                          GitHub Release + publishes the STABLE board to npm.
-#   • workflow_dispatch  → `board-rc` job — publishes @plot-pm/board at the next
-#                          literal X.Y.Z-rc.N to the npm `rc` dist-tag.
+#   • push of v*-rc.*    → `board-release-candidate` job — publishes
+#                          @plot-pm/board at the next X.Y.Z-rc.N to the npm `rc`
+#                          dist-tag. `/plot-release rc` writes that tag.
+#
+# The tag is the trigger because a release candidate is a build a person
+# nominates for verification. The predecessor job ran on every push to main
+# under the condition "a board changeset is pending" — repository state that
+# holds for days — and so republished unchanged code once per push: 709
+# prereleases against 7 stable releases, 27 of 31 in the 0.8.0 series carrying
+# unchanged board code (measured 2026-08-26). See
+# docs/plans/2026-08-26-release-candidate-publishing.md.
 #
 # Auth is TOKENLESS: OIDC trusted publishing (npm >= 11.5.1, Node >= 22.14,
 # id-token: write, --provenance). No NPM_TOKEN anywhere. Register the trusted
@@ -17,7 +26,7 @@ name: Release
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+    tags: ['v*-rc.*']
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,7 +34,10 @@ concurrency:
 
 jobs:
   release:
-    if: github.event_name == 'push'
+    # `github.event_name` is `push` for TAG pushes too, so the branch test is
+    # load-bearing: without it a v*-rc.* tag would run changesets/action against
+    # a tag ref, where it may open a version PR or publish a stable release.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -63,10 +75,23 @@ jobs:
           # Predict the next package version from pending changesets so the
           # release PR title and commit message can include the actual version
           # (e.g. "release: 1.1.0") instead of a generic "chore: release".
-          npx changeset status --output=/tmp/changeset-status.json \
-            || echo '{"releases":[]}' > /tmp/changeset-status.json
-          NEXT=$(jq -r '.releases[] | select(.name=="plot") | .newVersion' \
-            /tmp/changeset-status.json | head -n1)
+          #
+          # `changeset status` exits 1 in TWO cases: nothing is pending, and a
+          # changeset names a package outside the workspace. The exit status does
+          # not distinguish them (measured 2026-08-26, @changesets/cli 2.30.0), so
+          # the message decides. The predecessor `|| echo '{"releases":[]}'`
+          # reported the second case as the first: six bad changesets held the
+          # v2.9.0 release at 8 of 98 for four days while the job stayed green.
+          if out=$(npx changeset status --output=/tmp/changeset-status.json 2>&1); then
+            NEXT=$(jq -r '.releases[] | select(.name=="plot") | .newVersion' \
+              /tmp/changeset-status.json | head -n1)
+          elif printf '%s' "$out" | grep -q 'no changesets were found'; then
+            NEXT=""   # nothing pending — the changeset-free push path
+          else
+            echo "::error::changeset status failed"
+            printf '%s\n' "$out"
+            exit 1
+          fi
           NEXT="${NEXT:-pending}"
           echo "version=$NEXT" >> "$GITHUB_OUTPUT"
           echo "Next version: $NEXT"
@@ -89,29 +114,32 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh pr edit "$PR_NUMBER" --add-assignee eins78
 
-  board-rc:
-    # Board RC prerelease. Publishes @plot-pm/board at the next literal
-    # X.Y.Z-rc.N to the npm `rc` dist-tag — installable with
-    # `npm i @plot-pm/board@rc` for testing BEFORE the Version PR merges.
+  board-release-candidate:
+    # Publishes @plot-pm/board at the next X.Y.Z-rc.N to the npm `rc` dist-tag,
+    # installable with `npm i @plot-pm/board@rc`.
     #
-    # Runs on every push to main AND on manual dispatch, but GATES on a pending
-    # board changeset: BASE is the changeset-PREDICTED next board version (the
-    # same `changeset status` the release job uses), so an RC is labelled for the
-    # version it actually contains (e.g. 0.2.1-rc.N), not the lagging
-    # packages/board/package.json (which stays 0.2.0 until the Version PR merges).
-    # No pending @plot-pm/board changeset -> the job self-skips (exit 0). This is
-    # the "RC only when the board has changes" gate, so firing on push is safe.
-    # rc.N is the registry-derived counter (max published <BASE>-rc.<n> + 1),
-    # which resets naturally when BASE bumps. Publishes only to the `rc` dist-tag
-    # and never re-points `latest` on an existing package; the one exception is
-    # npm's first-ever-publish rule (a package must always have a `latest`), which
-    # set `latest` at the manual debut and self-heals when the first stable ships.
-    # Never commits.
+    # Triggered by the release-candidate TAG, which `/plot-release rc` writes
+    # alongside a verification checklist. One publish per release candidate, and
+    # the tag records who cut it.
     #
-    # Guarded to main: `on.push.branches` already limits push to main, so this
-    # ref check only tightens the workflow_dispatch path — a manual dispatch from
-    # a feature branch must not publish an RC computed from that branch's changesets.
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # BASE is the changeset-PREDICTED next board version (the same
+    # `changeset status` the release job uses), so the package is labelled for
+    # the version it contains rather than the lagging
+    # packages/board/package.json. No pending @plot-pm/board changeset means the
+    # board has not changed since the last stable release, so a plugin-only
+    # release publishes no package (exit 0).
+    #
+    # A base that never ships stable is EXPECTED, not a defect: a minor
+    # changeset merged during verification moves the next stable elsewhere. The
+    # candidate has already served its purpose.
+    #
+    # rc.N is the registry-derived counter (highest published <BASE>-rc.<n>
+    # plus 1, first is rc.1 per plot-release/SKILL.md), which resets when BASE
+    # bumps. Publishes only to the `rc` dist-tag and never re-points `latest` on
+    # an existing package; the one exception is npm's first-ever-publish rule (a
+    # package must always have a `latest`), which set `latest` at the manual
+    # debut and self-heals when the first stable ships. Never commits.
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -137,21 +165,49 @@ jobs:
           node --version
           npm --version
 
-      - name: Publish board RC to the npm `rc` tag
+      - name: Publish the board release candidate to the npm `rc` tag
         run: |
           set -euo pipefail
+          # The tag is the trigger, so the ref must be checked here: a tag cut on
+          # a feature branch must not publish a package computed from that
+          # branch's changesets. The predecessor job got this from
+          # `github.ref == 'refs/heads/main'`, which a tag ref cannot express.
+          # `main` is fetched explicitly — the checkout is a tag ref and carries
+          # no branch.
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::release-candidate tag $GITHUB_REF_NAME is not on main"
+            exit 1
+          }
+
           # BASE = the changeset-PREDICTED next board version (same mechanism the
-          # release job uses). Gate: no pending @plot-pm/board changeset -> BASE is
-          # empty/null -> skip. This is intentionally the ONLY source of BASE (no
-          # package.json fallback), so the RC always matches the code it contains.
-          npx changeset status --output=/tmp/cs.json || echo '{"releases":[]}' > /tmp/cs.json
-          BASE=$(jq -r '.releases[] | select(.name=="@plot-pm/board") | .newVersion' /tmp/cs.json | head -n1)
+          # release job uses). This is intentionally the ONLY source of BASE (no
+          # package.json fallback), so the package always matches the code it
+          # contains.
+          #
+          # `changeset status` exits 1 for BOTH "nothing pending" and "a
+          # changeset names a package outside the workspace" (measured
+          # 2026-08-26, @changesets/cli 2.30.0). The message discriminates. The
+          # predecessor `|| echo '{"releases":[]}'` reported the second as the
+          # first, and board publishing stopped for three days while more than
+          # 200 runs reported success.
+          if out=$(npx changeset status --output=/tmp/cs.json 2>&1); then
+            BASE=$(jq -r '.releases[] | select(.name=="@plot-pm/board") | .newVersion' /tmp/cs.json | head -n1)
+          elif printf '%s' "$out" | grep -q 'no changesets were found'; then
+            BASE=""
+          else
+            echo "::error::changeset status failed"
+            printf '%s\n' "$out"
+            exit 1
+          fi
           if [ -z "$BASE" ] || [ "$BASE" = "null" ]; then
-            echo "board unchanged (no pending @plot-pm/board changeset) — skipping RC"
+            echo "board unchanged since the last stable release — no package to publish"
             exit 0
           fi
           BASE=${BASE%%-*} # strip any prerelease suffix -> clean X.Y.Z base
-          # Next literal rc.N = (highest published <BASE>-rc.<n>) + 1, else 0.
+          # Next rc.N = (highest published <BASE>-rc.<n>) + 1, else 1.
+          # First is rc.1, matching the convention plot-release/SKILL.md states;
+          # the predecessor started at rc.0 and contradicted it.
           # The counter's state lives in the npm registry (the record of what is
           # published) — no changesets pre-mode, no repo-global state, board-only.
           # It resets naturally when BASE bumps to a version with no published rc.
@@ -162,7 +218,7 @@ jobs:
             | map(.[($pre|length):])
             | map(select(test("^[0-9]+$")))
             | map(tonumber)
-            | (max // -1) + 1
+            | (max // 0) + 1
           ')
           RC="${BASE}-rc.${N}"
           echo "Publishing @plot-pm/board@${RC} to the npm 'rc' tag"
