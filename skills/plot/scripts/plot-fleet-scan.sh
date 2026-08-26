@@ -477,7 +477,15 @@ prefill_pr_states() {
   # Exit code first: non-zero is a transport failure and its stdout is not an
   # answer. A failed list leaves the cache EMPTY, so every branch falls through
   # to the unanswerable `-` rather than to a fabricated "no PR".
-  js=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" \
+  #
+  # `--rich` adds `checks` and `draft` to the response — the fields `--loose`
+  # needs to verify that a prior wave's PR is actually green and ready.
+  # Requested unconditionally because the cost is zero on GitHub (same GraphQL
+  # call) and bounded on Bitbucket (N extra calls only when CI: jenkins is
+  # configured), and the parsing below already skips fields the response does
+  # not contain. The BEHAVIOUR change is in `pr_ready`, which now reads the
+  # check rollup from the cache rather than making a per-branch host call.
+  js=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" --rich \
          </dev/null 2>/dev/null) || return 0
   # `pr-list` emits one compact JSON object per line. PARSED IN ONE PASS, and
   # that is a correctness-of-cost property rather than a style preference:
@@ -505,30 +513,42 @@ prefill_pr_states() {
   # each branch first; `last=` skips the rest of that branch's rows with a
   # string compare. Reading the rank back from the file with `$(cat …)` would
   # be a fork PER DUPLICATE ROW, which is what this loop was rewritten to avoid.
-  local last=""
+  #
+  # The `--rich` response includes `checks` and `draft` — the fields `pr_ready`
+  # needs to verify the rollup. STORED AS `STATE<TAB>checks<TAB>draft`, so the
+  # cache file stays a single line of tab-separated fields and the read path
+  # can split on tabs without allocating anything. A missing field (non-rich
+  # response, which is now only an error case) reads as empty and `pr_ready`
+  # treats it as `unknown`, which degrades to strict — the safer direction.
+  local last="" chk dft
   # Rows parsed, for the completeness test below. Counted here because this is
   # the one place every row passes through.
   _pr_rows=0
-  while IFS="	" read -r st br; do
+  while IFS="	" read -r st chk dft br; do
     [ -n "$br" ] && [ -n "$st" ] || continue
     _pr_rows=$((_pr_rows + 1))
     [ "$br" = "$last" ] && continue
     last="$br"
-    printf '%s' "$st" > "$HOST_STATE_CACHE/$br" 2>/dev/null || true
+    # Cache format: STATE<TAB>checks<TAB>draft — one line per branch.
+    # `checks` is one of: green, failing, pending, none, unknown
+    # `draft` is true or false
+    printf '%s\t%s\t%s' "$st" "$chk" "$dft" > "$HOST_STATE_CACHE/$br" 2>/dev/null || true
   done <<EOF
 $(printf '%s\n' "$js" \
-  | sed -n 's/.*"state":"\([A-Z]*\)","head":"\([^"]*\)".*/\1	\2/p' \
-  | sed 's/_/__/g; s|/|_|g; s|^\([A-Z]*\)_|\1	|' \
-  | sed 's/^OPEN	/1	OPEN	/; s/^MERGED	/2	MERGED	/; s/^\([A-Z]\)/3	\1/' \
-  | sort -t"$(printf '\t')" -k3,3 -k1,1 | cut -f2,3)
+  | sed -n 's/.*"state":"\([A-Z]*\)","head":"\([^"]*\)","draft":\([a-z]*\),"checks":"\([a-z]*\)".*/\1	\4	\3	\2/p' \
+  | sed 's/_/__/g; s|/|_|g; s|^\([A-Z]*	[a-z]*	[a-z]*\)_|\1	|' \
+  | sed 's/^\(OPEN	[^	]*	[^	]*\)	/1	\1	/; s/^\(MERGED	[^	]*	[^	]*\)	/2	\1	/; s/^\([A-Z]\)/3	\1/' \
+  | sort -t"$(printf '\t')" -k5,5 -k1,1 | cut -f2,3,4,5)
 EOF
   # The pipeline above, read left to right:
-  #   1. pull `STATE<TAB>branch` out of each JSON line, anchored on the two
-  #      fields' emitted adjacency so a free-text TITLE cannot impersonate them;
+  #   1. pull `STATE<TAB>checks<TAB>draft<TAB>branch` out of each JSON line,
+  #      anchored on the fields' emitted adjacency so a free-text TITLE cannot
+  #      impersonate them;
   #   2. encode the branch into the injective cache key (`cache_key`, inlined);
   #   3. prefix a RANK digit — OPEN 1, MERGED 2, everything else 3;
-  #   4. sort by branch, then rank, so each branch's winning row comes first;
-  #   5. drop the rank column again.
+  #   4. sort by branch (field 5), then rank (field 1), so each branch's winning
+  #      row comes first;
+  #   5. drop the rank column again, leaving `STATE<TAB>checks<TAB>draft<TAB>branch`.
   # The loop then keeps the first row per branch and skips the rest.
   # THE LIST ARRIVED. Recorded as a fact of its own, because "the cache has no
   # entry for this branch" means two different things and only this flag tells
@@ -606,10 +626,14 @@ prefill_pr_states
 # failure in a new shape and is what the `.list-arrived` marker prevents.
 host_pr_state() { # $1=branch [--ask] → OPEN|MERGED|CLOSED|NONE|-
   [ "$HOST_LOOKUP_OK" = 1 ] || { printf '%s' '-'; return; }
-  local br="$1" ask="${2:-}" st js cache=""
+  local br="$1" ask="${2:-}" st js cache="" cached
   [ -n "$HOST_STATE_CACHE" ] && cache="$HOST_STATE_CACHE/$(cache_key "$br")"
   if [ -n "$cache" ] && [ -f "$cache" ]; then
-    printf '%s' "$(cat "$cache" 2>/dev/null)"
+    # Cache format is now `STATE<TAB>checks<TAB>draft`. Return only STATE
+    # for backward compatibility — callers wanting the full record use
+    # `host_pr_readiness`.
+    cached=$(cat "$cache" 2>/dev/null)
+    printf '%s' "${cached%%	*}"
     return
   fi
   # THE ARRIVED LIST ANSWERS FOR THE BRANCHES IT OMITS, and it is tested BEFORE
@@ -1609,42 +1633,52 @@ merged_by_subject() { # $1=branch → 0 when a conforming merge names it
     | grep -qE "^Merge pull request #[0-9]+ from [^/]+/$(printf '%s' "$1" | sed 's/[][\.*^$+?(){}|\/]/\\&/g')\$"
 }
 
-# Is this branch's PR ready to merge — open, not draft? Unknown counts as NO.
+# Is this branch's PR ready to merge — open, not draft, AND checks green?
+# `--loose` promises "the prior wave's PRs are green and ready", so unknown
+# degrades to NO rather than assuming the best.
+#
 # READS THE SHARED CACHE, never the host directly. `prefill_pr_states` has
-# already fetched every PR in the repo in one call, so asking `pr-state` per
-# branch here was the same N+1 the rest of the scan removed — surviving on the
-# one path the board does not use, which is why it went unmeasured. `--loose` is
-# opt-in and off by default, so this contributed nothing to the measured drain;
-# it is fixed here so the *zero per-branch calls* property holds without a
-# qualifier, and a qualifier is what a later change slips past.
+# already fetched every PR in the repo in one call with `--rich`, so the cache
+# holds `STATE<TAB>checks<TAB>draft` per branch. No per-branch host call is
+# needed — the N+1 pattern this change removes.
 #
-# DRAFT IS NOT ANSWERED BY THE JOIN, and that is the honest limitation. The
-# cache holds a STATE word (`OPEN`/`MERGED`/`CLOSED`/`NONE`) and carries no
-# draft flag, so a draft PR reads `OPEN` here. `--loose` therefore falls back to
-# the host for a branch the cache calls OPEN — the only case that still needs
-# it — and answers locally for every other, which is the whole population that
-# was costing calls. A `MERGED`, `CLOSED` or `NONE` branch is not ready and no
-# round trip can change that.
+# THE PREDICATE IS NOW `checks = green AND draft = false`. An earlier version
+# checked only `draft`, accepting any non-draft PR regardless of its build.
+# That violated the documented promise and would open the next wave on red CI —
+# precisely the failure shape the comment says `pr_ready` exists to prevent.
 #
-# `loose-checks-what-it-promises` replaces the PREDICATE here with a green-rollup
-# test read from `pr-list --rich`; that change removes this last host call too,
-# since the rollup carries `isDraft`. The two edits compose — this one decides
-# where the data comes from, that one what counts as ready.
+# UNKNOWN degrades to strict. Where the rollup cannot be had at all (Bitbucket
+# with no CI backend, or the `--rich` response was malformed), the safest
+# answer is to refuse the branch rather than assume readiness.
+#
+# SETS `_pr_ready_degraded` to the checks value when readiness could not be
+# verified. This lets the caller distinguish "not ready because checks=failing"
+# from "not ready because checks=unknown", so the degradation can be announced.
+_pr_ready_degraded=""
 pr_ready() {
-  local br="$1" js st
-  # `--ask`, so the DEGRADED path is unchanged: with no list to derive from,
-  # this resolves exactly as it did before — a host call, and `--loose` keeps
-  # working on a repo whose `pr-list` cannot answer. With a complete list, the
-  # same call returns `NONE` for free and the branch is rejected below without
-  # any round trip, which is the population that was costing them.
-  st=$(host_pr_state "$br" --ask)
-  case "$st" in
-    OPEN) ;;                      # may still be a draft — the check below asks
-    *)    return 1 ;;             # MERGED, CLOSED, NONE, `-`: not ready
-  esac
-  js=$("$script_dir/plot-host.sh" pr-state "$br" </dev/null 2>/dev/null) || return 1
-  printf '%s' "$js" | grep -q '"state":"OPEN"' || return 1
-  printf '%s' "$js" | grep -q '"draft":false'
+  local br="$1" cache="" cached st chk dft
+  _pr_ready_degraded=""
+  [ "$HOST_LOOKUP_OK" = 1 ] || { _pr_ready_degraded="no-host"; return 1; }
+  [ -n "$HOST_STATE_CACHE" ] && cache="$HOST_STATE_CACHE/$(cache_key "$br")"
+  [ -n "$cache" ] && [ -f "$cache" ] || { _pr_ready_degraded="no-cache"; return 1; }
+
+  cached=$(cat "$cache" 2>/dev/null)
+  # Parse `STATE<TAB>checks<TAB>draft`
+  st="${cached%%	*}"
+  cached="${cached#*	}"
+  chk="${cached%%	*}"
+  dft="${cached#*	}"
+
+  # Must be OPEN (not MERGED/CLOSED/NONE), checks must be green, draft must be false
+  [ "$st" = "OPEN" ] || return 1
+  # Track degradation: unknown means the host could not produce a rollup
+  if [ "$chk" != "green" ]; then
+    case "$chk" in
+      unknown|none|"") _pr_ready_degraded="$chk" ;;
+    esac
+    return 1
+  fi
+  [ "$dft" = "false" ] || return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -2818,6 +2852,7 @@ for i, w in enumerate(d.get("waves", [])):
     wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $6; exit}')
     [ "$wname" = "-" ] && wname=""
     outstanding=0
+    _loose_degraded_branches=""
     while IFS=$'\t' read -r idx br st deferred why nm claim; do
       [ "$idx" = "$wid" ] || continue
       [ "$st" = "deferred" ] && continue
@@ -2830,6 +2865,11 @@ for i, w in enumerate(d.get("waves", [])):
           # ready. Unverifiable → treat as outstanding (i.e. behave as strict).
           if [ "$loose_verifiable" = 1 ] && pr_ready "$br"; then :; else
             outstanding=$((outstanding + 1))
+            # Track branches where --loose degraded to strict because the
+            # rollup could not be verified — these deserve a warning.
+            if [ -n "$_pr_ready_degraded" ]; then
+              _loose_degraded_branches="${_loose_degraded_branches}${_loose_degraded_branches:+ }$br($_pr_ready_degraded)"
+            fi
           fi ;;
         *) outstanding=$((outstanding + 1)) ;;
       esac
@@ -2840,6 +2880,15 @@ for i, w in enumerate(d.get("waves", [])):
     else verdict="blocked"; fi
 
     [ "$quiet" = 1 ] || echo "  ${wname:-(unnamed)} — $verdict"
+    # A degradation that says nothing is indistinguishable from a bug.
+    # When --loose falls back to strict because the rollup cannot be had,
+    # say so — an operator who passed the flag and sees strict behaviour
+    # has no way to tell "the rollup said not-green" from "the rollup
+    # could not be had". Both are correct refusals; only one is about
+    # their PR.
+    if [ "$quiet" != 1 ] && [ "$loose" = 1 ] && [ -n "$_loose_degraded_branches" ]; then
+      echo "      (--loose degraded to strict: checks unavailable for ${_loose_degraded_branches})"
+    fi
     json_branches=""
     while IFS=$'\t' read -r idx br st deferred why nm claim; do
       [ "$idx" = "$wid" ] || continue
