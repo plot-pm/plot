@@ -5,14 +5,15 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Rounds:** 3
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -76,7 +77,7 @@ no CLI in this repo while Bitbucket does, already installed and already
 authenticated for every other operation. A second auth path beside `bb`'s, for
 one operation, is not worth avoiding one parse.
 
-### Exit 4 must still exist, for the case that is still true
+### Exit 4 must still exist, but the exit code cannot decide it
 
 A repo whose Bitbucket **issue tracker is disabled** genuinely cannot be asked.
 That is not an empty list, and turning it into one would make the board assert a
@@ -85,13 +86,66 @@ team has no tickets — the failure this story is named for.
 So the refusal narrows rather than disappears: exit 4 when the tracker is off,
 exit 3 when it is on and the call failed, and the contract otherwise.
 
+**`bb`'s own exit code cannot make that split.** Measured 2026-08-26: every
+failure exits **1**, including *"Are you sure this is a bitbucket repo?"*. So the
+adapter matches `bb`'s error TEXT to choose exit 4, and **defaults to exit 3
+whenever it does not recognise the wording**.
+
+That default is the whole safety of the scheme. Exit 4 means *this host cannot
+be asked* and the board renders a section that stays silent; exit 3 means *the
+call failed* and the board says so. Guessing 4 from an unrecognised message
+would convert a broken call into a confident "you have no tickets" — the exact
+failure the story is named for. Guessing 3 merely reports an error, so the
+unrecognised case must fall that way.
+
+The version pin (above) is what keeps this honest rather than fragile: the text
+match is declared against `bb 0.6.0`, and a version it does not recognise fails
+loudly instead of matching wording that may have moved.
+
+### Three traps in `bb`'s output that the GitHub arm's shape would walk into
+
+Measured against `bb 0.6.0` on 2026-08-26. Each one is invisible while it works:
+
+- **`bb` writes its errors to STDOUT, colour-coded**, not to stderr. The GitHub
+  arm redirects stderr to a temp file and treats stdout as data; copying that
+  shape would parse an ANSI-escaped error message as an issue title.
+- **`bb issue list` has no `--limit`.** The GitHub arm passes `--limit` straight
+  through to the CLI. Bitbucket has nowhere to put it, so the adapter must
+  honour the caller's limit itself, after parsing. Silently dropping it breaks
+  the contract for a caller that asked for a bound.
+- **`bb issue view` prints no URL and no `createdAt`.** `--web` opens a browser
+  rather than printing one. The contract needs `url`, so it is constructed from
+  the repo slug and the issue number — a second thing the version pin covers.
+
+### The request budget stops being free, and this branch owns that
+
+`fleet.ts:108` documents the Bitbucket refresh cost and counts **only**
+`pr-list`, justified by an explicit claim:
+
+> *"on Bitbucket both cost ZERO requests: `bb` exposes no issue listing
+> (`plot-host.sh` exits 4 before touching the network)"*
+
+This plan makes that false. The moment `issue-list` reaches the network,
+`PR_REQUESTS_PER_REFRESH.bitbucket = 3` under-counts every refresh.
+
+The stake is already measured and on record in that same comment: a board left
+open a working day made ~1400 Bitbucket requests and hit `HTTP 429 — Rate limit
+for this resource has been exceeded` **account-wide**, with every `bb` call from
+the operator's own shell failing too.
+
+So the constant and its comment are updated by **this** branch. A branch that
+makes calls real owns their cost; deferring it would ship a board whose
+documented request budget is knowably wrong, against a limit that has already
+been hit once.
+
 ## Waves
 
 ### Asked (Branch: feature/a-bitbucket-issue-is-a-ticket)
 
 `issue-list` and `issue-view` answer for Bitbucket through `bb issue list` and
-`bb issue view`, parsing their text output, pinning the `bb` version, and keeping
-exit 4 for a repo whose tracker is disabled.
+`bb issue view`, parsing their text output, pinning the `bb` version, keeping
+exit 4 for a repo whose tracker is disabled, and updating the fleet's Bitbucket
+request budget to count the calls that are now real.
 
 ## Done when
 
@@ -105,9 +159,24 @@ exit 4 for a repo whose tracker is disabled.
    assert a team has no tickets.
 4. **A call that fails on an enabled tracker exits 3**, not 4 and not `[]`. Three
    distinct answers, because a consumer must be able to tell them apart.
-5. **The two stale messages are gone.** `plot-host.sh:603` and `:638` claim
+5. **An UNRECOGNISED `bb` error exits 3, never 4.** This is the assertion a
+   naive implementation passes without: mapping any failure to 4 satisfies
+   item 3 and turns every broken call into a confident "no tickets".
+6. **`bb`'s error text on STDOUT is never parsed as an issue.** `bb` prints
+   errors to stdout, so a stdout-is-data implementation emits an ANSI-escaped
+   error as a title and item 1 still passes.
+7. **`issue-list --limit N` returns at most N.** `bb issue list` has no
+   `--limit`, so the adapter truncates after parsing; passing the flag through
+   is not available and dropping it silently breaks the caller's bound.
+8. **The two stale messages are gone.** `plot-host.sh:603` and `:638` claim
    *"bb exposes none"*, which is false as of `bb` 0.6.0.
-6. `pnpm test`, `pnpm run test:reconcile` green.
+9. **The fleet's Bitbucket request budget counts the issue calls**, and
+   `fleet.ts:108`'s "cost ZERO requests" comment no longer says something
+   untrue. The measured 429 is why this rides with the change rather than after.
+10. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Notes
 
@@ -158,9 +227,34 @@ avoiding one parse.
 Exit 4 narrows rather than disappears — a repo with its tracker DISABLED still
 cannot be asked, and that is not an empty list.
 
+### Interrogated a third time 2026-08-26
+
+Round three read `bb`'s own help output and the adapter's consumers rather than
+re-reasoning about them, and found three measurements that change the
+implementation and one that changes its scope.
+
+**`bb` reports failure on stdout, colour-coded, and exits 1 for everything** —
+including *"Are you sure this is a bitbucket repo?"*. Two consequences: the
+GitHub arm's stdout-is-data shape would parse an error message as an issue
+title, and the exit code cannot separate *tracker disabled* from *call failed*.
+The adapter therefore matches `bb`'s error text and **defaults to exit 3 when it
+does not recognise the wording** — guessing 4 would turn a broken call into a
+confident "you have no tickets", which is the failure the story is named for.
+
+**`bb issue list` has no `--limit` and `bb issue view` prints no URL or
+`createdAt`**, so the adapter honours the caller's limit itself and constructs
+the URL. Both are things the version pin now covers.
+
+**And the calls stop being free.** `fleet.ts:108` counts only `pr-list` for
+Bitbucket, on the stated grounds that `issue-list` *"costs ZERO requests"* by
+exiting 4 before the network. That comment becomes false here. It was kept in
+scope rather than deferred: the same comment records a measured account-wide
+`HTTP 429` from a board left open one working day, so shipping a knowingly wrong
+budget against an already-hit limit is not a follow-up.
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {
       "q": "Is this a Must?",
