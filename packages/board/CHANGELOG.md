@@ -1,5 +1,1961 @@
 # @plot-pm/board
 
+## 0.8.0
+
+### Minor Changes
+
+- [#366](https://github.com/plot-pm/plot/pull/366) [`436a5eb`](https://github.com/plot-pm/plot/commit/436a5ebd04e2a6136527975bd6b19808049cccc4) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
+
+  Measured on the live board 2026-08-20: `bug/one-component-renders-every-row`
+  appeared in **WORKING** _and_ in **WAITING ON A MACHINE**, five minutes apart on
+  one screen. From `/api/fleet` for that row: `worker: running`, **`pr: None`** —
+  no CI, no check, nothing automated anywhere near it. The section was listing the
+  agent itself as the machine, and an operator reading _what am I waiting on?_ was
+  answered with the name of the thing doing the work.
+
+  **The section answers one question, and an agent is not an answer to it.**
+  WAITING ON A MACHINE means _you cannot act; something automated is working_ — a
+  check running, a build queued, a run page you refresh and a verdict you read. An
+  agent is technically a process, and WORKING is the better sentence for it because
+  it says _who_. Given both rows a reader learns nothing from the second and has to
+  reconcile two lines describing one branch.
+
+  **The justifying case was two subjects, not one subject twice.** The rule was
+  introduced for _"an agent watching its own CI"_, listed once as an agent and once
+  as a process, on the argument that the sections list different things. They do —
+  which is exactly why the conclusion does not follow. The agent belongs in
+  WORKING; the PR whose checks are running belongs in the machine section, and it
+  arrives there on its own through `group`. Two rows, two subjects, each named
+  once. The original framing put one subject in two sections.
+
+  **A rule keyed on a mechanism when the intent was a situation.** The plan meant
+  _an agent watching its own CI_; the code said _a process is running_, and an
+  agent is always a process — so the entry fired for every live worker, including
+  the ones with nothing pending to wait on. That is the shape this estate keeps
+  producing, and the measured row is its clearest instance: the implementation
+  could not tell the justifying case from any running worker at all.
+
+  **Two halves removed, in two files.** `machineProcesses` (`fleet.ts`) loses its
+  `origin: 'local'` arm, so no worker state writes a process entry. `inMachineSection`
+  (`AgentList.tsx`) loses `|| processesOf(row).length > 0`, so membership is the
+  server's grouping and nothing added to it. The description was built in the
+  first; membership was decided in the second, and it was the second that admitted
+  the rows.
+
+  **Membership is `group` alone, rather than `processes` filtered to host entries.**
+  Both spellings render identically today, and the difference is where the
+  guarantee lives. A predicate that reads `processes` holds _no agent reaches this
+  section_ only for as long as `machineProcesses` keeps its promise — a rule in a
+  second file, of the kind this repo converts to gates. Reading `group` makes it
+  structural: the client cannot admit a row the server did not group, whatever
+  `processes` later grows to carry. The field stays on the row and `machineNote`
+  still reads it for the section's sentence; this decides MEMBERSHIP, and
+  membership has one source.
+
+  **No row is lost, and that was the objection raised against the removal** — _an
+  agent that exited while its checks still run would land nowhere._ It lands in the
+  section by two paths that never consult a worker: the classifier's
+  `pr.checks === 'pending'` arm sets `group: 'waiting-on-machine'`, and the host
+  half of `machineProcesses` pushes an entry off the same reading. The local half
+  was credited with a case it never covered — the worker there is `finished`, so it
+  pushed nothing. Asserted end to end rather than argued.
+
+  **The rule is asserted over the whole enum, not over the states that occur
+  today.** `no worker state reaches the machine section` iterates
+  `WorkerStateSchema.options` — all eight, `running` through `elsewhere` — at both
+  the unit and the pulse level, and pins the enum's size so a ninth state cannot be
+  added without this failing. That is what makes it a rule rather than a patch: the
+  two states a naive fix would cover are not the claim.
+
+  **`MachineProcessOriginSchema` keeps `local` although nothing writes it.** This is
+  a WIRE contract, and the board's page is a built artifact a reader may have open
+  across a restart — `/api/fleet` answers from whichever server is running, which
+  is the same asymmetry `processesOf` already guards. A narrowed enum would fail to
+  parse an older server's payload, trading a stale entry that renders nowhere for a
+  blank page. Widening-tolerant, narrowing-cautious.
+
+  **What deliberately did not change.** The CI grouping at `fleet.ts`'s `pending`
+  arm is untouched and is now what the section rests entirely on, so it is asserted
+  rather than assumed — if it moved, the section would empty and every negative
+  above would still pass. The `processes` field stays on the row; only the local
+  entry is gone. WORKING is unchanged: it already lists a running worker, and making
+  it agent-centred is a later wave and a much larger change. An agent in WAITING ON
+  YOU is a later wave too — a crashed agent does not become visible through this
+  change, which is correct for now.
+
+  The worker arguments to `machineProcesses` survive the entry they fed,
+  underscored rather than dropped. Every caller passes them positionally and the
+  suite calls it with spread tuples whose argument positions this file has broken
+  once before; churning every call site to delete one `if` would obscure a diff
+  that should read as one behaviour removed.
+
+  <!--
+  bumps:
+    skills:
+  -->
+
+  No skill version bumps: this is a board-side membership change only. No helper
+  script decides which section a row lands in, the `/api/fleet` payload loses no
+  field, and `plot-fleet-scan.sh` is untouched — the worker states it reports are
+  unchanged, and what changes is only whether one of them is allowed to answer
+  _what am I waiting on?_
+
+- [#332](https://github.com/plot-pm/plot/pull/332) [`2c2f604`](https://github.com/plot-pm/plot/commit/2c2f6044790b8b1ad2c8e26ef409d509c91af797) Thanks [@jwloka](https://github.com/jwloka)! - A PR row reports every condition it is in, not only the most blocking one. `pr.states` is an ordered set, most-blocking first, and `pr.state` is now derived as its head rather than computed beside it — so a PR that both conflicts and has a failed build no longer loses the build failure before the row is built.
+
+- [#374](https://github.com/plot-pm/plot/pull/374) [`6f3e73a`](https://github.com/plot-pm/plot/commit/6f3e73a18568021933a8db9d15542c8c3ceee9df) Thanks [@jwloka](https://github.com/jwloka)! - board: a plan reports a derived `status` beside its `phase`
+
+  Every entity on the board carries a measured status except the plan, which
+  carries only `phase` — the decision a human writes. So the measurement _"every
+  wave of this plan has landed"_ has had nowhere to live and has been squeezed
+  into `phase`, the one field that must never be derived. A new `status` field on
+  the plan card gives that measurement a name.
+
+  `status` is one of seven values — `draft`, `open`, `approved`, `in-progress`,
+  `deliverable`, `delivered`, `released` — derived every scan and stored nowhere,
+  exactly like a wave's `verdict`. `planStatus` composes it from the plan file
+  (phase, review channel, `Started:` count) and the pulse (merge state, claim
+  refs):
+
+  - `draft`/`open` split on the plan's own PR: a `Review: pr` plan under review is
+    `open`, an in-session plan is `draft` and reaches `approved` without ever
+    passing through `open` — it has no plan PR to observe.
+  - `approved`/`in-progress` split on whether anyone picked the plan up: a
+    `Started:` record OR a claim ref means `in-progress`.
+  - `deliverable` is the value that earns the field — every non-deferred branch
+    merged while the phase is still `approved`. It is the queue a person delivers
+    from, and what DONE holds and the plan row's `Deliver` action appears on.
+
+  The card's `deliverable` bit and the auto-bump into Testing now read
+  `status === 'deliverable'`, so the affordance, the column bump and the reported
+  status agree by construction rather than by three separate re-derivations of
+  _is this plan done?_.
+
+  `phase` is untouched — same values, same file, same writers, same release gate.
+  Nothing new is written to disk: `plot-plan-meta.sh` is unchanged, its output
+  carries no `status` key, and no plan file gains a field. `status: deliverable`
+  never satisfies a gate — a release is a decision, and gating it on a measurement
+  would let work ship that nobody signed off.
+
+- [#364](https://github.com/plot-pm/plot/pull/364) [`6641025`](https://github.com/plot-pm/plot/commit/66410250adc6abb3363e07e85210aefd5d0b87cd) Thanks [@jwloka](https://github.com/jwloka)! - board: an approved plan's head offers Implement and Dispatch
+
+  An approved plan with eligible work (`phase === 'Development'` and
+  `waveSummary.eligible > 0`) now offers two new controls on its plan-head row:
+
+  - **Implement** — present but refused until wave 2 adds `/api/implement`. The
+    refusal reason is visible in the title attribute, and the button has
+    `aria-disabled` for accessibility.
+  - **Dispatch** — posts to `/api/dispatch` with NO `--max` cap, unlike Start work
+    on a wave row which passes `--max 1`. This dispatches the whole plan at once.
+
+  Both controls appear in the plan-head's three-dot menu alongside the existing
+  Approve and Commission design (which remain available for Draft plans only).
+
+  Gate conditions:
+
+  - `isApproved(card)` — checks `card.phase === 'Development'`
+  - `hasEligibleWork(card)` — checks `waveSummary.eligible > 0`
+
+  Neither control appears on:
+
+  - Draft plans (only Approve and Commission appear)
+  - Plans with no eligible work (blocked or completed)
+  - Branch or wave rows (plan-level acts belong to the plan head)
+
+  Tests added in `test/integration/approved-plan-offers.browser.test.ts` covering
+  all gate conditions and accessibility requirements.
+
+  From plan: docs/plans/2026-08-22-an-approved-plan-offers-its-two-starts.md (wave 1)
+
+- [#355](https://github.com/plot-pm/plot/pull/355) [`6504617`](https://github.com/plot-pm/plot/commit/65046176c437d8af7a9708d990222a2e5bad8712) Thanks [@jwloka](https://github.com/jwloka)! - board: a plan head says how many of its waves are in another section
+
+  A plan may span sections — a wave merged into DONE while a later wave waits in NOT
+  STARTED — and the board draws it one head per section. Each head's wave summary
+  counted only the waves in its own section and was silent about the rest, so the
+  visible half of a two-wave plan read indistinguishably from a plan that only ever
+  had one wave.
+
+  Each head now states how many of the plan's waves are elsewhere — _2 waves, first
+  eligible · 1 wave elsewhere_ — read from the server-derived `fleet.waves`, where
+  each wave already carries its one section. A plan wholly within one section says
+  nothing extra. The count was undefined until a wave had a single section
+  (`a-wave-is-one-row`); it is well-defined now, so the omission is legible rather
+  than hidden.
+
+- [#339](https://github.com/plot-pm/plot/pull/339) [`2a450a2`](https://github.com/plot-pm/plot/commit/2a450a24de743039bc66b086ca19de6e1095c951) Thanks [@jwloka](https://github.com/jwloka)! - board: a wave renders as exactly one row in exactly one section
+
+  A wave existed only as rows that share a name, and the board decided each row's
+  section from that branch's own state. When a wave's branches disagreed —
+  `Inverted`: one merged, one open — the merged branch went to DONE and the open
+  one to NOT STARTED, so the wave rendered in two sections at once.
+
+  A wave now lands in ONE section, chosen from its verdict and its plan's phase and
+  nothing else: a complete wave sits with its merged work, and a wave with any
+  unmerged branch is where its unfinished work is. `Inverted` appears once, in NOT
+  STARTED. The collapsed wave row states how many branches it speaks for and says
+  so when they disagree, so the density is not bought with accuracy.
+
+- [#359](https://github.com/plot-pm/plot/pull/359) [`d01effc`](https://github.com/plot-pm/plot/commit/d01effc5b37004d2a35aa7a2ddb54cbda4454953) Thanks [@jwloka](https://github.com/jwloka)! - board: an eligible wave starts itself — the switch finally does something
+
+  Waves 1 and 2 gave the board a liveness registry ([#327](https://github.com/plot-pm/plot/issues/327)) and a fleet switch and
+  stepper ([#329](https://github.com/plot-pm/plot/issues/329)), but nothing read the switch: `/api/fleet` reported
+  `autoDispatch: true` while no code anywhere started work. This is the reader.
+
+  While the switch is on, eligible waves of approved plans dispatch with no click,
+  wrapping `plot-dispatch.sh` — which still owns the claim-by-ref-push, the
+  abandoned-desk refusal, the in-flight file report and the worktree fan-out, so
+  every refusal that protects a watched dispatch protects an unwatched one.
+
+  Decided and enforced:
+
+  - **The cap is a STANDING PROPERTY across pulses, not a per-fan-out argument.**
+    `--max N` bounds one invocation; two pulses each passing N reach 2N. Each
+    pulse the board counts what is already live — `running` plus `waiting`
+    registry entries, plus branches it dispatched whose detached claim the pulse
+    cannot yet see — and dispatches only `parallelAgents − live`. The sum across
+    every pulse stays below the stepper, which `--max` alone cannot promise.
+  - **Never kill.** The control governs starting, not stopping. Lowering the
+    number or flicking the switch off shrinks the next pulse's budget and touches
+    no running worker; a negative budget clamps to zero. There is no kill path.
+  - **Only approved plans, only eligible waves.** A blocked wave, a draft plan's
+    wave, and a branch already claimed do not dispatch — the last one because the
+    claim ref is the one mechanism that makes it safe, and no second one is added
+    beside it.
+  - **NOT a route.** It rides the scan timer inside `refresh`'s success path,
+    beside `maybeRepair` and of the same kind: from a pulse that actually landed,
+    off the request path entirely, reachable from no binding. It joins no
+    `WRITE_ROUTES` list because it is not a write route.
+
+  Server-side only, in `packages/board/src/server/auto-dispatch.ts` and its wiring
+  in `fleet.ts`. No schema change, no client change; the switch and stepper from
+  [#329](https://github.com/plot-pm/plot/issues/329) are untouched.
+
+- [#371](https://github.com/plot-pm/plot/pull/371) [`fff28a5`](https://github.com/plot-pm/plot/commit/fff28a5e5a20ee1e8725738e546c1cbcf46d0500) Thanks [@jwloka](https://github.com/jwloka)! - board: Implement runs from an approved plan's row
+
+  The **Implement** control on an approved plan's row now acts rather than
+  refusing. A new `POST /api/implement` route spawns `/plot-implement <slug>`
+  detached the way `/api/idea` spawns `/plot-idea` and `/api/commission` spawns a
+  plot agent: slug-scoped, through a new `Implement command` binding, answered 202
+  immediately because the server is single-threaded and the outcome is read back
+  from `GET /api/implement/<slug>`.
+
+  Unlike `/api/idea`, this composes no prompt file — `/plot-implement` takes a
+  slug and reads the plan itself — so the slug is `SLUG_RE`-bounded and passed as
+  one argument, and nothing a page supplies becomes a shell word. The route
+  refuses with a named reason rather than silently: `no-implement-command` where
+  no runner is configured (creating the preparation a person does before writing
+  code runs the `/plot-implement` skill, which no script can do), and the same
+  cross-origin and malformed-slug refusals `/api/dispatch` gives.
+
+  It joins the router's write table, so it inherits the loopback gate by
+  construction and is covered by the write-gate test; an `implement` capability
+  flag rides on `/api/board` beside `commission`, kept its own field for the
+  reason every flag above it is — one flag for two capabilities is how they
+  diverge. The client's `ImplementButton` reads that flag and posts, replacing the
+  present-but-refused stub wave 1 left for it.
+
+  <!--
+  bumps:
+    skills:
+      plot-implement: minor
+  -->
+
+  The `/plot-implement` skill gains the unattended clause its step 2 was missing:
+  on staleness drift it now **stops and reports** with a `PLOT-UNASKED` line
+  naming what moved, rather than ending "the user decides" with no defined
+  behaviour when the board is the one that ran it and nobody is there. Which
+  re-validation drift needs is a verdict, not a default.
+
+  From plan: docs/plans/2026-08-22-an-approved-plan-offers-its-two-starts.md (wave 2)
+
+- [#345](https://github.com/plot-pm/plot/pull/345) [`d756bc6`](https://github.com/plot-pm/plot/commit/d756bc6c02c486645206273d3016b882fe90c3e8) Thanks [@jwloka](https://github.com/jwloka)! - board: an approved plan whose every wave has merged reaches the phase after Development on its own
+
+  A plan whose every non-deferred branch has merged sat in Development until a
+  person remembered to run `/plot-deliver`, and nobody did — measured
+  `merged_not_delivered=16` on 2026-08-21, drained by hand to 2 the next morning at
+  the cost of a person's morning, and back to 5 the day after as a fleet landed
+  more work. Detection already worked (`plot-reconcile-scan.sh` section 2 finds
+  every one); nothing acted on it, so the column quietly stopped being true.
+
+  The board now reads that same measurement. `allWavesMerged(meta, pulse)` is true
+  when every non-deferred branch of a plan is `merged` in the pulse — the same
+  derivation `plot-fleet-scan.sh` applies, read rather than rebuilt — and an
+  approved plan for which it holds is placed in the column after Development.
+
+  Decided and enforced:
+
+  - **It is a MEASUREMENT, never a delivery.** Reaching the column asserts the code
+    landed, which git knows; it flips no phase, writes no `Delivered:` record and
+    merges no PR. Delivering stays a decision a person makes from there
+    (`docs/board-domain-model.md`). Asserted directly: the plan file still reads
+    `Phase: Approved` after the card has moved.
+  - **The negative is asserted, not assumed.** A plan with one open branch stays in
+    Development — an implementation that flagged everything would pass the positive
+    test alone.
+  - **A deferred branch is exempt**, matching the scan: six merged and three
+    deferred is as complete as nine merged. A plan with only deferred branches is
+    NOT promoted — there is no landed work to testify to.
+  - **The source is the pulse, never the plan file.** No pulse, or a pulse that
+    does not know the plan, keeps the card where it was — a cold cache is not "all
+    merged".
+  - **The target column is read from `toBoardPhase('delivered')`, not restated**,
+    so the later rename of that phase needs no edit to this derivation.
+  - **The derivation is the server's**, computed in `buildBoard`; the renderer
+    reads `card.phase` and remakes nothing.
+
+- [#348](https://github.com/plot-pm/plot/pull/348) [`4e3bee4`](https://github.com/plot-pm/plot/commit/4e3bee425568b591c9df679ac581d5b7baedf222) Thanks [@jwloka](https://github.com/jwloka)! - The board can now reslice a tangled wave from the `unsliced-wave` row. A new
+  `POST /api/reslice` route spawns `/plot-reslice` the way `/api/idea` spawns
+  `/plot-idea` and `/api/commission` spawns a plot agent: slug-scoped, through the
+  `Idea command` binding, with the prompt written to a file so no plan text
+  becomes a shell word. It writes none of the slice itself — `/plot-reslice` reads
+  the branches, proposes an order, and asks a person before rewriting
+  `## Branches`, which is the standing rule for board writes.
+
+  The route refuses with a named reason rather than silently: `no-idea-command`
+  where no runner is configured, `plan-unreadable` where the plan's waves cannot
+  be parsed, and `nothing-to-slice` where no wave holds more than one live branch
+  (a `complete` wave whose work has landed is history the reslice must not touch).
+  The sliceability precondition is read through `plot-plan-meta.sh`'s `waves[]` —
+  the one parser that owns the format — counting only non-deferred branches, the
+  same arithmetic the `unsliced-wave` detector applies.
+
+  It joins the router's write table, so it inherits the loopback gate by
+  construction and is covered by the write-gate test; a sixth `reslice` capability
+  flag rides on `/api/board` beside `commission`, kept its own field for the
+  reason every flag above it is — one flag for two capabilities is how they
+  diverge. `GET /api/reslice/<slug>` reads the command's own words back for a
+  refusal, since a reslice that asks before writing may move no row.
+
+- [#337](https://github.com/plot-pm/plot/pull/337) [`423dcb9`](https://github.com/plot-pm/plot/commit/423dcb9157504555b1e3e2a607b54e1133e3164d) Thanks [@jwloka](https://github.com/jwloka)! - The board header names the branch its server is serving from. `pnpm board` serves the artifact built in whichever of this repo's 22+ worktrees it was started in, so a reader who sees a layout they changed can now tell whether they are looking at that branch's artifact or another's. `serverInfo()` reads `git branch --show-current` once at startup and memoises it — the fork stays off the per-request path. A detached HEAD (several worktrees here are) reports empty and the header renders no element, rather than a chip reading `unknown` or a fabricated short SHA. The name is muted secondary weight: context, not one of the two states a reader acts on.
+
+- [#349](https://github.com/plot-pm/plot/pull/349) [`aad80d2`](https://github.com/plot-pm/plot/commit/aad80d25cc8951cd699221c4032ac580fda20b0e) Thanks [@jwloka](https://github.com/jwloka)! - board: the contract carries a Wave, derived once server-side
+
+  A wave existed nowhere in the contract — it was rows that happen to share a
+  string, and everything a wave has (its verdict, its section, its completeness,
+  the branches it holds) was re-derived at every call site from a predicate the
+  caller chose. Five defects traced to those derivations disagreeing.
+
+  The fleet payload now carries a `Wave`: its identity (plan plus name), the
+  branches it holds, the scan's verdict unchanged, its ONE section, and whether it
+  is complete. It is derived once in `fleet.ts` where the scan's verdicts already
+  are — never in the renderer — so a consumer asking a wave-shaped question reads
+  one answer instead of computing its own. A wave has a verdict and inherits its
+  plan's phase; it never carries a phase of its own. The field defaults to `[]` so
+  an older payload still validates, and the server emits it unconditionally
+  because the client casts the payload rather than parsing it.
+
+- [#373](https://github.com/plot-pm/plot/pull/373) [`5a36bbc`](https://github.com/plot-pm/plot/commit/5a36bbccdc69e66b782d4e4fcc8d3c77d47e6743) Thanks [@jwloka](https://github.com/jwloka)! - board: the fleet row carries its sprint
+
+  `AgentRow` gains a **`sprint`** field — the slug of the active sprint whose
+  member list names the row's plan, or `""` where none does. Set in the server at
+  row creation by joining the row's plan slug to the sprint files' member lists;
+  never derived in the renderer from `planFile`, the same rule `kind` follows.
+
+  - Membership is read from the **sprint file's** `- [ ] [slug]` list (via
+    `collectSprints`), not from the plan's own `Sprint:` field. On this estate 19
+    plans are listed and only 5 carry the back-reference, so joining on the field
+    would show a third of the commitment and hide the rest.
+  - `sprintMembership` builds the `slug → sprint` map from the ACTIVE sprints only,
+    filtering on the sprint's phase rather than trusting the `active/` symlink
+    index. A Closed sprint left linked by drift cannot claim a row.
+  - Where two sprints are Active and both list a plan, the first wins —
+    deterministic, matching the first-wins dedup the member list itself uses.
+  - Rows with no plan (a release row, an unplanned PR) carry `""`, so the filter
+    that later consumes this field keeps them visible.
+  - Read on the render clock — one directory read per pulse, no host call. The
+    pulse fetches every plan once; this field only records which sprint a row
+    belongs to.
+
+  No client change and no filtering yet: this wave puts the field on the row;
+  later waves read it.
+
+- [#351](https://github.com/plot-pm/plot/pull/351) [`e7a2448`](https://github.com/plot-pm/plot/commit/e7a2448ead55432775589606debf0cc1cb4e4cab) Thanks [@jwloka](https://github.com/jwloka)! - The board's plan row can now deliver a fully-merged plan. A new `POST /api/deliver`
+  route spawns `/plot-deliver` the way `/api/reslice` spawns `/plot-reslice`:
+  slug-scoped, through the `Idea command` binding, with the prompt written to a
+  file so no plan text becomes a shell word. It writes none of the transition
+  itself — `/plot-deliver` re-verifies every implementation PR is merged, flips the
+  phase to Delivered and moves the plan — which is the standing rule for board
+  writes, and the domain model's own line: every wave being complete is a
+  measurement, delivering is a decision, and this control is a person making it.
+
+  The route refuses with a named reason rather than silently: `no-deliver-command`
+  where no runner is configured, `plan-unreadable` where the plan's waves cannot be
+  parsed, `not-deliverable` where a non-deferred branch has not merged (the gate
+  `/plot-deliver` keeps, not weakened here), and `already-delivered` where the
+  plan's phase is past Development. Deliverability is read through
+  `plot-plan-meta.sh`'s `waves[]` against the same pulse the board renders from —
+  the same `allWavesMerged` arithmetic that auto-bumps a fully-merged plan's card
+  into Endgame — so the route and the card agree by construction.
+
+  The affordance is a new `deliverable` bit on each card, set only where the server
+  auto-bumped a complete plan into Endgame — never on a plan already delivered, so
+  that decision cannot be offered twice. The `Deliver` control lives on the plan
+  head's `⋯` menu beside Approve and Commission, gated on that bit rather than on a
+  Draft phase; unlike the draft acts it opens even when the server refuses, stating
+  its reason on the control the way `Slice this wave` does. It joins the router's
+  write table, so it inherits the loopback gate by construction and is covered by
+  the write-gate test; a seventh `deliver` capability flag rides on `/api/board`
+  beside `reslice`. `GET /api/deliver/<slug>` reads the command's own words back
+  for a refusal, since a delivery moves no row until its phase flips.
+
+- [#353](https://github.com/plot-pm/plot/pull/353) [`e8e9201`](https://github.com/plot-pm/plot/commit/e8e9201c0454fe32bd5d919eebcc757df425098c) Thanks [@jwloka](https://github.com/jwloka)! - board: the sections ask the wave for their membership
+
+  `waveGroupsFor` was a computation: four grouping sections each re-derived which
+  section a wave belongs in from a row's `state`, three of them spelling the
+  identical predicate `r.state !== 'merged'` and DONE its inverse. That is one of
+  the five derivations `the-wave-is-a-thing-the-board-can-hold` exists to end — a
+  wave the server calls done but holding a not-yet-merged row, or a not-started
+  wave with one stray merged branch (`Inverted`), was placed by the row's own
+  state and disagreed with the wave.
+
+  `waveGroupsFor` and `ungroupedRows` now take the server-derived `Wave[]` (added
+  in `the-contract-carries-a-wave`) and select a section's waves by the wave's own
+  `section`: DONE claims a wave iff `Wave.section === 'done'`, the grouping
+  sections iff it is not. The real distinction — done versus not-done — moves onto
+  the wave; WORKING and WAITING ON A MACHINE stay excluded by the grammar
+  (an agent works and a build runs; neither is a wave).
+
+  The client CASTS the fleet payload, so `fleet.waves` is `undefined` on a pulse
+  from a server predating the wave field — a Zod `.default([])` never fires on a
+  cast. An absent wave list, or a wave a partial pulse has not carried yet, falls
+  back to the old row-state predicate byte-for-byte, so a pre-wave board renders
+  exactly as before rather than dropping every wave.
+
+- [#365](https://github.com/plot-pm/plot/pull/365) [`b93279e`](https://github.com/plot-pm/plot/commit/b93279e6e5190e0263b15bc344763f640c997e8d) Thanks [@jwloka](https://github.com/jwloka)! - board: parseSprintFile reads a sprint's members
+
+  `parseSprintFile` now reads a sprint's **members** — the `- [ ] [slug]` /
+  `- [x] [slug]` lines, each slug, and the MoSCoW tier it sits under. Until now no
+  code parsed the member list, so the board could only join plans to a sprint on
+  the plan's self-declared `Sprint:` field — which is why the active sprint showed
+  6 of its 19 plans.
+
+  - `SprintMember` is added to the contract (`slug`, `tier`, `checked`, `known`);
+    `SprintCard.members` carries the list, defaulting to `[]` so an empty or
+    hand-built card stays valid.
+  - Members are deduped by slug (a plan sliced across waves lists once), with the
+    first occurrence winning so a plan keeps its strongest tier.
+  - `### Deferred` items are carried as their own tier — in the file, not a
+    commitment — so the consumer can exclude them from counts.
+  - A slug naming no plan is REPORTED (`known: false`), never dropped: a sprint
+    listing a renamed or deleted plan must still show it, or its own scope is
+    unknowable. `collectSprints` resolves the flag against the plans the board
+    found; `parseSprintFile` reading the file alone cannot tell, so it emits
+    `known: true`.
+
+  No client change and no filtering: this wave produces the list; later waves join
+  on it.
+
+- [#384](https://github.com/plot-pm/plot/pull/384) [`ffefb28`](https://github.com/plot-pm/plot/commit/ffefb28125d7ab328f9245075a226bf14d8c94ac) Thanks [@jwloka](https://github.com/jwloka)! - board: the Agents tab filters to the sprint
+
+  The Agents tab gains a **sprint filter** — one row per Active sprint, each with
+  a toggle, release target, and status counts (`delivered`, `deliverable`,
+  `inProgress`, `approved`). Toggling a sprint shows only rows whose plan belongs
+  to that sprint; plan-less rows always pass.
+
+  - **The control** renders the `fleet.sprints` payload from the sibling wave and
+    toggles a local filter Set. One row per active sprint, each independently
+    toggleable. Two sprints may be Active (two teams, one train), so the control
+    supports multiple selections.
+  - **Disabled when no sprint is Active:** the control stays visible but disabled,
+    showing the disabled state so readers learn the control exists. A control that
+    vanishes teaches nobody it exists.
+  - **Plan-less rows always pass:** rows with `sprint === ''` — release branches,
+    unplanned PRs — are not hidden by the filter. Hiding them would erase real
+    work that happens to have no sprint membership.
+  - **Applied before `rowsBySection`:** the filter decides WHICH plans to show;
+    the sections decide WHERE those rows belong. Filtering after sectioning would
+    have the same effect but re-filter per section.
+  - **NOT persisted:** this is a momentary focus (what am I working on right now)
+    rather than a standing preference. Persisting it would restore a filter that
+    no longer matched the reader's task.
+
+  The counts are the point, not decoration: `deliverable` is the actionable one —
+  plans whose every wave has merged and whose delivery decision is outstanding.
+
+- [#375](https://github.com/plot-pm/plot/pull/375) [`7eb8a31`](https://github.com/plot-pm/plot/commit/7eb8a3129f587b3672a4fb960de70f6bff2caad7) Thanks [@jwloka](https://github.com/jwloka)! - The Agents tab states how many parallel-agent slots are in use, beside the cap
+  it already showed. The count is the same one the dispatcher measures the cap
+  against, published by the server rather than re-derived in the client — a second
+  implementation is how a control comes to disagree with the rule it describes.
+
+  Liveness now takes two facts rather than one. An agent occupies a slot when its
+  process is live **and** its branch has not landed: measured 2026-08-24, seven
+  registry entries reported a live pid and five sat on branches whose pull
+  requests had merged hours earlier, so five of twelve slots were charged to
+  nothing and the fleet declined to dispatch work it had room for.
+  `plot-worker-state.sh` cannot make this call — it answers about the process, and
+  the board is where both facts meet.
+
+  `working` is optional and absent is not zero: a payload from an older server, or
+  a pulse that could not read the registry, renders nothing rather than an idle
+  fleet.
+
+  The agent registry (`.plot/agents/`) is no longer committed. A manifest holds a
+  pid and an absolute worktree path — machine-local for the same reason
+  `.plot/state/` already is. The board reads the directory, never git, so the
+  registry is unaffected.
+
+- [#379](https://github.com/plot-pm/plot/pull/379) [`f8a1781`](https://github.com/plot-pm/plot/commit/f8a1781ab399b4b4a7f2d7b9e2996781543e13f1) Thanks [@jwloka](https://github.com/jwloka)! - board: the fleet knows its sprints
+
+  The `/api/fleet` payload gains a **`sprints`** array — one entry per Active
+  sprint, each carrying its **target release** and its four `status` counts
+  (`delivered`, `deliverable`, `inProgress`, `approved`). These are the numbers
+  the Agents-tab sprint control renders beside the sprint's name.
+
+  - The counts are a **tally of `plan.status`**, never a second computation of it.
+    `planStatusBySlug` returns each plan's status from the ONE `planStatus`
+    function; `activeSprints` joins the sprint's member slugs against that map.
+    This is the field's FIRST CONSUMER — a fifth definition of _done_ here is the
+    exact defect `a-plan-has-a-phase-and-a-status` exists to end.
+  - Only the four post-approval statuses are counted. A `draft`/`open` member is
+    committed to but not yet in flight, a `released` member has shipped, and an
+    unknown slug names no plan the board found — each adds to nothing.
+  - A `### Deferred` member is excluded: a deferral is not a commitment, so a
+    count that swallowed it would overstate the sprint.
+  - `SprintCard` gains a **`release`** field, read by `parseSprintFile` from the
+    sprint file's `- **Release:** x.y.z` record — `""` where absent, because the
+    control renders nothing rather than `→ —`.
+  - One entry per Active sprint (two teams may share one train); `[]` where none
+    is Active, which the control shows as its disabled-but-visible state.
+  - Aggregated on the render clock from the same cached pulse the rows come from —
+    one `docs/sprints/` read plus one plan-meta parse per render, no host call —
+    and emitted unconditionally, because the client casts this payload and a Zod
+    `.default([])` never fires client-side.
+
+  No control yet: this wave puts the payload on the fleet; the `Filtered` wave
+  renders it.
+
+- [#382](https://github.com/plot-pm/plot/pull/382) [`ae2ec7d`](https://github.com/plot-pm/plot/commit/ae2ec7dfcd2f617879a8afa669d304da32fd3577) Thanks [@jwloka](https://github.com/jwloka)! - board: the row knows whether it can be started
+
+  A NOT STARTED row distinguishes _ready to dispatch_ from _needs a brief first_.
+
+  The defect these cover was measured on the live board 2026-08-19: nine rows
+  reading _eligible — nobody has taken it_, and zero briefs between them. The
+  wave arithmetic was right — every one of those branches genuinely was next —
+  and every dispatch the phrase invited would have started an agent that reads
+  `.plot/briefs/<slug>.md`, a file that was not there.
+
+  The fix adds a `startability` field to AgentRow with four verdicts:
+
+  - `start-work`: ready to dispatch a worker
+  - `needs-brief`: eligible but missing its brief file
+  - `waiting-on-approval`: plan is still Draft
+  - `someone-is-on-it`: branch is already claimed or WIP
+
+  The verdict is computed once on the server by `startabilityVerdict()` from plan
+  phase, branch state, wave verdict, and brief state. Predicates like
+  `isStartable()` and `needsBrief()` now read from the field rather than
+  re-deriving the answer — the single source of truth is what the server handed
+  to the client.
+
+  Rendering: `start work` shows green, other verdicts keep ordinary color.
+  `eligible` stays green for wave rows (the wave verdict is still news). Merged
+  or deferred branches have no startability verdict (null).
+
+- [#416](https://github.com/plot-pm/plot/pull/416) [`6980083`](https://github.com/plot-pm/plot/commit/6980083640586692555a5ce293b13b54d26aeb4d) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent row can be dropped
+
+  A broken agent row (stalled or unknown state) now shows "Drop this agent" —
+  the manual reconciliation for registry entries the automatic resolver cannot
+  clear.
+
+  A settled worker whose worktree was removed manually, or whose manifest
+  outlived its process, cannot be cleared by the automatic cleanliness
+  resolver — it checks the worktree, and no worktree means no answer. This
+  control is the escape hatch: it removes the manifest so the WORKING section
+  stops showing a row for an agent that is gone.
+
+  The endpoint refuses to drop a live worker (running or waiting state). The
+  registry is a record, not a killswitch.
+
+  The interaction is arm/confirm: first click arms the button, second confirms,
+  click elsewhere or Escape cancels. A failed drop keeps the row and shows the
+  error message.
+
+- [#415](https://github.com/plot-pm/plot/pull/415) [`6cfbc29`](https://github.com/plot-pm/plot/commit/6cfbc29e876b9aa05b7ed5ac35cb573df0527365) Thanks [@jwloka](https://github.com/jwloka)! - board: name the master agent's branch on the Agents tab
+
+  The branch chip that lived in the header named the SERVER's checkout,
+  not the operator's. An operator on `bug/a-head-counts-its-own-waves` read
+  "main" and asked why — the chip answered the wrong question. "Where am I"
+  should not be answered by "where the server is".
+
+  This change:
+
+  - Removes the branch chip from the header entirely
+  - Adds `masterAgentBranch` to FleetSchema (names the main checkout)
+  - Adds `branchUrlBase` for client-side URL construction
+  - Implements TTL-cached reading of the main checkout's branch (5s)
+  - Renders a Master Agent row on the Agents tab (above sections)
+  - Rewrites tests to assert the new contract
+
+  The master agent branch is read from the FIRST worktree (the main
+  checkout), not the server's worktree, using the same TTL pattern as
+  server-info.ts to keep git forks off the request path.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#400](https://github.com/plot-pm/plot/pull/400) [`8c5abdc`](https://github.com/plot-pm/plot/commit/8c5abdc5d28a35c6393715cac5f80766bc94b3ec) Thanks [@jwloka](https://github.com/jwloka)! - Replace four status counts with three exhaustive buckets
+
+  The sprint control now shows three exhaustive buckets (open/WIP/done) instead
+  of the previous four status counts (delivered/deliverable/inProgress/approved).
+
+  **What changed:**
+
+  - `SprintCounts` schema now has `{total, open, wip, done}` instead of
+    `{delivered, deliverable, inProgress, approved}`
+  - Every non-deferred member lands in exactly one bucket:
+    - **open**: Draft, open, or Approved with no branch in flight
+    - **wip**: in-progress or deliverable
+    - **done**: delivered (or released)
+  - The display format is now `<total> members · <open> open · <wip> WIP · <done> done`
+  - The invariant `total === open + wip + done` is maintained by construction
+
+  **Why:**
+
+  - The old four buckets silently dropped Draft members (counted nowhere)
+  - A reader comparing the control against columns could not verify the math
+  - Three exhaustive buckets make omissions visible: if the sum doesn't match,
+    something fell through
+
+- [#401](https://github.com/plot-pm/plot/pull/401) [`58acd24`](https://github.com/plot-pm/plot/commit/58acd240aad1e3ad0acd4d31e489583302fb46a1) Thanks [@jwloka](https://github.com/jwloka)! - Show estate totals when filter is OFF, sprint numbers when ON
+
+  The sprint filter control now shows which plans are excluded when you turn it
+  on — estate totals while OFF, sprint numbers while ON:
+
+  - **Off:** `Total — 112 plans · 9 open · 2 WIP · 101 done`
+  - **On:** `Sprint — 21 members · 4 open · 0 WIP · 17 done`
+
+  **What changed:**
+
+  - New `estateTotals` field in the Fleet payload, computed server-side
+  - The same three-bucket derivation (open/wip/done) for both estate and sprint
+  - The SprintFilter component toggles between the two scopes
+  - When estateTotals is absent (older server), falls back to always showing
+    sprint counts
+
+  **Why:**
+
+  - A reader can see the effect of the toggle before touching it
+  - The jump from "112 plans" to "21 members" makes the filter's scope visible
+  - Estate and sprint use the same derivation, so they cannot disagree about
+    what a bucket means
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#362](https://github.com/plot-pm/plot/pull/362) [`ce27834`](https://github.com/plot-pm/plot/commit/ce27834f9ea00ba4a2813fd62e6785a07497ee42) Thanks [@jwloka](https://github.com/jwloka)! - WORKING IS ABOUT AGENTS
+
+  The WORKING section now answers only one question: _which agents are
+  running?_ Four agentless paths that previously routed to WORKING now
+  go to NOT STARTED:
+
+  | what is true                 | before  | after       |
+  | ---------------------------- | ------- | ----------- |
+  | held by a worktree, no agent | WORKING | NOT STARTED |
+  | uncommitted work, no agent   | WORKING | NOT STARTED |
+  | a write lock, no agent       | WORKING | NOT STARTED |
+  | last commit N ago, no agent  | WORKING | NOT STARTED |
+
+  Only branches with `worker === 'running'` or `worker === 'waiting'`
+  appear in WORKING. This makes the section title honest: it lists who
+  is working, not just where activity was observed.
+
+  Implements wave Inverted of `every-section-has-one-subject`.
+
+### Patch Changes
+
+- [#367](https://github.com/plot-pm/plot/pull/367) [`e3b4bdb`](https://github.com/plot-pm/plot/commit/e3b4bdbc4ab2865a6e5e110832ea8a84b12f8148) Thanks [@jwloka](https://github.com/jwloka)! - plot: the parser reads a wave heading
+
+  `plot-plan-meta.sh` now reads a second spelling of a plan's implementation
+  section. The old `## Branches` shape puts the branch in the list line, mixing
+  meta with prose:
+
+      ### Removed
+      - `bug/foo` — loses its half → [#300](https://github.com/plot-pm/plot/issues/300)
+
+  The new `## Waves` shape moves the meta into the `### ` heading, leaving the
+  line as pure description:
+
+      ### Removed (Branch: bug/foo, PR: [#300](https://github.com/plot-pm/plot/issues/300))
+      - loses its half
+
+  Both spellings emit **byte-identical** `branches`, `prs` and `waves` arrays —
+  the property that makes the estate migration provably a re-spelling rather than
+  a change of meaning. A new-shape fixture and its old-shape twin are asserted
+  equal across the whole record.
+
+  **The parser reads BOTH while the migration runs.** The new shape is what Plot
+  will write and document, but the old spelling stays readable: a format change
+  owes its estate a migration that moves 85 files one at a time, and a plan moved
+  one commit before the parser learns the shape must not read as silently empty.
+  Measured against the pre-change parser, the new shape yielded `branches: 0`,
+  `prs: 0`, `waves: 0`, `error: null` — silently, so the fleet scan would print
+  `(no branches)` and `/plot-deliver`'s branch gate would pass on an empty list.
+  A migrated plan would not fail; it would disappear.
+
+  **A backticked name in a description is no longer a branch.** Under the old
+  shape a second path-shaped token on a branch line was read as a phantom branch —
+  on 2026-08-22 a wave of five reported six because a description cited a doc
+  path. In the new shape the branch is extracted from the heading, anchored to the
+  `Branch:` label, so a name in prose, in the wave title, or in a trailing
+  citation cannot masquerade as a branch. The property is delivered, not merely
+  permitted.
+
+  `PR:` is omitted where none exists yet: an absent field contributes nothing to
+  `prs` — not `""`, not `0` — the same rule `Issue:` follows. A `## Waves`
+  section whose heading names no branch still opens a wave, so the section is
+  never silently empty: a consumer can tell "a wave I could not parse" from "no
+  waves".
+
+  Scope: this teaches the parser and its contract tests only. The template still
+  writes the old shape (wave 2) and no plan file is migrated (wave 3). The
+  `<!-- claimed: -->` / `<!-- deferred: -->` comments still ride the branch line —
+  now the heading line that carries the branch — and moving them is a separate
+  question this wave does not answer.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#336](https://github.com/plot-pm/plot/pull/336) [`d156a3a`](https://github.com/plot-pm/plot/commit/d156a3a0e179f22325ed60f53c4000cf85c3ac6c) Thanks [@jwloka](https://github.com/jwloka)! - board: a finished row reports neither a pulse nor a live worker
+
+  DONE wore a green activity mark it did not earn, and some of its rows presented a
+  worker state that had already gone stale. Both were one category error in one
+  file: a LOCAL fact — a worktree's contents, a worklog's last recorded worker —
+  answering a question about work that is FINISHED. Measured on the live board
+  2026-08-23, seven DONE rows reported activity and every one was dirty on the same
+  file: `test/fixtures/tiny-garden/.plot/state/last-pulse.json`, the fixture the
+  board suite rewrites when it runs. The board was reporting activity caused by
+  running its own tests.
+
+  The domain model states the boundary — _a local fact may DESCRIBE a row and may
+  never ORDER the fleet_ — and these two reads crossed it.
+
+  Decided and enforced:
+
+  - **The guard is finishedness, never a filename.** A new `isFinished(row)` is
+    `state === 'merged' || state === 'deferred'` — the branch's own ref state,
+    which every reader can verify. Ignoring `last-pulse.json` specifically would
+    silence today's instance and leave the rule wrong: any uncommitted file in any
+    stale worktree brings the mark back looking like a new bug.
+  - **`isActive` now screens both finished states, not only `merged`.** One of the
+    seven marked rows was `deferred` with a dirty worktree; the merged-only guard
+    let it through. A finished row reports no pulse regardless of what its worktree
+    holds.
+  - **A finished wave-of-one no longer shows a live worker.** The worker outlives
+    its branch, so its last state can survive the merge — `waiting` is a LIVE
+    worker and reached the wave row's status slot, reading as _someone owes this an
+    answer_ under a heading that says done. A new `soleRowStatus` skips the live
+    worker on a finished row and falls back to the PR then the branch state.
+  - **The mark keeps working where it was right.** A WORKING row with `localDirty`,
+    and an unfinished wave with a live worker, are unchanged — the regression that
+    matters is asserted directly.
+
+  Client-side only: no schema or server change. A stale worktree on a merged branch
+  is still a real condition worth a STATIC mark of its own; that mark is a later
+  wave and this never gives it the motion one.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#342](https://github.com/plot-pm/plot/pull/342) [`47a0707`](https://github.com/plot-pm/plot/commit/47a0707fbb5952654a0b2e03f4fd4c48a9f05920) Thanks [@jwloka](https://github.com/jwloka)! - plot: a blocked marker is a file, not a mention
+
+  `plot_worker_blocked` decided `waiting` by grepping every file's CONTENTS for
+  the marker token `PLOT-BLOCKED:`, and 28 tracked files on `main` contain that
+  token because Plot documents its own marker — CLAUDE.md and every brief among
+  them. Every worktree is a checkout of `main`, so every pristine worktree read
+  `waiting` before any worker ran; the states below it (`finished`, `stalled`)
+  were unreachable wherever no PR fact masked the false positive, and the board
+  surfaced a documentation example as a worker's question with a control to
+  answer it.
+
+  The marker is now a FILE: `plot_worker_blocked` looks for a `PLOT-BLOCKED*`
+  file at the worktree root, and `worker-question.ts`'s `markerIn` reads that
+  file instead of re-greping with its own copy of the pattern. A document cannot
+  be mentioned into a file. The duplicated pattern constant is deleted from both
+  places, `TODO(you|human)` is dropped rather than ported, and the `Worker
+command` in CLAUDE.md is tightened to name the `PLOT-BLOCKED.md` file it asks
+  workers to write, so the instruction and the classifier agree.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#352](https://github.com/plot-pm/plot/pull/352) [`299b4e1`](https://github.com/plot-pm/plot/commit/299b4e19c0b8093418b61053e70de0c6044df2ed) Thanks [@jwloka](https://github.com/jwloka)! - board: a release row's fallback number says it is a PR
+
+  A release row names the version it is cutting — `2.7.0` — read from
+  `package.json` on the release branch. Where that version cannot be read, the row
+  falls back to the PR number, and the number sat bare in the name slot: `300`,
+  where a version usually is. A bare `300` reads like a version — a truncated
+  `3.0.0`, a major nobody typed — and `changeset-release/main` is the one row a
+  person reaches for at the end of a sprint, so it is the last row that should ever
+  be decoded.
+
+  The fallback now carries a `#`: `[#300](https://github.com/plot-pm/plot/issues/300)`, the universal mark for a PR reference, so
+  it cannot be mistaken for the version the slot otherwise holds. The version case
+  stays unprefixed, because it IS a version, not a reference to one — the two are
+  distinguishable at a glance, which is the point. This closes the plan's last
+  release test: _falls back to the PR number and says so, rather than showing a
+  number that reads like a version._
+
+  The rest of that plan's release work — reading the version through a contract
+  field, moving the PR and branch into the artifact-link slot, keeping the status
+  column free of anchors — had already landed via the `version` field
+  (`a wave is a kind`), which reads the version from `package.json` rather than
+  from the PR title the plan first named. `package.json` on a `changeset-release/*`
+  branch is written by changesets itself, so it is a stronger source than the PR
+  title convention: the plan's premise that `package.json` holds only the current
+  version was measured wrong (it holds the next one on the release branch). This
+  branch keeps that decision and adds only the fallback signal it left open.
+
+- [#338](https://github.com/plot-pm/plot/pull/338) [`02d8fcc`](https://github.com/plot-pm/plot/commit/02d8fcce6b4a1810b92a3dbffa894602eb1f8bfa) Thanks [@jwloka](https://github.com/jwloka)! - board: a folded wave head says what its verdict says, never that work landed
+
+  `groupedNote`'s fallback returned `work landed — waiting to be merged` for any
+  unrecognised word, and the `waveNote` call site short-circuited on
+  `groupedCount !== undefined` before the verdict could correct it. Since
+  `groupedCount` is defined for every multi-branch wave, the two verdict arms were
+  dead for every wave with more than one branch — so a `to approve` wave, whose
+  plan is still in review with no PR opened and nothing pushed, rendered a claim
+  that a merge was pending. Measured 2026-08-23, five live `blocked` waves each
+  asserted work had landed, two lines above their own rows reading _plan not
+  approved yet — still in review_.
+
+  Decided and enforced:
+
+  - **A note is DERIVED, never defaulted into.** `groupedNote` answers only for the
+    two words a count can mean (`delivered`, `stalled`) and returns `''` for any
+    other. Empty is falsy, so `waveNote` falls through to the verdict — the value
+    that actually describes the wave.
+  - **No phase special-case.** Checking `phase === 'Discovery'` would silence
+    today's instance and leave the fallback wrong for every other unrecognised
+    word. The defect is a fallback that asserts, not drafts specifically.
+  - **A multi-branch wave can reach the verdict arms at all** — the `waveNote`
+    ternary now `|| verdict` rather than short-circuiting on the count, so both
+    `eligible` and `blocked` grouped waves render their verdict sentence.
+
+- [#343](https://github.com/plot-pm/plot/pull/343) [`09edc11`](https://github.com/plot-pm/plot/commit/09edc114cc86cf86e5e54c7c8216806163422312) Thanks [@jwloka](https://github.com/jwloka)! - board: an eligible wave takes the actionable tone
+
+  `statusTone` colours the values a reader ACTS on — `green` and `delivered` in
+  emerald, `conflicts` and `failed` in rose — and left everything else in the
+  ordinary grey. An `eligible` wave was in that grey, yet it is the single most
+  actionable state on the board: it means _this can be started now_, the same
+  shape of prompt as a `green` PR you can merge, and the whole NOT STARTED section
+  exists to surface it. Measured 2026-08-22, NOT STARTED held six startable waves
+  in the same grey as the seven blocked ones a reader can do nothing about.
+
+  `eligible` now joins the emerald branch of `statusTone`, for the reason `green`
+  is there: the rule is _colour what a reader acts on_, not _colour the problem_.
+
+  Decided and enforced:
+
+  - **Still two colours, not three.** A word moves into a group that exists; the
+    palette does not grow, so the column stays a word to read rather than a legend
+    to learn.
+  - **`blocked` stays untoned, deliberately.** A blocked wave is the opposite
+    case — the one a reader can do nothing about — and an earlier wave holding it
+    back is the system working, not a fault.
+  - **`complete` stays untoned.** Its branches have landed and its plan moves on:
+    a complete wave prompts nothing, and emerald on rows a reader scrolls past is
+    the dilution the two-value rule guards against.
+  - **Presentation only.** No contract change and no server change — `verdict` is
+    already on the wire and already renders as the word; colour reinforces it.
+
+- [#356](https://github.com/plot-pm/plot/pull/356) [`6ba8e46`](https://github.com/plot-pm/plot/commit/6ba8e46990cffa9a69fc0c6069d4bb3fceb1553d) Thanks [@jwloka](https://github.com/jwloka)! - board: DONE holds the release scope — a released plan has drained
+
+  DONE is the release scope: work that has landed and whose version has NOT
+  shipped, waiting on its endgame test. Measured on the live board 2026-08-23,
+  41 of its 61 rows were `Released` work the board had no further say over — the
+  section that should answer _what landed and still wants testing_ was two-thirds
+  shipped history.
+
+  `Released` is the leave-condition, and it already means exactly this: an agent
+  runs `/plot-release`, the version resolves from `git tag --contains`, and the
+  plan is out of the board's scope. `rowsFromPulse` now drops a `released`-phase
+  plan's rows, so the section drains rather than accumulates — a queue, not an
+  archive. The rolling window is why it fires at all: the scan admits plans
+  released inside the last 24 h, and a freshly-released plan would otherwise
+  crowd DONE with shipped work.
+
+  Decided and enforced:
+
+  - **Dropped at the PLAN, not per row in `classify`.** A plan releases all its
+    waves at once — there is no partial release — so a released plan's every
+    branch leaves together, which asking the question once per plan says.
+    `classify` has no "not rendered" among its six groups; a released row it kept
+    would land in a section, and every section is a call to action a shipped plan
+    is not.
+  - **`released` only, never `delivered`.** A delivered plan is complete and
+    unreleased — the core of the scope, ready for the endgame — and it stays.
+    Every wave being complete is a measurement; releasing is a decision; only the
+    decision drains the queue.
+  - **The one licensed drop.** A membership rule's easy failure is losing a live
+    row silently, so the drop is confined to the single phase that earns it and
+    nothing else leaves for any other reason — asserted directly, and the
+    delivered and planless cases are pinned so an over-reach would break them.
+
+  Server-side only, in the render path: no schema change. The Discovery row that
+  also sits wrongly in DONE is a sibling's fix (`a-draft-plan-claims-no-approvals`);
+  this drains only what shipped.
+
+- [#334](https://github.com/plot-pm/plot/pull/334) [`55ec8fb`](https://github.com/plot-pm/plot/commit/55ec8fbaa8f1b2bb7ba703c52f09334fdd9478b5) Thanks [@jwloka](https://github.com/jwloka)! - board: the section rules become an executable test
+
+  The eighteen section rules were measured against the live payload and written
+  down; nothing re-ran them. This pins them as tests, asserting today's behaviour —
+  twelve rules that hold and six that do not, each failing one carrying its measured
+  number so that fixing it BREAKS the test and forces a deliberate update.
+
+  Also asserts `classify` is total over the state cross-product and stable across
+  repeated evaluation.
+
+- [#357](https://github.com/plot-pm/plot/pull/357) [`68ac0c7`](https://github.com/plot-pm/plot/commit/68ac0c7422ad014e1c35f8e4c8cbc98c2fc13f98) Thanks [@jwloka](https://github.com/jwloka)! - board: the row derivations leave AgentList.tsx into eight subject modules
+
+  AgentList.tsx was 8104 lines and every one of its last 60 commits touched the
+  file, so two branches on unrelated subjects still collided there. The 65 pure
+  row derivations (no JSX, no hooks) move out into eight modules under
+  `app/lib/agent-rows/`, grouped by subject: host-notes, collapse, waves,
+  sections, activity, stuck, row-identity and actions. A branch changing wave
+  grouping and one changing host notes now share no file.
+
+  Pure move — no function rewritten, renamed, merged, split or re-signatured;
+  every docstring travels verbatim, including the measured ones (groupedNote's
+  default over five live blocked waves, isFinished's "a local fact may describe a
+  row and never order the fleet"). No re-exports: all 14 importing files point at
+  the owning module, so AgentList.tsx no longer names a symbol it no longer holds.
+  The useChangeMarks and useActivity hooks stay behind with the components that
+  call them. AgentList.tsx: 8104 → 5284 lines. No behaviour change — the board
+  suite is green with no test's expectations edited, only its imports.
+
+- [#354](https://github.com/plot-pm/plot/pull/354) [`7f5ab50`](https://github.com/plot-pm/plot/commit/7f5ab502d454c5ee45b6784b5231bf4918733c00) Thanks [@jwloka](https://github.com/jwloka)! - board: the plan head's wave count asks the server's Wave, not the rows
+
+  The plan head summarised its waves — _"3 waves, first eligible"_ — by
+  re-grouping its own rows with `groupByWave`. That was a second answer to a
+  question `the-contract-carries-a-wave` already answers on the server: the
+  payload now carries a `Wave` per `(plan, wave)`, each placed in the one section
+  the server derived for it. A wave whose branches span sections could be counted
+  one way here and another way in DONE, which is the derivation-disagreement class
+  `the-wave-is-a-thing-the-board-can-hold` exists to close.
+
+  `waveSummaryFor` now reads `fleet.waves` — counting the plan's waves the server
+  placed in `not-started` — rather than re-grouping the rows in front of it. A
+  merged wave the server put in DONE is no longer counted under the plan head even
+  if one of its rows lingers there, and a blocked wave IS counted (it is unstarted
+  work waiting on an earlier wave, which the `open`-only row filter dropped).
+
+  `first eligible` stays a row fact from `isStartable`, the predicate the row menu
+  reads, so the summary cannot promise an action the menu refuses. Where the
+  payload carries no `waves` — a pre-wave server, whose field the board casts to
+  `undefined` rather than `[]` — the head falls back to the row derivation, so an
+  older server keeps working.
+
+- [#340](https://github.com/plot-pm/plot/pull/340) [`00456b2`](https://github.com/plot-pm/plot/commit/00456b226b00354151080470c84449ef10c16c87) Thanks [@jwloka](https://github.com/jwloka)! - board: the name track holds the name
+
+  Slot 3 of the tuple grid — the row's own NAME — was a fixed `12rem` while slot 4
+  (the artifact links) took `1fr`. On a plan-group head slot 4 is empty, so the
+  flexible track absorbed the width the name needed and a plan slug past ~20
+  characters clipped while the row sat half empty. 80% of this repo's own plan
+  slugs exceed that width, so the clip was the normal case rather than the tail.
+
+  Slot 3 is now `minmax(12rem, auto)`: the 12rem floor keeps a narrow viewport
+  unchanged, and the `auto` ceiling lets a long name claim the room slot 4 is not
+  using. The name's own span still carries `truncate`, so the fix is _clip when
+  needed_ — the ellipsis returns exactly when the text genuinely exceeds the space,
+  proven in a real browser by comparing `scrollWidth` against `clientWidth`, not by
+  counting characters against yesterday.
+
+  The breakpoint arithmetic is unchanged: `minmax` keeps the floor at 12rem, so the
+  grid still needs 508 / 604 px before the flexible track gets a pixel, with 36 px
+  of headroom under the 640 px `sm` breakpoint. The guard test's three assertions
+  were re-expressed against the `minmax` shape — the track-equality list, the
+  "exactly one track absorbs the slack" predicate (now naming `1fr` directly), and
+  the `fixedPx` floor derivation — so each still tests what it was written to test.
+
+  **Overridden 2026-08-23:** each row is its own CSS grid, so `auto` sizes to that
+  row's content and column edges no longer line up between a plan head and a branch
+  row beneath it. That was the property `agent-rows-line-up` established, and the
+  operator deliberately gave it up so the name renders in full: a reader who cannot
+  read the name loses more than one whose columns do not align. The marks track
+  (slot 1) still aligns; only slots 3+ move.
+
+- [#361](https://github.com/plot-pm/plot/pull/361) [`3e6e3cd`](https://github.com/plot-pm/plot/commit/3e6e3cd0e70b82c3e38cba759e2457439609ce5a) Thanks [@jwloka](https://github.com/jwloka)! - board: rename Endgame phase to Testing
+
+  The phase after Development is now called Testing rather than Endgame. This
+  reflects what actually happens there: a fully-merged plan sits in that column
+  waiting for verification before delivery. The name "Testing" communicates the
+  activity; "Endgame" communicated only position.
+
+  Updated:
+
+  - `BOARD_PHASES` enum value
+  - `PHASE_LEADERSHIP` record key
+  - `toBoardPhase` mapping for `'delivered'`
+  - `phaseDateOf` switch case
+  - `PHASE_ACCENT` CSS class mapping
+  - All test fixtures and assertions
+
+  The rename is cosmetic — no behavior changes. A plan whose every wave has merged
+  still auto-bumps to this column; the Deliver action still gates on phase and
+  merged state the same way; the card's accent color stays violet.
+
+- [#385](https://github.com/plot-pm/plot/pull/385) [`15dbb97`](https://github.com/plot-pm/plot/commit/15dbb97a3af1eaae43adc230309e5a4a4dff4b56) Thanks [@jwloka](https://github.com/jwloka)! - board: a one-wave plan's row carries its wave's Start work
+
+  `one-wave-renders-as-its-plan` hid the wave row for a plan that declares exactly
+  one wave — the plan row now carries the wave's verdict. But a wave row also
+  carried an ACTION: _Start work_, the wave's own control, dispatching that single
+  wave. Hiding the row took the control with it, so a one-wave plan's row offered
+  its status and no way to act on it.
+
+  ## What changed
+
+  `PlanRow` now renders the wave row's `WaveActions` control (_Start work_)
+  alongside its own `PlanActions`, gated on the plan having a sole wave whose
+  verdict is `eligible`. For a one-wave plan there is nothing to guess — the old
+  worry that a plan-row dispatch "would have to guess which of the plan's waves it
+  meant" is exactly what a single-wave plan does not have. `plot-dispatch.sh` fans
+  out the eligible wave, which here is the only wave there is.
+
+  A MULTI-wave plan's row is unaffected: its wave rows still render and still carry
+  their own controls, so a plan-row control would be the guess the boundary avoids.
+  The plan-level acts (Approve, Commission, Deliver) are unaffected by the wave
+  count — the wave act rides ALONGSIDE them, never in place of them.
+
+- [#344](https://github.com/plot-pm/plot/pull/344) [`323088e`](https://github.com/plot-pm/plot/commit/323088e1ead0e0decea3f0436b9ab5a165ed22c3) Thanks [@jwloka](https://github.com/jwloka)! - board: the registry names a live agent, not a dead pid or nine unknowns
+
+  Three fixes to the agent registry, each measured.
+
+  **The launch stamp updates a manifest pid, it does not only fill it.** The
+  stamp matched only the empty placeholder line, so it fired once per manifest and
+  a relaunch in an existing worktree left the previous run's dead pid on the row.
+  One contract, two implementations — `stampManifest` (TypeScript, for
+  `/api/continue`, the path the defect came from) and the dispatcher's inline
+  `awk` (a detached `sh -c` cannot reach the TypeScript) — with a parity test that
+  asserts they agree byte for byte. A relaunch now overwrites the pid, rewrites
+  `startedAt`, and records `previousPid` and an incremented `relaunches`; a first
+  dispatch is byte-identical to before.
+
+  **The registry classifies every agent whose worktree it can see.** The state
+  filter gated on the manifest pid, but the classifier never reads it —
+  `plot-worker-state.sh` is handed the worktree and reads its own pid file — so the
+  gate skipped nine entries whose worktree existed. The pid is dropped from the
+  filter and the liveness docstring, which misdescribed its own function, is
+  corrected.
+
+  **A worktree with no manifest is listed.** Absence of a manifest is not evidence
+  of absence of an agent, so a worktree the registry can see and cannot rule out is
+  synthesized as an entry — excluding the main repo and branchless worktrees, and
+  inventing no launch fact it does not have.
+
+  <!--
+  bumps:
+    skills:
+      plot-dispatch: patch
+  -->
+
+- [#346](https://github.com/plot-pm/plot/pull/346) [`92dd63c`](https://github.com/plot-pm/plot/commit/92dd63c3b4890e79e09e41c279f2d0b964124334) Thanks [@jwloka](https://github.com/jwloka)! - board: lock the wave out of the kind's track
+
+  The plan's defect [#3](https://github.com/plot-pm/plot/issues/3) was a wave name (`Shaped`, `Inverted`) rendered beside the
+  kind slot on `PR`/`BRANCH`/`AGENT` rows — the wave joined the kind rather than
+  moving beside the branch name. The wave-as-kind work and [#339](https://github.com/plot-pm/plot/issues/339) (a wave renders as
+  exactly one row in exactly one section) had already removed it: every named-wave
+  branch groups under one `WaveRow` whose subject is the wave, so no branch row
+  wears a wave badge and nothing lands in the kind's track.
+
+  Adds a served-mock browser test that asserts the negative directly — no
+  `data-wave` in any kind cell, none on a plan/pr/agent/build row, and each named
+  wave rendered as exactly one `WaveRow` head — so a change that reintroduces a
+  branch-row wave badge is caught. Verified against the pre-[#339](https://github.com/plot-pm/plot/issues/339) behaviour by
+  reinstating the `length > 1` wave-fold threshold: the suite goes red, then green
+  once restored. No runtime behaviour changes.
+
+- [#347](https://github.com/plot-pm/plot/pull/347) [`c767e4f`](https://github.com/plot-pm/plot/commit/c767e4fb5f457d47500a29f7a937624624076c42) Thanks [@jwloka](https://github.com/jwloka)! - A regression lock pins that a long wave name stays inside its cell and never paints over the status column. Since `a-wave-is-one-row` the wave name is projected as an ordinary `plan` link and clipped by the shared `min-w-0 truncate` chain, so the overlap the board reported is already prevented — on both the fixed `12rem` name track and the `minmax(12rem,auto)` track `the-name-track-holds-the-name` introduces, and at viewports narrow enough that the links track has no slack left to absorb the name. The lock asserts the geometry (the name cell's box against the status cell's) rather than the rendered string, since a string that is merely shortened can still overlap, and that the full name is recoverable on hover.
+
+- [#377](https://github.com/plot-pm/plot/pull/377) [`103d116`](https://github.com/plot-pm/plot/commit/103d116db31ec21bc4f7e5d0fb1e2fc8aa6ee21a) Thanks [@jwloka](https://github.com/jwloka)! - A row no longer cites a pull request that was closed without merging. A closed
+  PR is an ended artifact, not an ended branch: work on the branch continues
+  toward another PR, and the wave lives on in the branch.
+
+  `prOutranks` already preferred an open PR over a closed one, but it ranks the
+  PRs a head carries and never asks whether the winner is worth showing. Measured
+  2026-08-24: ten branches carried a single closed PR, and one rendered _worker
+  finished — review it_ over a PR closed as superseded an hour earlier — the board
+  asking a reader to review something withdrawn.
+
+  The row now shows the branch and its git state, and links a PR only where one is
+  live. No verdict changes: `classify` already receives the open-only record, so
+  the wave arithmetic is untouched.
+
+- [#395](https://github.com/plot-pm/plot/pull/395) [`f77fd54`](https://github.com/plot-pm/plot/commit/f77fd54b716485af1922bd3cc7c17ce39152bb95) Thanks [@jwloka](https://github.com/jwloka)! - plot-worker-state: a PR outranks a non-zero exit, about the TASK only
+
+  Measured 2026-08-24 on `bug/the-agents-tab-filters-on-membership`: a worker was
+  killed (SIGTERM, exit 143) **after** its work was complete and pushed, with PR
+  [#393](https://github.com/plot-pm/plot/issues/393) open. The row rendered `worker crashed · someone is on it` and could never
+  stop saying it — nothing about that branch would ever change a recorded exit
+  code, so the row was frozen on a claim that was already false when written.
+
+  **The exit code and the row answer different questions.** The code says how the
+  PROCESS ended; "someone is on it" is a claim about the WORK. Those come apart
+  exactly when a finished worker is killed, and `has_pr` was consulted only in the
+  `0)` arm — every other code returned `failed` without ever asking whether the
+  branch had shipped. The comment above that arm explains why exit 0 was the one
+  refined ("the blurred one"), and it is right about the process; the gap is that
+  one caller renders a task claim from a process verdict.
+
+  **The failure is not hidden.** With no PR fact this stays `failed` — calling a
+  genuine crash finished is the mistake in the other direction, and it is the one
+  this must never make. A PR is the single fact that licenses the upgrade, because
+  a PR means the work reached a reviewer. The exit code is still reported in the
+  third field, so a reader can still see the worker was killed; only the state
+  word changes.
+
+  The test asserts both directions from one fixture: `exit 143` with no PR fact is
+  still `failed`, an explicit "no" is still `failed`, and only `pr` reads
+  `finished` — plus that 143 survives in the triple. It calls the classifier
+  directly rather than through a consumer, because the table test drives the scan
+  with `--offline` and plot-dispatch off disk, so neither can ever supply `pr`.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#378](https://github.com/plot-pm/plot/pull/378) [`7f6ea77`](https://github.com/plot-pm/plot/commit/7f6ea771206bab2c98aa292be0b7234cc438f7a4) Thanks [@jwloka](https://github.com/jwloka)! - A plan head's _N waves elsewhere_ count is measured against the waves the head
+  actually holds, rather than against the section it renders in.
+
+  A wave carries one of two sections (`done` or `not-started`, from whether it is
+  complete) while a row carries one of six, so a row needing attention sat in a
+  section no wave could match — and the head then counted every wave, including
+  its own, as elsewhere. Measured 2026-08-24: 30 of 80 rows disagreed with their
+  own wave's section, and 16 plan heads reported all their waves elsewhere,
+  one-wave plans among them announcing that their only wave was somewhere else.
+
+- [#392](https://github.com/plot-pm/plot/pull/392) [`7091ab2`](https://github.com/plot-pm/plot/commit/7091ab279d687be709959918189005a2f018d0be) Thanks [@jwloka](https://github.com/jwloka)! - Render a wave row as a wave row in every section, WORKING included
+
+  A row whose `kind` is `wave` rendered through the wave row in NOT STARTED — its
+  name leading slot 3 — but as a branch row in WORKING, where the branch took slot
+  3 and the wave's name was demoted to a badge. One function decided two
+  questions: `waveGroupsFor` skips grouping in WORKING on purpose (it orders by
+  agent and must not bury unrelated waves under plan heads), but `ungroupedRows` —
+  its complement — rendered everything it returned as a branch `<Row>`.
+
+  Skipping the group no longer skips the row's kind: an ungrouped `kind: 'wave'`
+  row now renders through `WaveRow` as a wave of one, so the same wave reads the
+  same way in every section. WORKING keeps its agent ordering and shows no plan
+  heads; the worker facts (`worker running (pid …)`, the live-worker status, the
+  activity dot) survive on the wave row. Because a WORKING wave now carries
+  `data-wave-row`, the _blocked by_ jump has a wave list to descend from there —
+  the sibling `Found` wave builds on this.
+
+- [#393](https://github.com/plot-pm/plot/pull/393) [`af7772c`](https://github.com/plot-pm/plot/commit/af7772c14adddcb6b397a1203fc0f89ddd85bfa4) Thanks [@jwloka](https://github.com/jwloka)! - fix(@plot-pm/board): the Agents tab filters on sprint membership
+
+  The Agents tab sprint filter now joins on the sprint file's membership list
+  rather than `row.sprint`. Previously the filter allowed ANY row with an empty
+  sprint field to pass, which admitted 53 plan rows (waves/branches) alongside
+  the 2 genuine plan-less rows.
+
+  - Added `slugPassesSprintFilter` function to filters.ts — the generalized
+    predicate shared by all three tabs (Board, Swimlanes, Agents)
+  - Updated `sprintMembershipLookup` to accept both `SprintCard[]` and
+    `FleetSprint[]`, since the Agents tab reads from fleet.sprints
+  - Changed the exemption from empty sprint string to row KIND: only `release`
+    rows and unplanned `pr` rows (where `row.plan === ''`) pass without a
+    membership check
+
+  <!--
+  bumps:
+    skills: {}
+  -->
+
+- [#396](https://github.com/plot-pm/plot/pull/396) [`a7240f8`](https://github.com/plot-pm/plot/commit/a7240f8bbdf23764c08336bb626ff3c4c92ed0ca) Thanks [@jwloka](https://github.com/jwloka)! - Test: the blocked-by jump finds a blocker in WORKING
+
+  The _blocked by_ ⓘ now finds a blocker that is being worked on right now.
+  Wave [#392](https://github.com/plot-pm/plot/issues/392) ("a wave renders as a wave row in every section") rendered
+  WORKING waves through `WaveRow`, which carries `data-wave-row` and sits
+  inside a `data-wave-list` wrapper. This wave adds the test proving the
+  `Spoken` → `Named` case works: clicking ⓘ on a blocked wave scrolls to
+  and flashes the blocker in WORKING, the section a blocker is most often in.
+
+  <!--
+  bumps:
+    board: patch
+  -->
+
+- [#386](https://github.com/plot-pm/plot/pull/386) [`6608a22`](https://github.com/plot-pm/plot/commit/6608a223631cbf4d0e105f9ed62280f3aff2d261) Thanks [@jwloka](https://github.com/jwloka)! - board: the Board-tab sprint filter reads the sprint file
+
+  The Board tab's sprint filter now joins on the sprint **file's member list**
+  (`sprint.members`) rather than the plan's `Sprint:` back-reference field
+  (`card.sprint`). This is the same membership rule the Agents tab already uses.
+
+  The plan measured: 19 plans in the sprint file, only 5 carry the `Sprint:`
+  back-reference, 14 have empty/placeholder/absent fields. Joining on `card.sprint`
+  showed 5 of 19 — a lie about the sprint's contents.
+
+  - **File membership wins for sprints WITH files:** for sprints that have a
+    directory entry in `board.sprints`, membership comes from the sprint file's
+    `- [ ] [slug]` lines, not from `card.sprint`.
+  - **Fallback for inline-only sprints:** for sprints named only on plans (no
+    sprint file exists), we fall back to `card.sprint` matching — so repos without
+    sprint files still work.
+  - **Deferred plans excluded:** plans in the sprint file under `### Deferred` are
+    not counted as members, matching the Agents tab behavior.
+  - **One rule, both tabs:** `sprintMembershipLookup`, `passesSprintFilter`, and
+    `withSprintCounts` are now shared between the Board tab and the Swimlanes view,
+    using the same membership derivation the Agents tab has always used.
+
+- [#399](https://github.com/plot-pm/plot/pull/399) [`768186d`](https://github.com/plot-pm/plot/commit/768186d9dd22305b3e85d44c98a04acde0d3b5d6) Thanks [@jwloka](https://github.com/jwloka)! - infra: the cap gates auto-dispatch and names the branches holding the slots
+
+  **maybeAutoDispatch refuses at the cap and names the branches.** When auto-dispatch
+  is on and the budget is zero or negative (parallelAgents - liveCount - inFlight <= 0),
+  the board logs:
+
+  ```
+  auto-dispatch: at cap (N), refusing new dispatch. Slots held by: branch1, branch2, ...
+  ```
+
+  This makes the refusal visible rather than silently withholding work.
+
+  **liveAgentBranches helper.** Returns the branch names of registry entries that
+  occupy concurrency slots (running or waiting, with branch not yet merged or
+  deferred in the pulse).
+
+  **plot-dispatch.sh warns and proceeds when the resulting count exceeds the cap.**
+  After spawning workers, if the live count exceeds the stored cap, the script logs
+  a warning and raises the cap to match:
+
+  ```
+  WARNING: n_running (X) exceeds configured cap (Y). Raising cap to X and proceeding.
+  ```
+
+  This is the deliberate choice: never kill a running worker, only withhold the next
+  dispatch.
+
+  <!--
+  bumps:
+    skills:
+      plot-dispatch: patch
+  -->
+
+- [#388](https://github.com/plot-pm/plot/pull/388) [`b64a157`](https://github.com/plot-pm/plot/commit/b64a157d1d3beb0b6c35c5e875573ca922ec05df) Thanks [@jwloka](https://github.com/jwloka)! - The change mark watches the INSTANT of the newest write rather than the age of
+  it. `changed_ago_seconds` is recomputed against `now` on every scan, so watching
+  it flashed every row that had one on every pulse, forever — while rows with no
+  worktree, and so no age, never flashed at all. The scan now carries `changed_at`
+  beside the age; the age remains for display.
+
+- [#387](https://github.com/plot-pm/plot/pull/387) [`2a37485`](https://github.com/plot-pm/plot/commit/2a374851862254343561a57714b779fb16bb2feb) Thanks [@jwloka](https://github.com/jwloka)! - The row components leave `AgentList.tsx` into `rows.tsx`, `menus.tsx` and
+  `marks.tsx` under `lib/agent-rows/`, beside the derivations that moved in wave
+  one. The shell drops from 5958 lines to 1743 and holds the `AgentList`
+  component, its hooks, and re-exports for the symbols tests read by name.
+
+  A pure move: every component is byte-identical to its previous form apart from
+  the `export` keyword the split requires.
+
+- [#389](https://github.com/plot-pm/plot/pull/389) [`1c354e0`](https://github.com/plot-pm/plot/commit/1c354e03b4b4ee5389b15b4206d632d3ba49258d) Thanks [@jwloka](https://github.com/jwloka)! - `fleet.sprints` gains `members`: the sprint file's plan array, the same one
+  `board.sprints` already carries. The Agents tab reads the fleet payload, not
+  the board payload, so without this it cannot join on sprint membership.
+
+  <!--
+  bumps:
+    skills:
+  -->
+
+- [#390](https://github.com/plot-pm/plot/pull/390) [`6b9744a`](https://github.com/plot-pm/plot/commit/6b9744a50ea025402acac447057b0b74fe23e2df) Thanks [@jwloka](https://github.com/jwloka)! - infra: the registry holds the worker pid, not the worktree
+
+  The pid source moves from `$wt/.plot-worker.pid` to the session manifest at
+  `.plot/agents/<session>.json`. `plot-worker-state.sh` now resolves
+  worktree to session and reads the pid from the manifest; the worktree file
+  remains a fallback for backward compatibility with pre-manifest dispatches.
+
+  **startedAt validation prevents stale pid reuse.** A pid alone cannot say
+  whether the process is the one the manifest recorded — a quick exit followed
+  by unrelated process reuse produces a false positive. The manifest already
+  carries `startedAt`; `plot-worker-state.sh` now compares it against the
+  process start time (via `ps -o lstart=`) with 2 s slack for clock skew.
+  A mismatch reads as `finished` rather than `running`.
+
+  No behavior change for callers: the three states, their exit codes, and
+  the tab-separated output format remain identical.
+
+  <!--
+  bumps:
+    skills:
+      plot-dispatch: patch
+  -->
+
+- [#397](https://github.com/plot-pm/plot/pull/397) [`efa57dc`](https://github.com/plot-pm/plot/commit/efa57dcee16efde1602ed93beee0cbcf519eb87c) Thanks [@jwloka](https://github.com/jwloka)! - fix(@plot-pm/board): the sprint control names its state
+
+  The sprint filter control now clearly communicates what it does:
+
+  - Added "Sprint only" label beside the toggle checkbox, so readers know what
+    turning it on means without having to try it
+  - Added "Sprint:" prefix before the sprint name, identifying the kind of thing
+    the line names
+  - Changed "→ <version>" to "target <version>" to clarify the release is where
+    the sprint is going, not where it has been — answering the question "2.9.0
+    is already released, right?" that the bare arrow prompted
+
+  <!--
+  bumps:
+    skills: {}
+  -->
+
+- [#405](https://github.com/plot-pm/plot/pull/405) [`c7aba0f`](https://github.com/plot-pm/plot/commit/c7aba0f3aa896aea094f01201895a793b71453b3) Thanks [@jwloka](https://github.com/jwloka)! - board: a busy worker names its wave
+
+  A running worker's row now names its wave, joined from `fleet.waves` even when
+  no branch row exists. Previously the unjoined shape (a scratch branch, `main`,
+  or an unlisted branch) had no wave link — the wave arrived only through the
+  branch row's `row.wave` field.
+
+  Silent where the branch belongs to no wave: a `main` worker or a scratch branch
+  has no wave to name, and `(unnamed)` is filtered out as noise — the same rule
+  `waveLabel` applies to a branch's wave badge.
+
+  Wave Named from plan `the-working-section-shows-every-worker`.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#417](https://github.com/plot-pm/plot/pull/417) [`145d87b`](https://github.com/plot-pm/plot/commit/145d87b585d42f4fd12a0466e5e0e5c52ac86284) Thanks [@jwloka](https://github.com/jwloka)! - board: a filtered section says what it hid
+
+  A section that says `(3)` while hiding 5 looks complete when it is not — a
+  reader who has forgotten the toggle is on sees an empty estate and no reason
+  for it. The spec says a filtered section must say what it withheld.
+
+  Each section now reports how many rows the filter withheld when any are hidden:
+  `DONE (10 plans · 19 waves) — 23 hidden by Sprint only`. Where genuinely nothing
+  exists, the section still says `none` — `0 hidden` never appears on an unfiltered
+  section, so the two cases stay distinguishable.
+
+  The hidden count is computed per section by comparing the filtered rows against
+  the unfiltered rows, only when the sprint filter is active. When no filter
+  applies, `unfilteredSectionedRows === sectionedRows` by construction, so
+  `hiddenCount` is zero and the suffix does not render.
+
+- [#406](https://github.com/plot-pm/plot/pull/406) [`38f2682`](https://github.com/plot-pm/plot/commit/38f2682797936c320b0d4d8b6123980e024ea3fe) Thanks [@jwloka](https://github.com/jwloka)! - board: a ready PR asks for you
+
+  A non-draft PR with green checks now reaches WAITING ON YOU even when its worker
+  is still running. Previously `prAsksNobody` returned true for any green PR,
+  leaving three ready green PRs ([#389](https://github.com/plot-pm/plot/issues/389)/[#390](https://github.com/plot-pm/plot/issues/390)/[#391](https://github.com/plot-pm/plot/issues/391)) reviewable but invisible while
+  their workers continued.
+
+  The fix distinguishes draft state from check state:
+
+  - **Draft PRs ask nobody** — the author is still working, stay in WORKING
+  - **Pending PRs ask nobody** — CI is running, no person can review yet
+  - **Green non-draft PRs ask for review** — the work is done, needs a reviewer
+
+  The 2026-08-17 fix added `green || pending` to keep a draft green PR in WORKING.
+  That was correct for drafts but one notch too wide for ready PRs, which were
+  silently filtered from the review queue.
+
+  Wave Ready from plan `the-working-section-shows-every-worker`.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#424](https://github.com/plot-pm/plot/pull/424) [`b838a19`](https://github.com/plot-pm/plot/commit/b838a19025be5c3fedea6475f3b96ddcc4cdafdc) Thanks [@jwloka](https://github.com/jwloka)! - A running worker's row says whether its child is idle
+
+  `running` is honest and coarse. Measured across the fleet 2026-08-25 it covered a
+  worker mid-thought, a worker between waves, and a worker whose child had crashed
+  hours earlier while the loop waited on it — and 11 of 13 workers were in that
+  last, worst case. The word is true and tells a reader nothing about which.
+
+  A running worker's row now carries a **secondary cue** saying which kind of
+  running it is — a child doing work reads `working`, a child whose CPU clock is
+  frozen reads `idle`. `plot-worker-state.sh` gains `plot_worker_activity`: it
+  samples the worker's whole descendant CPU twice and reports the growth. The
+  discriminator is the CHILD's CPU, not the shell's — the loop shell waits on its
+  child and burns near-zero CPU in every case, so an implementation reading the
+  shell's own CPU distinguishes nothing. The fleet scan emits `worker_activity`
+  beside `worker`, only where `worker` is `running`; the board forwards it onto the
+  row and `workerStatus` renders it.
+
+  It is a **cue, not a sixth state**. `AgentStateSchema` stays five members, its
+  size pinned by a test, and `isLiveState`/`isBrokenState` are untouched — an idle
+  worker with a live child still _is_ running, and `idle` is an attribute of
+  `running` carried in its own `WorkerActivitySchema`, never a peer state. This
+  does not kill anything; ending a hung worker is a separate plan.
+
+- [#414](https://github.com/plot-pm/plot/pull/414) [`f733ac9`](https://github.com/plot-pm/plot/commit/f733ac9d1c5d048fcc4849671fce2598a71c4aa2) Thanks [@jwloka](https://github.com/jwloka)! - board: a section header counts what it shows
+
+  A grouped section renders plan heads, each folded with its own wave count, so
+  `DONE (19)` sat above ten visible heads — the header counting waves while the
+  reader counted plans, a mismatch no test caught because none compared a
+  control's number against the section beneath it.
+
+  `sectionTally` now derives both figures the way the component renders, group by
+  group: `plans` is the visible-line count (a plan head where the group folds, its
+  own rows where it does not), `waves` the scope a reader reaches by expanding
+  every head. Where the two agree — an ungrouped or empty section — the header
+  renders one number, so `QUIET (0)` never grows into `QUIET (0 plans · 0 waves)`.
+  Where they differ it names both and says which: `DONE (10 plans · 19 waves)`.
+
+  WORKING is left as [#403](https://github.com/plot-pm/plot/issues/403) made it: it renders the registry, one row per agent, and
+  its number stays `agents.length`.
+
+- [#409](https://github.com/plot-pm/plot/pull/409) [`47d85ea`](https://github.com/plot-pm/plot/commit/47d85ea99ee511d86d5d3a53c0cf87d86e8882f5) Thanks [@jwloka](https://github.com/jwloka)! - A spawned agent survives the watcher, and a plan row says how often it was interrogated
+
+  Two defects found walking the v2.9.0 endgame checklist.
+
+  **The prompt was inside the watched tree.** `pnpm board` runs under `node
+--watch`, which watches the whole repo and does not read `.gitignore`. All four
+  spawning routes — idea, commission, deliver, reslice — wrote their prompt to
+  `.plot/<name>.md` while keeping their log and state OUTSIDE the checkout. So the
+  prompt restarted the very server that had just spawned the agent. Measured
+  2026-08-25: clicking _Create plan_ on issue [#333](https://github.com/plot-pm/plot/issues/333) wrote `.plot/idea-issue-333.md`
+  and the board log recorded `Restarting 'board-server.mjs'` in the same second.
+  The prompt now joins the log and state beside the checkout, which is where the
+  log's placement said it belonged all along.
+
+  **A plan row never said how many rounds it had been interrogated.** 40 of 120
+  cards carry `rounds`, the Board tab renders every one, and the Agents tab
+  rendered none — the field is a fact about the PLAN, and the plan head is where a
+  plan fact belongs. `PlanRow` already held the card through `cardForPlanFile`;
+  nothing asked it. `roundsBadgeText` is reused rather than restated, so the rule
+  that `0 rounds` must never render lives in one place.
+
+  The four route tests moved to a nested temp dir, the shape
+  `implement-route.test.ts` had already established for exactly this: with the
+  repo AT the tmpdir root, files written to `path.resolve(repoRoot, '..')` land in
+  the shared temp directory and survive the cleanup. The `.log` had been leaking
+  that way already; nothing noticed because no test asserts a log was NOT written.
+
+- [#412](https://github.com/plot-pm/plot/pull/412) [`5b3764c`](https://github.com/plot-pm/plot/commit/5b3764c85c4d9ce7ba2bac6e36753c5162509bff) Thanks [@jwloka](https://github.com/jwloka)! - A stalled worker needs a person
+
+  **The companion to `working-lists-the-live-agents`.** WORKING now shows only
+  live workers (`running`, `waiting`), and this wave routes the broken ones —
+  `stalled` and `unknown` — to WAITING ON YOU as problem reports.
+
+  A `stalled` entry is work on the floor with no PR. An `unknown` entry is a
+  question the board cannot answer. Both say _go look at this_ — exactly what
+  WAITING ON YOU exists to say.
+
+  `brokenAgentRows` mirrors `workingAgentRows`: filters to `isBrokenState` (an
+  allowlist of the two broken states), joins to branch rows by the same rule,
+  and returns the same shape. The caller renders each as a `RegistryRow` in the
+  WAITING ON YOU section, where the state badge and worktree path make the
+  problem visible.
+
+  `finished` is neither live nor broken — it is not a worker, and it is not a
+  problem. The PR carries the work; the entry drains through reconciliation.
+
+  <!--
+  bumps:
+    skills: {}
+  -->
+
+- [#421](https://github.com/plot-pm/plot/pull/421) [`e564e33`](https://github.com/plot-pm/plot/commit/e564e33363e79efdd0aab2780f8144a63688d457) Thanks [@jwloka](https://github.com/jwloka)! - A running agent's state reads `running`, not a sentence
+
+  `agentStateStatus` mapped four of five registry states to their own name and one
+  — `running` — to `someone is on it`. Reported from a running board on
+  2026-08-25, in the reader's own words: _"'someone is on it' is no agent status."_
+
+  The five states now share one vocabulary. `running` renders `running`, in the
+  same one-word grammar its four siblings use. The withdrawn sentence answered a
+  different question — _should you worry about this row?_ — and read identically on
+  every WORKING row (11 of 11, measured), so the column described nothing. The
+  function's own docstring already made the case: _a row whose usual state is a lie
+  teaches its reader to ignore the row_ — and a word that is always the same
+  teaches the same lesson by being uninformative.
+
+  The 18 assertions of `someone is on it` across 8 files are **rewritten, not
+  deleted**: the browser case named _reads "someone is on it" for a running worker_
+  becomes the assertion that a running worker reads `running`, with its docstring
+  saying why the earlier contract was withdrawn.
+
+  `AgentStateSchema` is unchanged — still five members, its size pinned by a test.
+  The idle distinction (a running worker whose child has gone quiet) is a CUE, not
+  a sixth state, and is wave `Marked`'s subject.
+
+  The startability verdict `someone-is-on-it` (a `wip`/`claimed` branch a reader
+  may not start) is a separate contract in `PlanStartabilitySchema` and is
+  untouched — a different question, in a different column, that this plan does not
+  address.
+
+- [#410](https://github.com/plot-pm/plot/pull/410) [`d9a8c66`](https://github.com/plot-pm/plot/commit/d9a8c66d2ce59e0c920fe01b8b9272368b23be2c) Thanks [@jwloka](https://github.com/jwloka)! - An idea gets its own worktree, and the header follows a checkout
+
+  **The board served a branch nobody chose.** `/plot-idea` runs `git checkout -b
+idea/<slug>` (SKILL.md:250), and `/api/idea` spawned it with `cwd: repoRoot` —
+  the board's own checkout. That checkout is therefore the one that moved.
+
+  Measured 2026-08-25: clicking _Create plan_ on issue [#333](https://github.com/plot-pm/plot/issues/333) left the board's
+  worktree on `idea/the-pr-list-join-is-silently` with **no worktree anywhere on
+  `main`**. A WORKING row then inherited that branch's PR and offered _Review_ for
+  a PR the agent had never opened.
+
+  The route now adds a detached worktree beside the checkout and spawns there. It
+  refuses rather than falling back to `repoRoot`, because falling back is the
+  defect. Where `repoRoot` is not a git repository at all — every unit test here
+  builds a plain directory — there is no checkout to displace and spawning in
+  place is correct, not a fallback. Where there is no remote, the new tree starts
+  at `HEAD` rather than an invalid `origin/<base>`.
+
+  The other spawning routes keep `repoRoot` and are right to: approve, deliver and
+  reslice edit plan files and move no checkout.
+
+  **And the header went on saying `main` for the process's whole life.**
+  `currentBranch` memoised on the reasoning that _"a process serves exactly one
+  worktree"_ — true, but that worktree can change BRANCH. It is now cached for
+  five seconds: the per-request `git` fork this file was written to avoid stays
+  avoided, and a checkout shows up before a reader concludes the board is broken.
+
+  That was the worst field to get stuck: the release checklist tells a reader to
+  trust the header when a row looks stale, so the display kept as ground truth was
+  the one that had gone wrong.
+
+  The new test asserts the board's checkout does not move, by making the spawned
+  command itself run `git checkout -b`. Asserting only that a worktree exists
+  passes with the defect still present — verified by mutation.
+
+- [#427](https://github.com/plot-pm/plot/pull/427) [`1055938`](https://github.com/plot-pm/plot/commit/10559381d9339fc611b0b7bd35c770e935b274d3) Thanks [@jwloka](https://github.com/jwloka)! - Auto-dispatch stops spending its budget on a branch a dispatch cannot claim
+
+  Reported 2026-08-25: auto-dispatch was on, the wave was eligible, a slot was
+  free, and nothing started. The budget went, every pulse, to an already-claimed
+  `wip` branch of an earlier plan — `plot-dispatch.sh` refused the claim (its ref
+  already exists, so the push is non-fast-forward), so the dispatch changed no
+  state and the cycle repeated forever. Because plans iterate in filename (date)
+  order, the oldest stale claim won the budget every pulse.
+
+  `planAutoDispatch` and `startableBranches` now count a `wip` branch as startable
+  only when a dispatch could actually claim it. A pulse reports `wip` only for a
+  branch whose `origin` ref exists (the scan walks its commits to derive the
+  state), and that ref is exactly what the claim push collides with — so a `wip`
+  branch is work but not a dispatch a script would honour. `isStartable`'s
+  state-only rule is unchanged, keeping resumable waves resumable at the row
+  level; the ref guard lives beside it as `refBlocksClaim`/`dispatchable`.
+
+  `maybeAutoDispatch` names the branch(es) it skipped, once per pulse, so a
+  withheld budget is a visible decision rather than a silent no-op. No host call
+  is added — the claim signal comes from refs the scan already read.
+
+- [#418](https://github.com/plot-pm/plot/pull/418) [`63fc92f`](https://github.com/plot-pm/plot/commit/63fc92ffe9f760c0ee52a17455c266a3a6cd39a2) Thanks [@jwloka](https://github.com/jwloka)! - board: one `⋯` per row, with the wave's acts in a section
+
+  A plan row whose plan has exactly one eligible wave wore **two** three-dot
+  menus: `PlanActions` and, beside it, a sibling `WaveActions` carrying the
+  wave's _Start work_. The two buttons are identical to look at and hold
+  different acts, so the only way to learn which was which was to open both.
+
+  Reported from a running board on 2026-08-25.
+
+  The wave's act now renders **inside** `PlanActions`, under a labelled
+  `Wave <name>` rule. The acts are separated rather than flattened into one
+  list, because they answer different subjects: everything above the rule acts
+  on the PLAN, and the section below it acts on a WAVE. A reader can see which
+  is which without opening anything.
+
+  **The render gate had to widen with it.** `PlanActions` only draws its trigger
+  when `isDraftPlan || canDeliver || hasEligible`, and `hasEligible` reads
+  `card.waveSummary.eligible` — which a payload can report as 0 while the fleet
+  still names one eligible wave. The old sibling menu had no such gate; it
+  rendered on the wave's verdict alone. Folding the act inward without adding
+  `soleWave` to the gate deleted the control on exactly the rows this fixes,
+  and the browser test caught it.
+
+  Its anti-contract test is rewritten rather than deleted: it asserted the
+  second menu, which is the behaviour being reversed. It now pins **one**
+  trigger and a named wave section, and its sibling's `[data-wave-actions]`
+  assertion — which became vacuous once that attribute lived only on real wave
+  rows — was sharpened to assert on the section instead.
+
+- [#423](https://github.com/plot-pm/plot/pull/423) [`9923087`](https://github.com/plot-pm/plot/commit/9923087cbc1da366e622a248123074ccf4b3c6c9) Thanks [@jwloka](https://github.com/jwloka)! - plot: recover what PR [#57](https://github.com/plot-pm/plot/issues/57) still had that main did not
+
+  Six branches opened 2026-07-25 had their PRs closed the same day, each noting
+  "Consolidated into [#57](https://github.com/plot-pm/plot/issues/57)". [#57](https://github.com/plot-pm/plot/issues/57) then sat open four weeks and fell 1738 commits
+  behind main, with six conflicts — all in prose files where meaning matters.
+
+  A rebase was rejected. The July contributions are 1–11 lines per file against
+  45–218 lines of subsequent work on main, so rebasing would risk four weeks of
+  development to land additions that conflict with nothing.
+
+  Measured per file instead, by grepping main for each change's own subject: four
+  of the six changes had already reached main by other routes. Four things had
+  not, and they are here — Principle 13 (renumbered from 10, since main gained two
+  principles while [#57](https://github.com/plot-pm/plot/issues/57) waited), the model-provenance doc, the ralph-plot-sprint
+  deliverable rubric, and the runner's scratch directory in the ignore file.
+
+  The runner script's 156 lines of budget machinery are deliberately NOT here: it
+  is code, not prose, and its interaction with four weeks of runner changes was
+  never measured. The plan says so, and says the tracer question stays open.
+
+- [#428](https://github.com/plot-pm/plot/pull/428) [`52f35bb`](https://github.com/plot-pm/plot/commit/52f35bbe6e3a566a4145eb9bd0ab464e4366e8d3) Thanks [@jwloka](https://github.com/jwloka)! - feat(@plot-pm/board): the board reports registry metadata
+
+  A board started in a worktree with no `.plot/agents/` of its own synthesizes
+  the entire fleet from `git worktree list`, and nothing else on screen said so.
+  The rows rendered, the agents carried no sessions, the drop menu vanished, and
+  an operator had no way to tell a synthesized fleet from one that happens to
+  have nothing to offer.
+
+  The WORKING section header now shows the registry metadata when interesting:
+  `0 manifests, 12 synthesized` says immediately what took ten minutes to
+  diagnose: the board is reading an empty directory, not a broken one.
+
+  The display appears only when notable — either no manifests found (the error
+  case this exists for) or any synthesized entries. A healthy fleet with 7
+  manifests and 0 synthesized needs no annotation.
+
+  Hover the badge to see the full registry path and detailed counts.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#422](https://github.com/plot-pm/plot/pull/422) [`fb11cf2`](https://github.com/plot-pm/plot/commit/fb11cf268247c045dbc9688dce969f91b8e1e5bd) Thanks [@jwloka](https://github.com/jwloka)! - fix(@plot-pm/board): the drop writes where the registry reads
+
+  [#420](https://github.com/plot-pm/plot/issues/420) taught the registry READER to resolve its manifest directory through
+  `plot-config.sh` (the `Agent registry` key), but left the WRITE path in
+  `drop.ts` joining the raw `AGENT_MANIFEST_DIR` constant. A board served from a
+  worktree the dispatcher never wrote to read the dispatcher's manifests through
+  the configured directory, but a Drop looked in the board's own worktree — found
+  nothing there — and answered `dropped=true` with "no manifest found" over a file
+  that still existed. The row returned on the next pulse, and nothing
+  distinguished the action from a no-op.
+
+  `POST /api/registry/drop` now resolves the manifest directory the SAME way the
+  reader does, reusing the exported `resolveManifestDir` — one implementation of
+  _where is the registry_, resolved once and used for both the read and the
+  unlink. The Drop removes the file the board is showing, and a `dropped=true`
+  over a missing manifest is now honest: it is the same directory the reader read,
+  not a wrong-place look.
+
+- [#425](https://github.com/plot-pm/plot/pull/425) [`b3d21e2`](https://github.com/plot-pm/plot/commit/b3d21e27e561ad0e663dd1c6db68f6e0de9f9aae) Thanks [@jwloka](https://github.com/jwloka)! - ralph-plot-sprint: the runner bounds its own run
+
+  Recovers the budget machinery from PR [#57](https://github.com/plot-pm/plot/issues/57) — the last substantive thing that PR
+  still held after [#423](https://github.com/plot-pm/plot/issues/423) took its documentation. Measured 2026-08-25: main had
+  **zero** occurrences of `budget`, `ship-partial` or `deliverable checkpoint` in
+  `ralph-sprint.sh`; the July branch has 27, 9 and 21.
+
+  **Not a rebase.** [#57](https://github.com/plot-pm/plot/issues/57) is 1738 commits behind main and conflicts in six files —
+  none of them these two. The two ralph files were three-way merged onto current
+  main instead, so both sides survive: July's budget, checkpoint and ship-partial
+  machinery, and main's later `PLOT_UNATTENDED` handling and version bump.
+
+  This is the mechanism half of `opus5-longhorizon-hardening`, whose tracer was
+  built to prove exactly this: that a config-driven budget can bound an unattended
+  loop and ship partial work before the bound rather than after. Its documentation
+  half landed in [#423](https://github.com/plot-pm/plot/issues/423); the plan said the mechanism stayed open. It no longer does.
+
+- [`bb86e01`](https://github.com/plot-pm/plot/commit/bb86e01ce380122928ef19e59e9f4f178106a8f4) Thanks [@jwloka](https://github.com/jwloka)! - plot: the reaper the scan already assumed exists
+
+  `plot-reconcile-scan.sh:323` has referred to "the reaper" since it was written —
+  _"with a `deferred:` annotation the reaper would offer to DELETE real work"_ —
+  describing a component that did not exist. The scan reported; nothing reaped.
+
+  Measured on this estate 2026-08-25: **56 worktrees, 42 of them dispatch trees,
+  of which 29 were finished** and 32 held pid files for processes that had exited.
+
+  `plot-reap.sh` removes a dispatch worktree whose work has landed, and nothing
+  else. It is a script rather than an agent for the reason
+  `plot-resolve-artifact.sh` states for the one other automatic write: every
+  refusal is a MEASUREMENT, not a judgement — is a process alive, is the tree
+  dirty, did the host merge the PR. An agent asked _is this safe to delete?_ can
+  reason its way past any of the three; a script cannot, and judgement's absence
+  is what licenses the delete.
+
+  Five refusals, in the order they run:
+
+  1. a live worker process — a desk somebody is sitting at
+  2. uncommitted changes — work that exists in exactly one place
+  3. a `PLOT-BLOCKED*` marker — a worker stopped to ask a person something
+  4. a branch on the default branch — its dispatched branch is not checked out,
+     so its state was never measured
+  5. no merged PR — the host is the authority on landed
+
+  **It reads `mergedAt`, never `state`.** A merged PR reports `state: CLOSED`, and
+  squash-merge rewrites the commits so the branch stays "ahead of main" forever.
+  Ancestry alone clears 1 of 29 finished trees here; the host clears the other 28.
+  That gap is why they accumulated — the naive test says _keep_.
+
+  Default is `--dry-run`; removal needs `--yes`. Branches and refs are untouched,
+  so a reaped tree is re-creatable with `git worktree add` — the destructive act
+  is bounded to disk and never to history.
+
+- [#420](https://github.com/plot-pm/plot/pull/420) [`ae9a3bc`](https://github.com/plot-pm/plot/commit/ae9a3bc87959785d00a0dd018064c1433025179b) Thanks [@jwloka](https://github.com/jwloka)! - fix(@plot-pm/board): the registry lives where the dispatcher writes it
+
+  `AGENT_MANIFEST_DIR = '.plot/agents'` is repo-relative and `.plot/agents/` is
+  gitignored, so the manifest directory is per-worktree. A board served from a
+  worktree the dispatcher never wrote to read an empty directory and synthesized
+  the whole fleet with `session: ''` — so `BrokenAgentMenu`'s `if (!agent.session)`
+  guard fired for every row and no agent could offer _Drop this agent_.
+
+  The registry now resolves its manifest directory through `plot-config.sh` (the
+  `Agent registry` key), defaulting to `.plot/agents` so a single-checkout project
+  is unaffected. A project whose board runs outside the dispatcher's checkout
+  points the key at a shared location and the board finds the registry wherever it
+  was started from. The synthesis path stays — a hand-made worktree with no
+  manifest is still listed with `session: ''`.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#407](https://github.com/plot-pm/plot/pull/407) [`f2396e7`](https://github.com/plot-pm/plot/commit/f2396e70522610085ae66f69aa9597e2323a53b3) Thanks [@jwloka](https://github.com/jwloka)! - board: the registry drops a settled worker
+
+  An entry in the agent registry is now dropped when BOTH conditions hold:
+
+  1. The session has ended — the state is anything except `running`.
+  2. The worktree is clean — no uncommitted changes AND no unpushed commits.
+
+  Either condition outstanding (live session OR dirty/unpushed) and the entry
+  stays visible. A worker with a dirty worktree and an ended session is still
+  reported with what it is holding; a worker with a clean worktree and a live
+  session is still working. Only a worker with nothing outstanding disappears.
+
+  This cleans up the Agents tab after a fleet run where all workers finished
+  successfully — entries that have completed their work and pushed their changes
+  no longer clutter the panel.
+
+  "Clean" applies the same exclusions as `plot-worker-state.sh`: editor leftovers
+  (`.tmp1`, `.swp`), Plot's own records (`.plot-worker.*`), and tool scratch
+  directories (`.playwright-mcp/`, `.plot/agents/`, `.omc/state/`) are ignored.
+
+  The feature is opt-in in the registry API: callers that want all entries simply
+  omit the `cleanliness` option. The board passes `bashCleanliness` to enable it.
+
+- [#419](https://github.com/plot-pm/plot/pull/419) [`85dfd0f`](https://github.com/plot-pm/plot/commit/85dfd0fde2e59d6b411080d20c58ce38030b7938) Thanks [@jwloka](https://github.com/jwloka)! - fix(@plot-pm/board): the scratch filter knows the test fixture
+
+  `PLOT_TOOL_SCRATCH` excluded `.playwright-mcp/`, `.plot/agents/` and `.omc/state/`
+  but not `.plot/state/`, so the tiny-garden pulse fixture — rewritten by every
+  board test run — kept worktrees permanently dirty. A worker that only ran its
+  tests was never dropped by the reconciliation, even with a clean exit.
+
+  Added `.plot/state` to the pattern in both `plot-worker-state.sh` and
+  `registry.ts`, so those four entries drain the way the filter intends.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#403](https://github.com/plot-pm/plot/pull/403) [`176f48c`](https://github.com/plot-pm/plot/commit/176f48cc8b1991cf055958823023ef85192ce16c) Thanks [@jwloka](https://github.com/jwloka)! - board: the WORKING count is the rows
+
+  The `working` count displayed in the WORKING section header now derives from
+  the same set the section renders — `agents.length`, one derivation read twice.
+  Previously it used `liveAgentCount`, which counted only `running` and `waiting`
+  entries whose branches had not landed, causing the count to disagree with the
+  visible rows.
+
+  Measured 2026-08-24: the registry held 23 entries, WORKING rendered 23 rows,
+  and the stepper reported "2 working" — the cap's balance rather than the
+  section's contents. A reader counting rows saw one number; the label beside
+  the stepper said another.
+
+  Also labels the `parallelAgents` stepper as a cap: "parallel agents (cap)"
+  rather than "parallel agents". A cap and a measurement are different claims;
+  the label now distinguishes them.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#411](https://github.com/plot-pm/plot/pull/411) [`39446e4`](https://github.com/plot-pm/plot/commit/39446e4eafcad48b30c4de330bf0a14278796ea3) Thanks [@jwloka](https://github.com/jwloka)! - WORKING lists the workers that are working
+
+  **The section's subject is _who is working_, and it listed sessions that had
+  ended.** WORKING rendered one row per registry entry, so a complete pulse read
+  `WORKING (16)` over four live workers and twelve `stalled`/`finished`/`unknown`
+  sessions — the exact thing the endgame checklist says the count must not be:
+  the registry's size.
+
+  `workingAgentRows` now filters to the LIVE states — `running` and `waiting` —
+  before it joins to branch rows, and the `working` count applies the same rule,
+  so the count still equals the rows WORKING renders ([#403](https://github.com/plot-pm/plot/issues/403)'s property, preserved).
+
+  The definition of a live worker moves to the contract as `LIVE_STATES`, imported
+  by both `auto-dispatch.ts` (the concurrency cap) and the board, so the dispatcher
+  and the board cannot drift on what a worker is. The filter reads it through a
+  denylist (`isLiveState`): a state known to be ended is excluded, and an
+  unrecognised sixth state — an older board reading a newer registry — is shown
+  rather than hidden, because a worker nobody can see is the worse failure.
+
+  A `stalled` or `unknown` entry is not lost; it reaches WAITING ON YOU as a
+  problem report in a sibling wave of the same plan.
+
+- [#431](https://github.com/plot-pm/plot/pull/431) [`d13824e`](https://github.com/plot-pm/plot/commit/d13824e8658e86c7682919557970b0c2713281e9) Thanks [@jwloka](https://github.com/jwloka)! - Auto-dispatch does not start a wave whose brief is absent from `origin/main`,
+  and names the branches it skipped.
+
+  The check reads git rather than the filesystem: a board checkout 20+ commits
+  behind main held 150 briefs against main's 157, so an `existsSync` would have
+  refused seven starts that should have happened. `git cat-file -e` costs ~8-27 ms
+  per branch, ~100-300 ms for eleven candidates against the 5 s pulse cadence.
+
+  `planAutoDispatch` stays pure — `missingBriefs` is injected by
+  `maybeAutoDispatch`, which is already the impure side.
+
+- [#432](https://github.com/plot-pm/plot/pull/432) [`79f2081`](https://github.com/plot-pm/plot/commit/79f2081fb76b33751a1d572a3d8a689379d7792f) Thanks [@jwloka](https://github.com/jwloka)! - A branch row whose brief is missing offers a **Write brief** action in its menu.
+
+  The button calls `/api/implement` with the plan slug — the same route the plan
+  head's Implement button uses — because `/plot-implement` writes the brief as
+  part of its preparation. The label says "Write brief" because that is the
+  effect the row needs and the gap the row is showing: same route, different word
+  for the different question.
+
+  The action appears only where `needsBrief(row)` is true — the predicate PR [#431](https://github.com/plot-pm/plot/issues/431)
+  introduced — so the narrowing is in the predicate, not the button.
+
+- [#433](https://github.com/plot-pm/plot/pull/433) [`44cd611`](https://github.com/plot-pm/plot/commit/44cd611406394c461e251fbd20e4bac062bd8948) Thanks [@jwloka](https://github.com/jwloka)! - On the Agents tab, a plan head's interrogation rounds render as a badge beside
+  the phase rather than inside the wave summary.
+
+  `2 waves · 2 branches · 2 rounds` read as a third tally of the plan's parts.
+  Rounds is not a count of anything the plan contains — it is the state of the
+  discovery work, so it belongs next to `Discovery`, styled like the `draft`
+  badge and sharing that badge's rule: two badges answering different questions,
+  never folded into one word.
+
+  The Board tab is unchanged.
+
+- [#430](https://github.com/plot-pm/plot/pull/430) [`aaaace5`](https://github.com/plot-pm/plot/commit/aaaace53b0c1189df90370167581c0137cd17826) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    board:
+      "@plot-pm/board": patch
+  -->
+
+  fix(board): count live agents with landed branches against the cap
+
+  `liveAgentCount` and `liveAgentBranches` now count every live agent regardless
+  of whether its branch has merged. A live agent holds a machine (CPU, memory,
+  worktree) until it exits, not until its work lands — the slot is occupied by
+  the process, not by the work.
+
+  Measured 2026-08-25: eleven workers whose branches had merged sat at zero CPU
+  for up to ten hours, none counted against the cap, letting the fleet grow to 13
+  against a cap of 3. The earlier "liveness takes two facts" rule inverted the
+  defect by hiding landed agents from the cap while they held their machines.
+
+- [#426](https://github.com/plot-pm/plot/pull/426) [`ebd5e40`](https://github.com/plot-pm/plot/commit/ebd5e40142b5e530f2f1e500ecfa59e3edfdce5f) Thanks [@jwloka](https://github.com/jwloka)! - plot: a hung child does not hold the loop
+
+  `plot-worker-loop.sh` sourced its prompt at line 88 and waited for it to
+  return. When the agent CLI crashed WITHOUT exiting — the `Error: No messages
+returned` rejection thrown inside its own process, which leaves it alive but
+  never returning — the loop waited forever. Measured 2026-08-25: 13 live
+  workers, 11 of them with an already-merged PR, all stuck on that line; one for
+  10 hours.
+
+  The prompt now runs under a wall-clock bound. When it fires the worker logs why
+  and **exits** — it does not hop to the next wave, because a hung agent left the
+  worktree in a state nobody measured and starting a second branch on that guess
+  is worse than stopping.
+
+  The bound is **bash alone**. `timeout(1)` cannot wrap a `source` (it execs a
+  process; `. ` is a builtin), and it is not assumable anyway — measured here it
+  resolves to Homebrew coreutils, absent on a bare mac. So a background watchdog
+  sends `SIGALRM` to the loop after the bound; a trap kills the prompt tree and
+  the loop plain-`wait`s. This uses only builtins present in bash 3.2, which is
+  the stock `/bin/bash` on exactly the Homebrew-free mac that also lacks
+  `timeout(1)` — an earlier `wait -n` design silently disabled the bound there.
+
+  The duration is a `## Plot Config` key, **Worker bound**, defaulting to 3600s
+  (~1 h): honest runs on this estate were 9–29 min against hangs of up to 10
+  hours, so the default never truncates real work. `0` disables it.
+
+  A single `EXIT` trap reaps the prompt tree and the watchdog on every exit path —
+  a normal finish, a timeout, a Ctrl-C, and an outright kill of the loop — so the
+  bound leaves no orphaned `sleep` behind.
+
+- [#429](https://github.com/plot-pm/plot/pull/429) [`d2c806d`](https://github.com/plot-pm/plot/commit/d2c806d343924ce75da3452a25aa09ece447920a) Thanks [@jwloka](https://github.com/jwloka)! - fix(plot): the worker loop removes its manifest on exit
+
+  The worker loop script (`plot-worker-loop.sh`) now removes its manifest file
+  (`$PLOT_MANIFEST_FILE`) via an EXIT trap on all three exit paths:
+
+  1. Normal end — when `--next` returns no more work
+  2. Break — when a `cd` to a new worktree fails or git worktree add fails
+  3. Timeout — when the bound fires and the worker is killed
+
+  A worker that ends stops appearing in the registry immediately — the board's
+  next pulse will no longer see its row.
+
+  The reconciliation sweep STAYS. A trap cannot run on SIGKILL, so the sweep
+  remains the thing that catches a worker killed outright (kill -9). The trap
+  answers "I am leaving" — a cheaper, immediate cleanup. Reconciliation answers
+  "which entries no longer correspond to anything?" — a periodic sweep that
+  handles SIGKILL and orphaned manifests from crashes.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#413](https://github.com/plot-pm/plot/pull/413) [`9066814`](https://github.com/plot-pm/plot/commit/90668144824c675159cb4a813541c8a5f69f4c2a) Thanks [@jwloka](https://github.com/jwloka)! - fix(@plot-pm/board): the WORKING control names the workers the filter hides
+
+  When a sprint filter would hide live workers (if applied to the WORKING
+  section), the fleet control now says so: `2 working (2 hidden by filter)`.
+  The section still renders all workers — a worker is a fact about the fleet,
+  not about a reader's focus — but the control no longer contradicts the
+  section's intent silently.
+
+  `the-filter-does-not-hide-a-worker`, wave Named.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#398](https://github.com/plot-pm/plot/pull/398) [`6c842b6`](https://github.com/plot-pm/plot/commit/6c842b64add9887141344f3fd549a67931a998da) Thanks [@jwloka](https://github.com/jwloka)! - The WORKING section renders one row per registry entry, not one per branch row
+  `classify` put there.
+
+  A worker in a worktree is a fact about the FLEET; its branch's state is a fact
+  about the WORK. WORKING used to derive the first from the second — a worker
+  appeared only where the pulse produced a row for its branch AND `classify` put
+  that row in WORKING. Both fail routinely for reasons that have nothing to do
+  with the worker: a scratch branch no plan lists, the branch the board is served
+  from (`main`), or a branch that merged into DONE. Measured 2026-08-24, the
+  registry knew 23 agents and WORKING rendered none of them.
+
+  The section now iterates `fleet.agents` and joins BACK to a branch row where one
+  exists. Where a row exists the worker row carries what it knows — plan, wave, PR,
+  git state — by the same projection the branch's own row uses. Where none exists
+  the row states only what the registry knows: the worktree and the branch. Absent
+  is not false. A merged branch keeps its own row in DONE while its worker renders
+  in WORKING; both are true and neither moves.
+
+  The status word is the registry's five-way state, so `someone is on it` narrows
+  to a genuinely running worker — an idle, stalled, finished or unknown worker each
+  says its own condition, because a row whose usual state is a lie teaches its
+  reader to ignore it.
+
+  Wave 1 (`Shown`) of `the-working-section-shows-every-worker`.
+
+- [#391](https://github.com/plot-pm/plot/pull/391) [`1adf9a2`](https://github.com/plot-pm/plot/commit/1adf9a2ce5f333d08c47c81dee91717ca8f3ec30) Thanks [@jwloka](https://github.com/jwloka)! - Fix one-wave plan rows showing branch names instead of wave names
+
+  A plan with one wave was rendering branch rows directly instead of wave rows,
+  which caused the wave's name (e.g., "Derived", "Named") to be replaced by the
+  branch name (e.g., "bug/a-wave-head-says-what-its-verdict-says"). The wave row
+  is now always rendered regardless of wave count, but for one-wave plans the
+  Start work control stays on the plan row rather than duplicating on the wave row.
+
+- [#394](https://github.com/plot-pm/plot/pull/394) [`4eea90a`](https://github.com/plot-pm/plot/commit/4eea90a93742bf160f6aaf282f8842ce5f0ba7ba) Thanks [@jwloka](https://github.com/jwloka)! - fix(@plot-pm/board): a wave row speaks its own verdict
+
+  A multi-branch wave row now shows its verdict word (`complete`, `eligible`,
+  `blocked`) in the status slot instead of a section-chosen word (`delivered`
+  for DONE, `stalled` for QUIET, etc.). This makes all waves of a plan consistent
+  — six merged waves no longer show one word for the multi-branch wave and
+  another for its single-branch siblings.
+
+  Branch rows still show `delivered` for merged refs, per the existing
+  `stateStatus` function. Single-branch waves inherit their branch's status
+  via `soleStatus`, preserving the [#323](https://github.com/plot-pm/plot/issues/323) fix.
+
 ## 0.7.0
 
 ### Minor Changes
@@ -151,11 +2107,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   controls and their shared state on top of wave 1's live registry, and it
   dispatches nothing — the dispatch loop is wave 3.
 
-  <!--
-  bumps:
-    skills:
-      plot: minor
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: minor
+    -->
 
 ### Patch Changes
 
@@ -353,11 +2309,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   never mounted, and it fails against the pre-fix code for the stated reason:
   the Commission design item is absent without the prop.
 
-  <!--
-  bumps:
-    skills:
-      plot: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: patch
+    -->
 
   ## And a wave said _nobody has taken it_ over finished work
 
@@ -1216,10 +3172,10 @@ has taken it`. The server was right on every field — the row sat in
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -1309,10 +3265,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -1522,10 +3478,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -1924,10 +3880,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -2275,11 +4231,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-    <!--
-    bumps:
-      skills:
-        plot: patch
-    -->
+      <!--
+      bumps:
+        skills:
+          plot: patch
+      -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -2471,10 +4427,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -2977,10 +4933,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -3610,10 +5566,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-    <!--
-    bumps:
-      skills:
-    -->
+      <!--
+      bumps:
+        skills:
+      -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -3899,12 +5855,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-        bumps:
-          skills:
-            plot: minor
-            plot-dispatch: minor
-            plot-fleet: minor
-        -->
+          bumps:
+            skills:
+              plot: minor
+              plot-dispatch: minor
+              plot-fleet: minor
+          -->
 
   plot: `finished` is not a verdict
 
@@ -4054,10 +6010,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-        <!--
-        bumps:
-          skills:
-        -->
+          <!--
+          bumps:
+            skills:
+          -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -4564,11 +6520,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-            <!--
-            bumps:
-              skills:
-                plot: patch
-            -->
+              <!--
+              bumps:
+                skills:
+                  plot: patch
+              -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 
