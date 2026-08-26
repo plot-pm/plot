@@ -538,8 +538,14 @@ export function PlanRow({
   // rendered none. The field was never in the fleet payload's rows — it is a
   // fact about the PLAN, and the plan head is where a plan fact belongs. The
   // card was already in reach here through `cardForPlanFile`; nothing asked it.
+  // IT RENDERS BESIDE THE PHASE, not among the wave counts. `2 waves · 2
+  // branches · 2 rounds` read as a third tally of PARTS, and rounds is not a
+  // count of anything the plan contains: it is the STATE of the discovery work.
+  // `Discovery` says a plan is being thought about; the badge beside it says how
+  // far that thinking got. Same reasoning as the `draft` badge below — two
+  // badges answering different questions, never folded into one word.
   const rounds = card ? roundsBadgeText(card) : '';
-  const summary = [here, away, rounds].filter(Boolean).join(' · ');
+  const summary = [here, away].filter(Boolean).join(' · ');
   const foldable = expanded !== null;
   // THE PHASE IS THE PLAN'S, and slot 5 is where a fact about the plan is true.
   // Read from the group's rows rather than from a plan field, because a row is
@@ -706,7 +712,24 @@ export function PlanRow({
       // appears. The verdict outranks the prFold: `eligible`/`blocked`/`complete`
       // says what to do next, while a PR state is about a branch that may not
       // exist yet.
-      statusExtra={soleWave?.verdict ? (
+      statusExtra={<>
+        {/* THE INTERROGATION ROUNDS, a badge in the phase's own cell.
+            It sits BEFORE the verdict/PR fold and never replaces either: the
+            three answer different questions — *how far did the thinking get*,
+            *what can be started*, *what are its branches doing* — and a plan in
+            Discovery with an eligible wave should say both. Styled as `draft`
+            is, because it is the same kind of fact: a small standing property
+            of the row, not a state that changes under you. */}
+        {rounds && (
+          <span
+            data-plan-rounds
+            className="shrink-0 rounded-full bg-slate-100 px-1.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+            title={`Interrogated: ${rounds} of /challenge-the-plan`}
+          >
+            {rounds}
+          </span>
+        )}
+        {soleWave?.verdict ? (
         <span
           data-sole-wave-verdict={soleWave.verdict}
           title={`This plan's sole wave: ${soleWave.verdict}`}
@@ -727,7 +750,8 @@ export function PlanRow({
         >
           {prFold.word}{prFold.count > 1 ? ` (${prFold.count})` : ''}
         </span>
-      ) : null}
+        ) : null}
+      </>}
       aside={
         // THE WAVE SUMMARY — *3 waves, first eligible*, then *· 1 wave
         // elsewhere*. It answers *which slice of this plan* in the plan's own
