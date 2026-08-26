@@ -5,14 +5,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -172,6 +172,10 @@ sprints as well as active ones, with a machine-countable footer field.
    entire population this plan is about.
 6. **The scan gates nothing** — its footer count is advisory, like `index_drift`.
 7. `pnpm test`, `pnpm run test:reconcile` green.
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Notes
 

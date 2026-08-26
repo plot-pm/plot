@@ -4,13 +4,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Rounds:** 1
 
 ## Changelog
@@ -298,6 +299,10 @@ unwritable today.
   not default closed. `claimed twice` lives on the branch row and vanishes on
   fold; this is the plan's own rule — hide repetition, never exceptions — and
   the only part of it still unbuilt.
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Notes
 
