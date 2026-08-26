@@ -17,6 +17,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-26, Jan Wloka, `feature/setup-proposes-what-it-found`
 
 ## Changelog
 
