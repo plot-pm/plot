@@ -219,7 +219,7 @@ precisely the checkouts a person most wants moved.
 ## Waves
 
 
-### Rooted (Branch: infra/the-worktree-root-is-configurable)
+### Rooted (Branch: infra/the-worktree-root-is-configurable, PR: #445)
 - `Worktree root` config key, default unchanged; the prefix becomes a property of the root; `plot-resolve-artifact.sh` stops composing a path; `.gitignore` gains the directory
 
 
