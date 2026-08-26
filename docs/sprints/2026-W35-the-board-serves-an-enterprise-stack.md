@@ -50,23 +50,28 @@ GitHub team a fact and an enterprise team a blank.
 
 ### Must Have
 
-- [ ] [a-jira-ticket-reaches-the-board] `issue-list` and `issue-view` gain a
+Stories: [[the-board-is-blank-where-it-matters]] (the first three),
+[[setup-asks-what-the-repo-already-knows]] (the fourth).
+
+- [ ] [my-jira-tickets-are-in-the-inbox] My Jira tickets appear in the board's inbox, so I can turn one into a plan without leaving the board
       `jira` backend, so `Tracker: jira` stops being a key nothing reads. The
       board's ticket inbox is the one section an enterprise team cannot get any
       other way.
-- [ ] [a-jenkins-build-has-a-status] Build status resolves through a Jenkins
+- [ ] [i-can-see-whether-my-build-passed] I can see whether my build passed, from the board, without opening Jenkins
       path. The probe already finds `jen`, a Jenkinsfile, and the instance —
       `plot-host.sh` has no `jen` reference at all, so the trail ends before the
       board.
-- [ ] [a-bitbucket-issue-is-a-ticket] `issue-list`/`issue-view` stop exiting 4
+- [ ] [my-bitbucket-issues-are-in-the-inbox] My Bitbucket issues appear in the inbox instead of an empty section that reads as *you have no tickets*
       on Bitbucket. Exit 4 is honest — *cannot be asked* is not *empty* — but a
       team whose tickets live in Bitbucket sees an empty inbox forever.
-- [ ] [the-setup-skill-probes-then-asks] `/plot-board-setup` infers git host,
+- [ ] [setup-tells-me-what-it-found] Setup tells me what it found in my repo and asks only what it could not work out — and never records a key nothing reads
       tracker and CI from real signals and asks only what it cannot settle,
       writing every answer into `## Plot Config`. It currently asks and refuses
       well, but infers less than the repo already reveals.
 
 ### Should Have
+
+Story: [[the-board-is-blank-where-it-matters]].
 
 - [ ] [the-pr-list-join-is-silently] The Bitbucket 50-per-state page cap
       (issue #333). Past 50 PRs the join is silently partial and a branch reads
