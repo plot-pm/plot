@@ -73,6 +73,16 @@ Stories: [[the-board-is-blank-where-it-matters]] (the first three),
 
 Story: [[the-board-is-blank-where-it-matters]].
 
+- [ ] [the-board-says-how-old-its-plans-are] The board reports how far behind
+      its checkout is. Measured 2026-08-26: the board worktree fell 33 commits
+      behind, was pulled, and gained 23 more in one session — rendering
+      `Phase: Draft` for plans approved minutes earlier. Its two halves have
+      different sources: the scan reads `origin/main`, the plan cards read the
+      working tree, and nothing pulls it.
+- [ ] [a-dead-fetch-is-not-a-slow-one] The doc viewers bound their fetch. A
+      request killed by the board's own `node --watch` restart neither resolves
+      nor rejects, so the panel shows "Loading…" forever while its correct error
+      branch never fires.
 - [ ] [the-adapter-checks-the-cli-it-got] A `bb` too old for the flags Plot
       passes makes every Bitbucket PR read as *no PR*. Measured 2026-08-26:
       homebrew's `bb` 0.6.0 has no `--json` and shadows 1.0.0 on PATH, the
