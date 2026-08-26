@@ -52,8 +52,40 @@ Choosing **Option B** with a visible indicator (Option C as supplement) when tru
 
 ### Open Questions
 
-- [ ] Does `bb pr list` have any pagination mechanism we could use instead of falling back to per-branch?
-- [ ] Should the fallback apply to all unresolved branches or only to branches where the PR would plausibly exist (e.g., branches with commits)?
+- [ ] Does `bb pr list` have any pagination mechanism we could use instead of falling back to per-branch? *(still open — the fallback is designed to be correct either way)*
+- [x] Should the fallback apply to all unresolved branches or only plausible ones?
+      **Only branches with commits.** Answered 2026-08-26 from the code rather
+      than by preference: `plot-fleet-scan.sh` already separates `wip` (real
+      unlanded commits) from `claimed` (an empty claim marker beyond main), and
+      that derivation is free — no host call. A `claimed` branch that joined to
+      nothing almost certainly has no PR, so asking about it spends a round trip
+      to learn nothing. See *Bounding the fallback* below.
+
+### Bounding the fallback with a fact the scan already has
+
+The fallback asks the host per branch, which is the N+1 the join was built to
+remove — so it must be bounded by something, and the cheapest bound is one that
+costs nothing to compute.
+
+`plot-fleet-scan.sh` already derives `wip` from `claimed`: the first means real
+unlanded commits, the second an empty claim ref. Only a `wip` branch that joined
+to nothing gets a per-branch lookup. A `claimed` one is skipped, because a
+branch with no commits has no PR to find.
+
+**This bounds the cost by the work, not by a number.** A cap of *N lookups* would
+be arbitrary and would silently drop the N+1st branch — the same quiet
+incompleteness this plan exists to fix, one level in.
+
+### Truncation is detected, not hardcoded
+
+The obvious detector is `count == 50`, `bb` 1.0.0's page size. It fails in the
+direction that matters: if a future `bb` returns 100, a 100-PR state reports
+complete when it is truncated — **the original bug, restored silently**.
+
+So the comparison is against the **requested limit**, not a constant: a page that
+comes back as full as it could be is possibly truncated, whatever the number. It
+misfires benignly when a state holds exactly the limit (says truncated when
+complete, costing a few lookups) and cannot misfire in the dangerous direction.
 
 ## Branches
 
@@ -80,3 +112,64 @@ PR that has sat unmerged for a day. **#408 should be closed as superseded** once
 this lands, not merged — merging it would add a second copy of this file.
 
 Its two Open Questions are unchanged and still open.
+
+### Interrogated 2026-08-26
+
+One round, and both of the original open questions moved.
+
+The fallback's scope was answered from the code: the scan already computes
+`wip` vs `claimed`, so plausibility is free and the fallback is bounded by the
+work rather than by an arbitrary cap.
+
+The truncation detector was changed from `count == 50` to a comparison against
+the requested limit. The constant fails silently in the dangerous direction — a
+future `bb` page size would make a truncated list report complete, which is this
+plan's own defect restored.
+
+Pagination stays open, and the design is deliberately correct either way: if
+`bb` gains a cursor, the fallback becomes unnecessary rather than wrong.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "Fallback for all unresolved branches or only plausible ones?",
+      "a": "Only wip branches \u2014 the scan already distinguishes them from claimed, free",
+      "category": "technical"
+    },
+    {
+      "q": "Is count==50 a safe truncation detector?",
+      "a": "No \u2014 compare against the requested limit; the constant fails silently in the dangerous direction",
+      "category": "technical"
+    }
+  ],
+  "deferredItems": [
+    {
+      "q": "Does bb pr list expose pagination?",
+      "category": "technical",
+      "context": "Design"
+    }
+  ],
+  "categoriesCovered": {
+    "technical": {
+      "stack": false,
+      "architecture": true,
+      "implementation": true
+    },
+    "domain": false,
+    "ux": {
+      "happyPath": false,
+      "edgeCases": false,
+      "errors": false,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": true,
+      "scalability": false
+    },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->

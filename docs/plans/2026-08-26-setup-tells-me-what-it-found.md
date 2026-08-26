@@ -74,6 +74,30 @@ The warning is the honest form: the key is what the backend will read, and
 saying *"recorded; no backend reads this yet"* is a fact about Plot's state, not
 about the user's repo.
 
+### Two signals is a question, not a tie-break
+
+A repo can carry a `Jenkinsfile` **and** `.github/workflows/`, and many
+migrating teams carry both for months. `plot-board-probe.sh` already reports
+them as two independent booleans — `ci_signals: {jenkinsfile, gh_workflows}` —
+so the ambiguity is representable today, not hypothetical.
+
+Where both are true, setup **does not propose**. It asks, and names what it
+found:
+
+> *Found a `Jenkinsfile` and 3 workflow files. Which runs your PRs?*
+
+That is the inference doing its job: it narrows an open question to a two-option
+choice with the evidence attached. A reader confirms in one keystroke and knows
+why they were asked.
+
+**Preferring the git host's CI was rejected** — GitHub remote means Actions,
+Bitbucket means Jenkins. It is wrong for exactly the team this sprint is for: a
+team on GitHub running Jenkins is common, and a silent wrong answer here writes
+a `CI:` key that sends every build-status lookup to the wrong system.
+
+This is the general rule for every inferred field, not a special case for CI:
+**one signal proposes, two signals ask.**
+
 ### Not chosen: infer a tracker from commit messages
 
 Tempting — Jira keys in the log are a strong signal. Rejected as unmeasured: a
@@ -98,6 +122,10 @@ A written key with no consumer is recorded with a warning naming the gap.
 
 1. **In a repo with a Bitbucket origin and a Jenkinsfile, setup proposes
    `bitbucket` and `jenkins` rather than asking open questions.**
+1b. **In a repo with BOTH a Jenkinsfile and `.github/workflows/`, setup asks
+   which runs the PRs, and names both signals.** It does not tie-break on the
+   git host: a team on GitHub running Jenkins is common, and guessing writes a
+   `CI:` key that points every build lookup at the wrong system.
 2. **Every proposal is confirmable and overridable.** Nothing is written that
    the user did not see.
 3. **What cannot be inferred is still asked** — the Jira instance, the tracker
@@ -116,3 +144,54 @@ A written key with no consumer is recorded with a warning naming the gap.
 
 - [ ] Is a Jira key in commit messages a usable signal? Rejected here as
       unmeasured; worth measuring on a real customer repo before revisiting.
+
+### Interrogated 2026-08-26
+
+One round, on what happens when the repo answers twice.
+
+A `Jenkinsfile` and `.github/workflows/` can both exist, and the probe already
+reports them as independent booleans — so the ambiguity is representable today.
+The rule that came out of it is general rather than CI-specific: **one signal
+proposes, two signals ask.** Tie-breaking on the git host was rejected because it
+is wrong for precisely this sprint's population, a team on GitHub running
+Jenkins, and it would be wrong silently.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "What if a repo has both a Jenkinsfile and workflows?",
+      "a": "Ask, naming both \u2014 one signal proposes, two signals ask; tie-breaking on the git host is silently wrong for GitHub+Jenkins teams",
+      "category": "ux"
+    }
+  ],
+  "deferredItems": [
+    {
+      "q": "Is a Jira key in commit messages a usable signal?",
+      "category": "technical",
+      "context": "Not chosen"
+    }
+  ],
+  "categoriesCovered": {
+    "technical": {
+      "stack": false,
+      "architecture": true,
+      "implementation": false
+    },
+    "domain": false,
+    "ux": {
+      "happyPath": true,
+      "edgeCases": true,
+      "errors": false,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": false,
+      "scalability": false
+    },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
