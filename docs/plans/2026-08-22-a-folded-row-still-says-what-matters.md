@@ -11,10 +11,12 @@
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- A folded plan or wave now says how many branches it holds and what needs attention inside it, so folding hides repetition instead of hiding facts.
+- A folded head names the exceptions beneath it and stays open when it holds
+  one, so folding hides repetition and never hides a conflict.
 
 <!-- Board impact: board-only. packages/board/src/app/components/AgentList.tsx
      (the fold heads) and src/app/lib/tuple-row.ts (splitBranch). Rebuild the artifact. -->
@@ -44,6 +46,43 @@ twice), and the board surfacing it is the board working.
 
 **A fold that hides a conflict is worse than no fold.** This is the constraint
 the whole design turns on: folding may hide *repetition*, never *exceptions*.
+
+### RE-MEASURED 2026-08-26: the head already says most of it
+
+**The premise above was true on 2026-08-22 and is not now.** The plan says a
+folded head shows *"the plan name and a bare count — `(3)`. Three of what? In
+what state?"* Measured against main, `PlanRow` composes its head from four
+sources:
+
+| what renders | from | says |
+|---|---|---|
+| `2 waves, first eligible` | `waveSummaryFor` | how much, **and whether any is startable** |
+| `1 wave elsewhere` | `elsewhereNote` | the plan is split across sections |
+| `2 rounds` | `roundsBadgeText` | how far interrogation got |
+| the phase | slot 5 | lifecycle |
+
+So *"three of what, in what state"* is answered: **count, startability, split
+and discovery state**. The density work this plan asked for was done by sibling
+work in the intervening days.
+
+**The file references are also stale.** The fold toggles moved out of
+`AgentList.tsx` (now 2002 lines, not 5203) into
+`packages/board/src/app/lib/agent-rows/rows.tsx` — `data-wave-toggle` at :659,
+`data-wave-branch-toggle` at :1362.
+
+### What survives is the constraint the plan turns on
+
+The plan's own rule — **folding may hide repetition, never exceptions** — is the
+part nothing has addressed.
+
+Measured: `claimed twice` is produced by `stuck.ts:141` and rendered **on the
+branch row**. No plan head aggregates it, and `waveSummaryFor` counts waves
+without regard to whether any child is stuck. So a reader who folds a plan
+holding a double-claim sees `2 waves, first eligible` and **loses the conflict
+entirely** — the exact failure this plan was written to prevent, still live.
+
+That is what the remaining wave is for. The head is no longer uninformative; it
+is informative about volume and silent about danger.
 
 ## Design
 
@@ -236,17 +275,29 @@ it needs a moment when ten agents are running, and waiting for one makes the tes
 unwritable today.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Waves
 
-### Readable
+### Elided (Branch: bug/the-elision-keeps-the-prefix) <!-- deferred: not measured as a live defect 2026-08-26 — re-measure before building -->
+- Retired pending measurement. The elision work was scoped from the 2026-08-22
+  screenshot; the row has been rebuilt since and no truncation defect was
+  observed while re-measuring. Re-open with a measurement rather than on the
+  strength of the original one.
 
-- `bug/the-elision-keeps-the-prefix` — `splitBranch` keeps the branch's kind, elides the middle, keeps the tail. Tests: a feature-prefixed branch still reads as one after elision at every width; two branches sharing a 24-character prefix still render distinguishably; a short name is untouched
+### Tallied (Branch: feature/a-folded-head-carries-its-tally) <!-- deferred: delivered by siblings 2026-08-26 — waveSummaryFor + elsewhereNote + rounds already carry count, startability, split and discovery state -->
+- Retired. What it asked for renders today; see *RE-MEASURED* above.
 
-### Folded
+### Live (Branch: feature/a-folded-head-says-what-is-live) <!-- deferred: WORKING renders registry agents, not branch rows — re-scope before building -->
+- Retired pending re-scope. It asked the head to name the registry's agent
+  states inside it, scoped from the WORKING section — and WORKING iterates
+  `fleet.agents` through `RegistryRow`, not the branch rows a plan head groups.
+  The two may not meet at all, and that has to be established before the work
+  is described.
 
-- `feature/a-folded-head-carries-its-tally` — a folded plan head names count, attention tally and named exceptions, reusing `nameList`, in the slot the constant phase word occupies today. Tests: a three-branch fold names three; an exception is named rather than counted; a clean fold shows no exception clause; the tally does not merely sit beside `Discovery`
-- `feature/a-folded-head-says-what-is-live` — the head names the registry's agent states inside it, with the age taken from the freshest child. Tests: a running agent reads `working 12m`; a `PLOT-BLOCKED` marker reads `waiting on you`; a fold with no agent reads `nothing started`; the age is the child's, not the plan's
-- `feature/the-loud-things-stay-open` — folds default closed, except any fold containing an exception. Tests: a quiet plan folds; a plan holding `claimed twice` renders open; a stalled worker renders open; the default is not "all open" and not "all closed"
+### Loud (Branch: feature/the-loud-things-stay-open)
+- A folded head **names the exceptions beneath it**, and a fold holding one does
+  not default closed. `claimed twice` lives on the branch row and vanishes on
+  fold; this is the plan's own rule — hide repetition, never exceptions — and
+  the only part of it still unbuilt.
 
 ## Notes
 
@@ -266,3 +317,67 @@ a rendering one: `approval-hands-the-work-to-agents` and
 `Started:` twice. It needs fixing in the plans, separately from this work — and
 it is the reason the fold's exception rule is a hard requirement rather than a
 nicety.
+
+### Interrogated 2026-08-26 — three of four waves retired
+
+One round, spent re-measuring the premise. Three of the four branches did not
+survive it, and the fourth got sharper.
+
+**The head already says most of what the plan asked for.** `PlanRow` composes it
+from `waveSummaryFor` (*"2 waves, first eligible"* — count **and**
+startability), `elsewhereNote` (the plan is split), `roundsBadgeText`, and the
+phase. The plan's *"a bare count — three of what, in what state?"* is answered.
+`Tallied` retired: what it asked for renders today.
+
+**Its file references are stale too** — the fold toggles moved out of
+`AgentList.tsx` (2002 lines now, not 5203) into `lib/agent-rows/rows.tsx`. A
+worker following the plan's line numbers would have landed nowhere.
+
+**`Elided` retired pending measurement.** The elision work was scoped from a
+screenshot taken before the row was rebuilt, and no truncation defect was
+observed while re-measuring. It should be re-opened on evidence, not on the
+original screenshot.
+
+**`Live` retired pending re-scope.** It asked the head to name the registry's
+agent states inside it — but WORKING iterates `fleet.agents` through
+`RegistryRow`, while a plan head groups branch rows. The two may not meet, and
+that must be established before the work is described.
+
+**What survives is the constraint the whole plan turns on**, and it is untouched:
+*folding may hide repetition, never exceptions.* `claimed twice` is produced at
+`stuck.ts:141` and rendered on the **branch row**; no head aggregates it. Fold a
+plan holding a double-claim and the conflict disappears while the head still
+reads *"2 waves, first eligible"*. The head became informative about volume and
+stayed silent about danger — which is the more dangerous of the two states the
+plan set out to fix.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {
+      "q": "Does a folded head still show only a bare count?",
+      "a": "No — waveSummaryFor, elsewhereNote, rounds and the phase already carry count, startability, split and discovery state; the Tallied wave was retired",
+      "category": "technical"
+    },
+    {
+      "q": "What survives the re-measurement?",
+      "a": "The exception constraint: claimed twice lives on the branch row in stuck.ts and no head aggregates it, so a fold still hides a conflict",
+      "category": "technical"
+    },
+    {
+      "q": "Do the other two branches still hold?",
+      "a": "No — Elided was scoped from a pre-rebuild screenshot, and Live targets WORKING which renders registry agents rather than branch rows; both deferred pending measurement",
+      "category": "tradeOffs"
+    }
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": { "stack": false, "architecture": true, "implementation": true },
+    "domain": false,
+    "ux": { "happyPath": true, "edgeCases": true, "errors": true, "accessibility": false },
+    "nonFunctional": { "security": false, "performance": false, "scalability": false },
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
