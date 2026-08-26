@@ -6,12 +6,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** pr
 - **Impl:** own branches
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Rounds:** 1
 
 ## Changelog
@@ -242,6 +243,10 @@ too. Reporting the 429 tells them why; retrying past it does not.
   unverifiable section, keep `stale=` honest. One branch: the three parts are
   one function and its one reporter, and splitting them would ship a scan that
   knows the difference but still prints the rows.
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Notes
 

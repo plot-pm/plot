@@ -5,14 +5,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 1
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -173,6 +173,10 @@ is being asked.
 5. **The capability is established once per run**, not per call — five call
    sites must not become five probes.
 6. `pnpm run validate`, `pnpm run test:reconcile` green.
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Notes
 

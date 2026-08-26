@@ -5,14 +5,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -169,6 +169,10 @@ cause, and say in this plan what it was.
    `if (mainPath)` is false and it returns `''`. Fixing only the second changes
    nothing at all.
 6. `pnpm run test:board`, `pnpm run typecheck` green.
+## Approval
+
+- **Assignee:** Jan Wloka
+
 ## Notes
 
 ### Time spent before writing this
