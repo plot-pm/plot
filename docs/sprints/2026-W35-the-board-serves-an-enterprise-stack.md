@@ -73,6 +73,11 @@ Stories: [[the-board-is-blank-where-it-matters]] (the first three),
 
 Story: [[the-board-is-blank-where-it-matters]].
 
+- [ ] [the-adapter-checks-the-cli-it-got] A `bb` too old for the flags Plot
+      passes makes every Bitbucket PR read as *no PR*. Measured 2026-08-26:
+      homebrew's `bb` 0.6.0 has no `--json` and shadows 1.0.0 on PATH, the
+      error goes to `/dev/null`, and `jq` exits 0. Blocks the plan below —
+      truncation detection is meaningless while the adapter reaches nothing.
 - [ ] [the-pr-list-join-is-silently] The Bitbucket 50-per-state page cap
       (issue #333). Past 50 PRs the join is silently partial and a branch reads
       *no PR* — the fabricated verdict the scan refuses everywhere else. A plan

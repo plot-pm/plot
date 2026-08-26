@@ -11,6 +11,7 @@
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 2
 
 ## Changelog
 
@@ -52,7 +53,7 @@ Choosing **Option B** with a visible indicator (Option C as supplement) when tru
 
 ### Open Questions
 
-- [ ] Does `bb pr list` have any pagination mechanism we could use instead of falling back to per-branch? *(still open — the fallback is designed to be correct either way)*
+- [x] Does `bb pr list` have any pagination mechanism we could use instead of falling back to per-branch? **No.** Measured 2026-08-26 against `bb` 1.0.0: `bb pr list` exposes only `--state`, `--json`, `--repository` and `--web`. No cursor, no offset, no limit. Option A is closed.
 - [x] Should the fallback apply to all unresolved branches or only plausible ones?
       **Only branches with commits.** Answered 2026-08-26 from the code rather
       than by preference: `plot-fleet-scan.sh` already separates `wip` (real
@@ -131,7 +132,7 @@ Pagination stays open, and the design is deliberately correct either way: if
 
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
     {
       "q": "Fallback for all unresolved branches or only plausible ones?",
@@ -173,3 +174,43 @@ Pagination stays open, and the design is deliberately correct either way: if
   }
 }
 END-CHALLENGE-THE-PLAN-METADATA -->
+
+### Interrogated again 2026-08-26 — the cap is measured now, and it is worse
+
+Round two set out to verify the page cap the whole design keys off, because the
+plan and `plot-host.sh:494` both attribute *50* to **bb 1.0.0** while the `bb`
+first on this machine's PATH is **0.6.0**.
+
+**The cap is real. Measured against `quatico/quaweb-website` with `bb` 1.0.0:**
+
+```
+merged PRs returned : 50          ids 836 → 787
+open                : 4
+newest PR in repo   : #836
+```
+
+Fifty exactly, and the repo's PR numbering reaches 836 — so roughly **780 older
+merged PRs are invisible to the join**. Every branch older than #787 joins to
+nothing and reads as *no PR*.
+
+**That overturns this plan's own severity estimate.** It said *"Severity is low
+today (this repo is GitHub; the measured Bitbucket repo had 9 branches) and
+rises with PR count."* On a real client repo the loss is ~94% of merged PRs,
+not a tail case. The threshold was crossed long ago and nobody saw it, because
+the failure is a quiet empty join.
+
+**Pagination is closed as an option:** `bb pr list` has no cursor, offset or
+limit flag in 1.0.0 — only `--state`, `--json`, `--repository`, `--web`. Option
+A was rejected on a guess and is now rejected on a measurement.
+
+### It uncovered a separate, larger defect
+
+Measuring required running `bb` by hand, which is how the two-binary shadowing
+surfaced: homebrew's **0.6.0 has no `--json` flag at all** and sits ahead of
+1.0.0 on PATH, so `plot-host.sh`'s `bb pr list --json` returns *nothing* rather
+than a truncated page.
+
+That is written up separately as [[the-adapter-checks-the-cli-it-got]] — it is a
+different bug (no answer at all, versus a partial one), and this plan's
+truncation detection is meaningless until the adapter is actually reaching a
+capable binary. **That plan should land first.**
