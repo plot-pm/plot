@@ -354,6 +354,95 @@ test('plan-meta: template guidance comments still contribute no round', () => {
   assert.equal('rounds' in actual, false);
 });
 
+// --- Rounds field preference order ---------------------------------------------
+//
+// The plan "the-plan-file-states-what-the-board-shows" introduced a `Rounds:`
+// field in `## Status`. The parser reads it first, front matter second, and
+// the CHALLENGE block last. These four tests are the Done-when items 1–4.
+
+test('plan-meta: Rounds in ## Status parses, no block needed (Done-when 1)', () => {
+  // Item 1: `Rounds: 3` in `## Status`, no block at all → `rounds=3`
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-rounds-status-'));
+  const f = path.join(dir, '2026-01-01-status-only.md');
+  writeFileSync(f, `# Plan with Rounds in Status
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Rounds:** 3
+`);
+  try {
+    const meta = parseFile(f);
+    assert.equal(meta.rounds, 3, 'the Rounds field yields a numeric value');
+    assert.equal(meta.phase, 'approved', 'other fields still parse');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('plan-meta: a real plan with only the block still parses (Done-when 2)', () => {
+  // Item 2: a plan with only the metadata block, no Rounds: field → unchanged.
+  // Asserted against a REAL plan from the 40. This is the case a REPLACE-based
+  // fix fails: if the parser stopped reading the block, 40 plans would lose
+  // their rounds the day this lands.
+  const meta = parseFile(realPlan('2026-08-17-acting-buttons-show-they-act.md'));
+  assert.equal(meta.rounds, 2, 'the block is still read as fallback');
+  // Verify this plan has no Rounds: field in ## Status by checking it would
+  // fail on a REPLACE-only implementation (the block carries the truth).
+  assert.equal(meta.type, 'bug');
+});
+
+test('plan-meta: the Rounds field wins over the block (Done-when 3)', () => {
+  // Item 3: both present and disagreeing → the field wins. During the
+  // transition a plan may carry both, and a reader trusts what the file says.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-rounds-conflict-'));
+  const f = path.join(dir, '2026-01-01-disagree.md');
+  writeFileSync(f, `# Plan with disagreeing sources
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Rounds:** 5
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 2,
+  "questionHistory": []
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
+`);
+  try {
+    const meta = parseFile(f);
+    assert.equal(meta.rounds, 5, 'the Rounds: field wins over the block');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('plan-meta: neither field nor block → absent, not zero (Done-when 4)', () => {
+  // Item 4: neither present → absent, not zero. A plan nobody has interrogated
+  // and a plan interrogated to no effect want opposite reactions from a reader.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-rounds-absent-'));
+  const f = path.join(dir, '2026-01-01-neither.md');
+  writeFileSync(f, `# Plan with no rounds anywhere
+
+## Status
+
+- **Phase:** Draft
+- **Type:** feature
+`);
+  try {
+    const meta = parseFile(f);
+    assert.equal('rounds' in meta, false, 'the key is absent, not zero');
+    assert.equal(meta.rounds, undefined);
+    assert.equal(meta.phase, 'draft', 'other fields still parse');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // `Issue:` — the plan's link to the tracker signal it answers. The board reads
 // this to decide which open issues are still unplanned, so "does a plan
 // reference #N" has to be answerable without reading prose.

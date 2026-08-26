@@ -181,15 +181,18 @@
 #                  canonical entries and the front-matter entry merge
 #                  (canonical first, front matter appended)
 #   rounds         how many rounds of /plot:challenge-the-plan the plan has been
-#                  through, read from the `CHALLENGE-THE-PLAN-METADATA` block
-#                  the skill writes. **OMITTED ENTIRELY when the plan carries no
-#                  such block** — absent is not zero. A plan nobody has
-#                  interrogated and a plan interrogated to no effect want
-#                  opposite reactions from a reader, so the field is missing
-#                  rather than 0, the same rule `claimed`/`eligible` follow on
-#                  the board side. A malformed or truncated block is reported
-#                  the same way: the round is simply absent, and every other
-#                  field still parses.
+#                  through, read from `## Status` `Rounds:` first, YAML front
+#                  matter `rounds:` second, and the `CHALLENGE-THE-PLAN-METADATA`
+#                  block last. The field wins a disagreement (the file states
+#                  what the reader sees), and the block remains readable so the
+#                  40 plans carrying only a block go on reporting correctly.
+#                  **OMITTED ENTIRELY when no source carries a readable round**
+#                  — absent is not zero. A plan nobody has interrogated and a
+#                  plan interrogated to no effect want opposite reactions from a
+#                  reader, so the field is missing rather than 0, the same rule
+#                  `claimed`/`eligible` follow on the board side. A malformed or
+#                  truncated block is reported the same way: the round is simply
+#                  absent, and every other field still parses.
 #
 # title/sprint/story/assignee are the board-facing surface (`@plot-pm/board`
 # consumes this script instead of parsing plans itself). Front matter wins over
@@ -290,15 +293,17 @@ function reset_state() {
   fm_title = ""; fm_sprint = ""; fm_story = ""; fm_assignee = ""
   fm_review = ""; fm_impl = ""; fm_approved = ""; fm_started = ""; fm_released = ""
   fm_delivered = ""; fm_design = ""
+  fm_rounds = ""
   canon_phase = ""; canon_type = ""
   canon_sprint = ""; canon_story = ""; canon_assignee = ""
   canon_review = ""; canon_impl = ""; canon_approved = ""; canon_released = ""
   canon_delivered = ""; canon_design = ""
+  canon_rounds = ""
   h1_title = ""
   # "" means the plan carries no readable round — NOT zero. Emitted by omitting
   # the field, so a consumer cannot mistake "never interrogated" for "asked
   # nothing".
-  rounds = ""
+  block_rounds = ""
   in_fm = 0; section = ""; in_comment = 0; in_challenge = 0; in_fence = 0; branches_seen = 0; waves_seen = 0
   delete branches; n_branches = 0
   delete prs; n_prs = 0
@@ -441,7 +446,14 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
   out = out ",\"started_raw\":["
   for (i = 1; i <= n_started; i++) out = out (i > 1 ? "," : "") "\"" jesc(started[i]) "\""
   out = out "]"
-  # OMITTED, not zeroed, when no block was found. The absence is the message.
+  # Rounds: preference order: ## Status, front matter, CHALLENGE block fallback.
+  # A placeholder ("<!-- optional -->") counts as absent, like Sprint/Story.
+  # OMITTED, not zeroed, when no source carries a readable round.
+  rounds = ""
+  _r = strip_placeholder(canon_rounds)
+  if (_r == "") _r = strip_placeholder(fm_rounds)
+  if (_r == "") _r = block_rounds
+  if (_r != "" && _r ~ /^[0-9]+$/) rounds = _r + 0
   if (rounds != "") out = out ",\"rounds\":" rounds
   out = out "}"
   print out
@@ -480,6 +492,7 @@ in_fm {
   # here: front matter in this repo is a flat key/value surface, and guessing a
   # list grammar the format never promised would invent a contract.
   else if (lower ~ /^changelog:/ && fm_changelog == "") fm_changelog = val_after_colon($0)
+  else if (lower ~ /^rounds:/ && fm_rounds == "") fm_rounds = val_after_colon($0)
   next
 }
 # Interior of multi-line HTML comments is non-content (template guidance
@@ -492,11 +505,11 @@ in_fm {
 # block (question history, category coverage) stays non-content — the script
 # collects, the skill interprets.
 in_comment {
-  if (in_challenge && rounds == "" && $0 ~ /^[ \t]*"round"[ \t]*:[ \t]*[0-9]+/) {
+  if (in_challenge && block_rounds == "" && $0 ~ /^[ \t]*"round"[ \t]*:[ \t]*[0-9]+/) {
     _r = $0
     sub(/^[ \t]*"round"[ \t]*:[ \t]*/, "", _r)
     sub(/[^0-9].*$/, "", _r)
-    if (_r != "") rounds = _r + 0
+    if (_r != "") block_rounds = _r + 0
   }
   if ($0 ~ /-->/) { in_comment = 0; in_challenge = 0 }
   next
@@ -556,6 +569,7 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**review[:*]/ && canon_review == "") canon_review = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**design[:*]/ && canon_design == "") canon_design = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**rounds[:*]/ && canon_rounds == "") canon_rounds = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**released[:*]/ && canon_released == "") canon_released = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**delivered[:*]/ && canon_delivered == "") canon_delivered = val_after_colon($0)
