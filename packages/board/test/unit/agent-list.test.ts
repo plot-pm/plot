@@ -2392,7 +2392,7 @@ describe('hostErrorState — a rate limit is a THIRD state, never an outage', ()
 
 describe('prNote — the PR note distinguishes the two failures', () => {
   const at = (over: Partial<Fleet>): Fleet =>
-    ({ prError: null, prNextInSeconds: null, ...over } as Fleet);
+    ({ prError: null, prNextInSeconds: null, prAgeSeconds: null, ...over } as Fleet);
 
   it('is silent when the host answered', () => {
     // No error, no note. The one banner exists for a failure to explain.
@@ -2424,6 +2424,41 @@ describe('prNote — the PR note distinguishes the two failures', () => {
     const note = prNote(at({ prError: 'GraphQL: API rate limit already exceeded', prNextInSeconds: null }));
     expect(note).toContain('rate limit');
     expect(note).not.toContain('unavailable');
+  });
+
+  it('names the age of the retained data when there is an outage', () => {
+    // Done-when item 10: the banner names the age of the data still on screen.
+    // The catch keeps the last good map, which leaves a reader looking at data
+    // of unknown age — the age phrase turns "something is wrong" into "showing
+    // data from 14 min ago".
+    const note = prNote(at({ prError: 'gh: 503', prAgeSeconds: 840 })); // 14 min
+    expect(note).toContain('showing data from 14 min ago');
+  });
+
+  it('names the age in seconds when under a minute', () => {
+    // The same format resetPhrase uses — seconds below a minute, minutes above.
+    const note = prNote(at({ prError: 'gh: 503', prAgeSeconds: 45 }));
+    expect(note).toContain('showing data from 45s ago');
+  });
+
+  it('names the age for a rate-limit failure too', () => {
+    // The retained data's age matters regardless of what caused the outage.
+    const note = prNote(at({
+      prError: 'GraphQL: API rate limit already exceeded',
+      prNextInSeconds: 480,
+      prAgeSeconds: 840,
+    }));
+    expect(note).toContain('rate limit');
+    expect(note).toContain('8 min');           // the reset
+    expect(note).toContain('showing data from 14 min ago'); // the age
+  });
+
+  it('omits the age when there is no retained data', () => {
+    // A first fetch that failed has no previous data to age — the note does
+    // not invent a time it cannot name.
+    const note = prNote(at({ prError: 'gh: 503', prAgeSeconds: null }));
+    expect(note).not.toContain('showing data');
+    expect(note).toBe('PR data unavailable (gh: 503) — the two groups above that depend on it may be incomplete.');
   });
 });
 

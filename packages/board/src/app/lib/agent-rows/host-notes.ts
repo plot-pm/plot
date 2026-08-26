@@ -276,6 +276,19 @@ function resetPhrase(prNextInSeconds: number | null): string | null {
 }
 
 /**
+ * Human-readable phrase for data age, using the same format as the reset.
+ *
+ * Rounded to the minute above a minute, kept in seconds below — the same rule
+ * `resetPhrase` follows, so "14 min" and "~14 min" look like the same clock.
+ * Null yields nothing, so the sentence omits what it cannot name.
+ */
+function agePhrase(ageSeconds: number | null): string | null {
+  if (ageSeconds === null || ageSeconds <= 0) return null;
+  if (ageSeconds < 60) return `${ageSeconds}s`;
+  return `${Math.round(ageSeconds / 60)} min`;
+}
+
+/**
  * The PR footer note — one sentence, or null when the host answered.
  *
  * TWO shapes for TWO failures, which is the whole branch. An unreachable host
@@ -283,20 +296,31 @@ function resetPhrase(prNextInSeconds: number | null): string | null {
  * unavailable (…) — the two groups above that depend on it may be incomplete.*
  * A rate limit is not unavailable: it says so, and names when service returns.
  *
+ * THE BANNER NAMES THE AGE of the data still on screen (Done-when item 10).
+ * The catch keeps the last good map rather than blanking it — a deliberate
+ * choice — which leaves the reader looking at data of unknown age. The age
+ * phrase turns "something is wrong" into "showing data from 14 min ago".
+ *
  * Exported for test — the wording is the contract with the reader.
  */
-export function prNote(fleet: Pick<Fleet, 'prError' | 'prNextInSeconds'>): string | null {
+export function prNote(fleet: Pick<Fleet, 'prError' | 'prNextInSeconds' | 'prAgeSeconds'>): string | null {
   const kind = hostErrorState(fleet.prError);
   if (kind === null) return null;
+  const age = agePhrase(fleet.prAgeSeconds);
+  const ageSuffix = age ? ` — showing data from ${age} ago` : '';
   if (kind === 'rate-limited') {
     const when = resetPhrase(fleet.prNextInSeconds);
     return (
       "PR data paused: the host's rate limit is spent" +
       (when ? `, service returns in ~${when}` : '') +
+      ageSuffix +
       ' — the two groups above that depend on it may be incomplete.'
     );
   }
-  return `PR data unavailable (${fleet.prError}) — the two groups above that depend on it may be incomplete.`;
+  // Keep the full error message — it names the failing script/path, which is
+  // what a reader needs to diagnose the failure. The test `shows the WHOLE PR
+  // error, however long the path in it` asserts this contract.
+  return `PR data unavailable (${fleet.prError})${ageSuffix} — the two groups above that depend on it may be incomplete.`;
 }
 
 /**
