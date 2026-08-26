@@ -17,6 +17,7 @@
 - **Story:** <!-- optional, story slug this plan is part of (docs/stories/<slug>/) -->
 - **Review:** <!-- pr | in-session | ballot — how is this plan reviewed & approved? -->
 - **Impl:** <!-- own branches | same branch | other repo | none — where does implementation happen? -->
+- **Rounds:** <!-- optional, written by /challenge-the-plan -->
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
