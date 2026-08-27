@@ -23,6 +23,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      skills/plot/scripts/plot-worker-loop.sh. -->
 - **Agent registry:** /Users/jwloka/Quatico/Agentic-Tools/plot/.plot/agents
 - **Board command:** pnpm board
+- **Worktree root:** .worktrees
 - **Worker command:** PLOT_UNATTENDED=1 skills/plot/scripts/plot-worker-loop.sh
 <!-- The loop script implements, then asks `--next` for the next wave, claims
      it, and moves to its worktree — repeating until the plan has no more
