@@ -183,8 +183,15 @@ once rather than per plan.
 
 ## Done when
 
-1. **The scan completes inside the board's 90 s budget** on this estate — 56
-   worktrees, 43 branches, the shape that fails today.
+1. **The scan's CPU time falls measurably**, compared against a baseline taken
+   on the same estate in the same run — `--offline` on both sides, so the host
+   wait (12-16 s, and another plan's subject) is out of the comparison.
+
+   **Not "completes inside 90 s".** That was this item until 2026-08-27, when
+   the estate stopped failing it: the scan now runs ~39 s online and 27 s
+   offline, so a no-op patch passes. The budget is no longer the discriminator;
+   the CPU time is. Items 2 and 3 are the mechanism, and this item is the
+   effect they must actually produce.
 2. **`plot-plan-meta.sh` is spawned ONCE per scan.** Asserted by spawn count,
    not by duration: a timing assertion is flaky on a loaded machine, and the
    count is the fact that produces the timing. 324 → 1.
