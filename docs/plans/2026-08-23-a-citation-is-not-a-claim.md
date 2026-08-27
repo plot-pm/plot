@@ -170,10 +170,18 @@ queryable.
   second claim. This is the `a-dispatch-hands-over-a-brief` case, and it differs
   from the blockquote one: the line IS a claim, and the citation sits inside it.
 - A branch in an **HTML comment** is not a claim.
-- All **248** existing branch list items still parse as claims. Assert by
-  running the parser over `docs/plans/` and comparing the total against the
-  pre-change count — a stricter matcher that silently drops one real claim is
-  the failure mode this change must not have.
+- Every existing branch list item still parses as a claim. Assert
+  **differentially**: count with the parser over `docs/plans/` before the
+  change, count after, require equality — a stricter matcher that silently
+  drops one real claim is the failure mode this change must not have.
+
+  **Do not hardcode a total.** This plan was written against 248 anchored
+  claims on 2026-08-23; re-measured on main 2026-08-27 the count is **200**
+  anchored against **616** loose occurrences. The estate moves under this
+  number, and the ratio is what carries the argument — roughly two in three
+  backticked branch names in `docs/plans/` are citations rather than claims,
+  a wider false-positive surface than the original count implied. An absolute
+  assertion would fail a correct implementation.
 - The `→ #N`, `deferred`, `claimed` and `moved` annotations still bind.
 - `plot-reconcile-scan.sh` reports a branch listed by two plans, naming both and
   their waves, with a footer count; and reports **nothing** for the estate as it

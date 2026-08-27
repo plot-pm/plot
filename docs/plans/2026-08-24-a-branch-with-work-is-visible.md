@@ -91,8 +91,17 @@ git branch -r --no-merged origin/main
 ```
 
 A branch that is merged has nothing outstanding and needs no row — that is
-already the rule everywhere else, and it keeps the addition bounded: 8 rows
-here, not 33.
+already the rule everywhere else, and it is what keeps the addition bounded.
+
+**Re-measured on main 2026-08-27: 34 unmerged branches, 3 with open PRs** — so
+roughly 31 candidate rows, against the 8 this plan was written with. Do not test
+against 8; the population moves weekly and the bound is the `--no-merged` walk,
+not any particular count. The larger number does not change the design, but it
+does change what the design rests on: at ~31 rows the `age` signal below stops
+being a nicety and becomes the thing that makes the section readable at all.
+The plan already anticipated this — it says such a row "would be noise at 80" —
+which is why `Aged` follows immediately as wave 2 rather than being deferred.
+At 31 rows the two waves should land close together.
 
 ### `state` for a branch with no PR
 
@@ -127,9 +136,14 @@ a new one.
 
 ### Not chosen: gate it behind a toggle
 
-The measured count is 8. A feature that hides itself by default is one nobody
-discovers, and the whole finding is that the board was quietly incomplete —
-answering that with an off-by-default switch reproduces it.
+A feature that hides itself by default is one nobody discovers, and the whole
+finding is that the board was quietly incomplete — answering that with an
+off-by-default switch reproduces it.
+
+This was argued from a measured count of 8 and re-checked at ~31 on 2026-08-27.
+The conclusion holds, but its margin is thinner: the answer to volume is the
+`age` signal and the existing section routing, not a switch. If the count keeps
+climbing, revisit **grouping**, never visibility.
 
 ## Waves
 
