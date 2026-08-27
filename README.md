@@ -143,6 +143,8 @@ decision record; plans carry the approved, actionable units.
 | [plot-gates](docs/stories/plot-gates/STORY-plot-gates.md) | active | Rules that do not enforce themselves — converting Plot's stated requirements into checkable ones |
 | [plot-planning-model](docs/stories/plot-planning-model/STORY-plot-planning-model.md) | active | How Plot cuts work into pieces — stories, plans, waves, sprints and what each one answers |
 | [plot-in-a-customer-team](docs/stories/plot-in-a-customer-team/STORY-plot-in-a-customer-team.md) | draft | The board sees one repository — a four-repo customer estate, and what it could not show |
+| [plot-agent-identity](docs/stories/plot-agent-identity/STORY-plot-agent-identity.md) | draft | An agent is someone, not something running — agent specs in git, and capacity that knows one kind of agent from another |
+| [plot-plan-economics](docs/stories/plot-plan-economics/STORY-plot-plan-economics.md) | draft | What a plan costs, and what the approval was worth — measured cost against the value a human's interrogation records |
 | [the-board-is-blank-where-it-matters](docs/stories/the-board-is-blank-where-it-matters/STORY-the-board-is-blank-where-it-matters.md) | active | An enterprise team's ticket inbox and build status are empty — and empty reads as a fact about their work |
 | [setup-asks-what-the-repo-already-knows](docs/stories/setup-asks-what-the-repo-already-knows/STORY-setup-asks-what-the-repo-already-knows.md) | active | Setup asks what the origin URL and the Jenkinsfile already answer — then records a key nothing reads |
 
