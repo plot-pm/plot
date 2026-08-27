@@ -384,9 +384,29 @@ start_worker() {
   # one paragraph down: there is a window between spawn and first write, and a
   # scan landing inside it must not read a started agent as absent. The manifest
   # carries the identity, so its window would be worse than the pid's.
+  #
+  # WHERE THE MANIFEST GOES IS THE `Agent registry` KEY'S ANSWER, not this
+  # dispatcher's cwd. `readAgentRegistry` has honoured that key since #420 and
+  # `resolveManifestDir` resolves it; this writer did not, so it wrote
+  # `$repo_root/.plot/agents` — and `repo_root` is `git rev-parse
+  # --show-toplevel` from wherever the dispatcher was invoked. Auto-dispatch is
+  # invoked from the BOARD's checkout (`dispatch.ts` passes `cwd: repoRoot`), so
+  # its manifests landed in a directory nothing reads. Measured 2026-08-27: five
+  # live workers, five manifests, and the board reporting `2 manifests, 9
+  # synthesized` — every agent had one, two were reachable.
+  #
+  # The case split is `resolve_wt_root`'s, deliberately: absolute taken as given,
+  # relative joined onto the repo root, trailing slash trimmed as pure string
+  # work because the directory need not exist yet. A second convention for
+  # resolving a configured directory is a second way to be wrong.
   local session manifest_dir
   session=$(plot_session_id)
-  manifest_dir="$repo_root/.plot/agents"
+  manifest_dir=$("$script_dir/plot-config.sh" get "Agent registry" ".plot/agents")
+  case "$manifest_dir" in
+    /*) ;;
+    *)  manifest_dir="$repo_root/$manifest_dir" ;;
+  esac
+  manifest_dir="${manifest_dir%/}"
   mkdir -p "$manifest_dir" 2>/dev/null || true
   # `printf` per field with no interpretation: a command containing quotes,
   # newlines or backslashes must survive into valid JSON, and this is the one

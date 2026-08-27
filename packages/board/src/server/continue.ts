@@ -557,7 +557,7 @@ export async function handleContinue(
     // dispatched one leave an identical manifest. A missing manifest is not a
     // failure — an older worktree has none, and the worker runs regardless —
     // which is why `writeManifestStamp` is a no-op there rather than a throw.
-    const manifest = manifestForWorktree(opts.repoRoot, found.worktree);
+    const manifest = manifestForWorktree(opts.repoRoot, found.worktree, opts);
     if (manifest) {
       writeManifestStamp(manifest, {
         pid: String(pid),
