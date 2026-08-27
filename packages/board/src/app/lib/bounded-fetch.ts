@@ -32,6 +32,19 @@
 export const DOC_FETCH_TIMEOUT_MS = 10_000;
 
 /**
+ * How long an action request waits — the POST that asks for work, and the
+ * status route polled afterwards to learn what happened.
+ *
+ * Wider than the doc bound because the far side is doing more: these routes
+ * touch git and the host CLI before they answer. It is still a CEILING over a
+ * request that ANSWERS PROMPTLY BY DESIGN — every one of these endpoints
+ * detaches its command and replies 202 immediately (`reslice.ts:316`), so the
+ * agent's own runtime is never what this bound is measuring. A request still
+ * outstanding at 15 s did not reach a server that was going to answer.
+ */
+export const ACTION_TIMEOUT_MS = 15_000;
+
+/**
  * What a reader is told when the bound elapses.
  *
  * `Failed to load plan: TimeoutError` is technically true and useless: a reader

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { DispatchInfo, AgentEntry } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
@@ -111,6 +112,7 @@ export function DropAgentButton({ agent, drop, onActing, onDropped }: DropAgentB
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session: agent.session }),
+        signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       const body = (await res.json()) as {
         dropped?: boolean;

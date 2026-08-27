@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { fetchDoc } from '../lib/bounded-fetch';
+import { fetchDoc } from '../lib/bounded-fetch.js';
 
 export interface DocModalProps {
   /** The static chrome label — "Plan" or "Story", never the document's title. */

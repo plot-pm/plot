@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Fleet, RegistryInfo } from '../../contract/schema.js';
 
 /**
@@ -50,6 +51,7 @@ async function postControls(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
+      signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
     });
     if (!res.ok) return null;
     const body = (await res.json()) as Fleet['fleetControls'];

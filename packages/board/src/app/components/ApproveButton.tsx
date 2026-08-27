@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
@@ -140,7 +141,7 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
     const startedAt = Date.now();
     const tick = async () => {
       try {
-        const res = await fetch(`/api/approve/${encodeURIComponent(card.slug)}`);
+        const res = await fetch(`/api/approve/${encodeURIComponent(card.slug)}`, { signal: AbortSignal.timeout(ACTION_TIMEOUT_MS) });
         const body = (await res.json()) as { state?: string; message?: string; log?: string };
         if (cancelled) return;
         if (body.state === 'failed') {
@@ -185,6 +186,7 @@ export function ApproveButton({ card, approve, onApproving }: ApproveButtonProps
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug: card.slug }),
+        signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       const body = (await res.json()) as { error?: string };
       if (!res.ok) {

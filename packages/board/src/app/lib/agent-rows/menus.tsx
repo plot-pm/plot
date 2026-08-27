@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ACTION_TIMEOUT_MS } from '../bounded-fetch.js';
 import {
   type AgentRow,
   type Card,
@@ -1275,6 +1276,7 @@ export function DispatchAllButton({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug: card.slug }),
+        signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       const body = (await res.json()) as { slug?: string; error?: string };
       if (!res.ok) {
