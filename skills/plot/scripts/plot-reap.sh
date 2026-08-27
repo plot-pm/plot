@@ -25,7 +25,7 @@
 #   1. a worktree with a LIVE worker process        (a desk someone is at)
 #   2. a worktree with uncommitted changes           (work that exists nowhere else)
 #   3. a worktree carrying a PLOT-BLOCKED* marker    (a worker waiting on a person)
-#   4. a branch whose PR is not merged               (the host is the authority)
+#   4. a branch NO PR of which merged                (the host is the authority)
 #   5. the main checkout, and any non-dispatch tree  (not ours to remove)
 #
 # THE MANIFEST GOES WITH THE WORKTREE. `readAgentRegistry` renders one row per
@@ -68,16 +68,39 @@ if [ -x "$HOST" ]; then
 fi
 git fetch origin "$DEFAULT" --quiet 2>/dev/null || true
 
-# Does the host say this branch's PR was merged?
+# Does the host say ANY PR for this branch merged?
 #
 # `merged` is read, NEVER `state`: a merged PR reports state CLOSED, and
 # trusting `state` would refuse every squash-merged branch — which is the whole
 # population this script exists for. Squash-merge rewrites the commits, so the
 # branch stays "ahead of main" forever and ancestry alone can never clear it.
+#
+# AND THE QUESTION IS "ANY", NOT "THE NEWEST". This asked with `--limit 1`
+# until 2026-08-27, which returns only the most recent PR — so a newer,
+# unmerged PR sitting in front of the real merge made the reaper report
+# `unlanded work — no merged PR` about a branch whose work was on main.
+# Measured that day against the live host:
+#
+#   an-unreachable-host-says-so         newest #473 null → real merge #446
+#   the-scan-sees-a-stale-sprint-tally  newest #464 null → real merge #463
+#   a-plan-cites-a-jira-key             newest #476 null → real merge #447
+#
+# The masking PRs were ones the fleet opened ITSELF on already-merged waves,
+# which closes a loop: a leftover worktree lets auto-dispatch adopt a merged
+# branch, its worker opens a duplicate, the duplicate is newer, the reaper
+# keeps the worktree — the input to step one. Reading only the newest PR is
+# the SAME error as reading `state`, one level out: the newest PR is not the
+# merge, just as the state is not the merge.
+#
+# 100 rather than unbounded: `gh` has no "all" sentinel, and this runs on the
+# reap path where the estate may hold dozens of trees. A branch carrying more
+# than 100 PRs whose only merge is the oldest would still be missed — a far
+# narrower window than "any duplicate at all", and it fails SAFE, toward
+# keeping a worktree.
 pr_merged() {
   local br="$1" out
   command -v gh >/dev/null 2>&1 || return 1
-  out=$(gh pr list --head "$br" --state all --limit 1 --json mergedAt 2>/dev/null) || return 1
+  out=$(gh pr list --head "$br" --state all --limit 100 --json mergedAt 2>/dev/null) || return 1
   case "$out" in *'"mergedAt":"'*) return 0 ;; *) return 1 ;; esac
 }
 
