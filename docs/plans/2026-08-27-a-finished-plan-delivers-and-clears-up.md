@@ -188,8 +188,15 @@ finishing of a plan is the event; a timer is a guess about when events happen.
 ### Landed (Branch: bug/the-reaper-reads-any-merged-pr)
 
 `plot-reap.sh` asks whether ANY PR for the branch merged, not whether the newest
-one did — so a closed duplicate stops masking a real merge. Independent of the
-two below.
+one did — so a closed duplicate stops masking a real merge.
+
+**Independent in CONTENT, not in ORDER.** It shares no file with the two waves
+below and could be built beside them — but wave ordering is positional, so
+`Extracted` stays `blocked` until this merges. That is the mechanism working as
+designed, and it is why this wave is first: it is the shortest, and the other two
+wait behind it. A reading of "independent" as "startable in parallel" was
+measured wrong on 2026-08-27 — `--max 2` dispatched one wave and reported
+`dispatched=0` for the second, correctly.
 
 ### Extracted (Branch: feature/plot-deliver-has-a-script)
 
