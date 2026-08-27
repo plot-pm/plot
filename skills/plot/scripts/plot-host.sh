@@ -685,6 +685,61 @@ jira_check() {
   printf '%s' "$body"
 }
 
+# --- pr-list truncation detection (#333) ------------------------------------
+#
+# `pr-list` returns a bulk page that two consumers (plot-fleet-scan.sh:474 and
+# fleet.ts:1552) JOIN LOCALLY. If the host truncated that page, every branch
+# beyond it joins to nothing and reads as "no PR" — the fabricated verdict the
+# scan refuses everywhere else. Measured 2026-08-26 against a real Bitbucket:
+# `bb` returned 50 merged PRs (ids 836→787) against a repo numbering to 836, so
+# ~780 older merged PRs were invisible to the join.
+#
+# THE DETECTOR IS AGAINST THE REQUESTED LIMIT, NEVER THE CONSTANT 50. A future
+# `bb` page size of 100 must not make a truncated 100-row list report complete —
+# this plan's own defect restored. So the rule names no page size:
+#
+#   github (HONOURS --limit)  : a state is possibly truncated when it returned
+#                               AT LEAST the requested limit — the host may have
+#                               had more that the limit hid. Fewer rows than the
+#                               limit PROVES completeness.
+#   bitbucket (IGNORES --limit): `bb pr list` has no --limit and cannot report a
+#                               total or a cursor, so it can NEVER prove
+#                               completeness for a --limit call. Any non-empty
+#                               page is therefore possibly truncated. An empty
+#                               page had nothing to truncate.
+#
+# No --limit was requested → the caller accepted the host's default page and is
+# owed no report, so no existing no-limit caller's behaviour changes.
+#
+# THE REPORT GOES TO STDERR, not a stdout sentinel. Both consumers parse every
+# stdout line as a PR record (fleet.ts casts each line to a PrRecord with no
+# discriminator check), so a sentinel line would enter the join as a phantom
+# {number:undefined} — a NEW silent corruption while fixing an old one, and the
+# plan holds both callers untouched. stderr is the channel the plan asks the
+# fallback to announce itself on, and the one an untouched caller already drops.
+#
+# WHY STDERR-ONLY IS THE WHOLE FIX HERE: closing the ~780-PR gap by asking `bb`
+# per id is unaffordable — ~10s per call, no bulk primitive — so no per-branch
+# fallback is shipped. The honest-truncated half makes the incompleteness
+# VISIBLE (an operator sees why a pulse is short) and machine-readable for a
+# future diff that teaches the scan to fall back, without moving the failure
+# into a minutes-long pulse. See the plan's Done-when item 3.
+#
+# $1 backend  $2 requested limit (may be "")  $3 state word  $4 row count
+pr_list_report_truncation() {
+  local be="$1" limit="$2" state="$3" count="$4"
+  [ -n "$limit" ] || return 0            # no --limit → no completeness claim owed
+  [ "$count" -gt 0 ] 2>/dev/null || return 0   # an empty page had nothing to hide
+  if [ "$be" = "github" ]; then
+    # github honours the limit: complete unless the page came back AT the limit.
+    [ "$count" -ge "$limit" ] 2>/dev/null || return 0
+  fi
+  # bitbucket: any non-empty page for a --limit call is unprovable, so it falls
+  # through to the report. Named per state so a future caller can resolve exactly
+  # the states that were capped, not a whole-call flag that over-reports.
+  echo "plot-host: $be pr-list state=$state possibly truncated ($count rows, requested limit $limit unprovable) — a join against this page may read older branches as 'no PR' (#333)" >&2
+}
+
 backend() {
   if [ -n "${PLOT_HOST:-}" ]; then
     case "$PLOT_HOST" in
@@ -1000,8 +1055,11 @@ case "$op" in
           #   $jstatus != "ok"  → Jenkins could not answer; every row `unknown`.
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
-          gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url \
+          _gh_raw="$(gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url)"
+          pr_list_report_truncation github "$limit" "$state" \
+            "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
+          printf '%s' "$_gh_raw" \
             | jq -c --argjson jmap "$jen_map" --arg jstatus "$jen_status" '.[] |
               ($jmap[.headRefName] // null) as $jentry |
               {
@@ -1026,8 +1084,11 @@ case "$op" in
               }'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
-          gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url \
+          _gh_raw="$(gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url)"
+          pr_list_report_truncation github "$limit" "$state" \
+            "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
+          printf '%s' "$_gh_raw" \
             | jq -c '.[] | {
                 number:.number, title:.title, state:.state, head:.headRefName,
                 draft:.isDraft,
@@ -1054,8 +1115,11 @@ case "$op" in
               }'
         fi
       else
-        gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-          --json number,title,state,headRefName \
+        _gh_raw="$(gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          --json number,title,state,headRefName)"
+        pr_list_report_truncation github "$limit" "$state" \
+          "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
+        printf '%s' "$_gh_raw" \
           | jq -c '.[] | {number:.number,title:.title,state:.state,head:.headRefName}'
       fi
     else
@@ -1091,7 +1155,10 @@ case "$op" in
           # the GitHub arm uses, which is why it lives above the backend branch.
           # `bb`'s standing `unknown` becomes a real value where Jenkins answers.
           for _s in $bb_states; do
-            bb pr list --state "$_s" --json \
+            _bb_raw="$(bb pr list --state "$_s" --json)"
+            pr_list_report_truncation bitbucket "$limit" "$_s" \
+              "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
+            printf '%s' "$_bb_raw" \
               | jq -c --argjson jmap "$jen_map" --arg jstatus "$jen_status" '.[] |
                 ($jmap[.source.branch.name] // null) as $jentry |
                 {
@@ -1117,13 +1184,19 @@ case "$op" in
         else
           # Bitbucket without Jenkins: checks remain unknown
           for _s in $bb_states; do
-            bb pr list --state "$_s" --json \
+            _bb_raw="$(bb pr list --state "$_s" --json)"
+            pr_list_report_truncation bitbucket "$limit" "$_s" \
+              "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
+            printf '%s' "$_bb_raw" \
               | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name,draft:(.draft // false),checks:"unknown",mergeable:"unknown",review:"",url:(.links.html.href // ""),failing_checks:[]}'
           done
         fi
       else
         for _s in $bb_states; do
-          bb pr list --state "$_s" --json \
+          _bb_raw="$(bb pr list --state "$_s" --json)"
+          pr_list_report_truncation bitbucket "$limit" "$_s" \
+            "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
+          printf '%s' "$_bb_raw" \
             | jq -c '.[] | {number:.id,title:.title,state:(if .state=="DECLINED" then "CLOSED" else .state end),head:.source.branch.name}'
         done
       fi

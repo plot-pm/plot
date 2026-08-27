@@ -1735,3 +1735,228 @@ printf '%s' '[]'
   const helpCount = parseInt(readFileSync(countFile, 'utf8').trim(), 10);
   assert.equal(helpCount, 1, 'capability check must run exactly once');
 });
+
+// --- pr-list truncation: a partial Bitbucket page must say it is partial -----
+//
+// #333. `bb pr list` has NO --limit and returns a fixed page (50 at 1.0.0). The
+// adapter drops the caller's --limit and warns, then serves the page. Past 50
+// PRs per state that page is a PARTIAL set, and a caller joining it locally reads
+// every branch beyond it as "no PR" — the fabricated verdict the scan refuses
+// everywhere else. Measured 2026-08-26 against quatico/quaweb-website: 50 merged
+// PRs (ids 836→787) against a repo numbering to 836, ~780 invisible.
+//
+// The repair lives INSIDE pr-list — both consumers (plot-fleet-scan.sh:474 and
+// fleet.ts:1552) join a bulk list, so a fix in one leaves the other partial. It
+// is the HONEST-TRUNCATED half: bb cannot prove completeness (no total, no
+// cursor, no honoured limit), so a non-empty bb page for a --limit call is
+// POSSIBLY TRUNCATED and the adapter says so. Closing the ~780-PR gap per-id is
+// unaffordable (~10s per bb call, no bulk primitive), so no per-branch fallback
+// is shipped — see the PR's report against Done-when item 3.
+//
+// The report goes to STDERR, not a stdout sentinel: fleet.ts parses EVERY stdout
+// line as a PrRecord with an unchecked cast, so a sentinel line would enter its
+// join as a phantom {number:undefined} — a NEW silent corruption while fixing an
+// old one, and Done-when 5 forbids touching fleet.ts to guard against it. stderr
+// is the channel item 7 asks for and the one an untouched caller already drops.
+//
+// Detection is against the REQUESTED LIMIT being unprovable, NEVER the constant
+// 50: the rule names no page size, so a future bb returning 100 is still caught.
+
+// A strict bb stub whose page is a FULL page of `pageSize` rows for `state` — the
+// shape a truncated bb list has. Reuses makeStrictBbStub's refusal of --limit and
+// unknown states; the rows are generated so the page count is controllable.
+function bbFullPage(pageSize, state = 'MERGED') {
+  const rows = Array.from({ length: pageSize }, (_, i) => ({
+    id: 1000 - i, title: `PR ${1000 - i}`, state,
+    source: { branch: { name: `feature/pr-${1000 - i}` } },
+  }));
+  return JSON.stringify(rows);
+}
+
+// A truncation report is a machine-parseable stderr line. Assert its shape so a
+// future caller (a scan taught to read it) has a contract, not a coincidence.
+const truncationReports = (stderr) =>
+  stderr.split('\n').filter((l) => /possibly truncated/i.test(l));
+
+test('host: bitbucket reports a non-empty --limit page as possibly truncated', () => {
+  // The measured failure. bb returns a full page for `merged`; because bb ignores
+  // --limit and cannot report a total, the page is possibly truncated and the
+  // adapter says so on stderr, naming the state and the count (items 4, 7).
+  const bb = makeStrictBbStub({
+    perState: { open: '[]', merged: bbFullPage(50), declined: '[]' },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  // Every row bb returned still arrives on stdout, unchanged and un-augmented.
+  const lines = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(lines.length, 50, 'every row bb returned is still served');
+  assert.ok(lines.every((r) => typeof r.number === 'number' && r.head), 'PR rows keep their shape');
+  assert.ok(!lines.some((r) => r.truncated === true),
+    'no stdout sentinel — a phantom PrRecord would corrupt fleet.ts');
+  // The report is on stderr, names the state, and carries the count.
+  const reports = truncationReports(res.stderr);
+  assert.equal(reports.length, 1, 'exactly the truncated state is reported');
+  assert.match(reports[0], /merged/, 'the report names which state was truncated');
+  assert.match(reports[0], /\b50\b/, 'the report carries how many rows came back');
+});
+
+test('host: bitbucket truncation is detected against the ignored limit, not the constant 50', () => {
+  // Item 1, the assertion a naive `count == 50` fix fails. A future bb whose page
+  // size is 100 returns a full page of 100; that is STILL possibly truncated, and
+  // a detector keyed to 50 would report it complete — this plan's own defect
+  // restored. The rule names no page size, so 100 is caught exactly as 50 is.
+  const bb = makeStrictBbStub({
+    perState: { open: '[]', merged: bbFullPage(100), declined: '[]' },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const reports = truncationReports(res.stderr);
+  assert.equal(reports.length, 1, 'a 100-row page is truncated too — the detector must not name 50');
+  assert.match(reports[0], /\b100\b/);
+});
+
+test('host: bitbucket does NOT report an empty state as truncated', () => {
+  // A state that returned nothing had nothing to truncate. Reporting it would
+  // cost a future caller needless per-id lookups for a genuinely empty state.
+  const bb = makeStrictBbStub({
+    perState: { open: '[]', merged: '[]', declined: '[]' },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), '', 'an all-empty list emits no rows');
+  assert.equal(truncationReports(res.stderr).length, 0, 'an empty page is not truncated');
+});
+
+test('host: bitbucket without a --limit does not report truncation', () => {
+  // The signal is "the caller asked for more than one page and bb ignored it". A
+  // caller that asked for no limit accepted the host's default page and is owed no
+  // truncation report — no existing no-limit caller's result changes.
+  const bb = makeStrictBbStub({
+    perState: { open: bbFullPage(50, 'OPEN'), merged: '[]', declined: '[]' },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'open'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(truncationReports(res.stderr).length, 0, 'no --limit, no truncation claim');
+});
+
+test('host: only a non-empty state is reported, and it is named', () => {
+  // Per-state granularity. On bb NO non-empty page is provably complete (no
+  // total, no cursor), so a state with even one row IS possibly truncated — the
+  // rule the plan settles. The state that returned NOTHING had nothing to hide
+  // and is not reported. So `merged` (full) is named and `declined`/`open`
+  // (empty) are silent — a per-call flag would report all three, and a future
+  // caller would re-fetch the two empty states for nothing.
+  const bb = makeStrictBbStub({
+    perState: { open: '[]', merged: bbFullPage(50), declined: '[]' },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const reports = truncationReports(res.stderr);
+  assert.equal(reports.length, 1, 'only the non-empty state is reported');
+  assert.match(reports[0], /merged/, 'the report names which state');
+  assert.doesNotMatch(reports[0], /declined/, 'an empty state is not reported');
+});
+
+test('host: the stdout stream stays a clean PR list an untouched scan can join', () => {
+  // Item 5: the scan is untouched, so stdout must be exactly what it was — one PR
+  // per line, no marker line for the scan's sed to trip over. The report living
+  // on stderr (which the scan drops with 2>/dev/null) is what keeps this true.
+  const bb = makeStrictBbStub({
+    perState: { open: '[]', merged: bbFullPage(50), declined: '[]' },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  for (const line of res.stdout.trim().split('\n').filter(Boolean)) {
+    const row = JSON.parse(line);
+    assert.equal(typeof row.number, 'number', 'every stdout line is a real PR row');
+    assert.ok(row.head, 'every stdout line carries a head');
+  }
+});
+
+test('host: GitHub reports no truncation on the common path and makes no extra call', () => {
+  // Item 6: a host that honours --limit is complete by construction when it
+  // returns fewer than the limit. GitHub must make no extra host call — asserted
+  // by the single gh invocation — and report nothing on the common path.
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { number: 7, title: 'A', state: 'MERGED', headRefName: 'feature/a' },
+    ]),
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'all', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(truncationReports(res.stderr).length, 0, '1 < 1000 proves the list is whole');
+  const argv = argvOf(stubs.ghArgv);
+  assert.deepEqual(argv.slice(0, 2), ['pr', 'list'], 'the single gh pr list call, no extra probe');
+});
+
+test('host: a GitHub page AT the requested limit is reported possibly truncated', () => {
+  // The symmetric case, and why the rule is "against the requested limit": gh
+  // HONOURS --limit, so a page returning exactly the limit may hide more. This is
+  // the branch a future bb with --limit support would also take — the reason the
+  // wording is not "50".
+  const rows = Array.from({ length: 5 }, (_, i) => ({
+    number: 100 + i, title: `t${i}`, state: 'MERGED', headRefName: `feature/f${i}`,
+  }));
+  const stubs = makeStubs({ ghJson: JSON.stringify(rows) });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '5'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  const reports = truncationReports(res.stderr);
+  assert.equal(reports.length, 1, 'a gh page returning exactly the requested limit may be truncated');
+  assert.match(reports[0], /\b5\b/);
+});
+
+test('host: a GitHub page UNDER the requested limit is silent', () => {
+  // The pairing: fewer rows than the limit proves the host had no more, so the
+  // common path (a 1000 limit, a handful of PRs) reports nothing.
+  const rows = Array.from({ length: 3 }, (_, i) => ({
+    number: 100 + i, title: `t${i}`, state: 'MERGED', headRefName: `feature/f${i}`,
+  }));
+  const stubs = makeStubs({ ghJson: JSON.stringify(rows) });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--state', 'merged', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, PLOT_HOST: 'github' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(truncationReports(res.stderr).length, 0, '3 < 1000 proves the list is whole');
+});
+
+test('host: --rich reports truncation too and keeps the rich rows clean', () => {
+  // The board calls --rich. Truncation must be reported on the rich path as well,
+  // or the board's PR timer (fleet.ts) joins a partial list with no signal. The
+  // rich rows are still emitted whole on stdout.
+  const bb = makeStrictBbStub({
+    perState: { open: '[]', merged: bbFullPage(50), declined: '[]' },
+  });
+  const res = spawnSync('bash', [adapter, 'pr-list', '--rich', '--state', 'all', '--limit', '1000'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${bb.dir}:${process.env.PATH}`, PLOT_HOST: 'bitbucket' },
+  });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(truncationReports(res.stderr).length, 1, '--rich must report truncation too');
+  const lines = res.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(lines.length, 50);
+  assert.ok(lines.every((r) => r.checks === 'unknown'), 'rich rows still normalize');
+});
