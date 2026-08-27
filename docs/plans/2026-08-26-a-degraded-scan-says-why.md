@@ -237,7 +237,7 @@ too. Reporting the 429 tells them why; retrying past it does not.
 
 ## Branches
 
-### Diagnosis
+### Diagnosis (Branch: bug/a-degraded-scan-says-why, PR: #475)
 
 - `bug/a-degraded-scan-says-why` — tell the three failures apart, suppress the
   unverifiable section, keep `stale=` honest. One branch: the three parts are
