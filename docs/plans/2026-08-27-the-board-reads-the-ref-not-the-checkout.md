@@ -18,7 +18,8 @@
 
 The board reads plans and sprints from `origin/<main>` rather than from its own
 checkout, so a plan approved or delivered elsewhere is visible without anyone
-pulling the board's worktree.
+pulling the board's worktree — and a plan that exists only locally is shown,
+marked `not pushed`, rather than silently missing.
 
 ## Motivation
 
@@ -99,19 +100,46 @@ third, and the only one still reading a checkout.
 
 ## Design
 
-### Plans and sprints come from `origin/<default>`
+### Plans and sprints come from `origin/<default>`, in ONE process
 
 `collectPlanFiles` returns paths for the caller to read. It becomes a lister of
 `origin/<default>` paths — `planPathsInTree` already does exactly this, mode
-check and all — and the read becomes `git show <ref>:<path>`.
+check and all — and the read becomes a **single `git cat-file --batch`** over
+every blob it named.
 
-`plot-plan-meta.sh` takes a FILE, so the content is staged to a temp file the
-way `readBranchPlans` already stages branch plans. That path is proven: it is
-how every Draft plan on an idea branch is parsed today.
+`plot-plan-meta.sh` takes a FILE, so each blob is staged to a temp file the way
+`board.ts:856` already stages branch-plan content. That path is proven: it is how
+every Draft plan on an idea branch is parsed today.
 
-`parseSprintFile` (`:669`) takes the same treatment. Sprint files feed the
-sprint gate and the tally, so a stale sprint is a wrong release decision rather
-than a cosmetic one.
+`parseSprintFile` takes the same treatment, in the same wave and through the same
+bulk read. Sprint files feed the sprint gate and the tally, so a stale sprint is
+a wrong release decision rather than a cosmetic one — and splitting it out would
+mean two branches editing `board.ts` days apart, which is how the artifact
+conflicts this repo keeps resolving get made.
+
+### The read shape is the design, not an implementation detail
+
+Measured 2026-08-27 against this repo's own estate:
+
+| approach | cost |
+|---|---|
+| one `git show` per plan (280 entries) | **~1.5 s** |
+| one `git cat-file --batch` for all of them | **0.011 s** |
+
+**136× apart, on a path the client polls every few seconds.** The naive shape is
+not a slower version of the right answer; it is slower than the bug, and it would
+be introduced by an implementation that satisfies every other item in this plan.
+
+The constraint is already written down next to the code being changed: each `git`
+invocation costs ~55 ms of process spawn *regardless of how little work it does*,
+which is why `collectBranchPlans` caches on tip SHAs rather than re-reading.
+A per-file loop pays that 280 times.
+
+So `Done when` asserts the SHAPE, not only the source. A cache keyed on the main
+SHA was considered and rejected as the primary mechanism: it makes the common
+path fast and every push expensive, and it would sit beside the branch-plan cache
+as a second cache solving one problem. With the batch read costing 11 ms there is
+nothing left to cache.
 
 ### The symlinks stop being read, and that is a simplification
 
@@ -140,28 +168,52 @@ just know why. A gate that is wrong with an explanation is still wrong.
 
 Worth keeping as a supplement if the ref read ever fails (below).
 
-### Not chosen: read the working tree when the ref is unreadable
+### Not chosen: SUBSTITUTE the working tree when the ref is unreadable
 
-The phase gate's own words: a fallback to the working tree *"would reintroduce
-the bug exactly where nothing can catch it."* A repo with no remote is a real
-case, and it is answered by the ref being absent, not by silently reading
-something else — `readBranchPlans` already handles an unreadable ref by
-returning nothing.
+Distinct from showing a local plan as local, and the difference is the whole
+design. Adding a card the ref lacks, labelled `not pushed`, claims nothing about
+what everyone can see. **Substituting** working-tree content where a ref read
+failed claims exactly that, silently — the phase gate's own words for it: a
+fallback to the working tree *"would reintroduce the bug exactly where nothing
+can catch it."*
 
-**Where `origin/<default>` cannot be resolved at all, the board says so** rather
-than rendering a plan estate it cannot vouch for. This is the one place the
-supplement above belongs.
+So the two rules are one rule stated twice:
 
-### An unpushed local plan stops appearing, and that is correct
+| the ref says | the working tree says | the board shows |
+|---|---|---|
+| a plan | anything | **the ref's**, unmarked |
+| nothing | a plan | the working tree's, marked `not pushed` |
+| unreadable | anything | **nothing, and why** |
 
-A plan written but not pushed currently shows on the board. After this change it
-does not, until it is pushed or lives on a prefixed branch (where
-`readBranchPlans` finds it — the Draft-under-review path, unchanged).
+A repo with no remote is a real case, and it is answered by the third row rather
+than by quietly promoting the checkout. `readBranchPlans` already handles an
+unreadable ref by returning nothing.
 
-That is the same trade `plot-dispatch.sh` already makes, and the same one #465
-made for briefs today: what is visible to the board should be what is visible to
-everyone. A card only its author can see is the disagreement this plan removes,
-not a feature.
+### An unpushed local plan is SHOWN, and marked as local
+
+The ref is the source of truth for every plan it holds. The working tree may only
+**add** plans the ref does not have, never override one it does — a one-directional
+merge, not a second source of truth.
+
+Such a card renders with an explicit *not pushed* marker.
+
+**This reverses the first draft of this plan**, which argued the card should
+simply disappear, on the grounds that what the board shows should be what
+everyone can see. That reasoning conflated two different things. The defect is
+not *reading the working tree*; it is **reading the working tree and presenting
+it as shared truth**. A card that says `not pushed` makes no such claim — it
+states exactly what it is, which is the same honesty `truncated` and
+`brief=missing` carry elsewhere in this codebase.
+
+The gap it closes is real and was measured on the day: this session wrote five
+plans, each invisible to the board for the minutes between writing and pushing.
+Worse than invisible, in one case — a plan EDITED but not pushed would render its
+older ref content with nothing to say the working tree disagreed.
+
+**The rule is one-directional and must be asserted as such.** A local plan that
+also exists on the ref is the ref's, not the working tree's; otherwise an
+uncommitted edit silently becomes what the board reports, which is the original
+defect with extra steps.
 
 ## Waves
 
@@ -187,15 +239,31 @@ working-tree fallback, and the board reports when that ref cannot be resolved.
 4. **A sprint file is read from the ref too.** A stale sprint tally is a wrong
    release gate, and sprints are read by a separate function that would
    otherwise be left behind.
-5. **No `git fetch` is added to the board.** The scan already fetches every
+5. **The whole estate is read in ONE git process.** Asserted by counting
+   spawns, not by timing — a duration assertion is flaky on a loaded machine,
+   and the spawn count is the fact that makes the duration. 280 entries in one
+   `cat-file --batch` is 0.011 s against ~1.5 s for a per-file loop; without
+   this item a naive implementation passes items 1-4 and makes the board slower
+   than the defect it fixes.
+6. **No `git fetch` is added to the board.** The scan already fetches every
    pulse; asserted by the existing no-network test.
-6. **No working-tree fallback exists.** Asserted by making the ref unreadable
-   and observing the board *say so* rather than render checkout contents.
-7. **A plan indexed under `active/` appears exactly once.** The symlink
-   de-duplication is being removed along with the directory walk; a plan
-   appearing twice is the regression that removal invites.
-8. `pnpm run validate`, `pnpm run test:board`, `pnpm run test:reconcile` green;
-   artifact rebuilt and committed.
+7. **A plan present only in the working tree is shown, and marked `not
+   pushed`.** The five-plans-invisible gap measured on 2026-08-27.
+8. **A plan present in BOTH takes the ref's content, and is not marked.** The
+   one-directional rule: without this, an uncommitted edit becomes what the
+   board reports, which is the original defect with extra steps.
+9. **The marker survives the client cast.** A new `CardSchema` field, asserted
+   through a rendered card and not only through the payload — this repo's
+   client casts rather than parses, so a field the schema does not declare is
+   `undefined` in the renderer no matter what the server sent.
+10. **Where `origin/<default>` cannot be resolved, the board says so** rather
+    than silently rendering checkout contents as if they were the ref's.
+11. **A plan indexed under `active/` appears exactly once.** The symlink
+    de-duplication is being removed along with the directory walk (measured:
+    151 plan blobs against 129 symlinks, and a mode-filtered tree listing drops
+    the latter); a plan appearing twice is the regression that removal invites.
+12. `pnpm run validate`, `pnpm run test:board`, `pnpm run test:reconcile` green;
+    artifact rebuilt and committed.
 
 ## Notes
 
@@ -215,3 +283,60 @@ file that says `Approved`.
 from a fetched ref and plan state from an unpulled checkout is not telling one
 truth with a delay — it is showing two answers of different ages in the same
 row, and the operator has no way to tell which half is old.
+
+### Interrogated 2026-08-27
+
+Three questions, and the second overturned a decision this plan had argued for
+at length.
+
+**The read shape was missing, and it decides the outcome.** The plan said *read
+from `origin/<default>`* without saying how. Measured against this repo's own
+estate: 280 per-file `git show` calls cost **~1.5 s**, one
+`git cat-file --batch` costs **0.011 s** — 136× apart, on a path the client
+polls every few seconds. A naive per-file implementation would have satisfied
+every other item in the plan and left the board slower than the defect it fixes.
+The shape is now a `Done when` item, asserted by SPAWN COUNT rather than
+duration, because a timing assertion is flaky and the spawn count is the fact
+that produces the duration.
+
+**Unpushed plans are shown and marked, not hidden.** The first draft argued they
+should disappear, reasoning that the board must show only what everyone can see.
+That conflated *reading the working tree* with *presenting it as shared truth* —
+a card marked `not pushed` makes no such claim. The measured gap: this session
+wrote five plans, each invisible for the minutes between writing and pushing, and
+an EDITED-but-unpushed plan would have rendered stale ref content with nothing to
+say the tree disagreed. The rule is one-directional — the working tree may add a
+plan the ref lacks, never override one it has — and both halves are now asserted,
+because the override direction is the original defect with extra steps.
+
+That reversal forced a second one: *Not chosen: read the working tree when the
+ref is unreadable* now reads *Not chosen: **SUBSTITUTE** the working tree*, with
+a three-row table for the three cases. Adding a labelled card and silently
+promoting the checkout are different acts, and the earlier wording forbade both.
+
+**Sprints stay in the same wave.** They share the seam and the bulk read;
+splitting would put two branches in `board.ts` days apart, which is how the
+artifact conflicts this repo keeps resolving get made.
+
+A `CardSchema` field also earned its own assertion: this client casts rather than
+parses, so a marker the schema does not declare is `undefined` in the renderer no
+matter what the server sent.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "How should the ref be read \u2014 per-file or bulk?", "a": "Bulk cat-file --batch; measured 0.011s vs ~1.5s for 280 per-file shows, and the shape is now a Done-when item", "category": "nonFunctional"},
+    {"q": "Should an unpushed local plan disappear from the board?", "a": "No \u2014 show it marked `not pushed`; the ref may not be overridden, but the tree may ADD", "category": "ux"},
+    {"q": "Plans and sprints in one wave, or split?", "a": "One wave \u2014 same seam, same bulk read; splitting invites artifact conflicts in board.ts", "category": "technical"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": false,
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": true, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
