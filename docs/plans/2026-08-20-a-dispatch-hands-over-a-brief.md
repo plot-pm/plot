@@ -12,11 +12,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
+- **Sprint:** the-board-serves-an-enterprise-stack
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Assignee:** jwloka
 
 ## Changelog
