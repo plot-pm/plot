@@ -1488,7 +1488,58 @@ case "$op" in
     fi
     ;;
 
+  rate-limit)
+    # Report the remaining API budget, per API. GitHub has TWO separate budgets
+    # (GraphQL and REST/core), and exhausting one says nothing about the other.
+    # Bitbucket has a single budget and no way to query it, so it reports unknown.
+    #
+    # Output: JSON object with the remaining budget per API:
+    #   {"graphql":{"remaining":N,"limit":N,"reset":N},"core":{"remaining":N,"limit":N,"reset":N}}
+    #   where N is a number, or each field is "unknown" when the host cannot answer.
+    #
+    # `reset` is epoch seconds — when the budget resets. A caller that wants
+    # "time until reset" computes it from now.
+    #
+    # The call itself is FREE — `gh api rate_limit` consumes neither bucket.
+    # Measured 2026-08-27: three consecutive readings, all `used=0`.
+    #
+    # This op REPORTS; it does not decide. A caller that wants to fall back when
+    # one budget is spent reads this, compares remaining to zero, and acts.
+    if [ "$be" = "github" ]; then
+      if out="$(gh api rate_limit 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        # The payload has `resources.graphql` and `resources.core`, each with
+        # `remaining`, `limit`, and `reset`. Extract the two we care about.
+        jq -c '{
+          graphql: {
+            remaining: .resources.graphql.remaining,
+            limit: .resources.graphql.limit,
+            reset: .resources.graphql.reset
+          },
+          core: {
+            remaining: .resources.core.remaining,
+            limit: .resources.core.limit,
+            reset: .resources.core.reset
+          }
+        }' <<<"$out"
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        # The host could not be asked. Report unknown rather than failing outright,
+        # because this is informational — a caller that cannot read the budget
+        # should proceed with the default path, not error out.
+        echo '{"graphql":{"remaining":"unknown","limit":"unknown","reset":"unknown"},"core":{"remaining":"unknown","limit":"unknown","reset":"unknown"}}'
+        echo "plot-host: rate-limit query failed: $err" >&2
+      fi
+    else
+      # Bitbucket has no budget reporting. `unknown` is not `zero` — a host that
+      # cannot answer the budget question must report unknown, because zero means
+      # *spent*, and a caller that reads "cannot ask" as "exhausted" will take
+      # the expensive fallback path forever.
+      echo '{"graphql":{"remaining":"unknown","limit":"unknown","reset":"unknown"},"core":{"remaining":"unknown","limit":"unknown","reset":"unknown"}}'
+    fi
+    ;;
+
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|pr-body)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|pr-body|rate-limit)"
     ;;
 esac
