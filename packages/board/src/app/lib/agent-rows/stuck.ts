@@ -330,10 +330,19 @@ export const EXCEPTION_STATES: ReadonlySet<StuckState> = new Set([
  * never exceptions.*
  *
  * Exported for test: the boundary between `ci-failing` (not an exception) and
- * `conflict` (an exception) is the case a blanket `stuck !== null` gets wrong.
+ * `conflict` (an exception) is the case a blanket "row is stuck" check gets
+ * wrong — and a row with NO `stuck` at all is the case a `!== null` check gets
+ * wrong, in a louder way (see below).
  */
 export function hasExceptions(rows: Pick<AgentRow, 'stuck'>[]): boolean {
-  return rows.some((r) => r.stuck !== null && EXCEPTION_STATES.has(r.stuck.state));
+  // TRUTHINESS, NOT `!== null` — the field arrives ABSENT, not null. The client
+  // CASTS the fleet payload rather than parsing it, so a Zod default never runs
+  // on this side and `stuck` is `undefined` on every row whose producer omitted
+  // it. `undefined !== null` is true, so a null-check falls through to
+  // `.state` and throws — which unmounts PlanRow, and with it the whole
+  // section. Measured 2026-08-27: 16 browser tests timed out waiting for
+  // `Waiting on you`, because the section never rendered at all.
+  return rows.some((r) => r.stuck && EXCEPTION_STATES.has(r.stuck.state));
 }
 
 /**
@@ -359,7 +368,9 @@ export function exceptionSummary(rows: Pick<AgentRow, 'stuck'>[]): string {
   // Collect the unique exception state WORDS from the rows.
   const seen = new Set<string>();
   for (const r of rows) {
-    if (r.stuck !== null && EXCEPTION_STATES.has(r.stuck.state)) {
+    // Truthiness, for the same reason as `hasExceptions` above: `stuck` is
+    // absent rather than null on a row whose producer omitted it.
+    if (r.stuck && EXCEPTION_STATES.has(r.stuck.state)) {
       seen.add(stuckWord(r.stuck.state));
     }
   }
