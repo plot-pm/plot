@@ -440,3 +440,105 @@ The first wave.
     }
   });
 });
+
+/**
+ * HOW FAR THE CHECKOUT HAS DRIFTED FROM THE REF — the diagnostic half.
+ *
+ * Distinct from every test above, which asks WHICH SOURCE reached the screen.
+ * Since the estate is read from the ref, a stale checkout no longer makes the
+ * board wrong; it makes a surprise unexplainable. The drift was measured at 16
+ * commits in about an hour on 2026-08-27, and the hour it cost was spent
+ * because nothing reported it.
+ *
+ * Every case is built on a REAL clone whose checkout is genuinely behind a real
+ * bare remote, for the reason the file header gives: the subject is what git
+ * actually answers, and a stubbed count would prove nothing about the read.
+ */
+describe('the board says how far behind its checkout is', () => {
+  it('counts the commits its checkout is behind the ref', async () => {
+    // ITEM 1, at N > 0 against a fixture rather than this repo's live state.
+    // Two pushes after the board was cloned, so the checkout is behind by
+    // exactly two and the assertion is on the NUMBER, not merely on truthiness
+    // — an implementation reporting a constant 1 would pass a boolean check.
+    const fx = makeSplitRepo({ onRef: { '2026-01-01-probe.md': plan({ phase: 'Draft' }) } });
+    pushToRef(fx, 'docs/plans/2026-01-01-probe.md', plan({ phase: 'Approved' }));
+    pushToRef(fx, 'docs/plans/2026-02-02-second.md', plan({ title: 'Second' }));
+    const server = await startServer(fx.board);
+    try {
+      const board = await fetchBoard(server.port);
+      assert.equal(board.planSource.behind, 2);
+    } finally {
+      await server.kill();
+      rmTree(fx.tmp);
+    }
+  });
+
+  it('reports 0 for a checkout level with the ref', async () => {
+    // ITEM 2's server half. Zero is a REAL measurement and the server states
+    // it; the silence item 2 asks for belongs to the renderer, which is where
+    // it is asserted. Splitting them this way keeps the payload honest — a
+    // server that sent null here would make "current" and "cannot say"
+    // indistinguishable to every future consumer.
+    const fx = makeSplitRepo({ onRef: { '2026-01-01-probe.md': plan({ phase: 'Approved' }) } });
+    const server = await startServer(fx.board);
+    try {
+      const board = await fetchBoard(server.port);
+      assert.equal(board.planSource.behind, 0);
+    } finally {
+      await server.kill();
+      rmTree(fx.tmp);
+    }
+  });
+
+  it('says cannot-say for a detached HEAD rather than up-to-date', async () => {
+    // ITEM 3 — THE ASSERTION A NAIVE IMPLEMENTATION FAILS, and it fails it
+    // silently. Detaching AT THE REF'S TIP is the trap in its sharpest form:
+    //
+    //   $ git checkout --detach origin/main
+    //   $ git rev-list --count HEAD..origin/main
+    //   0
+    //
+    // A 0 here is not a current checkout, it is a question with no subject —
+    // there is no upstream to be behind. Reporting it as 0 would render the
+    // board's most reassuring state out of its least knowable one.
+    const fx = makeSplitRepo({ onRef: { '2026-01-01-probe.md': plan({ phase: 'Approved' }) } });
+    pushToRef(fx, 'docs/plans/2026-02-02-second.md', plan({ title: 'Second' }));
+    RUN(fx.board)('checkout', '-q', '--detach', 'origin/main');
+    const server = await startServer(fx.board);
+    try {
+      const board = await fetchBoard(server.port);
+      assert.equal(board.planSource.behind, null, 'a detached HEAD has no upstream to be behind');
+      // And the estate still reads from the ref: the diagnostic going quiet
+      // must not take the feature it annotates down with it.
+      assert.equal(board.planSource.resolved, true);
+      assert.ok(cardFor(board, 'probe'), 'plans still reach the board when the distance cannot');
+    } finally {
+      await server.kill();
+      rmTree(fx.tmp);
+    }
+  });
+
+  it('says cannot-say where the ref does not resolve', async () => {
+    // The no-remote deployment. `resolved: false` already reports the estate;
+    // a distance measured against a ref that does not exist would be invented,
+    // so the honest answer is the same null a detached HEAD gets.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-plan-source-lone-'));
+    const solo = path.join(tmp, 'solo');
+    fs.mkdirSync(solo, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main', solo]);
+    fs.mkdirSync(path.join(solo, 'docs/plans'), { recursive: true });
+    fs.writeFileSync(path.join(solo, 'docs/plans/2026-01-01-probe.md'), plan({}), 'utf8');
+    const gs = RUN(solo);
+    gs('add', '-A');
+    gs('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'alone');
+    const server = await startServer(solo);
+    try {
+      const board = await fetchBoard(server.port);
+      assert.equal(board.planSource.resolved, false, 'no remote, so no ref to resolve');
+      assert.equal(board.planSource.behind, null, 'nothing to measure against');
+    } finally {
+      await server.kill();
+      rmTree(tmp);
+    }
+  });
+});
