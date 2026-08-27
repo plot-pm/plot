@@ -281,3 +281,34 @@ Corrected to name the wave.
   "_note": "Back-filled 2026-08-22: this plan was interrogated twice on 2026-08-22 (see ## Notes: 'Interrogated 2026-08-22' and 'Interrogated again 2026-08-22'). The round count is recorded, but the questionHistory could not be reconstructed from prose after the fact, so it is left empty rather than invented."
 }
 END-CHALLENGE-THE-PLAN-METADATA -->
+
+### The gate reads the working tree, not `origin/main`
+
+Found while reviewing #465 on 2026-08-27, after the `Gated` wave landed its five
+tests. `brief_present()` resolves against `$repo_root` — the working tree of
+whichever checkout runs the dispatcher — while the phase gate a few hundred lines
+above deliberately reads the plan from `origin/<main>`, on the stated principle
+that *an approval nobody else can see is not one*.
+
+The same principle applies here, and harder: the dispatched worker gets a **fresh
+worktree cut from `origin/main`**. A brief written locally and not pushed reads
+`PRESENT` to the gate and is **absent from the tree the worker actually opens** —
+so the gate opens for a worker that then finds nothing to read, which is the exact
+failure it was built to prevent.
+
+Both directions were measured on 2026-08-27:
+
+- **Harmless direction:** running the check from a worktree 8 commits behind main
+  reported all three of its branches' briefs missing, though all three exist on
+  `origin/main` at 4–5 KB. That refuses a launch that should have proceeded —
+  annoying, recoverable.
+- **Harmful direction:** the inverse passes the gate and starts a briefless
+  worker. `dispatch.test.mjs` cannot catch it: its fixtures write the brief with
+  `writeFileSync` into the working tree and never commit it (lines 178-179,
+  188-189), then assert the worker **starts**. So the unpushed-brief case is not
+  merely untested — it is the shape the passing tests encode as correct.
+
+Not filed as a defect in the `Gated` wave: it implemented its plan exactly, and
+this is a case the plan did not anticipate. The fix is one line —
+`git cat-file -s "origin/$MAIN:.plot/briefs/${branch##*/}.md"` in place of the
+filesystem read — plus a fixture whose brief is written and never pushed.
