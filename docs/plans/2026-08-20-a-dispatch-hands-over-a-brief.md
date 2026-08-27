@@ -21,6 +21,7 @@
 - **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Assignee:** jwloka
 - **Started:** 2026-08-27, Jan Wloka, `bug/a-dispatch-without-a-brief-refuses`
+- **Started:** 2026-08-27, Jan Wloka, `feature/the-board-asks-for-a-brief`
 
 ## Changelog
 
