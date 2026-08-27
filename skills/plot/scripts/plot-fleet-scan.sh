@@ -1966,34 +1966,9 @@ delivered_candidates() {
 # dropping one mid-session costs the reader the work they were looking at. A
 # record that DOES carry a time is honoured exactly, so the imprecision belongs
 # to the record rather than to the rule.
-delivered_in_window() { # $1=plan meta JSON → 0 when inside
-  printf '%s' "$1" | python3 -c '
-import json, re, sys, time
-d = json.load(sys.stdin)
-raw = (d.get("delivered_raw") or "").strip()
-if not raw:
-    sys.exit(1)
-# The leading date, optionally followed by a time. Everything after is
-# provenance for a human. A record whose date does not parse is dropped rather
-# than coerced — Date-style leniency would turn a typo into a confident answer.
-m = re.match(r"(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?", raw)
-if not m:
-    sys.exit(1)
-y, mo, dy, hh, mi = m.groups()
-timed = hh is not None
-try:
-    at = time.mktime((int(y), int(mo), int(dy),
-                      int(hh) if timed else 23, int(mi) if timed else 59,
-                      0 if timed else 59, 0, 0, -1))
-except (ValueError, OverflowError):
-    sys.exit(1)
-window = float(sys.argv[1]) * 3600
-# A future record (a mistyped year, a plan delivered "tomorrow") is INSIDE:
-# `age <= window` with a negative age. Excluding it would hide a live plan for
-# a typo, and the row is visible either way.
-sys.exit(0 if (time.time() - at) <= window else 1)
-' "$DELIVERED_WINDOW_HOURS" 2>/dev/null
-}
+# The rule itself now runs inside the ONE estate parse below (`in_window`),
+# because asking it per plan meant an interpreter per plan. What it decides is
+# unchanged; only the number of processes that decide it is.
 
 # ---------------------------------------------------------------------------
 # Plan enumeration: from the REF, not from the tree
@@ -2301,18 +2276,180 @@ is_plan_phase() { # $1=normalized phase → 0 when this file is a plan
   esac
 }
 
-# The phase a file declares, or "" when it is not a plan. One parse, whose
-# result is kept: the plan loop below needs the phase anyway, so enumerating by
-# phase costs nothing that was not already going to be spent.
-plan_phase_of() { # $1=file to parse → normalized phase on stdout
-  "$script_dir/plot-plan-meta.sh" "$1" --prefixes "$PREFIX_RE" 2>/dev/null \
+# ---------------------------------------------------------------------------
+# ONE PARSE FOR THE WHOLE ESTATE
+# ---------------------------------------------------------------------------
+#
+# THE COST THIS REMOVES, measured on this repo 2026-08-27 against 154 plans:
+# 319 `plot-plan-meta.sh` spawns and 463 `python3` spawns for a single
+# `--offline` scan, which ran at 86.8 % CPU — the scan was COMPUTING, not
+# waiting, and more than half of that budget was interpreter startup.
+#
+# The shape was two spawns per plan, twice over. Enumeration asked the parser
+# for each file's phase; the plan loop then asked the parser for the SAME file
+# again and started a fresh `python3` per plan to re-parse that helper's own
+# output. So the scan parsed each plan, then started an interpreter to re-parse
+# the parse.
+#
+# `plot-plan-meta.sh` TAKES A LIST and always did — its own docstring says
+# "Accepts many files in one invocation and parses them in a single awk pass",
+# and `board.ts` already calls it that way. The scan was the caller that did
+# not. Measured the same day: one plan 0.01 s, ALL plans 0.19 s in a single
+# invocation — roughly 300× cheaper for the whole estate than for one plan
+# each.
+#
+# So the estate is parsed ONCE, here, and every later question reads the result.
+# The four Released scan-performance plans fixed the HOST API N+1 (one bulk
+# `pr-list` instead of one `pr-state` per branch); this is the local-subprocess
+# N+1, the same shape and a different cost. Nothing below touches the host path.
+#
+# WHY THE RESULT IS FLATTENED HERE rather than kept as JSON: the consumers are
+# bash, and re-reading JSON per plan is precisely the defect being removed. One
+# python pass emits a tab-separated record stream for every plan at once, and
+# the loop reads records. There is no second interpreter.
+#
+# `record` types, one per line, all tab-separated and all prefixed by the plan
+# file they describe:
+#   P <file> <phase> <delivered_in_window>   one per parsed file
+#   W <file> <wave-idx> <branch> <deferred> <why> <wave-name> <claim>
+#
+# NO ASSOCIATIVE ARRAYS. `/bin/bash` on macOS is 3.2 and this script uses no
+# bash-4 feature anywhere; a `declare -A` here would silently narrow where Plot
+# runs. The records are read into INDEX-PARALLEL arrays, the idiom the
+# enumeration below already uses for `plans`/`plan_reads`/`plan_phases`.
+#
+# ONE BAD FILE MUST NOT TAKE THE ESTATE DOWN. Batching makes that a new failure
+# mode: one invocation now covers every plan, so a parser that died on the worst
+# file would report nothing about the good ones. `plot-plan-meta.sh` contracts to
+# exit 0 always and report parse problems IN the JSON; this pass holds up its end
+# by decoding each JSON LINE independently and skipping the ones that do not
+# decode. A file that cannot be read is absent from the records, which the
+# callers already treat as "not a plan" — the same answer the per-file parse
+# gave when it failed.
+plan_meta_files=()
+plan_meta_phases=()
+plan_meta_inwindow=()
+plan_meta_waves=()
+
+# Parses every plan file given, filling the four arrays above. Called ONCE.
+parse_plan_estate() { # $@=files to parse
+  [ $# -gt 0 ] || return 0
+  local records
+  records=$("$script_dir/plot-plan-meta.sh" "$@" --prefixes "$PREFIX_RE" 2>/dev/null \
     | python3 -c '
-import json, sys
-try:
-    print(json.load(sys.stdin).get("phase", ""))
-except Exception:
-    print("")
-' 2>/dev/null || printf ''
+import json, re, sys, time
+
+window = float(sys.argv[1]) * 3600
+now = time.time()
+
+def in_window(raw):
+    """The `Delivered:` record against the rolling window — the same rule the
+    per-plan test applied, moved into the one pass. A record whose date does
+    not parse is dropped rather than coerced: Date-style leniency would turn a
+    typo into a confident answer. A record with no time anchors at 23:59:59,
+    so a plan delivered at 23:50 is not an hour from expiry the moment it is
+    written. A FUTURE record is INSIDE (negative age), because hiding a live
+    plan for a mistyped year costs more than showing one."""
+    raw = (raw or "").strip()
+    if not raw:
+        return False
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?", raw)
+    if not m:
+        return False
+    y, mo, dy, hh, mi = m.groups()
+    timed = hh is not None
+    try:
+        at = time.mktime((int(y), int(mo), int(dy),
+                          int(hh) if timed else 23, int(mi) if timed else 59,
+                          0 if timed else 59, 0, 0, -1))
+    except (ValueError, OverflowError):
+        return False
+    return (now - at) <= window
+
+def clean(s):
+    return str(s).replace("\t", " ").replace("\n", " ")
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    # PER LINE, so one unparseable plan costs only itself. The helper emits
+    # JSON Lines and promises never to crash; this is the second half of that
+    # promise, held on the consuming side.
+    try:
+        d = json.loads(line)
+    except Exception:
+        continue
+    f = d.get("file")
+    if not f:
+        continue
+    print("\t".join(["P", clean(f), clean(d.get("phase", "")),
+                     "1" if in_window(d.get("delivered_raw")) else "0"]))
+    for i, w in enumerate(d.get("waves", []) or []):
+        name = w.get("name")
+        for b in w.get("branches", []) or []:
+            ref = b.get("branch") or ""
+            # Not every prefixed token in a ## Branches section is
+            # implementation work. A cited file path (`docs/note.md`) matches
+            # the docs/ branch prefix, and an idea/ branch carries the plan
+            # itself — counting either as outstanding would keep a finished
+            # wave blocked forever.
+            if ref.startswith("idea/") or "." in ref.rsplit("/", 1)[-1]:
+                continue
+            # THE REASON FOR THE DEFERRAL rides with its flag, and it rides
+            # BEFORE the claim note: tab is an IFS whitespace character, so a
+            # run of tabs collapses to one separator and only the LAST field
+            # may be optional. "-" stands in for empty everywhere, so no run
+            # can form.
+            print("\t".join(clean(x) for x in [
+                "W", f, str(i), ref, str(b.get("deferred")).lower(),
+                (b.get("deferred_reason") or "-"),
+                name or "-", b.get("claimed") or "-"]))
+' "$DELIVERED_WINDOW_HOURS" 2>/dev/null) || records=""
+
+  local kind file rest
+  while IFS=$'\t' read -r kind file rest; do
+    [ -n "$kind" ] || continue
+    case "$kind" in
+      P)
+        plan_meta_files+=("$file")
+        # `rest` is "<phase>\t<inwindow>"; both are single tokens with no tabs.
+        plan_meta_phases+=("${rest%%	*}")
+        plan_meta_inwindow+=("${rest##*	}")
+        plan_meta_waves+=("")
+        ;;
+      W)
+        # Wave rows follow their plan's P row, so the last-appended entry is
+        # the one this row belongs to — the helper emits one object per file
+        # and this pass prints them in that order.
+        local last=$((${#plan_meta_files[@]} - 1))
+        [ "$last" -ge 0 ] || continue
+        [ "${plan_meta_files[$last]}" = "$file" ] || continue
+        plan_meta_waves[$last]="${plan_meta_waves[$last]}$rest"$'\n'
+        ;;
+    esac
+  done <<< "$records"
+}
+
+# The index of a parsed file in the arrays above, or "" when it was not parsed
+# (an unreadable file, or one the helper could not decode). Linear, over an
+# array the size of the plan directory — the estate is parsed once, so this
+# replaces a SUBPROCESS per lookup with a string compare per lookup.
+plan_meta_index_of() { # $1=file → index on stdout, or ""
+  local i
+  for i in "${!plan_meta_files[@]}"; do
+    if [ "${plan_meta_files[$i]}" = "$1" ]; then printf '%s' "$i"; return 0; fi
+  done
+  printf ''
+}
+
+# The phase a file declares, or "" when it is not a plan. Read from the single
+# estate parse above rather than spawned per file.
+plan_phase_of() { # $1=file to parse → normalized phase on stdout
+  local i
+  i=$(plan_meta_index_of "$1")
+  [ -n "$i" ] || { printf ''; return 0; }
+  printf '%s' "${plan_meta_phases[$i]}"
 }
 
 # A terminal phase belongs to the delivered group: the plan is finished, and it
@@ -2358,8 +2495,13 @@ if [ -n "$slug" ]; then
     done
   fi
   # The named plan's phase, recorded the same way the enumerated ones are so
-  # the loop below reads one array in both paths.
-  [ ${#plans[@]} -gt 0 ] && plan_phases+=("$(plan_phase_of "${plan_reads[0]}")")
+  # the loop below reads one array in both paths. A slug names ONE file, so the
+  # batch is a batch of one — it routes through the same estate parse anyway,
+  # because that is where every later question reads its answer from.
+  if [ ${#plans[@]} -gt 0 ]; then
+    parse_plan_estate "${plan_reads[0]}"
+    plan_phases+=("$(plan_phase_of "${plan_reads[0]}")")
+  fi
 else
   # ---------------------------------------------------------------------------
   # THE GROUP IS THE PHASE, not the symlink
@@ -2433,21 +2575,35 @@ else
     fi
   }
 
+  # THE CANDIDATE LIST IS BUILT BEFORE ANYTHING IS PARSED, because the estate
+  # is parsed in ONE call and a single call needs its whole argument list. In
+  # ref mode that means every blob is materialized first: the phase decides the
+  # group, so the file must exist before it can be asked, and it must be asked
+  # together with all the others rather than one at a time.
+  cand_ids=()
+  cand_reads=()
   if [ "$PLAN_SOURCE" = "ref" ]; then
     while IFS= read -r plan_path; do
       [ -n "$plan_path" ] || continue
-      # `ref_plan_file` rather than `add_ref_plan`: the phase decides the group,
-      # so the blob must be materialized before anything is appended.
       plan_blob=$(ref_plan_file "$plan_path") || continue
       [ -n "$plan_blob" ] || continue
-      add_plan_by_phase "$plan_path" "$plan_blob"
+      cand_ids+=("$plan_path")
+      cand_reads+=("$plan_blob")
     done <<< "$(ref_ls "$PLAN_DIR")"
   else
     for plan_path in "$PLAN_DIR"*.md; do
       [ -e "$plan_path" ] || continue
-      add_plan_by_phase "$plan_path" "$plan_path"
+      cand_ids+=("$plan_path")
+      cand_reads+=("$plan_path")
     done
   fi
+
+  # ONE INVOCATION FOR THE WHOLE ESTATE. Everything below reads its result.
+  [ ${#cand_reads[@]} -gt 0 ] && parse_plan_estate "${cand_reads[@]}"
+
+  for cand_i in "${!cand_ids[@]}"; do
+    add_plan_by_phase "${cand_ids[$cand_i]}" "${cand_reads[$cand_i]}"
+  done
 
   for i in "${!terminal_plans[@]}"; do
     plans+=("${terminal_plans[$i]}")
@@ -2761,17 +2917,17 @@ for plan in "${plans[@]}"; do
   # plan parser once leaked a `## Branches` flag across files — same shape of
   # bug, so the accumulator is cleared where the plan loop begins.
   json_waves=""
-  meta=$("$script_dir/plot-plan-meta.sh" "$plan_read" --prefixes "$PREFIX_RE" 2>/dev/null) || continue
-  [ -n "$meta" ] || continue
+  # The estate was parsed ONCE, before this loop. A plan absent from that
+  # result could not be read at all, which is the same answer the per-plan
+  # parse gave by failing — so it is skipped here exactly as it was then.
+  meta_i=$(plan_meta_index_of "$plan_read")
+  [ -n "$meta_i" ] || continue
 
   # The plan's own phase, carried onto the pulse so a consumer can derive a row
   # phase from the PAIR — plan state AND branch git state. It is reported, never
   # interpreted: this script collects and reports, and which column a row reads
   # is a judgment that belongs one layer up (Manifesto Principle 3).
-  plan_phase=$(printf '%s' "$meta" | python3 -c '
-import json, sys
-print(json.load(sys.stdin).get("phase", ""))
-' 2>/dev/null) || plan_phase=""
+  plan_phase="${plan_meta_phases[$meta_i]}"
 
   # The delivered window, applied to the plans the PHASE put in the terminal
   # group. Enumeration grouped them; the `Delivered:` RECORD decides which of
@@ -2792,7 +2948,7 @@ print(json.load(sys.stdin).get("phase", ""))
   #     age out of DONE.
   # Both leave before a single git call is spent on the plan's branches.
   if is_terminal_phase "$plan_phase"; then
-    delivered_in_window "$meta" || continue
+    [ "${plan_meta_inwindow[$meta_i]}" = "1" ] || continue
   fi
 
   n_plans=$((n_plans + 1))
@@ -2839,34 +2995,17 @@ print(json.load(sys.stdin).get("phase", ""))
   # cost this whole change removes.
   TERMINAL_PLAN_OID=$(git hash-object "$plan_read" 2>/dev/null || echo "")
 
-  # One awk pass over the parsed JSON would need a JSON parser; instead the
-  # wave walk below is driven by plot-plan-meta.sh's own output via a tiny
-  # python shim (present wherever the board's toolchain is).
+  # The wave walk is driven by plot-plan-meta.sh's own output, flattened for
+  # this plan by the ONE estate parse above. It was a fresh `python3` per plan
+  # here — 463 interpreter starts on this repo, each re-parsing a JSON document
+  # the scan had just finished parsing. The flattening rule is unchanged; only
+  # the number of interpreters that apply it is.
   [ "$quiet" = 1 ] || echo "== $plan_base =="
 
-  wave_lines=$(printf '%s' "$meta" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-for i, w in enumerate(d.get("waves", [])):
-    name = w["name"]
-    for b in w["branches"]:
-        ref = b["branch"]
-        # Not every prefixed token in a ## Branches section is implementation
-        # work. A cited file path (`docs/note.md`) matches the docs/ branch
-        # prefix, and an idea/ branch carries the plan itself — counting either
-        # as outstanding would keep a finished wave blocked forever.
-        if ref.startswith("idea/") or "." in ref.rsplit("/", 1)[-1]:
-            continue
-        # THE REASON FOR THE DEFERRAL rides with its flag, and it rides BEFORE
-        # the claim note for the reason the field-order note below states: tab
-        # is an IFS whitespace character, so a run of tabs collapses to one
-        # separator and only the LAST field may be optional. "-" stands in for
-        # empty everywhere, so no run can form.
-        row = [str(i), ref, str(b["deferred"]).lower(),
-               (b.get("deferred_reason") or "-"),
-               name or "-", b["claimed"] or "-"]
-        print("\t".join(x.replace("\t", " ") for x in row))
-' 2>/dev/null) || wave_lines=""
+  wave_lines="${plan_meta_waves[$meta_i]}"
+  # The records carry a trailing newline per row; the reader below expects the
+  # same shape the per-plan shim produced, which had none on the last line.
+  wave_lines="${wave_lines%$'\n'}"
 
   [ -n "$wave_lines" ] || { [ "$quiet" = 1 ] || { echo "  (no branches)"; echo; }; continue; }
 
