@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -113,12 +113,27 @@ Stated here so its absence is a decision rather than an oversight.
 `start_worker` asks `plot-config.sh` for the `Agent registry` key, with
 `.plot/agents` as the default, exactly as `readManifestDirConfig` does. Verified
 2026-08-27: `plot-config.sh get "Agent registry" ".plot/agents"` returns the
-absolute path from this repo's `CLAUDE.md`, so the shell needs no new mechanism.
+absolute path from this repo's `CLAUDE.md`, so the shell needs no new mechanism —
+and `start_worker` ALREADY calls `plot-config.sh` (line 332, for `Worker
+command`), so not even the call shape is new.
+
+**Copy `resolve_wt_root` (line 137), do not invent a second convention.** It
+resolves `Worktree root` with exactly the case split this needs — absolute taken
+as given, relative joined onto the repo root — and normalises away a trailing
+slash so composed paths never double it, as pure string work because the
+directory may not exist yet. Three details a fresh implementation gets wrong on
+the first try, already settled one function away.
 
 `manifest-stamp.ts` takes the same treatment: `manifestForWorktree` currently
 joins `repoRoot` with the hardcoded constant, so it must route through
 `resolveManifestDir`. It has **one caller** (`continue.ts:560`), which already
 holds `opts` — the shape `resolveManifestDir` wants.
+
+**The resolved path reaches the wrapper for free.** It already travels as
+`PLOT_MANIFEST_FILE` (line 469) so the detached `sh -c` can stamp the agent's
+pid into it. Wave 1 changes what that variable holds and nothing else — no new
+plumbing, and the wrapper's tolerant `if [ -f "$PLOT_MANIFEST_FILE" ]` stays
+tolerant, since by then the gate has already established the file exists.
 
 **A relative default must keep working.** A project that never declares the key
 gets `.plot/agents` under its own root, and a single-checkout project sees no
@@ -127,18 +142,27 @@ resolver rather than a second implementation.
 
 ### Wave 2 — the gate
 
-After the launch, assert the manifest exists at the resolved path. If it does
-not, the worker is killed and the dispatch reports why.
+**Before the spawn**, assert the manifest exists at the resolved path. If it
+does not, no worker is launched and the dispatch reports why.
+
+**Before, not after — and the ordering is the whole design.** The manifest is
+written at line 394 and the worker spawns at line 469, 75 lines later, because
+there is a spawn-to-first-write window a scan must not misread as an absent
+agent. So the check has a launch to prevent rather than a process to kill: no
+race, no kill path, and no chance of orphaning a worker whose manifest failed.
+An earlier draft of this plan said *assert after launch, then kill* — that would
+have built a kill path for a state that cannot arise.
 
 **The gate is what makes this stay fixed.** Wave 1 alone corrects today's paths;
 nothing then stops a future edit from reintroducing a directory the reader does
 not read, and the symptom — rows that render, just without identity — is quiet
 enough to survive for weeks. It already did.
 
-**Kill rather than leave running.** An agent outside the registry cannot be
-seen, stopped, restarted or reaped through the board; it holds a claim nobody
-can release. A worker that cannot be registered is worse than one that never
-started, because the second state is visible.
+**Refuse rather than launch.** An agent outside the registry cannot be seen,
+stopped, restarted or reaped through the board; it holds a claim nobody can
+release. A worker that cannot be registered is worse than one that never
+started, because the second state is visible — and the worktree and claim remain
+on disk either way, so the operator can retry once the cause is fixed.
 
 ### Not chosen: make the board read both directories
 
@@ -192,9 +216,12 @@ refuse worktrees it currently serves.
 4. **The board renders an agent identity for every live worker** — the
    `N manifests, M synthesized` line reads `5 manifests, 0 synthesized` for
    five dispatched workers, where it read `2 manifests, 9 synthesized`.
-5. **A worker whose manifest cannot be written does not stay running.** Asserted
-   by making the write fail (an unwritable directory), then checking that no
-   worker process survives and the dispatch says why.
+5. **A worker whose manifest cannot be written is never launched.** Asserted by
+   making the write fail (an unwritable directory), then checking that **no
+   worker process was ever spawned** — not that one started and died — and that
+   the dispatch names the path it could not write. The distinction is the fix:
+   the manifest is written 75 lines before the spawn, so the correct gate
+   prevents a launch rather than killing one.
 6. **The ordinary path reports nothing new.** A fix that prints a warning on
    every successful dispatch trains readers to skip the line — item 5's message
    is only useful if it is rare.
@@ -213,3 +240,24 @@ Found by an operator reading the board's own counter and asking how five agents
 could have two manifests. The counter was right; the inference that agents were
 being created without manifests was the natural reading and the wrong one — the
 writers were never skipping the file, only putting it somewhere unread.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Can start_worker reach plot-config.sh?", "a": "Yes — it already calls it at line 332 for Worker command", "category": "technical"},
+    {"q": "Is there a precedent for resolving a configured directory?", "a": "resolve_wt_root (line 137) does absolute/relative split plus trailing-slash normalisation", "category": "technical"},
+    {"q": "What does plot-config.sh return for an absent key?", "a": "The supplied default, verified", "category": "technical"},
+    {"q": "Where does the gate belong relative to the spawn?", "a": "BEFORE — write is line 394, spawn line 469; no kill path needed", "category": "technical"},
+    {"q": "Does the resolved path need new plumbing to reach the wrapper?", "a": "No — it already travels as PLOT_MANIFEST_FILE", "category": "technical"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": true, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
