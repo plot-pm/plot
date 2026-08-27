@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { fetchDoc } from '../lib/bounded-fetch';
 
 export interface DocModalProps {
   /** The static chrome label — "Plan" or "Story", never the document's title. */
@@ -52,7 +53,11 @@ export function DocModal({
     let cancelled = false;
     setSrcDoc(null);
     setError(null);
-    fetch(embedSrc)
+    // Bounded: the board restarts under `node --watch`, and a request killed
+    // mid-response neither resolves nor rejects. Without the bound the `.catch`
+    // below is correct code that never runs, and the `Loading…` arm — which
+    // means *wait* — renders for a server that will never answer.
+    fetchDoc(embedSrc)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.text();
