@@ -57,6 +57,11 @@
 # the old shape invited (a second path-shaped token on a line read as a phantom
 # branch) is structurally impossible.
 #
+# The old shape is now closed against the same defect from the other side: a
+# claim must be a LIST ITEM that starts with the backticked name, so a branch
+# cited in prose, a blockquote or an HTML comment under `## Branches` is read as
+# the citation it is. See the anchor at `branch_claim_re` below.
+#
 # Phase values are normalized by scanning whitespace-separated tokens for the
 # first known phase word — so decorated real-world values like
 # "Delivered (2026-06-29) — split done" normalize to "delivered". A non-empty
@@ -88,9 +93,14 @@
 #   assignee       github handle from the `## Approval` `Assignee:` line or
 #                  front matter `assignee:`; "" if absent
 #   branches       branch names, sorted and unique, read from EITHER spelling:
-#                  the old `## Branches` section (backtick-quoted in the list
-#                  line, matching the known prefixes) OR the new `## Waves`
-#                  section (`Branch:` in a `### ` heading — see below). Both
+#                  the old `## Branches` section (a LIST ITEM whose first token
+#                  is the backtick-quoted name, matching the known prefixes) OR
+#                  the new `## Waves` section (`Branch:` in a `### ` heading —
+#                  see below). A backticked branch name anywhere else under
+#                  `## Branches` — mid-sentence, in a blockquote, in a comment,
+#                  on a wrapped continuation line — is a CITATION and claims
+#                  nothing: plans name each other branches to declare
+#                  dependencies, and doing so must not claim them. Both
 #                  spellings emit the same array; a plan carries one or the
 #                  other, and the parser reads both so a migration that moves
 #                  files one at a time never makes a plan silently empty.
@@ -542,7 +552,26 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
 # (13), and the offender this exists to catch is a 53-character sentence, so the
 # line sits well clear of both. Reported, never enforced — a name past it makes
 # `long_wave_names`, and nothing refuses the plan.
-BEGIN { branch_re = "`(" PREFIXES ")/[^`]+`"; LONG_WAVE_NAME_MAX = 40 }
+# A CLAIM IS A LIST ITEM, and the anchor is what says so.
+#
+# This matched a backticked branch name ANYWHERE on a line, so a plan that
+# merely CITED another plan branch under `## Branches` claimed it. Measured on
+# the board 2026-08-23: two branches rendered twice, in two sections, wearing
+# `claimed twice` — and /plot-dispatch would have fanned out a branch the plan
+# does not own. Both second claims were dependency citations, written exactly as
+# a `## Branches` section should write them.
+#
+# Rewording the citations was the old repair. That is a rule an author must
+# remember in the one section where writing branch names is the entire point,
+# and it had already been forgotten twice. Gates over rules: anchoring makes the
+# parser UNABLE to read a citation as a claim.
+#
+# Licensed by a MEASUREMENT, not a preference. Swept across docs/plans/ on
+# 2026-08-27: 259 lines under `## Branches` carry a backticked branch name and
+# all 259 are anchored list items, so the stricter rule drops no real claim. The
+# contract test re-runs that sweep differentially rather than pinning a total —
+# the estate moves weekly, and an absolute number would fail a correct parser.
+BEGIN { branch_claim_re = "^[ \t]*-[ \t]+`(" PREFIXES ")/[^`]+`"; LONG_WAVE_NAME_MAX = 40 }
 FNR == 1 {
   if (NR > 1) emit_record()
   reset_state()
@@ -746,9 +775,19 @@ section == "branches" {
     sub(/[ \t]*-->.*$/, "", _d)
     defer_note = trim(_d)
   }
-  line = $0
-  while (match(line, branch_re)) {
-    b = substr(line, RSTART + 1, RLENGTH - 2)
+  # ONE LIST ITEM, AT MOST ONE CLAIM — an `if`, not the `while` this was.
+  #
+  # The old loop walked the line taking every backticked name on it, which is
+  # exactly how a citation became a second claim. Anchoring makes a second match
+  # impossible by construction, so the loop is gone rather than left as dead
+  # scaffolding that reads like several claims per item are still expected.
+  #
+  # The match now spans `- ` and the backticks, so the name is cut from the
+  # first backtick rather than from RSTART: RSTART lands on the indent.
+  if (match($0, branch_claim_re)) {
+    claim = substr($0, RSTART, RLENGTH)
+    b = substr(claim, index(claim, "`") + 1)
+    sub(/`$/, "", b)
     branches[++n_branches] = b
     if (n_waves == 0) { wave_names[++n_waves] = "" }
     wave_of[n_branches] = n_waves
@@ -770,7 +809,6 @@ section == "branches" {
     # is a reflection, not the claim: git refs remain authoritative.
     claimed_of[n_branches] = claim_note
     ordered_b[n_branches] = b
-    line = substr(line, RSTART + RLENGTH)
   }
   line = $0
   # `→ #N` and `→ owner/repo#N` are both annotations: /plot-deliver instructs
