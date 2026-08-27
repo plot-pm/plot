@@ -1,0 +1,188 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium, type Browser, type Page } from 'playwright';
+import { startServer } from '../helpers.mjs';
+
+/**
+ * THE BOARD SAYS WHERE ITS PLANS CAME FROM, and marks the ones the ref has not
+ * seen.
+ *
+ * Driven through a RENDERED PAGE rather than the payload, which is why this file
+ * exists beside `plan-source.test.mjs`. A payload assertion proves the server
+ * SENT the marker and says nothing about whether anything drew it; only a page
+ * settles that, and `Done when` item 9 asks for exactly this.
+ *
+ * WHERE THE SCHEMA IS ENFORCED, precisely — because the mechanism is easy to
+ * state wrongly. This client CASTS the board payload (`as Board`) rather than
+ * parsing it, and a cast is erased at runtime: an undeclared field still
+ * ARRIVES in the JSON. What a missing `CardSchema` entry breaks is the
+ * COMPILE — `card.notPushed` does not exist on the inferred type, and
+ * `pnpm run typecheck` fails in CI. So the schema declaration is guarded by
+ * tsc, and this file guards the rendering. Both are needed and neither
+ * substitutes for the other.
+ *
+ * The other half is item 14. `readRef` and `readRefAge` sat in the fleet pulse
+ * and were rendered NOWHERE, which is precisely why a `2 rounds` badge on the
+ * wrong phase and a Deliver button refusing a finished plan were mysteries
+ * rather than diagnoses on 2026-08-27: nothing on screen said the plan estate
+ * had been read from a commit sixteen behind.
+ */
+const here = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
+
+const card = (slug: string, over: Record<string, unknown> = {}) => ({
+  slug,
+  title: slug,
+  type: 'bug',
+  phase: 'Development',
+  path: `docs/plans/2026-08-27-${slug}.md`,
+  prs: [],
+  phaseDate: '2026-08-27',
+  ...over,
+});
+
+describe('the board names the source of its plans', () => {
+  let browser: Browser;
+  let server: Awaited<ReturnType<typeof startServer>>;
+  let baseURL: string;
+  let base: Record<string, unknown>;
+
+  beforeAll(async () => {
+    browser = await chromium.launch();
+    server = await startServer(FIXTURE);
+    baseURL = `http://localhost:${server.port}/`;
+    base = await (await fetch(`${baseURL}api/board`)).json();
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+    server?.kill();
+  });
+
+  /**
+   * Open the BOARD tab over a payload built from `planSource` and some cards.
+   *
+   * The board is served statically rather than proxied per request: a
+   * `route.fetch()` in the callback races the background poll against teardown,
+   * and the route callback must stay synchronous — a rule this repo already paid
+   * to learn.
+   */
+  async function open(planSource: unknown, cards: unknown[]): Promise<Page> {
+    const payload = JSON.parse(JSON.stringify(base)) as {
+      columns: { phase: string; cards: unknown[] }[];
+      planSource?: unknown;
+    };
+    for (const col of payload.columns) col.cards = [];
+    const development = payload.columns.find((c) => c.phase === 'Development');
+    if (development) development.cards = cards;
+    payload.planSource = planSource;
+    const body = JSON.stringify(payload);
+    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
+    const page = await context.newPage();
+    await page.route('**/api/board', (route) =>
+      route.fulfill({ contentType: 'application/json', body }));
+    await page.goto(baseURL);
+    // Waits on the HEADER, not on the source line: one case here deliberately
+    // has no source line at all, and waiting on it would turn that test's
+    // subject into its timeout.
+    await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
+    return page;
+  }
+
+  const sourceLine = (page: Page) => page.locator('[data-plan-source]').first();
+
+  it('names the ref the plans were read from', async () => {
+    // Item 14. The ref reaches the SCREEN — its absence is what made two wrong
+    // renders undiagnosable.
+    const page = await open(
+      { ref: 'origin/main', resolved: true, localOnly: 0 },
+      [card('a-plan')],
+    );
+    try {
+      expect(await sourceLine(page).getAttribute('data-plan-source')).toBe('ref');
+      expect(await sourceLine(page).textContent()).toContain('origin/main');
+    } finally { await page.close(); }
+  });
+
+  it('marks a plan the ref has not seen, on the rendered card', async () => {
+    // ITEM 9. The marker has to reach a CARD, not merely the payload — a
+    // server field nothing draws is indistinguishable from no feature. The
+    // `CardSchema` declaration it depends on is enforced separately, by tsc
+    // (see the header).
+    const page = await open(
+      { ref: 'origin/main', resolved: true, localOnly: 1 },
+      [card('written-here', { notPushed: true }), card('on-the-ref')],
+    );
+    try {
+      const local = page.locator('article', { hasText: 'written-here' }).first();
+      await expect.poll(() => local.count(), { timeout: 10_000 }).toBe(1);
+      expect(await local.textContent()).toContain('not pushed');
+      // AND THE OTHER HALF, in the same breath: a plan the ref carries must NOT
+      // be marked. Without this a change that marked every card would pass the
+      // assertion above and make the label meaningless.
+      const shared = page.locator('article', { hasText: 'on-the-ref' }).first();
+      expect(await shared.textContent()).not.toContain('not pushed');
+      expect(await sourceLine(page).textContent()).toContain('1 not pushed');
+    } finally { await page.close(); }
+  });
+
+  it('marks nothing where every plan is on the ref', async () => {
+    // ITEM 13, the dedicated-deployment case — measured at zero local-only
+    // plans in the board's own checkout, because nobody authors there.
+    //
+    // THE MARKER IS EXPECTED TO LOOK UNUSED THERE, and this pins the silence so
+    // a later change cannot start marking every card. The feature serves an
+    // AUTHORING checkout, where `pnpm board` is also legitimately run; both are
+    // real deployments, which is why the absence is asserted rather than
+    // assumed.
+    const page = await open(
+      { ref: 'origin/main', resolved: true, localOnly: 0 },
+      [card('one'), card('two'), card('three')],
+    );
+    try {
+      const board = page.locator('main');
+      expect(await board.textContent()).not.toContain('not pushed');
+    } finally { await page.close(); }
+  });
+
+  it('renders the rest of the board when the payload has no planSource at all', async () => {
+    // AN OLDER SERVER'S PAYLOAD, and the reason this test exists is that the
+    // absence is REAL at runtime rather than merely typed.
+    //
+    // `BoardSchema` gives `planSource` a default, and that default never runs:
+    // the client casts the payload instead of parsing it, so the property is
+    // genuinely `undefined` here. A component that dereferenced it took the
+    // WHOLE PAGE down — header, columns and all — and it did, on four existing
+    // browser tests whose hand-written payloads predate this field.
+    //
+    // The failure is silent in the worst way: not a missing line, a blank page.
+    const page = await open(undefined, [card('a-plan')]);
+    try {
+      // The header is proof the app mounted rather than crashed on render.
+      await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
+      const board = page.locator('main');
+      expect(await board.textContent()).toContain('a-plan');
+      // And no provenance line, because the payload stated no provenance. The
+      // honest answer is silence, never a claim nobody made.
+      expect(await page.locator('[data-plan-source]').count()).toBe(0);
+    } finally { await page.close(); }
+  });
+
+  it('says so where the ref could not be resolved', async () => {
+    // Item 10's render half. A repo with no remote is a legitimate deployment,
+    // so the line REPORTS rather than alarms — and it must never let the
+    // checkout quietly wear the ref's authority, which is the substitution the
+    // whole plan forbids.
+    const page = await open(
+      { ref: 'origin/main', resolved: false, localOnly: 2 },
+      [card('orphan', { notPushed: true })],
+    );
+    try {
+      expect(await sourceLine(page).getAttribute('data-plan-source')).toBe('unresolved');
+      const text = await sourceLine(page).textContent();
+      expect(text).toContain('origin/main');
+      expect(text).toMatch(/could not be read/i);
+    } finally { await page.close(); }
+  });
+});

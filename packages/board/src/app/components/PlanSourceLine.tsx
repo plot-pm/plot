@@ -27,7 +27,18 @@ export function PlanSourceLine({
   planSource,
   ageSeconds,
 }: {
-  planSource: PlanSource;
+  /**
+   * Where the plans came from — or UNDEFINED, from a server that predates the
+   * field.
+   *
+   * Optional at RUNTIME, not merely in the schema, and the distinction is the
+   * one this whole branch is about: `BoardSchema` gives this field a default,
+   * but the client CASTS the payload rather than parsing it, so that default
+   * never executes and the property is genuinely absent. A component that
+   * dereferenced it would crash the entire page — header, columns and all — on
+   * exactly the payload an older server sends.
+   */
+  planSource: PlanSource | undefined;
   /**
    * How old the read is, from the fleet pulse — the scan and this read see the
    * same refs, and the scan is what fetches them, so its age dates this too.
@@ -45,6 +56,10 @@ export function PlanSourceLine({
   // `pnpm board`, and this is the honest report of what such a board can see,
   // not a fault. Amber rather than rose for the same reason the Agents tab
   // reserves rose for a dead server.
+  // Nothing to report, and NOT an error: a payload with no `planSource` is an
+  // older server's, and the honest answer is silence rather than a line
+  // claiming a provenance nobody stated.
+  if (!planSource) return null;
   if (!planSource.resolved) {
     return (
       <p
