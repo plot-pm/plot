@@ -162,12 +162,31 @@ describe('the read shape', () => {
     );
   });
 
-  it('adds no git fetch to the board', () => {
-    // Item 6. The scan already fetches every pulse, so `origin/main` in the
-    // board's own repository is already current — the stale bytes were never
-    // stale because the data was far away. A fetch here would also make a poll
-    // loop depend on the git host being reachable.
-    const fetches = linesIn(log, /^git .*\b(fetch|ls-remote|pull)\b/);
-    assert.deepEqual(fetches, [], 'the board must reach no network');
+  it('adds no git fetch to the READ — the scan is the only thing that fetches', () => {
+    // Item 6, and the distinction it turns on is the design rather than a
+    // technicality.
+    //
+    // `plot-fleet-scan.sh` fetches on every pulse, BY DESIGN — that is the
+    // whole reason this branch could point `board.ts` at `origin/<default>`
+    // without adding any network of its own: "the board already fetches, it
+    // just does not read what it fetched". The board spawns that scan, so a
+    // fetch appears in this log and MUST NOT be read as a violation. An earlier
+    // form of this test asserted no fetch anywhere and failed in CI for exactly
+    // that reason — the scan simply got further there than it does locally.
+    //
+    // What item 6 forbids is the board's OWN reads reaching the network: a
+    // `fetch`/`ls-remote`/`pull` on the /api/board path would make a loop the
+    // client polls every few seconds depend on the git host being reachable,
+    // and `ls-remote` alone costs ~459 ms against ~8 ms for `for-each-ref`.
+    //
+    // So the scan's fetch is excluded by NAME, and everything else is refused.
+    const network = linesIn(log, /^git .*\b(fetch|ls-remote|pull)\b/).filter(
+      (line) => !/fetch -q --prune origin/.test(line),
+    );
+    assert.deepEqual(network, [], 'the board itself must reach no network');
+    // And the reads this branch introduced are local ones, positively asserted
+    // rather than left to the absence above: a test that only ever subtracts
+    // would still pass if the batch read vanished entirely.
+    assert.equal(linesIn(log, /^git .*ls-tree -r origin\//).length >= 1, true);
   });
 });
