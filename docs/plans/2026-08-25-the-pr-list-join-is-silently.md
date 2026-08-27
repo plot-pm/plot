@@ -353,3 +353,41 @@ That is written up separately as [[the-adapter-checks-the-cli-it-got]] — it is
 different bug (no answer at all, versus a partial one), and this plan's
 truncation detection is meaningless until the adapter is actually reaching a
 capable binary. **That plan should land first.**
+
+### The affordability gate fired — item 2 is deferred, with its measurement
+
+`Done when` item 3 made the cost a gate rather than an implementation detail,
+and on 2026-08-27 the gate fired. **Closing the gap is not affordable**, so
+#467 ships the honest-`truncated` half only.
+
+The arithmetic, from the wave's own measurement: `bb` exposes no cursor, offset
+or limit, so resolving the gap means one `bb pr view <id>` per missing PR. At
+~10 s per `bb` call against ~780 missing PRs, a single Bitbucket pulse would
+take **~130 minutes** — precisely the *moved the failure into latency* the plan
+forbids.
+
+So **item 2 (a branch beyond the first page resolves to its PR) is deferred**,
+not delivered. Items 1, 4, 6 and 7 ship: the incompleteness is detected, made
+visible to an operator, and left machine-readable per state for a later diff
+that can teach a consumer to fall back.
+
+**What shipped is better than what was specified, in two places.** The plan said
+compare the count against the requested limit; the wave found the two hosts
+differ in kind and reframed the rule as *can completeness be proven?* — GitHub
+honours `--limit`, so a short page **proves** completeness, while Bitbucket
+reports no total and no cursor and therefore can never prove it, making any
+non-empty page suspect. The rule now names no page size at all, so a future `bb`
+at 100 is caught exactly as 50 is.
+
+Second, the report goes to **stderr rather than a stdout sentinel**, because
+`fleet.ts` casts every stdout line to a `PrRecord` with no discriminator check —
+a sentinel would enter the join as a phantom `{number: undefined}`. That is the
+same cast-not-parse hazard that produced the `stuck`/`undefined` crash in #455
+the same day, caught here before it shipped.
+
+**What a follow-up needs.** A fallback is affordable only with a bulk primitive
+`bb` does not currently expose. The realistic paths are a `bb` version that
+paginates (the design is deliberately correct either way — a cursor makes the
+fallback unnecessary rather than wrong), or resolving only the branches a plan
+actually names, which is a far smaller set than every missing PR. Neither is in
+this plan's scope; both start from the report this wave ships.
