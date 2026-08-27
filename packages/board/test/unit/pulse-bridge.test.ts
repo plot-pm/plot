@@ -37,6 +37,11 @@ const PULSE: FleetPulse = {
         // makes the round-trip assertion mean "everything" rather than
         // "everything I remembered".
         conflicts: [], conflicts_known: false, changed_paths: [], held: false,
+        // Whether a REF holds the branch — a different question from `held`,
+        // which is about a worktree on this machine. False here beside
+        // `state: 'claimed'` on purpose: the two are independent, and a fixture
+        // that let them agree by accident would not notice them being conflated.
+        ref_held: false,
         worker_dirty_paths: [],
       }],
     }],
