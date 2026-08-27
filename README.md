@@ -4,32 +4,92 @@
 
 # Plot
 
-Git-native planning workflow for software development.
+**Git-native planning for teams working with AI agents.**
 
-Plans are markdown files — written, reviewed, and versioned like source code. They live on branches, merge through pull requests, and stay in place forever. No external tracker, no database, no sync API. If it's not in git, it doesn't exist.
+Plans are markdown files — written, reviewed and versioned like source code. They live on branches, merge through pull requests, and never move. No database, no sync API, no second place where the truth might be.
 
-Plot works for any team composition, but is especially designed for **human decision-makers** working with **AI facilitators** and **AI coding agents**. Humans always own the decisions. Every step can also be done by a human with basic git knowledge.
+---
+
+## Why
+
+One agent, one terminal, was easy. You watched it work. Who was doing what was not a question, because there was only one answer.
+
+Once five agents run at the same time, **the scarce resource is no longer execution — it is knowing what is happening.** Agents take branches on their own, run detached, and outlive your session. It becomes normal for nobody to be watching. And leverage cuts both ways: a vague plan used to cost a developer a day. Now it costs twelve parallel branches, twelve pull requests and twelve reviews.
+
+That shifts the bottleneck from hands to head. What limits delivery is no longer how fast anyone types, but **how many good decisions one person makes without losing the thread** — which is why Plot puts its weight on the moments a human decides, and gets out of the way everywhere else.
+
+Three things follow, and they are the whole design:
+
+- **What you approved is what ships.** The plan freezes at approval and stays in the repo, so what was agreed can be compared against what merged — months later, by anyone.
+- **Parallel work needs no supervision.** Agents claim branches through git itself. Two agents cannot quietly redo each other's work.
+- **Throughput never outruns review.** A tool computes the safe merge order; a person still lands it. That is the last checkpoint, and it is deliberate.
+
+Every step is something you could do by hand. Claiming a branch is `git push`. Giving an agent a workspace is `git worktree add`. Checking what is in flight is reading refs. **That is also the exit:** stop using Plot and your plans are still markdown, your claims are still branches. There is nothing to migrate.
+
+---
+
+## Start here
+
+Install as a Claude Code plugin:
+
+```
+/plugin marketplace add plot-pm/plot
+/plugin install plot@plot-marketplace
+```
+
+Then, in the repo you want to use it in:
+
+```
+/plot-init
+```
+
+`/plot-init` reads what your repository already is — its branch naming, its git host, its CI, its existing planning docs — and proposes a `## Plot Config` block for your `CLAUDE.md` from that. It asks rather than assumes, and creates the plan skeleton once you agree.
+
+Your first plan:
+
+```
+/plot-idea      write it        →  a plan file on an idea branch, with a draft PR
+/plot-approve   agree to it     →  the plan merges and freezes
+/plot-implement build it        →  branches, worktrees, hand-off briefs
+/plot-deliver   check it landed →  every branch merged, plan delivered
+```
+
+Optional, and worth it once several branches are in flight: `/plot-board-setup` gives you a local board (`pnpm board`) that shows what is waiting on you.
+
+**New to Plot?** [Intro to Using Plot](skills/plot/intro-to-using-plot.md) walks the whole lifecycle with real commands and output.
+
+---
 
 ## Lifecycle
 
+Four phases, four artefacts. Each transition is recorded in the plan itself — who, when, through which channel — so no phase boundary needs a tool beside it to know where things stand.
+
 ```
-/plot-idea (Draft)     Create plan branch + file + draft PR
-     |
-   Review              Human reviews, refines, marks ready
-     |
-/plot-approve          Record the plan's approval (merge, in-session go, or ballot)
-/plot-implement        Start/resume implementation: preflight, branches, brief
-     |
-   Implement           Parallel work on feature/bug/docs/infra branches
-     |
-/plot-deliver          Verify all impl PRs merged, archive plan
-     |
-/plot-release          Cut versioned release with changelog
+   Draft  ──────────  /plot-idea       plan file, idea branch, draft PR
+     │
+     │                challenge-the-plan (optional) — interrogate before agreeing
+     │
+     ├─ /plot-approve  ⏳ a human agrees. The plan freezes here.
+     ▼
+ Approved ──────────  /plot-implement  branches, worktrees, briefs
+     │
+     │                /plot-dispatch · /plot-fleet · /plot-merge-queue
+     │                agents work; you land what comes back
+     │
+     ├─ /plot-deliver  every branch merged
+     ▼
+Delivered ─────────── ⚡ ── /plot-reject moves it back if something was missed
+     │
+     ├─ /plot-release  ⏳ a human decides to ship
+     ▼
+ Released
 ```
 
-Sprints (`/plot-sprint`) are orthogonal — they group plans by schedule, not by workflow phase.
+Guardrails are enforced, not suggested: you cannot approve an unreviewed draft, deliver with open implementation PRs, or release undelivered work.
 
-New to Plot? Read [Intro to Using Plot](skills/plot/intro-to-using-plot.md) for a walkthrough of the lifecycle.
+Sprints (`/plot-sprint`) are orthogonal — they group plans by schedule, not by phase. A plan belongs to exactly one story and sits in no sprint or one.
+
+---
 
 ## Several agents, one plan
 
@@ -37,149 +97,110 @@ An approved plan usually decomposes into several branches. Handing them to sever
 
 Plot answers both without adding a database.
 
-**Waves.** Branches grouped under a `### ` subheading may run at the same time; a wave opens once every branch in every earlier wave is merged. So a tracer bullet proves the seam, then the rest fan out — the dependency real work actually has, without a dependency graph nobody keeps accurate. A plan with no subheadings is one wave, exactly as before.
+**Waves.** Branches grouped under a `### ` subheading may run at the same time; a wave opens once every branch in every earlier wave is merged. So a tracer bullet proves the risky seam, then the rest fan out — the dependency real work actually has, without a dependency graph nobody keeps accurate. A plan with no subheadings is one wave.
 
 **Claim-by-ref.** An agent takes a branch by pushing a claim commit to it. Two independent claims diverge, so the loser's push is rejected as non-fast-forward and exactly one agent wins. **Git is the lock** — no lock manager, no lease, no coordination file, nothing to fall out of sync. (The commit matters: a branch merely pointing at `main` does not diverge from it, so both pushes would succeed and both agents would think they held it. Plot never force-pushes, which is the other half of why the lock holds.)
 
-Everything else is derived from that.
+**No database is the feature, not the omission.** Orchestrators usually need one because their tickets have no home. Plot's plans *are* the work table and its branches *are* the claims — so there is no second store to fall out of sync with git, and no state that survives being wrong. A killed dispatcher or a dead worker costs nothing: the next read re-derives the truth.
 
 ### The fleet commands, and the failure each one removes
 
-Once five agents work at the same time, the scarce resource is no longer execution — it is **knowing what is happening**. Each command below exists because of a specific way that goes wrong.
+**`/plot-fleet` — a dead agent and a slow one look identical from outside.** Re-reads git every run and reports which waves are complete, eligible or blocked, and which branches are claimed. It also surfaces a blocker that only exists once work is parallel — *approved, and nobody has taken it* — which no ticket board has a column for. Read-only.
 
-**`/plot-fleet` — a dead agent and a slow one look identical from outside.** It re-reads git every run and reports which waves are complete, eligible, or blocked, and which branches are claimed. It stores nothing, so a killed dispatcher costs nothing: the next read re-derives the truth. It also surfaces a blocker that only exists once work is parallel — *approved, and nobody has taken it* — which no ticket board has a column for. Read-only.
+**`/plot-dispatch` — fanning out is a decision, not a mechanical step.** Gives each eligible branch its own worktree and a detached worker, each claimed by ref push. Deliberately a command you run rather than something on a timer, because four agents mean four pull requests somebody has to read.
 
-**`/plot-dispatch` — fanning out is a decision, not a mechanical step.** It gives each eligible branch its own worktree and a detached worker, each claimed by ref push. It is deliberately a command you run rather than something that happens on a timer, because four agents mean four pull requests somebody has to read. Watching a fleet is mechanical and may run on a timer; *starting* one is a judgement about how much review you are about to owe.
+**`/plot-merge-queue` — every branch merges into `main` cleanly on its own, and two of them still break each other.** Names the safe order and flags which branches collide with one ahead of them. That failure is invisible to per-branch CI by construction: each branch is tested against `main`, never against its siblings.
 
-**`/plot-merge-queue` — every branch merges into `main` cleanly on its own, and two of them still break each other.** It names the safe order and flags which branches collide with one ahead of them in the queue. That failure is invisible to per-branch CI by construction: each branch is tested against `main`, never against its siblings.
+**`/plot-reslice` — a wave holding several branches cannot be claimed atomically.** The claim is a push to *one* branch, so a wave with three has no single thing to win. Proposes one wave per branch in an argued order; a person confirms before anything is rewritten.
 
-**`/plot-reslice` — a wave holding several branches cannot be claimed atomically.** The claim is a push to *one* branch, so a wave with three branches in it has no single thing to win. Reslice reads the branches' diffs and PRs, proposes one wave each in an argued dependency order, and rewrites only the `## Branches` section after a person confirms.
-
-**`/plot-reconcile` — derived state is honest, but the estate still drifts.** A read-only sweep for plans whose phase and index disagree, merged-but-undelivered work, and stale branches. It prints the remediating commands; you decide what to run.
+**`/plot-reconcile` — derived state is honest, but the estate still drifts.** A read-only sweep for phase/index disagreement, merged-but-undelivered work and stale branches. Prints the remediating commands; you decide what to run.
 
 ### The board sorts by whose turn it is
 
-Every command above answers a question in a terminal, once, and the answer is gone when the scrollback rolls. The board (`pnpm board`) is where the answer stays — and it is organised around a different question than a ticket board asks.
-
-**Not "what is the work?" but "whose turn is it?"**
+Each command above answers a question in a terminal, once, and the answer is gone when the scrollback rolls. The board (`pnpm board`) is where it stays — organised around a different question than a ticket board asks.
 
 | Section | What is in it | What it asks of you |
 |---------|---------------|---------------------|
-| **WAITING ON YOU** | Your actual queue | Act. This is the only section that needs you. |
-| **WORKING** | Agents implementing right now | Nothing. Just look. |
+| **WAITING ON YOU** | Your actual queue | Act. The only section that needs you. |
+| **WORKING** | Agents implementing now | Nothing. Just look. |
 | **WAITING ON A MACHINE** | CI, merges, pushes in flight | Nothing — unless it is stuck. |
-| **NOT STARTED** | Approved, and nobody has taken it | Dispatch it, or decide it can wait. |
+| **NOT STARTED** | Approved, nobody has taken it | Dispatch it, or decide it waits. |
 | **QUIET** / **DONE** | Idle, and finished | Nothing. |
 
-Only the top section carries your name; everything below it is information. That single inversion is the point: **the length of "waiting on you" is your real WIP limit**, not the number of open tickets — because with a fleet running, open tickets stop being a measure of anything a human controls.
+Only the top section carries your name. **The length of "waiting on you" is your real WIP limit** — not the number of open tickets, which with a fleet running stops measuring anything a human controls.
 
-It also distinguishes five kinds of waiting that a branch-first board renders identically — a ticket to triage, a plan to approve, a finished wave to land, a broken build to fix, a release to cut. Lead every row with a branch name and all five wear the same face, so you re-derive what is being asked of you each time you look.
-
-Everything it shows is derived from git on a timer, so the board never becomes a second source of truth — kill it and nothing is lost. It can also *act*: approve a plan, dispatch a wave, deliver, reslice. Every one of those runs the same skill you would have run in the terminal, so the board invents no lifecycle transition of its own, and the write endpoints are bound to loopback. Set it up with [`/plot-board-setup`](skills/plot-board-setup/).
+Everything shown is derived from git on a timer, so the board never becomes a second source of truth. It can also act — approve, dispatch, deliver, reslice — but each action runs the same skill you would have run in the terminal, and the write endpoints are bound to loopback.
 
 ### Why merging stays yours
 
-Three speeds, and the sorting is the whole argument:
-
 | Speed | What belongs here | Why |
 |-------|-------------------|-----|
-| **Automate** | Creating branches, moving symlinks, cutting an RC tag, watching the fleet | Mechanical transitions with no judgement. Waiting is pure waste. |
-| **Let it run** | Implementing a branch, writing a plan, working a checklist | Where the actual work happens. Not bottlenecks — the point. |
-| **Never accelerate** | Approving a plan, fanning out a fleet, deciding to release, **merging** | Each one multiplies what follows it. |
+| **Automate** | Creating branches, moving symlinks, cutting an RC tag, watching the fleet | Mechanical, no judgement. Waiting is waste. |
+| **Let it run** | Implementing a branch, writing a plan, working a checklist | Where the work happens. Not bottlenecks — the point. |
+| **Never accelerate** | Approving a plan, fanning out a fleet, deciding to release, **merging** | Each multiplies what follows it. |
 
-Merging sits in the third row even though `/plot-merge-queue` has already computed the collision-free order. **Automating the order removes guesswork; automating the landing would remove the last checkpoint** in a flow that has just multiplied its throughput. Because landing stays with you, throughput never outruns review.
-
-**Every step of this is something you could do by hand.** Claiming a branch is `git push`. Giving an agent its own workspace is `git worktree add`. Checking what is in flight is reading refs. Plot makes that faster and keeps it honest; it does not make it possible, and there is nothing to learn that is not already git. That is also the exit: stop using Plot and your plans are still markdown, your claims are still branches, and nothing needs migrating.
-
-**No database is the feature, not the omission.** Orchestrators usually need one because their tickets have no home. Plot's plans *are* the work table and its branches *are* the claims — so there is no second store to fall out of sync with git, and no state that survives being wrong.
+Merging sits in the third row even though `/plot-merge-queue` has already computed the collision-free order. **Automating the order removes guesswork; automating the landing would remove the last checkpoint** in a flow that has just multiplied its throughput.
 
 Start with [Working several branches at once](skills/plot/intro-to-using-plot.md#working-several-branches-at-once).
 
-### How this compares
+---
 
-Two designs shaped this, and it is worth being precise about what was taken and what was deliberately left:
+## Configuration
 
-**[Scape](https://www.scape.work/)** runs many agents in isolated worktrees with a live fleet dashboard, and sells scale — *"ten, fifty, a hundred sessions."* The worktree isolation is the same idea, and a good one. What Plot does differently is the axis: not *how many agents can you run*, but *how many can safely work one reviewed plan at once*. Waves exist because the answer is usually "not all of them yet." Plot is also plain git and markdown on any platform, with no app to keep running.
+Plot hardcodes no paths. It reads a `## Plot Config` section in your `CLAUDE.md` and adapts to whatever conventions your project already has — `/plot-init` proposes that block for you.
 
-**The [Lloyd loop orchestrator](https://explainx.ai/blog/claude-code-loop-orchestrator-heartbeat-ticket-memory-august-2026)** is a persistent agent on a heartbeat with a SQLite ticket table. Three of its lessons are directly in Plot: state must outlive any one context (git, not SQLite), read-only investigation gates every write (only `/plot-dispatch` touches branches or processes at all), and the agent *proposes* while the human decides. Its fourth — log clean pulses, or you cannot tell an idle fleet from a dead one — is why `/plot-fleet` records a line even when nothing changed. Its author's own framing applies here too: the tooling is replaceable, the discipline is not.
+The keys cover plan and sprint directories, branch prefixes, git host and CI, the tracker you read issues from, and how the fleet runs its workers. **The full reference lives in [`plot-config.sh`](skills/plot/scripts/plot-config.sh)**, beside the parser that reads it, so it cannot drift from what is actually supported.
 
-**Deliberately not built:** autonomous merging (the queue computes the order; you land it), agent-to-agent messaging, and a general automation layer. Plot coordinates work on a plan. It is not trying to be the place your agents live.
+---
 
 ## Skills
 
 | Skill | Description |
 |-------|-------------|
 | [plot](skills/plot/) | Hub & dispatcher — reads git state, suggests next action |
-| [plot-init](skills/plot-init/) | Adopt Plot in a repo — detects your setup and proposes the config |
-| [plot-board-setup](skills/plot-board-setup/) | Set up the local Kanban board — checks prerequisites, records config, proves it serves |
-| [plot-idea](skills/plot-idea/) | Create a plan: idea branch, plan file, and draft PR |
+| [plot-init](skills/plot-init/) | Adopt Plot in a repo — probes your setup and proposes the config |
+| [plot-board-setup](skills/plot-board-setup/) | Set up the local board — checks prerequisites, records config, proves it serves |
+| [plot-idea](skills/plot-idea/) | Create a plan: idea branch, plan file, draft PR |
 | [plot-approve](skills/plot-approve/) | Record the plan's approval through its declared review channel |
-| [plot-implement](skills/plot-implement/) | Start/resume implementation: staleness preflight, branch setup, hand-off brief |
-| [plot-deliver](skills/plot-deliver/) | Verify implementation complete, archive the plan |
-| [plot-reconcile](skills/plot-reconcile/) | Read-only hygiene sweep — surface plan/symlink/branch drift with remediating commands |
-| [plot-release](skills/plot-release/) | Create versioned release from delivered plans |
+| [plot-implement](skills/plot-implement/) | Start/resume implementation: preflight, branch setup, hand-off brief |
+| [plot-deliver](skills/plot-deliver/) | Verify implementation complete, deliver the plan |
+| [plot-reject](skills/plot-reject/) | Move a prematurely delivered plan back to Approved |
+| [plot-reconcile](skills/plot-reconcile/) | Read-only hygiene sweep — plan/branch drift with remediating commands |
+| [plot-release](skills/plot-release/) | Cut a versioned release from delivered plans |
 | [plot-sprint](skills/plot-sprint/) | Time-boxed sprint coordination with MoSCoW prioritization |
-| [plot-dispatch](skills/plot-dispatch/) | Fan out a plan across several agents — one worktree and one worker per eligible branch |
-| [plot-merge-queue](skills/plot-merge-queue/) | Safe merge order for finished branches, with collision prediction |
-| [plot-fleet](skills/plot-fleet/) | Fleet pulse — which branch waves are eligible to start, which branches are claimed |
-| [plot-reslice](skills/plot-reslice/) | Slice a multi-branch wave into one wave per branch — proposes named waves in an argued order, a person confirms |
+| [plot-dispatch](skills/plot-dispatch/) | Fan out a plan — one worktree and one worker per eligible branch |
+| [plot-fleet](skills/plot-fleet/) | Fleet pulse — which waves are eligible, which branches are claimed |
+| [plot-merge-queue](skills/plot-merge-queue/) | Safe merge order with collision prediction |
+| [plot-reslice](skills/plot-reslice/) | Slice a multi-branch wave into one wave per branch |
 | [ralph-plot-sprint](skills/ralph-plot-sprint/) | Automated sprint runner (extension) |
-| [challenge-the-plan](skills/challenge-the-plan/) | Deep plan interrogation — adaptive interviews across technical, domain, UX, non-functional dimensions (companion) |
-| [story-tracking](skills/story-tracking/) | Multi-session work tracking in markdown folders (companion — stories are the long-running umbrella around plans) |
-| [tracer-bullets](skills/tracer-bullets/) | Thin vertical slice strategy (companion — usable standalone, referenced by `/plot-approve`) |
 
-## Installation
+### Companions
 
-### As a Claude Code plugin (recommended — auto-updates)
+Usable standalone — they are not lifecycle phases.
 
-```
-/plugin marketplace add plot-pm/plot
-```
+- **[challenge-the-plan](skills/challenge-the-plan/)** — Deep plan interrogation via adaptive interviews. The design-phase companion: idea → **challenge** → optional tracer → approve. Works on any PLAN/SPEC/STORY file.
+- **[story-tracking](skills/story-tracking/)** — Multi-session work tracking in markdown folders. Stories are the long-running umbrella (research, decisions, session narrative); plans are the approved, actionable units.
+- **[tracer-bullets](skills/tracer-bullets/)** — Thin vertical slice strategy, referenced by `/plot-approve` for work carrying technical uncertainty.
 
-```
-/plugin install plot@plot-marketplace
-```
+Both companions were adopted from [quatico-solutions/agent-skills](https://github.com/quatico-solutions/agent-skills).
 
-Skills auto-update when you run `/plugin update`.
-
-### Via skills CLI
+### Other ways to install
 
 ```bash
+# skills CLI
 pnpx skills add https://github.com/plot-pm/plot.git --global --agent claude-code --all --yes
-```
 
-### Manual (single skill)
-
-```bash
+# single skill, by hand
 ln -s ~/CODE/plot/skills/plot ~/.claude/skills/plot
 ```
 
-## Setup
+The plugin auto-updates with `/plugin update`.
 
-Add a `## Plot Config` section to your project's `CLAUDE.md`:
-
-```markdown
-## Plot Config
-
-- Plan directory: `docs/plans/`
-- Sprint directory: `docs/sprints/`
-- Branch prefixes: `idea/`, `feature/`, `bug/`, `docs/`, `infra/`
-- Active symlink: `docs/plans/active/`
-- Delivered symlink: `docs/plans/delivered/`
-```
-
-Plot discovers and adapts to whatever conventions your project provides. No hardcoded paths.
-
-## Companion skills
-
-- **[challenge-the-plan](skills/challenge-the-plan/)** — Deep plan interrogation via adaptive interviews. The design-phase companion: idea → **challenge** → optional tracer → approve. Works on any PLAN/SPEC/STORY file; adopted from [quatico-solutions/agent-skills](https://github.com/quatico-solutions/agent-skills).
-- **[story-tracking](skills/story-tracking/)** — Multi-session work tracking in markdown folders (`docs/stories/`). Stories are the long-running umbrella (research, decisions, session narrative); plans are the approved, actionable units — they reference each other. Usable standalone; adopted from [quatico-solutions/agent-skills](https://github.com/quatico-solutions/agent-skills).
-- **[tracer-bullets](skills/tracer-bullets/)** — Thin vertical slice strategy. Referenced by `/plot-approve` heuristics for work with technical uncertainty. Bundled with the plugin; usable standalone — it is a companion, not a lifecycle phase.
+---
 
 ## Stories
 
-Long-running work spanning several plans. Stories carry the intent and the
-decision record; plans carry the approved, actionable units.
+Long-running work spanning several plans. Stories carry the intent and the decision record; plans carry the approved, actionable units — they reference each other.
 
 | Story | Status | About |
 |-------|--------|-------|
@@ -192,11 +213,13 @@ decision record; plans carry the approved, actionable units.
 | [the-board-is-blank-where-it-matters](docs/stories/the-board-is-blank-where-it-matters/STORY-the-board-is-blank-where-it-matters.md) | active | An enterprise team's ticket inbox and build status are empty — and empty reads as a fact about their work |
 | [setup-asks-what-the-repo-already-knows](docs/stories/setup-asks-what-the-repo-already-knows/STORY-setup-asks-what-the-repo-already-knows.md) | active | Setup asks what the origin URL and the Jenkinsfile already answer — then records a key nothing reads |
 
+---
+
 ## Design
 
-See [MANIFESTO.md](skills/plot/MANIFESTO.md) for Plot's founding principles and design philosophy.
+[MANIFESTO.md](skills/plot/MANIFESTO.md) — founding principles and the nine questions every change is tested against.
 
-See [changelog.md](skills/plot/changelog.md) for the complete evolution history.
+[changelog.md](skills/plot/changelog.md) — the complete evolution history.
 
 ## License
 
