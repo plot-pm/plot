@@ -68,7 +68,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
       wave('Reached', 'complete', [['feature/a', 'merged']]),
       wave('Verified', 'complete', [['feature/b', 'merged'], ['feature/c', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p)).toBe(true);
+    expect(allWavesMerged(m, p, true)).toBe('merged');
   });
 
   it('is true with a deferred branch among merged ones — the scan exempts it', () => {
@@ -87,7 +87,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'complete', [['feature/a', 'merged'], ['feature/shelved', 'deferred']]),
     ]);
-    expect(allWavesMerged(m, p)).toBe(true);
+    expect(allWavesMerged(m, p, true)).toBe('merged');
   });
 
   it('is FALSE when one branch is still open — assert the negative directly', () => {
@@ -109,7 +109,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
       wave('Reached', 'complete', [['feature/a', 'merged']]),
       wave('Verified', 'eligible', [['feature/b', 'merged'], ['feature/c', 'open']]),
     ]);
-    expect(allWavesMerged(m, p)).toBe(false);
+    expect(allWavesMerged(m, p, true)).toBe('not-merged');
   });
 
   it('is false for a claimed-but-unmerged branch — a claim is not a landing', () => {
@@ -121,7 +121,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'eligible', [['feature/a', 'claimed']]),
     ]);
-    expect(allWavesMerged(m, p)).toBe(false);
+    expect(allWavesMerged(m, p, true)).toBe('not-merged');
   });
 
   it('is false when the plan has only deferred branches — nothing landed to testify to', () => {
@@ -138,29 +138,32 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'blocked', [['feature/shelved', 'deferred']]),
     ]);
-    expect(allWavesMerged(m, p)).toBe(false);
+    expect(allWavesMerged(m, p, true)).toBe('not-merged');
   });
 
-  it('is false without a pulse — a cold cache is not "all merged"', () => {
-    // Git has said nothing. "Nothing said" must not render as "all merged", the
-    // same degradation `summariseFromPulse` makes: absent, not asserted.
+  it('is UNKNOWN without a pulse — a cold cache is not "all merged" and not "unmerged"', () => {
+    // Git has said nothing. "Nothing said" must not render as "all merged" — and
+    // since 2026-08-27 it must not render as "not merged" either: a caller owes
+    // its reader a different sentence for each, and `unknown` is what lets it
+    // write one.
     const m = meta({
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
     });
-    expect(allWavesMerged(m, null)).toBe(false);
+    expect(allWavesMerged(m, null, true)).toBe('unknown');
   });
 
-  it('is false when the pulse does not know this plan', () => {
-    // A plan the scan did not cover is one git has said nothing about — the same
-    // join-by-basename rule as `summariseFromPulse`, and the same answer when it
-    // misses.
+  it('is not-merged when a COMPLETE pulse does not know this plan', () => {
+    // A complete scan that does not name this plan has looked and not found it —
+    // a real absence, and the plan stays where it is. Contrast the partial-pulse
+    // case below, where the same missing plan means the scan never got there.
+    // The completeness flag is the only thing separating the two.
     const m = meta({
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
     });
     const p = pulse('2026-01-01-some-other-plan.md', [
       wave('Reached', 'complete', [['feature/z', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p)).toBe(false);
+    expect(allWavesMerged(m, p, true)).toBe('not-merged');
   });
 
   it('joins on basename — meta.file is absolute, the pulse names it short', () => {
@@ -174,7 +177,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'complete', [['feature/a', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p)).toBe(true);
+    expect(allWavesMerged(m, p, true)).toBe('merged');
   });
 
   it('does not depend on the plan file recording anything — the pulse is the source', () => {
@@ -189,7 +192,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'complete', [['feature/a', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p)).toBe(true);
+    expect(allWavesMerged(m, p, true)).toBe('merged');
     // The file still says Approved — the function read it, the pulse said merged,
     // and nobody delivered. That gap is the whole point: a person acts from here.
     expect(m.phase).toBe('approved');

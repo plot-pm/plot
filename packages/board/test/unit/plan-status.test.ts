@@ -59,41 +59,41 @@ describe('planStatus — the seven values, each reachable', () => {
   it('draft — created, discovery going on, no plan PR', () => {
     // A plan under review with an in-session channel never has a plan PR.
     const m = meta({ phase: 'draft', review: 'in-session' });
-    expect(planStatus(m, oneOpen)).toBe('draft');
+    expect(planStatus(m, oneOpen, true)).toBe('draft');
   });
 
   it('open — discovery done, a plan PR is up for review', () => {
     // `Review: pr` is the channel that leaves a PR to observe; a draft plan on
     // that channel is out for approval, which is `open`.
     const m = meta({ phase: 'draft', review: 'pr' });
-    expect(planStatus(m, oneOpen)).toBe('open');
+    expect(planStatus(m, oneOpen, true)).toBe('open');
   });
 
   it('approved — development possible, nothing started', () => {
     // Approved, no `Started:` record, no claim: the queue the Start button
     // serves.
     const m = meta({ phase: 'approved', started_raw: [] });
-    expect(planStatus(m, oneOpen)).toBe('approved');
+    expect(planStatus(m, oneOpen, true)).toBe('approved');
   });
 
   it('in-progress — a Started: record exists', () => {
     const m = meta({ phase: 'approved', started_raw: ['2026-08-23, jwloka'] });
-    expect(planStatus(m, oneOpen)).toBe('in-progress');
+    expect(planStatus(m, oneOpen, true)).toBe('in-progress');
   });
 
   it('deliverable — every wave complete, phase still approved', () => {
     const m = meta({ phase: 'approved', started_raw: ['2026-08-23, jwloka'] });
-    expect(planStatus(m, oneMerged)).toBe('deliverable');
+    expect(planStatus(m, oneMerged, true)).toBe('deliverable');
   });
 
   it('delivered — the decision caught up', () => {
     const m = meta({ phase: 'delivered' });
-    expect(planStatus(m, oneMerged)).toBe('delivered');
+    expect(planStatus(m, oneMerged, true)).toBe('delivered');
   });
 
   it('released — terminal', () => {
     const m = meta({ phase: 'released' });
-    expect(planStatus(m, oneMerged)).toBe('released');
+    expect(planStatus(m, oneMerged, true)).toBe('released');
   });
 });
 
@@ -103,8 +103,8 @@ describe('planStatus — the pairings the plan insists on', () => {
     // implementation that reads only `phase` collapses them.
     const untouched = meta({ phase: 'approved', started_raw: [] });
     const running = meta({ phase: 'approved', started_raw: ['2026-08-23, jwloka'] });
-    expect(planStatus(untouched, oneOpen)).toBe('approved');
-    expect(planStatus(running, oneOpen)).toBe('in-progress');
+    expect(planStatus(untouched, oneOpen, true)).toBe('approved');
+    expect(planStatus(running, oneOpen, true)).toBe('in-progress');
   });
 
   it('a claimed branch alone makes a plan in-progress', () => {
@@ -114,7 +114,7 @@ describe('planStatus — the pairings the plan insists on', () => {
     const claimed = pulse(SLUG, [
       { ...wave('Measured', 'eligible', [['feature/a', 'claimed']]) },
     ]);
-    expect(planStatus(m, claimed)).toBe('in-progress');
+    expect(planStatus(m, claimed, true)).toBe('in-progress');
   });
 
   it('a Review: in-session plan reaches approved without ever reporting open', () => {
@@ -122,17 +122,17 @@ describe('planStatus — the pairings the plan insists on', () => {
     // as an error rather than as a legal path breaks every in-session plan.
     const draft = meta({ phase: 'draft', review: 'in-session' });
     const approved = meta({ phase: 'approved', review: 'in-session', started_raw: [] });
-    expect(planStatus(draft, oneOpen)).toBe('draft');
-    expect(planStatus(approved, oneOpen)).toBe('approved');
-    expect(planStatus(approved, oneOpen)).not.toBe('open');
+    expect(planStatus(draft, oneOpen, true)).toBe('draft');
+    expect(planStatus(approved, oneOpen, true)).toBe('approved');
+    expect(planStatus(approved, oneOpen, true)).not.toBe('open');
   });
 
   it('draft, delivered and released never disagree with phase', () => {
     // They are derived FROM the phase. A pulse that would make them disagree
     // must not: a delivered plan with an open branch is still delivered.
-    expect(planStatus(meta({ phase: 'delivered' }), oneOpen)).toBe('delivered');
-    expect(planStatus(meta({ phase: 'released' }), oneOpen)).toBe('released');
-    expect(planStatus(meta({ phase: 'draft', review: 'in-session' }), oneMerged))
+    expect(planStatus(meta({ phase: 'delivered' }), oneOpen, true)).toBe('delivered');
+    expect(planStatus(meta({ phase: 'released' }), oneOpen, true)).toBe('released');
+    expect(planStatus(meta({ phase: 'draft', review: 'in-session' }), oneMerged, true))
       .toBe('draft');
   });
 
@@ -142,12 +142,12 @@ describe('planStatus — the pairings the plan insists on', () => {
       wave('Measured', 'complete', [['feature/a', 'merged']]),
       wave('Verified', 'eligible', [['feature/b', 'open']]),
     ]);
-    expect(planStatus(m, mixed)).toBe('in-progress');
+    expect(planStatus(m, mixed, true)).toBe('in-progress');
   });
 
   it('an approved plan with one wave open but nothing started is approved', () => {
     const m = meta({ phase: 'approved', started_raw: [] });
-    expect(planStatus(m, oneOpen)).toBe('approved');
+    expect(planStatus(m, oneOpen, true)).toBe('approved');
   });
 
   it('a deferred branch does not block deliverable — the scan exempts it', () => {
@@ -155,12 +155,12 @@ describe('planStatus — the pairings the plan insists on', () => {
     const withShelf = pulse(SLUG, [
       wave('Measured', 'complete', [['feature/a', 'merged'], ['feature/shelved', 'deferred']]),
     ]);
-    expect(planStatus(m, withShelf)).toBe('deliverable');
+    expect(planStatus(m, withShelf, true)).toBe('deliverable');
   });
 
   it('a plan in Testing (delivered) reports delivered, not deliverable', () => {
     const m = meta({ phase: 'delivered' });
-    expect(planStatus(m, oneMerged)).toBe('delivered');
+    expect(planStatus(m, oneMerged, true)).toBe('delivered');
   });
 });
 
@@ -170,7 +170,7 @@ describe('planStatus — the release gate reads phase, never status', () => {
     // deliverable plan has NOT been delivered, so its phase is unchanged and
     // any gate reading `phase` refuses it exactly as before.
     const m = meta({ phase: 'approved', started_raw: ['2026-08-23, jwloka'] });
-    expect(planStatus(m, oneMerged)).toBe('deliverable');
+    expect(planStatus(m, oneMerged, true)).toBe('deliverable');
     expect(m.phase).toBe('approved');
   });
 });
@@ -191,6 +191,12 @@ describe('deliverable is exactly status === deliverable — the one word', () =>
   // SAME thing the old inline boolean (`mapped === 'Development' &&
   // allWavesMerged`) did — approved AND every non-deferred branch merged — so
   // the Deliver button, the column bump and the reported status cannot disagree.
+  //
+  // SCOPED TO A COMPLETE SCAN, which is what every case below passes. On a
+  // PARTIAL pulse the word and the old boolean deliberately disagree: the old
+  // one read a missing plan as `false` (*not merged*), and refusing to read a
+  // negative out of a scan that never reached the plan is the whole of the
+  // 2026-08-27 fix. That divergence is asserted in its own tests, not here.
   const oldDeliverable = (m: ReturnType<typeof meta>, p: FleetPulse | null) =>
     m.phase === 'approved'
     && p !== null
@@ -216,7 +222,7 @@ describe('deliverable is exactly status === deliverable — the one word', () =>
     ['no pulse', meta({ phase: 'approved' }), null],
   ];
   it.each(cases)('%s: the bit equals the word', (_name, m, p) => {
-    expect(planStatus(m, p) === 'deliverable').toBe(oldDeliverable(m, p));
+    expect(planStatus(m, p, true) === 'deliverable').toBe(oldDeliverable(m, p));
   });
 });
 
