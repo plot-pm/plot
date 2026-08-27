@@ -3,6 +3,7 @@ import type { Board, Card, Phase, StoryCard } from '../../contract/schema.js';
 import { PHASE_LEADERSHIP } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 import { PlanCard } from './PlanCard.js';
+import { PlanSourceLine } from './PlanSourceLine.js';
 
 /**
  * How many cards a column shows before it offers the rest behind a control.
@@ -132,6 +133,17 @@ export interface BoardViewProps {
   onOpenStory?: (story: StoryCard) => void;
   /** Slug of the card just arrived at, or "" — see PlanCard's `highlighted`. */
   highlight?: string;
+  /**
+   * How old the plan read is, in seconds, from the fleet pulse — or null before
+   * any scan has landed.
+   *
+   * The NUMBER rather than the fleet, deliberately: this view needs one fact to
+   * date its provenance line, and taking the whole `Fleet` to reach it would
+   * give the board tab a dependency on the agents' contract for no other
+   * purpose. Null is omitted rather than shown as 0, which would claim a
+   * freshness nothing measured.
+   */
+  planAgeSeconds?: number | null;
 }
 
 export function BoardView({
@@ -143,6 +155,7 @@ export function BoardView({
   onOpenPlan,
   onOpenStory,
   highlight = '',
+  planAgeSeconds = null,
 }: BoardViewProps) {
   const showSprint = sprintSel.length === 0;
   const showStory = storySel.length === 0;
@@ -174,6 +187,7 @@ export function BoardView({
   );
 
   return (
+    <>
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
       {board.columns.map((column) => {
         // Sprint and story filters intersect.
@@ -284,5 +298,11 @@ export function BoardView({
         );
       })}
     </div>
+    {/* Beneath the columns, not above them: it dates what was just read, and a
+        provenance line at the top would be read as a warning before the reader
+        has seen anything to be warned about. Same placement rule as the Agents
+        tab's view-status footer. */}
+    <PlanSourceLine planSource={board.planSource} ageSeconds={planAgeSeconds} />
+    </>
   );
 }

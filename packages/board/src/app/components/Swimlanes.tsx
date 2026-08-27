@@ -4,6 +4,7 @@ import { BOARD_PHASES, PHASE_LEADERSHIP } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
 import { storyHref } from '../lib/plan.js';
 import { PlanCard } from './PlanCard.js';
+import { PlanSourceLine } from './PlanSourceLine.js';
 
 export interface SwimlanesProps {
   board: Board;
@@ -24,6 +25,15 @@ export interface SwimlanesProps {
   onOpenStory?: (story: StoryCard) => void;
   /** Slug of the card just arrived at, or "" — see PlanCard's `highlighted`. */
   highlight?: string;
+  /**
+   * How old the plan read is, in seconds, or null before any scan has landed.
+   *
+   * Carried here as well as on `BoardView` because lanes are the SAME board in
+   * another layout: the cards have the same provenance either way, and a fact
+   * that appeared and vanished with a layout checkbox would read as a property
+   * of the layout rather than of the plans.
+   */
+  planAgeSeconds?: number | null;
 }
 
 /** One row: a story (or the catch-all), with its plans bucketed by phase. */
@@ -107,6 +117,7 @@ export function Swimlanes({
   onOpenPlan,
   onOpenStory,
   highlight = '',
+  planAgeSeconds = null,
 }: SwimlanesProps) {
   const showSprint = sprintSel.length === 0;
 
@@ -233,6 +244,9 @@ export function Swimlanes({
           ))
         )}
       </div>
+      {/* The same provenance line the column view carries, for the same cards.
+          See `PlanSourceLine`. */}
+      <PlanSourceLine planSource={board.planSource} ageSeconds={planAgeSeconds} />
     </div>
   );
 }

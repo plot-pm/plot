@@ -432,8 +432,76 @@ export const CardSchema = z.object({
    * better than failing to parse.
    */
   phaseDate: z.string().default(''),
+  /**
+   * Whether this plan exists ONLY in the board's working tree — the ref the
+   * plan estate was read from does not carry it.
+   *
+   * The board reads plans from `origin/<default>`, so a card is normally a
+   * statement about what EVERYONE can see. This one is not: it was written on
+   * this machine and not yet pushed, and the marker says exactly that rather
+   * than letting a local file wear the authority of a shared one. The rule it
+   * belongs to runs in ONE direction — the working tree may ADD a plan the ref
+   * lacks, never override one it has — so a card carrying this flag is by
+   * construction a plan the ref has never seen, and a plan in both is the ref's
+   * and unmarked.
+   *
+   * DECLARED HERE OR IT DOES NOT EXIST. The client CASTS the payload rather
+   * than parsing it, so a field this schema does not name arrives `undefined`
+   * in the renderer no matter what the server sent — two defects in this repo
+   * came from exactly that. The declaration is what makes the marker reachable.
+   *
+   * EXPECTED TO LOOK UNUSED, and that is recorded so it is not deleted as dead
+   * code: the board's dedicated checkout holds zero local-only plans (measured
+   * 2026-08-27) because nobody authors there. It fires in an AUTHORING
+   * checkout, which is an equally real place to run `pnpm board`.
+   *
+   * Optional and absent-when-false, the discipline every derived card field
+   * here follows: a pushed plan and an older server that never looked both read
+   * as *not local*, which renders nothing either way.
+   */
+  notPushed: z.boolean().optional(),
 });
 export type Card = z.infer<typeof CardSchema>;
+
+/**
+ * WHERE THE PLAN ESTATE WAS READ FROM — the provenance of every card above.
+ *
+ * The board reads plans and sprints from a git ref rather than from its own
+ * checkout, because a checkout is current only as often as a human remembers to
+ * pull: the board's drifted 16 commits in about an hour on 2026-08-27, and two
+ * operator reports that hour (a badge on the wrong phase, a Deliver button
+ * refusing a finished plan) were both this and neither said so.
+ *
+ * `ref` and `resolved` are kept APART rather than collapsed into one nullable
+ * string. A reader meeting an empty board needs to know WHICH ref could not be
+ * resolved — `origin/main` in a repo with no remote is a different situation
+ * from a typo'd default branch, and both are different from a ref that resolved
+ * and simply holds no plans yet.
+ */
+export const PlanSourceSchema = z.object({
+  /** The ref the plans were read from, e.g. `origin/main`. */
+  ref: z.string().default(''),
+  /**
+   * Whether that ref could be resolved at all.
+   *
+   * FALSE IS NOT AN ERROR, and must not be rendered as one: a repo with no
+   * remote is a legitimate deployment, and the honest answer there is that the
+   * board can report no shared plan estate — never a checkout quietly promoted
+   * into the ref's place, which is the defect this whole field exists to make
+   * visible.
+   */
+  resolved: z.boolean().default(false),
+  /**
+   * How many plans came from the working tree because the ref lacked them —
+   * the cards carrying {@link CardSchema.notPushed}.
+   *
+   * Zero in the board's dedicated checkout, by measurement rather than by
+   * accident. It is a COUNT rather than a flag so a reader can tell one
+   * unpushed plan from a checkout the ref knows nothing about.
+   */
+  localOnly: z.number().default(0),
+});
+export type PlanSource = z.infer<typeof PlanSourceSchema>;
 
 export const ColumnSchema = z.object({
   phase: z.enum(BOARD_PHASES),
@@ -711,6 +779,13 @@ export const BoardSchema = z.object({
    * shows no badge rather than a guessed count.
    */
   checklist: z.object({ done: z.number(), total: z.number() }).nullable(),
+  /**
+   * See {@link PlanSourceSchema} — which ref the cards were read from, and
+   * whether it resolved. Defaulted so an older server's payload still parses;
+   * such a board reports an unresolved, unnamed source, which renders as the
+   * board declining to claim a provenance it does not have.
+   */
+  planSource: PlanSourceSchema.default({ ref: '', resolved: false, localOnly: 0 }),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
 });

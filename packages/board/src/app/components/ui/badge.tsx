@@ -26,10 +26,21 @@ const badgeVariants = cva(
 export interface BadgeProps extends VariantProps<typeof badgeVariants> {
   children: ReactNode;
   className?: string;
+  /**
+   * Hover text, for a badge whose two or three words cannot carry the whole
+   * fact. Optional and omitted by default: a `title` on a self-explanatory
+   * badge is noise, and one on a badge that needs it (`not pushed` — but
+   * invisible to whom?) is the rest of the sentence.
+   */
+  title?: string;
 }
 
-export function Badge({ variant, className, children }: BadgeProps) {
-  return <span className={cn(badgeVariants({ variant }), className)}>{children}</span>;
+export function Badge({ variant, className, title, children }: BadgeProps) {
+  return (
+    <span className={cn(badgeVariants({ variant }), className)} title={title}>
+      {children}
+    </span>
+  );
 }
 
 /** Map a plan type string to a badge variant, falling back to neutral. */
