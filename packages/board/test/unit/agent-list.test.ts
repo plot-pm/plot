@@ -28,6 +28,7 @@ import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/
 // collapsed both into this.
 import { TUPLE_TRACKS } from '../../src/app/components/TupleRow.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
+import type { DispatchInfo } from '../../src/contract/schema.js';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow, type Fleet, type Wave,
 } from '../../src/contract/schema.js';
@@ -3512,23 +3513,59 @@ describe('offersOpen — Open is a WAITING ON YOU affordance', () => {
 });
 
 /**
- * CREATE STORY is offered on a ticket, and it always REFUSES — with its reason
- * on the control, the settled rule. Creating a story is an interactive decision
- * (`story-tracking` asks where to home it, and pushes back on premature ones),
- * not a one-click board write, so the board has no route for it. Offering it and
- * naming why is the honest answer; hiding it would leave the reader wondering
- * whether the board even knows stories exist.
+ * CREATE STORY is offered on a ticket, and it ACTS — the assertion this file
+ * used to make in the opposite direction, and the flip is the feature.
+ *
+ * It asserted that `storyRefusal()` always returned a non-empty reason, because
+ * the function took no arguments and returned a constant: *"a story is a
+ * decision you make — where it lives, whether it is wanted yet — so it is
+ * created with /story-tracking at a terminal, not from a board click"*. That is
+ * what made it a claim about STORIES rather than a fact about this board.
+ *
+ * Measured against `skills/story-tracking/SKILL.md`, neither named decision is
+ * what the refusal said it was: the skill states its own escape (*"Skip the
+ * question only when the repo has exactly one home"*) and its own override (an
+ * explicit request beats triage advice — which is exactly what a click here
+ * is). And the ground it stood on, *an unattended agent has nobody to ask*, is
+ * refuted by the practice: `/story-tracking` is run unattended several times a
+ * day from the prompt.
+ *
+ * So the test that asserted the refusal is permanent is what gets rewritten —
+ * the anti-contract this branch is here to overturn. What remains asserted is
+ * that a control which CANNOT act still says why, which was always the right
+ * half of the old rule.
  */
-describe('storyRefusal — Create story is offered, and says why it cannot act from here', () => {
-  it('always returns a non-empty reason', () => {
-    expect(storyRefusal()).not.toBe('');
+describe('storyRefusal — Create story acts, and names what stops it when it cannot', () => {
+  const CAN: DispatchInfo = { available: true, reason: '' };
+
+  it('returns NO refusal where the board and the tracker can both answer', () => {
+    // The flip. This is the assertion the old constant made impossible.
+    expect(storyRefusal(CAN, 'ok')).toBe('');
   });
 
-  it('names the interactive nature rather than pretending it is a binding limit', () => {
-    // Not *the board is not localhost* — that would be a lie the moment someone
-    // added a story endpoint. The reason is about the ACT: a story is a decision
-    // a person makes, with a home to choose, not a button to press.
-    expect(storyRefusal().toLowerCase()).toMatch(/story|interactive|decide|home/);
+  it('names the BINDING when the board is not on localhost', () => {
+    // A fact that can change — unlike the constant, which asserted that no
+    // route could ever exist.
+    const bound = { available: false, reason: 'the board is bound to 100.64.1.2, not localhost' };
+    expect(storyRefusal(bound, 'ok')).toContain('100.64.1.2');
+  });
+
+  it('names the TRACKER when this host has no issue read at all', () => {
+    expect(storyRefusal(CAN, 'unsupported').toLowerCase()).toContain('issue read');
+  });
+
+  it('says the lookup is broken rather than implying the ticket is gone', () => {
+    // The row is on screen precisely because the last good lookup found it. An
+    // outage is not an answer, in this direction too.
+    const reason = storyRefusal(CAN, 'failed').toLowerCase();
+    expect(reason).toContain('lookup');
+    expect(reason).not.toContain('no such issue');
+  });
+
+  it('still refuses with a reason rather than falling silent', () => {
+    // The half of the old rule that was always right: a control that will not
+    // act must say why, or the reader spends a click to learn it.
+    expect(storyRefusal({ available: false, reason: '' }, 'ok')).not.toBe('');
   });
 });
 

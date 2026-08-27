@@ -9,6 +9,10 @@ import {
 import { ApproveButton } from '../../components/ApproveButton.js';
 import { CommissionDesignButton } from '../../components/CommissionDesignButton.js';
 import { CreatePlanButton } from '../../components/CreatePlanButton.js';
+import {
+  CreateStoryButton,
+  refusalReason as storyRefusalReason,
+} from '../../components/CreateStoryButton.js';
 import { ResliceButton } from '../../components/ResliceButton.js';
 import { DeliverButton } from '../../components/DeliverButton.js';
 import { DropAgentButton } from '../../components/DropAgentButton.js';
@@ -163,32 +167,48 @@ export function runLinkLabel(row: Pick<AgentRow, 'pr' | 'stuck'>): string {
 }
 
 /**
- * Why *Create story* is offered but cannot act from the board — the reason it
- * carries on its own control, the settled refusal rule.
+ * Why *Create story* will not act, or "" when it will — and the SHAPE of this
+ * function is the change it carries.
  *
- * **It is offered, and it always refuses, and both halves are the design.** The
- * ticket menu names *Create story* beside *Create plan* because a reader looking
- * at an unplanned issue is deciding between exactly those two — and a menu that
- * silently dropped one would hide half the decision. But creating a story is not
- * a board write: `story-tracking` is built around questions a person answers —
- * WHERE to home the story, whether it is even wanted yet — and an unattended
- * agent has nobody to ask. So there is no `/api/story`, and this is not an
- * oversight to be filled by a later wave the way `Commission design` was: it is
- * a statement that the act belongs to a person at a terminal, not to a click.
+ * **It took no arguments and returned a constant.** That is what made the old
+ * refusal a claim about stories rather than a fact about this board:
  *
- * The reason is about the ACT, not the binding — deliberately not *the board is
- * bound to <host>*, which would read as a limit that a story endpoint could one
- * day lift. There is nothing to lift: the decision is the point.
+ *     'a story is a decision you make — where it lives, whether it is wanted
+ *      yet — so it is created with /story-tracking at a terminal, not from a
+ *      board click'
  *
- * A constant rather than a `DispatchInfo` from the server, because the server
- * has no capability to report here — the absence is total and permanent, and a
- * flag would imply a route that could flip it.
+ * and its own comment called that permanent — *"not an oversight to be filled
+ * by a later wave … There is nothing to lift: the decision is the point."*
+ *
+ * Measured against `skills/story-tracking/SKILL.md` on 2026-08-20, neither named
+ * decision is what the refusal says it is. The skill states its own escape —
+ * *"Skip the question only when the repo has exactly one home"* — and its own
+ * override — an explicit request beats triage advice, which is exactly what a
+ * click on this control is. And the ground it stood on, *an unattended agent has
+ * nobody to ask*, is refuted by the practice: `/story-tracking` is run
+ * unattended several times a day from the prompt, through the same
+ * `PLOT_UNATTENDED` contract that makes *Create plan* work.
+ *
+ * So the refusal became CONDITIONAL and moved into `CreateStoryButton`, where it
+ * reads the same two facts *Create plan* reads: the binding, and whether the
+ * tracker can be asked at all. The two repo-level facts neither can see — an
+ * unset `Story command`, several declared story homes — come back from
+ * `/api/story` as refusals that name the key or the question.
+ *
+ * **What the old refusal got right is kept, in the words rather than in a
+ * block.** A plan is a commitment to do work; a story is a commitment to track
+ * work — so the armed label says `track #N` where *Create plan*'s says `Draft`.
+ * The distinction was always real; it just never argued for the route being
+ * absent.
+ *
+ * Retained as a named function, delegating, because the ticket menu's contract
+ * is that a refused control STATES ITS REASON: a caller asking "why can this
+ * not act" should have one place to ask, whatever the answer turns on.
  *
  * Exported for test.
  */
-export function storyRefusal(): string {
-  return 'a story is a decision you make — where it lives, whether it is wanted yet — '
-    + 'so it is created with /story-tracking at a terminal, not from a board click';
+export function storyRefusal(story: DispatchInfo, issueAnswer: IssueAnswer): string {
+  return storyRefusalReason(story, issueAnswer);
 }
 
 /**
@@ -1620,8 +1640,11 @@ export function PlanActions({
  * Three items, the kind's own:
  *   - **Create plan** — the working action, `CreatePlanButton` verbatim, with
  *     its own refusals (a host that cannot be asked, a lookup that broke).
- *   - **Create story** — offered and refused, `storyRefusal` on the control:
- *     a story is a person's decision, not a board write, so there is no route.
+ *   - **Create story** — the working twin of *Create plan*, `CreateStoryButton`
+ *     verbatim, with its own refusals (the binding, a host that cannot be asked)
+ *     and the route's own for what only the repo knows: an unset `Story command`,
+ *     or several declared story homes. It was offered-and-always-refused until
+ *     2026-08-27, on a ground the skill it named contradicts.
  *   - **Open on host** — navigation to `issue.url`, no guard and no fetch, the
  *     same shape the fleet row's Open takes.
  *
@@ -1636,8 +1659,8 @@ export function PlanActions({
  * rather than in it, so the age beside it renders alone.
  */
 export function IssueRowActions(
-  { issue, idea, issueAnswer }:
-  { issue: IssueRow; idea: DispatchInfo; issueAnswer: IssueAnswer },
+  { issue, idea, story, issueAnswer }:
+  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer },
 ) {
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
@@ -1693,22 +1716,18 @@ export function IssueRowActions(
           <div role="menuitem" className="px-2 py-1 text-left">
             <CreatePlanButton issue={issue} idea={idea} issueAnswer={issueAnswer} />
           </div>
-          {/* CREATE STORY — offered, and refused with its reason. A real
-              `<button>`, `aria-disabled`, never native `disabled`: the reason
-              must stay reachable by keyboard, the same rule the acting buttons
-              follow. There is no route to call, so it never acts — the click is
-              a no-op and the words are the whole of it. */}
+          {/* CREATE STORY — the twin of Create plan, and no longer a control
+              that exists only to decline. Its refusals are CONDITIONAL now: the
+              binding and the tracker here, and from the route the two facts only
+              the repo knows — an unset `Story command`, or several declared story
+              homes, each named rather than guessed around.
+
+              A plan is a commitment to do work, a story a commitment to track
+              work — the one thing the old refusal got right, kept in the armed
+              label (`track #N` beside Create plan's `Draft`) rather than in a
+              block. */}
           <div role="menuitem" className="px-2 py-1 text-left">
-            <button
-              type="button"
-              data-create-story={issue.number}
-              aria-disabled
-              title={storyRefusal()}
-              className="cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600"
-            >
-              Create story
-              <span className="sr-only"> — unavailable: {storyRefusal()}</span>
-            </button>
+            <CreateStoryButton issue={issue} story={story} issueAnswer={issueAnswer} />
           </div>
           {/* OPEN ON HOST — navigation to a fact the row already carries, or
               nothing where the host gave no address (the same "" the number cell
