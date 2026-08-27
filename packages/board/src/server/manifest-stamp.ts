@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveManifestDir } from './registry.js';
 
 /**
  * The launch stamp — ONE contract, and this is one of its two implementations.
@@ -132,8 +133,7 @@ export function stampManifest(text: string, stamp: Stamp): string {
   return filtered.join('\n') + eol;
 }
 
-/** Where the dispatcher writes manifests, relative to the repo root. */
-const AGENT_MANIFEST_DIR = '.plot/agents';
+
 
 /**
  * The manifest file that names this worktree, or `''` when none does.
@@ -147,10 +147,23 @@ const AGENT_MANIFEST_DIR = '.plot/agents';
  * `''` on any failure — no agents directory, an unreadable file — because a
  * missing manifest is not an error: the worker runs regardless and the stamp is
  * a best-effort display fact. The caller treats `''` as *nothing to stamp*.
+ *
+ * THE DIRECTORY IS THE `Agent registry` KEY'S ANSWER, resolved by the same
+ * {@link resolveManifestDir} the reader uses. It was `path.join(repoRoot,
+ * '.plot/agents')` until 2026-08-27, which meant a board whose configured
+ * registry sits in another checkout looked in its own — and found nothing to
+ * stamp for every worker the dispatcher had just registered elsewhere.
+ *
+ * `opts` defaults to `{}`, which resolves to the same relative default as
+ * before: a caller that passes nothing is unaffected.
  */
-export function manifestForWorktree(repoRoot: string, worktree: string): string {
+export function manifestForWorktree(
+  repoRoot: string,
+  worktree: string,
+  opts: { manifestDir?: string; scriptsDir?: string } = {},
+): string {
   if (!worktree) return '';
-  const dir = path.join(repoRoot, AGENT_MANIFEST_DIR);
+  const dir = resolveManifestDir(repoRoot, opts);
   let real = worktree;
   try {
     real = fs.realpathSync(worktree);
