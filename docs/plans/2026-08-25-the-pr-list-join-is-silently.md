@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Rounds:** 2
+- **Started:** 2026-08-27, Jan Wloka, `feature/the-pr-list-join-is-silently`
 
 ## Changelog
 
