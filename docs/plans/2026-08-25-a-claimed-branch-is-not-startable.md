@@ -261,3 +261,43 @@ lands either way — waves run in order, so `Spent` starts when `Seen` merges.
   }
 }
 END-CHALLENGE-THE-PLAN-METADATA -->
+
+### Correction 2026-08-27: the cost is not only a wasted budget
+
+Round one described the defect as *budget spent on an action that is refused
+before it does anything*. That is the harmless half, and it holds only where the
+branch has no worktree.
+
+**Where a worktree survives, nothing refuses.** `plot-dispatch.sh` adopts an
+existing worktree rather than creating one — `reusing existing worktree for
+<branch>` — so the phase gate never fires and a worker starts on merged work.
+Twice in one hour on 2026-08-27:
+
+| cycle | branches started | already merged as |
+|---|---|---|
+| 14:56 | an-unreachable-host-says-so | #446 |
+| | the-board-reads-approval-not-phase | #458 |
+| | the-worktree-root-is-configurable | #445 |
+| later | a-bitbucket-issue-is-a-ticket | #449 |
+| | a-plan-cites-a-jira-key | #447 |
+| | a-jenkins-build-has-a-status | #450 |
+
+Six workers, six merged waves. Two of them opened PRs — **#473 and #476** — each
+carrying a branch **~120 commits behind main**, each of which would have reverted
+that much work had the fleet's auto-merger taken it green. #473 was closed by
+hand; #476 needed the same.
+
+The first cycle also exhausted GitHub's secondary rate limit: eight concurrent
+workers against a cap of seven, three of them doing nothing that needed doing.
+
+**So `isStartable` returning true for `wip` is not merely wasteful — it is the
+step before a revert.** The `Spent` wave is what stops it, and the danger case
+is the one to assert: a claimed branch WITH a live worktree, which is the
+population the refusal never reaches today.
+
+**A second-order fix is already available and does not replace this one.**
+`plot-reap.sh` would have removed those six worktrees, but it refuses them —
+`unlanded work — no merged PR` — because their PRs were squash-merged and a
+squash leaves the branch permanently ahead of main. It says that about **11
+branches** in this estate. Reaping them narrows the population; it does not stop
+auto-dispatch counting a claimed branch startable.
