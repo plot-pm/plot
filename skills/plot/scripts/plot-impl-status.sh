@@ -23,7 +23,12 @@ PLAN_DIR="${PLAN_DIR%/}"
 # /plot-implement brief, or back-filled by /plot-deliver step 4).
 #
 # Find the date-prefixed plan file via the active or delivered symlink index
-DEFAULT_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+# `|| true` on the pipeline, not just `2>/dev/null` on the git call: under
+# `set -euo pipefail` a failing `git symbolic-ref` kills the script at this line
+# and the fallback below never runs. A FRESH CLONE has no `origin/HEAD` — it is
+# set by `clone` only when the remote advertises it — so this aborted with
+# exit 128 and no output in exactly the repos a test harness creates.
+DEFAULT_BRANCH="$( { git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'; } || true)"
 [ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH=main
 PLAN_PATH=$(git ls-tree --name-only "origin/$DEFAULT_BRANCH" "$PLAN_DIR/" 2>/dev/null \
   | grep -E "[0-9]{4}-[0-9]{2}-[0-9]{2}-${SLUG}\.md$" | head -1)
