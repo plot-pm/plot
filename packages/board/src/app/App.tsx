@@ -1023,6 +1023,7 @@ export function App() {
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}
+              planAgeSeconds={fleet?.ageSeconds ?? null}
               onStarting={onStarting}
               onOpenPlan={setOpenPlan}
               onOpenStory={onOpenStory}
@@ -1034,6 +1035,7 @@ export function App() {
               sprintSel={validSprintSel}
               storySel={validStorySel}
               pulse={pulse}
+              planAgeSeconds={fleet?.ageSeconds ?? null}
               onStarting={onStarting}
               onOpenPlan={setOpenPlan}
               onOpenStory={onOpenStory}
