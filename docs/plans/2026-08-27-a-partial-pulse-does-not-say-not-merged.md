@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -140,6 +140,25 @@ disagreement this codebase keeps removing.
 The inverse error, and worse. `false` at least fails safe; `true` would deliver a
 plan whose branches nobody checked.
 
+### The card is wrong too — there are two callers, not one
+
+Checked before approval: `allWavesMerged` has **two** consumers, and the plan
+above named only the first.
+
+- `deliver.ts:209` — the Deliver gate, the refusal an operator meets.
+- `board.ts:499` — inside `planStatus`, deciding `deliverable`.
+
+So the same partial pulse that refuses the button also renders the CARD wrong: a
+plan whose every wave is complete shows as `in-progress` rather than
+`deliverable`, because the same lookup fails the same way. The operator sees a
+card that does not offer delivery and a button that refuses it, from one cause.
+
+That widens the defect and sharpens the fix: reading the verdicts must happen in
+`allWavesMerged` itself, where both callers inherit it, not in the route. The
+data is already in the contract — `FleetWaveSchema` carries `verdict`
+(`schema.ts:1817`) and the pulse carries `waves` (`:1839`) — so no plumbing is
+added.
+
 ## Waves
 
 ### Verdicted (Branch: bug/the-deliver-gate-reads-the-verdicts)
@@ -169,7 +188,11 @@ returns a distinct *scan incomplete* verdict rather than `not-merged` when
 6. **`allWavesMerged` has ONE implementation of "has this plan landed".** It
    currently re-derives from branch states what the scan already decided as a
    verdict; two derivations of one question is what this repo keeps removing.
-7. `pnpm run validate`, `pnpm run test:board` green; artifact rebuilt and
+7. **The CARD reads `deliverable` on the same partial pulse**, not just the
+   button. Two callers (`deliver.ts:209`, `board.ts:499`) share the function;
+   fixing the route alone leaves a plan whose card refuses to offer what its
+   button would allow.
+8. `pnpm run validate`, `pnpm run test:board` green; artifact rebuilt and
    committed.
 
 ## Notes
