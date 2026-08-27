@@ -49,6 +49,20 @@ function dispatchablePlan(work, { slug = 'unattended-flow', date = '2026-08-19' 
 - \`feature/solo\` — the one branch a worker is started on
 `);
   fs.symlinkSync(`../${date}-${slug}.md`, path.join(work, 'docs', 'plans', 'active', `${slug}.md`));
+  // The brief gate refuses to START a briefless branch (it still prepares the
+  // worktree and claim). These tests are about the environment a worker is
+  // launched with, so they need one launched — the brief is scaffolding here.
+  //
+  // A real file rather than `--no-brief`: the escape hatch is its own path with
+  // its own tests, and using it here would leave the DEFAULT path — the one
+  // every real dispatch takes — uncovered by this suite.
+  //
+  // It rides the `git add -A` below deliberately. A brief that exists only in
+  // the working tree is invisible to the worker, whose worktree is cut from
+  // origin/main; committing it is what makes the fixture model a real dispatch.
+  fs.mkdirSync(path.join(work, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(work, '.plot', 'briefs', 'solo.md'),
+    '# Brief: feature/solo\n\nDump the environment. The spec is the recorder command.\n');
   sh(work, 'git add -A && git commit -qm plan && git push -q origin main');
   return rel;
 }
