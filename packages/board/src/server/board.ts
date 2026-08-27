@@ -119,18 +119,124 @@ export function readConfig(opts: BuildBoardOptions, key: string, fallback: strin
 }
 
 /**
- * Collect plan files, de-duplicated by real path. Walk order (active/ →
- * delivered/ → the plans root) mirrors the previous walker so a plan symlinked
- * from active/ is counted once, under its canonical docs/plans/ path.
+ * A plan the board will parse, and WHERE ITS BYTES CAME FROM.
+ *
+ * `path` is the plan's IDENTITY — repo-relative, the string a card renders and
+ * the one a slug is cut from. It is the same whichever source supplied the
+ * plan, which is what lets the two be merged at all.
+ *
+ * `content` is set only for a plan read out of a git ref: those bytes exist in
+ * no file, so they are staged to a scratch path for the parser and the
+ * canonical `path` is restored afterwards. A working-tree plan leaves it
+ * undefined and is parsed where it lies — staging a file that already is one
+ * would be 151 pointless writes.
+ *
+ * `local` marks a plan the REF DID NOT HAVE. It rides here rather than being
+ * recomputed later because this is the only layer that can still see both
+ * sources; by the time cards exist, the distinction is gone.
  */
-function collectPlanFiles(repoRoot: string, planDir: string): string[] {
+interface PlanSource {
+  path: string;
+  content?: string;
+  local: boolean;
+  /**
+   * The real file, for a working-tree plan only — the path the parser is
+   * pointed at.
+   *
+   * CARRIED rather than rebuilt from `repoRoot` + `path`. A plan reached
+   * through an `active/` symlink is resolved with `realpathSync`, and that
+   * answer is the one that opens; re-joining the relative form would hand the
+   * parser a path that need not exist. Rebuilding a path already in hand is
+   * where the mistakes live — the same rule `StoryCard.path` follows.
+   */
+  file?: string;
+}
+
+/**
+ * Every plan blob in a tree, read in ONE `git cat-file --batch`.
+ *
+ * THE PROCESS COUNT IS THE DESIGN, not an optimisation of it. Each `git` spawn
+ * costs ~55 ms regardless of how little work it does — the constraint
+ * `collectBranchPlans` caches on tip SHAs to avoid — so the shape that reads
+ * one blob per spawn costs that 151 times on a path the client polls every few
+ * seconds. Measured on this repo's estate 2026-08-27: ~1.5 s for a per-file
+ * loop against 0.011 s for one batch, 136× apart. A per-file implementation
+ * would satisfy every other rule this file follows and leave the board slower
+ * than the defect it was written to fix.
+ *
+ * PARSED AS BYTES, NEVER AS A STRING. `--batch` frames each entry as
+ * `<sha> blob <size>\n<size bytes>\n`, and `size` counts BYTES while a JS
+ * string index counts UTF-16 units. This repo's plans are full of `—` and `→`;
+ * one such character makes the two disagree (measured: 67 on a single plan) and
+ * every subsequent entry in the stream would be sliced at the wrong offset. So
+ * the buffer is walked by the declared length and decoded per entry.
+ *
+ * Returns an empty map where the ref cannot be resolved — a repo with no
+ * remote, a fresh clone. The caller distinguishes that from "no plans"; this
+ * only reports what it found.
+ */
+function readPlansFromRef(repoRoot: string, ref: string, planDir: string): Map<string, string> {
+  const found = new Map<string, string>();
+  // One listing, mode-filtered: `planPathsInTree` already drops the 120000
+  // symlink entries, so each plan is named ONCE by its real path. That is why
+  // the de-duplication the filesystem walk needed is gone rather than ported —
+  // it existed because a plan indexed under active/ appears twice on disk, and
+  // it appears once in a tree.
+  const out = git(repoRoot, ['ls-tree', '-r', ref, '--', planDir]);
+  const paths: string[] = [];
+  const shas: string[] = [];
+  for (const line of out.split('\n')) {
+    const m = /^(\d{6}) blob ([0-9a-f]+)\t(.+)$/.exec(line);
+    if (!m) continue;
+    if (m[1] !== '100644' && m[1] !== '100755') continue;
+    if (!m[3].endsWith('.md')) continue;
+    shas.push(m[2]);
+    paths.push(m[3]);
+  }
+  if (paths.length === 0) return found;
+  const batch = gitBuffer(repoRoot, ['cat-file', '--batch'], shas.join('\n') + '\n');
+  if (!batch) return found;
+  let at = 0;
+  for (let i = 0; i < paths.length; i++) {
+    const nl = batch.indexOf(0x0a, at);
+    if (nl === -1) break;
+    const header = batch.toString('utf8', at, nl);
+    const m = /^[0-9a-f]+ blob (\d+)$/.exec(header);
+    // A missing object answers `<sha> missing`; the stream then holds no body
+    // for it, so the walk continues from the next header rather than desyncing.
+    if (!m) { at = nl + 1; continue; }
+    const size = Number(m[1]);
+    const start = nl + 1;
+    found.set(paths[i], batch.toString('utf8', start, start + size));
+    at = start + size + 1; // trailing newline after the body
+  }
+  return found;
+}
+
+/**
+ * Plan files in the working tree, by repo-relative path.
+ *
+ * The walk that used to be the board's ONLY source, now its lesser one: it may
+ * ADD a plan the ref does not carry, never override one it does. Symlinks are
+ * still resolved here because a filesystem genuinely has them — `active/` holds
+ * 129 pointing at the 151 real files — and the `seen` set is still needed for
+ * exactly that reason. Its removal belongs to the tree listing, which never
+ * sees a second copy in the first place.
+ */
+function workingTreePlans(repoRoot: string, planDir: string): Map<string, string> {
+  const byRelPath = new Map<string, string>();
   const seen = new Set<string>();
-  const files: string[] = [];
   const root = path.join(repoRoot, planDir);
   const dirs = [path.join(root, 'active'), path.join(root, 'delivered'), root];
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) continue;
-    for (const entry of fs.readdirSync(dir)) {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
       if (!entry.endsWith('.md')) continue;
       let resolved: string;
       try {
@@ -143,10 +249,78 @@ function collectPlanFiles(repoRoot: string, planDir: string): string[] {
       }
       if (seen.has(resolved)) continue;
       seen.add(resolved);
-      files.push(resolved);
+      byRelPath.set(path.relative(repoRoot, resolved), resolved);
     }
   }
-  return files;
+  return byRelPath;
+}
+
+/**
+ * What the board reports about WHERE THE PLAN ESTATE CAME FROM.
+ *
+ * `ref` is the ref that was read (`origin/main`), `resolved` whether it could
+ * be. The pair is not collapsible to one nullable field: a reader meeting an
+ * unresolved estate needs to know WHICH ref failed, and that is the sentence
+ * the board is expected to say rather than silently rendering a checkout.
+ */
+interface PlanSourceReport {
+  ref: string;
+  resolved: boolean;
+  /** Plans the ref did not carry — the ones a card marks `not pushed`. */
+  localOnly: number;
+}
+
+/**
+ * THE MERGE, and it runs in ONE DIRECTION.
+ *
+ * | the ref says | the working tree says | the answer |
+ * |---|---|---|
+ * | a plan | anything | the REF's, unmarked |
+ * | nothing | a plan | the tree's, marked `local` |
+ * | unreadable | anything | nothing, and `resolved: false` |
+ *
+ * Row 1 is the safety property and the whole reason this function exists: the
+ * defect being fixed is a board reporting a checkout as if it were shared
+ * truth, and letting the tree win here would reintroduce it with extra steps —
+ * an uncommitted edit would silently become what the board tells everyone.
+ *
+ * Row 2 is why local plans are SHOWN rather than hidden. A plan is invisible
+ * for the minutes between writing and pushing (five were, in one session on
+ * 2026-08-27), and an EDITED-but-unpushed plan would otherwise render its older
+ * ref content with nothing to say the tree disagreed. A card that says `not
+ * pushed` claims nothing about what everyone can see; it states exactly what it
+ * is.
+ *
+ * Row 3 refuses to substitute. `plot-dispatch.sh`'s phase gate states the rule
+ * this file is the third instance of: there is deliberately no fallback to the
+ * working tree, because that "would reintroduce the bug exactly where nothing
+ * can catch it". A repo with no remote gets a stated answer, not a promoted one.
+ */
+function collectPlanSources(
+  repoRoot: string,
+  planDir: string,
+  ref: string,
+): { sources: PlanSource[]; report: PlanSourceReport } {
+  const fromRef = readPlansFromRef(repoRoot, ref, planDir);
+  // An empty listing is ambiguous on its own — an unreadable ref and a repo
+  // with no plans yet look identical — so the ref is resolved SEPARATELY. Only
+  // `rev-parse` can tell "there is no such ref" from "there is, and it is
+  // empty", and the two owe the reader different sentences.
+  const resolved = git(repoRoot, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]).trim() !== '';
+  const sources: PlanSource[] = [];
+  for (const [relPath, content] of fromRef) {
+    sources.push({ path: relPath, content, local: false });
+  }
+  let localOnly = 0;
+  for (const [relPath, absPath] of workingTreePlans(repoRoot, planDir)) {
+    // The ref wins. Row 1: present in both means the ref's bytes, unmarked.
+    if (fromRef.has(relPath)) continue;
+    localOnly++;
+    // No `content`: the file is already on disk, so the parser is pointed at it
+    // where it lies, by the path `realpathSync` actually resolved.
+    sources.push({ path: relPath, local: true, file: absPath });
+  }
+  return { sources, report: { ref, resolved, localOnly } };
 }
 
 /**
@@ -183,6 +357,34 @@ function git(repoRoot: string, args: string[]): string {
     });
   } catch {
     return '';
+  }
+}
+
+/**
+ * The same read as {@link git}, but fed on stdin and answered in BYTES.
+ *
+ * Both halves exist for `cat-file --batch` and nothing else. It takes its
+ * object list on stdin because that is the one call here whose input is
+ * unbounded — 151 SHAs today, and an argument list has a limit a plan estate
+ * should never be able to reach. It returns a Buffer because the batch stream
+ * declares each body's length in BYTES, and decoding the whole stream to a
+ * string first would make those lengths unusable the moment a plan contains a
+ * non-ASCII character, which every plan in this repo does.
+ *
+ * `maxBuffer` is 64 MB, matching `readPlanMeta`'s: the whole estate arrives in
+ * one response here too (2.1 MB measured), and the failure mode of guessing low
+ * is a silent truncation midway through a stream that is parsed by offset.
+ */
+function gitBuffer(repoRoot: string, args: string[], input: string): Buffer | null {
+  try {
+    return execFileSync('git', args, {
+      cwd: repoRoot,
+      input,
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -673,10 +875,23 @@ export function parseSprintFile(absPath: string): SprintCard | null {
   } catch {
     return null;
   }
+  return parseSprintContent(content, path.basename(absPath));
+}
+
+/**
+ * The same parse, over bytes that need not be a file.
+ *
+ * Split out so a sprint read from a git ref goes through ONE parser with the
+ * working-tree one rather than a copy that drifts. `name` is the BASENAME the
+ * slug and the fallback title are cut from — the identity a ref blob has as
+ * surely as a file does, and the only thing the parse needed a path for.
+ */
+export function parseSprintContent(content: string, name: string): SprintCard | null {
+  const base = path.basename(name);
   const titleMatch = content.match(/^# Sprint: (.+)$/m);
-  const title = titleMatch ? titleMatch[1].trim() : path.basename(absPath, '.md');
-  const slugMatch = path.basename(absPath).match(/^\d{4}-W\d{2}-(.+)\.md$/);
-  const slug = slugMatch ? slugMatch[1] : path.basename(absPath, '.md');
+  const title = titleMatch ? titleMatch[1].trim() : path.basename(base, '.md');
+  const slugMatch = base.match(/^\d{4}-W\d{2}-(.+)\.md$/);
+  const slug = slugMatch ? slugMatch[1] : path.basename(base, '.md');
   const statusSection = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/);
   const statusBody = statusSection ? statusSection[1] : '';
   const phaseMatch = statusBody.match(/^- \*\*Phase:\*\* (.+)$/m);
@@ -704,11 +919,44 @@ export function collectSprints(
   repoRoot: string,
   sprintDir: string,
   knownSlugs?: ReadonlySet<string>,
+  ref?: string,
 ): SprintCard[] {
-  const dir = path.join(repoRoot, sprintDir, 'active');
-  if (!fs.existsSync(dir)) return [];
   const sprints: SprintCard[] = [];
-  for (const entry of fs.readdirSync(dir)) {
+  // SPRINTS COME FROM THE REF TOO, by the same rule and for a sharper reason
+  // than the plans: a sprint feeds the release gate and the tally, so reading a
+  // stale one is a WRONG RELEASE DECISION rather than a cosmetic lag. Same
+  // one-directional merge — the ref's sprints win, the working tree may only
+  // add one the ref lacks.
+  //
+  // `ref` is optional because this function is exported and called with a plan
+  // estate it does not own; omitting it reads the working tree alone, which is
+  // what a caller with no repo behind it wants.
+  const fromRef = ref
+    ? readPlansFromRef(repoRoot, ref, path.join(sprintDir, 'active'))
+    : new Map<string, string>();
+  const takenSlugs = new Set<string>();
+  const add = (sprint: SprintCard | null) => {
+    if (!sprint || takenSlugs.has(sprint.slug)) return;
+    takenSlugs.add(sprint.slug);
+    if (knownSlugs) {
+      sprint.members = sprint.members.map((m) =>
+        knownSlugs.has(m.slug) ? m : { ...m, known: false },
+      );
+    }
+    sprints.push(sprint);
+  };
+  for (const [relPath, content] of fromRef) {
+    add(parseSprintContent(content, path.basename(relPath)));
+  }
+  const dir = path.join(repoRoot, sprintDir, 'active');
+  if (!fs.existsSync(dir)) return sprints;
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return sprints;
+  }
+  for (const entry of entries) {
     if (!entry.endsWith('.md')) continue;
     let resolved: string;
     try {
@@ -716,14 +964,11 @@ export function collectSprints(
     } catch {
       continue;
     }
+    // The ref wins where both carry the sprint — `add` drops a slug already
+    // taken, so a working-tree sprint can only ADD.
     const sprint = parseSprintFile(resolved);
     if (!sprint) continue;
-    if (knownSlugs) {
-      sprint.members = sprint.members.map((m) =>
-        knownSlugs.has(m.slug) ? m : { ...m, known: false },
-      );
-    }
-    sprints.push(sprint);
+    add(sprint);
   }
   return sprints;
 }
@@ -817,7 +1062,18 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   const storyDir = readConfig(opts, 'Story directory', 'docs/stories/');
 
   const repoRoot = resolvedRepoRoot(opts);
-  const files = collectPlanFiles(repoRoot, planDir);
+  const defaultBranch = defaultBranchOf(opts, repoRoot);
+  // THE PLAN ESTATE COMES FROM THE REF, and the working tree may only add to
+  // it. See `collectPlanSources` for the one-directional rule and why the
+  // direction is the whole fix.
+  const { sources: planSources, report: planSource } = collectPlanSources(
+    repoRoot, planDir, `origin/${defaultBranch}`,
+  );
+  // Which plans the ref did not have — carried by repo-relative path, the one
+  // identity that survives staging, so the card can be marked after parsing.
+  const localOnlyPaths = new Set(
+    planSources.filter((src) => src.local).map((src) => src.path),
+  );
 
   // Plans under review are not in the working tree at all: a plan PR keeps its
   // file on its own branch until it merges, so of every plan file on the
@@ -837,26 +1093,54 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   // back after parsing. `meta.file` would otherwise be the staging path, and
   // PlanCard renders `card.path` verbatim.
   const canonicalPath = new Map<string, string>();
+  // Everything the parser will be handed, as real paths. ONE list, because
+  // `plot-plan-meta.sh` is spawned ONCE over all of it — a ~55 ms spawn per
+  // plan would be ~8 s on this estate and would undo the batch read entirely.
+  const files: string[] = [];
+  // Ref-read plans have bytes but no file, so each is staged; working-tree
+  // plans already are files and are parsed where they lie.
+  for (const src of planSources) {
+    if (src.content === undefined) {
+      if (src.file) files.push(src.file);
+      continue;
+    }
+    if (stageDir === null) {
+      stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-plans-'));
+    }
+    // Written under a numbered subdirectory rather than as a renamed file, so
+    // the BASENAME survives intact — `planSlug` cuts the slug out of it, and a
+    // mangled name would be a second thing to undo. The canonical path is
+    // restored after parsing either way.
+    const dir = path.join(stageDir, String(canonicalPath.size));
+    const file = path.join(dir, path.basename(src.path));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, src.content, 'utf8');
+    canonicalPath.set(file, src.path);
+    files.push(file);
+  }
+  // Plans under review are not on the default branch at all: a plan PR keeps
+  // its file on its own branch until it merges, so of every plan the ref above
+  // carries, none is in phase Draft. Reading the default branch alone is
+  // therefore not merely incomplete — it makes Draft unreachable, which is why
+  // the Discovery column could never fill.
   const staged: string[] = [];
   try {
     if (prefixes.length > 0) {
-      const branchPlans = collectBranchPlans(
-        repoRoot, planDir, prefixes, defaultBranchOf(opts, repoRoot),
-      );
+      const branchPlans = collectBranchPlans(repoRoot, planDir, prefixes, defaultBranch);
       if (branchPlans.length > 0) {
-        stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-branch-'));
-        branchPlans.forEach((plan, i) => {
-          // Written under a numbered subdirectory rather than as a renamed
-          // file, so the BASENAME survives intact: two branches can carry
-          // same-named plans, and a mangled name would be a second thing to
-          // undo. The canonical path is restored after parsing either way.
-          const dir = path.join(stageDir!, String(i));
+        if (stageDir === null) {
+          stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-plans-'));
+        }
+        for (const plan of branchPlans) {
+          // Numbered off the same counter as the ref plans above, so the two
+          // staged populations cannot collide on a shared basename.
+          const dir = path.join(stageDir, String(canonicalPath.size));
           const file = path.join(dir, path.basename(plan.path));
           fs.mkdirSync(dir, { recursive: true });
           fs.writeFileSync(file, plan.content, 'utf8');
           canonicalPath.set(file, plan.path);
           staged.push(file);
-        });
+        }
       }
     }
   } catch {
@@ -998,6 +1282,18 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // `status === 'deliverable'`, so a card in Testing that is not marked here is
     // a plan already delivered — its decision made — and must offer nothing.
     if (deliverable) card.deliverable = true;
+    // A plan the REF DID NOT HAVE — written here but not yet pushed, so what
+    // this card reports is true of one machine and of nowhere else.
+    //
+    // Attached only when true, like the fields above: absent and false are the
+    // same statement, and the overwhelmingly common card is one the ref carries.
+    // In the board's own dedicated checkout this fires for NOTHING (measured
+    // 2026-08-27: zero local-only plans there, because nobody authors in it),
+    // and that silence is the intended reading rather than evidence the feature
+    // is dead — it exists for an AUTHORING checkout, where `pnpm board` is also
+    // legitimately run and where five plans were each invisible for the minutes
+    // between being written and being pushed.
+    if (localOnlyPaths.has(relPath)) card.notPushed = true;
     cards.push(card);
   }
 
@@ -1009,6 +1305,12 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   return {
     generatedAt: new Date().toISOString(),
     columns,
+    // WHERE THE PLANS ABOVE CAME FROM. Reported on every board, not only a
+    // broken one: "these came from origin/main" is a fact a reader needs stated
+    // rather than inferred from the absence of a warning, and its absence is
+    // exactly what made a wrong badge and a refusing Deliver button mysteries
+    // rather than diagnoses on 2026-08-27.
+    planSource,
     // Unavailable until the server says otherwise: this walker reads plans and
     // knows nothing about the socket the board is bound to, and "can I start
     // work" is a question about that socket. index.ts overwrites it at response
@@ -1062,7 +1364,9 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // renamed or deleted plan is flagged rather than silently dropped. `slug` on
     // a card is `planSlug(relPath)` — the same date-stripped basename a sprint's
     // `[slug]` carries, so the two join directly.
-    sprints: collectSprints(repoRoot, sprintDir, new Set(cards.map((c) => c.slug))),
+    sprints: collectSprints(
+      repoRoot, sprintDir, new Set(cards.map((c) => c.slug)), `origin/${defaultBranch}`,
+    ),
     stories: collectStories(repoRoot, storyDir),
   };
 }
@@ -1094,10 +1398,44 @@ export function planStatusBySlug(
 ): Map<string, PlanStatus> {
   const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
   const repoRoot = resolvedRepoRoot(opts);
-  const files = collectPlanFiles(repoRoot, planDir);
+  // THE SAME ESTATE THE CARDS COME FROM, read the same way. This map is what
+  // the Deliver control's gate consults, and it reading a checkout while the
+  // cards read a ref is how one row came to hold two answers of different ages
+  // — the defect, in the one place whose wrongness is a refused button rather
+  // than a stale label.
+  const { sources } = collectPlanSources(
+    repoRoot, planDir, `origin/${defaultBranchOf(opts, repoRoot)}`,
+  );
   const bySlug = new Map<string, PlanStatus>();
-  for (const meta of readPlanMeta(opts.scriptsDir, files)) {
-    bySlug.set(planSlug(path.relative(repoRoot, meta.file)), planStatus(meta, pulse));
+  // Ref-read plans have no file, so the parse needs a scratch copy — the same
+  // staging `buildBoard` does, and removed in the same `finally` for the same
+  // reason. `slug` is cut from the CANONICAL path, never the staged one.
+  let stageDir: string | null = null;
+  const canonicalPath = new Map<string, string>();
+  const files: string[] = [];
+  try {
+    for (const src of sources) {
+      if (src.content === undefined) {
+        if (src.file) files.push(src.file);
+        continue;
+      }
+      if (stageDir === null) {
+        stageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-status-'));
+      }
+      const dir = path.join(stageDir, String(canonicalPath.size));
+      const file = path.join(dir, path.basename(src.path));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(file, src.content, 'utf8');
+      canonicalPath.set(file, src.path);
+      files.push(file);
+    }
+    for (const meta of readPlanMeta(opts.scriptsDir, files)) {
+      const canonical = canonicalPath.get(meta.file);
+      const relPath = canonical ?? path.relative(repoRoot, meta.file);
+      bySlug.set(planSlug(relPath), planStatus(meta, pulse));
+    }
+  } finally {
+    if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
   }
   return bySlug;
 }
@@ -1119,16 +1457,23 @@ function escapeHtml(s: string): string {
 
 /**
  * Resolve a plan file *basename* to its absolute path, restricted to the plans
- * the board itself collects. The candidates come from `collectPlanFiles`, which
- * only walks the configured plan dir — so a request can never name a file
- * outside it. Path traversal is blocked structurally, not by string sanitizing;
- * the leading basename check just rejects any separators up front. Returns null
- * for anything not in the allowlist (→ 404).
+ * that actually exist under the configured plan dir — so a request can never
+ * name a file outside it. Path traversal is blocked structurally, not by string
+ * sanitizing; the leading basename check just rejects any separators up front.
+ * Returns null for anything not in the allowlist (→ 404).
+ *
+ * DELIBERATELY STILL A FILESYSTEM QUESTION, though the board now reads its
+ * cards from a ref. This resolves a path something will `readFileSync`, and a
+ * ref blob has no path to return — a plan that exists only on the ref is served
+ * by `readPlanMarkdown`'s git branch instead, which already reads content
+ * rather than resolving a file. Widening this to ref paths would hand a
+ * non-existent path to an opener; the two questions stay apart.
  */
 function resolvePlanFile(opts: BuildBoardOptions, filename: string): string | null {
   if (!filename || filename !== path.basename(filename) || !filename.endsWith('.md')) return null;
   const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
-  for (const file of collectPlanFiles(resolvedRepoRoot(opts), planDir)) {
+  const repoRoot = resolvedRepoRoot(opts);
+  for (const file of workingTreePlans(repoRoot, planDir).values()) {
     if (path.basename(file) === filename) return file;
   }
   return null;
@@ -1156,6 +1501,20 @@ function readPlanMarkdown(opts: BuildBoardOptions, filename: string): string | n
   if (!filename || filename !== path.basename(filename) || !filename.endsWith('.md')) return null;
   const repoRoot = resolvedRepoRoot(opts);
   const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
+  // A plan the REF has and this checkout does not. Cards are read from the ref
+  // now, so a stale checkout renders cards for plans whose files it has never
+  // seen — and without this branch every one of them would 404 on click, which
+  // is the same "two sources of different ages" defect wearing a 404.
+  //
+  // The basename is matched against paths the tree listing produced, so a
+  // request still cannot name anything outside the plan dir: the allowlist is
+  // the ref's own contents, exactly as the working-tree arm's is the disk's.
+  const fromRef = readPlansFromRef(
+    repoRoot, `origin/${defaultBranchOf(opts, repoRoot)}`, planDir,
+  );
+  for (const [relPath, content] of fromRef) {
+    if (path.basename(relPath) === filename) return content;
+  }
   const prefixes = readConfig(opts, 'Branch prefixes', '')
     .split(',')
     .map((p) => p.trim())

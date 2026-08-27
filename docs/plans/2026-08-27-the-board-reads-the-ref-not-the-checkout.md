@@ -267,7 +267,7 @@ them instead of having to know it exists.
 
 ## Waves
 
-### Read (Branch: bug/the-board-reads-the-ref-not-the-checkout)
+### Read (Branch: bug/the-board-reads-the-ref-not-the-checkout, PR: #469)
 
 `collectPlanFiles` and `parseSprintFile` read plans and sprints from
 `origin/<default>` via the existing `planPathsInTree` + staging path, with no

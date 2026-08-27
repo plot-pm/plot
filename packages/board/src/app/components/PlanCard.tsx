@@ -288,6 +288,30 @@ export function PlanCard({
         {roundsBadgeText(card) && (
           <Badge variant="neutral">{roundsBadgeText(card)}</Badge>
         )}
+        {/* This plan is in THIS checkout and on no ref the board can read — it
+            was written here and not yet pushed.
+
+            Every other card on this board is a statement about what everyone
+            can see, because the estate is read from `origin/<default>`. This
+            one is not, and the marker is the difference stated rather than
+            hidden: without it a local file would wear the authority of a shared
+            one, which is the defect the ref read exists to end. The card is
+            SHOWN rather than dropped because a plan is otherwise invisible for
+            the minutes between writing and pushing — five were, in one session
+            on 2026-08-27.
+
+            Neutral, not a warning colour, and for the same reason `no story` is:
+            an unpushed plan is a normal moment in authoring a plan, not a fault
+            to be scolded for. The `title` carries the consequence, since the
+            two words alone do not say who cannot see it. */}
+        {card.notPushed && (
+          <Badge
+            variant="neutral"
+            title="This plan is in the board's working tree but not on the ref it reads — nobody else can see it yet"
+          >
+            not pushed
+          </Badge>
+        )}
       </div>
       <div className="mt-2 font-mono text-xs text-slate-400 dark:text-slate-500">{card.path}</div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
