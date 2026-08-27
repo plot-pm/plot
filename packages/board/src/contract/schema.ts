@@ -1549,6 +1549,47 @@ export const FleetBranchSchema = z.object({
    */
   held: z.boolean().default(false),
   /**
+   * A ref on the remote holds this branch — `origin/<branch>` exists.
+   *
+   * THE GIT FACT `plot-dispatch.sh` TESTS WHEN IT CLAIMS. Plot's whole locking
+   * mechanism is a push of an empty commit that a non-fast-forward refuses, so
+   * a branch whose ref already exists is one no dispatch can take. The scan
+   * reads the refs to derive `merged` and `wip` already; this publishes the
+   * fact instead of leaving each consumer to infer it.
+   *
+   * NOT A RENAME OF ITS NEIGHBOURS. `claimed` is the PLAN FILE's annotation —
+   * "a reflection of a claim, not the claim itself; where the two disagree, git
+   * wins" — and this is the git side of that disagreement. `held` is about a
+   * WORKTREE on the scanning machine. This one is about a REF, so it is the
+   * only claim signal that reads the same from everywhere: a branch claimed by
+   * a detached worker on another host reports `held: false` and `ref_held:
+   * true`, and that is the population the measured misread came from.
+   *
+   * WHY NOT KEEP INFERRING IT FROM `state`. `state === 'wip'` implies a ref and
+   * is what auto-dispatch reads today, but the implication is one-way and lossy
+   * at both ends: a MERGED PR overrides `wip` to `merged` while the ref
+   * survives (a squash merge leaves the branch permanently ahead, and a
+   * worktree can push it back after the host deletes it), and a `claimed`
+   * branch is a ref carrying only claim commits that no `wip` test sees. Both
+   * are refs a dispatch would be refused against.
+   *
+   * A STATEMENT ABOUT THE REF AND NOTHING ELSE. It does not assert the work is
+   * unfinished, that a worker is alive, or that the branch should be left
+   * alone. A merged branch whose ref outlived the merge reports true, because a
+   * ref does hold it; what that means for dispatch is the consumer's judgement.
+   * Keeping the interpretation out is what stops this becoming a second copy of
+   * the state vocabulary, drifting against the first.
+   *
+   * NEVER AN INPUT TO WAVE ELIGIBILITY, like `held`: a wave settles on `merged`
+   * alone.
+   *
+   * Defaults to false so a pulse from a scan predating the field still
+   * validates. Note the default is the SAFE direction only for readers that
+   * treat true as "do not dispatch": an older scan reports every branch as
+   * unheld, which is the answer they got before this field existed.
+   */
+  ref_held: z.boolean().default(false),
+  /**
    * Commits on the local branch that the remote does not have.
    *
    * The half `local_dirty` cannot answer, by construction: dirtiness reports

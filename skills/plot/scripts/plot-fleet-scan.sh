@@ -3033,6 +3033,44 @@ for i, w in enumerate(d.get("waves", [])):
         else
           json_branches+=",\"held\":false"
         fi
+        # WHETHER A REF HOLDS THIS BRANCH — the git fact `plot-dispatch.sh`
+        # tests when it claims, published so consumers stop inferring it.
+        #
+        # NOT A RENAME OF ITS TWO NEIGHBOURS, and the three answer different
+        # questions. `claimed` above is the PLAN FILE's human-written annotation
+        # — the contract calls it "a REFLECTION of a claim, not the claim
+        # itself — where the two disagree, git wins", and this is the git side
+        # of exactly that disagreement. `held` is about a WORKTREE on THIS
+        # machine. This one is about a REF on the remote, so it is the only
+        # claim signal that reads the same from every machine: a branch claimed
+        # by a detached worker on another host reports `held: false` here and
+        # `ref_held: true`, which is the population the misread was measured on.
+        #
+        # FREE. `remote_ref_exists` answers from the `REMOTE_REFS` batch this
+        # scan already read to derive `merged` and `wip` — no git spawn, and no
+        # host call, which `Done when` item 5 pins with the existing no-network
+        # tests.
+        #
+        # WHY THE REF AND NOT THE STATE. A consumer can almost infer this from
+        # `state == "wip"`, and one does today; the inference is incomplete in
+        # both directions. `wip` can be OVERRIDDEN to `merged` by a MERGED PR
+        # while the ref still exists (the resurrected-ref arm in `branch_state`),
+        # and a `claimed` branch — a ref carrying nothing but claim commits —
+        # is a ref no `wip` test sees. Both are refs `plot-dispatch.sh` would
+        # refuse to push over. Asking the refs directly cannot drift from them.
+        #
+        # A STATEMENT ABOUT THE REF ALONE. It does not say the work is
+        # unfinished, that a worker lives, or that the branch should be left
+        # alone — a merged branch whose ref survives reports true, because a ref
+        # does hold it. Whether that matters is the CONSUMER's judgement, and
+        # keeping it out of here is what stops this becoming a second, drifting
+        # copy of the state vocabulary. It is never fed into the wave
+        # arithmetic below, which settles waves on `merged` alone.
+        if remote_ref_exists "$br"; then
+          json_branches+=",\"ref_held\":true"
+        else
+          json_branches+=",\"ref_held\":false"
+        fi
         # From the REFS, not from the worktree table above — a local branch with
         # no worktree still holds commits nobody can see. 0 wherever this
         # machine has no local ref, which is what every branch elsewhere reports.

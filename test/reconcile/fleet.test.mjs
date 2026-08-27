@@ -4123,3 +4123,112 @@ esac
   fs.rmSync(shim, { recursive: true, force: true });
   fs.rmSync(t, { recursive: true, force: true });
 });
+
+// --- ref_held: whether a ref on the remote holds the branch ----------------
+//
+// The git fact `plot-dispatch.sh` tests when it claims: a push of an empty
+// commit that a non-fast-forward refuses, so a branch whose ref already exists
+// is one no dispatch can take. The scan reads the refs to derive `merged` and
+// `wip` already, so this costs no git spawn and no host call.
+//
+// It is the THIRD claim-shaped field and a rename of neither. `claimed` is the
+// PLAN FILE's annotation — a reflection of a claim, and git wins where they
+// disagree. `held` is about a WORKTREE on the scanning machine. This is about a
+// REF, so it is the only one of the three that reads the same from every
+// machine, which is exactly the population — a branch claimed by a detached
+// worker on another host — the measured misread came from.
+//
+// These tests assert the fact across EVERY state rather than only the claimed
+// one, because the consumer's whole reason for reading it is that no single
+// state implies it: `wip` implies a ref but can be overridden to `merged` while
+// the ref survives, and `claimed` is a ref that no `wip` test sees.
+
+test('fleet: a claim ref with no worktree reports ref_held', () => {
+  // The population the plan is named for, and the one `held` cannot answer: a
+  // dispatcher on another machine pushed the claim, so nothing is observable
+  // here. `held` is false, and a consumer reading it alone would call this
+  // branch free and spend budget on a dispatch the ref refuses.
+  const f = makeRepo('plot-fleet-refheld-claim-', ONE_WAVE('feature/claim-only'));
+  git(f.dir, 'checkout', '-qb', 'feature/claim-only');
+  git(f.dir, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/claim-only');
+  f.push('-u', 'origin', 'feature/claim-only');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/claim-only');
+  assert.equal(b.state, 'claimed', 'only claim commits beyond main');
+  assert.equal(b.held, false, 'nothing is observable on this machine');
+  assert.equal(b.ref_held, true, 'but a ref holds it, and that is cross-machine');
+  f.cleanup();
+});
+
+test('fleet: a branch with NO ref reports ref_held false', () => {
+  // `Done when` item 2, from this wave's side. The ordinary case must not
+  // regress: a fix that reported every branch as held would stop the fleet
+  // entirely, and it is the only failure mode of this field that is worse than
+  // the defect. A branch named by a plan and never pushed has no ref at all.
+  const f = makeRepo('plot-fleet-refheld-none-', ONE_WAVE('feature/never-started'));
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/never-started');
+  assert.equal(b.state, 'open', 'no ref and no merge evidence');
+  assert.equal(b.ref_held, false, 'nothing holds it — this is the startable case');
+  f.cleanup();
+});
+
+test('fleet: real work in flight reports ref_held', () => {
+  // `wip` — the state a consumer can almost infer the ref from, asserted so the
+  // two cannot drift apart. The inference is what auto-dispatch does today; the
+  // field is what makes it a reading rather than a deduction.
+  const f = makeRepo('plot-fleet-refheld-wip-', ONE_WAVE('feature/in-progress'));
+  f.work('feature/in-progress', 'w.txt');
+  f.push('-u', 'origin', 'feature/in-progress');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/in-progress');
+  assert.equal(b.state, 'wip', 'real commits beyond main');
+  assert.equal(b.ref_held, true, 'and a ref carries them');
+  f.cleanup();
+});
+
+test('fleet: a merged branch whose ref survives still reports ref_held', () => {
+  // THE CASE THAT MAKES THIS A FIELD RATHER THAN AN INFERENCE. The work landed
+  // and the ref was kept, so a dispatch would still be refused — while the
+  // state says `merged`, which no ref-inference over `wip` can see. The field
+  // reports the REF and draws no conclusion from it: whether a merged branch
+  // matters is the consumer's judgement, and `merged` already answers
+  // startability on its own.
+  const f = makeRepo('plot-fleet-refheld-merged-', ONE_WAVE('feature/landed-ref'));
+  f.work('feature/landed-ref', 'l.txt');
+  f.push('-u', 'origin', 'feature/landed-ref');
+  f.prMerge('feature/landed-ref');            // --no-ff into main, ref kept
+  f.push('origin', 'main');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/landed-ref');
+  assert.equal(b.state, 'merged', 'the work landed');
+  assert.equal(b.ref_held, true, 'and the ref outlived the merge, so it still holds the name');
+  f.cleanup();
+});
+
+test('fleet: a merged-and-DELETED branch reports ref_held false', () => {
+  // The other half of the merged case, and the one that keeps the field honest:
+  // where the host deleted the ref at merge, nothing holds the name and a
+  // dispatch of it would succeed. Two branches reading `merged` disagree on
+  // this field, which is the proof it is measuring the ref and not the state.
+  const f = makeRepo('plot-fleet-refheld-gone-', ONE_WAVE('feature/landed-gone'));
+  f.work('feature/landed-gone', 'g.txt');
+  f.push('-u', 'origin', 'feature/landed-gone');
+  f.prMerge('feature/landed-gone');
+  f.push('origin', 'main');
+  git(f.dir, 'checkout', '-q', 'main');
+  git(f.dir, 'push', '-q', 'origin', '--delete', 'feature/landed-gone');
+
+  const doc = JSON.parse(f.run(['--json']));
+  const b = doc.plans[0].waves[0].branches.find((x) => x.branch === 'feature/landed-gone');
+  assert.equal(b.state, 'merged', 'the merge subject still names it');
+  assert.equal(b.ref_held, false, 'but no ref holds the name any more');
+  f.cleanup();
+});
