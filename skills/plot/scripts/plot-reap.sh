@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Remove worktrees whose work has landed, and the dead worker files in them.
+# Remove worktrees whose work has landed, their dead worker files, and the
+# registry manifests that named them.
 #
 # The gap this fills was named by a comment before it existed:
 # `plot-reconcile-scan.sh:323` says "with a deferred: annotation the reaper
@@ -26,6 +27,19 @@
 #   3. a worktree carrying a PLOT-BLOCKED* marker    (a worker waiting on a person)
 #   4. a branch whose PR is not merged               (the host is the authority)
 #   5. the main checkout, and any non-dispatch tree  (not ours to remove)
+#
+# THE MANIFEST GOES WITH THE WORKTREE. `readAgentRegistry` renders one row per
+# manifest, so a reap that removes only the checkout converts a finished agent
+# into an `unknown` row naming a directory that no longer exists — measured
+# 2026-08-26, twelve worktrees removed and seven such rows appearing at once.
+# Nothing further needs deciding to remove it: an entry whose worktree the five
+# tests above just cleared is covered by exactly those measurements.
+#
+# ORDER: worktree FIRST, manifest second. The reverse leaves a live worktree
+# with no registration, which `readAgentRegistry` answers by SYNTHESIZING an
+# `unknown` entry — the same bad row, earned a different way. A failure between
+# the two steps this way round leaves an orphaned manifest, which the sweep
+# below clears on the next run.
 set -u
 
 DRY=1; MAX=0
@@ -34,7 +48,7 @@ while [ $# -gt 0 ]; do
     --yes) DRY=0 ;;
     --dry-run) DRY=1 ;;
     --max) MAX="${2:-0}"; shift ;;
-    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "plot-reap: unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -67,7 +81,43 @@ pr_merged() {
   case "$out" in *'"mergedAt":"'*) return 0 ;; *) return 1 ;; esac
 }
 
-reap=0; kept=0; removed=0
+# Where the registry lives, resolved through `plot-config.sh` — the SAME key and
+# default the board's reader uses (`resolveManifestDir` in `registry.ts` shells
+# out to exactly this). Two implementations of "where is the registry" is how
+# they drift, so this asks the config rather than hard-coding `.plot/agents`: a
+# project whose board is served from another checkout points the key elsewhere,
+# and a reaper writing to the wrong directory would report success over a
+# manifest the board still renders.
+CONFIG="$(dirname "${BASH_SOURCE[0]}")/plot-config.sh"
+MANIFEST_DIR=".plot/agents"
+if [ -x "$CONFIG" ]; then
+  d=$(bash "$CONFIG" get "Agent registry" ".plot/agents" 2>/dev/null) && [ -n "$d" ] && MANIFEST_DIR="$d"
+fi
+case "$MANIFEST_DIR" in /*) ;; *) MANIFEST_DIR="$ROOT/$MANIFEST_DIR" ;; esac
+
+# The manifest naming a given worktree, or nothing.
+#
+# Manifests are keyed by SESSION id, not by branch, so the file cannot be
+# derived from the worktree path — it is found by reading the `worktree` field
+# out of each one. The match is on the exact recorded path: a prefix match would
+# let `plot-wt-foo` claim `plot-wt-foo-bar`'s manifest.
+#
+# Parsed with `sed`, not a JSON reader, deliberately — this script must run
+# where node does not, and the field it needs is one flat string written by the
+# dispatcher. A manifest whose `worktree` cannot be read simply does not match,
+# which keeps an unparseable file OUT of the removal set rather than in it.
+manifest_for() {
+  local target="$1" f wt
+  [ -d "$MANIFEST_DIR" ] || return 1
+  for f in "$MANIFEST_DIR"/*.json; do
+    [ -f "$f" ] || continue
+    wt=$(sed -n 's/.*"worktree"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)
+    [ "$wt" = "$target" ] && { printf '%s\n' "$f"; return 0; }
+  done
+  return 1
+}
+
+reap=0; kept=0; removed=0; cleared=0
 printf '%-8s %-52s %s\n' "verdict" "branch" "why"
 
 while IFS=$'\t' read -r wt br; do
@@ -141,6 +191,14 @@ while IFS=$'\t' read -r wt br; do
     printf '%-8s %-52s %s\n' "would" "$short" "$why"
   else
     if git worktree remove --force "$wt" 2>/dev/null; then
+      # The worktree is gone; NOW the manifest may go. Inside the success arm
+      # and nowhere else — a manifest removed before a removal that then
+      # refuses leaves a live worktree unregistered, which the registry answers
+      # by synthesizing an `unknown` row. Failing this way round strands a
+      # manifest instead, which the sweep below clears.
+      if m=$(manifest_for "$wt"); then
+        rm -f "$m" && why="$why, manifest cleared"
+      fi
       printf '%-8s %-52s %s\n' "reaped" "$short" "$why"; removed=$((removed+1))
     else
       printf '%-8s %-52s %s\n' "FAILED" "$short" "git worktree remove refused"; kept=$((kept+1))
@@ -151,8 +209,40 @@ done < <(git worktree list --porcelain \
 
 [ "$DRY" -eq 0 ] && git worktree prune 2>/dev/null
 
-# The branches and refs are untouched, deliberately: this removes CHECKOUTS.
-# A reaped tree is re-creatable with `git worktree add`, so the destructive act
-# is bounded to disk space and never to history.
-echo "summary: reapable=$reap removed=$removed kept=$kept dry_run=$DRY"
+# The manifests whose worktree is ALREADY gone.
+#
+# Every reap before this script learned about the registry left one, and the
+# board renders each as an `unknown` row naming a directory that does not
+# exist. They are the population this plan was written from — seven of them,
+# measured 2026-08-26 — and a fix that only stops NEW ones leaves those on the
+# board forever.
+#
+# The predicate is the same one the loop above satisfies by construction: the
+# recorded worktree is not there. It needs no PR check and no liveness check —
+# nothing runs in a directory that does not exist, which is the strongest
+# evidence of "dead" available, not the weakest.
+#
+# A manifest recording NO worktree path is left alone: it names an agent
+# between checkouts, and absence of a path is not absence of an agent.
+if [ -d "$MANIFEST_DIR" ]; then
+  for m in "$MANIFEST_DIR"/*.json; do
+    [ -f "$m" ] || continue
+    mwt=$(sed -n 's/.*"worktree"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$m" | head -1)
+    [ -n "$mwt" ] || continue
+    [ -d "$mwt" ] && continue
+    cleared=$((cleared+1))
+    if [ "$DRY" -eq 1 ]; then
+      printf '%-8s %-52s %s\n' "would" "$(basename "${mwt}")" "orphaned manifest — worktree absent"
+    else
+      rm -f "$m"
+      printf '%-8s %-52s %s\n' "cleared" "$(basename "${mwt}")" "orphaned manifest — worktree absent"
+    fi
+  done
+fi
+
+# The branches and refs are untouched, deliberately: this removes CHECKOUTS and
+# the registrations that named them. A reaped tree is re-creatable with
+# `git worktree add`, so the destructive act is bounded to disk space and to a
+# record of an agent that has already finished — never to history.
+echo "summary: reapable=$reap removed=$removed kept=$kept cleared=$cleared dry_run=$DRY"
 exit 0
