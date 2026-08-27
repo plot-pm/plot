@@ -1406,6 +1406,13 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // never *the answer is no*, exactly as the eight above. Whether a given
     // agent can be dropped rides on its state, which the endpoint checks.
     drop: { available: false, reason: '' },
+    // And once more for turning a ticket into a story — the tenth write route,
+    // and the same socket question it has asked nine times. Unavailable here
+    // means *this walker cannot say*, never *the answer is no*, exactly as the
+    // nine above. Whether the repo configured `Story command`, and whether it
+    // declares one story home or several, rides on the endpoint, which reads
+    // both keys and refuses by naming the one that is missing or ambiguous.
+    story: { available: false, reason: '' },
     checklist: readChecklist(repoRoot, readConfig(opts, 'Release directory', 'docs/releases/')),
     // The plan slugs the board actually found, so a sprint member naming a
     // renamed or deleted plan is flagged rather than silently dropped. `slug` on

@@ -23,6 +23,7 @@ import {
   handleApprove,
 } from './approve.js';
 import { handleIdea, ideaAvailability, ideaStatus } from './idea.js';
+import { handleStory, storyAvailability, storyStatus } from './story.js';
 import { commissionAvailability, commissionStatus, handleCommission } from './commission.js';
 import { handleReslice, resliceAvailability, resliceStatus } from './reslice.js';
 import { handleDeliver, deliverAvailability, deliverStatus } from './deliver.js';
@@ -147,6 +148,21 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // that question instead of posing it. Nothing here reaches the tracker in
     // the other direction: no comment, no label, no close.
     { path: '/api/idea', verb: 'creating an idea', handle: handleIdea },
+    // POST /api/story — a ticket becomes a story.
+    //
+    // The TWIN of /api/idea, and allow-listed here for its reason: it spawns a
+    // plot agent (`/story-tracking`) that writes to this disk. It reuses that
+    // route's same-origin guard, its bounded body reader, its `usableCommand`
+    // sentinel and its issue read rather than growing its own.
+    //
+    // IT REPLACES A CATEGORICAL REFUSAL. *Create story* was offered and always
+    // declined, on the ground that a story is *"a decision you make … not a
+    // board click"* — which the skill it describes contradicts: it names its own
+    // escape (one home → skip the home question) and its own override (an
+    // explicit request beats triage), and it is run unattended several times a
+    // day from the prompt. What is gone is the claim that no such route could
+    // exist; the refusals that remain are CONDITIONAL and name their key.
+    { path: '/api/story', verb: 'creating a story', handle: handleStory },
     // POST /api/commission — a Draft plan is moved into phase Design.
     //
     // The same class of route as /api/idea, and the same binding: it spawns a
@@ -356,6 +372,14 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
         // of them local. The row reads it to decide whether *Drop this agent*
         // acts or names its refusal.
         drop: dropAvailability(HOST),
+        // A TENTH flag, and the SAME binding as the nine above today — creating
+        // a story spawns the same class of plot agent. It stays a field of its
+        // own for the reason every flag above it does: one flag for two
+        // capabilities is how they diverge when a later change makes only one of
+        // them local. It replaces a CONSTANT the client carried — the refusal
+        // that said no route could exist — and that is the point of it being a
+        // flag at all: the capability is repo-dependent, exactly as `idea` is.
+        story: storyAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(board));
@@ -570,6 +594,28 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     res.end(
       ok
         ? JSON.stringify(ideaStatus(opts, number))
+        : JSON.stringify({ error: 'number must be an issue number' }),
+    );
+    return;
+  }
+
+  // What happened to a story somebody asked for — the same read-it-back shape
+  // `/api/idea/<number>` has, and issue-keyed for the same reason: a story
+  // creation moves NO row at all. An issue whose ticket became a plan disappears
+  // from the inbox because the plan references it; a story carries no such
+  // field, so the board has nothing to watch and the command's own words are the
+  // only answer there is.
+  //
+  // An issue NUMBER, validated as one. It is a filename component here, and a
+  // value that is not a number must reach no log but the one it names.
+  if (url.pathname.startsWith('/api/story/')) {
+    const raw = url.pathname.slice('/api/story/'.length);
+    const number = Number(raw);
+    const ok = /^[0-9]{1,9}$/.test(raw) && Number.isInteger(number) && number > 0;
+    res.writeHead(ok ? 200 : 400, { 'Content-Type': 'application/json' });
+    res.end(
+      ok
+        ? JSON.stringify(storyStatus(opts, number))
         : JSON.stringify({ error: 'number must be an issue number' }),
     );
     return;

@@ -806,6 +806,32 @@ export const BoardSchema = z.object({
    */
   drop: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
+   * Whether "Create story" will act — the TENTH capability, and the twin of
+   * `idea`: it spawns a plot agent (`/story-tracking`) that writes a story to
+   * this disk, so it answers the same localhost binding. It stays its own field
+   * for the reason every flag above it records: one flag for two capabilities is
+   * how they diverge when a later change makes only one of them local.
+   *
+   * **This field replaces a CATEGORICAL refusal, which is the whole defect it
+   * closes.** Until 2026-08-27 the control carried a constant reason — *"a story
+   * is a decision you make … so it is created with /story-tracking at a
+   * terminal, not from a board click"* — and a constant is what a flag is not:
+   * it asserted that no route could ever exist. The skill it described names its
+   * own escape (one home → skip the home question) and its own override (an
+   * explicit request beats triage), and it is run unattended several times a day
+   * from the prompt. A capability that is repo-dependent needs a field, exactly
+   * as `idea` does.
+   *
+   * **It answers only half the question the control needs.** This says whether
+   * THIS BOARD can act; whether the repo configured `Story command`, and whether
+   * it declares one story home or several, is checked by the endpoint itself and
+   * comes back as a refusal that names the key or the question.
+   *
+   * Same default as the nine above: an older server sends nothing and a newer
+   * client hides the control rather than offering one that 403s.
+   */
+  story: DispatchInfoSchema.default({ available: false, reason: '' }),
+  /**
    * Newest release checklist, for the Testing column: what is left before
    * signoff. null when no checklist exists or none could be parsed — the board
    * shows no badge rather than a guessed count.
