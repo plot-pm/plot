@@ -115,7 +115,7 @@ leaves the others is a fix that has to be found twice.
 
 ## Waves
 
-### Bounded (Branch: bug/a-dead-fetch-is-not-a-slow-one)
+### Bounded (Branch: bug/a-dead-fetch-is-not-a-slow-one, PR: #480)
 
 The doc viewers bound their fetch and report a timeout as a failure naming the
 likely cause; every other client fetch is audited for the same gap.
