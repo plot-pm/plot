@@ -23,19 +23,26 @@ import type { FleetControls } from '../../src/server/fleet-controls.js';
 // `max` never exceeds `parallelAgents − live`, so repeated pulses cannot reach
 // 2N the way `--max N` per pulse would.
 
-/** One wave, in the FleetPulse branch shape. */
+/**
+ * One wave, in the FleetPulse branch shape.
+ *
+ * Each branch is [name, state, ref_held?]. When `ref_held` is not given, it
+ * defaults to false — but a `wip` state implies a ref (the scan derives `wip`
+ * by walking one), so the fallback in `refBlocksClaim` still catches it.
+ */
 const wave = (
   name: string,
   verdict: 'complete' | 'eligible' | 'blocked',
-  branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred']>,
+  branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred', boolean?]>,
 ) => ({
   name,
   verdict,
-  branches: branches.map(([branch, state]) => ({
+  branches: branches.map(([branch, state, ref_held]) => ({
     branch,
     state,
     deferred: state === 'deferred',
     claimed: state === 'claimed' ? 'someone' : '',
+    ref_held: ref_held ?? false,
   })),
 });
 
@@ -549,5 +556,120 @@ describe('startableBranches — missingBriefs filter', () => {
       wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
     ]]]);
     expect(startableBranches(p, 'p', new Set())).toEqual(['feature/a', 'feature/b']);
+  });
+});
+
+// Wave: a-claimed-branch-is-not-startable.md (Spent wave). A branch whose ref
+// already exists — `ref_held: true` in the pulse — cannot be claimed by
+// `plot-dispatch.sh`, so auto-dispatch skips it entirely.
+//
+// THE DANGER CASE (plan item 6): where a worktree survives, `plot-dispatch.sh`
+// ADOPTS it rather than refusing. This starts a worker on merged work —
+// measured twice on 2026-08-27 — so a claimed branch with a live worktree is
+// the population the fix MUST reach. That branch reports `open` (no work
+// commits) but `ref_held: true` (a claim ref exists).
+
+describe('planAutoDispatch — ref_held skips the claimed branch', () => {
+  it('dispatches the UNCLAIMED branch when one claimed and one open share a budget of 1', () => {
+    // Plan Done When item 1. The claimed branch belongs to the EARLIER plan in
+    // file order (July sorts before August), so a fix that merely reorders
+    // plans by recency would pass. This asserts the unclaimed one is chosen.
+    const p = planAutoDispatch({
+      controls: controls(true, 1),
+      pulse: pulse([
+        // Earlier plan has a claimed branch: ref_held=true, state=open (no work
+        // commits, but a claim ref exists — the measured shape).
+        ['2026-07-25-stale.md', 'approved', [
+          wave('W', 'eligible', [['feature/stale', 'open', true]]),
+        ]],
+        // Later plan has an unclaimed branch: ref_held=false (or absent).
+        ['2026-08-25-fresh.md', 'approved', [
+          wave('W', 'eligible', [['feature/fresh', 'open']]),
+        ]],
+      ]),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    // The budget lands on the unclaimed branch, not the claimed one.
+    expect(p).toEqual([{ slug: 'fresh', max: 1 }]);
+  });
+
+  it('a branch with no ref (ref_held=false, state=open) is still startable', () => {
+    // Plan Done When item 2. The ordinary case must not regress: a fix that
+    // treats every branch as claimed stops the fleet entirely.
+    const p = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: pulse([['2026-08-22-p.md', 'approved', [
+        wave('W', 'eligible', [['feature/a', 'open']]),
+      ]]]),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(p).toEqual([{ slug: 'p', max: 1 }]);
+  });
+
+  it('a claimed branch WITH state=open is not startable (the danger case)', () => {
+    // Plan Done When item 6. This is the exact shape that caused revert risk:
+    // state=open means `isStartable` returns true, but ref_held=true means a
+    // claim ref exists. Where a worktree survives, `plot-dispatch.sh` ADOPTS
+    // rather than refusing, starting a worker on merged work.
+    //
+    // Measured 2026-08-27: six workers on six already-merged waves, two of
+    // which opened PRs ~120 commits behind main.
+    const p = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: pulse([['2026-08-22-claimed.md', 'approved', [
+        // state=open, but ref_held=true: claimed, no work commits.
+        wave('W', 'eligible', [['feature/claimed', 'open', true]]),
+      ]]]),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    // The claimed branch is NOT dispatched.
+    expect(p).toEqual([]);
+  });
+
+  it('skips the ref_held branch and still starts the unclaimed one in the same wave', () => {
+    // A mixed wave: one branch is claimed (ref_held=true), one is not.
+    const p = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: pulse([['2026-08-22-mixed.md', 'approved', [
+        wave('W', 'eligible', [
+          ['feature/claimed', 'open', true],   // claimed
+          ['feature/fresh', 'open'],           // not claimed
+        ]),
+      ]]]),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(p).toEqual([{ slug: 'mixed', max: 1 }]);
+  });
+});
+
+describe('startableBranches — ref_held filter', () => {
+  it('excludes ref_held branches from the startable list', () => {
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [
+        ['feature/claimed', 'open', true],
+        ['feature/fresh', 'open'],
+      ]),
+    ]]]);
+    expect(startableBranches(p, 'p', new Set())).toEqual(['feature/fresh']);
+  });
+});
+
+describe('dispatchCandidates — ref_held filter', () => {
+  it('excludes ref_held branches from candidates', () => {
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [
+        ['feature/claimed', 'open', true],
+        ['feature/fresh', 'open'],
+      ]),
+    ]]]);
+    expect(dispatchCandidates(p, new Set())).toEqual(['feature/fresh']);
   });
 });

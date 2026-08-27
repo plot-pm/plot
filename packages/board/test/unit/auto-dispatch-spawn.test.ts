@@ -82,18 +82,26 @@ function fixture(briefBranches: string[] = []): {
 
 const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * One wave, in the FleetPulse branch shape.
+ *
+ * Each branch is [name, state, ref_held?]. When `ref_held` is not given, it
+ * defaults to false — but a `wip` state implies a ref (the scan derives `wip`
+ * by walking one), so the fallback in `refBlocksClaim` still catches it.
+ */
 const wave = (
   name: string,
   verdict: 'complete' | 'eligible' | 'blocked',
-  branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred']>,
+  branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred', boolean?]>,
 ) => ({
   name,
   verdict,
-  branches: branches.map(([branch, state]) => ({
+  branches: branches.map(([branch, state, ref_held]) => ({
     branch,
     state,
     deferred: state === 'deferred',
     claimed: state === 'claimed' ? 'someone' : '',
+    ref_held: ref_held ?? false,
   })),
 });
 
