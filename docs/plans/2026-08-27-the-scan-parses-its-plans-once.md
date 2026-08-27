@@ -23,25 +23,46 @@ so a board with a normal number of plans completes its scan inside the timeout.
 
 ### The measurement
 
-The board has been showing this for hours:
+The board showed this for hours on 2026-08-27:
 
 ```
 Last scan failed: timed out after 90000ms — 55 worktrees, 44 branches
 — showing the last successful pulse below.
 ```
 
-Timed against this repo on 2026-08-27, 56 worktrees and 43 branches:
+That reading — 462.9 s of wall clock at 11 % CPU utilisation, 56 worktrees and
+43 branches — is what this plan was first written against, and **it is not the
+steady state.** Instrumented sampling (`.plot/measure/scan-sample.sh`, landed
+`ec35d522`) recorded the estate size before each run and found a different
+regime entirely:
 
-```
-real 462.90    (7m 43s)
-user  23.45
-sys   27.17
-```
+| worktrees | branches | real | cpu % | |
+|---|---|---|---|---|
+| 56 | 43 | 462.9 s | 11 % | the reading above |
+| 13 | 35 | 43.6 s | 55.5 % | |
+| 13 | 35 | **27.4 s** | **86.8 %** | `--offline` |
+| 12 | 33 | 38.9 s | 58.8 % | |
 
-**50.6 s of CPU inside 462.9 s of wall clock — 11 % utilisation.** The scan spends
-**412 seconds waiting**, and the board's budget is 90. It cannot finish, so it
-never will: `scanned 964s ago · next in 0s` is a retry loop that only ages the
-pulse it is showing.
+Four consecutive samples on a near-identical estate varied by **1.8 s**
+(41.8–43.6 s), so the 462.9 s reading was an outlier regime rather than noise
+around a mean. **The scan is not currently timing out**, and a plan justified by
+"it cannot finish" would be justified by something that has stopped being true.
+
+**What survives is the CPU claim, and the offline row is what establishes it.**
+With the host round trip removed the scan runs at **86.8 % CPU** — it is not
+waiting, it is computing. The online rows spend roughly 12–16 s waiting on
+GitHub (that is `the-budget-is-spent-where-it-is-needed`'s territory, not this
+plan's); the remaining ~27 s is work this plan makes cheaper.
+
+So this is an **efficiency** plan, not a timeout fix. The spawn count below is
+the subject, and it was re-measured on current `main` rather than trusted:
+
+| spawned | plan's original count | measured 2026-08-27 on main |
+|---|---|---|
+| `python3` | 454 | **463** |
+| `plot-plan-meta.sh` | 324 | **319** |
+
+Five days on, the mechanism is unchanged and unfixed.
 
 ### What it waits on: process startup, 778 times
 
@@ -54,7 +75,7 @@ Tracing one `--offline` run (`bash -x`, 23 784 lines):
 
 **More than half the scan's entire CPU budget is Python interpreter startup.**
 And the work those interpreters do is re-reading data the scan already has:
-`plot-fleet-scan.sh:2674` and `:2750` pipe `$meta` — the output of
+`plot-fleet-scan.sh:2771` and `:2847` pipe `$meta` (the lines cited as 2674/2750 when this plan was written; re-located on main 2026-08-27 — the sites are unchanged, only their line numbers moved) — the output of
 `plot-plan-meta.sh` — into a fresh `python3` per plan, to pull out `plan_phase`
 and `wave_lines`.
 
