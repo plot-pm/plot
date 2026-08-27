@@ -123,7 +123,7 @@ Worth revisiting if the disagreement recurs after this lands.
 
 ## Waves
 
-### Aged (Branch: bug/the-board-says-how-old-its-plans-are)
+### Aged (Branch: bug/the-board-says-how-old-its-plans-are, PR: #471)
 
 The board reports its checkout's distance from `origin/<main>`, and says
 *cannot say* where there is no upstream to measure against.
