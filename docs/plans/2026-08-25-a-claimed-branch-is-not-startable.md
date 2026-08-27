@@ -52,6 +52,46 @@ entire locking mechanism.
 So every pulse plans a spawn the script immediately discards, spends the budget
 doing it, and repeats. Nothing changes state, so nothing breaks the cycle.
 
+### Half of this was fixed on 2026-08-27, and half was not
+
+`an-eligible-wave-can-be-started` merged as **#470** and taught the scan a new
+`unapproved` verdict. Auto-dispatch gates on `wave.verdict !== 'eligible'`
+(`auto-dispatch.ts:194`, `:228`), so **13 waves of unapproved plans are now
+skipped before the budget is touched**. The starvation-by-Draft-plan half of the
+original report is gone.
+
+**The claimed half is untouched, and it is the one this plan is named for.**
+Re-measured the same day, minutes after five branches were dispatched:
+
+```
+eligible branches: 5
+  feature/a-ticket-becomes-a-story              state=wip
+  bug/a-dead-fetch-is-not-a-slow-one            state=wip
+  bug/a-reaped-worktree-takes-its-manifest      state=wip
+  bug/the-board-says-how-old-its-plans-are      state=wip
+  feature/a-stopped-worker-can-be-restarted     state=wip
+```
+
+Every one has a claim ref, a worktree, and a **live worker**. Every one reports
+`wip`, and `isStartable` returns true for `wip`. So auto-dispatch counts all five
+as startable and would plan spawns for branches that are already being worked on.
+
+The refusal is immediate and silent:
+
+```
+$ plot-dispatch.sh --dry-run a-dead-fetch-is-not-a-slow-one
+summary: dispatched=0 reused=0 skipped=0 started=0
+```
+
+`dispatched=0` **and** `skipped=0` — an empty set, with nothing to say about what
+was filtered out of it. That is the same shape `a-stopped-worker-can-be-restarted`
+documents from the other side, and it is why this defect survived a month
+unnoticed.
+
+**Five concurrent examples is a stronger measurement than the plan's original
+one** (a single July branch), and it shows the defect scales with fleet activity
+rather than being a stale-claim curiosity.
+
 ### Why the pulse cannot see it
 
 `isStartable` reads the branch's pulse state:
@@ -182,3 +222,42 @@ That is the argument for item 4: the fleet had no way to say *I spent it here*.
 *The board tells the truth in every section.* A switch that reports itself as on
 and enabled, while every pulse spends its budget on a refusal, is a control
 whose state is honest and whose effect is invisible.
+
+### Interrogated 2026-08-27
+
+Two questions, and the first found the Motivation half out of date.
+
+**#470 closed the Draft half hours before this round.** Auto-dispatch gates on
+`verdict !== 'eligible'`, and unapproved plans now report `unapproved`, so 13
+waves are skipped before the budget is spent. The plan's original narration — a
+July plan starving every plan behind it — no longer describes what happens.
+
+**The claimed half survives, and today measured it five times over.** Five
+branches dispatched minutes earlier all report `wip` with a claim ref, a
+worktree, and a live worker; `isStartable('wip')` is true for every one. A
+dry-run dispatch against one answers `dispatched=0 skipped=0` — an empty set that
+says nothing about what it filtered. That is a better measurement than the
+original single example, and it shows the defect scales with fleet activity.
+
+**Both waves ship together.** `Seen` alone publishes a fact nobody consumes;
+`Spent` is what stops the wasted budget. The deferred `Taken` wave of
+`an-eligible-wave-can-be-started` needs only `Seen`, and gets unblocked when it
+lands either way — waves run in order, so `Spent` starts when `Seen` merges.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "#470 fixed the Draft half \u2014 how should the Motivation record what survives?", "a": "Rewrite around the surviving claimed case, crediting #470, with today's five-branch measurement as the evidence", "category": "technical"},
+    {"q": "Dispatch both waves or only Seen, which unblocks Taken?", "a": "Both \u2014 Seen alone publishes a fact nobody consumes; Spent is the payoff", "category": "tradeOffs"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": false, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": true, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
