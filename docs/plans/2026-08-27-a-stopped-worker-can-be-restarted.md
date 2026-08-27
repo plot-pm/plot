@@ -212,7 +212,7 @@ would be two operations that can never both apply.
 
 ## Waves
 
-### Restarted (Branch: feature/a-stopped-worker-can-be-restarted)
+### Restarted (Branch: feature/a-stopped-worker-can-be-restarted, PR: #477)
 
 `plot-dispatch.sh --restart <branch>` starts a worker on a branch that already
 holds a claim, refusing on `running`, `waiting`, and `finished`, preserving the
