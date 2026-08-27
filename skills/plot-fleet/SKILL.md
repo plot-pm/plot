@@ -2,7 +2,7 @@
 name: plot-fleet
 description: >-
   Fleet pulse — report which branch waves of a plan are complete, eligible,
-  or blocked, and which branches are claimed. Stateless — every fact is
+  blocked or unapproved, and which branches are claimed. Stateless — every fact is
   re-derived from git; the only thing written is a pulse line. Use on
   /plot-fleet.
 globs: []
@@ -79,8 +79,9 @@ this command as a heartbeat.
 |------|---------|
 | **wave** | Branches under one `### ` subheading of `## Branches`, runnable concurrently |
 | **complete** | Every non-deferred branch in the wave is merged |
-| **eligible** | Every *prior* wave is complete — this wave may be started |
-| **blocked** | A prior wave still has outstanding work |
+| **eligible** | A dispatch would take this: every prior wave is complete **and** the plan is approved |
+| **blocked** | A prior wave still has outstanding work — resolves by merging |
+| **unapproved** | The plan is not approved, so nothing here may be dispatched — resolves by a person approving it |
 | **claimed** | A branch whose only commits beyond main are empty `plot: claim …` markers |
 | **deferred** | Annotated `<!-- deferred: … -->`; never counts as outstanding |
 
@@ -265,6 +266,7 @@ everything.
 |---------|--------|------------|
 | Treating `claimed` in the plan file as authoritative | A stale annotation hides a free branch, or fakes a busy one | Git refs are the claim; the annotation is a reflection |
 | Reporting a wave eligible while a prior wave has open work | Workers build on an unproven seam | The scan's arithmetic already enforces this — do not second-guess it |
+| Reading `unapproved` as "blocked" and waiting for a merge | Nothing will land to clear it — it needs an approval | Say the plan needs approving, and name `/plot-approve` |
 | Reaping a stale claim here | Silent data loss; a thinking worker looks dead | Cleanup belongs to `/plot-reconcile`, which can tell abandoned from crashed |
 | Dropping `--log-pulse` because nothing changed | A dead fleet is indistinguishable from an idle one — the quiet pulses ARE the evidence | Pass it every run; it is the default, not an option |
 | Calling this a heartbeat | Collides with `ralph-plot-sprint`'s per-run liveness signal | This is a pulse: an observation across a fleet |
