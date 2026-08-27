@@ -1960,3 +1960,76 @@ test('host: --rich reports truncation too and keeps the rich rows clean', () => 
   assert.equal(lines.length, 50);
   assert.ok(lines.every((r) => r.checks === 'unknown'), 'rich rows still normalize');
 });
+
+// ── rate-limit ──────────────────────────────────────────────────────────────
+//
+// GITHUB HAS TWO BUDGETS AND ONE ERROR MESSAGE. GraphQL and REST/core are
+// metered separately — measured 4503/5000 and 4997/5000 in the same instant on
+// 2026-08-27 — so exhausting one says nothing about the other. Before this op
+// a rate-limited caller could not tell that a second path was available, and
+// `gh pr create` failing on GraphQL while `gh api repos/.../pulls` succeeded
+// was a real, repeated experience in this repo.
+//
+// The op REPORTS and does not decide. The fallback that acts on it is a later
+// wave, so these tests pin the reporting contract only.
+
+test('host: rate-limit github reports both budgets separately', () => {
+  const stubs = makeStubs({
+    ghJson: JSON.stringify({
+      resources: {
+        graphql: { remaining: 12, limit: 5000, reset: 1787858250 },
+        core: { remaining: 4997, limit: 5000, reset: 1787858165 },
+      },
+    }),
+  });
+  const out = JSON.parse(run(['rate-limit'], { env: { PLOT_HOST: 'github' }, stubs }));
+  // The point of the op: a spent GraphQL budget WITH REST still available is
+  // reported as exactly that, rather than as one undifferentiated "limited".
+  assert.equal(out.graphql.remaining, 12);
+  assert.equal(out.core.remaining, 4997);
+  assert.equal(out.graphql.limit, 5000);
+  assert.equal(out.graphql.reset, 1787858250);
+  assert.deepEqual(argvOf(stubs.ghArgv), ['api', 'rate_limit']);
+});
+
+test('host: rate-limit reads both budgets spent differently from one spent', () => {
+  const stubs = makeStubs({
+    ghJson: JSON.stringify({
+      resources: {
+        graphql: { remaining: 0, limit: 5000, reset: 1787858250 },
+        core: { remaining: 0, limit: 5000, reset: 1787858165 },
+      },
+    }),
+  });
+  const out = JSON.parse(run(['rate-limit'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.graphql.remaining, 0);
+  assert.equal(out.core.remaining, 0);
+  // Both zero is a DIFFERENT state from one zero: there is no path left to fall
+  // back to. A caller must be able to tell them apart, which it can only do if
+  // the two numbers are reported independently rather than reduced to a flag.
+});
+
+// UNKNOWN IS NOT ZERO, and this is the assertion that keeps it that way.
+// Zero means SPENT. A caller that reads "the host could not be asked" as
+// "exhausted" takes the expensive fallback path forever — so a host that cannot
+// answer must say so in a word that is not a number.
+test('host: a host that cannot answer reports unknown, never zero', () => {
+  const stubs = makeStubs({ ghFail: 'error connecting to api.github.com: 503 Service Unavailable' });
+  const res = runAllowFail(['rate-limit'], { env: { PLOT_HOST: 'github' }, stubs });
+  const out = JSON.parse(res.stdout);
+  assert.equal(out.graphql.remaining, 'unknown');
+  assert.equal(out.core.remaining, 'unknown');
+  assert.notEqual(out.graphql.remaining, 0, 'unknown must not be reported as a spent budget');
+  assert.match(res.stderr, /503/, "the host's own words reach the caller");
+});
+
+// Bitbucket has ONE budget and no way to query it. The op must still answer —
+// this is informational, and a caller that cannot read the budget proceeds on
+// the default path rather than erroring out.
+test('host: rate-limit bitbucket reports unknown and asks nothing', () => {
+  const stubs = makeStubs();
+  const out = JSON.parse(run(['rate-limit'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.equal(out.graphql.remaining, 'unknown');
+  assert.equal(out.core.remaining, 'unknown');
+  assert.equal(argvOf(stubs.bbArgv), null, 'bb reports no rate information — do not ask it');
+});
