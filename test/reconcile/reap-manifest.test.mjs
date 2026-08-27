@@ -274,11 +274,14 @@ test('a manifest recording an UNRESOLVED path still matches its worktree', () =>
   const wt = worktree(repo, 'feature/symlinked');
   // The two spellings of one directory. `fs.realpathSync` gives the form git
   // reports (`/private/var/...` on macOS); `wt` itself is the unresolved
-  // `/var/...` form `mkdtemp` handed us. If the platform does not indirect
-  // them, the strings are equal and this test still asserts the plain match.
+  // `/var/...` form `mkdtemp` handed us.
+  //
+  // On Linux `/tmp` is a real directory, so the two are the SAME string and
+  // there is no mismatch to reproduce — the reap must still take the manifest,
+  // which is what the assertions below check either way. Only the divergent
+  // platform exercises the normalisation; asserting the divergence itself
+  // would fail CI on the platform where the bug cannot happen.
   const resolved = fs.realpathSync(wt);
-  assert.notEqual(resolved, wt,
-    'this test needs a platform where the two spellings differ');
   const file = manifest(registryDir, 'sess-symlinked', wt);
 
   const out = run(repo, '--yes');
