@@ -41,6 +41,25 @@ Measured against the live pulse the same day — every one-wave plan in
 **Six of six.** Not an edge case — on that board, *every* wave wearing the word
 was unstartable.
 
+### It is wrong in a second direction, measured on a live wave
+
+Re-measured 2026-08-27, after the first six: **seven** one-wave plans now read
+`eligible`, and the seventh is not a Draft.
+
+`the-board-reads-the-ref-not-the-checkout` is **Approved**, its branch holds a
+ref on origin, and a worker is **running on it** (pid 22266). Its wave reads:
+
+```json
+{"plan":"the-board-reads-the-ref-not-the-checkout","name":"Read",
+ "verdict":"eligible","section":"not-started","complete":false}
+```
+
+So the word is wrong in two directions, not one: it says `eligible` where the
+plan is **unapproved** (six cases) and where the work is **already taken and
+running** (one case). Both are the same defect — the verdict describes wave
+ORDERING, and the reader takes it to describe startability — and a fix that
+covers only approval leaves a live counter-example on the board.
+
 ### The word answers a different question than the reader asks
 
 `plot-fleet-scan.sh:2821` computes the verdict from wave ORDERING alone:
@@ -138,11 +157,28 @@ reason: a one-wave plan's wave row is not suppressed, it carries the NAME, and
 the verdict was moved up deliberately so the plan row says what to do next.
 Moving it back would restore a duplicate verdict and leave the wrong word intact.
 
-### The startability phrase already in the payload is a different thing
+### `eligible` means unapproved AND unclaimed
 
-`PlanStartabilitySchema` carries `someone is on it` and its siblings — a claim
-about whether a branch is TAKEN. That answers *is this free?*, not *is this
-approved?*, and stays as it is. Do not fold this into it.
+One word, one meaning: **a dispatch would take this**. Both wrongnesses above are
+the same defect, and half a fix ships with a visible case it does not fix.
+
+**The claim fact is not derived here.** `a-claimed-branch-is-not-startable`
+(Draft) already owns it: its `Seen` wave puts *whether a branch has a ref holding
+it* into the pulse, derived by the scan from refs it already walks. Re-deriving
+it in this plan would create a second answer to one question — the duplication
+this codebase keeps removing.
+
+That makes an ORDERING, stated in the waves below: the approval half depends on
+nothing and can ship immediately; the claim half consumes `Seen` and waits for
+it.
+
+### The startability PHRASE stays separate
+
+`PlanStartabilitySchema` carries `someone is on it` and its siblings — prose for
+a plan row, a different surface from a wave's verdict. This plan changes the
+VERDICT and leaves that phrase alone. Where both end up saying a branch is taken,
+they are agreeing rather than duplicating: one is a word in a status slot, the
+other a sentence on a plan head.
 
 ## Waves
 
@@ -150,6 +186,15 @@ approved?*, and stays as it is. Do not fold this into it.
 
 `plot-fleet-scan.sh` distinguishes a wave whose plan is not approved from one a
 dispatch would take, and the board renders the distinction in the verdict slot.
+Depends on nothing.
+
+### Taken (Branch: bug/an-eligible-wave-is-unclaimed)
+
+The verdict also accounts for a branch already claimed, reading the claim fact
+the pulse carries rather than re-deriving it. **Depends on the `Seen` wave of
+`a-claimed-branch-is-not-startable`** — on that wave landing, not on its plan
+being approved. Until the pulse carries the claim, there is nothing here to
+consume.
 
 ## Done when
 
@@ -166,7 +211,13 @@ dispatch would take, and the board renders the distinction in the verdict slot.
    reusing `blocked` is the tempting fix and it destroys the distinction that
    word already carries.
 6. **The `someone is on it` startability phrase is untouched.** A different
-   question, and out of scope.
+   SURFACE — prose on a plan head, not a verdict word — and out of scope.
+6b. **A wave whose branch is claimed and running does not read `eligible`.**
+   The measured second case: Approved plan, ref on origin, live worker, wave
+   still `eligible`. Belongs to the `Taken` wave.
+6c. **The claim fact is READ, not re-derived.** Asserted by the absence of a
+   second ref walk: `a-claimed-branch-is-not-startable`'s `Seen` wave publishes
+   it, and two answers to one question is the duplication this repo removes.
 7. **No host call is added to the scan's path.** The phase is already parsed;
    asserted by the existing no-network test.
 8. `pnpm run validate`, `pnpm run test:reconcile`, `pnpm run test:board` green;
@@ -190,3 +241,45 @@ meant.
 The board already held both halves — `DRAFT_PLAN_NOTE` in the note, `eligible` in
 the verdict — and printed them side by side without reconciling them. A row that
 contradicts itself is the failure this sprint is named for.
+
+### Interrogated 2026-08-27
+
+Two questions; the first widened the plan and the second held its shape.
+
+**The word is wrong in two directions, not one.** Re-measuring turned up a
+seventh one-wave plan reading `eligible` — and unlike the first six it is
+Approved, claimed on origin, and carrying a live worker (pid 22266). Scoping the
+claim case out, as the first draft did, would have shipped the fix with a visible
+counter-example still on the board.
+
+So `eligible` now means unapproved AND unclaimed: one word, one meaning, *a
+dispatch would take this*.
+
+**That created a dependency rather than a collision.**
+`a-claimed-branch-is-not-startable` already owns the claim fact — its `Seen` wave
+puts it into the pulse. This plan consumes it instead of re-deriving it, which
+splits the work into two waves: `Worded` (approval, depends on nothing, ships
+now) and `Taken` (claim, waits for `Seen`).
+
+**`not-started` stays the section.** The heading is about WORK — a wave with no
+merged branch has not started, which is true of all seven. The verdict inside the
+row is what says whether a reader can act, and that is exactly what this plan
+fixes. No section routing changes, which keeps the diff on the word.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "A claimed, running, Approved wave also reads eligible \u2014 widen the scope?", "a": "Widen: eligible means unapproved AND unclaimed; consume the claim fact from a-claimed-branch-is-not-startable's Seen wave rather than re-deriving it", "category": "technical"},
+    {"q": "Should unapproved waves stay in not-started?", "a": "Yes \u2014 the section is about work, the verdict about actionability; no section routing changes", "category": "ux"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": true, "edgeCases": true, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
