@@ -463,6 +463,12 @@ test('fleet: --loose DOES open a wave when the host reports a ready PR', () => {
   git(r, 'checkout', '-q', 'main');
 
   // Stub the host adapter on PATH: a backend exists, and the PR is ready.
+  //
+  // Readiness now rides the ROLLUP, not the draft flag alone: `--loose` opens a
+  // wave only when the prior wave's PR is green AND non-draft, and it reads that
+  // from the ONE `pr-list --rich` the scan already makes — never a per-branch
+  // `pr-state`. So the signal lives in the `pr-list` reply here; `pr-state`
+  // remains stubbed as a witness that it is NOT consulted on this path.
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
   const realScripts = path.dirname(scan);
   fs.mkdirSync(path.join(shim, 'scripts'));
@@ -470,19 +476,20 @@ test('fleet: --loose DOES open a wave when the host reports a ready PR', () => {
     if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
   }
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'),
-    '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":false,"url":"x"}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
+    '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":false,"url":"x"}\' ;;\n  pr-list) echo \'{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
   fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
 
   const shimScan = path.join(shim, 'scripts', 'plot-fleet-scan.sh');
   // No --offline: the fetch must run for readiness to be considered verifiable.
   const loose = execFileSync('bash', [shimScan, '--loose', 'lp'], { encoding: 'utf8', cwd: r });
   assert.match(loose, /Two — eligible/,
-    'a ready, non-draft PR must satisfy loose eligibility');
+    'a ready, green, non-draft PR must satisfy loose eligibility');
   assert.match(loose, /loose eligibility/, 'and the banner must say loose is active');
 
-  // Draft PRs must not satisfy it — readiness means ready.
+  // Draft PRs must not satisfy it — readiness means ready. The rollup is green
+  // but the PR is a draft, so the wave must stay blocked.
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'),
-    '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":true,"url":"x"}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
+    '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":true,"url":"x"}\' ;;\n  pr-list) echo \'{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":true,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
   fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
   const draft = execFileSync('bash', [shimScan, '--loose', 'lp'], { encoding: 'utf8', cwd: r });
   assert.match(draft, /Two — blocked/, 'a draft PR is not "ready"');
@@ -3770,4 +3777,349 @@ esac
   assert.equal(down.learned.length, 0,
     `an unreachable host teaches the cache nothing, saw: ${down.learned.join(' | ')}`);
   f.cleanup();
+});
+
+// --- --loose checks the rollup: only green opens the next wave -------------
+//
+// The plan promises "--loose means the prior wave's PRs are green and ready".
+// An earlier implementation accepted ANY non-draft PR, regardless of its build
+// status — so red CI opened the next wave. These tests pin the fixed behavior.
+
+test('fleet: --loose rejects a failing PR and blocks the successor wave', () => {
+  // THE DEFECT THIS FIX ADDRESSES. An OPEN, non-draft PR with failing checks
+  // must NOT open the next wave — it is not "ready" in the documented sense.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-fail-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-lp.md'),
+    '# LP\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n- `feature/first` — failing build\n\n### Two\n- `feature/second` — waits on wave one\n');
+  fs.symlinkSync('../2026-01-01-lp.md', path.join(r, 'plans', 'active', 'lp.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  git(r, 'checkout', '-q', '-b', 'feature/first');
+  fs.writeFileSync(path.join(r, 'work.txt'), 'done\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'work');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/first');
+  git(r, 'checkout', '-q', 'main');
+
+  // Stub: pr-list --rich returns a failing build
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const realScripts = path.dirname(scan);
+  fs.mkdirSync(path.join(shim, 'scripts'));
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
+  }
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list)
+    echo '{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"failing","mergeable":"mergeable","review":"","url":"x","failing_checks":["test"]}' ;;
+  pr-state) echo '{"number":1,"state":"OPEN","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+
+  const shimScan = path.join(shim, 'scripts', 'plot-fleet-scan.sh');
+  const loose = execFileSync('bash', [shimScan, '--loose', 'lp'], { encoding: 'utf8', cwd: r });
+  assert.match(loose, /Two — blocked/,
+    'a failing-checks PR must NOT satisfy loose eligibility');
+  assert.match(loose, /loose eligibility/, 'the banner must say loose is active');
+
+  fs.rmSync(shim, { recursive: true, force: true });
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('fleet: --loose rejects a pending PR and blocks the successor wave', () => {
+  // PENDING means CI is still running — the seam is unproven.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-pend-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-lp.md'),
+    '# LP\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n- `feature/first` — pending build\n\n### Two\n- `feature/second` — waits on wave one\n');
+  fs.symlinkSync('../2026-01-01-lp.md', path.join(r, 'plans', 'active', 'lp.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  git(r, 'checkout', '-q', '-b', 'feature/first');
+  fs.writeFileSync(path.join(r, 'work.txt'), 'done\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'work');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/first');
+  git(r, 'checkout', '-q', 'main');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const realScripts = path.dirname(scan);
+  fs.mkdirSync(path.join(shim, 'scripts'));
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
+  }
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list)
+    echo '{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"pending","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}' ;;
+  pr-state) echo '{"number":1,"state":"OPEN","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+
+  const shimScan = path.join(shim, 'scripts', 'plot-fleet-scan.sh');
+  const loose = execFileSync('bash', [shimScan, '--loose', 'lp'], { encoding: 'utf8', cwd: r });
+  assert.match(loose, /Two — blocked/,
+    'a pending-checks PR must NOT satisfy loose eligibility');
+
+  fs.rmSync(shim, { recursive: true, force: true });
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('fleet: --loose rejects an unknown-rollup PR and announces the degradation', () => {
+  // UNKNOWN means the host could not produce a rollup — Bitbucket with no CI.
+  // The degradation must be ANNOUNCED rather than silent.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-unk-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-lp.md'),
+    '# LP\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n- `feature/first` — unknown rollup\n\n### Two\n- `feature/second` — waits on wave one\n');
+  fs.symlinkSync('../2026-01-01-lp.md', path.join(r, 'plans', 'active', 'lp.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  git(r, 'checkout', '-q', '-b', 'feature/first');
+  fs.writeFileSync(path.join(r, 'work.txt'), 'done\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'work');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/first');
+  git(r, 'checkout', '-q', 'main');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const realScripts = path.dirname(scan);
+  fs.mkdirSync(path.join(shim, 'scripts'));
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
+  }
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
+case "$1" in
+  backend) echo bitbucket ;;
+  default-branch) echo main ;;
+  pr-list)
+    echo '{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"unknown","mergeable":"unknown","review":"","url":"x","failing_checks":[]}' ;;
+  pr-state) echo '{"number":1,"state":"OPEN","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+
+  const shimScan = path.join(shim, 'scripts', 'plot-fleet-scan.sh');
+  const loose = execFileSync('bash', [shimScan, '--loose', 'lp'], { encoding: 'utf8', cwd: r });
+  assert.match(loose, /Two — blocked/,
+    'an unknown-checks PR must NOT satisfy loose eligibility');
+  assert.match(loose, /degraded.*strict|unavailable/i,
+    'the degradation must be announced, not silent');
+
+  fs.rmSync(shim, { recursive: true, force: true });
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('fleet: --loose rejects a none-rollup PR (no checks ran)', () => {
+  // NONE means no checks ran — nothing was verified.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-none-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-lp.md'),
+    '# LP\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n- `feature/first` — no checks ran\n\n### Two\n- `feature/second` — waits on wave one\n');
+  fs.symlinkSync('../2026-01-01-lp.md', path.join(r, 'plans', 'active', 'lp.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  git(r, 'checkout', '-q', '-b', 'feature/first');
+  fs.writeFileSync(path.join(r, 'work.txt'), 'done\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'work');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/first');
+  git(r, 'checkout', '-q', 'main');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const realScripts = path.dirname(scan);
+  fs.mkdirSync(path.join(shim, 'scripts'));
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
+  }
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list)
+    echo '{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"none","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}' ;;
+  pr-state) echo '{"number":1,"state":"OPEN","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+
+  const shimScan = path.join(shim, 'scripts', 'plot-fleet-scan.sh');
+  const loose = execFileSync('bash', [shimScan, '--loose', 'lp'], { encoding: 'utf8', cwd: r });
+  assert.match(loose, /Two — blocked/,
+    'a none-checks PR must NOT satisfy loose eligibility');
+
+  fs.rmSync(shim, { recursive: true, force: true });
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('fleet: --loose accepts a green PR and opens the successor wave', () => {
+  // The positive case: a green, non-draft PR DOES satisfy loose eligibility.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-green-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-lp.md'),
+    '# LP\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n- `feature/first` — green build\n\n### Two\n- `feature/second` — waits on wave one\n');
+  fs.symlinkSync('../2026-01-01-lp.md', path.join(r, 'plans', 'active', 'lp.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  git(r, 'checkout', '-q', '-b', 'feature/first');
+  fs.writeFileSync(path.join(r, 'work.txt'), 'done\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'work');
+  git(r, 'push', '-q', '-u', 'origin', 'feature/first');
+  git(r, 'checkout', '-q', 'main');
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const realScripts = path.dirname(scan);
+  fs.mkdirSync(path.join(shim, 'scripts'));
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
+  }
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list)
+    echo '{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}' ;;
+  pr-state) echo '{"number":1,"state":"OPEN","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+
+  const shimScan = path.join(shim, 'scripts', 'plot-fleet-scan.sh');
+  const loose = execFileSync('bash', [shimScan, '--loose', 'lp'], { encoding: 'utf8', cwd: r });
+  assert.match(loose, /Two — eligible/,
+    'a green, non-draft PR must satisfy loose eligibility');
+  assert.match(loose, /loose eligibility/, 'the banner must say loose is active');
+
+  fs.rmSync(shim, { recursive: true, force: true });
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('fleet: --loose makes no per-branch host call with --rich cache', () => {
+  // COST ASSERTION: the rollup comes from pr-list --rich, never from per-branch
+  // pr-state calls. This is the N+1 fix.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-loose-cost-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-lp.md'),
+    '# LP\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n- `feature/first` — one\n- `feature/second` — two\n- `feature/third` — three\n\n### Two\n- `feature/fourth` — waits on wave one\n');
+  fs.symlinkSync('../2026-01-01-lp.md', path.join(r, 'plans', 'active', 'lp.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  // Create three branches in wave one
+  for (const br of ['feature/first', 'feature/second', 'feature/third']) {
+    git(r, 'checkout', '-q', '-b', br);
+    fs.writeFileSync(path.join(r, `${br.replace(/\//g, '-')}.txt`), 'done\n');
+    git(r, 'add', '-A');
+    git(r, 'commit', '-qm', 'work');
+    git(r, 'push', '-q', '-u', 'origin', br);
+    git(r, 'checkout', '-q', 'main');
+  }
+
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
+  const realScripts = path.dirname(scan);
+  fs.mkdirSync(path.join(shim, 'scripts'));
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
+  }
+  const calls = path.join(shim, 'calls.txt');
+  fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list)
+    echo '{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}'
+    echo '{"number":2,"title":"t","state":"OPEN","head":"feature/second","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}'
+    echo '{"number":3,"title":"t","state":"OPEN","head":"feature/third","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}' ;;
+  pr-state) echo '{"number":1,"state":"OPEN","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
+
+  const shimScan = path.join(shim, 'scripts', 'plot-fleet-scan.sh');
+  execFileSync('bash', [shimScan, '--loose', 'lp'], {
+    encoding: 'utf8', cwd: r,
+    env: { ...process.env, PLOT_TEST_CALLS: calls },
+  });
+
+  const callLog = fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean);
+  const prStateCalls = callLog.filter((l) => l.includes('pr-state'));
+  assert.equal(prStateCalls.length, 0,
+    `--loose must not call pr-state per branch, saw: ${prStateCalls.join(' | ')}`);
+
+  fs.rmSync(shim, { recursive: true, force: true });
+  fs.rmSync(t, { recursive: true, force: true });
 });
