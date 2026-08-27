@@ -141,6 +141,23 @@ path fast and every push expensive, and it would sit beside the branch-plan cach
 as a second cache solving one problem. With the batch read costing 11 ms there is
 nothing left to cache.
 
+### The parser is already spawned once, and must stay that way
+
+Round two checked the obvious way this design could still be slow: the bulk read
+wins because it is ONE process, and staging 151 blobs to temp files would be
+worth nothing if `plot-plan-meta.sh` were then spawned per file — at ~55 ms a
+spawn that is ~8 s, swallowing the 1.5 s the batch read saves.
+
+It is not. `readPlanMeta` (`board.ts:599`) takes an ARRAY and its docstring says
+so: *"Run the plan-format helper once over all plan files."* One `bash` spawn for
+the whole estate, with a 64 MB buffer already sized for it, and `board.ts:880`
+passes working-tree and staged files together in a single call.
+
+So the existing architecture already solves the half this plan does not touch.
+It is recorded here as a constraint to PRESERVE rather than a problem to fix: a
+change that reads the ref correctly but parses per file would be slower than
+today for a reason no `Done when` item above would catch.
+
 ### The symlinks stop being read, and that is a simplification
 
 `collectPlanFiles` walks `active/` and `delivered/` and calls `realpathSync` to
@@ -215,6 +232,38 @@ also exists on the ref is the ref's, not the working tree's; otherwise an
 uncommitted edit silently becomes what the board reports, which is the original
 defect with extra steps.
 
+### The marker serves an AUTHORING checkout, and is silent in a dedicated one
+
+Measured 2026-08-27: the board's own checkout (`plot-board`) holds **zero** plans
+that are not on the ref. Nobody authors there, so the `not pushed` marker would
+essentially never fire in it.
+
+The gap that justified the marker was measured in a different worktree — an
+authoring checkout, where five plans written that session were each invisible for
+the minutes between writing and pushing. `pnpm board` runs wherever it is
+started, and both are real deployments.
+
+**This is written down because the feature is expected to look unused.** A test
+that fires only in an authoring tree, beside a dedicated deployment where it
+never fires, reads as dead code to the next person — and the natural act is to
+delete it. The two deployments are the reason it exists, so the plan names them.
+
+### The board says which ref it read
+
+The pulse already carries `readRef` and `readRefAge`; the board renders neither.
+
+That is what made both of this plan's originating reports mysteries rather than
+diagnoses: a badge and a button were wrong, and nothing on the screen said the
+plan estate had been read from a commit sixteen behind. Measured the same day —
+the board's checkout drifted **16 commits in about an hour**, so this is the
+steady state rather than an unlucky moment.
+
+Rendering it is a display of fields that already exist, not a new derivation, and
+it belongs in this wave because it answers the question this wave's own failure
+modes raise: *which source am I looking at, and how old is it?* An operator who
+sees a local-only card or an unresolvable ref then has the mechanism in front of
+them instead of having to know it exists.
+
 ## Waves
 
 ### Read (Branch: bug/the-board-reads-the-ref-not-the-checkout)
@@ -262,7 +311,18 @@ working-tree fallback, and the board reports when that ref cannot be resolved.
     de-duplication is being removed along with the directory walk (measured:
     151 plan blobs against 129 symlinks, and a mode-filtered tree listing drops
     the latter); a plan appearing twice is the regression that removal invites.
-12. `pnpm run validate`, `pnpm run test:board`, `pnpm run test:reconcile` green;
+12. **`plot-plan-meta.sh` is spawned ONCE for the whole estate**, working-tree
+    and ref-read plans together. Asserted by spawn count, like item 5: reading
+    the ref in one process and then parsing in 151 is slower than today, and no
+    other item here would catch it.
+13. **The marker is ABSENT in a checkout whose plans are all on the ref.** The
+    dedicated-deployment case, measured at zero local-only plans — pinned so a
+    later change cannot start marking every card, which would make the label
+    meaningless in the deployment where it matters.
+14. **The board displays the ref it read and that ref's age.** Both fields are
+    already in the pulse (`readRef`, `readRefAge`); this asserts they reach the
+    screen, because their absence is what made two wrong renders undiagnosable.
+15. `pnpm run validate`, `pnpm run test:board`, `pnpm run test:reconcile` green;
     artifact rebuilt and committed.
 
 ## Notes
@@ -322,20 +382,86 @@ A `CardSchema` field also earned its own assertion: this client casts rather tha
 parses, so a marker the schema does not declare is `undefined` in the renderer no
 matter what the server sent.
 
+### Interrogated again 2026-08-27 — round 2
+
+Two questions, plus one check that came back clean and is now recorded as a
+constraint.
+
+**The check:** the batch read wins by being one process, so round two asked
+whether the parser undoes it. It does not — `readPlanMeta` already spawns
+`plot-plan-meta.sh` once for the whole estate. That is now `Done when` item 12,
+because an implementation could read the ref correctly and parse per file, and
+nothing else in the plan would notice.
+
+**The marker is expected to look unused, and the plan now says so.** The board's
+own checkout holds zero plans absent from the ref — nobody authors there. The
+five-plan gap was measured in an authoring worktree instead. Both are real
+deployments of `pnpm board`, and without this written down the feature reads as
+dead code to whoever finds its test next.
+
+**The board will show which ref it read.** `readRef` and `readRefAge` are already
+in the pulse and rendered nowhere, which is precisely why a wrong badge and a
+refusing button were mysteries rather than diagnoses. The checkout drifted 16
+commits in an hour, so the staleness this plan removes is continuous rather than
+occasional — and an operator meeting the new failure modes (a local-only card, an
+unresolvable ref) should be able to see the mechanism instead of having to know
+it exists.
+
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 1,
+  "round": 2,
   "questionHistory": [
-    {"q": "How should the ref be read \u2014 per-file or bulk?", "a": "Bulk cat-file --batch; measured 0.011s vs ~1.5s for 280 per-file shows, and the shape is now a Done-when item", "category": "nonFunctional"},
-    {"q": "Should an unpushed local plan disappear from the board?", "a": "No \u2014 show it marked `not pushed`; the ref may not be overridden, but the tree may ADD", "category": "ux"},
-    {"q": "Plans and sprints in one wave, or split?", "a": "One wave \u2014 same seam, same bulk read; splitting invites artifact conflicts in board.ts", "category": "technical"}
+    {
+      "q": "How should the ref be read \u2014 per-file or bulk?",
+      "a": "Bulk cat-file --batch; measured 0.011s vs ~1.5s for 280 per-file shows, and the shape is now a Done-when item",
+      "category": "nonFunctional"
+    },
+    {
+      "q": "Should an unpushed local plan disappear from the board?",
+      "a": "No \u2014 show it marked `not pushed`; the ref may not be overridden, but the tree may ADD",
+      "category": "ux"
+    },
+    {
+      "q": "Plans and sprints in one wave, or split?",
+      "a": "One wave \u2014 same seam, same bulk read; splitting invites artifact conflicts in board.ts",
+      "category": "technical"
+    },
+    {
+      "q": "The marker never fires in the board's dedicated checkout \u2014 keep it?",
+      "a": "Keep, and name the authoring-vs-dedicated deployments so it is not read as dead code",
+      "category": "ux"
+    },
+    {
+      "q": "Should the board display readRef / readRefAge?",
+      "a": "Yes, in this wave \u2014 the fields exist and their absence made two wrong renders undiagnosable",
+      "category": "ux"
+    },
+    {
+      "q": "Does per-file parsing undo the batch read's win?",
+      "a": "No \u2014 readPlanMeta already spawns the parser once for all files; recorded as a constraint to preserve",
+      "category": "nonFunctional"
+    }
   ],
   "deferredItems": [],
   "categoriesCovered": {
-    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "technical": {
+      "stack": false,
+      "architecture": true,
+      "implementation": true
+    },
     "domain": false,
-    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
-    "nonFunctional": {"security": false, "performance": true, "scalability": false},
+    "ux": {
+      "happyPath": true,
+      "edgeCases": true,
+      "errors": true,
+      "accessibility": false
+    },
+    "nonFunctional": {
+      "security": false,
+      "performance": true,
+      "scalability": true
+    },
     "tradeOffs": true
   }
 }
