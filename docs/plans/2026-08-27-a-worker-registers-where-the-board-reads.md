@@ -195,7 +195,7 @@ refuse worktrees it currently serves.
 
 ### Resolved
 
-- `bug/the-manifest-lands-where-it-is-read` — `start_worker` and `manifestForWorktree` resolve the manifest directory through the `Agent registry` key instead of the dispatcher's cwd. Tests: a dispatcher run from another checkout writes into the configured registry; a project with no key keeps `.plot/agents` under its own root; an absolute value is honoured as given; `manifest-stamp-parity.test.ts` still passes
+- `bug/the-manifest-lands-where-it-is-read` — `start_worker` and `manifestForWorktree` resolve the manifest directory through the `Agent registry` key instead of the dispatcher's cwd. Tests: a dispatcher run from another checkout writes into the configured registry; a project with no key keeps `.plot/agents` under its own root; an absolute value is honoured as given; `manifest-stamp-parity.test.ts` still passes → #488
 
 ### Gated
 
