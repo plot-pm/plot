@@ -34,6 +34,18 @@
 #               looks broken. The terminal line is what says the scan finished;
 #               a closed pipe does not, because a killed scan closes it too.
 #   <slug>      limit the report to one plan (default: all active plans)
+# Wave verdicts — the word each wave carries, and what a reader may do with it:
+#   complete    every non-deferred branch of the wave has merged
+#   eligible    A DISPATCH WOULD TAKE THIS: prior waves landed AND the plan is
+#               approved. The word a reader acts on, and the only one that
+#               promises the dispatcher agrees.
+#   blocked     an earlier wave has not landed — resolves by merging work
+#   unapproved  the plan is not approved, so nothing here may be dispatched —
+#               resolves by a person approving the plan, not by any merge.
+#               Kept apart from `blocked` because the reader's next action
+#               differs, and a terminal-phase plan lands here too (it is not
+#               approved); the board routes those to DONE by phase before the
+#               verdict is read.
 # Output: per-plan wave report on stdout, terminated by a machine-countable
 #         summary line:
 #             summary: plans=1 waves=3 branches=5 claimed=1 eligible=2 blocked=1 deferred=1 merge_detect=pr-merge main=main
@@ -2908,7 +2920,40 @@ for i, w in enumerate(d.get("waves", [])):
       esac
     done <<< "$states"
 
+    # `eligible` IS A CLAIM ABOUT STARTABILITY, not about wave ordering alone.
+    #
+    # Measured 2026-08-27: every one-wave plan in `not-started` on the live
+    # board read `eligible`, and `plot-dispatch.sh` refused all six of them —
+    # *"plan '<slug>' is still Draft on <ref> — nothing may be dispatched."*
+    # Six of six. Both components were correct and they were answering
+    # different questions: this computed *no earlier wave blocks this one*,
+    # and the reader took it to mean *I can start this*. Those coincide only
+    # for an approved plan.
+    #
+    # THE PHASE IS ALREADY IN HAND. `$plan_phase` was parsed above for the
+    # terminal grouping, so consulting it here costs no read and no host call
+    # — the fix adds a test, not a lookup.
+    #
+    # AN ALLOWLIST OF ONE GOOD PHASE, mirroring `plot-dispatch.sh`'s own gate
+    # (`case "$gate_phase" in approved) ;;`) rather than testing for `draft`.
+    # A denylist is the blocklist-collapse shape this codebase keeps removing:
+    # `design` is documented as a phase whose work cannot yet be handed over,
+    # and `UNKNOWN`/`NONE` are unreadable answers. Under a `draft`-only test
+    # each of those would inherit the good word. The scan and the dispatcher
+    # now refuse the same set, which is the disagreement this removes.
+    #
+    # ORDERING IS STILL COMPUTED FIRST, and `complete` still outranks it: a
+    # wave whose branches have all merged IS complete whatever its plan says,
+    # because that is a statement about work that already landed, not an
+    # invitation to start any. Only the word a reader ACTS on is withheld.
+    #
+    # NOT `blocked`, deliberately. That word means *an earlier wave has not
+    # landed* — an ordering fact that resolves by merging work. This resolves
+    # by a person approving the plan. Folding both into one word would rebuild
+    # the ambiguity one level down, and `blocked by <wave> — 1 branch` is a
+    # sentence a row in this state cannot truthfully complete.
     if [ "$outstanding" -eq 0 ]; then verdict="complete"
+    elif [ "$plan_phase" != "approved" ]; then verdict="unapproved"
     elif [ "$prior_ok" -eq 1 ]; then verdict="eligible"
     else verdict="blocked"; fi
 

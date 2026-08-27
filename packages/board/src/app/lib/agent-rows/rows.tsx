@@ -1008,6 +1008,11 @@ export function WaveRow({
     soleRow ? soleRow.waitingOn
       : groupedCount !== undefined ? 'you'
       : group.verdict === 'eligible' ? 'you'
+      // `you` FOR AN UNAPPROVED WAVE TOO, and for the same reason `eligible`
+      // has it: the tone means *this needs a decision from a person*, and an
+      // unapproved wave needs exactly one — an approval. `time` would be wrong,
+      // because nothing lands on its own to unblock this.
+      : group.verdict === 'unapproved' ? 'you'
       : group.verdict === 'blocked' ? 'time'
         : null;
   const waveNote =
@@ -1045,6 +1050,12 @@ export function WaveRow({
         : '')
         || (group.verdict === 'eligible' ? 'approved — nobody has taken it'
           : group.verdict === 'blocked' ? 'an earlier wave has to land first'
+          // THE SENTENCE NAMES THE ACTION, like its two siblings, and the
+          // action here is not merging — it is approving. The `eligible`
+          // sentence says *approved*, which is the fact this wave lacks, and
+          // the `blocked` one promises an earlier wave will land, which no
+          // amount of merging will do for this row.
+          : group.verdict === 'unapproved' ? 'the plan needs approving first'
             : '');
   return (
     <TupleRowView
