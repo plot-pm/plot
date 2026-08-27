@@ -18,7 +18,7 @@ import {
 import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
 import { TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
-import { soleRowStatus } from './stuck.js';
+import { soleRowStatus, exceptionSummary } from './stuck.js';
 import { type PlanGroup, elsewhereNote, planWaitingDays, waveKeyOf, waveSummaryFor } from './sections.js';
 import { roundsBadgeText } from '../../components/PlanCard.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
@@ -545,6 +545,10 @@ export function PlanRow({
   // far that thinking got. Same reasoning as the `draft` badge below — two
   // badges answering different questions, never folded into one word.
   const rounds = card ? roundsBadgeText(card) : '';
+  // THE EXCEPTIONS, if any — `claimed twice`, `conflict`, etc. A fold containing
+  // an exception names it here so the reader knows without unfolding; the plan's
+  // own rule is *folding may hide repetition, never exceptions*.
+  const exceptions = exceptionSummary(group.rows);
   const summary = [here, away].filter(Boolean).join(' · ');
   const foldable = expanded !== null;
   // THE PHASE IS THE PLAN'S, and slot 5 is where a fact about the plan is true.
@@ -761,13 +765,31 @@ export function PlanRow({
         // item rather than pointing anywhere. The `elsewhere` clause makes the
         // section-scoping legible: a plan split across sections says how many of
         // its waves this head does NOT speak for.
-        summary ? (
-          <span
-            data-wave-summary
-            className="truncate text-slate-500 dark:text-slate-400"
-            title="Waves of this plan in this section — and how many sit in another"
-          >
-            {summary}
+        //
+        // THE EXCEPTIONS, if any, in amber — `claimed twice`, `conflict`, etc.
+        // A fold containing an exception names it so a reader can decide whether
+        // to unfold without unfolding: the plan's rule is *folding may hide
+        // repetition, never exceptions*. A clean fold shows no exception clause.
+        summary || exceptions ? (
+          <span className="flex items-center gap-2 truncate">
+            {summary && (
+              <span
+                data-wave-summary
+                className="truncate text-slate-500 dark:text-slate-400"
+                title="Waves of this plan in this section — and how many sit in another"
+              >
+                {summary}
+              </span>
+            )}
+            {exceptions && (
+              <span
+                data-plan-exceptions
+                className="shrink-0 font-medium text-amber-700 dark:text-amber-500"
+                title="Exceptions in this plan's branches — conflicts, claims, or structural issues"
+              >
+                {exceptions}
+              </span>
+            )}
           </span>
         ) : null
       }

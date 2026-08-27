@@ -43,8 +43,13 @@ export function shrinkNote(shrink: PulseShrink, ageSeconds: number): string {
     + `working tree.`;
 }
 
-/** `a, b and 2 more branches` — at most three names, then a count. */
-function nameList(names: string[], one: string, many: string): string {
+/**
+ * `a, b and 2 more branches` — at most three names, then a count.
+ *
+ * Exported for use by exception summary in fold heads: `claimed twice, conflict
+ * and 2 more` is the same grammar, naming exceptions rather than branches.
+ */
+export function nameList(names: string[], one: string, many: string): string {
   const shown = names.slice(0, 3);
   const rest = names.length - shown.length;
   const noun = names.length === 1 ? one : many;

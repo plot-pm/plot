@@ -2,7 +2,7 @@ import {
   describe,
   it,
   expect } from 'vitest';
-import { offersChangedFiles, stuckEvidence, stuckWord } from '../../src/app/lib/agent-rows/stuck.js';
+import { offersChangedFiles, stuckEvidence, stuckWord, hasExceptions, exceptionSummary, EXCEPTION_STATES } from '../../src/app/lib/agent-rows/stuck.js';
 import { changedFilesLabel, offersAction } from '../../src/app/lib/agent-rows/actions.js';
 import {
   StuckStateSchema, BOARD_ARTIFACT_PATH,
@@ -290,6 +290,110 @@ describe('offersAction — only two of the four', () => {
   it('offers an action for a conflict and for a failing check', () => {
     expect(offersAction('conflict')).toBe(true);
     expect(offersAction('ci-failing')).toBe(true);
+  });
+});
+
+/**
+ * EXCEPTION AGGREGATION — the summary a fold head shows for its rows.
+ *
+ * A fold containing an exception names it so the reader knows without
+ * unfolding; the plan's rule is *folding may hide repetition, never
+ * exceptions*. These tests pin the boundary between exceptions (structural
+ * issues that must be visible) and transient states (CI failing, unpushed
+ * work) that stay on the row alone.
+ */
+describe('hasExceptions — structural issues force a fold open', () => {
+  it('returns true for every exception state', () => {
+    for (const state of EXCEPTION_STATES) {
+      const rows = [{ stuck: stuck({ state }) }];
+      expect(hasExceptions(rows), `${state} not detected as exception`).toBe(true);
+    }
+  });
+
+  it('returns false for ci-failing alone — not a structural issue', () => {
+    // A failing check is evidence, not a conflict: the row shows it, and the
+    // fold does not need to stay open to expose it. The reader may browse a
+    // folded list without seeing every red build.
+    const rows = [{ stuck: stuck({ state: 'ci-failing' }) }];
+    expect(hasExceptions(rows)).toBe(false);
+  });
+
+  it('returns false for unpushed alone — transient, not structural', () => {
+    // Unpushed work is local state, not a conflict in the estate. The row
+    // already names it; the fold can hide the rest.
+    const rows = [{ stuck: stuck({ state: 'unpushed', localAhead: 4 }) }];
+    expect(hasExceptions(rows)).toBe(false);
+  });
+
+  it('returns true when ONE row of many holds an exception', () => {
+    // A single conflict in a ten-row group is enough to force the fold open.
+    const rows = [
+      { stuck: null },
+      { stuck: stuck({ state: 'ci-failing' }) },
+      { stuck: stuck({ state: 'conflict', conflicts: ['a.md'] }) },
+      { stuck: null },
+    ];
+    expect(hasExceptions(rows)).toBe(true);
+  });
+
+  it('returns false when all rows are clean or transient', () => {
+    const rows = [
+      { stuck: null },
+      { stuck: stuck({ state: 'ci-failing' }) },
+      { stuck: stuck({ state: 'unpushed', localAhead: 1 }) },
+      { stuck: null },
+    ];
+    expect(hasExceptions(rows)).toBe(false);
+  });
+});
+
+describe('exceptionSummary — NAME the exceptions, do not count them', () => {
+  it('returns an empty string for clean rows', () => {
+    const rows = [{ stuck: null }, { stuck: null }];
+    expect(exceptionSummary(rows)).toBe('');
+  });
+
+  it('returns empty for transient-only rows (ci-failing, unpushed)', () => {
+    // The boundary test: a group with failing checks and unpushed work is not
+    // one with exceptions. The summary stays empty rather than naming states
+    // that do not force the fold open.
+    const rows = [
+      { stuck: stuck({ state: 'ci-failing' }) },
+      { stuck: stuck({ state: 'unpushed', localAhead: 2 }) },
+    ];
+    expect(exceptionSummary(rows)).toBe('');
+  });
+
+  it('names a single exception', () => {
+    const rows = [{ stuck: stuck({ state: 'conflict', conflicts: ['a.md'] }) }];
+    const summary = exceptionSummary(rows);
+    expect(summary).toBe(stuckWord('conflict'));
+  });
+
+  it('names multiple distinct exceptions with commas', () => {
+    const rows = [
+      { stuck: stuck({ state: 'conflict', conflicts: ['a.md'] }) },
+      { stuck: stuck({ state: 'double-claimed', claimedBy: ['plan-a', 'plan-b'] }) },
+    ];
+    const summary = exceptionSummary(rows);
+    // Both state words present, comma-separated
+    expect(summary).toContain(stuckWord('conflict'));
+    expect(summary).toContain(stuckWord('double-claimed'));
+    expect(summary).toContain(',');
+  });
+
+  it('deduplicates the same exception state across rows', () => {
+    // Three rows with conflicts: the summary says `conflict` once, not three
+    // times. The COUNT is implicit in the fold's row count, not restated here.
+    const rows = [
+      { stuck: stuck({ state: 'conflict', conflicts: ['a.md'] }) },
+      { stuck: stuck({ state: 'conflict', conflicts: ['b.md'] }) },
+      { stuck: stuck({ state: 'conflict', conflicts: ['c.md'] }) },
+    ];
+    const summary = exceptionSummary(rows);
+    const word = stuckWord('conflict');
+    // The word appears exactly once — not `conflict, conflict, conflict`
+    expect(summary).toBe(word);
   });
 });
 

@@ -296,3 +296,94 @@ export function stuckEvidence(stuck: Stuck, now: number = Date.now()): string[] 
 export function offersChangedFiles(stuck: Stuck | null | undefined): boolean {
   return stuck?.state === 'ci-failing' && stuck.changedPaths.length > 0;
 }
+
+/**
+ * The set of EXCEPTION states that force a fold open.
+ *
+ * **NAME THE EXCEPTION, DO NOT COUNT IT.** The plan's own rule: `claimed twice`
+ * is a fact a reader acts on; `1 exception` is not. These are the states whose
+ * presence in a plan's rows demands that the fold render open.
+ *
+ * **DOES NOT INCLUDE `ci-failing` or `unpushed`.** Those are facts the row
+ * shows for its own reader, but they do not represent structural conflicts
+ * that a reader must see immediately. `claimed twice` means two plans disagree
+ * on who owns a branch; `conflict` means a PR cannot merge; `unsliced-wave`
+ * means the plan was never sliced after its spike. Each is a defect of the
+ * estate itself, not a transient state of a build or a local tree.
+ *
+ * `artifact-conflict` IS included: while the board can auto-resolve it, the
+ * reader needs to know it is happening, and hiding it would defeat the
+ * exception rule.
+ */
+export const EXCEPTION_STATES: ReadonlySet<StuckState> = new Set([
+  'double-claimed',
+  'conflict',
+  'artifact-conflict',
+  'unsliced-wave',
+]);
+
+/**
+ * Does a plan group hold any exception that should force its fold open?
+ *
+ * A fold containing an exception renders UNFOLDED so the reader sees the
+ * conflict immediately — the plan's own rule: *folding may hide repetition,
+ * never exceptions.*
+ *
+ * Exported for test: the boundary between `ci-failing` (not an exception) and
+ * `conflict` (an exception) is the case a blanket "row is stuck" check gets
+ * wrong — and a row with NO `stuck` at all is the case a `!== null` check gets
+ * wrong, in a louder way (see below).
+ */
+export function hasExceptions(rows: Pick<AgentRow, 'stuck'>[]): boolean {
+  // TRUTHINESS, NOT `!== null` — the field arrives ABSENT, not null. The client
+  // CASTS the fleet payload rather than parsing it, so a Zod default never runs
+  // on this side and `stuck` is `undefined` on every row whose producer omitted
+  // it. `undefined !== null` is true, so a null-check falls through to
+  // `.state` and throws — which unmounts PlanRow, and with it the whole
+  // section. Measured 2026-08-27: 16 browser tests timed out waiting for
+  // `Waiting on you`, because the section never rendered at all.
+  return rows.some((r) => r.stuck && EXCEPTION_STATES.has(r.stuck.state));
+}
+
+/**
+ * The exception summary for a folded plan head — the names, not the count.
+ *
+ * **NAME THE EXCEPTION, DO NOT COUNT IT**, using `nameList`'s grammar: at most
+ * three names, then `and N more`. A reader must be able to decide whether to
+ * unfold without unfolding, and `claimed twice` is a decision while
+ * `1 exception` is not.
+ *
+ * **A CLEAN FOLD SHOWS NO EXCEPTION CLAUSE.** An empty return means no
+ * exceptions — the caller renders nothing rather than `0 problems`, which would
+ * teach a reader to stop reading the line.
+ *
+ * The words are `stuckWord`'s, so the summary names each state the same way the
+ * branch row names it.
+ *
+ * Exported for test: the negative case (a plan holding only `ci-failing` rows)
+ * is what an implementation that names every stuck state gets wrong while
+ * looking correct on a plan with conflicts.
+ */
+export function exceptionSummary(rows: Pick<AgentRow, 'stuck'>[]): string {
+  // Collect the unique exception state WORDS from the rows.
+  const seen = new Set<string>();
+  for (const r of rows) {
+    // Truthiness, for the same reason as `hasExceptions` above: `stuck` is
+    // absent rather than null on a row whose producer omitted it.
+    if (r.stuck && EXCEPTION_STATES.has(r.stuck.state)) {
+      seen.add(stuckWord(r.stuck.state));
+    }
+  }
+  if (seen.size === 0) return '';
+  // `nameList` expects a noun, and these are state names that stand alone:
+  // `claimed twice`, `conflict`, not `exception claimed twice`. Use an empty
+  // noun so the result reads `claimed twice, conflict` without a prefix.
+  const words = [...seen];
+  if (words.length === 1) return words[0];
+  if (words.length === 2) return `${words[0]}, ${words[1]}`;
+  if (words.length === 3) return `${words[0]}, ${words[1]}, ${words[2]}`;
+  // More than 3 unique exception types — unlikely but handle it.
+  const shown = words.slice(0, 3);
+  const rest = words.length - shown.length;
+  return `${shown.join(', ')} and ${rest} more`;
+}

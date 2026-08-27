@@ -68,6 +68,7 @@ import { WAVE_LINKING_KINDS, groupByWave, waveLabel } from '../lib/agent-rows/wa
 import { ActivityMark } from '../lib/agent-rows/marks.js';
 import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, WaveRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, brokenAgentRows } from '../lib/agent-rows/working-agents.js';
+import { hasExceptions } from '../lib/agent-rows/stuck.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
 // These moved out of this file when the row estate was split into three
 // modules; the unit suite and `App.tsx` import them from here, and a second
@@ -1139,7 +1140,16 @@ export function AgentList({
                     && waveGroupsFor(group.rows, key, waves).length > 0;
                   if (countsPlans) {
                     const foldable = showsWaveFold(group);
-                    const expanded = foldable ? openPlans.has(group.plan) : null;
+                    // A FOLD WITH EXCEPTIONS STAYS OPEN — the reader must see
+                    // the conflict, claim, or structural issue the fold holds.
+                    // The toggle still works (hasExceptions is a DEFAULT, not a
+                    // lock), so a reader who has dealt with the exception can
+                    // collapse the fold; but a fresh board renders it open
+                    // rather than hiding the problem.
+                    const groupHasExceptions = hasExceptions(group.rows);
+                    const expanded = foldable
+                      ? openPlans.has(group.plan) || groupHasExceptions
+                      : null;
                     return (
                       // THE RULE BELONGS TO THE GROUP, NOT TO ITS ROWS.
                       //
@@ -1516,10 +1526,17 @@ export function AgentList({
                         // The default is a QUESTION ABOUT THE GROUP, so the Set
                         // holds the reader's overrides rather than the state
                         // itself — one click flips whichever default applies.
+                        //
+                        // A FOLD WITH EXCEPTIONS STAYS OPEN — the same rule as
+                        // NOT STARTED, for the same reason: *folding may hide
+                        // repetition, never exceptions*. A reader must see the
+                        // conflict, claim, or structural issue the fold holds.
                         expanded={
-                          waveGroupsFor(group.rows, key, waves).length > 1
-                            ? openPlans.has(`open:${group.plan}`)
-                            : !openPlans.has(`shut:${group.plan}`)
+                          hasExceptions(group.rows)
+                            ? true
+                            : (waveGroupsFor(group.rows, key, waves).length > 1
+                              ? openPlans.has(`open:${group.plan}`)
+                              : !openPlans.has(`shut:${group.plan}`))
                         }
                         onToggle={() => togglePlan(
                           waveGroupsFor(group.rows, key, waves).length > 1
@@ -1603,8 +1620,12 @@ export function AgentList({
                         from the tree rather than hidden with CSS, the same as
                         every other fold on this board: a collapsed group should
                         cost no vertical space, which is the whole complaint it
-                        answers. */}
-                    {(!planHeads || (waveGroupsFor(group.rows, key, waves).length > 1
+                        answers.
+
+                        A FOLD WITH EXCEPTIONS STAYS OPEN — same logic as the
+                        `expanded` prop above, and the two MUST agree or the
+                        caret says one thing while the content says another. */}
+                    {(!planHeads || hasExceptions(group.rows) || (waveGroupsFor(group.rows, key, waves).length > 1
                       ? openPlans.has(`open:${group.plan}`)
                       : !openPlans.has(`shut:${group.plan}`))) && (
                     <ul
