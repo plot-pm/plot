@@ -189,7 +189,7 @@ other a sentence on a plan head.
 dispatch would take, and the board renders the distinction in the verdict slot.
 Depends on nothing.
 
-### Taken (Branch: bug/an-eligible-wave-is-unclaimed)
+### Taken (Branch: bug/an-eligible-wave-is-unclaimed) <!-- deferred: waits on the Seen wave of a-claimed-branch-is-not-startable to publish the git claim fact 2026-08-27 — undefer when that lands -->
 
 The verdict also accounts for a branch already claimed, reading the claim fact
 the pulse carries rather than re-deriving it. **Depends on the `Seen` wave of
@@ -284,3 +284,31 @@ fixes. No section routing changes, which keeps the diff on the word.
   }
 }
 END-CHALLENGE-THE-PLAN-METADATA -->
+
+### The cross-plan dependency was a rule, and the fleet ignored it
+
+Recorded 2026-08-27, minutes after `Worded` merged as #470: the fleet reported
+`Taken` **eligible** and offered `bug/an-eligible-wave-is-unclaimed` for
+dispatch.
+
+The fleet was right and this plan was wrong. Wave ordering is **intra-plan** — a
+wave becomes eligible when every earlier wave *of its own plan* has landed, and
+`Worded` had. Plot has no mechanism for a wave to depend on another PLAN's wave,
+and the dependency was written here in prose: *"Depends on the `Seen` wave of
+`a-claimed-branch-is-not-startable`."*
+
+Prose is a rule. The fleet reads `<!-- deferred: -->`, which is a gate. With
+auto-dispatch on, a worker would have started on a wave whose input does not
+exist.
+
+So `Taken` now carries the annotation, naming what it waits for and how to
+release it. The wave is not abandoned — `deferred:` is exactly the reversible
+form for *not yet*, and `/plot-reconcile` reads it as deliberate rather than as a
+dead worker.
+
+**What it waits for is specific.** The pulse already carries a `claimed` field
+(`plot-fleet-scan.sh:3001`, `schema.ts:59`), and it is not this: the contract
+calls it *"a REFLECTION of a claim, not the claim itself — a worker takes a
+branch by pushing its ref, then writes this annotation for humans and the board.
+Where the two disagree, git wins."* `Taken` needs the git fact, which is what
+`Seen` publishes.
