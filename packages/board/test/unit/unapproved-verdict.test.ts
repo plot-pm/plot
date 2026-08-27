@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   FleetPulseSchema, FleetWaveSchema, WaveVerdictSchema,
 } from '../../src/contract/schema.js';
-import { waveVerdict } from '../../src/server/fleet.js';
+import { classify, waveVerdict } from '../../src/server/fleet.js';
 import { tupleFromWave, statusTone } from '../../src/app/lib/tuple-row.js';
 
 // The board's half of `an-eligible-wave-can-be-started`. The scan withholds
@@ -91,5 +91,42 @@ describe('an unapproved wave renders as unstartable', () => {
   it('does not wear the actionable green tone', () => {
     expect(statusTone('eligible')).not.toBe('');
     expect(statusTone('unapproved')).toBe('');
+  });
+});
+
+// A DISCOVERY THE PLAN DID NOT ANTICIPATE, pinned rather than left to be
+// rediscovered. The scan's gate is an allowlist of `approved`, so a plan in a
+// TERMINAL phase gets `unapproved` too — literally true (it is not approved)
+// and misleading as an instruction, because the reader's next action for a
+// released plan is nothing rather than *approve it*. Measured on this repo
+// after the fix: 13 draft waves and 9 delivered/released ones.
+//
+// It is not a defect, and this is why: `classify` routes a terminal plan's
+// rows to DONE with `FINISHED_PLAN_NOTE` BEFORE any verdict arm runs, so the
+// word never reaches a reader as an errand. The verdict is data on a row whose
+// section and sentence are both decided by the phase one step earlier.
+//
+// Widening the scan's gate to include the terminal phases would be the wrong
+// repair anyway: `eligible` there would re-offer finished work as available,
+// which is the defect `RELEASED_PLAN_NOTE` was built to end.
+describe('a terminal plan keeps the word off the reader', () => {
+  it('routes a released plan to DONE regardless of its wave verdict', async () => {
+    const { classify } = await import('../../src/server/fleet.js');
+    // Positional, the shape fleet.test.ts uses: state, wave verdict, ..., and
+    // the plan phase at index 7 — the argument that decides this row.
+    const row = classify(
+      'open', 'unapproved', 500, 60, null, false, 0, 'released', 'none', null, 0,
+    );
+    expect(row.group).toBe('done');
+    expect(row.note).not.toContain('approv');
+  });
+
+  it('still lets an APPROVED plan reach the verdict arms', () => {
+    // The control: same call, one field different. Without it the assertion
+    // above would pass against a classify that sent everything to DONE.
+    const row = classify(
+      'open', 'eligible', 500, 60, null, false, 0, 'approved', 'none', null, 0,
+    );
+    expect(row.group).toBe('not-started');
   });
 });
