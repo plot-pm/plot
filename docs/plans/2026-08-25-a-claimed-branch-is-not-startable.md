@@ -13,6 +13,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-27, Jan Wloka, `feature/the-pulse-says-a-branch-is-claimed`
 
 ## Changelog
 
