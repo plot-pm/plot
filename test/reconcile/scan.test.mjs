@@ -256,9 +256,10 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // prose_wave_names: 0 — every wave name in this fixture is a label, so the
   // prose-name section is silent too and contributes its own zero counter.
   // sprint_drift: 0 — the fixture has no sprint files, so the section is silent.
+  // stale_tally: 0 — no sprint files, so section 11 is also silent.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 index_drift=3 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=3 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -1508,4 +1509,174 @@ test('scan: --no-pr still prints rows (today\'s behaviour preserved)', () => {
   } finally {
     cleanupPrStateFixture();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Section 11: stale sprint tally (unchecked items whose plan is delivered or
+// released). A SEVENTH fixture. This section walks sprint files, matches items
+// against plan phases, and reports unchecked items over delivered/released
+// plans. It covers CLOSED sprints — those are the population whose tally
+// nothing else will ever recompute.
+//
+// Properties under test:
+// 1. A closed sprint with an unchecked item whose plan is delivered is reported
+// 2. Same for released — both terminal phases count
+// 3. An unchecked item whose plan is NOT delivered/released is silent
+// 4. An unresolvable slug (no plan file) is skipped, not reported as stale
+// 5. A CHECKED item (even over a delivered plan) is not reported
+// 6. The footer counter stale_tally= matches the findings
+// 7. attention= is unchanged — this section does NOT gate
+// ---------------------------------------------------------------------------
+
+let stTmp, stRepo, stReport, stSections;
+
+before(() => {
+  stTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-st-'));
+  const origin = path.join(stTmp, 'origin.git');
+  stRepo = path.join(stTmp, 'repo');
+  git(stTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(stTmp, 'clone', '-q', origin, stRepo);
+  git(stRepo, 'config', 'user.email', 'test@example.invalid');
+  git(stRepo, 'config', 'user.name', 'Plot Test');
+  git(stRepo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(stRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+- **Sprint directory:** sprints/
+`);
+
+  // A delivered plan — unchecked items over this are stale.
+  w('plans/2026-05-01-delivered-plan.md', `# Delivered Plan
+
+## Status
+
+- **Phase:** Delivered
+- **Type:** feature
+`);
+
+  // A released plan — also counts as stale when unchecked.
+  w('plans/2026-05-02-released-plan.md', `# Released Plan
+
+## Status
+
+- **Phase:** Released
+- **Type:** feature
+`);
+
+  // An approved (not delivered) plan — unchecked over this is NOT stale.
+  w('plans/2026-05-03-approved-plan.md', `# Approved Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+`);
+
+  // Symlinks so we avoid index-drift noise.
+  fs.mkdirSync(path.join(stRepo, 'plans', 'active'), { recursive: true });
+  fs.mkdirSync(path.join(stRepo, 'plans', 'delivered'), { recursive: true });
+  fs.symlinkSync('../2026-05-01-delivered-plan.md', path.join(stRepo, 'plans', 'delivered', 'delivered-plan.md'));
+  fs.symlinkSync('../2026-05-02-released-plan.md', path.join(stRepo, 'plans', 'delivered', 'released-plan.md'));
+  fs.symlinkSync('../2026-05-03-approved-plan.md', path.join(stRepo, 'plans', 'active', 'approved-plan.md'));
+
+  // A CLOSED sprint with items in various states.
+  w('sprints/2026-W20-test-sprint.md', `# Sprint: Test Sprint
+
+## Status
+
+- **Phase:** Closed
+
+### Must Have
+
+- [ ] [delivered-plan] Unchecked, plan is delivered — STALE
+- [ ] [released-plan] Unchecked, plan is released — STALE
+- [ ] [approved-plan] Unchecked, plan is NOT delivered — silent
+- [x] [delivered-plan] Checked, plan is delivered — silent (already ticked)
+- [ ] [no-such-plan] Unchecked, slug names no plan — silent (section 9's finding)
+- [ ] A bare prose line with no slug — silent (no plan to check)
+`);
+
+  git(stRepo, 'add', '-A');
+  git(stRepo, 'commit', '-q', '-m', 'fixture');
+  git(stRepo, 'push', '-q', 'origin', 'main');
+
+  stReport = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: stRepo });
+  stSections = splitSections(stReport);
+});
+after(() => fs.rmSync(stTmp, { recursive: true, force: true }));
+
+test('scan: section 11 reports an unchecked item whose plan is delivered', () => {
+  const hits = stSections['11'].split('\n')
+    .filter((l) => l.includes('delivered-plan') && l.includes('unchecked'));
+  assert.equal(hits.length, 1, `expected exactly one delivered-plan stale finding, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /unchecked but plan is delivered/);
+});
+
+test('scan: section 11 reports an unchecked item whose plan is released', () => {
+  const hits = stSections['11'].split('\n')
+    .filter((l) => l.includes('released-plan') && l.includes('unchecked'));
+  assert.equal(hits.length, 1, `expected exactly one released-plan stale finding, got:\n${hits.join('\n')}`);
+  assert.match(hits[0], /unchecked but plan is released/);
+});
+
+test('scan: section 11 is silent for an unchecked item whose plan is NOT delivered', () => {
+  assert.doesNotMatch(stSections['11'], /approved-plan/);
+});
+
+test('scan: section 11 is silent for a checked item (even if plan is delivered)', () => {
+  // The delivered-plan appears once (unchecked) but not twice (the checked line).
+  const hits = stSections['11'].split('\n')
+    .filter((l) => l.includes('delivered-plan') && l.includes('unchecked'));
+  assert.equal(hits.length, 1, 'only the unchecked mention should appear');
+});
+
+test('scan: section 11 skips an unresolvable slug silently', () => {
+  // [no-such-plan] names no plan file. This is NOT a section 11 finding — it is
+  // section 9's finding (sprint member names no plan). Section 11 must NOT
+  // report it as stale.
+  assert.doesNotMatch(stSections['11'], /no-such-plan/);
+  // But section 9 should catch it.
+  assert.match(stSections['9'], /no-such-plan/);
+});
+
+test('scan: section 11 skips a bare prose line silently', () => {
+  // "A bare prose line with no slug" has no `[slug]` — the regex never matches.
+  assert.doesNotMatch(stSections['11'], /bare prose/);
+});
+
+test('scan: section 11 footer counter matches the number of findings', () => {
+  // delivered-plan (delivered) + released-plan (released) = 2 findings.
+  const bodyFindings = stSections['11'].split('\n').filter((l) => l.includes('unchecked but plan is')).length;
+  assert.equal(bodyFindings, 2, `expected 2 body findings, got ${bodyFindings}`);
+  const footer = stReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bstale_tally=2\b/);
+});
+
+test('scan: a stale tally leaves attention= unchanged — the section does NOT gate', () => {
+  // THE property a naive implementation breaks. A stale tally is wrong, not
+  // broken — rewriting history automatically is worse than reporting it.
+  // /plot-deliver's gate and the /plot hygiene line read attention= from the
+  // footer, and an advisory finding must not inflate it.
+  const footer = stReport.trim().split('\n').at(-1);
+  assert.match(footer, /\battention=0\b/);
+});
+
+test('scan: section 11 covers CLOSED sprints, not just active ones', () => {
+  // The fixture sprint is Phase: Closed. The fact that findings appear at all
+  // proves closed sprints are walked. This test pins the premise: if the sprint
+  // were somehow active-only, stale_tally=0 would be the silent failure.
+  const footer = stReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bstale_tally=2\b/, 'closed sprint must produce findings');
 });

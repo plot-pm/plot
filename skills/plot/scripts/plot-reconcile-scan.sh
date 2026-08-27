@@ -3,16 +3,16 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: ten-section text report on stdout (each finding carries its exact
+# Output: eleven-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
 #         terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 index_drift=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits a ten-section report. This is the COMPUTATIONAL half of the
+# emits an eleven-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -70,6 +70,14 @@
 #                                 plan content, so nothing depends on these;
 #                                 they are browsing gaps, deliberately kept out
 #                                 of the `attention` count that gates delivery
+#  11. Stale sprint tally       — sprint items left unchecked whose plan is
+#                                 delivered or released. Covers CLOSED sprints
+#                                 too, because those are the population whose
+#                                 tally nothing else will ever recompute. An
+#                                 item with no resolvable plan is skipped
+#                                 silently — section 9 already catches that.
+#                                 ADVISORY, like section 9; stays out of
+#                                 `attention`, gates nothing.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -496,7 +504,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 }
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
-n_unsliced=0; n_prose=0; n_sprint_drift=0; n_idx=0
+n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -1108,17 +1116,35 @@ echo "== 9. Sprint drift (plan Sprint: field disagrees with sprint file) =="
 sprint_drift_out=""
 SPRINT_DIR=$(cfg "Sprint directory" "docs/sprints/"); SPRINT_DIR="${SPRINT_DIR%/}"
 
-# Build a newline-delimited list of "slug<TAB>sprint" from plan_rows.
-# Uses plan_rows which has: file|phase|...|type|sprint (sprint is field 9).
-# The slug is derived from the file basename, same as elsewhere.
+# Build newline-delimited maps of "slug<TAB>sprint" and "slug<TAB>phase" from
+# plan_rows. Uses plan_rows which has: file|phase|...|type|sprint (phase is
+# field 2, sprint is field 9). The slug is derived from the file basename, same
+# as elsewhere. The phase map is what section 11 reads to answer "is this
+# sprint item's plan delivered/released" — the PHASE, never the directory.
 plan_sprint_map=""
+plan_phase_map=""
 while IFS="$US" read -r f _st _raw _alt _alt_raw _branches _prs _ptype psprint; do
   [ -n "$f" ] || continue
   base=$(basename "$f" .md)
   # `2026-08-23-the-foo` → `the-foo`
   pslug=$(printf '%s' "$base" | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}-//')
   plan_sprint_map="$plan_sprint_map$pslug"$'\t'"$psprint"$'\n'
+  plan_phase_map="$plan_phase_map$pslug"$'\t'"$_st"$'\n'
 done <<< "$plan_rows"
+
+# Lookup a plan's phase from the map. $1 = slug; prints the phase (draft,
+# approved, delivered, released, …) or nothing. Returns 0 if the slug names a
+# known plan, 1 otherwise — an item whose slug resolves to no plan is not this
+# section's finding (the brief: bare prose lines carry no phase to read).
+lookup_plan_phase() {
+  local result
+  result=$(printf '%s' "$plan_phase_map" | awk -F'\t' -v s="$1" '$1 == s { print $2; exit }')
+  if printf '%s' "$plan_phase_map" | grep -q "^$1"$'\t'; then
+    printf '%s' "$result"
+    return 0
+  fi
+  return 1
+}
 
 # Lookup a plan's sprint field from the map.
 # $1 = slug; prints the sprint field value (may be empty)
@@ -1204,6 +1230,88 @@ echo "== 10. Index drift (convenience — nothing depends on these) =="
 if [ -n "$index_out" ]; then printf '%b' "$index_out"; else echo "  (none — the convenience indexes match the plans)"; fi
 echo
 
+# ---------------------------------------------------------------------------
+# 11. Stale sprint tally
+#
+# Sprint items left unchecked whose plan is delivered or released — in CLOSED
+# sprints as well as active ones. A closed sprint's tally is never recomputed
+# by anything; `/plot-sprint close` (wave 1, #457) fixes every sprint closed
+# from now on, but nothing fixes the ones already closed before that fix
+# shipped. Those are the population this section exists for.
+#
+# ADVISORY, exactly like section 9. It names the file, the item and the plan's
+# phase, prints the fix, and GATES NOTHING. A closed sprint with a stale tick
+# is wrong, not broken, and rewriting history automatically is worse than
+# reporting it. The footer carries its own counter (`stale_tally=`), and it
+# stays out of `attention=`.
+#
+# An item with no resolvable plan is SKIPPED SILENTLY. Two shapes reach this:
+# a bare prose line with no `[slug]` at all — "A release window: dispatch
+# refuses…" — which the member regex never matches, and a `[slug]` that names
+# no plan file, for which lookup_plan_phase returns non-zero. Both carry no
+# phase to read, so the question this section asks (is the plan delivered?) has
+# no answer. Naming them would say "this item is stale" when all we know is
+# "this item has no plan" — and the slug-names-no-plan case is already section
+# 9's finding (sprint drift → sprint member names no plan).
+#
+# THE PHASE, NOT THE DIRECTORY. The brief is explicit: `plot-plan-meta.sh`
+# answers the phase. A delivered plan whose symlink move failed — the case
+# `/plot-deliver` deliberately made survivable — must still report as done.
+echo "== 11. Stale sprint tally (unchecked items whose plan is delivered/released) =="
+stale_tally_out=""
+
+# Walk ALL sprint files (not just active/) because a CLOSED sprint is exactly
+# the population whose tally nothing else will ever recompute.
+if [ -d "$SPRINT_DIR" ]; then
+  for sf in "$SPRINT_DIR"/[0-9]*.md; do
+    [ -f "$sf" ] || continue
+    sf_base=$(basename "$sf" .md)
+    # Track which slugs we've seen in THIS sprint file — a plan sliced across
+    # waves lists its slug once per wave, but we only report staleness once.
+    seen_stale_in_sprint=""
+    # Parse member lines: `- [ ] [slug]` or `- [x] [slug]` — same regex as
+    # board.ts and section 9. Only UNCHECKED items matter here.
+    while IFS= read -r line; do
+      # Extract check state and slug.
+      local_checked=""
+      local_slug=""
+      if [[ "$line" =~ ^-\ \[\ \]\ \[([^\]]+)\] ]]; then
+        local_checked=false
+        local_slug="${BASH_REMATCH[1]}"
+      elif [[ "$line" =~ ^-\ \[[xX]\]\ \[([^\]]+)\] ]]; then
+        local_checked=true
+        local_slug="${BASH_REMATCH[1]}"
+      else
+        continue
+      fi
+      # Only unchecked items are candidates.
+      [ "$local_checked" = false ] || continue
+      # Dedupe: a plan with multiple waves appears multiple times.
+      case "$seen_stale_in_sprint" in
+        *"$local_slug"*) continue ;;
+      esac
+      seen_stale_in_sprint="$seen_stale_in_sprint$local_slug"$'\n'
+
+      # Does this slug name a plan we know about? An unresolvable item is not
+      # this section's finding — skip silently (see comment above).
+      if ! plan_phase=$(lookup_plan_phase "$local_slug"); then
+        continue
+      fi
+      # Is the plan delivered or released? Only those are stale.
+      case "$plan_phase" in
+        delivered|released)
+          stale_tally_out+="  $sf_base → [$local_slug] — unchecked but plan is $plan_phase\n"
+          stale_tally_out+="    fix: tick the item, or add an annotation explaining why it stays unchecked\n"
+          n_stale_tally=$((n_stale_tally + 1))
+          ;;
+      esac
+    done < "$sf"
+  done
+fi
+
+if [ -n "$stale_tally_out" ]; then printf '%b' "$stale_tally_out"; else echo "  (none — every unchecked item's plan is still open)"; fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced prose_wave_names=$n_prose sprint_drift=$n_sprint_drift index_drift=$n_idx pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced prose_wave_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx pr_source=$PR_SOURCE main=$MAIN"
 exit 0
