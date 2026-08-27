@@ -194,7 +194,7 @@ adds work to the hot path to correct a state that only the reaper creates.
 
 ## Waves
 
-### Cleared (Branch: bug/a-reaped-worktree-takes-its-manifest)
+### Cleared (Branch: bug/a-reaped-worktree-takes-its-manifest, PR: #474)
 
 `plot-reap.sh` removes a reaped worktree's manifest after the worktree, and
 clears manifests whose worktree is already absent.
