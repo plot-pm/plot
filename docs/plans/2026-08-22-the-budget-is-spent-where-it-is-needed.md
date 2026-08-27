@@ -76,25 +76,41 @@ check rollup on the way. That is the tempting fix and it is wrong.
 GraphQL budget is gone — a degraded, more expensive path that is still far
 better than an empty board, because the REST budget is sitting there unspent.
 
-### Three changes, in order of value
+### Four changes, in order of MEASURED value
 
-**1. The scan's fallback asks REST when GraphQL is spent.** `host_pr_state --ask`
+**1. A secondary-limit refusal backs off instead of failing.** The measured
+failure (above): `gh` refuses while both budgets read full, because the limit is
+on concurrency rather than count. The 403 is the signal, and it needs no
+pre-flight check to read. This is first because it is the only change with a
+failure behind it in this repo.
+
+**2. The scan's fallback asks REST when GraphQL is spent.** `host_pr_state --ask`
 is the per-branch path. When the GraphQL budget is exhausted, the same question
 answered through `gh api` costs a REST request Plot is not otherwise using. The
 adapter is the only place that talks to the host, so this lives in
 `plot-host.sh` and every caller inherits it.
 
-**2. The board refreshes what a reader is watching.** Today's refresh treats
+**3. The board refreshes what a reader is watching.** Today's refresh treats
 every branch alike. A branch whose PR is **merged** or whose plan is
 **delivered** cannot change in a way anyone is waiting for; a branch in WORKING
 or WAITING ON YOU can. `PLOT_TERMINAL_CACHE` already applies exactly this
 reasoning to terminal states in the scan — this extends the idea to the board's
 own cadence rather than inventing a second mechanism.
 
-**3. The two budgets are visible.** The board reports *rate limited* without
+**4. The two budgets are visible.** The board reports *rate limited* without
 saying which budget. A reader with 4999 REST requests available and 0 GraphQL is
 told only that the host is unavailable, which is what sent this investigation
 looking for a fix that had already shipped.
+
+### GitHub only, stated rather than discovered
+
+Changes 1, 2 and 4 are GitHub-specific. Bitbucket has a single budget, so there
+is no second one to fall back to and no pair to distinguish; `bb` also reports no
+rate information for change 4 to surface.
+
+Written here rather than left implicit, because #228 was filed from a Bitbucket
+repo and a reader will reasonably expect that backend covered. Change 3 (refresh
+what is watched) is backend-agnostic and does apply there.
 
 ### What this plan deliberately does NOT do
 
@@ -109,12 +125,45 @@ two sources of truth start.
 
 ### Open Questions
 
-- [ ] Does `gh api graphql` report remaining budget cheaply enough to check
-      before spending, or does the check itself cost? (`rate_limit` is free on
-      REST; confirm the GraphQL equivalent before relying on it.)
-- [ ] Bitbucket has no equivalent second budget. Does the fallback degrade to
-      "ask less" there, or is `bb` simply out of scope for change 1? #228 was
-      filed from a Bitbucket repo, so this must be answered rather than assumed.
+- [x] Does `gh api graphql` report remaining budget cheaply enough to check
+      before spending? **Yes — the check is free.** Measured 2026-08-27: three
+      consecutive `gh api rate_limit` readings all returned 5000 with `used=0`,
+      at 0.34 s each. It consumes neither bucket.
+- [x] Does the fallback degrade on Bitbucket, or is `bb` out of scope?
+      **GitHub only, and the plan now says so.** Bitbucket has one budget and no
+      second to fall back to, so change 1 is meaningless there. Measured the same
+      day: `plot-host.sh` exposes no rate or budget op at all, on either backend
+      — change 3 is new surface, not an extension of something Bitbucket lacks.
+
+### The failure this repo actually had was NOT exhaustion
+
+Measured 2026-08-27, minutes after `gh` began refusing with *"API rate limit
+already exceeded for user ID 870334"*:
+
+```
+graphql: 5000/5000  used=0  reset_in=3599s
+core:    5000/5000  used=0  reset_in=3599s
+```
+
+**Both budgets full, nothing spent.** The refusal was GitHub's **secondary**
+limit — concurrent-request throttling — triggered by eight workers polling at
+once against a cap of seven. `rate_limit` does not report it, and cannot: it
+describes the primary buckets only.
+
+**So a pre-flight check on `remaining` would have read 5000 available at the
+exact moment every call was being refused.** Change 1 as originally framed —
+*check before spending* — does not prevent the failure this repo has actually
+experienced.
+
+That does not retire the change; it re-prices it. What the REST fallback buys is
+a second path when one bucket is genuinely gone, which is a real state a long-
+running board can reach. What it does not buy is immunity from throttling.
+
+**The change this measurement calls for is a fourth one: back off on the refusal
+itself.** A 403 naming a secondary limit is the signal — it arrives at the moment
+of failure, needs no pre-flight, and is the only one that describes what actually
+happened here. Ordered first below, because it is the only change with a measured
+failure behind it.
 
 ## Done when
 
@@ -157,3 +206,47 @@ fallback that makes a spent budget survivable, not as the default.
 
 "Cache more" turned out to be partly built (`PLOT_TERMINAL_CACHE`), and
 "only update what we're working on" is the one with the most headroom left.
+
+### Interrogated 2026-08-27
+
+Both open questions answered by measurement, and the first one re-priced the
+plan's headline change.
+
+**The budget check is free** — three `gh api rate_limit` readings, `used=0`,
+0.34 s each. So the question as posed has a clean yes.
+
+**But exhaustion is not the failure this repo has had.** Minutes after `gh`
+started refusing calls today, both buckets read `5000/5000` with `used=0`. The
+refusal was GitHub's SECONDARY limit — concurrency, not count — from eight
+workers polling against a cap of seven. `rate_limit` cannot report it. A
+pre-flight check would have shown 5000 available while every call was being
+refused.
+
+That added a fourth change and moved it to the front: **back off on the 403
+itself**, which arrives at the moment of failure and is the only signal that
+describes what happened. The REST fallback keeps its place — a genuinely spent
+bucket is a real state — but it is no longer sold as protection against the
+throttling this repo actually met.
+
+**Scope is now stated: GitHub only** for three of the four changes. Bitbucket has
+one budget, so there is nothing to fall back to and no pair to name, and
+`plot-host.sh` exposes no rate op on either backend. Worth saying out loud
+because #228 was filed from a Bitbucket repo.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Is the GraphQL budget check free, and does it prevent the failure we had?", "a": "Free (used=0, 0.34s) \u2014 but both buckets were FULL during today's refusal; it was a secondary/concurrency limit rate_limit cannot report. Added a back-off change and ordered it first", "category": "nonFunctional"},
+    {"q": "Does the fallback degrade on Bitbucket, or is bb out of scope?", "a": "GitHub only, stated in the plan \u2014 Bitbucket has one budget and plot-host.sh exposes no rate op on either backend", "category": "technical"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": false,
+    "ux": {"happyPath": false, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": true, "scalability": true},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
