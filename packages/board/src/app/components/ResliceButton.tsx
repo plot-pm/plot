@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
@@ -117,7 +118,7 @@ export function ResliceButton({ slug, reslice, onActing }: ResliceButtonProps) {
     const startedAt = Date.now();
     const tick = async () => {
       try {
-        const res = await fetch(`/api/reslice/${encodeURIComponent(slug)}`);
+        const res = await fetch(`/api/reslice/${encodeURIComponent(slug)}`, { signal: AbortSignal.timeout(ACTION_TIMEOUT_MS) });
         const body = (await res.json()) as { state?: string; message?: string };
         if (cancelled) return;
         if (body.state === 'failed') {
@@ -159,6 +160,7 @@ export function ResliceButton({ slug, reslice, onActing }: ResliceButtonProps) {
         // checks its own waves, so no text this page holds becomes the plan an
         // agent acts on — the same rule Commission design follows.
         body: JSON.stringify({ slug }),
+        signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       const body = (await res.json()) as { error?: string; detail?: string };
       if (!res.ok) {

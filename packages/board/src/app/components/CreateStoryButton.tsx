@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
@@ -155,7 +156,7 @@ export function CreateStoryButton({ issue, story, issueAnswer }: CreateStoryButt
     const startedAt = Date.now();
     const tick = async () => {
       try {
-        const res = await fetch(`/api/story/${issue.number}`);
+        const res = await fetch(`/api/story/${issue.number}`, { signal: AbortSignal.timeout(ACTION_TIMEOUT_MS) });
         const body = (await res.json()) as { state?: string; message?: string };
         if (cancelled) return;
         if (body.state === 'failed') {
@@ -207,6 +208,7 @@ export function CreateStoryButton({ issue, story, issueAnswer }: CreateStoryButt
         // second place to keep that heuristic correct — the plan's closed Open
         // Point. The skill runs its own triage on the ticket the route hands it.
         body: JSON.stringify({ number: issue.number }),
+        signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       const body = (await res.json()) as { error?: string; detail?: string };
       if (!res.ok) {

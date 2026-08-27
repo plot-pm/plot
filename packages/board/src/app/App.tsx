@@ -77,6 +77,30 @@ export const DIM_AFTER_FAILURES = 8;
  */
 const STARTING_POLL_MS = FLEET_POLL_MS;
 
+/**
+ * How long a poll waits before it counts as a failure.
+ *
+ * A poll MUST be bounded, and the reason is sharper here than for the doc
+ * viewers. Everything below — `boardFailures`, `fleetUnreachable`, the overlay
+ * that tells the reader to restart `pnpm board` — increments inside a `catch`.
+ * A fetch killed mid-response by a `node --watch` restart never rejects, so it
+ * increments NOTHING: the apparatus built to announce a dead server is silenced
+ * by exactly the event it exists to announce. The bound is what lets a missed
+ * poll be counted as missed.
+ *
+ * Tied to the FLEET cadence rather than the doc viewers' 10 s, because a poll's
+ * deadline is a different quantity from a reader's patience: a request still
+ * outstanding when its own successor fires is overtaken, and two in flight for
+ * the same endpoint can land out of order and show older data than the screen
+ * already has. 3.5 s leaves the 4 s poll a margin and keeps at most one board
+ * request live at a time.
+ *
+ * It does NOT shorten the dimming: `DIM_AFTER_FAILURES` is counted in polls,
+ * and a restart that was already costing 3 consecutive failures still costs 3.
+ * What changes is that they are now counted at all.
+ */
+const POLL_TIMEOUT_MS = 3_500;
+
 type Tab = 'board' | 'agents';
 
 export function App() {
@@ -172,7 +196,10 @@ export function App() {
     try {
       let res: Response;
       try {
-        res = await fetch('/api/board');
+        // Bounded so a poll killed mid-response lands in the branch below
+        // rather than hanging: a timeout IS "did not reach", and `reached`
+        // must say so for the overlay to ever count it.
+        res = await fetch('/api/board', { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
       } catch (e) {
         // The one branch that means no contact. Re-thrown so the single exit
         // below still records the message, with `reached` carrying the reason.
@@ -210,7 +237,10 @@ export function App() {
     try {
       let res: Response;
       try {
-        res = await fetch('/api/fleet');
+        // Bounded, same reason as the board poll: a hung fetch would leave
+        // `fleetUnreachable` false and the stale banner unshown, which is the
+        // 2026-08-16 misdiagnosis this file's comments already describe.
+        res = await fetch('/api/fleet', { signal: AbortSignal.timeout(POLL_TIMEOUT_MS) });
       } catch (e) {
         reached = false;
         throw e;

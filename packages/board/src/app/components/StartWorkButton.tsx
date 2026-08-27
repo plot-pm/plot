@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { Card, DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
@@ -255,6 +256,7 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slug: card.slug }),
+        signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       const body = (await res.json()) as { slug?: string; log?: string; error?: string };
       // A non-2xx is the ONE thing the button can report as a failure: the

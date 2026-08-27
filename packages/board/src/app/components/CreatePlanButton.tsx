@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
 import type { DispatchInfo, IssueAnswer, IssueRow } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
@@ -143,7 +144,7 @@ export function CreatePlanButton({ issue, idea, issueAnswer }: CreatePlanButtonP
     const startedAt = Date.now();
     const tick = async () => {
       try {
-        const res = await fetch(`/api/idea/${issue.number}`);
+        const res = await fetch(`/api/idea/${issue.number}`, { signal: AbortSignal.timeout(ACTION_TIMEOUT_MS) });
         const body = (await res.json()) as { state?: string; message?: string };
         if (cancelled) return;
         if (body.state === 'failed') {
@@ -195,6 +196,7 @@ export function CreatePlanButton({ issue, idea, issueAnswer }: CreatePlanButtonP
         // the board's declared default rather than a guess about this issue;
         // the plan is a Draft precisely so a reader can correct it.
         body: JSON.stringify({ number: issue.number, type: 'feature' }),
+        signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
       const body = (await res.json()) as { error?: string; detail?: string };
       if (!res.ok) {
