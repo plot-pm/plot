@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -94,6 +94,42 @@ same code path.
 runs; this adds a caller, not a second implementation — the same split
 `plot-approve.sh` already has between the skill and the board's Approve button.
 
+### The board calls a SCRIPT, because it may not invent a transition
+
+Found while reviewing this plan on 2026-08-27, before approving it.
+
+**The board never writes a plan file.** `approve.ts` writes only state and prompt
+files and shells out to `plot-approve.sh`; the rule this repo keeps is *board
+writes wrap scripts, or they are licensed repairs — the board never invents a
+lifecycle transition*.
+
+**And `plot-deliver.sh` does not exist.** `skills/plot/scripts/` holds
+`plot-approve.sh` and no delivery counterpart: the transition lives only in
+`/plot-deliver`'s prose. So "the board delivers a plan" — as this plan first
+phrased it — asks for a caller with nothing safe to call, and an implementer
+reaching that point would have re-implemented the phase flip, the `Delivered:`
+record and the symlink move in TypeScript. That is precisely the drift the
+approve split removed.
+
+So the mechanical half is extracted FIRST, into its own wave, exactly as
+`plot-approve.sh` was: one implementation, two entrances. `/plot-deliver` keeps
+the judgement — the completeness check, the partial-deliverable question — and
+delegates the writes.
+
+### Two modes, mirroring Approve
+
+`plot-approve.sh` is reached two ways, chosen by a config key:
+
+```
+no Approve command:    board → plot-approve.sh
+with Approve command:  board → agent → SKILL.md → plot-approve.sh
+```
+
+Delivery takes the same shape with a `Deliver command` key. Direct is the
+default and is what the tests assert; a project that wants its own checks
+interposed sets the key and gets an agent, without this plan having to know what
+those checks are.
+
 ### The reaper runs after the delivery, never before
 
 Ordering matters and is a `Done when` item. A reap before the phase flip removes
@@ -151,12 +187,22 @@ finishing of a plan is the event; a timer is a guess about when events happen.
 ### Landed (Branch: bug/the-reaper-reads-any-merged-pr)
 
 `plot-reap.sh` asks whether ANY PR for the branch merged, not whether the newest
-one did — so a closed duplicate stops masking a real merge.
+one did — so a closed duplicate stops masking a real merge. Independent of the
+two below.
+
+### Extracted (Branch: feature/plot-deliver-has-a-script)
+
+The mechanical half of delivery — phase flip, `Delivered:` record, index symlink,
+push — moves into `skills/plot/scripts/plot-deliver.sh`, and `/plot-deliver`
+calls it. Idempotent and refusing on its own preconditions, the way
+`plot-approve.sh` is. **No behaviour changes**: this is the extraction that gives
+the next wave something to call.
 
 ### Delivered (Branch: feature/a-finished-plan-delivers-itself)
 
-The board delivers a plan whose every non-deferred wave has merged, through
-`/plot-deliver`'s own path, and reaps its worktrees afterwards.
+The board delivers a plan whose every non-deferred wave has merged, by calling
+that script — direct, or through an agent where a `Deliver command` is set — and
+reaps its worktrees afterwards. **Depends on `Extracted`.**
 
 ## Done when
 
@@ -176,9 +222,18 @@ The board delivers a plan whose every non-deferred wave has merged, through
    Shelved is not finished; that call stays with a person.
 6. **Nothing is delivered while any non-deferred wave is unmerged.** The gate
    `/plot-deliver` applies by hand, applied here.
-7. **`/plot-deliver` remains the same code path**, with a second entrance rather
-   than a second implementation — the split `plot-approve.sh` already has.
-8. `pnpm run validate`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+7. **`/plot-deliver` and the board reach ONE implementation.** The board must
+   not write a plan file itself; asserted by the absence of any phase-flip or
+   `Delivered:` write in `packages/board`. This is the rule the approve split
+   already established, and the reason `Extracted` comes first.
+8. **`plot-deliver.sh` is idempotent**, like `plot-approve.sh`: it writes
+   irreversibly (the push), so re-running it is the repair for an interruption,
+   and every step tests the source it would have written.
+9. **`Extracted` changes no behaviour.** `/plot-deliver` delivers exactly what it
+   delivered before, by the same rules; only the location of the writes moves.
+10. **A `Deliver command` routes through an agent; its absence routes direct.**
+    Both paths asserted, mirroring `Approve command`.
+11. `pnpm run validate`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 
@@ -200,3 +255,46 @@ a 90-second scan cannot walk it.
 `deliverable`, renders it, and then waits for someone to notice is telling the
 truth and doing nothing with it. The estate it fails to clear is what eventually
 stops it telling the truth at all.
+
+### Interrogated 2026-08-27, before approval
+
+Reviewing this plan against the code found a gap that would have surfaced
+mid-implementation.
+
+**The board never writes a plan file, and there is no `plot-deliver.sh`.**
+`approve.ts` shells out to `plot-approve.sh`; the repo's rule is that the board
+wraps scripts and never invents a lifecycle transition. But delivery has no
+script — it lives in `/plot-deliver`'s prose. This plan asked the board to
+deliver, which is a caller with nothing safe to call, and an implementer reaching
+that point would have rebuilt the phase flip, the record and the symlink move in
+TypeScript.
+
+So the extraction became its own wave, ordered first: one implementation, two
+entrances, exactly as `plot-approve.sh` was split out. `Extracted` changes no
+behaviour and `Done when` item 9 pins that.
+
+**And Approve has two modes this plan had not considered** — direct, or via an
+agent when an `Approve command` is set. Delivery mirrors it with a `Deliver
+command` key: direct by default and asserted, with the agent path available to a
+project that wants its own checks interposed.
+
+Three waves now, and only `Landed` is independent — it fixes the `--limit 1`
+reaper bug and needs nothing from the others.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "The board may not write plan files and plot-deliver.sh does not exist \u2014 how?", "a": "Extract plot-deliver.sh as its own wave first, mirroring the plot-approve.sh split; one implementation, two entrances", "category": "technical"},
+    {"q": "Which of Approve's two modes should auto-deliver use?", "a": "Mirror Approve: direct by default, agent when a Deliver command key is set", "category": "technical"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": true, "edgeCases": true, "errors": false, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
