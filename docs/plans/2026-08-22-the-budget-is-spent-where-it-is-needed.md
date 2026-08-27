@@ -185,7 +185,7 @@ failure behind it.
 
 ### Measured
 
-- `feature/the-host-says-which-budget-it-spent` — the adapter reports remaining GraphQL and REST budget, and the rate-limit notice names which one is gone. Tests: a spent GraphQL budget with REST available is reported as such; both spent reads differently; a host that cannot answer says unknown rather than zero
+- `feature/the-host-says-which-budget-it-spent` — the adapter reports remaining GraphQL and REST budget, and the rate-limit notice names which one is gone. Tests: a spent GraphQL budget with REST available is reported as such; both spent reads differently; a host that cannot answer says unknown rather than zero → #485
 
 ### Spent well
 
