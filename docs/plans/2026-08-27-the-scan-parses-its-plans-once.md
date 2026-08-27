@@ -176,7 +176,7 @@ removes today's instance; it does not remove the class.**
 
 ## Waves
 
-### Batched (Branch: bug/the-scan-parses-its-plans-once)
+### Batched (Branch: bug/the-scan-parses-its-plans-once, PR: #486)
 
 `plot-fleet-scan.sh` parses the plan estate in one `plot-plan-meta.sh`
 invocation before the per-plan loop, and the per-plan `python3` extractions run
