@@ -153,16 +153,64 @@ already models for *Create plan* (`idea.available`).
 
 ### Open Points
 
-- [ ] Should the board offer the **triage's advice** before spawning — *"this
-      looks like a plan, not a story"* — or is that the skill's job and the
-      button's job is only to start it? Leaning to the latter: the board decides
+- [x] Should the board offer the **triage's advice** before spawning — *"this
+      looks like a plan, not a story"* — or is that the button's job only to
+      start it? **Answered 2026-08-27: just start it.** The board decides
       nothing, and a second opinion rendered in a menu is a second place to keep
-      the heuristic correct.
+      the heuristic correct — it would drift from the skill's own triage, which
+      is the duplication this codebase keeps removing. `/api/idea` already
+      behaves this way, and the parallel is the whole design.
+
+### The key is set here, not left to the reader
+
+Measured 2026-08-27: `Idea command` is set in this repo and `Story command` is
+not. That is exactly why one button works and the other refuses — and it means
+that after this wave ships the capability, *Create story* would **still refuse
+here**, correctly and for a new reason.
+
+A refusal that names its key is the defect being fixed, so that is progress. It
+is not enough: an unset key looks identical to a broken feature, and nobody could
+confirm the happy path in the repo that dog-foods Plot.
+
+**So the wave sets `Story command` in this repo's `## Plot Config`**, mirroring
+`Idea command`:
+
+    - **Story command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
+
+The capability and its first configuration ship together. The refusal path stays
+fully tested — a repo that has not set the key is the ordinary case for an
+adopting project, and item 3 below still asserts it names the key.
 
 ## Waves
 
 ### Routed (Branch: feature/a-ticket-becomes-a-story)
 - `/api/story` spawns a `Story command` for `/story-tracking` on a ticket, writing the issue to a file exactly as `/api/idea` does; `storyRefusal` becomes a not-configured refusal rather than a categorical one. Tests: the route writes the issue to a file and passes only its path; `PLOT_UNATTENDED=1` and `PLOT_ISSUE` are exported; an absent `Story command` refuses and **names the key**; a repo with more than one **declared** story home refuses with the home question named rather than guessing; **a repo containing unrelated `stories/` directories — website content, image assets — is still a one-home repo**, because the count reads `Story directory` and not the filesystem; nothing from the issue body reaches the shell; `/api/idea` is unchanged; the ticket menu still offers both entries.
+
+## Done when
+
+1. **`/api/story` spawns the `Story command` on a ticket**, writing the issue to
+   a file and passing only its path — nothing from the issue body reaches the
+   shell.
+2. **`PLOT_UNATTENDED=1` and `PLOT_ISSUE` are exported** to the spawned run.
+3. **An absent `Story command` refuses and NAMES THE KEY.** The refusal becomes
+   conditional rather than categorical, which is the whole defect; a repo that
+   has not configured it is the ordinary adopting case and must stay tested even
+   though this repo now sets it.
+4. **A repo with more than one DECLARED story home refuses, naming the home
+   question** rather than guessing. A missing story is recoverable; a story in
+   the wrong home is referenced from elsewhere before anyone notices.
+5. **A repo containing unrelated `stories/` directories is still a one-home
+   repo.** The measured trap: a client repo holds website content and image
+   assets under paths matching `stories/`, and a filesystem search would count
+   four homes where there is one. The count reads `Story directory`, never the
+   filesystem.
+6. **`Story command` is set in this repo's `## Plot Config`**, so the button is
+   exercised end to end here rather than only in theory.
+7. **`/api/idea` is unchanged**, and the ticket menu still offers both entries.
+8. **The board offers no triage advice of its own** — closed Open Point; the
+   heuristic lives in the skill and nowhere else.
+9. `pnpm run validate`, `pnpm run test:board` green; artifact rebuilt and
+   committed.
 
 ## Notes
 
@@ -177,3 +225,44 @@ its own override (explicit request beats triage), and this repo satisfies the
 first. **I quoted a justification instead of measuring the thing it justified**,
 which is the same error this estate keeps finding in its own code: a claim that
 was true when written, restated later without re-checking.
+
+### Interrogated 2026-08-27
+
+Two questions, and a `## Done when` section that did not exist before — the wave
+carried its assertions inline in the wave body, where `/plot-deliver` does not
+look for them.
+
+**The config key ships with the capability.** `Idea command` is set in this repo
+and `Story command` is not, which is precisely why one button works and the other
+refuses. Shipping only the capability would leave *Create story* still refusing
+here — honestly now, but with its happy path unexercised in the repo that
+dog-foods Plot. An unset key looks identical to a broken feature. The refusal
+path stays asserted (item 3), because a repo that has not configured it is the
+ordinary adopting case.
+
+**The Open Point is closed as the plan leaned:** the board offers no triage
+advice. A second opinion rendered in a menu is a second place to keep the
+heuristic correct, and it would drift from the skill's own triage — the
+duplication this codebase keeps removing. Item 8 pins it.
+
+Verified while interrogating: with `Story directory` unset, the default resolves
+to `docs/stories/`, which exists here holding four stories — so this repo takes
+the single-home escape and the design holds.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "Story command is unset here \u2014 should the wave set it?", "a": "Yes; capability and first configuration ship together, or the happy path is unexercised in the repo that dog-foods Plot", "category": "technical"},
+    {"q": "Should the board offer the triage's advice before spawning?", "a": "No \u2014 just start it; a second opinion in a menu is a second place to keep the heuristic correct", "category": "ux"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": true, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": true, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
