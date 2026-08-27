@@ -199,7 +199,7 @@ wait behind it. A reading of "independent" as "startable in parallel" was
 measured wrong on 2026-08-27 — `--max 2` dispatched one wave and reported
 `dispatched=0` for the second, correctly.
 
-### Extracted (Branch: feature/plot-deliver-has-a-script)
+### Extracted (Branch: feature/plot-deliver-has-a-script, PR: #483)
 
 The mechanical half of delivery — phase flip, `Delivered:` record, index symlink,
 push — moves into `skills/plot/scripts/plot-deliver.sh`, and `/plot-deliver`
