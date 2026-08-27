@@ -2304,6 +2304,29 @@ export function pulseFor(opts: BuildBoardOptions): FleetPulse | null {
   return ensureCache(opts).pulse;
 }
 
+/**
+ * Whether the cached pulse is EVERY plan the scan found, or only what had
+ * arrived before it was cut short.
+ *
+ * The companion `pulseFor` needs and cannot carry: a `FleetPulse` describes the
+ * plans in it and says nothing about the ones missing from it, so completeness
+ * lives beside the pulse on the cache entry (`pulseComplete`) and travels as its
+ * own answer. `/api/board` already publishes it as `complete`; this is the same
+ * field for the server-side readers that gate on it.
+ *
+ * True on a COLD cache, matching `pulseComplete`'s own default and for the same
+ * reason: `pulseFor` already returns null there, and "nothing has arrived" is
+ * said once rather than twice. A caller holding a null pulse learns nothing from
+ * this and must not read `true` as *the scan finished*.
+ *
+ * Read by the delivery gate, where the distinction decides an operator's action:
+ * a plan absent from a PARTIAL pulse has not been reached, and reading that as
+ * "its branches have not merged" is the defect this pair of accessors ends.
+ */
+export function pulseCompleteFor(opts: BuildBoardOptions): boolean {
+  return ensureCache(opts).pulseComplete;
+}
+
 /** Stop the refresh timers. Tests need this; the server never calls it. */
 export function stopFleetRefresh(): void {
   for (const entry of caches.values()) {
@@ -5325,11 +5348,15 @@ export function sprintMembership(opts: BuildBoardOptions): Map<string, string> {
  * plus one plan-meta parse per render, no host call — so a sprint file or a
  * plan edited between two scans shows on the next poll.
  */
-export function activeSprints(opts: BuildBoardOptions, pulse: FleetPulse | null): FleetSprint[] {
+export function activeSprints(
+  opts: BuildBoardOptions,
+  pulse: FleetPulse | null,
+  complete: boolean,
+): FleetSprint[] {
   const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
   const active = collectSprints(opts.repoRoot, sprintDir).filter((s) => s.phase === 'Active');
   if (active.length === 0) return [];
-  const statusBySlug = planStatusBySlug(opts, pulse);
+  const statusBySlug = planStatusBySlug(opts, pulse, complete);
   return active.map((sprint) => {
     const counts = { total: 0, open: 0, wip: 0, done: 0 };
     for (const member of sprint.members) {
@@ -5385,8 +5412,9 @@ export function activeSprints(opts: BuildBoardOptions, pulse: FleetPulse | null)
 export function estateTotals(
   opts: BuildBoardOptions,
   pulse: FleetPulse | null,
+  complete: boolean,
 ): SprintCounts {
-  const statusBySlug = planStatusBySlug(opts, pulse);
+  const statusBySlug = planStatusBySlug(opts, pulse, complete);
   const counts: SprintCounts = { total: 0, open: 0, wip: 0, done: 0 };
   for (const status of statusBySlug.values()) {
     switch (status) {
@@ -5541,13 +5569,13 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // poll. Emitted unconditionally (a cold cache passes `null`, which yields the
     // plan-only counts) because the client casts this payload and a Zod
     // `.default([])` never fires client-side.
-    sprints: activeSprints(opts, entry.pulse),
+    sprints: activeSprints(opts, entry.pulse, entry.pulseComplete),
     // Estate-wide counts over ALL plans, the same three buckets the sprint
     // counts use. Shown in the sprint control when the filter is OFF, so a
     // reader sees the effect of turning it on: "21 members" versus "112 plans".
     // Computed on the render clock for the same reason as `sprints`: a plan
     // whose status just moved shows on the next poll.
-    estateTotals: estateTotals(opts, entry.pulse),
+    estateTotals: estateTotals(opts, entry.pulse, entry.pulseComplete),
     // The MAIN CHECKOUT's branch, read on the render clock with a TTL cache.
     // Not `server.branch`, which is the worktree the board server started in.
     // This is where the operator works — the first entry of `git worktree list`.

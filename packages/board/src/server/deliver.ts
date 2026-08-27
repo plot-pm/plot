@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { readConfig, allWavesMerged, type BuildBoardOptions } from './board.js';
-import { pulseFor } from './fleet.js';
+import { pulseFor, pulseCompleteFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { PlanMetaSchema } from '../contract/schema.js';
 import {
@@ -122,6 +122,15 @@ export type DeliverRefusal =
    */
   | 'not-deliverable'
   /**
+   * The fleet scan has not finished, so the board cannot say whether this plan
+   * has landed. SEPARATE FROM `not-deliverable`, and the separation is the whole
+   * point: that one sends a reader to their unfinished branch, this one sends
+   * them back in five seconds. Conflating them told an operator on 2026-08-27
+   * that a plan whose two PRs had merged the day before had a branch that had
+   * not — and they went looking for it.
+   */
+  | 'scan-incomplete'
+  /**
    * The plan is already `delivered` (or past it). The row that offers this
    * control never shows on such a plan — the card carries `deliverable` only
    * where the board auto-bumped it, never on a plan whose decision was already
@@ -183,6 +192,12 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
  *  - `not-merged` — a non-deferred branch has not merged, or the plan has no
  *    landed work at all. `allWavesMerged`'s own `merged > 0` guard folds the
  *    empty case in here: a plan nobody built is not deliverable.
+ *  - `scan-incomplete` — the scan did not finish, so the pulse holds only the
+ *    plans that arrived before it was cut short. A FIFTH verdict rather than a
+ *    fifth reason for `not-merged`, because the two need opposite responses: one
+ *    says go finish the branch, this one says wait and ask again. Folding it in
+ *    is the defect measured 2026-08-27, when a plan whose two PRs had merged the
+ *    day before was told a branch of its had not.
  *  - `deliverable` — Development phase, every non-deferred branch merged. The
  *    exact card `buildBoard` moves into Testing and marks `deliverable`.
  *
@@ -196,6 +211,7 @@ export type Deliverability =
   | { verdict: 'not-found' }
   | { verdict: 'already-delivered' }
   | { verdict: 'not-merged' }
+  | { verdict: 'scan-incomplete' }
   | { verdict: 'deliverable' };
 
 export function deliverability(opts: BuildBoardOptions, slug: string): Deliverability {
@@ -221,9 +237,17 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
   if (phase === 'delivered' || phase === 'released') return { verdict: 'already-delivered' };
   // Then the measurement, against the same pulse the board renders from, so the
   // route agrees with the card by construction.
-  return allWavesMerged(meta, pulseFor(opts))
-    ? { verdict: 'deliverable' }
-    : { verdict: 'not-merged' };
+  // THREE ANSWERS FROM THE MEASUREMENT, mapped one-to-one onto verdicts. The
+  // `unknown` arm is the one that earns this shape: it is the scan not having
+  // finished, which is not a statement about any branch.
+  switch (allWavesMerged(meta, pulseFor(opts), pulseCompleteFor(opts))) {
+    case 'merged':
+      return { verdict: 'deliverable' };
+    case 'unknown':
+      return { verdict: 'scan-incomplete' };
+    default:
+      return { verdict: 'not-merged' };
+  }
 }
 
 /**
@@ -437,6 +461,19 @@ export async function handleDeliver(
       'already-delivered',
       slug,
       `plan \`${slug}\` is already delivered — the decision was made and the card is answered; the row offering this will go on the next refresh`,
+    );
+    return;
+  }
+  // NAMES THE SCAN, NOT THE BRANCHES. A reader told *a branch has not merged*
+  // about a branch that merged goes looking for work that does not exist — which
+  // is what happened on 2026-08-27. 409 like its neighbours: the request is fine
+  // and the state is not, and this state clears on its own.
+  if (state.verdict === 'scan-incomplete') {
+    refuse(
+      409,
+      'scan-incomplete',
+      slug,
+      `the fleet scan has not finished, so the board cannot yet say whether plan \`${slug}\` has landed every branch — nothing is known to be unmerged; wait for the next pulse and try again`,
     );
     return;
   }
