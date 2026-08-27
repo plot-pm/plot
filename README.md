@@ -41,9 +41,53 @@ Plot answers both without adding a database.
 
 **Claim-by-ref.** An agent takes a branch by pushing a claim commit to it. Two independent claims diverge, so the loser's push is rejected as non-fast-forward and exactly one agent wins. **Git is the lock** — no lock manager, no lease, no coordination file, nothing to fall out of sync. (The commit matters: a branch merely pointing at `main` does not diverge from it, so both pushes would succeed and both agents would think they held it. Plot never force-pushes, which is the other half of why the lock holds.)
 
-Everything else is derived from that. `/plot-fleet` re-reads git each time to report what is complete, eligible, or claimed; `/plot-dispatch` gives each eligible branch its own worktree and a detached worker; `/plot-merge-queue` says in what order the finished branches can land and which will collide with a branch ahead of it — the failure that is invisible when every branch merges into `main` cleanly on its own.
+Everything else is derived from that.
 
-Because fleet state is derived and never stored, a killed dispatcher or a dead worker costs nothing: the next read re-derives the truth from git. And because merging stays with you, throughput never outruns review — the queue tells you the safe order, you decide what lands.
+### The fleet commands, and the failure each one removes
+
+Once five agents work at the same time, the scarce resource is no longer execution — it is **knowing what is happening**. Each command below exists because of a specific way that goes wrong.
+
+**`/plot-fleet` — a dead agent and a slow one look identical from outside.** It re-reads git every run and reports which waves are complete, eligible, or blocked, and which branches are claimed. It stores nothing, so a killed dispatcher costs nothing: the next read re-derives the truth. It also surfaces a blocker that only exists once work is parallel — *approved, and nobody has taken it* — which no ticket board has a column for. Read-only.
+
+**`/plot-dispatch` — fanning out is a decision, not a mechanical step.** It gives each eligible branch its own worktree and a detached worker, each claimed by ref push. It is deliberately a command you run rather than something that happens on a timer, because four agents mean four pull requests somebody has to read. Watching a fleet is mechanical and may run on a timer; *starting* one is a judgement about how much review you are about to owe.
+
+**`/plot-merge-queue` — every branch merges into `main` cleanly on its own, and two of them still break each other.** It names the safe order and flags which branches collide with one ahead of them in the queue. That failure is invisible to per-branch CI by construction: each branch is tested against `main`, never against its siblings.
+
+**`/plot-reslice` — a wave holding several branches cannot be claimed atomically.** The claim is a push to *one* branch, so a wave with three branches in it has no single thing to win. Reslice reads the branches' diffs and PRs, proposes one wave each in an argued dependency order, and rewrites only the `## Branches` section after a person confirms.
+
+**`/plot-reconcile` — derived state is honest, but the estate still drifts.** A read-only sweep for plans whose phase and index disagree, merged-but-undelivered work, and stale branches. It prints the remediating commands; you decide what to run.
+
+### The board sorts by whose turn it is
+
+Every command above answers a question in a terminal, once, and the answer is gone when the scrollback rolls. The board (`pnpm board`) is where the answer stays — and it is organised around a different question than a ticket board asks.
+
+**Not "what is the work?" but "whose turn is it?"**
+
+| Section | What is in it | What it asks of you |
+|---------|---------------|---------------------|
+| **WAITING ON YOU** | Your actual queue | Act. This is the only section that needs you. |
+| **WORKING** | Agents implementing right now | Nothing. Just look. |
+| **WAITING ON A MACHINE** | CI, merges, pushes in flight | Nothing — unless it is stuck. |
+| **NOT STARTED** | Approved, and nobody has taken it | Dispatch it, or decide it can wait. |
+| **QUIET** / **DONE** | Idle, and finished | Nothing. |
+
+Only the top section carries your name; everything below it is information. That single inversion is the point: **the length of "waiting on you" is your real WIP limit**, not the number of open tickets — because with a fleet running, open tickets stop being a measure of anything a human controls.
+
+It also distinguishes five kinds of waiting that a branch-first board renders identically — a ticket to triage, a plan to approve, a finished wave to land, a broken build to fix, a release to cut. Lead every row with a branch name and all five wear the same face, so you re-derive what is being asked of you each time you look.
+
+Everything it shows is derived from git on a timer, so the board never becomes a second source of truth — kill it and nothing is lost. It can also *act*: approve a plan, dispatch a wave, deliver, reslice. Every one of those runs the same skill you would have run in the terminal, so the board invents no lifecycle transition of its own, and the write endpoints are bound to loopback. Set it up with [`/plot-board-setup`](skills/plot-board-setup/).
+
+### Why merging stays yours
+
+Three speeds, and the sorting is the whole argument:
+
+| Speed | What belongs here | Why |
+|-------|-------------------|-----|
+| **Automate** | Creating branches, moving symlinks, cutting an RC tag, watching the fleet | Mechanical transitions with no judgement. Waiting is pure waste. |
+| **Let it run** | Implementing a branch, writing a plan, working a checklist | Where the actual work happens. Not bottlenecks — the point. |
+| **Never accelerate** | Approving a plan, fanning out a fleet, deciding to release, **merging** | Each one multiplies what follows it. |
+
+Merging sits in the third row even though `/plot-merge-queue` has already computed the collision-free order. **Automating the order removes guesswork; automating the landing would remove the last checkpoint** in a flow that has just multiplied its throughput. Because landing stays with you, throughput never outruns review.
 
 **Every step of this is something you could do by hand.** Claiming a branch is `git push`. Giving an agent its own workspace is `git worktree add`. Checking what is in flight is reading refs. Plot makes that faster and keeps it honest; it does not make it possible, and there is nothing to learn that is not already git. That is also the exit: stop using Plot and your plans are still markdown, your claims are still branches, and nothing needs migrating.
 
