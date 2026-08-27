@@ -187,10 +187,13 @@ failure behind it.
 
 - `feature/the-host-says-which-budget-it-spent` — the adapter reports remaining GraphQL and REST budget, and the rate-limit notice names which one is gone. Tests: a spent GraphQL budget with REST available is reported as such; both spent reads differently; a host that cannot answer says unknown rather than zero → #485
 
-### Spent well
+### Watched
+
+- `feature/the-board-refreshes-what-is-watched` — the board's cadence skips branches whose state cannot change for a waiting reader. Tests: a merged PR is not re-asked across two passes, counted with a stubbed CLI; a WORKING branch is asked every pass; the skip is re-derived from git each pass and never persists a verdict
+
+### Fallen back
 
 - `feature/the-fallback-asks-the-other-budget` — `plot-host.sh` answers through `gh api` when the GraphQL budget is exhausted. Tests: the REST path is taken only when GraphQL is spent; the cheap path stays the default; the two paths produce the same vocabulary; Bitbucket is unaffected
-- `feature/the-board-refreshes-what-is-watched` — the board's cadence skips branches whose state cannot change for a waiting reader. Tests: a merged PR is not re-asked across two passes, counted with a stubbed CLI; a WORKING branch is asked every pass; the skip is re-derived from git each pass and never persists a verdict
 
 ## Notes
 
