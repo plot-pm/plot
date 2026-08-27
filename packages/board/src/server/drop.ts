@@ -22,6 +22,12 @@ import { LIVE_STATES } from '../contract/schema.js';
  * manifest would hide it from the board while leaving it running. The registry
  * is not a killswitch; it is a record.
  *
+ * IT REFUSES AN UNVERIFIABLE ONE ONLY WHILE ITS WORKTREE EXISTS. An `unknown`
+ * state means *could not check*, and for a worktree that is still there that
+ * has to be read as *might be running*. For a worktree that has been DELETED
+ * it is the opposite — nothing runs in a directory that does not exist — and
+ * the entry drops. See {@link worktreeIsGone}.
+ *
  * WHY A SESSION, NOT A BRANCH. The manifest is keyed by session id, not by
  * branch — the file is `{session}.json` under `.plot/agents/`. Two branches
  * can share a session if one relaunched into the other; two sessions can name
@@ -97,6 +103,33 @@ function readManifest(manifestDir: string, session: string): AgentEntry | null {
     return null; // No manifest for this session.
   }
   return parseManifest(content);
+}
+
+/**
+ * Is this entry's worktree GONE — a path recorded, and no directory there?
+ *
+ * The distinction `classifyState` collapses. Three unlike situations reach it
+ * as `unknown`: the probe said nothing recognisable, the resolver was missing,
+ * and the worktree was deleted. Only the first two mean *might be alive*.
+ *
+ * A deleted worktree is not ambiguity — it is the most conclusive evidence
+ * available that nothing is running there. Nothing runs in a directory that
+ * does not exist, and no later check will ever make it verifiable, so the
+ * advice the refusal used to give ("check the worktree manually") named a
+ * directory the reader could not look at.
+ *
+ * Deliberately NOT a sixth {@link AgentEntry.state}: the five-member
+ * `AgentStateSchema` is a published contract the board renders against, and
+ * this question is asked at ONE decision point. It is a local predicate about
+ * droppability, not a new thing an agent can be.
+ *
+ * An entry recording NO path returns false — that is the separate `!worktree`
+ * case, an agent between checkouts, and absence of a path is not absence of an
+ * agent.
+ */
+function worktreeIsGone(entry: AgentEntry): boolean {
+  if (!entry.worktree) return false;
+  return !fs.existsSync(entry.worktree);
 }
 
 /**
@@ -193,7 +226,21 @@ export async function handleDrop(
   }
 
   // 3. An `unknown` state is NOT droppable — we cannot verify it is safe.
-  if (state === 'unknown') {
+  //
+  // UNLESS THE WORKTREE IS GONE. The refusal narrows here; it does not
+  // disappear. `unknown` with a worktree that EXISTS still refuses, because
+  // that is the live-worker case the guard was written for. `unknown` because
+  // the directory was DELETED is the opposite situation wearing the same word:
+  // the strongest possible evidence that nothing is running, which the guard
+  // used to treat as though it were unmeasurable.
+  //
+  // Step 1 already sets the precedent — a missing MANIFEST drops with
+  // `dropped: true`, "already removed or never existed". This asks the same
+  // question about the WORKTREE, which it never did: there was a check for
+  // `!entry.worktree` (no path recorded) and none for the path being recorded
+  // and absent. Measured 2026-08-27: rows refused with advice to "check the
+  // worktree manually", naming directories that did not exist.
+  if (state === 'unknown' && !worktreeIsGone(entry)) {
     json(200, {
       session,
       dropped: false,
@@ -202,9 +249,9 @@ export async function handleDrop(
     return;
   }
 
-  // 4. State is `finished` or `stalled` — safe to drop. The file is under the
-  // SAME resolved directory the manifest was read from, never a re-join of the
-  // raw constant.
+  // 4. Safe to drop: `finished`, `stalled`, or an `unknown` whose worktree is
+  // gone. The file is under the SAME resolved directory the manifest was read
+  // from, never a re-join of the raw constant.
   const file = path.join(manifestDir, `${session}.json`);
   try {
     fs.unlinkSync(file);
