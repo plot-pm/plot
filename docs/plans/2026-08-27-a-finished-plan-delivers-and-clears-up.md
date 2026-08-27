@@ -184,6 +184,47 @@ It would clear worktrees on a schedule unrelated to whether anything finished,
 and the board would remove a desk while its operator was looking at it. The
 finishing of a plan is the event; a timer is a guess about when events happen.
 
+### Deleting a merged ref does not break the rule that protects unlanded ones
+
+`/plot-implement` says plainly: *"leave the ref in place — never delete a remote
+ref another session may be reading."* The new wave deletes refs, so the two must
+be reconciled rather than left to collide.
+
+**They do not overlap.** Read in context, the rule governs *giving a branch up* —
+work that turned out *"unnecessary, wrongly cut, or blocked"* — and its reason is
+that `/plot-reconcile` needs the ref plus its `deferred:`/`moved:` annotation to
+tell deliberate abandonment from a dead worker.
+
+A branch whose PR merged is neither abandoned nor ambiguous: its work is on main,
+its PR is closed, and there is nothing for `/plot-reconcile` to resolve. The rule
+protects **unlanded** refs, and this wave touches only landed ones.
+
+So the deletion is gated on the same fact the reap is: a merged PR, read the way
+`plot-reap.sh` reads it — `mergedAt` on ANY PR for the branch, never `state`,
+never ancestry. A branch that fails that test keeps its ref, exactly as the rule
+requires.
+
+### Why it matters: branches are what the scan actually costs
+
+Measured 2026-08-27 across four runs:
+
+| worktrees | branches | scan |
+|---|---|---|
+| 54 | 43 | 462.9 s |
+| 42 | 43 | 51.3 s |
+| 11 | 43 | 218.5 s |
+| 11 | **34** | **111.5 s** |
+
+Worktree count does not order those runs — 11 worktrees was slower than 42. What
+moved reliably was **deleting nine merged branches: 218.5 s → 111.5 s**, roughly
+halving it. The estate the scan walks is branches, and merged ones are pure cost.
+
+**This is also the correction to an earlier reading in this plan.** The
+Motivation credits reaping worktrees with clearing the timeout; the fuller series
+above shows that run caught a fast window. Reaping is still right — it clears
+desks and starves the adoption loop — but branch deletion is what the scan
+notices.
+
 ## Waves
 
 ### Landed (Branch: bug/the-reaper-reads-any-merged-pr, PR: #479)
@@ -212,6 +253,12 @@ the next wave something to call.
 The board delivers a plan whose every non-deferred wave has merged, by calling
 that script — direct, or through an agent where a `Deliver command` is set — and
 reaps its worktrees afterwards. **Depends on `Extracted`.**
+
+### Cleared (Branch: feature/a-delivered-plan-releases-its-refs)
+
+Delivery deletes the remote refs of its merged branches, after the reap. Gated on
+a merged PR read as `plot-reap.sh` reads it, so an unlanded ref is never touched.
+**Depends on `Delivered`.**
 
 ## Done when
 
@@ -242,7 +289,17 @@ reaps its worktrees afterwards. **Depends on `Extracted`.**
    delivered before, by the same rules; only the location of the writes moves.
 10. **A `Deliver command` routes through an agent; its absence routes direct.**
     Both paths asserted, mirroring `Approve command`.
-11. `pnpm run validate`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+11. **A delivered plan's merged branches lose their remote refs.** The
+    measured payoff: nine deletions took the scan 218.5 s → 111.5 s.
+12. **An unlanded branch keeps its ref, always.** The `/plot-implement` rule this
+    wave must not break — asserted on a branch with no merged PR, and separately
+    from item 11, because a fix that deletes everything passes item 11.
+13. **A branch checked out in a worktree is not deleted**, even when merged. A
+    ref another checkout is sitting on is one somebody is reading; measured
+    today, `bug/a-head-counts-its-own-waves` was merged and checked out.
+14. **The deletion runs AFTER the reap**, which runs after the delivery. Reversed,
+    a worktree would outlive the ref it tracks.
+15. `pnpm run validate`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 
