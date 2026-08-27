@@ -175,6 +175,54 @@ describe('planStatus — the release gate reads phase, never status', () => {
   });
 });
 
+describe('planStatus on a partial pulse — the CARD, not just the button', () => {
+  // Item 7. `allWavesMerged` has TWO callers and the operator meets both symptoms
+  // at once: `deliver.ts` refuses the button, and `planStatus` renders the card.
+  // Fixing the route alone would leave a card that will not offer what the button
+  // would allow, which is why the fix lives in the shared function — and why the
+  // card is asserted here independently of it.
+
+  it('does not render an unreached plan as in-progress on nothing but a partial pulse', () => {
+    // The measured shape: the scan timed out, so the plan is absent from `plans`.
+    // The old code read that absence as *not merged* and fell straight through to
+    // `in-progress`. Now the measurement is `unknown` and the card falls back to
+    // facts about the plan FILE — which, for a plan with no `Started:` record and
+    // no claim, is `approved`. Not a guess in either direction.
+    const m = meta({ phase: 'approved', started_raw: [] });
+    const timedOut: FleetPulse = {
+      main: 'main',
+      head: 'abc1234',
+      plans: [],
+      summary: { plans: 0, waves: 52, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    };
+    expect(planStatus(m, timedOut, false)).toBe('approved');
+  });
+
+  it('keeps what the plan FILE says across a partial pulse — a Started: record survives', () => {
+    // The fall-through is deliberate and is what makes `unknown` safe for the
+    // card: `started_raw` is a fact about the file, not about the scan, so it
+    // reads the same whether the scan finished or not. A plan mid-flight keeps
+    // looking mid-flight instead of flickering as the pulse arrives.
+    const m = meta({ phase: 'approved', started_raw: ['2026-08-23, jwloka'] });
+    const timedOut: FleetPulse = {
+      main: 'main',
+      head: 'abc1234',
+      plans: [],
+      summary: { plans: 0, waves: 52, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+    };
+    expect(planStatus(m, timedOut, false)).toBe('in-progress');
+  });
+
+  it('reads deliverable as soon as the SAME pulse is complete — one cause, one fix', () => {
+    // The card and the button now agree by construction, because they read one
+    // function. The pulse here is unchanged in content; only the scan's
+    // completeness flips, and with it the card.
+    const m = meta({ phase: 'approved', started_raw: ['2026-08-23, jwloka'] });
+    expect(planStatus(m, oneMerged, false)).toBe('in-progress');
+    expect(planStatus(m, oneMerged, true)).toBe('deliverable');
+  });
+});
+
 describe('PlanStatusSchema — the enum is exactly the seven', () => {
   it('parses each of the seven and rejects an eighth', () => {
     for (const v of ['draft', 'open', 'approved', 'in-progress',
