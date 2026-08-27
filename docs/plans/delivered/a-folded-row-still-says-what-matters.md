@@ -1,0 +1,1 @@
+../2026-08-22-a-folded-row-still-says-what-matters.md

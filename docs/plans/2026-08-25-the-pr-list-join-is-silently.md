@@ -4,7 +4,8 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
+- **Delivered:** 2026-08-27
 - **Type:** feature
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** #333
