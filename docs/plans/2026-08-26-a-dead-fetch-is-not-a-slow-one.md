@@ -15,6 +15,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-27, Jan Wloka, `bug/a-dead-fetch-is-not-a-slow-one`
 
 ## Changelog
 
