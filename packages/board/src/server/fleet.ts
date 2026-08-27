@@ -397,7 +397,10 @@ export function branchUrlBase(origin: string): string {
   return '';
 }
 
-interface CacheEntry {
+// Exported for the type alone: `freshCacheEntry` already hands this object to
+// callers, so naming its shape adds no surface — it lets a test spell the type
+// it is already holding.
+export interface CacheEntry {
   /**
    * Terminal branch answers, carried from one pulse to the next.
    *
@@ -1503,15 +1506,86 @@ const RUN_FETCH_MAX = 8;
  * other absent signal here follows. It must never read as *this branch has
  * never failed before*.
  */
-async function refreshRuns(
+/**
+ * Whether a branch's host answer can still change in a way a reader is waiting
+ * for — the question the board spends its budget on, and the one it does not.
+ *
+ * THE MEASUREMENT THIS EXISTS FOR, taken 2026-08-27 after the scan batching
+ * (#486) landed: the scan reads 24.2 % CPU — 6.61 s of work inside ~24 s of
+ * wall clock. It is no longer computing; it is waiting on GitHub. So the lever
+ * left is not to compute faster and not to refresh less often, but to ask fewer
+ * questions per pass.
+ *
+ * A DERIVATION, NEVER A RECORD. Every input is this pass's own: the pulse the
+ * scan just produced from git, and the PR map the host just answered with. No
+ * verdict is written down, so there is nothing for git to invalidate and no
+ * second source of truth to drift — the property `PLOT_TERMINAL_CACHE` already
+ * has, and the reason no second cache was added here. A persisted verdict would
+ * be a cache git cannot reach, which is precisely what the plan rejects.
+ *
+ * MERGED, NEVER CLOSED. A merged PR reports `state: CLOSED` through some host
+ * projections, and squash-merge leaves a branch permanently "ahead of main", so
+ * ancestry cannot decide merge state either. Only an explicit `MERGED` is
+ * merged; a PR closed WITHOUT merging is a branch someone may still be waiting
+ * on, and reading it as terminal would quietly stop reporting its CI.
+ *
+ * ABSENT IS NOT TERMINAL. A branch no plan mentions, or a pulse that has not
+ * arrived yet, is watched. The board must never mistake *not known to be
+ * finished* for *finished* — the rule every other absent signal here follows.
+ *
+ * @param branch the branch name, as the pulse and the PR head both spell it
+ * @param pulse the scan's latest complete answer, or null before the first one
+ * @param pr the branch's PR as the host reports it, or undefined where none is
+ */
+export function branchIsWatched(
+  branch: string, pulse: FleetPulse | null, pr: PrRecord | undefined,
+): boolean {
+  // The PR side: landed work cannot change. `MERGED` only — see above.
+  if (pr && pr.state === 'MERGED') return false;
+  // The plan side: `delivered` and `released` are the terminal phases, the same
+  // pair `classify` treats as *nothing would move this row*. Read from the
+  // pulse, which is re-derived from git every pass.
+  if (pulse) {
+    for (const plan of pulse.plans) {
+      const phase = plan.phase.toLowerCase();
+      if (phase !== 'delivered' && phase !== 'released') continue;
+      for (const wave of plan.waves) {
+        if (wave.branches.some((b) => b.branch === branch)) return false;
+      }
+    }
+  }
+  return true;
+}
+
+export async function refreshRuns(
   opts: BuildBoardOptions,
   entry: CacheEntry,
   prs: Map<string, PrRecord>,
 ): Promise<void> {
   const runs = new Map<string, StuckRun[]>();
-  const failing = [...prs.entries()]
-    .filter(([, pr]) => pr.checks === 'failing')
+  const candidates = [...prs.entries()].filter(([, pr]) => pr.checks === 'failing');
+  // WHAT A READER IS WATCHING, and nothing else. Applied BEFORE the cap, so the
+  // eight slots go to branches whose answer can still move rather than being
+  // spent on landed work — a fleet with nine merged failures and one live one
+  // would otherwise fill the cap with history nobody is waiting on and render
+  // the live branch's as *unavailable*.
+  //
+  // Re-derived here on every pass and stored nowhere. See `branchIsWatched`.
+  const failing = candidates
+    .filter(([branch, pr]) => branchIsWatched(branch, entry.pulse, pr))
     .slice(0, RUN_FETCH_MAX);
+  // SKIPPING THE QUESTION MUST NOT DROP THE ANSWER. `runs` is rebuilt from
+  // scratch each pass, so a branch this pass declines to ask about would lose a
+  // history it already had — and a row losing a line it carried a minute ago
+  // reads as the branch changing rather than as a fetch being skipped. That is
+  // the same rule the catch below states for a failed fetch; a skipped one is
+  // not a worse case than a failed one.
+  const asked = new Set(failing.map(([branch]) => branch));
+  for (const [branch] of candidates) {
+    if (asked.has(branch)) continue;
+    const previous = entry.runs.get(branch);
+    if (previous) runs.set(branch, previous);
+  }
   for (const [branch] of failing) {
     try {
       const out = await run('bash',
