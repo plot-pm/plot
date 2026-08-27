@@ -2908,7 +2908,40 @@ for i, w in enumerate(d.get("waves", [])):
       esac
     done <<< "$states"
 
+    # `eligible` IS A CLAIM ABOUT STARTABILITY, not about wave ordering alone.
+    #
+    # Measured 2026-08-27: every one-wave plan in `not-started` on the live
+    # board read `eligible`, and `plot-dispatch.sh` refused all six of them —
+    # *"plan '<slug>' is still Draft on <ref> — nothing may be dispatched."*
+    # Six of six. Both components were correct and they were answering
+    # different questions: this computed *no earlier wave blocks this one*,
+    # and the reader took it to mean *I can start this*. Those coincide only
+    # for an approved plan.
+    #
+    # THE PHASE IS ALREADY IN HAND. `$plan_phase` was parsed above for the
+    # terminal grouping, so consulting it here costs no read and no host call
+    # — the fix adds a test, not a lookup.
+    #
+    # AN ALLOWLIST OF ONE GOOD PHASE, mirroring `plot-dispatch.sh`'s own gate
+    # (`case "$gate_phase" in approved) ;;`) rather than testing for `draft`.
+    # A denylist is the blocklist-collapse shape this codebase keeps removing:
+    # `design` is documented as a phase whose work cannot yet be handed over,
+    # and `UNKNOWN`/`NONE` are unreadable answers. Under a `draft`-only test
+    # each of those would inherit the good word. The scan and the dispatcher
+    # now refuse the same set, which is the disagreement this removes.
+    #
+    # ORDERING IS STILL COMPUTED FIRST, and `complete` still outranks it: a
+    # wave whose branches have all merged IS complete whatever its plan says,
+    # because that is a statement about work that already landed, not an
+    # invitation to start any. Only the word a reader ACTS on is withheld.
+    #
+    # NOT `blocked`, deliberately. That word means *an earlier wave has not
+    # landed* — an ordering fact that resolves by merging work. This resolves
+    # by a person approving the plan. Folding both into one word would rebuild
+    # the ambiguity one level down, and `blocked by <wave> — 1 branch` is a
+    # sentence a row in this state cannot truthfully complete.
     if [ "$outstanding" -eq 0 ]; then verdict="complete"
+    elif [ "$plan_phase" != "approved" ]; then verdict="unapproved"
     elif [ "$prior_ok" -eq 1 ]; then verdict="eligible"
     else verdict="blocked"; fi
 
