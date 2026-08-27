@@ -185,7 +185,7 @@ finishing of a plan is the event; a timer is a guess about when events happen.
 
 ## Waves
 
-### Landed (Branch: bug/the-reaper-reads-any-merged-pr)
+### Landed (Branch: bug/the-reaper-reads-any-merged-pr, PR: #479)
 
 `plot-reap.sh` asks whether ANY PR for the branch merged, not whether the newest
 one did — so a closed duplicate stops masking a real merge.
