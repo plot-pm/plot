@@ -200,3 +200,41 @@ one nobody had.
 *The board tells the truth in every section.* A board that cannot finish a scan
 shows a pulse from sixteen minutes ago and labels it with facts from now. The
 timeout is upstream of the lie.
+
+### Correction 2026-08-27: the estate was the binding constraint, not the spawns
+
+Measured immediately after reaping 12 finished worktrees, same machine, same
+main:
+
+| | before | after |
+|---|---|---|
+| worktrees | 54 | **42** |
+| real | **462.90 s** | **51.28 s** |
+| user | 23.45 s | 13.66 s |
+| sys | 27.17 s | 12.48 s |
+
+**9× faster, and inside the 90 s budget.** Removing 22 % of the worktrees removed
+89 % of the wall clock.
+
+**That refutes this plan's framing.** The Motivation argues the estate's size is a
+red herring — citing `the-timeout-report-blames-the-wrong-thing`, which measured
+*pruning 70 % of the worktrees changed the scan time not at all*. That
+measurement was real. This one is too, and they disagree because **not all
+worktrees cost the same**.
+
+The earlier prune removed worktrees whose branches were merged and quiet. The 12
+removed today included branches carrying live refs, open duplicate PRs, and
+unlanded commits — each of which the scan interrogates per branch. Count is not
+the cost; **state** is.
+
+**What survives.** The 778 spawns are still real, and still worth removing: 324
+`plot-plan-meta.sh` invocations against one batch call that costs 0.19 s, and 454
+`python3` starts re-parsing that helper's own output. At 51 s the scan sits at
+roughly half its budget with a growing estate, so the headroom matters. But this
+is now an efficiency plan, not the fix for a timeout — and its `Done when` item 1
+(*completes inside 90 s*) is already true without it.
+
+**The fix that actually cleared it was reaping**, which is why
+`a-finished-plan-delivers-and-clears-up` — auto-deliver and auto-reap when a
+plan's last wave merges — is the plan that keeps this from recurring. This one
+buys headroom underneath it.
