@@ -18,6 +18,7 @@ import {
   startServer,
   makeRepo,
   makeStubScripts,
+  writeImplementCommand,
   request,
   rmTree,
 } from './helpers.mjs';
@@ -173,6 +174,8 @@ describe('the write gate: the opt-in is deliberate and exact', () => {
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
     stub = makeStubScripts();
+    // Configure the Implement command — dispatch now calls /plot-implement first.
+    writeImplementCommand(tmp, { bin: stub.implementBin });
     server = await startServer(tmp, {
       HOST: '0.0.0.0',
       PLOT_SCRIPTS_DIR: stub.dir,
@@ -236,6 +239,8 @@ describe('the write gate: loopback serves, as it always did', () => {
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
     stub = makeStubScripts();
+    // Configure the Implement command — dispatch now calls /plot-implement first.
+    writeImplementCommand(tmp, { bin: stub.implementBin });
     // The default binding. This suite is the regression guard for the gate
     // itself: a boundary that also refused the normal case would be caught
     // here rather than by a person whose board stopped working.

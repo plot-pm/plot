@@ -200,6 +200,7 @@ const ACTING_SCRIPTS = ['plot-dispatch.sh', 'plot-approve.sh'];
 export function makeStubScripts() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-board-stub-'));
   const marker = path.join(dir, 'dispatch-ran.txt');
+  const implementMarker = path.join(dir, 'implement-ran.txt');
   for (const name of fs.readdirSync(SCRIPTS_DIR)) {
     if (ACTING_SCRIPTS.includes(name)) continue;
     fs.symlinkSync(path.join(SCRIPTS_DIR, name), path.join(dir, name));
@@ -216,16 +217,66 @@ export function makeStubScripts() {
     `#!/usr/bin/env bash\necho "stub plot-approve.sh $*"\n`,
     { mode: 0o755 },
   );
+  // A stub implement command that records its arguments and exits 0 — the brief
+  // gate added by wave 2 of a-dispatch-hands-over-a-brief. The dispatch now
+  // calls `/plot-implement` FIRST and waits for it, so this stub is what lets
+  // the dispatch tests pass without a real implement command.
+  const implementBin = path.join(dir, 'stub-implement.sh');
+  fs.writeFileSync(
+    implementBin,
+    `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> ${JSON.stringify(implementMarker)}\necho "stub implement: $*"\n`,
+    { mode: 0o755 },
+  );
   return {
     dir,
     marker,
-    /** How many times the stub ran. 0 is the assertion that matters most. */
+    /** The `Implement command` stub binary path — write this to the repo's CLAUDE.md. */
+    implementBin,
+    implementMarker,
+    /** How many times the dispatch stub ran. 0 is the assertion that matters most. */
     runs: () =>
       fs.existsSync(marker)
         ? fs.readFileSync(marker, 'utf8').split('\n').filter(Boolean)
         : [],
+    /** How many times the implement stub ran. */
+    implementRuns: () =>
+      fs.existsSync(implementMarker)
+        ? fs.readFileSync(implementMarker, 'utf8').split('\n').filter(Boolean)
+        : [],
     cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
   };
+}
+
+/**
+ * Give a scratch repo an `Implement command` pointing at a stub.
+ *
+ * Required for dispatch tests after wave 2 of a-dispatch-hands-over-a-brief:
+ * the dispatch now calls `/plot-implement` FIRST and waits for it, so a repo
+ * without an `Implement command` refuses dispatch with 409.
+ *
+ * The stub exits 0 immediately and records its arguments — no brief is
+ * actually created, but the dispatch proceeds.
+ */
+export function writeImplementCommand(repo, { bin }) {
+  const claude = path.join(repo, 'CLAUDE.md');
+  const existing = fs.existsSync(claude) ? fs.readFileSync(claude, 'utf8') : '';
+  if (/^##\s*Plot Config/im.test(existing)) {
+    // Append to the existing Plot Config section.
+    const lines = existing.split('\n');
+    const configIndex = lines.findIndex((l) => /^##\s*Plot Config/i.test(l));
+    // Find the next heading after Plot Config, or the end.
+    let insertAt = lines.length;
+    for (let i = configIndex + 1; i < lines.length; i++) {
+      if (/^##\s/.test(lines[i])) {
+        insertAt = i;
+        break;
+      }
+    }
+    lines.splice(insertAt, 0, `- **Implement command:** ${bin}`);
+    fs.writeFileSync(claude, lines.join('\n'), 'utf8');
+  } else {
+    fs.writeFileSync(claude, `${existing}\n## Plot Config\n\n- **Implement command:** ${bin}\n`, 'utf8');
+  }
 }
 
 /**
