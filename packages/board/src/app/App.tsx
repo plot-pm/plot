@@ -386,6 +386,25 @@ export function App() {
     : board?.idea;
 
   /**
+   * The SAME treatment for turning a ticket into a story — the tenth spawn, and
+   * the twin of `ideaInfo`. Dimmed on a frozen page for the reason that one is:
+   * it spawns an agent that writes a story directory to this disk.
+   *
+   * It bites differently, and slightly harder. A created plan removes its issue
+   * row, so a frozen page's staleness is at least VISIBLE once it thaws; a story
+   * moves no row at all, so nothing on this board ever shows that one was made.
+   * A dark control on a page that cannot re-read git is the only thing standing
+   * between a stale row and a second story for one ticket.
+   *
+   * `board?.story` may be `undefined` even off a frozen page — the board CASTS
+   * its payload rather than parsing it, so a Zod default does not apply on this
+   * side — and `AgentList` supplies the unavailable fallback for exactly that.
+   */
+  const storyInfo = dimmed
+    ? { available: false, reason: BLOCKED_REASON }
+    : board?.story;
+
+  /**
    * The SAME treatment for Commission design — the Approve twin that spawns a
    * plot agent to move a Draft plan into Design. Dimmed on a frozen page for the
    * reason `ideaInfo` is: it writes a plan file, and a page that cannot re-read
@@ -937,6 +956,7 @@ export function App() {
               // board can act, that one says the tracker can be asked, and an
               // action needs both.
               idea={ideaInfo}
+              story={storyInfo}
               // The fifth act, and the Approve twin: Commission design moves a
               // Draft plan into Design. It reaches the same PLAN rows Approve
               // does, in the row menu, and shares the idea binding today.

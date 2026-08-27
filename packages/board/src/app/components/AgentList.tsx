@@ -239,6 +239,7 @@ export function AgentList({
   drop,
   continueWith,
   idea,
+  story,
   pulse = 0,
   onStarting,
   onRevealBranch,
@@ -1916,6 +1917,7 @@ export function AgentList({
                   key={`issue-${issue.number}`}
                   issue={issue}
                   idea={idea ?? { available: false, reason: 'this board has not said whether it can create plans' }}
+                  story={story ?? { available: false, reason: 'this board has not said whether it can create stories' }}
                   issueAnswer={fleet.issueAnswer}
                 />
               ))}

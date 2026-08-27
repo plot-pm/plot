@@ -208,6 +208,19 @@ export interface AgentListProps {
    */
   idea?: DispatchInfo;
   /**
+   * Whether this server will act on `Create story`, and why not — the TENTH
+   * capability, and the ticket row's second action. Same binding as `idea` today
+   * (both spawn a plot agent that writes to this disk), kept its own prop for
+   * the reason every flag above it is: one flag for two capabilities is how they
+   * diverge.
+   *
+   * **It is new because the control it feeds used to need no data at all.**
+   * *Create story* carried a constant refusal — a claim about stories rather
+   * than a fact about this board — and a constant is exactly what a capability
+   * is not.
+   */
+  story?: DispatchInfo;
+  /**
    * Whether this server will act on `Commission design`, and why not — the
    * PLAN row's second decision, beside Approve. Same binding as `idea` today
    * (both spawn a plot agent), kept its own prop for the reason every capability
@@ -2490,8 +2503,8 @@ export function inferredPlanName(title: string): string {
  * than borrowing a word from another object's vocabulary.
  */
 export function IssueRowView(
-  { issue, idea, issueAnswer }:
-  { issue: IssueRow; idea: DispatchInfo; issueAnswer: IssueAnswer },
+  { issue, idea, story, issueAnswer }:
+  { issue: IssueRow; idea: DispatchInfo; story: DispatchInfo; issueAnswer: IssueAnswer },
 ) {
   return (
     <TupleRowView
@@ -2540,9 +2553,10 @@ export function IssueRowView(
       // THE ROW'S ACTIONS, behind the same `⋯` menu every other row wears.
       // `Create plan` used to sit bare in this cell — the one row whose actions
       // were not in the menu — and `the-menu-fits-the-kind` gave the ticket its
-      // full set: Create plan (works), Create story (offered, refused with its
-      // reason), Open on host.
-      menu={<IssueRowActions issue={issue} idea={idea} issueAnswer={issueAnswer} />}
+      // full set: Create plan, Create story, Open on host. Both creating actions
+      // WORK now; *Create story* was offered-and-always-refused until 2026-08-27,
+      // on a ground the skill it named contradicts.
+      menu={<IssueRowActions issue={issue} idea={idea} story={story} issueAnswer={issueAnswer} />}
     />
   );
 }
