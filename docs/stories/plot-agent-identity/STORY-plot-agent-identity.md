@@ -22,15 +22,26 @@ is* and *what it can be dispatched to*.
 
 ## Why Now
 
-The registry answers *what is running* with real precision — eight worker
-states, batched liveness in one fork per pulse, an honest `unknown` — and
-cannot answer *who is running*. Two facts make that concrete rather than
-philosophical, both measured in this repo on 2026-08-27:
+Comparing Plot against [kraftwerk](https://github.com/NETNODEAG/kraftwerk)
+(0.12.0, MIT, NETNODE AG) on 2026-08-27 found one asymmetry that was not a
+layer confusion. Kraftwerk's `inspector/team.ts` states the rule Plot has never
+written down:
+
+> Definitions are git-tracked project config (like workflows/), not run state.
+
+Plot has only the run state. The registry answers *what is running* with real
+precision — eight worker states, batched liveness in one fork per pulse, an
+honest `unknown` — and cannot answer *who is running*.
+
+Two facts make that concrete rather than philosophical, both measured in this
+repo:
 
 - **`.gitignore:45` excludes `.plot/agents/`** while `.plot/briefs/` beside it
-  is tracked. Ten agents ran here that day. By the manifesto's own first
+  is tracked. Ten agents ran here on 2026-08-27. By the manifesto's own first
   principle — *"If it's not in git, it doesn't exist"* — none of them do. This
-  is the one Plot subsystem outside git.
+  is the one Plot subsystem outside git, and it fails on the criterion the
+  Plot × Kraftwerk RefCard says Plot **wins**: what survives switching the tool
+  off.
 - **`plot-dispatch.sh:807` reads one global `Worker command`.** Every agent on
   every branch is the same implementer, parameterised only by `PLOT_BRANCH` and
   `PLOT_SESSION_ID`. Its ~1,900-character persona is inlined into the command
@@ -67,11 +78,13 @@ relationship to the existing five is a question for the planning-model story,
 and it should be raised there rather than settled here.
 
 **Q: What is deliberately not being built?**
-The runtime layer — sandboxing, adapters for other agent runtimes, a run
-inspector UI, scheduled/cron agents. Plot is a way of working, not a runtime;
-`Worker command` is already the seam where a runtime plugs in. Also declined:
-agents-as-staff with names and standing routines, which quietly discards Plot's
-claim to coordinate **people and agents together**.
+Kraftwerk's runtime half — Docker-per-run sandboxing, multi-harness adapters
+(`claude`/`codex`/`pi`), the Inspector UI, cron routines. All real and all good,
+and rebuilding them puts an in-house tool against an MIT project with npm
+distribution. The RefCard's own conclusion is that this is a distribution
+fight, not a quality one. Also declined: agents-as-employees with emoji and
+routines, which quietly discards Plot's claim to coordinate **people and agents
+together**.
 
 ## Current Plan
 
@@ -101,7 +114,7 @@ Expected shape, in dependency order:
   anything enforce it?
 - ⏸️ Does an unmatched wave **block** or **fall back** to the default role? A
   block is honest and can deadlock; a fallback always dispatches and can run a
-  specialist wave through a generalist.
+  Jenkins wave through a generalist.
 - ⏸️ What names the kinds? Free-form strings drift; an enum in a
   project-agnostic skill is exactly the hardcoding the manifesto forbids.
 
@@ -110,25 +123,28 @@ Expected shape, in dependency order:
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-08-27 | Agent specs and typed capacity share one story | Capacity depends on the spec mechanism; separately, the capacity story would be mostly a pointer. Confirmed by Jan Wloka. |
-| 2026-08-27 | The runtime layer is out of scope | Plot is a way of working, not a runtime. `Worker command` is the seam; sandboxing and run-inspection belong behind it. |
+| 2026-08-27 | Kraftwerk's runtime layer is out of scope | Sandbox, harness adapters, Inspector, routines are a distribution fight against an MIT/npm project — the RefCard's stated conclusion. |
 | 2026-08-27 | Economics gets its own story | Cost and value are a different question with a different failure mode — see [[plot-plan-economics]]. |
 
 ## Key Findings
 
 ### 2026-08-27 — The board's agent row has no agent in it
 
-**Expected:** The registry was missing some fields, and the gap was a matter of
-degree.
+**Expected:** Plot's registry lacked some fields Kraftwerk's had, and the gap
+was a matter of degree.
 
 **Discovered:** `AgentRowSchema` identifies a row with `repo`, `branch`,
 `plan`, `wave`, `sprint`, `version`, `phase`, `pr` — every identifying field
 describes **the work**. The only worker-shaped fields are `worker` (a state)
-and `worker_activity` (a CPU cue): adjectives with no noun.
+and `worker_activity` (a CPU cue): adjectives with no noun. Kraftwerk's
+`TeamMember` carries `slug`, `name`, `emoji`, `harness`, `model`, `effort`,
+`tools`, `workflows`, `knowledge`, `skills`.
 
-`registry.ts` already *declares* the ambition in its own docstring — *"a branch
-is what an agent is working on, never what it is"* — and cannot deliver it:
-`synthesizeEntry()` sets `session: ''` for any worktree without a manifest, and
-those entries sort last because the registry "knows least about them".
+Plot's `registry.ts` already *declares* the ambition in its own docstring —
+*"a branch is what an agent is working on, never what it is"* — and cannot
+deliver it: `synthesizeEntry()` sets `session: ''` for any worktree without a
+manifest, and those entries sort last because the registry "knows least about
+them".
 
 **Impact:** The gap is ontological, not incremental. Plot models the predicate
 with precision and has no subject to attach it to. That reframes the work from
@@ -144,7 +160,7 @@ work it had room for — silently, because the number was rendered nowhere. Five
 of the seven were `claude` processes outliving merged PRs.
 
 **Impact:** With one integer, a stale slot blocks anything. With typed slots, a
-lingering *developer* process blocks a *specialist* wave it could never have
+lingering *developer* process blocks a *Jenkins* wave it could never have
 performed — the same defect, more expensive. The fix for stale slots shipped;
 typing them raises the cost of any future regression, which is an argument for
 building the two together.
@@ -153,28 +169,32 @@ building the two together.
 
 | Item | Reason | Revisit If |
 |------|--------|------------|
-| Per-run sandboxing | Runtime concern, and it sits behind `Worker command` | An agent is dispatched somewhere Plot does not control the machine |
-| Adapters for other agent runtimes | Plot is shaped on Claude Code; `Worker command` is already the seam | A project asks to mix runtimes in one fleet |
-| Scheduled / cron agents | Agents-as-staff; discards the people-and-agents frame | Never, as stated — revisit only with a case that is not staffing |
-| In-band question answering | A blocked worker could in principle be answered without exiting; `PLOT-BLOCKED.md` requires the worker to have died first | The blocked-worker path is reopened — noted so the option is not forgotten |
+| Docker-per-run sandboxing | Runtime concern; Kraftwerk ships it MIT | An agent is dispatched somewhere Plot does not control the machine |
+| Multi-harness adapters (codex, pi) | Plot is shaped on Claude Code; `Worker command` is already the seam | A project asks to mix runtimes in one fleet |
+| Cron routines / scheduled agents | Agents-as-employees; discards the people-and-agents frame | Never, as stated — revisit only with a case that is not staffing |
+| In-band question answering | Kraftwerk models blocked agents as `permission_request`/`permission_resolved` events, answerable without exiting; Plot's `PLOT-BLOCKED.md` requires the worker to have died | The blocked-worker path is reopened — noted so the option is not forgotten |
 
 ## Session Log
 
-### 2026-08-27 — Registry scope
+### 2026-08-27 — Kraftwerk comparison, registry scope
 
-Read Plot `origin/main` — `server/registry.ts`, `contract/schema.ts`,
-`plot-dispatch.sh`, `plot-worker-state.sh`, `auto-dispatch.ts` — and the ten
-live manifests in `.plot/agents/`, prompted by a comparison against another
-agent-orchestration tool.
+Read kraftwerk 0.12.0 (`src/agent.ts`, `inspector/team.ts`, `okf.ts`,
+`harness.ts`, `stats.ts`, `gates.ts`) against Plot `origin/main`
+(`server/registry.ts`, `contract/schema.ts`, `plot-dispatch.sh`,
+`plot-worker-state.sh`, `auto-dispatch.ts`) and the ten live manifests in
+`.plot/agents/`.
+
+Assessment published as an internal artifact; the RefCard
+(`plot-kraftwerk-refcard-de.html`, August 2026) supplied the strategic frame and
+its conclusions are referenced, not restated.
 
 **Key outcomes:**
 
 - The registry's gap is a missing subject, not missing fields
 - `.plot/agents/` being gitignored is a live inconsistency with manifesto
   principle 1, and the only one
-- Splitting durable from ephemeral is the pattern worth taking: a system prompt,
-  model and tool allowlist are properties of an agent; the task is not. Today's
-  `Worker command` fuses both into one string.
+- Kraftwerk's `AgentInvocation` splits durable (`systemPrompt`, `model`,
+  `tools`, `clis`) from ephemeral (`prompt`); Plot's `Worker command` fuses both
 - Typed capacity is cheaper than expected — the cross-pulse budget already exists
 - Scope confirmed with Jan Wloka: two stories, this one plus
   [[plot-plan-economics]]
