@@ -14,6 +14,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-27, Jan Wloka, `feature/the-pulse-says-a-branch-is-claimed`
+- **Started:** 2026-08-27, Jan Wloka, `bug/auto-dispatch-skips-a-claimed-branch`
 
 ## Changelog
 
