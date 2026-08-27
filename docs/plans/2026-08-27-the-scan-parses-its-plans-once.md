@@ -33,9 +33,10 @@ Last scan failed: timed out after 90000ms — 55 worktrees, 44 branches
 
 That reading — 462.9 s of wall clock at 11 % CPU utilisation, 56 worktrees and
 43 branches — is what this plan was first written against, and **it is not the
-steady state.** Instrumented sampling (`.plot/measure/scan-sample.sh`, landed
-`ec35d522`) recorded the estate size before each run and found a different
-regime entirely:
+steady state.** Instrumented sampling recorded the estate size before each run
+and found a different regime entirely (the sampler lived at
+`.plot/measure/scan-sample.sh`, landed `ec35d522` and removed once it had
+answered — the numbers it produced are kept here because they are the argument):
 
 | worktrees | branches | real | cpu % | |
 |---|---|---|---|---|
