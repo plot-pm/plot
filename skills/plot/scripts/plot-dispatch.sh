@@ -716,9 +716,12 @@ if [ "$mode" = "restart" ]; then
     waiting*)
       # A person owes this branch an answer. A new worker meets the same
       # question and writes the same marker.
-      marker=$(cd "$restart_wt" && ls -1 PLOT-BLOCKED* 2>/dev/null | head -1)
+      # ASKED, NOT RE-GLOBBED. The marker's spelling lives with the
+      # classification in plot-worker-state.sh and only there; a copy of the
+      # glob here is the drift `workerstate.test.mjs` pins against.
+      marker=$(plot_worker_blocked_file "$restart_wt" || true)
       echo "plot-dispatch: $restart_branch is blocked on a question — refusing." >&2
-      echo "  ${marker:-PLOT-BLOCKED.md}: $restart_wt/${marker:-PLOT-BLOCKED.md}" >&2
+      echo "  the question is in $restart_wt/${marker:-the marker file}" >&2
       echo "  Answer it and delete the marker, then restart." >&2
       exit 1
       ;;

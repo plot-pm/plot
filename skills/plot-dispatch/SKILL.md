@@ -34,9 +34,9 @@ parallel work is a decision. This command therefore never runs itself, and
 `--dry-run` exists so the decision can be taken with the facts in hand.
 
 **Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--allow-local] <slug>`,
-or `--status` / `--stop <branch>` to inspect or stop running workers, or
-`--migrate [--yes]` to move idle legacy worktrees into the configured
-`Worktree root:`.
+or `--status` / `--stop <branch>` / `--restart <branch>` to inspect, stop or
+replace a worker, or `--migrate [--yes]` to move idle legacy worktrees into the
+configured `Worktree root:`.
 
 ## Model Guidance
 
@@ -351,21 +351,61 @@ example put in front of them becomes the answer.
 and the workers keep going — which is also why a dead worker needs the reaper
 (`/plot-reconcile`) rather than being noticed here.
 
-## Inspecting and stopping workers
+## Inspecting, stopping and restarting workers
 
 Detached workers would otherwise be invisible:
 
 ```bash
-../plot/scripts/plot-dispatch.sh --status            # every worktree: pid, alive?, last log line
-../plot/scripts/plot-dispatch.sh --stop feature/x    # stop one worker
+../plot/scripts/plot-dispatch.sh --status              # every worktree: pid, alive?, last log line
+../plot/scripts/plot-dispatch.sh --stop feature/x      # stop one worker
+../plot/scripts/plot-dispatch.sh --restart feature/x   # hand a stopped branch to a new worker
 ```
 
-Both work **regardless of the plan's phase** — work already running must stay
-inspectable even if the plan was since delivered. `--stop` requires an explicit
-branch name (containing `/`); there is deliberately no "stop everything".
+All three work **regardless of the plan's phase** — work already running must
+stay inspectable even if the plan was since delivered. `--stop` and `--restart`
+each require an explicit branch name (containing `/`); there is deliberately no
+"stop everything", and no "restart whatever looks stuck".
 
 Stopping leaves the worktree and the claim in place: the branch stays taken
 until you release it. Releasing is `/plot-reconcile`'s job.
+
+### Why restart is a separate verb
+
+A plain `plot-dispatch.sh <slug>` will never restart anything, and that is
+deliberate. The dispatcher asks the scan for `--next`, which offers only `open`
+branches — meaning no ref exists at all. A branch that has ever been claimed is
+`claimed` or `wip`, so it is never offered; that `open`-only rule is Plot's
+**lock**, the thing that stops two workers claiming one branch. Widening it
+would hand claimed branches to all three of `--next`'s callers, and the board's
+auto-dispatch would begin restarting stalled work on a five-second timer with
+nobody deciding anything.
+
+So restart is a second question rather than a wider first one, and a person
+asks it: deciding that a stopped worker should be **replaced** rather than its
+work reviewed, reaped, or abandoned is exactly the call Plot leaves to a human.
+
+**It refuses on measurements, and the PR is asked first — before the state
+word.** Five of five `failed` worktrees measured in this estate held a PR, four
+open and one already merged, because `plot-worker-state.sh` refines `finished`
+by the tree but deliberately does not refine `failed`. A gate reading the state
+word alone would restart all five and discard exactly what the `finished`
+refusal protects.
+
+| measurement | answer |
+|---|---|
+| an open or merged PR exists | **refuse** — the work reached review, whatever the exit code said |
+| a live process (`running`) | **refuse** — names the pid; stop it first if you mean to replace it |
+| a `PLOT-BLOCKED*` marker (`waiting`) | **refuse** — names the file; a new worker meets the same question |
+| none of the above | **restart** — `stalled`, `failed`, `ended`, `none` alike |
+
+There is no `--force`. A flag overriding a liveness refusal is the flag typed
+reflexively, and what it would override is another agent's work.
+
+The worktree is inherited **exactly as it stands**. A `stalled` tree holds
+uncommitted work — that is what `stalled` means, and a measured stall here left
+324 finished lines on the floor — so nothing is cleaned, reset or stashed. The
+new worker starts through the ordinary dispatch path, so it gets a manifest and
+the fleet can see it: a restart the fleet cannot see has not succeeded.
 
 ## Migrating existing worktrees into the configured root
 
