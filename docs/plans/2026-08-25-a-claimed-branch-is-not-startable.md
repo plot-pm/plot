@@ -184,7 +184,7 @@ budget spent on a no-op.
 The pulse reports whether each branch has a ref holding it, derived by the scan
 from the refs it already walks.
 
-### Spent (Branch: bug/auto-dispatch-skips-a-claimed-branch)
+### Spent (Branch: bug/auto-dispatch-skips-a-claimed-branch, PR: #482)
 
 `planAutoDispatch` counts only unclaimed branches as startable, and names the
 claimed ones it skipped.
