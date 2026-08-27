@@ -949,7 +949,35 @@ export function isOneWavePlan(wave: { planWaveCount?: number }): boolean {
   return wave.planWaveCount === 1;
 }
 
-export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked']);
+/**
+ * WHAT THE SCAN SAYS ABOUT A WAVE — four words, one of which is new.
+ *
+ * `complete`   every non-deferred branch of this wave has merged
+ * `eligible`   a dispatch would take this: prior waves landed AND the plan is approved
+ * `blocked`    an earlier wave has not landed yet
+ * `unapproved` the plan is not approved, so nothing here may be dispatched
+ *
+ * `unapproved` WAS ADDED BY `an-eligible-wave-can-be-started`, and it narrowed
+ * what `eligible` means. The word used to answer wave ORDERING alone — *no
+ * earlier wave blocks this one* — and readers took it to mean *I can start
+ * this*. Measured 2026-08-27: every one-wave plan in `not-started` on the live
+ * board read `eligible`, and `plot-dispatch.sh` refused all six as still Draft.
+ * Six of six unstartable, wearing the word a reader acts on.
+ *
+ * THE NOTE ABOVE THIS ONE USED TO SAY THE SCAN KEEPS `eligible` MEANING WAVE
+ * ORDERING, and that the ROW would stop rendering it as an instruction. That
+ * was the client-side fix, and it was reconsidered rather than forgotten:
+ * `--next` and `plot-dispatch.sh` consume this same verdict, so a word meaning
+ * one thing to the board and another to the dispatcher relocates the
+ * disagreement instead of removing it. The definition is fixed where the
+ * verdict is defined.
+ *
+ * NOT FOLDED INTO `blocked`. That word means *an earlier wave has not landed*
+ * — an ordering fact that resolves by merging work. This resolves by a person
+ * approving the plan, and `blocked by <wave> — 1 branch` is a sentence a row in
+ * this state cannot truthfully complete.
+ */
+export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked', 'unapproved']);
 export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
 
 /**
@@ -972,10 +1000,18 @@ export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
  * Derived in `classify`, where the plan phase is in scope. `isStartable` reads
  * the field rather than re-deriving it, so the row and the menu cannot disagree.
  *
- * THE SCAN KEEPS `eligible` and keeps meaning *every prior wave landed*: it is
- * a correct measurement about waves, other components read it, and the fleet's
- * ordering depends on it. What changes is that the ROW stops rendering a
- * wave-ordering fact as though it were an instruction.
+ * THE SCAN'S `eligible` NOW MEANS STARTABILITY TOO, which this note previously
+ * recorded as deliberately NOT the case. `an-eligible-wave-can-be-started`
+ * changed it: the scan withholds `eligible` from a wave whose plan is not
+ * approved and says `unapproved` instead, because `--next` and
+ * `plot-dispatch.sh` read that verdict and a word cannot mean two things.
+ *
+ * THIS ENUM SURVIVES THAT CHANGE AND IS NOT REDUNDANT. It answers a different
+ * question at a different grain: `unapproved` is one WAVE-level fact, while
+ * these four are the ROW-level answer for a BRANCH — `needs-brief` and
+ * `someone-is-on-it` are branch facts no wave verdict carries. The two agree
+ * where they overlap (`waiting-on-approval` and `unapproved` come from one
+ * phase) and neither is derived from the other.
  */
 export const StartabilityVerdictSchema = z.enum([
   'start-work', 'needs-brief', 'waiting-on-approval', 'someone-is-on-it',
@@ -2581,16 +2617,20 @@ export const AgentRowSchema = z.object({
    */
   blockedBy: z.string().nullable().default(null),
   /**
-   * The verdict of the WAVE this row sits in — `complete`, `eligible` or
-   * `blocked`, forwarded from `FleetWaveSchema.verdict`.
+   * The verdict of the WAVE this row sits in — `complete`, `eligible`,
+   * `blocked` or `unapproved`, forwarded from `FleetWaveSchema.verdict`.
    *
-   * THE SAME THREE VALUES, and reusing `WaveVerdictSchema` is the decision
-   * rather than the default. A row does not classify itself here: it repeats
-   * what the scan already decided about its wave, so a fourth value would have
-   * to mean something the scan cannot say. The row's OWN questions are answered
-   * by fields that already exist — `state` for its git shape, `group` for its
-   * section, `waitingOn` for what would move it — and a second three-value enum
-   * meaning almost the same thing is the drift this field exists to prevent.
+   * THE SAME VALUES AS THE SCAN'S, and reusing `WaveVerdictSchema` is the
+   * decision rather than the default. A row does not classify itself here: it
+   * repeats what the scan already decided about its wave, so a value this enum
+   * carries is one the scan can say. That was written as "the same THREE
+   * values, and a fourth would have to mean something the scan cannot say" —
+   * and the fourth arrived by the only route that clause allowed: the SCAN
+   * learned to say it. `unapproved` is emitted by `plot-fleet-scan.sh`, not
+   * invented here. The row's OWN questions stay answered by fields that already
+   * exist — `state` for its git shape, `group` for its section, `waitingOn` for
+   * what would move it — and a second enum meaning almost the same thing is
+   * still the drift this field exists to prevent.
    *
    * A FIELD RATHER THAN A STRING MATCH — the shape `ELIGIBLE_NOTE` proposed
    * above and declined to build, and the same argument `worker`, `waitingOn`
