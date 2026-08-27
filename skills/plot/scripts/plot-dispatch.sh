@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: fan out one worktree + one worker per eligible branch.
-# Usage: plot-dispatch.sh [--dry-run] [--no-start] [--offline] [--max N]
-#                         [--allow-local] <slug>
+# Usage: plot-dispatch.sh [--dry-run] [--no-start] [--no-brief] [--offline]
+#                         [--max N] [--allow-local] <slug>
 #        plot-dispatch.sh --migrate [--yes] [--max N]
 #   --status    list fleet worktrees with worker pid, liveness, and last log
 #               line; then exit. Works regardless of plan phase.
@@ -14,6 +14,11 @@
 #   --dry-run   print what would happen; create nothing, push nothing
 #   --yes       with --migrate, actually move the worktrees (default is dry-run)
 #   --no-start  create worktrees and claim refs, but start no workers
+#   --no-brief  start a worker even when its branch has no brief. The named
+#               escape for the brief gate: a missing brief PREPARES (worktree +
+#               claim) but does not START, because the worker's first
+#               instruction is to read `.plot/briefs/<branch>.md` and it has
+#               nothing to read. --no-brief overrides that and says so.
 #   --offline   skip `git fetch`
 #   --max N     dispatch at most N branches this run (default: all eligible)
 #   --allow-local  read the plan's phase from the working tree when
@@ -141,6 +146,7 @@ resolve_wt_root() { # $1=repo_root → sets globals wt_root, wt_prefix
 
 dry_run=0
 no_start=0
+no_brief=0
 mode=dispatch
 stop_branch=""
 offline=""
@@ -159,6 +165,7 @@ while [ $# -gt 0 ]; do
     # stop the wrong thing (or nothing) without saying so.
     --stop)     mode=stop; case "${2:-}" in */*) stop_branch="$2"; shift ;; esac ;;
     --no-start) no_start=1 ;;
+    --no-brief) no_brief=1 ;;
     --offline|--no-fetch) offline="--offline" ;;
     --allow-local) allow_local=1 ;;
     --max)      max="${2:?--max needs a value}"
@@ -166,7 +173,7 @@ while [ $# -gt 0 ]; do
                   ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
                 esac
                 shift ;;
-    -h|--help)  sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,28p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -1128,6 +1135,28 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
 #
 # The worker command is configurable because "how do I run an agent headless"
 # is a per-project, per-tool answer that Plot must not hardcode (Principle 5).
+# THE BRIEF GATE. A branch's hand-off brief is its specification: the `Worker
+# command`'s first instruction is "Read `.plot/briefs/<branch-suffix>.md` first
+# — it is the specification". Without it the worker reads nothing and improvises,
+# the one thing the brief exists to prevent (measured 2026-08-20: 2:12 against a
+# 700-line wave with no spec). So a missing brief PREPARES but does not START —
+# the worktree and claim above are correct and stay; only the launch is refused.
+#
+# READABLE AND NON-EMPTY, not merely present. A zero-byte or permission-denied
+# file is not a specification, and `[ -f ]` alone passes for an empty one — the
+# naive check the plan calls out. This is STRICTER than the board's `briefState`
+# row hint (which treats any existing file as present, because a person will look
+# either way): here the cost of guessing wrong is an agent burning minutes on
+# nothing, so an unreadable brief reads as missing.
+#
+# The path is the branch after its last `/`, under the repo root — the same
+# convention `/plot-implement` writes and `briefPathOf` reads on the board side.
+brief_path() { printf '%s/.plot/briefs/%s.md' "$repo_root" "${1##*/}"; }
+brief_present() { # $1 = branch → 0 if a usable brief exists, 1 otherwise
+  local b; b=$(brief_path "$1")
+  [ -r "$b" ] && [ -s "$b" ]
+}
+
 start_worker() {
   local branch="$1" wt="$2"
   local cmd
@@ -1719,7 +1748,19 @@ while :; do
   fi
 
   if [ "$no_start" = 0 ]; then
-    start_worker "$branch" "$wt" && n_started=$((n_started + 1))
+    # THE BRIEF GATE, between preparing and starting. Prepared work above stands;
+    # only the launch is conditional. A missing brief refuses, naming the file
+    # and the two ways forward — write it, or pass --no-brief. --no-brief starts
+    # anyway and SAYS SO, so the override is on the record rather than silent.
+    if brief_present "$branch"; then
+      start_worker "$branch" "$wt" && n_started=$((n_started + 1))
+    elif [ "$no_brief" = 1 ]; then
+      echo "    no brief at $(brief_path "$branch") — starting anyway (--no-brief)"
+      start_worker "$branch" "$wt" && n_started=$((n_started + 1))
+    else
+      echo "    prepared, not started — no brief at $(brief_path "$branch")"
+      echo "      write one: /plot-implement $slug   (or pass --no-brief to start without it)"
+    fi
   fi
 done
 

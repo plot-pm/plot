@@ -109,6 +109,167 @@ test('dispatch: the script never invokes a skill', () => {
     'plot-dispatch.sh must not invoke a skill');
 });
 
+// ---------------------------------------------------------------------------
+// The brief gate
+// ---------------------------------------------------------------------------
+//
+// A brief is a branch's specification: the `Worker command`'s first instruction
+// is "Read `.plot/briefs/<branch-suffix>.md` first — it is the specification".
+// When the file is absent the worker reads nothing and improvises — measured
+// 2026-08-20 as an agent running 2:12 against a 700-line wave with no spec.
+//
+// The defect is that the script DETECTS the gap (`brief=missing` in its footer)
+// and starts the worker anyway: a rule where a gate belongs. This wave turns it
+// into a gate. A missing brief PREPARES but does not START — the worktree and
+// claim are correct and stay; only the worker launch is refused, so the operator
+// can write the brief and start it without redoing setup. `--no-brief` is the
+// named escape, in the tradition of `--allow-local`.
+
+/** A repo whose plan has a real `Worker command`, with control over the brief. */
+function repoForBrief(label, { brief } = {}) {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-brief-${label}-`));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  // A real Worker command, so a start is genuinely ATTEMPTED — it drops a
+  // sentinel and exits, letting a test tell a launched worker from a refused one.
+  const sentinel = path.join(t, 'worker-ran');
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + `- **Worker command:** touch ${sentinel}\n`);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-b.md'),
+    '# B\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/needs` — one\n');
+  fs.symlinkSync('../2026-01-01-b.md', path.join(r, 'plans', 'active', 'b.md'));
+  // `brief` is: undefined → no file; a string → that content; { mode } → written
+  // then chmod'd (an unreadable brief). The suffix is the branch after its last /.
+  let briefFile;
+  if (brief !== undefined) {
+    const dir = path.join(r, '.plot', 'briefs');
+    fs.mkdirSync(dir, { recursive: true });
+    briefFile = path.join(dir, 'needs.md');
+    fs.writeFileSync(briefFile, typeof brief === 'object' ? brief.body : brief);
+  }
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  // Restrict the mode AFTER commit — the gate reads the working-tree file, and a
+  // 0o000 file cannot be `git add`ed. The dispatcher reads the checked-out copy.
+  if (typeof brief === 'object' && brief.mode !== undefined) fs.chmodSync(briefFile, brief.mode);
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-needs');
+  return {
+    tmp: t, repo: r, sentinel, worktree: wt,
+    // Give the detached worker a moment to touch its sentinel, if it was started.
+    workerStarted: () => {
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline && !fs.existsSync(sentinel)) execFileSync('sleep', ['0.1']);
+      return fs.existsSync(sentinel);
+    },
+    cleanup: () => {
+      fs.rmSync(t, { recursive: true, force: true });
+      fs.rmSync(wt, { recursive: true, force: true });
+    },
+  };
+}
+
+test('dispatch: a branch with no brief is prepared but not started', () => {
+  // THE DEFECT. The worktree and claim are the real state and must stand; only
+  // the worker launch is refused, so `/plot-implement` can write the brief and
+  // start it without redoing setup. The message must name the file and BOTH ways
+  // forward — write the brief, or pass --no-brief.
+  const f = repoForBrief('none');
+  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  // PREPARED: the worktree exists and the claim is on the remote.
+  assert.match(out, /dispatched feature\/needs/, `the fan-out must still happen:\n${out}`);
+  assert.match(git(f.repo, 'worktree', 'list'), /plot-wt-feature-needs/);
+  assert.match(git(f.repo, 'ls-remote', '--heads', 'origin', 'feature/needs'), /feature\/needs/);
+
+  // NOT STARTED: no worker ran.
+  assert.equal(f.workerStarted(), false, 'a worker must NOT be launched without a brief');
+  assert.match(out, /summary: .*started=0/, `nothing may be counted as started:\n${out}`);
+
+  // The message names the file and the two ways forward.
+  assert.match(out, /\.plot\/briefs\/needs\.md/, `must name the brief file:\n${out}`);
+  assert.match(out, /plot-implement/i, `must offer writing the brief:\n${out}`);
+  assert.match(out, /--no-brief/, `must offer the named escape:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: a branch WITH a brief starts as before', () => {
+  const f = repoForBrief('present', { brief: 'Real specification.\n' });
+  execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  assert.equal(f.workerStarted(), true, 'a brief present must start the worker as before');
+  f.cleanup();
+});
+
+test('dispatch: --no-brief starts a briefless branch and says so', () => {
+  // The named escape. A gate with no exit is one people route around by not
+  // using the tool — four briefs were hand-written to beat auto-dispatch to the
+  // claim on 2026-08-27 for exactly this reason. --no-brief starts it AND says
+  // so in the log, so the override is visible rather than silent.
+  const f = repoForBrief('escape');
+  const out = execFileSync('bash', [dispatch, '--offline', '--no-brief', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  assert.equal(f.workerStarted(), true, '--no-brief must start the worker despite no brief');
+  assert.match(out, /--no-brief/, `the override must be stated in the log:\n${out}`);
+  assert.match(out, /summary: .*started=1/, `the start must be counted:\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: an unreadable brief is treated as missing, not present', () => {
+  // A zero-byte or permission-denied file is not a specification. This is the
+  // assertion a naive `[ -f ]` check fails: the file exists, but there is
+  // nothing to read. An empty brief is the case measured — a claimed worktree
+  // with a placeholder file that says nothing.
+  const empty = repoForBrief('empty', { brief: '' });
+  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: empty.repo, timeout: 30_000 });
+  assert.equal(empty.workerStarted(), false, 'an empty brief is not a specification');
+  assert.match(out, /summary: .*started=0/, `an empty brief must not start a worker:\n${out}`);
+  assert.match(out, /\.plot\/briefs\/needs\.md/, `must still name the file:\n${out}`);
+  empty.cleanup();
+
+  // A file that exists but cannot be read is equally not a specification.
+  const denied = repoForBrief('denied', { brief: { body: 'secret\n', mode: 0o000 } });
+  const out2 = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: denied.repo, timeout: 30_000 });
+  assert.equal(denied.workerStarted(), false, 'a permission-denied brief is not a specification');
+  assert.match(out2, /summary: .*started=0/, `an unreadable brief must not start a worker:\n${out2}`);
+  denied.cleanup();
+});
+
+test('dispatch: the footer agrees with what happened', () => {
+  // `brief=missing` must never print beside a non-zero `started` unless the
+  // operator passed --no-brief. Today the footer reads
+  // `... started=2 ... brief=missing` — the exact contradiction this removes:
+  // the gap is detected, printed, and not acted on.
+  const missing = repoForBrief('agree-missing');
+  const outMissing = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: missing.repo, timeout: 30_000 });
+  const footerMissing = outMissing.split('\n').find((l) => l.startsWith('summary: ')) ?? '';
+  // A missing brief blocks the start, so `brief=missing` and `started>0` cannot
+  // co-occur.
+  assert.match(footerMissing, /brief=missing/, `the field must still be reported:\n${footerMissing}`);
+  assert.match(footerMissing, /started=0/,
+    `brief=missing must not sit beside a non-zero started:\n${footerMissing}`);
+  missing.cleanup();
+
+  // With --no-brief the start is licensed, so a non-zero started is honest.
+  const escape = repoForBrief('agree-escape');
+  const outEscape = execFileSync('bash', [dispatch, '--offline', '--no-brief', 'b'],
+    { encoding: 'utf8', cwd: escape.repo, timeout: 30_000 });
+  const footerEscape = outEscape.split('\n').find((l) => l.startsWith('summary: ')) ?? '';
+  assert.match(footerEscape, /started=1/, `--no-brief must let the start count:\n${footerEscape}`);
+  escape.cleanup();
+});
+
 test('dispatch: creates one worktree per eligible branch and claims each ref', () => {
   run(['--offline', '--no-start', 'fan']);
 
@@ -701,6 +862,9 @@ test('dispatch: a real worker that exits records its status', () => {
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-w.md'),
     '# W\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/real` — one\n');
   fs.symlinkSync('../2026-01-01-w.md', path.join(r, 'plans', 'active', 'w.md'));
+  // A brief, so the worker actually launches — the gate refuses a briefless start.
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'real.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
@@ -755,6 +919,9 @@ test('dispatch: .plot-worker.pid records the AGENT process, not the wrapper', ()
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-w.md'),
     '# W\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/real` — one\n');
   fs.symlinkSync('../2026-01-01-w.md', path.join(r, 'plans', 'active', 'w.md'));
+  // A brief, so the worker actually launches — the gate refuses a briefless start.
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'real.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
@@ -1236,6 +1403,9 @@ function repoWithConfig(label, extraConfig = '') {
     '# W\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n'
     + '\n## Branches\n\n- `feature/alpha` — one\n- `feature/beta` — two\n');
   fs.symlinkSync('../2026-01-01-w.md', path.join(r, 'plans', 'active', 'w.md'));
+  // A brief, so the worker actually launches — the gate refuses a briefless start.
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'real.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
@@ -1881,6 +2051,9 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-m.md'),
     '# M\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/manifest` — one\n');
   fs.symlinkSync('../2026-01-01-m.md', path.join(r, 'plans', 'active', 'm.md'));
+  // A brief, so the worker actually launches — the gate refuses a briefless start.
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'manifest.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
@@ -1949,6 +2122,9 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-mp.md'),
     '# MP\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/mpid` — one\n');
   fs.symlinkSync('../2026-01-01-mp.md', path.join(r, 'plans', 'active', 'mp.md'));
+  // A brief, so the worker actually launches — the gate refuses a briefless start.
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'mpid.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
@@ -2003,6 +2179,9 @@ test('dispatch: the session id reaches the worker as PLOT_SESSION_ID', () => {
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-e.md'),
     '# E\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/env` — one\n');
   fs.symlinkSync('../2026-01-01-e.md', path.join(r, 'plans', 'active', 'e.md'));
+  // A brief, so the worker actually launches — the gate refuses a briefless start.
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'env.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
