@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Closed
+- **Phase:** Active
 - **Start:** 2026-08-23
 - **End:** 2026-09-02
 - **Release:** 2.9.0
@@ -131,6 +131,7 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-wave-is-a-thing-the-board-can-hold] Wave *Consumed* — DONE holds the release scope, and the split head counts what is elsewhere without rendering it <!-- status: delivered, pr: #353, branches: 4/4 -->
 - [x] [done-holds-what-is-still-yours] A finished row reports neither a pulse nor a live worker state — the activity mark and the stale worker are one category error in one file <!-- status: delivered, branches: 1/1 -->
 - [x] [a-marker-is-a-file-not-a-mention] A marker is a file, not a mention — `plot_worker_blocked` greps file CONTENTS, so 28 documenting files on main make every clean worker read `waiting` and the board offer a question lifted from a brief <!-- status: delivered, branches: 1/1 -->
+- [ ] [the-pr-list-join-is-silently] Past 50 PRs per state, the Bitbucket join is silently partial — ~780 of 836 merged PRs invisible on a measured client repo, every older branch reading `no PR`, which is the fabricated verdict the scan refuses everywhere else <!-- status: draft, branches: 0/1 -->
 
 ### Should Have
 
@@ -143,46 +144,17 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [the-registry-names-a-live-agent] The registry names a live agent — a dead pid displayed beside `running`, nine agents skipped by a gate on a value the classifier never reads, and six worktrees with no entry at all <!-- status: delivered, branches: 1/1 -->
 
 - [x] [a-plan-has-a-phase-and-a-status] A plan carries a phase AND a status — the board derives seven statuses the plan format cannot state, so `Approved` covers everything from nothing-started to every-wave-merged <!-- status: delivered, pr: #374, branches: 1/1 -->
-- [x] [the-row-says-whether-you-can-start-it] The row says whether you can start it — a reader cannot tell an eligible branch from a blocked one without opening the plan
-<!-- MOVED FROM COULD TO SHOULD 2026-08-25, after the v2.9.0 endgame walk.
-     Stop 4 measures it directly — 'M matches the agents you can actually
-     see running, not the registry's size' — and it reads 16 working over
-     4 live processes. A Could neither blocks a release nor prompts about
-     one; a Should prompts, which is the treatment a checklist item that
-     FAILED deserves. -->
-- [x] [working-lists-the-workers-that-are-working] WORKING lists the agents actually working — the header reads `16 working` over 16 rows while 4 processes are alive; 12 are `stalled` or `unknown`. Found walking the v2.9.0 endgame, Stop 4
+- [ ] [the-row-says-whether-you-can-start-it] The row says whether you can start it — a reader cannot tell an eligible branch from a blocked one without opening the plan
 
 ### Could Have
 
 - [x] [the-name-track-holds-the-name] The name track holds the name — 80% of plan slugs exceed the visible width while the branch beside them renders in full <!-- status: delivered, branches: 1/1 -->
-- [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live <!-- deferred: 2026-08-26 — sprint closed on its release; plan is Draft with no ref pushed, so nothing was started and nothing is lost. Available for the next sprint. -->
-- [x] [the-blocking-wave-is-found-wherever-it-is] The blocked mark finds its target across sections — and says so when it cannot
+- [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
+- [ ] [the-blocking-wave-is-found-wherever-it-is] The blocked mark finds its target across sections — and says so when it cannot
 - [x] [the-board-says-which-branch-it-serves] The header names the branch the board is serving from <!-- status: delivered, branches: 1/1 -->
-- [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them <!-- deferred: 2026-08-26 — sprint closed on its release; plan is Draft with no ref pushed, so nothing was started and nothing is lost. Available for the next sprint. -->
-- [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains <!-- deferred: 2026-08-26 — sprint closed on its release; plan is Draft with no ref pushed, so nothing was started and nothing is lost. Available for the next sprint. -->
-- [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft <!-- deferred: 2026-08-26 — sprint closed on its release; plan is Draft with no ref pushed, so nothing was started and nothing is lost. Available for the next sprint. -->
-
-<!-- ADDED 2026-08-25, mid-sprint. These six plans were WRITTEN during the
-     sprint, each in response to a defect found while working on it — reported
-     from screenshots of the running board, not from CI. They serve the sprint's
-     goal directly ("a valid board state, shown honestly, in every section") and
-     were never added to this file, so the board filtered them out of every
-     section under `Sprint only` while their work was landing. -->
-- [x] [a-wave-row-is-a-wave-row-everywhere] A wave renders as a wave row in every section — the same wave read as a wave in NOT STARTED and as a branch in WORKING <!-- status: delivered, pr: #392, branches: 2/2 -->
-- [x] [one-wave-row-two-contents] One wave row, two contents — the row's slots disagreed between sections <!-- status: delivered, branches: 2/2 -->
-- [x] [the-board-says-how-many-workers-are-free] The control says how many workers are free, and counts only the busy ones <!-- status: delivered, pr: #375, branches: 1/1 -->
-- [x] [the-sprint-filter-says-what-it-filters] The Agents tab filters on sprint MEMBERSHIP — the old predicate admitted 53 plan rows with empty sprint fields beside the 2 genuine plan-less ones <!-- status: delivered, pr: #401, branches: 5/5 -->
-- [x] [a-worker-asks-for-the-next-wave] A worker asks for the next wave rather than stopping at its own <!-- status: delivered, pr: #404, branches: 4/4 -->
-- [x] [the-working-section-shows-every-worker] WORKING renders one row per registry entry — 23 registry entries against 0 rows rendered, 6 agents whose branch the pulse never produced <!-- status: delivered, pr: #407, branches: 5/5 -->
-- [x] [the-agents-tab-filters-to-the-sprint] The Agents tab gains the sprint filter and states the sprint's progress and target release — the control this sprint's filtering work builds on <!-- status: delivered, branches: 6/6 -->
-- [x] [the-derivations-leave-the-component] The row derivations leave `AgentList.tsx` for modules grouped by subject, so two branches on unrelated section rules stop editing one file <!-- status: delivered, branches: 2/2 -->
-- [x] [the-scan-asks-once-per-pulse-not-once-per-branch] An idle board stops exhausting the host's hourly budget — branch PR state resolves from the one repo-wide list the scan already fetches <!-- status: delivered, branches: 1/1 -->
-- [x] [a-count-answers-to-its-section] A count answers to the section beneath it — DONE reads `33` in its header over 13 visible rows; the two count different units. Found walking the v2.9.0 endgame
-- [x] [the-board-shows-where-the-thinking-happens] The Agents tab names the branch the master agent works on, and the header's unlabelled branch chip — which named the SERVER's checkout and was twice read as the operator's — is removed
-- [x] [the-registry-lives-where-the-dispatcher-writes-it] A board served from a worktree with no `.plot/agents/` reads the dispatcher’s manifests — all 12 agents were synthesized with no session, so no row could offer Drop
-- [x] [a-state-is-a-word-not-a-sentence] The agent state column reads a state — four states render their own name, `running` rendered `someone is on it` on all 11 WORKING rows
-- [x] [a-hung-child-does-not-hold-the-loop] A worker whose agent process hangs is ended rather than waited on forever — 11 of 13 workers sat at zero CPU for up to 10 hours after `No messages returned`, and auto-dispatch started 2 more against a cap of 3
-- [x] [a-wip-branch-nobody-is-on-is-not-startable] Auto-dispatch spends its budget on branches a dispatch would refuse — 3 of 4 branches it counted as startable were already claimed, and the July plan holding one starved every newer plan behind it
+- [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
+- [ ] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains
+- [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
 
 ### Out of scope, and why — 27 open plans, 20 not in this sprint
 
@@ -226,27 +198,9 @@ that record rather than deleted.
 
 ## Notes
 
-### Closed 2026-08-26, seven days early
-
-The sprint closed on its RELEASE rather than its date: **v2.9.0 shipped
-2026-08-26**, and the sprint's `Release:` field named it. The declared End was
-2026-09-02.
-
-Final tally — **Must 8/8, Should 10/10, Could 18/22**. The four open Could
-Haves are deferred above: each is a Draft plan with no ref pushed, so none was
-started and none is lost.
-
-The success condition was *a board a reader opens after the release containing
-no row its section forbids*. It was walked on a live board and signed
-in-session, 37 of 41 checklist items, with four left open and named rather than
-glossed — the GitHub idle rate unmeasured, `sprint_drift` unread, the
-blocked-mark jump not checkable for want of a blocked wave, and the rounds
-badge answered by its own PR rather than by a reader. None is a correctness
-finding; all four carry to the next release, per the checklist's own rule that
-an unticked box is a question and a blank one is worse than a failure.
-
 ### Scope Changes
 
+- 2026-08-27: added [the-pr-list-join-is-silently] as a Must Have. It declared `Sprint: the-board-serves-an-enterprise-stack` while naming no sprint that named it back, so it belonged to no timebox at all. Raised to Must Have on the round-three measurement: ~94% of merged PRs invisible on a supported host is a correctness defect, not a stretch goal.
 - 2026-08-23: added `a-plan-has-a-phase-and-a-status` and
   `the-row-says-whether-you-can-start-it` as Should Haves. Both were
   interrogated during the sprint (rounds 4 and 1) and both bear directly on

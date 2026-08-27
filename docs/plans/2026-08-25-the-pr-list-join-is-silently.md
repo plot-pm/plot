@@ -4,13 +4,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
-- **Sprint:** the-board-serves-an-enterprise-stack
+- **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** #333
-- **Story:** the-board-is-blank-where-it-matters
+- **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Rounds:** 2
 
 ## Changelog
@@ -35,21 +36,63 @@ Severity is low today (this repo is GitHub; the measured Bitbucket repo had 9 br
 
 ### Approach
 
-The middle path from the issue: detect a full page (exactly 50 results in any state) and mark the list as **incomplete**, so the scan can fall back to per-branch lookups for the branches it could not answer. Absent is not false.
+Detect that the host's answer is **possibly truncated**, and repair it where the
+truncation happens — inside `plot-host.sh pr-list` — so that `pr-list` either
+returns a complete set or says it could not.
 
-**Option A — Page until exhausted:** `bb pr list` exposes no cursor; paging would require guessing at offsets or reverse-engineering undocumented behaviour. Rejected.
+**Option A — Page until exhausted:** `bb pr list` exposes no cursor; paging would
+require guessing at offsets or reverse-engineering undocumented behaviour.
+Measured against `bb` 1.0.0: the only flags are `--state`, `--json`,
+`--repository`, `--web`. Rejected on a measurement, not a guess.
 
-**Option B — Detect truncation, fall back:** When `plot-host.sh pr-list` returns exactly 50 results in any state, it signals "list may be incomplete". The scan joins what it has, then asks the host directly for any branch that joined to nothing. This preserves the N+1 fix for the common case (≤50 PRs per state) and degrades gracefully past that threshold.
+**Option B — Signal truncation, each caller falls back:** `pr-list` reports a
+`truncated` flag and every consumer implements its own repair. Rejected once the
+second consumer was found (below): the same fallback would exist twice, in bash
+and in TypeScript, free to drift. A rule enforced in two languages is a rule that
+will disagree with itself.
 
-**Option C — Surface truncation only:** Make the stderr warning visible on the board. Does not fix the wrong rows. Rejected as sole solution; useful as supplement.
+**Option C — Surface truncation only:** make the stderr warning visible on the
+board. Does not fix the wrong rows. Rejected as a solution; kept as a supplement,
+because a fallback that ran should be visible.
 
-Choosing **Option B** with a visible indicator (Option C as supplement) when truncation is detected.
+**Option D — Repair inside the adapter.** Chosen. `pr-list` detects a possibly
+truncated page and resolves the gap itself, so no caller needs to know that
+Bitbucket has pages.
+
+### There are two consumers, not one
+
+The original design split the invariant across two files: `plot-host.sh` would
+report `truncated`, and `plot-fleet-scan.sh` would act on it. That was written
+when the scan looked like the only consumer.
+
+It is not. `packages/board/src/server/fleet.ts:1552` calls
+`plot-host.sh pr-list --rich` on its own PR timer, independently of the scan's
+`prefill_pr_states` (`plot-fleet-scan.sh:474`). Both join a bulk list locally;
+both are exposed to the same page cap.
+
+`plot-host.sh` is documented as **the ONE place that talks to the host CLI**, and
+truncation is a property of *how the host answered*, not of what a caller asked
+for. So the repair belongs there — the same argument that put the CLI capability
+check there in `the-adapter-checks-the-cli-it-got` (#460).
+
+**The cost, stated plainly:** the adapter starts issuing N+1 calls on its own
+initiative, which is a real change to what "adapter" means in this codebase.
+That is accepted because the alternative is the same fallback implemented twice
+in two languages. It is bounded (below), and it fires only on a host that
+truncates — never on GitHub.
 
 **Implementation:**
 
-1. **`plot-host.sh pr-list`** returns a structured response with a `truncated` field per state when the result count equals the known page cap (50 for `bb` 1.0.0)
-2. **`plot-fleet-scan.sh`** checks the `truncated` flag; for any state marked truncated, branches that joined to nothing are looked up individually via `plot-host.sh pr-state`
-3. The board's pulse output includes a `truncated_states` field so operators know the scan fell back
+1. **`plot-host.sh pr-list`** compares each state's result count against the
+   **requested limit**; a page as full as it could be is possibly truncated.
+2. On a possibly-truncated state it resolves the gap itself, then emits the
+   completed set. Where it cannot, it emits what it has **plus** a
+   `truncated` marker — absent is not false, and a partial answer must never
+   be served as a whole one.
+3. Callers are unchanged. `plot-fleet-scan.sh` and `fleet.ts` keep joining a
+   bulk list; neither learns that Bitbucket has pages.
+4. The fallback is reported (stderr, and the pulse) so an operator can see that
+   it ran and why.
 
 ### Open Questions
 
@@ -62,20 +105,35 @@ Choosing **Option B** with a visible indicator (Option C as supplement) when tru
       nothing almost certainly has no PR, so asking about it spends a round trip
       to learn nothing. See *Bounding the fallback* below.
 
-### Bounding the fallback with a fact the scan already has
+### Bounding the fallback, now that the adapter cannot see `wip`
 
 The fallback asks the host per branch, which is the N+1 the join was built to
-remove — so it must be bounded by something, and the cheapest bound is one that
-costs nothing to compute.
+remove — so it must be bounded.
 
-`plot-fleet-scan.sh` already derives `wip` from `claimed`: the first means real
-unlanded commits, the second an empty claim ref. Only a `wip` branch that joined
-to nothing gets a per-branch lookup. A `claimed` one is skipped, because a
-branch with no commits has no PR to find.
+Round two bounded it with a fact the SCAN has: only a `wip` branch (real
+unlanded commits) gets a per-branch lookup, never a `claimed` one (an empty
+marker), because a branch with no commits has no PR to find. That derivation is
+free and needs no host call.
 
-**This bounds the cost by the work, not by a number.** A cap of *N lookups* would
-be arbitrary and would silently drop the N+1st branch — the same quiet
-incompleteness this plan exists to fix, one level in.
+**Moving the repair into the adapter takes that fact away.** `plot-host.sh` is
+handed no branch list and holds no notion of `wip` — it answers questions about
+the host, not about this repo's refs. The bound has to come from something the
+adapter can see.
+
+What it can see is **the gap itself**: the PR numbers missing from a truncated
+page. `bb` numbers PRs monotonically, so a page returning ids 836 → 787 against
+a repo whose newest PR is 836 states exactly which range it did not answer for.
+The adapter resolves that range, not a branch list.
+
+**This bounds the cost by what was actually lost**, which is the same principle
+as before from the other side: round two bounded by the work, this bounds by the
+gap. A cap of *N lookups* would still be arbitrary and would still drop the
+N+1st silently — the quiet incompleteness this plan exists to remove.
+
+**Open, and it is the real question of this round:** whether resolving that
+range is affordable. At ~780 missing PRs on the measured repo it is plainly not,
+one call at a time. See *Done when* item 3 — a repair that costs 780 round trips
+has not fixed the failure, it has moved it into latency.
 
 ### Truncation is detected, not hardcoded
 
@@ -88,11 +146,39 @@ comes back as full as it could be is possibly truncated, whatever the number. It
 misfires benignly when a state holds exactly the limit (says truncated when
 complete, costing a few lookups) and cannot misfire in the dangerous direction.
 
-## Branches
+## Waves
 
-### Implementation
+### Complete (Branch: feature/the-pr-list-join-is-silently)
 
-- `feature/the-pr-list-join-is-silently` — Detect Bitbucket page truncation in `plot-host.sh pr-list`, signal incompleteness, and fall back to per-branch lookups in `plot-fleet-scan.sh` for branches the join cannot answer
+`plot-host.sh pr-list` detects a possibly-truncated page by comparing each
+state's count against the requested limit, resolves the gap itself, and marks
+the result `truncated` where it cannot — so both consumers keep joining a bulk
+list without knowing the host paginates.
+
+## Done when
+
+1. **A state returning exactly the requested limit is treated as possibly
+   truncated.** Asserted against the *requested limit*, never the constant 50:
+   a future `bb` page size must not make a truncated list report complete, which
+   is this plan's own defect restored.
+2. **A branch whose PR is beyond the first page resolves to that PR, not to
+   "no PR".** The measured failure, and the one assertion that fails on every
+   fix that only reports the problem.
+3. **The repair is bounded, and the bound is stated in the plan before it is
+   built.** ~780 missing PRs on the measured repo cannot be resolved one call at
+   a time; a fix whose cost scales with the gap has moved the failure into
+   latency rather than removing it.
+4. **Where the gap cannot be closed, the result is marked `truncated` and the
+   caller can tell.** Absent is not false: a partial list must never be served
+   as a whole one, which is the failure mode this plan is named for.
+5. **Neither consumer changes.** `plot-fleet-scan.sh:474` and `fleet.ts:1552`
+   keep their current calls; asserted by both being untouched in the diff.
+6. **GitHub is unaffected — no extra host call on a host that honours
+   `--limit`.** Asserted by call count, because a fallback that fires on the
+   common path is a regression for every GitHub user.
+7. **The fallback says it ran.** An operator seeing slow pulses must be able to
+   find out why without reading the source.
+8. `pnpm run validate` and `pnpm run test:reconcile` green.
 
 ## Notes
 
@@ -130,9 +216,46 @@ plan's own defect restored.
 Pagination stays open, and the design is deliberately correct either way: if
 `bb` gains a cursor, the fallback becomes unnecessary rather than wrong.
 
+### Interrogated 2026-08-27 — the repair moves into the adapter
+
+Round three found a **second consumer**, which the first two rounds had no
+reason to look for: `packages/board/src/server/fleet.ts:1552` calls
+`plot-host.sh pr-list --rich` on the board's own PR timer, independently of
+`plot-fleet-scan.sh:474`. Both join a bulk list locally; both are exposed to the
+same page cap.
+
+That retires the original two-file design. Reporting `truncated` from the
+adapter and repairing in the scan would have left the board joining a partial
+list exactly as before — and repairing in both callers would put one fallback in
+bash and another in TypeScript, free to drift.
+
+So the repair moves to where the truncation happens. `plot-host.sh` is the ONE
+place that talks to the host CLI, and a page cap is a property of how the host
+answered, not of what a caller asked for. Same argument that put the CLI
+capability check there in `the-adapter-checks-the-cli-it-got` (#460).
+
+**It costs something and the plan now says so:** the adapter begins issuing N+1
+calls on its own initiative, which changes what "adapter" means here. Accepted,
+because the alternative is the same rule enforced twice in two languages.
+
+**It also took away round two's bound.** That round bounded the fallback to
+`wip` branches — real unlanded commits — using a derivation the SCAN has for
+free. The adapter has no branch list and no notion of `wip`; it answers questions
+about the host, not about this repo's refs. The bound is re-derived from what the
+adapter *can* see: the gap itself, the id range a truncated page did not cover.
+
+Whether closing a ~780-PR gap is affordable at all is the open question this
+round hands to the next, and `Done when` item 3 states it as a gate rather than
+leaving it to implementation.
+
+The plan also gained the two structural pieces it had been missing since it was
+brought onto main: a `## Done when` section (there was none — nothing stated what
+correct meant) and a named wave in place of a flat `### Implementation`.
+
+
 <!-- CHALLENGE-THE-PLAN-METADATA
 {
-  "round": 2,
+  "round": 3,
   "questionHistory": [
     {
       "q": "Fallback for all unresolved branches or only plausible ones?",
@@ -143,13 +266,28 @@ Pagination stays open, and the design is deliberately correct either way: if
       "q": "Is count==50 a safe truncation detector?",
       "a": "No \u2014 compare against the requested limit; the constant fails silently in the dangerous direction",
       "category": "technical"
+    },
+    {
+      "q": "Scope: the scan only, or both pr-list consumers?",
+      "a": "Fix it in the adapter \u2014 fleet.ts:1552 is a second consumer; one repair, both callers benefit",
+      "category": "technical"
+    },
+    {
+      "q": "Structure: no Done when, flat Branches rather than Waves?",
+      "a": "Added Done when (8 assertions) and converted to one named wave, Complete",
+      "category": "technical"
+    },
+    {
+      "q": "Does the ~94% measured loss change its sprint tier?",
+      "a": "Raised to Must Have \u2014 a wrong-answer rate that high on a supported host is correctness, not a stretch goal",
+      "category": "tradeOffs"
     }
   ],
   "deferredItems": [
     {
-      "q": "Does bb pr list expose pagination?",
-      "category": "technical",
-      "context": "Design"
+      "q": "Is resolving a ~780-PR gap affordable, or does the repair just move the failure into latency?",
+      "category": "nonFunctional",
+      "context": "Bounding the fallback / Done when item 3"
     }
   ],
   "categoriesCovered": {
@@ -168,7 +306,7 @@ Pagination stays open, and the design is deliberately correct either way: if
     "nonFunctional": {
       "security": false,
       "performance": true,
-      "scalability": false
+      "scalability": true
     },
     "tradeOffs": true
   }
