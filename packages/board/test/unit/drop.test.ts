@@ -196,3 +196,96 @@ describe('drop removes the manifest the reader found — the configured director
     assert.match(body.reason, /no manifest found/);
   });
 });
+
+describe('a GONE worktree is droppable; an unknown one that EXISTS is not', () => {
+  // Items 5 and 5b. `classifyState` collapsed three unlike situations into
+  // `unknown` — probe unrecognisable, resolver missing, worktree DELETED — and
+  // only the first two mean "might be alive". Measured 2026-08-27: rows refused
+  // with advice to "check the worktree manually", naming directories that had
+  // been reaped and did not exist.
+  //
+  // Both directions are asserted, because a fix that simply drops every
+  // `unknown` passes item 5 while discarding a running agent's record.
+
+  it('item 5: an unknown entry whose worktree was deleted drops', async () => {
+    const root = repo();
+    configFile(root, 'shared-registry');
+    // A path that is RECORDED and ABSENT — the reaped-worktree shape. This is
+    // the case the old guard never asked about: it checked `!entry.worktree`
+    // (no path at all) and never `existsSync` of a path it had.
+    const gone = path.join(root, 'plot-wt-feature-reaped');
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-gone', gone);
+    assert.ok(!fs.existsSync(gone), 'the fixture worktree must be absent');
+
+    // Liveness cannot answer for a directory that is not there; that is exactly
+    // how these entries reached `unknown` in production.
+    const got = await drop('sess-gone', {
+      repoRoot: root,
+      liveness: fixedLiveness('unknown'),
+    });
+
+    assert.equal(got.status, 200);
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, true, 'a worktree that does not exist runs nothing');
+    assert.ok(!fs.existsSync(file), 'the stranded manifest is removed');
+  });
+
+  it('item 5b: an unknown entry whose worktree EXISTS is still refused', async () => {
+    const root = repo();
+    configFile(root, 'shared-registry');
+    // The live-worker case the guard was written for: the state could not be
+    // verified AND the directory is there, so it might hold a running agent.
+    const present = path.join(root, 'plot-wt-feature-live');
+    fs.mkdirSync(present, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-present', present);
+
+    const got = await drop('sess-present', {
+      repoRoot: root,
+      liveness: fixedLiveness('unknown'),
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, false, 'unverifiable AND present must still refuse');
+    assert.match(body.reason, /could not be verified/);
+    assert.ok(fs.existsSync(file), 'the manifest survives a refusal');
+  });
+
+  it('an entry recording NO worktree path is still refused', async () => {
+    // The pre-existing `!entry.worktree` case, unchanged. An agent between
+    // checkouts records no path, and absence of a path is not absence of an
+    // agent — so it must not be swept up by the gone-worktree widening.
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-nopath', '');
+
+    const got = await drop('sess-nopath', {
+      repoRoot: root,
+      liveness: fixedLiveness('finished'),
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, false, 'no path recorded is not the same as no directory');
+    assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+
+  it('a RUNNING worker whose worktree is gone is still refused as live', async () => {
+    // Ordering guard. The live check runs BEFORE the gone check, so a resolver
+    // that positively reports `running` outranks the directory's absence. A fix
+    // that tested the worktree first would drop a live worker's record the
+    // moment its path became unreadable.
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const gone = path.join(root, 'plot-wt-feature-vanished');
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-running', gone);
+
+    const got = await drop('sess-running', {
+      repoRoot: root,
+      liveness: fixedLiveness('running'),
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, false, 'a positive running verdict outranks a missing directory');
+    assert.match(body.reason, /still running/);
+    assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+});
