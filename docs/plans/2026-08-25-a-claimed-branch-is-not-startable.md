@@ -2,14 +2,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -203,7 +203,14 @@ claimed ones it skipped.
    a message repeated every 5 s is noise, not a diagnostic.
 5. **No host call is added to the scan's path.** Asserted by the existing
    no-network test: the claim comes from refs the scan already reads.
-6. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
+6. **A claimed branch WITH A LIVE WORKTREE is not counted startable.** The
+   danger case, and the one item 1 does not reach: where a worktree survives,
+   `plot-dispatch.sh` ADOPTS it rather than refusing, so the phase gate never
+   fires and a worker starts on merged work. Measured twice on 2026-08-27 — six
+   workers on six already-merged waves, two of which opened PRs ~120 commits
+   behind main. A fix asserted only against the no-worktree case passes items
+   1-5 and leaves the revert risk exactly where it is.
+7. `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board` green.
 
 ## Notes
 
