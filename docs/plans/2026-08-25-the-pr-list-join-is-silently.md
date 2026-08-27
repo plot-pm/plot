@@ -149,7 +149,7 @@ complete, costing a few lookups) and cannot misfire in the dangerous direction.
 
 ## Waves
 
-### Complete (Branch: feature/the-pr-list-join-is-silently)
+### Complete (Branch: feature/the-pr-list-join-is-silently, PR: #467)
 
 `plot-host.sh pr-list` detects a possibly-truncated page by comparing each
 state's count against the requested limit, resolves the gap itself, and marks
