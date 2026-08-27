@@ -88,9 +88,14 @@ pr_merged() {
 # project whose board is served from another checkout points the key elsewhere,
 # and a reaper writing to the wrong directory would report success over a
 # manifest the board still renders.
+# Tested with -r, not -x: the helper is invoked through `bash "$CONFIG"`, which
+# needs the file READABLE and not executable. `-x` would silently fall back to
+# the default on a checkout whose exec bits did not survive — and a reaper
+# reading the wrong directory reports success over a manifest the board still
+# renders, which is exactly the failure #420 fixed on the board's own side.
 CONFIG="$(dirname "${BASH_SOURCE[0]}")/plot-config.sh"
 MANIFEST_DIR=".plot/agents"
-if [ -x "$CONFIG" ]; then
+if [ -r "$CONFIG" ]; then
   d=$(bash "$CONFIG" get "Agent registry" ".plot/agents" 2>/dev/null) && [ -n "$d" ] && MANIFEST_DIR="$d"
 fi
 case "$MANIFEST_DIR" in /*) ;; *) MANIFEST_DIR="$ROOT/$MANIFEST_DIR" ;; esac
@@ -106,13 +111,44 @@ case "$MANIFEST_DIR" in /*) ;; *) MANIFEST_DIR="$ROOT/$MANIFEST_DIR" ;; esac
 # where node does not, and the field it needs is one flat string written by the
 # dispatcher. A manifest whose `worktree` cannot be read simply does not match,
 # which keeps an unparseable file OUT of the removal set rather than in it.
+# A path with its symlinks resolved, or the path unchanged when it does not
+# exist (nothing to resolve, and the caller still needs a string to compare).
+#
+# NOT cosmetic. `git worktree list` reports RESOLVED paths, while a manifest
+# records whatever the dispatcher was handed — and on macOS `/tmp`, `/var` and
+# `/etc` are symlinks into `/private`, so the same directory arrives as two
+# different strings. Measured while writing this: a worktree git called
+# `/private/var/.../repo` against a manifest saying `/var/.../repo`, matching
+# nothing and stranding the manifest the reap was supposed to take.
+canonical() {
+  local p="$1"
+  [ -n "$p" ] || return 0
+  # Resolve through the filesystem while the directory is still there — the
+  # authoritative answer, and the only one that handles an arbitrary symlink.
+  if [ -d "$p" ]; then
+    p=$( (cd "$p" 2>/dev/null && pwd -P) || printf '%s' "$p" )
+  fi
+  # Then normalise the macOS `/private` prefix TEXTUALLY, because the manifest
+  # side is compared AFTER its directory has been removed and there is no
+  # longer anything to resolve. `/tmp`, `/var` and `/etc` are symlinks into
+  # `/private`, so git's `/private/var/...` and a manifest's `/var/...` name
+  # one directory; stripping the prefix from both makes them one string
+  # whether or not either still exists.
+  case "$p" in
+    /private/tmp/*|/private/var/*|/private/etc/*) p=${p#/private} ;;
+  esac
+  printf '%s\n' "$p"
+}
+
 manifest_for() {
   local target="$1" f wt
   [ -d "$MANIFEST_DIR" ] || return 1
+  target=$(canonical "$target")
   for f in "$MANIFEST_DIR"/*.json; do
     [ -f "$f" ] || continue
     wt=$(sed -n 's/.*"worktree"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$f" | head -1)
-    [ "$wt" = "$target" ] && { printf '%s\n' "$f"; return 0; }
+    [ -n "$wt" ] || continue
+    [ "$(canonical "$wt")" = "$target" ] && { printf '%s\n' "$f"; return 0; }
   done
   return 1
 }
@@ -186,6 +222,11 @@ while IFS=$'\t' read -r wt br; do
     printf '%-8s %-52s %s\n' "keep" "$short" "--max $MAX reached"; kept=$((kept+1)); continue
   fi
 
+  # Resolved BEFORE the removal, because `canonical` needs the directory to
+  # still exist to resolve it. After `git worktree remove` there is nothing to
+  # follow, and the manifest's spelling would never converge with git's.
+  wt_real=$(canonical "$wt")
+
   reap=$((reap+1))
   if [ "$DRY" -eq 1 ]; then
     printf '%-8s %-52s %s\n' "would" "$short" "$why"
@@ -196,7 +237,7 @@ while IFS=$'\t' read -r wt br; do
       # refuses leaves a live worktree unregistered, which the registry answers
       # by synthesizing an `unknown` row. Failing this way round strands a
       # manifest instead, which the sweep below clears.
-      if m=$(manifest_for "$wt"); then
+      if m=$(manifest_for "$wt_real"); then
         rm -f "$m" && why="$why, manifest cleared"
       fi
       printf '%-8s %-52s %s\n' "reaped" "$short" "$why"; removed=$((removed+1))
