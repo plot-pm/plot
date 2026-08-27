@@ -1783,19 +1783,30 @@ export function BrokenAgentMenu({
         aria-label="Agent actions"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+        // THE SAME TRIGGER AS EVERY OTHER ROW'S MENU. This drew its own SVG of
+        // three circles until 2026-08-27 while the other four menus in this
+        // file used the `⋯` glyph — so a broken agent's row carried a control
+        // that looked like a different KIND of control, in the one place a
+        // reader is already unsure what is wrong. An operator reported it as
+        // *"why do we use a new type of menu for these broken workers"*.
+        //
+        // A menu is a menu: the row it sits on says what is exceptional, and
+        // the trigger says only *there are acts here*.
+        className="inline-flex h-6 w-5 items-center justify-center leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
       >
-        <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor">
-          <circle cx="8" cy="3" r="1.5" />
-          <circle cx="8" cy="8" r="1.5" />
-          <circle cx="8" cy="13" r="1.5" />
-        </svg>
+        <span aria-hidden className="text-xs">⋯</span>
       </button>
       {open && (
         <div
           role="menu"
           aria-label="Agent actions"
-          className="absolute right-0 z-10 mt-1 min-w-[160px] rounded border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800"
+          // THE SAME PANEL AS EVERY OTHER MENU, byte for byte. This diverged on
+          // five properties — `min-w-[160px]` vs `min-w-max`, `rounded` vs
+          // `rounded-md`, `py-1` vs `p-1`, and `dark:bg-slate-800` vs
+          // `dark:bg-slate-900` — so it sat at a different width, corner radius
+          // and shade than the four menus beside it. Each difference is small
+          // and together they read as a different component.
+          className="absolute right-0 z-10 mt-1 min-w-max rounded-md border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
           onBlur={(e) => {
             if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
           }}
