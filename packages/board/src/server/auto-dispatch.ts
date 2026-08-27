@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import type { FleetControls } from './fleet-controls.js';
-import { LIVE_STATES, type FleetPulse } from '../contract/schema.js';
+import { LIVE_STATES, type FleetBranch, type FleetPulse } from '../contract/schema.js';
 import type { AgentEntry } from './registry.js';
 import { dispatchLogPath } from './dispatch.js';
 
@@ -147,22 +147,31 @@ function isStartable(state: string): boolean {
  * try to push — the difference between *is there work here?* and *would spawning
  * a dispatch change anything?*.
  *
- * A pulse only ever reports `wip` for a branch whose ref EXISTS: the scan
- * derives `wip` by walking `origin/<branch>`'s commits (`plot-fleet-scan.sh`,
- * `branch_state` gates on `remote_ref_exists` before the walk, and `wip`
- * requires real commits beyond main). `plot-dispatch.sh` claims by pushing an
- * empty commit and REFUSES a non-fast-forward against a ref that is already
- * there — Plot's whole locking mechanism. So auto-dispatch spending budget on a
- * `wip` branch buys a dispatch the script immediately discards, every pulse,
- * forever. `open` is the opposite: no ref, no work, nothing to refuse.
+ * `plot-dispatch.sh` claims by pushing an empty commit and REFUSES a
+ * non-fast-forward against a ref that is already there — Plot's whole locking
+ * mechanism. So auto-dispatch spending budget on a branch whose ref exists buys
+ * a dispatch the script immediately discards, every pulse, forever.
  *
- * The refs-as-truth invariant is why `state === 'wip'` is the ref signal and no
- * new field is added or read: a pulse `wip` implies the ref, and a `wip` with no
- * ref cannot be emitted. That is also why {@link isStartable} still accepts
- * `wip` — a `wip` with no ref would be startable if the scan could report one.
+ * THE FIX FOR `a-claimed-branch-is-not-startable`. Before this wave, the check
+ * was `state === 'wip'`, which ASSUMES a ref because `wip` is derived by walking
+ * `origin/<branch>`. But a branch can be `open` (no work commits) AND have a
+ * claim ref — three of four branches measured in the plan had that exact shape.
+ * A dispatch against `open` with a ref is refused identically.
+ *
+ * Now the check reads `ref_held` directly: the fact the scan publishes, derived
+ * from the same refs `plot-dispatch.sh` checks. The two answers are now the same
+ * question asked of the same source.
+ *
+ * DEFENSIVE: `state === 'wip'` remains as a fallback. A pulse from a scan
+ * predating `ref_held` reports false for every branch (the schema default), so
+ * the old `wip` logic keeps working until the scan is updated. The fallback is
+ * one-directional: it can only ADD refusals, never remove one `ref_held` would
+ * have made.
  */
-function refBlocksClaim(state: string): boolean {
-  return state === 'wip';
+function refBlocksClaim(branch: FleetBranch): boolean {
+  // Primary: ref_held is the direct answer from the scan.
+  // Fallback: state === 'wip' implies a ref (derived from walking it).
+  return branch.ref_held || branch.state === 'wip';
 }
 
 /**
@@ -170,8 +179,8 @@ function refBlocksClaim(state: string): boolean {
  * not already blocked by its own ref. This, not {@link isStartable}, is the
  * question auto-dispatch spends budget against — see {@link refBlocksClaim}.
  */
-function dispatchable(state: string): boolean {
-  return isStartable(state) && !refBlocksClaim(state);
+function dispatchable(branch: FleetBranch): boolean {
+  return isStartable(branch.state) && !refBlocksClaim(branch);
 }
 
 export interface PlanAutoDispatchInput {
@@ -236,13 +245,13 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
     for (const wave of plan.waves) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
-        // `dispatchable`, not `isStartable`: a `wip` branch whose ref already
-        // exists is work a dispatch cannot claim, so naming its plan spends
-        // budget on a spawn the script refuses — see {@link refBlocksClaim}.
+        // `dispatchable`, not `isStartable`: a branch whose ref already exists
+        // is one a dispatch cannot claim, so naming its plan spends budget on a
+        // spawn the script refuses — see {@link refBlocksClaim}.
         // A branch with no brief is excluded too — the worker would spend its
         // first hour re-deriving what the brief already says.
         if (
-          dispatchable(b.state) &&
+          dispatchable(b) &&
           !inFlight.has(b.branch) &&
           !missingBriefs.has(b.branch)
         ) {
@@ -283,11 +292,11 @@ export function startableBranches(
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
         // The spawn side must mark exactly what a dispatch will claim, so this
-        // uses the same `dispatchable` rule the planner counts by: a `wip` ref
-        // is refused, so it is neither dispatched nor marked in flight.
+        // uses the same `dispatchable` rule the planner counts by: a ref-held
+        // branch is refused, so it is neither dispatched nor marked in flight.
         // A branch with no brief is excluded too.
         if (
-          dispatchable(b.state) &&
+          dispatchable(b) &&
           !inFlight.has(b.branch) &&
           !missingBriefs.has(b.branch)
         ) {
@@ -301,8 +310,7 @@ export function startableBranches(
 
 /**
  * The branches auto-dispatch DECLINED to start because their own ref already
- * blocks a claim — a `wip` branch whose commits the pulse could only see by
- * walking an existing `origin/<branch>` ref. See {@link refBlocksClaim}.
+ * blocks a claim — `ref_held` is true. See {@link refBlocksClaim}.
  *
  * Named across every approved plan's eligible waves so the refusal can be
  * reported once per pulse: a budget that buys nothing is the failure this wave
@@ -317,7 +325,7 @@ export function skippedClaimedBranches(pulse: FleetPulse, inFlight: Set<string>)
     for (const wave of plan.waves) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
-        if (refBlocksClaim(b.state) && !inFlight.has(b.branch)) out.push(b.branch);
+        if (refBlocksClaim(b) && !inFlight.has(b.branch)) out.push(b.branch);
       }
     }
   }
@@ -338,7 +346,7 @@ export function dispatchCandidates(pulse: FleetPulse, inFlight: Set<string>): st
     for (const wave of plan.waves) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
-        if (dispatchable(b.state) && !inFlight.has(b.branch)) out.push(b.branch);
+        if (dispatchable(b) && !inFlight.has(b.branch)) out.push(b.branch);
       }
     }
   }
