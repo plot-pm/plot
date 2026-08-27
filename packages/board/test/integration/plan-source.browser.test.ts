@@ -185,4 +185,79 @@ describe('the board names the source of its plans', () => {
       expect(text).toMatch(/could not be read/i);
     } finally { await page.close(); }
   });
+
+  it('says how far behind the checkout is, with the number', async () => {
+    // ITEM 1's RENDER HALF. The count has to reach the SCREEN — a payload field
+    // nothing draws is indistinguishable from no feature, and invisibility is
+    // this whole wave's subject: the drift was 16 commits and the hour it cost
+    // was spent because nothing said so.
+    const page = await open(
+      { ref: 'origin/main', resolved: true, localOnly: 0, behind: 16 },
+      [card('a-plan')],
+    );
+    try {
+      const text = await sourceLine(page).textContent();
+      expect(text).toContain('16 behind');
+      // The ref stays named beside it: the distance annotates the provenance,
+      // it does not replace it.
+      expect(text).toContain('origin/main');
+    } finally { await page.close(); }
+  });
+
+  it('says nothing at all about a checkout level with the ref', async () => {
+    // ITEM 2, and it is an ASSERTION OF SILENCE rather than an omission.
+    //
+    // A current checkout is the normal state, so a permanent indicator here
+    // would be green on nearly every board — and an indicator that is almost
+    // always green teaches a reader to stop reading it, which is precisely how
+    // the next 16-commit drift goes unnoticed. The signal must be the
+    // exception. Same rule the `not pushed` count already follows at zero.
+    const page = await open(
+      { ref: 'origin/main', resolved: true, localOnly: 0, behind: 0 },
+      [card('a-plan')],
+    );
+    try {
+      const board = page.locator('main');
+      expect(await board.textContent()).not.toContain('behind');
+      // The provenance line itself must survive: silence about the distance is
+      // not silence about the source.
+      expect(await sourceLine(page).textContent()).toContain('origin/main');
+    } finally { await page.close(); }
+  });
+
+  it('says nothing where the distance cannot be measured', async () => {
+    // ITEM 3's render half. `null` is *cannot say* — a detached HEAD, whose
+    // `rev-list HEAD..origin/main` answers 0 while having no upstream at all.
+    //
+    // It renders as silence rather than as a claim, and the sharp point is what
+    // it must NOT render: `0 behind`, or any word suggesting the checkout is
+    // current. Absent is not false. A renderer coercing null with `?? 0` would
+    // turn the least knowable state into the most reassuring one, and this is
+    // the assertion that catches it.
+    const page = await open(
+      { ref: 'origin/main', resolved: true, localOnly: 0, behind: null },
+      [card('a-plan')],
+    );
+    try {
+      const board = page.locator('main');
+      expect(await board.textContent()).not.toContain('behind');
+      expect(await page.locator('[data-checkout-behind]').count()).toBe(0);
+    } finally { await page.close(); }
+  });
+
+  it('renders the board when the payload states no distance at all', async () => {
+    // An older server's payload, the runtime-absence case this file already
+    // guards for `planSource` itself. The client CASTS rather than parses, so
+    // the schema default never runs and `behind` is genuinely `undefined` —
+    // which is neither a number nor null. It must read as *cannot say* too,
+    // and above all must not take the page down.
+    const page = await open(
+      { ref: 'origin/main', resolved: true, localOnly: 0 },
+      [card('a-plan')],
+    );
+    try {
+      expect(await sourceLine(page).textContent()).toContain('origin/main');
+      expect(await page.locator('[data-checkout-behind]').count()).toBe(0);
+    } finally { await page.close(); }
+  });
 });
