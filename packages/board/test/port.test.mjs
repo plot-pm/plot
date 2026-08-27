@@ -18,6 +18,7 @@ import {
   fetchBoard,
   makeRepo,
   makeStubScripts,
+  writeImplementCommand,
   request,
 } from './helpers.mjs';
 
@@ -95,6 +96,8 @@ describe('the BOUND port reaches the same-origin check', () => {
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
     stub = makeStubScripts();
+    // Configure the Implement command — dispatch now calls /plot-implement first.
+    writeImplementCommand(tmp, { bin: stub.implementBin });
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
   });
 

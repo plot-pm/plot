@@ -18,6 +18,7 @@ import {
   fetchBoard,
   makeRepo,
   makeStubScripts,
+  writeImplementCommand,
   request,
   rmTree,
 } from './helpers.mjs';
@@ -39,6 +40,8 @@ describe('POST /api/dispatch: allow-listed ahead of the 405, and only then', () 
   before(async () => {
     tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
     stub = makeStubScripts();
+    // Configure the Implement command — dispatch now calls /plot-implement first.
+    writeImplementCommand(tmp, { bin: stub.implementBin });
     server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
   });
 
@@ -68,10 +71,15 @@ describe('POST /api/dispatch: allow-listed ahead of the 405, and only then', () 
       fs.realpathSync(path.resolve(tmp, '..')),
     );
     assert.equal(path.basename(body.log), 'plot-dispatch-ship-the-widget.log');
+    // The implementLog should also be present — from the implement step.
+    assert.ok(body.implementLog, 'implementLog should be present in response');
   });
 
-  it('spawns plot-dispatch.sh with --max 1 and the slug', async () => {
+  it('calls the implement stub first, then plot-dispatch.sh', async () => {
     await settle();
+    // The implement stub should have been called with the /plot-implement prompt.
+    assert.equal(stub.implementRuns().length, 1, 'implement should run once');
+    assert.match(stub.implementRuns()[0], /plot-implement.*ship-the-widget/);
     // `--max 1` because a button is one decision. Fanning out a whole wave
     // stays with /plot-dispatch, where the human sees the count first.
     assert.deepEqual(stub.runs(), ['--max 1 ship-the-widget']);
@@ -225,5 +233,86 @@ describe('GET /api/board reports dispatch as available on localhost', () => {
   it('available, with no reason to give', async () => {
     const board = await fetchBoard(server.port);
     assert.deepEqual(board.dispatch, { available: true, reason: '' });
+  });
+});
+
+describe('POST /api/dispatch: the brief gate (wave 2 of a-dispatch-hands-over-a-brief)', () => {
+  let tmp, server, stub;
+
+  before(async () => {
+    // No Implement command configured — dispatch should refuse.
+    tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
+    stub = makeStubScripts();
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
+  });
+
+  after(() => {
+    server?.kill();
+    stub?.cleanup();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('refuses with 409 and names the missing key when no Implement command is configured', async () => {
+    const res = await request(server.port, {
+      method: 'POST',
+      path: '/api/dispatch',
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ slug: 'ship-the-widget' }),
+    });
+    assert.equal(res.status, 409);
+    const body = JSON.parse(res.body);
+    assert.equal(body.ok, false);
+    assert.equal(body.reason, 'no-implement-command');
+    assert.match(body.detail, /Implement command/);
+    assert.equal(body.slug, 'ship-the-widget');
+  });
+
+  it('and started neither implement nor dispatch', async () => {
+    await settle();
+    assert.deepEqual(stub.implementRuns(), []);
+    assert.deepEqual(stub.runs(), []);
+  });
+});
+
+describe('POST /api/dispatch: implement failure stops dispatch', () => {
+  let tmp, server, stub;
+
+  before(async () => {
+    tmp = makeRepo({ plans: [{ name: '2026-08-16-ship-the-widget.md', content: APPROVED }] });
+    stub = makeStubScripts();
+    // Create an implement stub that FAILS (exits non-zero).
+    const failingBin = path.join(stub.dir, 'failing-implement.sh');
+    fs.writeFileSync(
+      failingBin,
+      '#!/usr/bin/env bash\necho "drift detected: plan is stale" >&2\nexit 1\n',
+      { mode: 0o755 },
+    );
+    writeImplementCommand(tmp, { bin: failingBin });
+    server = await startServer(tmp, { PLOT_SCRIPTS_DIR: stub.dir });
+  });
+
+  after(() => {
+    server?.kill();
+    stub?.cleanup();
+    if (tmp) rmTree(tmp);
+  });
+
+  it('refuses with 409 and surfaces the implement command output', async () => {
+    const res = await request(server.port, {
+      method: 'POST',
+      path: '/api/dispatch',
+      headers: { 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ slug: 'ship-the-widget' }),
+    });
+    assert.equal(res.status, 409);
+    const body = JSON.parse(res.body);
+    assert.equal(body.ok, false);
+    assert.equal(body.reason, 'implement-failed');
+    assert.match(body.detail, /drift detected|stale|exited/i);
+  });
+
+  it('and started no dispatch', async () => {
+    await settle();
+    assert.deepEqual(stub.runs(), []);
   });
 });

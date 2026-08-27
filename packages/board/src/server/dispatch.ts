@@ -1,9 +1,16 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
+import { readConfig } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
+import {
+  IMPLEMENT_COMMAND_KEY,
+  implementLogPath,
+  composeImplementPrompt,
+} from './implement.js';
+import { usableCommand } from './idea.js';
 
 /**
  * The board's ONE state-changing route.
@@ -231,15 +238,40 @@ export function dispatchLogExists(repoRoot: string, slug: string): boolean {
   return fs.existsSync(dispatchLogPath(repoRoot, slug));
 }
 
+/** Dependencies for `handleDispatch`, injectable for tests. */
+export interface DispatchDeps {
+  /** Read a Plot Config key, or return the fallback. */
+  config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
+}
+
 /**
- * Handle `POST /api/dispatch`. Refuses, or spawns and answers 202 — never both,
- * and never a result: see below.
+ * Handle `POST /api/dispatch`. Refuses, or spawns and answers 202 — never both.
+ *
+ * ## The brief gate — wave 2 of a-dispatch-hands-over-a-brief
+ *
+ * A dispatch now calls `/plot-implement` FIRST and waits for it to complete
+ * before spawning `plot-dispatch.sh`. The implement command creates the
+ * hand-off brief that tells the worker what to build and what decisions are
+ * already settled, so the worker does not spend its first hour re-deriving
+ * them.
+ *
+ * Without an `Implement command` in Plot Config, the route refuses and names
+ * the missing key — the same shape `/api/implement` uses. This is a refusal
+ * to act without a runner, not an oversight: `/plot-implement` is judgement
+ * (staleness preflight, brief authorship), and no script can substitute.
+ *
+ * The implement step is SYNCHRONOUS: the 202 is written only after it
+ * completes successfully. This is slower than the original fire-and-forget
+ * dispatch, and that is the point — a brief that exists is worth more than a
+ * worker that starts without one.
  */
 export async function handleDispatch(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   opts: DispatchOptions,
+  deps: DispatchDeps = {},
 ): Promise<void> {
+  const readCfg = deps.config ?? readConfig;
   const json = (status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -279,6 +311,98 @@ export async function handleDispatch(
     return;
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // THE BRIEF GATE: call /plot-implement first and wait for it.
+  //
+  // A worker without a brief spends its first hour re-deriving what the plan
+  // already says. The implement step creates the hand-off brief BEFORE any
+  // worker starts, and the brief is what makes a worker effective from minute
+  // one.
+  //
+  // ASKED BEFORE ANYTHING IS WRITTEN. A repo with no `Implement command` cannot
+  // produce a brief, so starting a worker is refused — the same shape
+  // `/api/implement` uses. This is not a silent skip; it is a refusal that
+  // names what is missing so the operator can add it.
+  // ──────────────────────────────────────────────────────────────────────────
+  const implCommand = usableCommand(readCfg(opts, IMPLEMENT_COMMAND_KEY, ''));
+  if (!implCommand) {
+    json(409, {
+      ok: false,
+      slug,
+      reason: 'no-implement-command',
+      detail: `no \`${IMPLEMENT_COMMAND_KEY}\` in Plot Config — starting work requires a brief, and the brief requires the /plot-implement SKILL; add the key or run /plot-implement yourself first`,
+    });
+    return;
+  }
+
+  // Run the implement command SYNCHRONOUSLY and wait for it to complete.
+  // This is the brief gate: the dispatch proceeds only if the implement
+  // succeeds. The implement command spawns `/plot-implement <slug>`, which
+  // creates the brief at `.plot/briefs/<branch-slug>.md`.
+  const implLog = implementLogPath(opts.repoRoot, slug);
+  let implFd: number;
+  try {
+    // Truncated, not appended — this log is read back AS the answer, and an
+    // appended one would show a previous attempt's error after a later success.
+    implFd = fs.openSync(implLog, 'w');
+  } catch (err) {
+    json(500, { error: `cannot open ${implLog}: ${err instanceof Error ? err.message : String(err)}` });
+    return;
+  }
+
+  // Through `sh -c` because `Implement command` is a shell FRAGMENT, the same
+  // interpretation `Idea command` and `Worker command` get. NOTHING from the
+  // request is interpolated into that string: the prompt names the slug, which
+  // is `SLUG_RE`-bounded, and travels as ONE argument via `"$@"`.
+  const implResult = spawnSync(
+    'sh',
+    ['-c', `${implCommand} "$@"`, 'plot-implement', composeImplementPrompt(slug)],
+    {
+      cwd: opts.repoRoot,
+      stdio: ['ignore', implFd, implFd],
+      env: {
+        ...process.env,
+        // THE DECLARATION, not a switch. There is nobody at this board to
+        // answer `AskUserQuestion`, and under `claude -p` that tool is not
+        // even registered — so a skill that improvises exits 0 having written
+        // nothing. Setting it makes each skipped question take the shape its
+        // author chose and name itself in the log.
+        PLOT_UNATTENDED: '1',
+        PLOT_PLAN_SLUG: slug,
+      },
+      // The implement step can take minutes for a large plan. A 5-minute
+      // timeout is generous but bounded — a hung implement must not block the
+      // board forever.
+      timeout: 5 * 60 * 1000,
+    },
+  );
+  fs.closeSync(implFd);
+
+  // A non-zero exit means the implement failed — refused by /plot-implement
+  // itself (phase wrong, drift detected in unattended mode, no eligible
+  // branch), or the runner crashed. Either way, no brief was created.
+  if (implResult.status !== 0) {
+    let message = `the implement command exited ${implResult.status ?? 'unknown'}`;
+    try {
+      const text = fs.readFileSync(implLog, 'utf8');
+      const last = text.split('\n').filter(Boolean).slice(-5).join('\n');
+      if (last) message = last;
+    } catch {
+      /* the log is empty or gone; the exit code stands */
+    }
+    json(409, {
+      ok: false,
+      slug,
+      reason: 'implement-failed',
+      detail: message,
+      log: implLog,
+    });
+    return;
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // The implement succeeded — the brief exists. Now spawn the dispatch.
+  // ──────────────────────────────────────────────────────────────────────────
   const log = dispatchLogPath(opts.repoRoot, slug);
   let out: number;
   try {
@@ -307,5 +431,5 @@ export async function handleDispatch(
   child.unref();
   fs.closeSync(out);
 
-  json(202, { slug, log });
+  json(202, { slug, log, implementLog: implLog });
 }
