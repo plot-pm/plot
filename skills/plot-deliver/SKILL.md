@@ -260,69 +260,37 @@ The plan file stays in place. **The phase edit and the `Delivered:` record
 are the transition**; moving the symlink is convenience for human browsing and
 cannot fail the delivery.
 
-Do **not** check out main locally (see Branch Safety in the hub skill). Use a disposable branch:
+Run the delivery helper — it performs all mechanical writes (phase flip, record,
+index symlink, sprint annotation, push) and is idempotent:
 
 ```bash
-git fetch origin main
-git checkout -b plot/deliver-<slug> origin/main
-
-# The transition. BOTH edits, always — see the note below on why the record
-# is not optional:
-#   Change **Phase:** Approved → **Phase:** Delivered
-#   Add    - **Delivered:** YYYY-MM-DD to the Status section
-DELIVER_DATE=$(date -u +%Y-%m-%d)
-
-git add docs/plans/YYYY-MM-DD-<slug>.md
-
-# Convenience index — best effort, and deliberately unable to fail the
-# delivery. Every `||` below is the point: a repo with no active/ link (a plan
-# written directly), no delivered/ directory (a fresh adopter), or a read-only
-# checkout still delivers, because nothing downstream reads these links to
-# decide anything.
-mkdir -p docs/plans/delivered 2>/dev/null || true
-git rm -q --ignore-unmatch docs/plans/active/<slug>.md 2>/dev/null || true
-ln -sfn ../YYYY-MM-DD-<slug>.md docs/plans/delivered/<slug>.md 2>/dev/null || true
-git add docs/plans/active docs/plans/delivered 2>/dev/null || true
+../plot/scripts/plot-deliver.sh <slug>
 ```
 
-**Update sprint file** (if the plan has a `Sprint:` field): find the `[<slug>]` item in the sprint file.
+The script:
+- Refuses if the plan is not `Approved` or if any non-deferred branch is unmerged
+  (the gate step 4 already verified, so this is a safety check)
+- Flips `Phase: Approved` → `Delivered` and fills the `Delivered:` record
+- Moves the `active/` → `delivered/` symlink (best effort, cannot fail the delivery)
+- Updates the sprint annotation (checks the box, sets `status: delivered`)
+- Pushes via `plot-push-main.sh`, with micro-PR fallback for branch protection
 
-**Before checking the box:** re-read the plan's branches section (heading containing "Branches"). For each branch (skipping branches marked `<!-- deferred: ... -->`), verify its PR is merged via `gh pr view <N> --json state`. If ANY non-deferred branch PR is not merged, do NOT check the sprint item — warn and list unmerged branches.
+Output is one `step:` line per operation, then a `summary:` line:
 
-When all branches are verified merged, check the box and update annotation:
-
-```markdown
-- [x] [slug] description <!-- status: delivered, pr: #<primary>, branches: N/N -->
+```
+step: verified 3 branch(es) merged, 1 deferred
+  push: clean — plot/deliver-slug → main
+summary: phase=flipped record=written index=moved sprint=updated push=clean
 ```
 
-```bash
-git add docs/sprints/
-git commit -m "plot: deliver <slug>"
-../plot/scripts/plot-push-main.sh plot/deliver-<slug> main
-```
+The push status (`clean`, `bypassed`, `unknown`, `rejected`) comes from
+`plot-push-main.sh`. Only `rejected` needs action — the script opens a micro-PR
+automatically if branch protection refuses the push.
 
-The helper reports what happened to the push rather than only whether it
-ran: `clean`, `bypassed` (landed, but branch protection was waived — it
-names the rules and the checks that did not run), `unknown` (landed, the
-remote said something unrecognised), or `rejected` (exit 1). Only
-`rejected` needs action: open a micro-PR from `plot/deliver-<slug>` and
-merge it, so the delivery never half-lands. Carry a `bypassed` or
-`unknown` report into the Summary — there is nothing to undo, but a
-delivery that skipped CI should not be discovered by accident.
-
-(Replace `YYYY-MM-DD-<slug>.md` with the actual date-prefixed filename —
-`$PLAN_FILE` from step 2, which resolved it without needing a symlink.)
-
-> **Why the index writes are best-effort.** This step ran a bare `git rm` and
-> `ln -s` until 2026-08-20, and both could fail the delivery: `git rm` on an
-> absent link exits non-zero, so a plan with no `active/` entry — the ordinary
-> shape for a plan written directly — aborted the delivery of work that was
-> genuinely finished. That is a transition blocked by the state of a browsing
-> aid. The ordering matters too: the plan file is staged *first*, so the
-> transition is already in the index before anything touches a link.
->
-> `ln -sfn` rather than `ln -s`: re-running a delivery must be repair, not a
-> second failure on an existing link.
+> **Why the index writes are best-effort.** A repo with no `active/` link (a plan
+> written directly), no `delivered/` directory (a fresh adopter), or a read-only
+> checkout still delivers, because nothing downstream reads these links to
+> decide anything.
 
 > **The `Delivered:` record is load-bearing, not provenance.**
 > `plot-fleet-scan.sh` shows delivered plans for a rolling window and reads
