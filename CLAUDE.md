@@ -61,6 +61,29 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      nothing. Set, each skipped question takes the shape its author chose and
      names itself in the log. -->
 
+- **Story command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
+
+<!-- `Story command` runs `/story-tracking` on a tracker ticket for the board's
+     `Create story` action — the twin of `Idea command`, and the same shape down
+     to the argument: ONE argument naming a file the board wrote, `PLOT_ISSUE`
+     with the number, `PLOT_STORY_PROMPT` with the path. Nothing from the ticket
+     is ever a shell word, for the reason stated above.
+
+     SET HERE, and that is part of the change rather than an afterthought.
+     `Idea command` was configured and this was not, which is precisely why one
+     button worked and the other refused. Shipping the capability without its
+     first configuration would leave *Create story* still refusing in the repo
+     that dog-foods Plot — honestly now, but with its happy path unexercised —
+     and an unset key looks identical to a broken feature.
+
+     The board counts story homes from `Story directory` (unset here, so the
+     default `docs/stories/` — one home), NEVER from the filesystem. A measured
+     client repo holds website content and image assets under paths matching
+     `stories/`, where a search counts four homes and the declaration says one.
+     Several DECLARED homes refuse and name the question rather than guessing: a
+     missing story is recoverable, a story in the wrong home is referenced from
+     elsewhere before anyone notices. -->
+
 <!-- Optional: **Approve command:** how to run an agent headless for ONE prompt;
      the board appends `/plot-approve <slug>` and gets the full skill — the
      ceremony questions, the tracer heuristic, the in-session walkthrough.

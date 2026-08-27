@@ -46,6 +46,12 @@ const WRITE_ROUTES = [
   // by hand has the same weakness, so the assertion below that this list
   // matches the server's own table is not a formality.
   { path: '/api/idea', body: { number: 1 } },
+  // Create story spawns a plot agent (`/story-tracking`) that writes a story
+  // directory to this disk — the same class of write as /api/idea, and gated by
+  // the same loopback boundary. Added here because the router dispatches from a
+  // TABLE and this test reads that table back out of the artifact: a write route
+  // absent from this list fails the coverage assertion below.
+  { path: '/api/story', body: { number: 1 } },
   // Commission design spawns a plot agent that writes a plan to this disk — the
   // same class of write as /api/idea, and gated by the same loopback boundary.
   { path: '/api/commission', body: { slug: 'ship-the-widget' } },
