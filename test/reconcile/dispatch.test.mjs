@@ -223,7 +223,7 @@ test('dispatch: --no-brief starts a briefless branch and says so', () => {
   f.cleanup();
 });
 
-test('dispatch: an unreadable brief is treated as missing, not present', () => {
+test('dispatch: a brief the worker cannot read is treated as missing, not present', () => {
   // A zero-byte or permission-denied file is not a specification. This is the
   // assertion a naive `[ -f ]` check fails: the file exists, but there is
   // nothing to read. An empty brief is the case measured — a claimed worktree
@@ -236,13 +236,27 @@ test('dispatch: an unreadable brief is treated as missing, not present', () => {
   assert.match(out, /\.plot\/briefs\/needs\.md/, `must still name the file:\n${out}`);
   empty.cleanup();
 
-  // A file that exists but cannot be read is equally not a specification.
-  const denied = repoForBrief('denied', { brief: { body: 'secret\n', mode: 0o000 } });
+  // A brief that exists ONLY in the operator's working tree is equally not a
+  // specification — it is invisible to the worker, whose worktree is created
+  // from origin/<main>. This is the direction that fails DANGEROUSLY: the file
+  // is right there, so a filesystem check passes the gate and starts a worker
+  // into an empty spec, which is the failure the gate exists to prevent.
+  //
+  // This replaced a permission-denied case on 2026-08-27. That case tested a
+  // filesystem mode, and once the gate reads a git blob there is no mode to
+  // deny — its fixture even had to chmod AFTER committing, because a 0o000 file
+  // cannot be `git add`ed. That awkwardness was the defect showing through.
+  const unpushed = repoForBrief('unpushed');
+  fs.mkdirSync(path.join(unpushed.repo, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(unpushed.repo, '.plot', 'briefs', 'needs.md'),
+    'a real brief, committed nowhere\n');
   const out2 = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: denied.repo, timeout: 30_000 });
-  assert.equal(denied.workerStarted(), false, 'a permission-denied brief is not a specification');
-  assert.match(out2, /summary: .*started=0/, `an unreadable brief must not start a worker:\n${out2}`);
-  denied.cleanup();
+    { encoding: 'utf8', cwd: unpushed.repo, timeout: 30_000 });
+  assert.equal(unpushed.workerStarted(), false, 'an unpushed brief is invisible to the worker');
+  assert.match(out2, /summary: .*started=0/, `an unpushed brief must not start a worker:\n${out2}`);
+  assert.match(out2, /origin\/main:\.plot\/briefs\/needs\.md/,
+    `the refusal must name the ref it looked at, not a local path:\n${out2}`);
+  unpushed.cleanup();
 });
 
 test('dispatch: the footer agrees with what happened', () => {

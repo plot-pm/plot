@@ -1149,12 +1149,33 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
 # either way): here the cost of guessing wrong is an agent burning minutes on
 # nothing, so an unreadable brief reads as missing.
 #
-# The path is the branch after its last `/`, under the repo root — the same
-# convention `/plot-implement` writes and `briefPathOf` reads on the board side.
-brief_path() { printf '%s/.plot/briefs/%s.md' "$repo_root" "${1##*/}"; }
-brief_present() { # $1 = branch → 0 if a usable brief exists, 1 otherwise
-  local b; b=$(brief_path "$1")
-  [ -r "$b" ] && [ -s "$b" ]
+# The path is the branch after its last `/` — the same convention
+# `/plot-implement` writes and `briefPathOf` reads on the board side.
+#
+# READ FROM `origin/<main>`, NOT THE WORKING TREE, for the same reason the phase
+# gate above does: the question is not "does a brief exist in this filesystem?"
+# but "will the WORKER find one?". The worker's worktree is created from
+# `origin/$MAIN` (see `git worktree add` below), so a brief committed nowhere —
+# or committed locally and never pushed — is invisible to it. Checking the
+# working tree passes the gate and starts a worker into an empty specification,
+# which is the exact failure this gate exists to prevent.
+#
+# Both directions were measured 2026-08-27. Running the filesystem check from a
+# checkout 8 commits behind main reported three branches' briefs missing while
+# all three existed on `origin/main` at 4-5 KB — a benign refusal. The inverse
+# is not benign, and it is the one a working-tree read permits.
+#
+# NON-EMPTY, not merely present: a zero-byte brief is what a half-finished write
+# leaves behind, and `cat-file -e` alone passes for it. This is STRICTER than the
+# board's `briefState` row hint (which treats any existing file as present,
+# because a person will look either way): here the cost of guessing wrong is an
+# agent burning minutes on nothing.
+brief_path() { printf '.plot/briefs/%s.md' "${1##*/}"; }
+brief_ref() { printf 'origin/%s:%s' "$MAIN" "$(brief_path "$1")"; }
+brief_present() { # $1 = branch → 0 if a usable brief exists on origin/<main>
+  local sz
+  sz=$(git cat-file -s "$(brief_ref "$1")" 2>/dev/null) || return 1
+  [ "${sz:-0}" -gt 0 ]
 }
 
 start_worker() {
@@ -1752,14 +1773,19 @@ while :; do
     # only the launch is conditional. A missing brief refuses, naming the file
     # and the two ways forward — write it, or pass --no-brief. --no-brief starts
     # anyway and SAYS SO, so the override is on the record rather than silent.
+    #
+    # The refusal names the REF it looked at, not a bare path. A brief sitting
+    # unpushed in the operator's checkout is the likeliest reason to see this
+    # message, and "no brief at .plot/briefs/x.md" would send them to look at a
+    # file that is right there — the ref says where the WORKER will look.
     if brief_present "$branch"; then
       start_worker "$branch" "$wt" && n_started=$((n_started + 1))
     elif [ "$no_brief" = 1 ]; then
-      echo "    no brief at $(brief_path "$branch") — starting anyway (--no-brief)"
+      echo "    no brief at $(brief_ref "$branch") — starting anyway (--no-brief)"
       start_worker "$branch" "$wt" && n_started=$((n_started + 1))
     else
-      echo "    prepared, not started — no brief at $(brief_path "$branch")"
-      echo "      write one: /plot-implement $slug   (or pass --no-brief to start without it)"
+      echo "    prepared, not started — no brief at $(brief_ref "$branch")"
+      echo "      write one: /plot-implement $slug   (then push it, or pass --no-brief to start without it)"
     fi
   fi
 done
