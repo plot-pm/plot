@@ -82,6 +82,25 @@ export function PlanSourceLine({
           where saying "0 not pushed" would be noise on every board. */}
       {planSource.localOnly > 0 &&
         ` · ${planSource.localOnly} not pushed`}
+      {/* HOW FAR THIS CHECKOUT HAS DRIFTED, and silent unless it has.
+
+          Three states, two of which say nothing. `behind > 0` is the drift
+          itself. `behind === 0` is a current checkout and renders NOTHING —
+          item 2, and the same rule as `not pushed` above: an indicator that is
+          almost always green teaches a reader to stop reading it, which is how
+          the next 16-commit drift goes unnoticed. `behind === null` is *cannot
+          say* — a detached HEAD or an unresolved ref, where reporting 0 would
+          invent an answer nobody measured.
+
+          Amber, not rose, and beside the ref rather than in `StatusPanel`: a
+          behind checkout is a fact about this board's provenance, not a fault
+          in the run. It cannot make the cards above wrong — they were read from
+          the ref — so it explains a surprise rather than announcing a failure. */}
+      {planSource.behind !== null && planSource.behind > 0 && (
+        <span className="text-amber-700 dark:text-amber-500" data-checkout-behind={planSource.behind}>
+          {' · '}checkout {planSource.behind} behind
+        </span>
+      )}
     </p>
   );
 }

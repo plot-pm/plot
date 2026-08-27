@@ -268,6 +268,53 @@ interface PlanSourceReport {
   resolved: boolean;
   /** Plans the ref did not carry — the ones a card marks `not pushed`. */
   localOnly: number;
+  /** Commits the checkout is behind `ref`, or null where nothing can be said. */
+  behind: number | null;
+}
+
+/**
+ * HOW FAR THE CHECKOUT SITS BEHIND THE REF, or null where that is unanswerable.
+ *
+ * A diagnostic. Since the estate is read from `ref`, a stale checkout no longer
+ * makes the board WRONG — it makes it unexplainable, which is what cost an hour
+ * on 2026-08-27 when the worktree drifted 16 commits and nothing said so.
+ *
+ * THE ORDER OF THE TWO QUESTIONS IS THE WHOLE CORRECTNESS ARGUMENT, because the
+ * count alone cannot tell a measurement from its absence:
+ *
+ * ```
+ * $ git checkout --detach origin/main   # no upstream; nothing to be behind
+ * $ git rev-list --count HEAD..origin/main
+ * 0                                     # ← reads as "up to date"
+ * ```
+ *
+ * Measured, not reasoned: a detached HEAD parked at the ref's tip returns 0,
+ * indistinguishable from a genuinely current branch. So this asks FIRST whether
+ * HEAD is a branch at all — `symbolic-full-name` fails when detached — and only
+ * measures once the question is known to have an answer. Establish that the
+ * question is answerable, then answer it.
+ *
+ * NO NETWORK. `rev-list` reads the local mirror the fleet scan already fetched
+ * on its own timer, so this is a local walk on the request path, not a host
+ * round trip. The number is therefore a LOWER BOUND on the true drift, which is
+ * the right trade: a lower bound above zero is the entire signal, and the cost
+ * of the exact answer would be host latency on a 5 s cadence.
+ */
+function measureBehind(repoRoot: string, ref: string, resolved: boolean): number | null {
+  // Nothing to be behind. An unresolved ref is already reported by `resolved`,
+  // and inventing a distance from it would be the substitution this file's
+  // every other branch refuses.
+  if (!resolved) return null;
+  // Is HEAD a branch? Empty means detached — the case that would otherwise
+  // report a confident 0. Never fall through to the count on this path.
+  if (git(repoRoot, ['symbolic-ref', '--quiet', 'HEAD']).trim() === '') return null;
+  const raw = git(repoRoot, ['rev-list', '--count', `HEAD..${ref}`]).trim();
+  // `git()` answers '' on ANY failure, so a non-numeric reading is a failed
+  // measurement rather than a zero one. Parsing loosely here would convert
+  // every unforeseen git error into "up to date" — the exact false confidence
+  // the null case exists to prevent.
+  if (!/^\d+$/.test(raw)) return null;
+  return Number(raw);
 }
 
 /**
@@ -320,7 +367,7 @@ function collectPlanSources(
     // where it lies, by the path `realpathSync` actually resolved.
     sources.push({ path: relPath, local: true, file: absPath });
   }
-  return { sources, report: { ref, resolved, localOnly } };
+  return { sources, report: { ref, resolved, localOnly, behind: measureBehind(repoRoot, ref, resolved) } };
 }
 
 /**

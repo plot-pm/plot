@@ -500,6 +500,38 @@ export const PlanSourceSchema = z.object({
    * unpushed plan from a checkout the ref knows nothing about.
    */
   localOnly: z.number().default(0),
+  /**
+   * How far the board's own CHECKOUT sits behind {@link PlanSourceSchema.ref},
+   * in commits — or null where there is no upstream to measure against.
+   *
+   * A DIAGNOSTIC, NOT A CORRECTNESS FIELD, and the distinction is worth stating
+   * because this field's own plan was written before it was true. The board
+   * reads plan content from the ref, so a stale checkout can no longer produce
+   * a wrong badge or a wrong Deliver refusal — the defect of 2026-08-27 is
+   * fixed upstream of this number. What remains is that the drift was
+   * INVISIBLE: 16 commits in about an hour, and twice that day an operator met
+   * a wrong render with nothing on screen to explain it. This is the sentence
+   * that would have made those diagnoses immediate rather than hour-long.
+   *
+   * NULL IS *CANNOT SAY*, AND IT IS NOT ZERO. The two are a single `rev-list`
+   * apart and mean opposite things: a detached HEAD parked at the ref's tip
+   * answers `HEAD..origin/main` with 0, which reads as *up to date* while being
+   * a measurement nobody could take. Absent is not false — the rule
+   * `plot-board-probe.sh` applies to `auth`, `readRef` applies to its sha, and
+   * this applies to its count.
+   *
+   * ZERO IS A REAL ANSWER and renders as SILENCE. A current checkout is the
+   * normal state; a permanent ornament reading `0 behind` is noise that teaches
+   * a reader to stop looking, which is how the next 16-commit drift goes
+   * unnoticed. The signal must be the exception — the same reason `localOnly`
+   * above says nothing at zero.
+   *
+   * A LOWER BOUND, deliberately. It is measured against the already-fetched
+   * mirror rather than the host: the fleet scan fetches on its own timer and
+   * this code must not join the network to the request path. So the true drift
+   * may be larger — and a lower bound above zero is the whole signal.
+   */
+  behind: z.number().nullable().default(null),
 });
 export type PlanSource = z.infer<typeof PlanSourceSchema>;
 
@@ -785,7 +817,7 @@ export const BoardSchema = z.object({
    * such a board reports an unresolved, unnamed source, which renders as the
    * board declining to claim a provenance it does not have.
    */
-  planSource: PlanSourceSchema.default({ ref: '', resolved: false, localOnly: 0 }),
+  planSource: PlanSourceSchema.default({ ref: '', resolved: false, localOnly: 0, behind: null }),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
 });
