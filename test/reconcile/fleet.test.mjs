@@ -463,6 +463,12 @@ test('fleet: --loose DOES open a wave when the host reports a ready PR', () => {
   git(r, 'checkout', '-q', 'main');
 
   // Stub the host adapter on PATH: a backend exists, and the PR is ready.
+  //
+  // Readiness now rides the ROLLUP, not the draft flag alone: `--loose` opens a
+  // wave only when the prior wave's PR is green AND non-draft, and it reads that
+  // from the ONE `pr-list --rich` the scan already makes — never a per-branch
+  // `pr-state`. So the signal lives in the `pr-list` reply here; `pr-state`
+  // remains stubbed as a witness that it is NOT consulted on this path.
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
   const realScripts = path.dirname(scan);
   fs.mkdirSync(path.join(shim, 'scripts'));
@@ -470,19 +476,20 @@ test('fleet: --loose DOES open a wave when the host reports a ready PR', () => {
     if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
   }
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'),
-    '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":false,"url":"x"}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
+    '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":false,"url":"x"}\' ;;\n  pr-list) echo \'{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
   fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
 
   const shimScan = path.join(shim, 'scripts', 'plot-fleet-scan.sh');
   // No --offline: the fetch must run for readiness to be considered verifiable.
   const loose = execFileSync('bash', [shimScan, '--loose', 'lp'], { encoding: 'utf8', cwd: r });
   assert.match(loose, /Two — eligible/,
-    'a ready, non-draft PR must satisfy loose eligibility');
+    'a ready, green, non-draft PR must satisfy loose eligibility');
   assert.match(loose, /loose eligibility/, 'and the banner must say loose is active');
 
-  // Draft PRs must not satisfy it — readiness means ready.
+  // Draft PRs must not satisfy it — readiness means ready. The rollup is green
+  // but the PR is a draft, so the wave must stay blocked.
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'),
-    '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":true,"url":"x"}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
+    '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":true,"url":"x"}\' ;;\n  pr-list) echo \'{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":true,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
   fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
   const draft = execFileSync('bash', [shimScan, '--loose', 'lp'], { encoding: 'utf8', cwd: r });
   assert.match(draft, /Two — blocked/, 'a draft PR is not "ready"');
