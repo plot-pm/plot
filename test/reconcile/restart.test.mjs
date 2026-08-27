@@ -108,19 +108,44 @@ function ghShim({ state = null } = {}) {
   return dir;
 }
 
+// Run the dispatcher, capturing output through FILES rather than pipes.
+//
+// A STARTED WORKER OUTLIVES THIS CALL, AND THAT IS THE POINT. `start_worker`
+// launches `nohup sh -c` whose wrapper deliberately survives the agent so it
+// can record the exit code — and that wrapper inherits whatever stdout it was
+// given. Handed a pipe, `execFileSync` waits for EOF on a stream that only
+// closes when the worker dies, so the whole run hangs (measured: a 300 s
+// timeout with no output at all). Redirecting to files lets this return as soon
+// as the dispatcher itself exits, while the detached worker keeps running —
+// which is exactly the behaviour under test.
 function run(repo, args, { gh = null, expectFail = false } = {}) {
   const env = { ...process.env };
   if (gh) env.PATH = `${gh}:${env.PATH}`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-restart-out-'));
+  ctx.push(dir);
+  const outFd = fs.openSync(path.join(dir, 'out'), 'w');
+  const errFd = fs.openSync(path.join(dir, 'err'), 'w');
+  let status = 0;
   try {
-    const stdout = execFileSync('bash', [dispatch, ...args],
-      { encoding: 'utf8', cwd: repo, env, stdio: ['ignore', 'pipe', 'pipe'] });
-    if (expectFail) assert.fail(`expected a refusal, got:\n${stdout}`);
-    return { stdout, status: 0 };
+    execFileSync('bash', [dispatch, ...args],
+      { cwd: repo, env, stdio: ['ignore', outFd, errFd] });
   } catch (e) {
-    const out = (e.stdout ?? '') + (e.stderr ?? '');
-    if (!expectFail) assert.fail(`unexpected failure:\n${out}`);
-    return { stdout: out, status: e.status ?? 1 };
+    status = e.status ?? 1;
+  } finally {
+    fs.closeSync(outFd);
+    fs.closeSync(errFd);
   }
+  const stdout = fs.readFileSync(path.join(dir, 'out'), 'utf8')
+    + fs.readFileSync(path.join(dir, 'err'), 'utf8');
+  if (expectFail && status === 0) assert.fail(`expected a refusal, got:\n${stdout}`);
+  if (!expectFail && status !== 0) assert.fail(`unexpected failure (${status}):\n${stdout}`);
+  return { stdout, status };
+}
+
+// `--status` reads the fleet; it starts nothing, so a pipe is safe here.
+function status(repo) {
+  return execFileSync('bash', [dispatch, '--status'],
+    { encoding: 'utf8', cwd: repo, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 // Record a worker exactly as dispatch does: a pid file plus a manifest whose
@@ -168,10 +193,10 @@ test('--restart starts a worker on a stalled branch, and the fleet sees it runni
 
     // ASSERTED THROUGH THE FLEET, NOT A PID. An unregistered worker is the
     // defect this closes, so a restart the fleet cannot see has not succeeded.
-    const status = execFileSync('bash', [dispatch, '--status'], { encoding: 'utf8', cwd: repo });
-    assert.match(status, /feature\/stopped — running/,
-      `the fleet must report the restarted worker as running:\n${status}`);
-    assert.match(status, /running=1/);
+    const fleet = status(repo);
+    assert.match(fleet, /feature\/stopped — running/,
+      `the fleet must report the restarted worker as running:\n${fleet}`);
+    assert.match(fleet, /running=1/);
 
     // Item 2: a manifest carries the new worker's session and pid — read from
     // the registry, not merely present, since the measured failure was a row
@@ -255,8 +280,7 @@ test('--restart DOES restart a failed worker that holds no PR', () => {
   const res = run(repo, ['--restart', 'feature/stopped'], { gh: ghShim() });
   try {
     assert.match(res.stdout, /restart(ed|ing)/i);
-    const status = execFileSync('bash', [dispatch, '--status'], { encoding: 'utf8', cwd: repo });
-    assert.match(status, /feature\/stopped — running/,
+    assert.match(status(repo), /feature\/stopped — running/,
       'the other half of item 3: without this the feature cannot do its job');
   } finally {
     for (const m of manifests(repo)) {
@@ -305,8 +329,15 @@ test('--restart REFUSES a waiting worker and names the marker file', () => {
   const wt = claimedWorktree(repo);
   // A blocked marker: a person owes this branch an answer. Restarting it asks
   // the same question again with nobody to answer it.
+  //
+  // The worker EXITS 0 to reach `waiting`. That is the state machine's rule,
+  // not an accident of this fixture: exit 0 is the blurred code every worker
+  // leaves, so it is the only arm refined by the tree — and a worker that
+  // wrote its question and stopped tidily is precisely the case. Without the
+  // exit file this reads `ended`, and would restart.
   fs.writeFileSync(path.join(wt, 'PLOT-BLOCKED.md'),
     'PLOT-BLOCKED: which format should the export use?\n');
+  fs.writeFileSync(path.join(wt, '.plot-worker.exit'), '0\n');
   recordWorker(repo, wt, 999999);
 
   const res = run(repo, ['--restart', 'feature/stopped'],

@@ -6,6 +6,16 @@
 #   --status    list fleet worktrees with worker pid, liveness, and last log
 #               line; then exit. Works regardless of plan phase.
 #   --stop <br> stop the worker on <br> (branch required — never "all").
+#   --restart <br>
+#               start a worker on <br>, which already holds a claim — the
+#               counterpart to --stop, and the only way to hand a stopped
+#               branch to a new worker through Plot. Branch required, never a
+#               slug: deciding that a stopped worker should be replaced rather
+#               than its work reviewed, reaped or abandoned is a person's call.
+#               Refuses on an open or merged PR (asked FIRST, before the state
+#               word), on a live worker, and on a PLOT-BLOCKED marker. The
+#               worktree is inherited exactly as it stands — uncommitted work
+#               is what a stall leaves behind, and this must not destroy it.
 #   --migrate   move legacy worktrees into the configured `Worktree root:`. An
 #               idle worktree (no live worker, no unlanded work) is moved; a
 #               busy one is skipped with the reason. Requires a `Worktree root:`
@@ -149,6 +159,7 @@ no_start=0
 no_brief=0
 mode=dispatch
 stop_branch=""
+restart_branch=""
 offline=""
 allow_local=0
 max=0
@@ -164,6 +175,11 @@ while [ $# -gt 0 ]; do
     # `--stop <slug>` would silently treat the plan slug as a branch name and
     # stop the wrong thing (or nothing) without saying so.
     --stop)     mode=stop; case "${2:-}" in */*) stop_branch="$2"; shift ;; esac ;;
+    # Same rule as --stop, for the same reason and one more: a bare
+    # `--restart <slug>` would fall through to the plan gate and report "no
+    # plan for feature/x", which describes neither what was asked nor what
+    # went wrong. The branch is consumed only when it looks like one.
+    --restart)  mode=restart; case "${2:-}" in */*) restart_branch="$2"; shift ;; esac ;;
     --no-start) no_start=1 ;;
     --no-brief) no_brief=1 ;;
     --offline|--no-fetch) offline="--offline" ;;
@@ -173,7 +189,7 @@ while [ $# -gt 0 ]; do
                   ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
                 esac
                 shift ;;
-    -h|--help)  sed -n '2,28p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,38p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -181,6 +197,305 @@ done
 
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repository" >&2; exit 1; }
 [ -n "$slug" ] || [ "$mode" != dispatch ] || { echo "plot-dispatch: need a plan slug" >&2; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Worker launch, and the identity it records
+# ---------------------------------------------------------------------------
+#
+# DEFINED HERE, ABOVE THE INSPECTION BLOCK, because `--restart` calls
+# start_worker and that block exits before the fan-out is ever reached. Bash
+# resolves a function when the call RUNS, so a definition further down the file
+# is not yet in scope — the restart path found `start_worker: command not found`
+# until this moved. Nothing here executes at definition time; only the position
+# changed.
+
+# A session id, in the shape the runtime uses for its transcript filename.
+#
+# `uuidgen` where it exists (macOS and most Linux), falling back to `/dev/urandom`
+# — never to `$RANDOM` or a timestamp. Two workers launched in the same second by
+# the same fan-out would collide on either, and a collision here silently merges
+# two agents into one manifest.
+#
+# Lowercased because the runtime writes its transcript filename in lowercase and
+# the board joins on exact string equality; `uuidgen` on macOS returns uppercase.
+plot_session_id() {
+  local id=""
+  if command -v uuidgen >/dev/null 2>&1; then
+    id=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
+  fi
+  if [ -z "$id" ]; then
+    # 16 random bytes rendered as a v4-shaped id. The shape matters only for
+    # recognisability; nothing parses it.
+    id=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n' \
+         | sed -E 's/(.{8})(.{4})(.{4})(.{4})(.{12})/\1-\2-\3-\4-\5/')
+  fi
+  printf '%s' "$id"
+}
+
+# JSON-escape one string for a manifest value.
+#
+# `printf %s` through a substitution chain rather than `jq`: Plot's helpers must
+# run where only POSIX tools exist, and a Worker command routinely contains
+# double quotes and newlines — this repo's is a 1,400-character prompt full of
+# both. Backslash first, or it re-escapes what the later rules add.
+json_escape() {
+  printf '%s' "$1" \
+    | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' \
+    | awk 'BEGIN{ORS=""} {if (NR>1) print "\\n"; print}'
+}
+
+# Write one agent manifest: launch-time facts, keyed on the session id.
+#
+# Model and context are still absent on purpose: they belong to the runtime and
+# are read from the transcript, so a manifest that named them would be a guess.
+# The `pid` starts EMPTY here and is stamped by the wrapper the instant it learns
+# its own child — see `stamp_manifest_pid`. The dispatcher does not know the
+# agent pid at this line (only the wrapper does, from its `$!`), so it writes the
+# field as a placeholder the wrapper fills rather than guessing it now.
+#
+# Written to a temp file and moved into place, so a scan reading the directory
+# never sees a half-written manifest. `mv` within one directory is atomic.
+write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
+  local out="$1" tmp="$1.plot-tmp"
+  {
+    printf '{\n'
+    printf '  "session": "%s",\n' "$(json_escape "$2")"
+    printf '  "branch": "%s",\n' "$(json_escape "$3")"
+    printf '  "worktree": "%s",\n' "$(json_escape "$4")"
+    printf '  "command": "%s",\n' "$(json_escape "$5")"
+    printf '  "pid": "",\n'
+    printf '  "startedAt": "%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '}\n'
+  } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  mv "$tmp" "$out" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
+# THE MANIFEST PID IS STAMPED BY THE WRAPPER, NOT HERE. The agent's pid is
+# knowable only to the wrapper (`$!` of its own backgrounded child), so the stamp
+# is inline in the wrapper's `sh -c` below — a fresh shell that cannot reach a
+# function defined in this bash script, the same isolation that makes the wrapper
+# own `.plot-worker.pid`. The write above leaves `"pid": ""` as a placeholder the
+# wrapper replaces; the mechanics and their safety are documented at that call.
+
+# Start one DETACHED worker per worktree. Detached is the whole point: the
+# fleet must outlive the dispatching session. Logs go beside the worktree so a
+# human can read them without knowing anything about how the worker was started.
+#
+# The worker command is configurable because "how do I run an agent headless"
+# is a per-project, per-tool answer that Plot must not hardcode (Principle 5).
+# THE BRIEF GATE. A branch's hand-off brief is its specification: the `Worker
+# command`'s first instruction is "Read `.plot/briefs/<branch-suffix>.md` first
+# — it is the specification". Without it the worker reads nothing and improvises,
+# the one thing the brief exists to prevent (measured 2026-08-20: 2:12 against a
+# 700-line wave with no spec). So a missing brief PREPARES but does not START —
+# the worktree and claim above are correct and stay; only the launch is refused.
+#
+# READABLE AND NON-EMPTY, not merely present. A zero-byte or permission-denied
+# file is not a specification, and `[ -f ]` alone passes for an empty one — the
+# naive check the plan calls out. This is STRICTER than the board's `briefState`
+# row hint (which treats any existing file as present, because a person will look
+# either way): here the cost of guessing wrong is an agent burning minutes on
+# nothing, so an unreadable brief reads as missing.
+#
+# The path is the branch after its last `/` — the same convention
+# `/plot-implement` writes and `briefPathOf` reads on the board side.
+#
+# READ FROM `origin/<main>`, NOT THE WORKING TREE, for the same reason the phase
+# gate above does: the question is not "does a brief exist in this filesystem?"
+# but "will the WORKER find one?". The worker's worktree is created from
+# `origin/$MAIN` (see `git worktree add` below), so a brief committed nowhere —
+# or committed locally and never pushed — is invisible to it. Checking the
+# working tree passes the gate and starts a worker into an empty specification,
+# which is the exact failure this gate exists to prevent.
+#
+# Both directions were measured 2026-08-27. Running the filesystem check from a
+# checkout 8 commits behind main reported three branches' briefs missing while
+# all three existed on `origin/main` at 4-5 KB — a benign refusal. The inverse
+# is not benign, and it is the one a working-tree read permits.
+#
+# NON-EMPTY, not merely present: a zero-byte brief is what a half-finished write
+# leaves behind, and `cat-file -e` alone passes for it. This is STRICTER than the
+# board's `briefState` row hint (which treats any existing file as present,
+# because a person will look either way): here the cost of guessing wrong is an
+# agent burning minutes on nothing.
+brief_path() { printf '.plot/briefs/%s.md' "${1##*/}"; }
+brief_ref() { printf 'origin/%s:%s' "$MAIN" "$(brief_path "$1")"; }
+brief_present() { # $1 = branch → 0 if a usable brief exists on origin/<main>
+  local sz
+  sz=$(git cat-file -s "$(brief_ref "$1")" 2>/dev/null) || return 1
+  [ "${sz:-0}" -gt 0 ]
+}
+
+start_worker() {
+  local branch="$1" wt="$2"
+  local cmd
+  cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
+  # `none` means "asked, and this repo starts them by hand". Running it would
+  # spawn a worker per branch that fails with `none: command not found` — a
+  # deliberate answer turned into N crashed workers.
+  case "$cmd" in none|NONE|None) cmd="" ;; esac
+  if [ -z "$cmd" ]; then
+    # Not an error: Plot deliberately hardcodes no agent tooling (Principle 5).
+    # Word it as the next step rather than a failure, or a first run reads as
+    # "it did nothing".
+    #
+    # This line carries the ONE thing the summary cannot: which worktree to cd
+    # into. The consequence itself — that nothing started, and why — is stated
+    # in the summary, because per-branch output is exactly where it was missed
+    # five times on 2026-08-17. Saying it in both places would train the reader
+    # to skip both.
+    if [ "$worker_cmd_declined" = 1 ]; then
+      echo "    worktree ready — start it yourself:"
+    else
+      echo "    worktree ready — no 'Worker command' configured, so start it yourself:"
+    fi
+    echo "      cd $wt   # branch $branch is claimed and waiting"
+    return 1
+  fi
+  local log="$wt/.plot-worker.log"
+  rm -f "$wt/.plot-worker.exit"
+
+  # THE MANIFEST, AND WHY IT IS KEYED ON A SESSION ID RATHER THAN A BRANCH.
+  #
+  # An agent survives the branch it was launched on: it finishes one and takes
+  # another, and everything the board knows about it today lives INSIDE a
+  # worktree — `.plot-worker.pid` is a file in it, and the transcript directory
+  # is derived from its path. So an agent that moves on loses every identity the
+  # board holds, and the states that matter most (`waiting`, and an agent between
+  # branches) are exactly the ones no worktree can express.
+  #
+  # The manifest is the identity that outlives the worktree. It records ONLY
+  # launch-time knowledge — what this function has in hand at this line — because
+  # a record that infers is a record that can be wrong about the past. Model and
+  # context are absent here on purpose: they belong to the runtime and are read
+  # from the transcript, which the board joins by the id below.
+  #
+  # THE DISPATCHER MINTS THE ID. The plan assumed the runtime was already invoked
+  # with `--session-id`, but this repo's `Worker command` carries none, so reading
+  # one back would mean guessing at the newest file in a directory that holds one
+  # to eight of them (measured 2026-08-20) — the guess the manifest exists to
+  # remove. Minting keeps it launch-time knowledge, and exporting it as
+  # `PLOT_SESSION_ID` lets a `Worker command` forward it so the runtime's
+  # transcript lands where the manifest points. A command that ignores the
+  # variable still gets a complete manifest; only the transcript join degrades,
+  # to the absence the board already treats as the honest answer.
+  #
+  # WRITTEN BEFORE THE LAUNCH, for the reason the pid file's own comment gives
+  # one paragraph down: there is a window between spawn and first write, and a
+  # scan landing inside it must not read a started agent as absent. The manifest
+  # carries the identity, so its window would be worse than the pid's.
+  local session manifest_dir
+  session=$(plot_session_id)
+  manifest_dir="$repo_root/.plot/agents"
+  mkdir -p "$manifest_dir" 2>/dev/null || true
+  # `printf` per field with no interpretation: a command containing quotes,
+  # newlines or backslashes must survive into valid JSON, and this is the one
+  # place a Worker command's full text is recorded.
+  write_agent_manifest "$manifest_dir/$session.json" \
+    "$session" "$branch" "$wt" "$cmd" || true
+  # TWO PIDS, TWO NAMES. `.plot-worker.pid` must name the AGENT — the process
+  # doing the work, which is what the panel, `--status` and the scan describe.
+  # `$!` from the parent names the `sh -c` WRAPPER, and recording that is the
+  # bug this fixes: every field read correctly off the dispatcher's shell rather
+  # than off the agent. The wrapper is the one thing that knows its own child,
+  # so the wrapper writes the agent's pid; only the wrapper can, and a `pgrep`
+  # by command string is the failure this repo already recorded (`wait on your
+  # own PID, not a process name`).
+  #
+  # The wrapper's own pid is KEPT, under `.plot-worker.wrapper.pid`, because the
+  # wrapper is what writes `.plot-worker.exit` when the agent exits and that must
+  # keep working — `--stop` kills the agent, the wrapper survives to record the
+  # code. The paths travel as env vars so no quoting level inside the
+  # single-quoted `sh -c` mangles a path with spaces, exactly as the exit file
+  # already does.
+  #
+  # The agent runs backgrounded inside the wrapper so the wrapper can capture its
+  # `$!` and `wait` for it. There is a sub-millisecond window after the wrapper
+  # starts and before it writes `.plot-worker.pid`; a scan landing in it reads an
+  # absent pid file as `none` — honest, never "running" off a stale value.
+  #
+  # THE WRAPPER ALSO STAMPS THE MANIFEST PID, for the same reason it writes the
+  # pid file: it is the one process that knows the agent's own pid. The manifest
+  # path travels as `PLOT_MANIFEST_FILE`, beside the exit/pid paths, so no quoting
+  # level inside the single-quoted `sh -c` mangles a path with spaces. The stamp
+  # is inline `awk` rather than a bash helper, because a helper would live in this
+  # bash script and the detached `sh -c` is a fresh shell with no access to it —
+  # the same isolation that makes the wrapper own the pid.
+  #
+  # ONE CONTRACT, TWO IMPLEMENTATIONS. This inline `awk` is the mechanical twin of
+  # `manifest-stamp.ts`'s `stampManifest`; `/api/continue` calls that helper, and a
+  # parity test (`manifest-stamp-parity.test.ts`) runs THIS awk against the same
+  # inputs and asserts a byte-identical result. The two exist because the callers
+  # cannot share code — a detached `sh -c` reaches no TypeScript, and a bash helper
+  # is out of a fresh shell's reach — but they must not drift, the
+  # `plot-worker-state.sh` lesson after five of six states diverged in duplicate.
+  #
+  # It replaces ANY `pid` line, not only the empty placeholder — a full-line
+  # anchored match on bytes we control, so nothing in the command value (one
+  # escaped JSON string on its own line) can be mistaken for it. On a FIRST
+  # dispatch the placeholder is empty: the pid is filled and nothing else changes,
+  # byte-identical to the manifest before relaunch bookkeeping existed. On a
+  # RELAUNCH the line already holds a pid: it is overwritten, `startedAt` is
+  # rewritten to now, and two lines are inserted after `pid` — `previousPid` (the
+  # corpse displaced) and `relaunches` (the restart count, +1 from any it carried).
+  # The dispatcher mints a fresh session per launch so its own manifest is always a
+  # first stamp; the relaunch arms exist for parity with `/api/continue`, which
+  # reuses a worktree's existing manifest. A pid is digits, so no JSON escaping is
+  # needed. Rewritten through a temp file and `mv`, atomic like the original write.
+  # Any failure leaves the pid untouched — the registry reads an absent one as
+  # `unknown`.
+  #
+  # The awk reads the manifest TWICE — the same file passed as two arguments, so
+  # `FNR==NR` is the pre-scan. Pass one learns whether the pid is already filled
+  # (a relaunch) and the count any prior `relaunches` line held; pass two rewrites.
+  # This mirror of a two-pass read is what lets a SECOND relaunch increment rather
+  # than reset: the old count sits AFTER the pid line, so a single pass could not
+  # know it when it must emit the new `relaunches` immediately after `pid`.
+  #
+  # On the pid line: an empty placeholder is filled and nothing else changes (a
+  # first stamp, byte-identical to before); a filled pid is overwritten and the
+  # two relaunch records — `previousPid` then `relaunches` — are emitted right
+  # after it, then any stale copies of those lines are dropped and `startedAt` is
+  # rewritten to the current run. This is exactly `stampManifest`, line for line,
+  # which the parity test pins byte for byte.
+  local stamp_now
+  stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
+      PLOT_SLUG="$slug" \
+      PLOT_SESSION_ID="$session" \
+      PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
+      PLOT_STAMP_STARTED="$stamp_now" \
+      PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
+      nohup sh -c '( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '"'"'
+        BEGIN { relaunch = 0; count = 1; stamped = 0 }
+        FNR == NR {
+          if ($0 ~ /^  "pid": "[^"]*",$/) {
+            p = $0; sub(/^  "pid": "/, "", p); sub(/",$/, "", p)
+            if (p != "") { relaunch = 1; displaced = p }
+          }
+          if ($0 ~ /^  "relaunches": [0-9]+,$/) {
+            n = $0; sub(/^  "relaunches": /, "", n); sub(/,$/, "", n); count = n + 1
+          }
+          next
+        }
+        !stamped && $0 ~ /^  "pid": "[^"]*",$/ {
+          stamped = 1
+          print "  \"pid\": \"" pid "\","
+          if (relaunch) {
+            print "  \"previousPid\": \"" displaced "\","
+            print "  \"relaunches\": " count ","
+          }
+          next
+        }
+        relaunch && $0 ~ /^  "previousPid": "[^"]*",$/ { next }
+        relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
+        relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }
+        { print }
+      '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
+      >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.wrapper.pid" )
+  echo "    started worker (log: $log)"
+  return 0
+}
 
 # ---------------------------------------------------------------------------
 # Inspection and shutdown
@@ -312,6 +627,135 @@ if [ "$mode" = "stop" ]; then
     finished*|waiting*|stalled*|failed*|ended*) echo "$stop_branch is not running ($st)" ;;
     *)      echo "$stop_branch has no worker" ;;
   esac
+  exit 0
+fi
+
+if [ "$mode" = "restart" ]; then
+  # THE COUNTERPART TO --stop, AND THE WHOLE FEATURE. `--stop` kills a worker;
+  # nothing started one on a branch that already holds a claim, because the
+  # dispatcher asks the scan for `--next` and `--next` fills claimable[] only
+  # where the branch is `open` — meaning NO REF EXISTS. A branch that has ever
+  # been claimed is `claimed` or `wip`, so it was never offered and
+  # `plot-dispatch.sh <slug>` answered `dispatched=0`: not a refusal with a
+  # reason, an empty set, which has nothing to say about what it filtered out.
+  #
+  # That `open`-only rule is Plot's LOCK and must not widen — three callers
+  # consume `--next`, and the board's auto-dispatch would begin restarting
+  # stalled work on a five-second timer with nobody deciding anything. So this
+  # is a SECOND QUESTION, asked only when a person asks it.
+  #
+  # HERE, BESIDE --stop AND BEFORE THE PHASE GATE, for the reason that block
+  # already gives: a branch that is already claimed and already has a worktree
+  # is work in flight, and the plan's phase says nothing about whether a
+  # stopped worker on it should be replaced. Refusing on phase would strand
+  # exactly the branch this exists to rescue.
+  if [ -z "$restart_branch" ]; then
+    echo "plot-dispatch: --restart needs a branch name, e.g. --restart feature/x" >&2
+    echo "  A slug is not enough: which stopped branch to hand to a new worker" >&2
+    echo "  is your call, not something this should guess." >&2
+    exit 1
+  fi
+
+  # ASK GIT WHICH WORKTREE HOLDS THE BRANCH — never rebuild the path from the
+  # name. This file's own rule (see resolve_wt_root): path-guessing is confined
+  # to CREATION, because a second naming convention gives it a second way to be
+  # wrong. It matters more here than anywhere: the population this verb serves
+  # includes the worktree a person made by hand after the tool had no verb for
+  # them, and a hand-made worktree rarely follows dispatch's naming.
+  restart_wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$restart_branch" '
+    /^worktree /  { path = substr($0, 10) }
+    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+  if [ -z "$restart_wt" ] || [ ! -d "$restart_wt" ]; then
+    echo "plot-dispatch: no worktree holds '$restart_branch' — nothing to restart." >&2
+    echo "  --restart hands an EXISTING checkout to a new worker; it creates none." >&2
+    echo "  To start this branch fresh, dispatch its plan." >&2
+    exit 1
+  fi
+
+  # THE PR IS ASKED FIRST, BEFORE THE STATE WORD. This ordering is the round-one
+  # correction to the plan, and it comes from a measurement: five of five
+  # `failed` worktrees in this estate held a PR — four open, one already merged.
+  #
+  # `plot-worker-state.sh` refines `finished` by the TREE (an open or merged PR
+  # turns it into "the work reached review") but deliberately does NOT refine
+  # `failed`, `ended` or `none`, because "a recorded non-zero exit is already a
+  # specific answer about the process." True about the PROCESS, and silent about
+  # the WORK: a worker that opened its PR and then exited non-zero reads
+  # `failed` with nothing left to redo. A gate written on the state word alone
+  # would have restarted all five and discarded exactly what the `finished`
+  # refusal exists to protect.
+  #
+  # Same lesson plot-reap.sh learned from the other side: it reads `mergedAt`
+  # and never `state`, because a merged PR reports CLOSED. There the state word
+  # lies about merging; here the exit code lies about completion.
+  if reached_review "$restart_branch"; then
+    pr_json=$("$script_dir/plot-host.sh" pr-state "$restart_branch" </dev/null 2>/dev/null || true)
+    pr_num=$(printf '%s' "$pr_json" | sed -n 's/.*"number":\([0-9]*\).*/\1/p')
+    pr_state=$(printf '%s' "$pr_json" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+    echo "plot-dispatch: $restart_branch has a pull request (#${pr_num:-?}, ${pr_state:-OPEN}) — refusing." >&2
+    echo "  The work reached review, whatever the worker's exit code says. A" >&2
+    echo "  restart here redoes work someone is already looking at." >&2
+    echo "  Review it, or reap the worktree once it merges." >&2
+    exit 1
+  fi
+
+  # Only now the process. `worker_state` is the ONE answer to "is a worker
+  # running here" — asked rather than re-derived, so this cannot drift from
+  # `--status` and the scan the way five of six states already did once.
+  restart_state=$(worker_state "$restart_wt" "$restart_branch")
+  case "$restart_state" in
+    running*)
+      # THE REFUSAL THAT PREVENTS TWO WORKERS ON ONE BRANCH. There is no
+      # --force: a flag overriding this is the flag typed reflexively, and what
+      # it would override is another agent's work in progress.
+      echo "plot-dispatch: a worker is alive on $restart_branch (pid ${restart_state#running }) — refusing." >&2
+      echo "  Stop it first if you mean to replace it:" >&2
+      echo "    plot-dispatch.sh --stop $restart_branch" >&2
+      exit 1
+      ;;
+    waiting*)
+      # A person owes this branch an answer. A new worker meets the same
+      # question and writes the same marker.
+      marker=$(cd "$restart_wt" && ls -1 PLOT-BLOCKED* 2>/dev/null | head -1)
+      echo "plot-dispatch: $restart_branch is blocked on a question — refusing." >&2
+      echo "  ${marker:-PLOT-BLOCKED.md}: $restart_wt/${marker:-PLOT-BLOCKED.md}" >&2
+      echo "  Answer it and delete the marker, then restart." >&2
+      exit 1
+      ;;
+  esac
+  # `stalled`, `failed`, `ended` and `no worker` all restart. The PR question
+  # above is what makes `failed` safe to include — and including it is the
+  # point: a gate that simply refused `failed` would pass every refusal test
+  # here and leave the verb unable to do the one thing it exists for.
+
+  echo "restarting $restart_branch ($restart_state)"
+  echo "  worktree: $restart_wt"
+
+  # THE TREE IS INHERITED EXACTLY AS IT STANDS. A `stalled` worktree holds
+  # uncommitted work — that is what `stalled` MEANS, and a measured stall in
+  # this repo left 324 finished lines on the floor. Nothing here cleans,
+  # resets or stashes: a restart that discards that is worse than the missing
+  # affordance, because it looks like a supported operation. The new worker's
+  # brief already tells it to commit and push before verifying.
+  if [ -n "$(git -C "$restart_wt" status --porcelain </dev/null 2>/dev/null)" ]; then
+    echo "  uncommitted work in the tree is kept — the new worker inherits it"
+  fi
+
+  # start_worker is the ORDINARY DISPATCH PATH, and reusing it is half this
+  # feature. The bypass this plan replaces produced an unregistered agent, so
+  # the board showed a branch name in the agent-name slot; a restart that
+  # spawned a worker without a manifest would reproduce the exact defect it
+  # exists to prevent. One writer, so the two cannot drift.
+  #
+  # These two globals are set below the phase gate, which this path exits
+  # before reaching. `slug` stays empty on purpose: a restart is not a plan
+  # fan-out, and the manifest records what this line actually knows.
+  repo_root="$repo_root_early"
+  worker_cmd_declined=0
+  case "$("$script_dir/plot-config.sh" get "Worker command" "")" in
+    none|NONE|None) worker_cmd_declined=1 ;;
+  esac
+  start_worker "$restart_branch" "$restart_wt" || exit 1
   exit 0
 fi
 
@@ -1061,293 +1505,6 @@ append_started_line() { # $1=file $2=date $3=who $4=branch
   mv "$f.plot-tmp" "$f"
 }
 
-# A session id, in the shape the runtime uses for its transcript filename.
-#
-# `uuidgen` where it exists (macOS and most Linux), falling back to `/dev/urandom`
-# — never to `$RANDOM` or a timestamp. Two workers launched in the same second by
-# the same fan-out would collide on either, and a collision here silently merges
-# two agents into one manifest.
-#
-# Lowercased because the runtime writes its transcript filename in lowercase and
-# the board joins on exact string equality; `uuidgen` on macOS returns uppercase.
-plot_session_id() {
-  local id=""
-  if command -v uuidgen >/dev/null 2>&1; then
-    id=$(uuidgen 2>/dev/null | tr 'A-Z' 'a-z')
-  fi
-  if [ -z "$id" ]; then
-    # 16 random bytes rendered as a v4-shaped id. The shape matters only for
-    # recognisability; nothing parses it.
-    id=$(od -An -tx1 -N16 /dev/urandom 2>/dev/null | tr -d ' \n' \
-         | sed -E 's/(.{8})(.{4})(.{4})(.{4})(.{12})/\1-\2-\3-\4-\5/')
-  fi
-  printf '%s' "$id"
-}
-
-# JSON-escape one string for a manifest value.
-#
-# `printf %s` through a substitution chain rather than `jq`: Plot's helpers must
-# run where only POSIX tools exist, and a Worker command routinely contains
-# double quotes and newlines — this repo's is a 1,400-character prompt full of
-# both. Backslash first, or it re-escapes what the later rules add.
-json_escape() {
-  printf '%s' "$1" \
-    | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' \
-    | awk 'BEGIN{ORS=""} {if (NR>1) print "\\n"; print}'
-}
-
-# Write one agent manifest: launch-time facts, keyed on the session id.
-#
-# Model and context are still absent on purpose: they belong to the runtime and
-# are read from the transcript, so a manifest that named them would be a guess.
-# The `pid` starts EMPTY here and is stamped by the wrapper the instant it learns
-# its own child — see `stamp_manifest_pid`. The dispatcher does not know the
-# agent pid at this line (only the wrapper does, from its `$!`), so it writes the
-# field as a placeholder the wrapper fills rather than guessing it now.
-#
-# Written to a temp file and moved into place, so a scan reading the directory
-# never sees a half-written manifest. `mv` within one directory is atomic.
-write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
-  local out="$1" tmp="$1.plot-tmp"
-  {
-    printf '{\n'
-    printf '  "session": "%s",\n' "$(json_escape "$2")"
-    printf '  "branch": "%s",\n' "$(json_escape "$3")"
-    printf '  "worktree": "%s",\n' "$(json_escape "$4")"
-    printf '  "command": "%s",\n' "$(json_escape "$5")"
-    printf '  "pid": "",\n'
-    printf '  "startedAt": "%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    printf '}\n'
-  } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-  mv "$tmp" "$out" 2>/dev/null || { rm -f "$tmp"; return 1; }
-}
-
-# THE MANIFEST PID IS STAMPED BY THE WRAPPER, NOT HERE. The agent's pid is
-# knowable only to the wrapper (`$!` of its own backgrounded child), so the stamp
-# is inline in the wrapper's `sh -c` below — a fresh shell that cannot reach a
-# function defined in this bash script, the same isolation that makes the wrapper
-# own `.plot-worker.pid`. The write above leaves `"pid": ""` as a placeholder the
-# wrapper replaces; the mechanics and their safety are documented at that call.
-
-# Start one DETACHED worker per worktree. Detached is the whole point: the
-# fleet must outlive the dispatching session. Logs go beside the worktree so a
-# human can read them without knowing anything about how the worker was started.
-#
-# The worker command is configurable because "how do I run an agent headless"
-# is a per-project, per-tool answer that Plot must not hardcode (Principle 5).
-# THE BRIEF GATE. A branch's hand-off brief is its specification: the `Worker
-# command`'s first instruction is "Read `.plot/briefs/<branch-suffix>.md` first
-# — it is the specification". Without it the worker reads nothing and improvises,
-# the one thing the brief exists to prevent (measured 2026-08-20: 2:12 against a
-# 700-line wave with no spec). So a missing brief PREPARES but does not START —
-# the worktree and claim above are correct and stay; only the launch is refused.
-#
-# READABLE AND NON-EMPTY, not merely present. A zero-byte or permission-denied
-# file is not a specification, and `[ -f ]` alone passes for an empty one — the
-# naive check the plan calls out. This is STRICTER than the board's `briefState`
-# row hint (which treats any existing file as present, because a person will look
-# either way): here the cost of guessing wrong is an agent burning minutes on
-# nothing, so an unreadable brief reads as missing.
-#
-# The path is the branch after its last `/` — the same convention
-# `/plot-implement` writes and `briefPathOf` reads on the board side.
-#
-# READ FROM `origin/<main>`, NOT THE WORKING TREE, for the same reason the phase
-# gate above does: the question is not "does a brief exist in this filesystem?"
-# but "will the WORKER find one?". The worker's worktree is created from
-# `origin/$MAIN` (see `git worktree add` below), so a brief committed nowhere —
-# or committed locally and never pushed — is invisible to it. Checking the
-# working tree passes the gate and starts a worker into an empty specification,
-# which is the exact failure this gate exists to prevent.
-#
-# Both directions were measured 2026-08-27. Running the filesystem check from a
-# checkout 8 commits behind main reported three branches' briefs missing while
-# all three existed on `origin/main` at 4-5 KB — a benign refusal. The inverse
-# is not benign, and it is the one a working-tree read permits.
-#
-# NON-EMPTY, not merely present: a zero-byte brief is what a half-finished write
-# leaves behind, and `cat-file -e` alone passes for it. This is STRICTER than the
-# board's `briefState` row hint (which treats any existing file as present,
-# because a person will look either way): here the cost of guessing wrong is an
-# agent burning minutes on nothing.
-brief_path() { printf '.plot/briefs/%s.md' "${1##*/}"; }
-brief_ref() { printf 'origin/%s:%s' "$MAIN" "$(brief_path "$1")"; }
-brief_present() { # $1 = branch → 0 if a usable brief exists on origin/<main>
-  local sz
-  sz=$(git cat-file -s "$(brief_ref "$1")" 2>/dev/null) || return 1
-  [ "${sz:-0}" -gt 0 ]
-}
-
-start_worker() {
-  local branch="$1" wt="$2"
-  local cmd
-  cmd=$("$script_dir/plot-config.sh" get "Worker command" "")
-  # `none` means "asked, and this repo starts them by hand". Running it would
-  # spawn a worker per branch that fails with `none: command not found` — a
-  # deliberate answer turned into N crashed workers.
-  case "$cmd" in none|NONE|None) cmd="" ;; esac
-  if [ -z "$cmd" ]; then
-    # Not an error: Plot deliberately hardcodes no agent tooling (Principle 5).
-    # Word it as the next step rather than a failure, or a first run reads as
-    # "it did nothing".
-    #
-    # This line carries the ONE thing the summary cannot: which worktree to cd
-    # into. The consequence itself — that nothing started, and why — is stated
-    # in the summary, because per-branch output is exactly where it was missed
-    # five times on 2026-08-17. Saying it in both places would train the reader
-    # to skip both.
-    if [ "$worker_cmd_declined" = 1 ]; then
-      echo "    worktree ready — start it yourself:"
-    else
-      echo "    worktree ready — no 'Worker command' configured, so start it yourself:"
-    fi
-    echo "      cd $wt   # branch $branch is claimed and waiting"
-    return 1
-  fi
-  local log="$wt/.plot-worker.log"
-  rm -f "$wt/.plot-worker.exit"
-
-  # THE MANIFEST, AND WHY IT IS KEYED ON A SESSION ID RATHER THAN A BRANCH.
-  #
-  # An agent survives the branch it was launched on: it finishes one and takes
-  # another, and everything the board knows about it today lives INSIDE a
-  # worktree — `.plot-worker.pid` is a file in it, and the transcript directory
-  # is derived from its path. So an agent that moves on loses every identity the
-  # board holds, and the states that matter most (`waiting`, and an agent between
-  # branches) are exactly the ones no worktree can express.
-  #
-  # The manifest is the identity that outlives the worktree. It records ONLY
-  # launch-time knowledge — what this function has in hand at this line — because
-  # a record that infers is a record that can be wrong about the past. Model and
-  # context are absent here on purpose: they belong to the runtime and are read
-  # from the transcript, which the board joins by the id below.
-  #
-  # THE DISPATCHER MINTS THE ID. The plan assumed the runtime was already invoked
-  # with `--session-id`, but this repo's `Worker command` carries none, so reading
-  # one back would mean guessing at the newest file in a directory that holds one
-  # to eight of them (measured 2026-08-20) — the guess the manifest exists to
-  # remove. Minting keeps it launch-time knowledge, and exporting it as
-  # `PLOT_SESSION_ID` lets a `Worker command` forward it so the runtime's
-  # transcript lands where the manifest points. A command that ignores the
-  # variable still gets a complete manifest; only the transcript join degrades,
-  # to the absence the board already treats as the honest answer.
-  #
-  # WRITTEN BEFORE THE LAUNCH, for the reason the pid file's own comment gives
-  # one paragraph down: there is a window between spawn and first write, and a
-  # scan landing inside it must not read a started agent as absent. The manifest
-  # carries the identity, so its window would be worse than the pid's.
-  local session manifest_dir
-  session=$(plot_session_id)
-  manifest_dir="$repo_root/.plot/agents"
-  mkdir -p "$manifest_dir" 2>/dev/null || true
-  # `printf` per field with no interpretation: a command containing quotes,
-  # newlines or backslashes must survive into valid JSON, and this is the one
-  # place a Worker command's full text is recorded.
-  write_agent_manifest "$manifest_dir/$session.json" \
-    "$session" "$branch" "$wt" "$cmd" || true
-  # TWO PIDS, TWO NAMES. `.plot-worker.pid` must name the AGENT — the process
-  # doing the work, which is what the panel, `--status` and the scan describe.
-  # `$!` from the parent names the `sh -c` WRAPPER, and recording that is the
-  # bug this fixes: every field read correctly off the dispatcher's shell rather
-  # than off the agent. The wrapper is the one thing that knows its own child,
-  # so the wrapper writes the agent's pid; only the wrapper can, and a `pgrep`
-  # by command string is the failure this repo already recorded (`wait on your
-  # own PID, not a process name`).
-  #
-  # The wrapper's own pid is KEPT, under `.plot-worker.wrapper.pid`, because the
-  # wrapper is what writes `.plot-worker.exit` when the agent exits and that must
-  # keep working — `--stop` kills the agent, the wrapper survives to record the
-  # code. The paths travel as env vars so no quoting level inside the
-  # single-quoted `sh -c` mangles a path with spaces, exactly as the exit file
-  # already does.
-  #
-  # The agent runs backgrounded inside the wrapper so the wrapper can capture its
-  # `$!` and `wait` for it. There is a sub-millisecond window after the wrapper
-  # starts and before it writes `.plot-worker.pid`; a scan landing in it reads an
-  # absent pid file as `none` — honest, never "running" off a stale value.
-  #
-  # THE WRAPPER ALSO STAMPS THE MANIFEST PID, for the same reason it writes the
-  # pid file: it is the one process that knows the agent's own pid. The manifest
-  # path travels as `PLOT_MANIFEST_FILE`, beside the exit/pid paths, so no quoting
-  # level inside the single-quoted `sh -c` mangles a path with spaces. The stamp
-  # is inline `awk` rather than a bash helper, because a helper would live in this
-  # bash script and the detached `sh -c` is a fresh shell with no access to it —
-  # the same isolation that makes the wrapper own the pid.
-  #
-  # ONE CONTRACT, TWO IMPLEMENTATIONS. This inline `awk` is the mechanical twin of
-  # `manifest-stamp.ts`'s `stampManifest`; `/api/continue` calls that helper, and a
-  # parity test (`manifest-stamp-parity.test.ts`) runs THIS awk against the same
-  # inputs and asserts a byte-identical result. The two exist because the callers
-  # cannot share code — a detached `sh -c` reaches no TypeScript, and a bash helper
-  # is out of a fresh shell's reach — but they must not drift, the
-  # `plot-worker-state.sh` lesson after five of six states diverged in duplicate.
-  #
-  # It replaces ANY `pid` line, not only the empty placeholder — a full-line
-  # anchored match on bytes we control, so nothing in the command value (one
-  # escaped JSON string on its own line) can be mistaken for it. On a FIRST
-  # dispatch the placeholder is empty: the pid is filled and nothing else changes,
-  # byte-identical to the manifest before relaunch bookkeeping existed. On a
-  # RELAUNCH the line already holds a pid: it is overwritten, `startedAt` is
-  # rewritten to now, and two lines are inserted after `pid` — `previousPid` (the
-  # corpse displaced) and `relaunches` (the restart count, +1 from any it carried).
-  # The dispatcher mints a fresh session per launch so its own manifest is always a
-  # first stamp; the relaunch arms exist for parity with `/api/continue`, which
-  # reuses a worktree's existing manifest. A pid is digits, so no JSON escaping is
-  # needed. Rewritten through a temp file and `mv`, atomic like the original write.
-  # Any failure leaves the pid untouched — the registry reads an absent one as
-  # `unknown`.
-  #
-  # The awk reads the manifest TWICE — the same file passed as two arguments, so
-  # `FNR==NR` is the pre-scan. Pass one learns whether the pid is already filled
-  # (a relaunch) and the count any prior `relaunches` line held; pass two rewrites.
-  # This mirror of a two-pass read is what lets a SECOND relaunch increment rather
-  # than reset: the old count sits AFTER the pid line, so a single pass could not
-  # know it when it must emit the new `relaunches` immediately after `pid`.
-  #
-  # On the pid line: an empty placeholder is filled and nothing else changes (a
-  # first stamp, byte-identical to before); a filled pid is overwritten and the
-  # two relaunch records — `previousPid` then `relaunches` — are emitted right
-  # after it, then any stale copies of those lines are dropped and `startedAt` is
-  # rewritten to the current run. This is exactly `stampManifest`, line for line,
-  # which the parity test pins byte for byte.
-  local stamp_now
-  stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
-      PLOT_SLUG="$slug" \
-      PLOT_SESSION_ID="$session" \
-      PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
-      PLOT_STAMP_STARTED="$stamp_now" \
-      PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
-      nohup sh -c '( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '"'"'
-        BEGIN { relaunch = 0; count = 1; stamped = 0 }
-        FNR == NR {
-          if ($0 ~ /^  "pid": "[^"]*",$/) {
-            p = $0; sub(/^  "pid": "/, "", p); sub(/",$/, "", p)
-            if (p != "") { relaunch = 1; displaced = p }
-          }
-          if ($0 ~ /^  "relaunches": [0-9]+,$/) {
-            n = $0; sub(/^  "relaunches": /, "", n); sub(/,$/, "", n); count = n + 1
-          }
-          next
-        }
-        !stamped && $0 ~ /^  "pid": "[^"]*",$/ {
-          stamped = 1
-          print "  \"pid\": \"" pid "\","
-          if (relaunch) {
-            print "  \"previousPid\": \"" displaced "\","
-            print "  \"relaunches\": " count ","
-          }
-          next
-        }
-        relaunch && $0 ~ /^  "previousPid": "[^"]*",$/ { next }
-        relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
-        relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }
-        { print }
-      '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
-      >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.wrapper.pid" )
-  echo "    started worker (log: $log)"
-  return 0
-}
 
 # ---------------------------------------------------------------------------
 # What is already in flight
