@@ -183,7 +183,7 @@ other a sentence on a plan head.
 
 ## Waves
 
-### Worded (Branch: bug/an-eligible-wave-can-be-started)
+### Worded (Branch: bug/an-eligible-wave-can-be-started, PR: #470)
 
 `plot-fleet-scan.sh` distinguishes a wave whose plan is not approved from one a
 dispatch would take, and the board renders the distinction in the verdict slot.
