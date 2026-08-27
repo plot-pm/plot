@@ -147,7 +147,7 @@ function and leaving two spellings of one rule behind is how they drift.
 annotating each with the phase that justified it, and names every item it could
 not resolve.
 
-### Reported (Branch: bug/the-scan-sees-a-stale-sprint-tally)
+### Reported (Branch: bug/the-scan-sees-a-stale-sprint-tally, PR: #463)
 
 `plot-reconcile-scan.sh` reports unchecked items over delivered plans, in closed
 sprints as well as active ones, with a machine-countable footer field.
