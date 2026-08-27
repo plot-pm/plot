@@ -320,6 +320,26 @@ plot_worker_blocked() { # $1=worktree → 0 when a person owes this branch an an
   return 1
 }
 
+# WHICH file carries the question — the basename, for a caller that must name it.
+#
+# HERE, BESIDE THE GLOB, and not in the caller. A refusal that says only "this
+# branch is blocked" sends its reader hunting, so `--restart` names the file;
+# but re-globbing `PLOT-BLOCKED*` there would put the marker's spelling in two
+# places, which is the drift the structural test in `workerstate.test.mjs`
+# pins against. The classification and the name of the thing classified stay
+# together: one glob, asked two ways.
+#
+# Prints nothing and returns 1 when no marker exists, so a caller can use the
+# output directly or fall back.
+plot_worker_blocked_file() { # $1=worktree → prints the marker's basename
+  local wt="$1" f
+  [ -n "$wt" ] && [ -d "$wt" ] || return 1
+  for f in "$wt"/PLOT-BLOCKED*; do
+    [ -e "$f" ] && { printf '%s' "${f##*/}"; return 0; }
+  done
+  return 1
+}
+
 # How much uncommitted work is on the floor, and in which files.
 #
 # EDITOR LEFTOVERS ARE NOT WORK. Measured 2026-08-18: a guard restarted a branch
