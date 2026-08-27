@@ -23,7 +23,12 @@ PLAN_DIR="${PLAN_DIR%/}"
 # /plot-implement brief, or back-filled by /plot-deliver step 4).
 #
 # Find the date-prefixed plan file via the active or delivered symlink index
-DEFAULT_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+# `|| true` on the pipeline, not just `2>/dev/null` on the git call: under
+# `set -euo pipefail` a failing `git symbolic-ref` kills the script at this line
+# and the fallback below never runs. A FRESH CLONE has no `origin/HEAD` — it is
+# set by `clone` only when the remote advertises it — so this aborted with
+# exit 128 and no output in exactly the repos a test harness creates.
+DEFAULT_BRANCH="$( { git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'; } || true)"
 [ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH=main
 PLAN_PATH=$(git ls-tree --name-only "origin/$DEFAULT_BRANCH" "$PLAN_DIR/" 2>/dev/null \
   | grep -E "[0-9]{4}-[0-9]{2}-[0-9]{2}-${SLUG}\.md$" | head -1)
@@ -51,26 +56,55 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # in section 2 ("the missing annotation and the missing delivery share a cause,
 # so an annotation-dependent check is blind to exactly the plans it exists to
 # catch"). All host access stays inside plot-host.sh.
+# TWO DIALECTS, AND THIS READ ONLY ONE UNTIL 2026-08-27. A plan states its
+# branches either as `## Branches` list items or as `## Waves` headings of the
+# form `### Name (Branch: x, PR: #N)`. Measured on this estate the day this
+# changed: **126 plans use Waves, 27 use Branches** — so reading only the latter
+# left the MAJORITY dialect with no branch lines at all.
+#
+# The consequence was not a visible error. `plot-deliver.sh` calls this helper,
+# swallows a failure into `{"prs":[]}`, and then finds no PR for any branch — so
+# every branch of every Waves plan read *not merged* and four fully-merged plans
+# were refused delivery with a message naming branches whose PRs had landed the
+# day before. Absent read as false, in a gate.
 BRANCHES_SECTION=$(echo "$PLAN_CONTENT" | sed -n '/^## Branches/,/^## /p')
+WAVES_SECTION=$(echo "$PLAN_CONTENT" | sed -n '/^## Waves/,/^## [A-Z]/p')
 
 # Branch lines: the backticked name at the head of a `- ` bullet. A backticked
 # name elsewhere in prose is not a branch line — the same distinction the parser
 # draws — so anchor on the list-item form.
-BRANCH_LINES=$({ echo "$BRANCHES_SECTION" \
+# A Waves heading names its branch inside the parentheses:
+#   ### Keyed (Branch: feature/a-plan-cites-a-jira-key, PR: #447)
+# The two sets are unioned rather than chosen between, so a plan carrying both
+# sections (a reslice in progress) reports every branch it names.
+BRANCH_LINES=$({ { echo "$BRANCHES_SECTION" \
   | grep -oE '^- `[A-Za-z0-9_./-]+`' \
-  | sed 's/^- `//; s/`$//' \
-  | sort -u; } || true)
+  | sed 's/^- `//; s/`$//'
+  echo "$WAVES_SECTION" \
+  | grep -oE '^### .*\(Branch: [A-Za-z0-9_./-]+' \
+  | sed 's/.*(Branch: //'; } | grep -v '^$' | sort -u; } || true)
 
 # Annotation for a given branch, if its line carries one. Empty otherwise.
 # `|| true` on the greps: a branch with no annotation is the ORDINARY case this
 # whole change exists for, and under `set -e` a no-match grep (exit 1) inside
 # the `$(...)` would abort the script rather than report "un-annotated".
+# The two dialects annotate DIFFERENTLY, and the difference is not cosmetic:
+# Branches carries a trailing `→ #N`, Waves carries `PR: #N` INSIDE the heading.
+# A trailing arrow on a Waves plan parses as no annotation at all, which is why
+# both forms are read here rather than one being normalised into the other.
 annotation_for() { # $1=branch → "#N" | "owner/repo#N" | ""
-  { echo "$BRANCHES_SECTION" \
+  local a
+  a=$({ echo "$BRANCHES_SECTION" \
     | grep -F -- "\`$1\`" \
     | grep -oE '→ [A-Za-z0-9_.-]*/?[A-Za-z0-9_.-]*#[0-9]+' \
     | head -1 \
-    | sed 's/^→ //'; } || true
+    | sed 's/^→ //'; } || true)
+  [ -n "$a" ] && { printf '%s' "$a"; return; }
+  { echo "$WAVES_SECTION" \
+    | grep -F -- "(Branch: $1" \
+    | grep -oE 'PR: [A-Za-z0-9_.-]*/?[A-Za-z0-9_.-]*#[0-9]+' \
+    | head -1 \
+    | sed 's/^PR: //'; } || true
 }
 
 if [ -z "$BRANCH_LINES" ]; then
