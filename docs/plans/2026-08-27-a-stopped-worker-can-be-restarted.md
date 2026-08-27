@@ -121,28 +121,48 @@ reviewed, reaped, or abandoned is exactly the call Plot leaves to a person —
 the same reasoning `a-claimed-branch-is-not-startable` gives for refusing to
 drop a claim when a PR closes.
 
-### It refuses on measurements, the way the reaper does
+### It refuses on measurements, the way the reaper does — and the PR is the first one
 
-`plot-reap.sh` is the precedent, and it is a good one: five refusals, every one
-a measurement, none a judgement. `--restart` takes the same posture, reusing
-`plot_worker_state` rather than re-deriving anything:
+`plot-reap.sh` is the precedent, and it is a good one: five refusals, every one a
+measurement, none a judgement. `--restart` takes the same posture, reusing
+`plot_worker_state` rather than re-deriving anything.
 
-| state | answer |
+**The PR is checked FIRST, before the state word.** That ordering is the round-one
+correction, and it comes from a measurement:
+
+| worktree | worker state | PR |
+|---|---|---|
+| the-scan-sees-a-stale-sprint-tally | `failed` | #464 open |
+| the-board-asks-for-a-brief | `failed` | #466 **merged** |
+| the-sprint-file-names-its-members | `failed` | #381 open |
+| the-components-leave-the-shell | `failed` | #369 open |
+| the-estate-speaks-waves | `failed` | #363 open |
+
+**Five of five `failed` worktrees hold a PR.** The first draft of this plan would
+have restarted every one of them, discarding exactly the work its `finished`
+refusal was written to protect.
+
+The cause is an asymmetry stated in `plot-worker-state.sh` itself: `finished` is
+refined by the TREE — an open or merged PR turns it into *the work reached
+review* — while **`failed`, `ended` and `none` are deliberately not refined**,
+because *"a recorded non-zero exit [...] is already a specific answer about the
+process."* True about the process, and silent about the work. A worker that
+opened its PR and then exited non-zero reads `failed` and has nothing left to
+redo.
+
+So the gate asks about the WORK before it asks about the process:
+
+| measurement | answer |
 |---|---|
-| `running` | **refuse** — a live worker holds this branch |
-| `waiting` | **refuse** — a `PLOT-BLOCKED` marker is unanswered; a new worker meets the same question |
-| `finished` | **refuse** — the work reached review; restarting discards a PR |
-| `stalled` | **restart** — work on the floor, no PR, no process |
-| `failed` / `ended` / `none` | **restart** — no process, nothing claiming review |
+| an open or merged PR exists | **refuse** — the work reached review, whatever the exit code said |
+| a live process (`running`) | **refuse** — a live worker holds this branch |
+| a `PLOT-BLOCKED*` marker (`waiting`) | **refuse** — unanswered; a new worker meets the same question |
+| none of the above | **restart** — `stalled`, `failed`, `ended`, `none` alike |
 
-`running` and `waiting` are the two that matter. A restart over a live worker
-duplicates effort; a restart over an unanswered question re-asks it of someone
-who cannot answer either, which is how a blocked branch becomes an infinite
-loop.
-
-**Refusals name the state and stop.** No `--force` in this plan. A flag that
-overrides a liveness refusal is the flag that gets typed reflexively, and the
-thing it overrides is another agent's work.
+Reading the PR rather than the state word is the same lesson `plot-reap.sh`
+learned from the other side: it reads `mergedAt` and **never** `state`, because a
+merged PR reports `CLOSED`. Here the exit code is the misleading field, and the
+PR is the honest one.
 
 ### It preserves the tree; it does not clean it
 
@@ -207,12 +227,18 @@ worktree, and writing a manifest through the ordinary dispatch path.
 2. A manifest exists for the restarted worker, carrying its session and pid.
    Asserted by reading the registry — not by the file's existence, since the
    measured failure was a row synthesized *because* no manifest was there.
-3. **`--restart` refuses on `running` and names the pid.** The refusal that
+3. **`--restart` refuses wherever an open or merged PR exists, and names it —
+   INCLUDING on a `failed` worker.** The measured case: five of five `failed`
+   worktrees held a PR, four open and one merged, because `failed` is not
+   refined by the tree. A gate written on the state word alone passes every
+   other item here and destroys work on its first real use.
+4. **`--restart` refuses on `running` and names the pid.** The refusal that
    prevents two workers on one branch.
-4. **`--restart` refuses on `waiting` and names the marker file.** A blocked
+5. **`--restart` refuses on `waiting` and names the marker file.** A blocked
    branch restarted is the same question asked again with nobody to answer it.
-5. **`--restart` refuses on `finished` and names the PR.** Restarting over work
-   that reached review discards it.
+5b. **A `failed` worker with NO PR does restart.** The other half of item 3:
+   a gate that simply refuses `failed` outright would pass item 3 and leave the
+   feature unable to do the one thing it exists for.
 6. **Uncommitted work in the worktree survives the restart, byte for byte.**
    Asserted with a dirty tree, because a restart that resets is the one failure
    worse than no restart at all.
@@ -243,3 +269,46 @@ stopped worker through the tool restarts it beside the tool, and everything the
 board knows about that worker is then a guess. The measured consequence was a
 row whose name was a branch — a section reporting a fact it had inferred,
 because the worker it described was never announced to it.
+
+### Interrogated 2026-08-27
+
+Two questions, and the first overturned this plan's refusal table.
+
+**The PR is checked before the state word.** The table said restart on `failed`.
+Measured across the estate: five of five `failed` worktrees hold a PR — four open,
+one already merged. `plot-worker-state.sh` refines `finished` by the tree and
+explicitly does not refine `failed`, so a worker that opened its PR and then
+exited non-zero reads `failed` with nothing left to redo. The first draft would
+have restarted all five and discarded exactly what its `finished` refusal was
+written to protect.
+
+The gate now asks about the WORK first — an open or merged PR refuses whatever
+the exit code says — and the state word only afterwards. Same lesson
+`plot-reap.sh` learned from the other side: it reads `mergedAt` and never
+`state`, because a merged PR reports `CLOSED`. There the state word lies about
+merging; here the exit code lies about completion.
+
+**Zero `stalled` worktrees exist right now**, across sixteen. That is expected
+rather than disconfirming: a stall is transient — it gets rescued or reaped — so
+a snapshot showing none is what a healthy estate looks like. The case this plan
+was written from was measured directly (a worker stopped, work in the tree, no
+supported way to restart), and the absence of a standing example is the reason
+the affordance keeps being missing when it is needed.
+
+<!-- CHALLENGE-THE-PLAN-METADATA
+{
+  "round": 1,
+  "questionHistory": [
+    {"q": "The plan restarts on `failed`, but all five failed worktrees hold PRs \u2014 how should the gate read?", "a": "Refuse on any open or merged PR FIRST, whatever the state word says; the exit code is silent about the work", "category": "technical"},
+    {"q": "Zero stalled worktrees exist \u2014 does the missing evidence change what to build?", "a": "Build it; a stall is transient by nature and the originating case was measured directly", "category": "tradeOffs"}
+  ],
+  "deferredItems": [],
+  "categoriesCovered": {
+    "technical": {"stack": false, "architecture": true, "implementation": true},
+    "domain": true,
+    "ux": {"happyPath": false, "edgeCases": true, "errors": true, "accessibility": false},
+    "nonFunctional": {"security": false, "performance": false, "scalability": false},
+    "tradeOffs": true
+  }
+}
+END-CHALLENGE-THE-PLAN-METADATA -->
