@@ -178,7 +178,7 @@ budget spent on a no-op.
 
 ## Waves
 
-### Seen (Branch: feature/the-pulse-says-a-branch-is-claimed)
+### Seen (Branch: feature/the-pulse-says-a-branch-is-claimed, PR: #478)
 
 The pulse reports whether each branch has a ref holding it, derived by the scan
 from the refs it already walks.
