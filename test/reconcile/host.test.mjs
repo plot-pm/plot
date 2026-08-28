@@ -110,6 +110,60 @@ ${cases ? `case "$state" in\n${cases}\n    *) printf '%s' '[]' ;;\nesac` : `prin
   return { dir, callsFile };
 }
 
+// A `gh` stub that tells the THREE call shapes apart and records every one of
+// them. The existing `makeStubs` overwrites a single argv file and answers any
+// argv with one canned payload, which cannot express this wave's question:
+// the fallback makes up to two gh calls (`api rate_limit`, then either
+// `pr view` or `api repos/...`), and the whole contract is about WHICH ones
+// happened. An overwriting stub would show only the last and hide the choice.
+//
+// It appends one line per invocation (`>>`), like `makeStrictBbStub`, so a test
+// can assert both what WAS called and what was NOT.
+//
+// `graphqlRemaining` defaults to a full budget: a stub that had to be told
+// "budget available" for every unrelated test would make the cheap path opt-in,
+// which is the inverse of the contract under test.
+function makeStubsRateAware({
+  graphqlRemaining = 5000,
+  coreRemaining = 5000,
+  graphqlJson = '{}',
+  restJson = '{}',
+  rateFail = null,
+  restFail = null,
+} = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-rate-'));
+  const callsFile = path.join(dir, 'gh.calls');
+  const q = (v) => String(v).replace(/'/g, `'\\''`);
+  const rateBody = rateFail != null
+    ? `printf '%s\\n' '${q(rateFail)}' >&2; exit 1`
+    : `printf '%s' '${q(JSON.stringify({
+        resources: {
+          graphql: { remaining: graphqlRemaining, limit: 5000, reset: 1787858250 },
+          core: { remaining: coreRemaining, limit: 5000, reset: 1787858165 },
+        },
+      }))}'`;
+  const restBody = restFail != null
+    ? `printf '%s\\n' '${q(restFail)}' >&2; exit 1`
+    : `printf '%s' '${q(restJson)}'`;
+  const body = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${callsFile}"
+case "$1 $2" in
+  "api rate_limit") ${rateBody} ;;
+  "api graphql") ${rateBody} ;;
+  *)
+    case "$1" in
+      api) ${restBody} ;;
+      pr) printf '%s' '${q(graphqlJson)}' ;;
+      repo) printf '%s' '{"defaultBranchRef":{"name":"main"},"nameWithOwner":"owner/repo"}' ;;
+      *) printf '%s' '{}' ;;
+    esac ;;
+esac
+`;
+  writeFileSync(path.join(dir, 'gh'), body);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  return { dir, callsFile };
+}
+
 const callsOf = (file) =>
   existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean) : [];
 
@@ -2032,4 +2086,198 @@ test('host: rate-limit bitbucket reports unknown and asks nothing', () => {
   assert.equal(out.graphql.remaining, 'unknown');
   assert.equal(out.core.remaining, 'unknown');
   assert.equal(argvOf(stubs.bbArgv), null, 'bb reports no rate information — do not ask it');
+});
+
+// ── the REST fallback ───────────────────────────────────────────────────────
+//
+// GITHUB METERS GRAPHQL AND REST SEPARATELY, so a spent GraphQL bucket leaves a
+// full REST one. `gh pr view` spends GraphQL; `gh api` spends REST. When the
+// first budget is gone the second is sitting there unused, and the same
+// question can still be answered — degraded and more expensive, but answered.
+//
+// REST IS A FALLBACK AND NOT THE DEFAULT, and the reason is measured rather
+// than stylistic. For 93 branches: ONE GraphQL call (`pr-list` with the check
+// rollup) versus ~186 REST calls, because REST's list endpoint returns
+// `mergeable_state: null` and no rollup, so full data costs two calls per PR.
+// A blanket "use REST whenever possible" trades one cheap call for a hundred
+// and eighty. That is the tempting fix and it is wrong.
+//
+// WHAT THIS BUYS, HONESTLY. A second path when one bucket is GENUINELY spent —
+// a real state a long-running board reaches. It does NOT buy immunity from
+// throttling: the outage this repo actually had on 2026-08-27 was GitHub's
+// SECONDARY limit (concurrency — eight workers against a cap of seven), during
+// which both buckets read 5000/5000 with used=0. `rate_limit` cannot report
+// that, so no budget check would have predicted it. Backing off on the 403
+// itself is a separate change the plan names and does not schedule here.
+
+// The first Done-when: with GraphQL at zero the state still arrives, and it
+// arrives THROUGH REST. Asserting "no error was thrown" would pass against an
+// adapter that answered from nowhere — the argv is what proves the route.
+test('host: pr-state falls back to REST when the GraphQL budget is spent', () => {
+  const stubs = makeStubsRateAware({
+    graphqlRemaining: 0,
+    coreRemaining: 4997,
+    restJson: JSON.stringify({
+      number: 7, state: 'open', draft: false,
+      html_url: 'https://example.test/pr/7', merged: false, merge_commit_sha: null,
+    }),
+  });
+  const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.deepEqual(out, {
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '',
+  });
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(
+    calls.some((c) => c.startsWith('api repos/')),
+    `the REST path must have answered; calls were:\n${calls.join('\n')}`,
+  );
+  assert.ok(
+    !calls.some((c) => c.startsWith('pr view')),
+    'the GraphQL path must not be attempted once its budget is known to be gone',
+  );
+});
+
+// THE ASSERTION A NAIVE IMPLEMENTATION FAILS. An adapter that always uses REST
+// satisfies the test above and makes every scan ~186 calls instead of one. The
+// cheap path staying default is the whole reason this is a fallback.
+test('host: pr-state does NOT use REST while GraphQL has budget', () => {
+  const stubs = makeStubsRateAware({
+    graphqlRemaining: 4998,
+    coreRemaining: 4997,
+    graphqlJson: JSON.stringify({
+      number: 7, state: 'OPEN', isDraft: false, url: 'https://example.test/pr/7',
+    }),
+  });
+  const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.state, 'OPEN');
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(
+    calls.some((c) => c.startsWith('pr view')),
+    `the cheap GraphQL path must still be the default; calls were:\n${calls.join('\n')}`,
+  );
+  assert.ok(
+    !calls.some((c) => c.startsWith('api repos/')),
+    'REST is the exception — asking it with budget in hand costs ~186 calls per scan',
+  );
+});
+
+// UNKNOWN IS NOT ZERO — inherited from #485's rule, at the point where it now
+// has teeth. A host that cannot be asked about its budget must NOT be read as
+// exhausted, or the adapter takes the expensive path forever, on every branch,
+// for as long as the budget query keeps failing.
+test('host: an unreadable budget keeps the cheap path, never the fallback', () => {
+  const stubs = makeStubsRateAware({
+    rateFail: 'error connecting to api.github.com: 503 Service Unavailable',
+    graphqlJson: JSON.stringify({
+      number: 7, state: 'OPEN', isDraft: false, url: 'https://example.test/pr/7',
+    }),
+  });
+  const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.state, 'OPEN');
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(
+    !calls.some((c) => c.startsWith('api repos/')),
+    'unknown must not be treated as spent — that is #485’s rule, and this is where it bites',
+  );
+});
+
+// THE TWO PATHS PRODUCE THE SAME VOCABULARY. A caller must not be able to tell
+// which route answered, or the adapter's contract forks in two. This is
+// stricter than it looks: `plot-fleet-scan.sh` reads the state with a regex
+// over the JSON TEXT (`sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p'`), so a
+// lowercase REST `state` would read as no answer at all rather than as a wrong
+// one.
+//
+// REST'S `state` IS NOT GRAPHQL'S, and this is the trap. A merged PR reports
+// `state: "closed"` over REST, with the merge in a SEPARATE `merged` boolean;
+// GraphQL says `MERGED` outright. An adapter that just uppercases `.state`
+// reports every merged PR as CLOSED — the same confusion `plot-reap.sh` was
+// built around.
+test('host: the REST fallback and the GraphQL path speak one vocabulary', () => {
+  const viaRest = JSON.parse(run(['pr-state', '7'], {
+    env: { PLOT_HOST: 'github' },
+    stubs: makeStubsRateAware({
+      graphqlRemaining: 0,
+      restJson: JSON.stringify({
+        number: 7, state: 'closed', draft: false, merged: true,
+        html_url: 'https://example.test/pr/7',
+        merge_commit_sha: '6302e85b7123790c8f7419831ed1500957bcf571',
+      }),
+    }),
+  }));
+  const viaGraphql = JSON.parse(run(['pr-state', '7'], {
+    env: { PLOT_HOST: 'github' },
+    stubs: makeStubsRateAware({
+      graphqlRemaining: 4998,
+      graphqlJson: JSON.stringify({
+        number: 7, state: 'MERGED', isDraft: false,
+        url: 'https://example.test/pr/7',
+        mergeCommit: { oid: '6302e85b7123790c8f7419831ed1500957bcf571' },
+      }),
+    }),
+  }));
+  assert.deepEqual(viaRest, viaGraphql, 'a caller must not be able to tell which route answered');
+  assert.equal(viaRest.state, 'MERGED', "REST's lowercase `closed` + `merged:true` is MERGED");
+});
+
+// A branch name is not a PR number, and REST needs a different endpoint for it
+// (`?head=owner:branch`) whose rows carry `merged_at` instead of a `merged`
+// boolean — measured against this repo 2026-08-28, where PR #494's list row
+// has `has("merged") == false`. Reading only `.merged` there reports every
+// merged branch as CLOSED.
+test('host: the REST fallback resolves a branch name, not just a number', () => {
+  const stubs = makeStubsRateAware({
+    graphqlRemaining: 0,
+    restJson: JSON.stringify([{
+      number: 494, state: 'closed', draft: false,
+      merged_at: '2026-08-28T06:21:03Z',
+      html_url: 'https://example.test/pr/494',
+      merge_commit_sha: 'd8305bc9ba52cc74872b1788ec67647de72d4134',
+    }]),
+  });
+  const out = JSON.parse(run(['pr-state', 'feature/watched'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.state, 'MERGED', '`merged_at` is the list form’s merge signal');
+  assert.equal(out.number, 494);
+  assert.equal(out.mergeCommit, 'd8305bc9ba52cc74872b1788ec67647de72d4134');
+});
+
+// A branch with no PR is an ANSWER over REST too: the endpoint returns an empty
+// array, which is evidence rather than a failure. It must read NONE, exactly as
+// the GraphQL path's lookup miss does.
+test('host: the REST fallback reports NONE for a branch with no PR', () => {
+  const stubs = makeStubsRateAware({ graphqlRemaining: 0, restJson: '[]' });
+  const res = runAllowFail(['pr-state', 'feature/nope'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0, 'an empty list ARRIVED — that is a miss, not a failure');
+  assert.deepEqual(JSON.parse(res.stdout), {
+    number: 0, state: 'NONE', draft: false, url: '', mergeCommit: '',
+  });
+});
+
+// A REST call that genuinely fails must not become a reassuring NONE. This is
+// the same rule the GraphQL path has had since 2026-08-17, when GitHub returned
+// 503 all afternoon and every branch read as having no PR — wrong in the
+// reassuring direction, which is the worst one.
+test('host: a failing REST fallback exits non-zero rather than answering NONE', () => {
+  const stubs = makeStubsRateAware({
+    graphqlRemaining: 0,
+    restFail: 'error connecting to api.github.com: 503 Service Unavailable',
+  });
+  const res = runAllowFail(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0, 'a transport failure on the fallback is still a failure');
+  assert.equal(res.stdout.trim(), '', 'a parseable NONE would be a false answer');
+  assert.match(res.stderr, /503/, "the host's own words reach the caller");
+});
+
+// BITBUCKET IS UNAFFECTED — a listed test, not an omission. Bitbucket has ONE
+// budget, so there is no second one to fall back to, and `bb` reports no rate
+// information at all. Issue #228 was filed from a Bitbucket repo, so a reader
+// will reasonably expect that backend covered; it is out of scope by
+// measurement, and this pins that the fallback adds no cost there.
+test('host: pr-state bitbucket is unaffected — no budget query, no REST', () => {
+  const stubs = makeStubs({
+    bbJson: '{"id":7,"state":"MERGED","draft":false,"links":{"html":{"href":"https://bb.test/pr/7"}}}',
+  });
+  const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'bitbucket' }, stubs }));
+  assert.deepEqual(out, { number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7' });
+  assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
 });
