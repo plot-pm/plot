@@ -671,6 +671,29 @@ export const ServerInfoSchema = z.object({
    * never sent the field) collapses to the same empty, and to the same silence.
    */
   branch: z.string().default(''),
+  /**
+   * The repository this server is serving — the root it resolves plans, scripts
+   * and worktrees against.
+   *
+   * WHY REPO AND NOT BRANCH. A branch chip lived in this header and was removed
+   * for a good reason (see App.tsx): it answered *which worktree is the server
+   * in* while looking like it answered *where am I*, and two branch names in
+   * one header is worse than either alone. Repo carries no such ambiguity —
+   * there is exactly one repository a board serves, and a reader comparing two
+   * tabs is asking precisely which.
+   *
+   * Measured 2026-08-28: a board left running by a test served a scratch estate
+   * on :7777, the usual port, with a plausible branch. It was read as the real
+   * board for two hours, and the conclusions drawn were "the sprint is empty",
+   * "the board shows nothing" and finally "we cannot ship the release" — none
+   * true. The footer did carry the tell (*1 branches across 1 plans* against 71
+   * across 38) but nobody reads a footer for identity.
+   *
+   * Defaulted so an older server yields no element rather than a broken header,
+   * and empty where the root cannot be read — the same rule `branch` follows,
+   * for the same reason: no fabricated name.
+   */
+  repo: z.string().default(''),
 });
 export type ServerInfo = z.infer<typeof ServerInfoSchema>;
 
@@ -680,7 +703,7 @@ export const BoardSchema = z.object({
   /** See DispatchInfoSchema — a server capability, not plan data. */
   dispatch: DispatchInfoSchema.default({ available: false, reason: '' }),
   /** See ServerInfoSchema — how to start this server again, and where it is. */
-  server: ServerInfoSchema.default({ restartCommand: '', port: 0, branch: '' }),
+  server: ServerInfoSchema.default({ restartCommand: '', port: 0, branch: '', repo: '' }),
   /**
    * Whether the server will act on an Approve click, and why not.
    *

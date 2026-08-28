@@ -58,6 +58,39 @@ afterEach(() => {
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 });
 
+describe('the server names the repository it is serving', () => {
+  // THE DISCRIMINATOR THE BRANCH IS NOT. Two boards on one machine differ by
+  // REPOSITORY far more often than by branch, and a stray board serving a
+  // scratch estate on the usual port with a plausible branch was read as the
+  // real board for two hours on 2026-08-28.
+  it('reports the repo root it was pointed at', async () => {
+    const dir = repo();
+    const info = await serverInfoIn(dir);
+    expect(info.repo).toBe(dir);
+  });
+
+  it('two servers on different roots report different repos', async () => {
+    // The whole point, asserted directly: the field must DISCRIMINATE. A
+    // constant — the string 'repo', the cwd, anything fixed — would satisfy the
+    // case above and fail here.
+    const a = await serverInfoIn(repo());
+    const b = await serverInfoIn(repo());
+    expect(a.repo).not.toBe(b.repo);
+  });
+
+  it('reports a root even where git cannot answer — repo is not a git question', async () => {
+    // `branch` is empty for a non-repo because git cannot say. `repo` is the
+    // path the server was STARTED against, which is known whether or not git
+    // will talk to it — and a board serving a broken checkout still needs to
+    // say which one it is serving.
+    const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-nonrepo-repo-'));
+    dirs.push(notARepo);
+    const info = await serverInfoIn(notARepo);
+    expect(info.repo).toBe(notARepo);
+    expect(info.branch).toBe('');
+  });
+});
+
 describe('the server names the branch it is serving', () => {
   it('reports the branch HEAD is on', async () => {
     const info = await serverInfoIn(repo({ branch: 'feature/the-board-says-which-branch-it-serves' }));
