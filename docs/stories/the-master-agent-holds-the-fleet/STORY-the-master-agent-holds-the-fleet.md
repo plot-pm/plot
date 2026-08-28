@@ -69,8 +69,9 @@ and a shell subprocess to parse it back.
 - **[The fleet's domain entities](DESIGN-entities.md)** — the nine things a
   supervisor reasons about, one at a time: source of truth, states, invariants,
   properties. Designed so far: **Agent** (three competing state models
-  reconciled) and **Machine** (new — the entity whose absence made `exit 124`
-  read as worker failure).
+  reconciled), **Machine** (new — the entity whose absence made `exit 124` read
+  as worker failure) and **Person** (new — 84 `Jan Wloka` against 43 `jwloka`
+  in one estate's approval records).
 - **[Issue](DESIGN-issue.md)** — the board's inbox and Plot's tracker-facing
   entity, specified in full: posture (`Tracker:` vs `Issue tracker:`), the
   domain object, three kinds in both directions, relations to Story/Plan/Sprint,

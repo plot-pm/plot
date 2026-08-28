@@ -90,7 +90,8 @@ one to test rather than the most expensive.
 
 ## The organizing finding
 
-Nine entities, sorted by where their truth lives:
+Ten entities, sorted by where their truth lives. The first nine are things the
+fleet acts on; the tenth is shared by all of them:
 
 | # | Entity | Source of truth | Domain | State today |
 |---|--------|-----------------|--------|-------------|
@@ -103,9 +104,14 @@ Nine entities, sorted by where their truth lives:
 | 7 | Issue | tracker | foreign | **best-designed; 3 gaps** |
 | 8 | Agent | manifest + pid + tree | local | three competing models |
 | 9 | Machine | spawn cost | local | **does not exist** |
+| 10 | **Person** | every artefact that names one | **cross-cutting** | **does not exist** |
 
 **Everything Plot derives from git is clean. Everything else is missing,
 partial, or modelled three ways — with exactly one exception.**
+
+*(Person is the tenth and sits outside that split: it is not derived from
+anywhere, because nothing in the estate resolves one human's two spellings to
+one identity — see §1c.)*
 
 That exception is Issue, and it is the exception that names the rule. Issue is
 the only non-git entity that was designed *as* a foreign entity: deliberately
@@ -579,6 +585,118 @@ The summary that belongs here:
   degrade beside write controllers that refuse.
 - **Four verified gaps**, of which the sharpest is that the plan → Issue link
   does not exist: the association is modelled only as a disappearance.
+
+---
+
+## 1c. Person
+
+The smallest entity here, and the only one shared by every other. Not a
+participant in the fleet — that is Agent — but the **human a record names**.
+
+### What it is
+
+**An identity, not an actor.** A Person exists because an artefact names them:
+a plan approved, a story authored, a commit made. There is no roster, no
+membership, no lifecycle — the entity exists to make two spellings of one human
+resolve to one value.
+
+### The measurement that motivates it
+
+Across this estate, 2026-08-28:
+
+| artefact | field | value | count |
+|---|---|---|---|
+| story front matter | `author:` | `jwloka` | **9 / 9** |
+| git commits | author | `Jan Wloka` | **200 / 200** |
+| plan | `assignee:` | `Jan Wloka` / `jwloka` | **30 / 16** |
+| plan | `approved:` who | `Jan Wloka` / `jwloka` | **84 / 43** |
+
+**Story is internally consistent; git is internally consistent; Plan is where
+they collide.** And the reason is structural: story front matter and git
+metadata are written by tooling, while a plan's `Assignee:` and `Approved:`
+lines are typed by a human into prose.
+
+So this is not a plan-format defect. **It is a missing shared identity, visible
+only where a human writes the value.**
+
+**A fifth case is worse than inconsistent.** Four `Approved:` records name a
+prose clause rather than a person — *"do not fall back to a second budget"* —
+because the record is comma-separated free text and one of its fields may itself
+contain commas. There is nothing to parse (Plan §3).
+
+### Source of truth
+
+**Every naming artefact, and no canonical list.** A Person is the union of what
+the estate calls them, which means the entity's job is *resolution* rather than
+storage:
+
+| source | yields |
+|---|---|
+| git config / commit author | display name, email |
+| story `author:` | a handle |
+| plan `assignee:`, `approved:` | either spelling |
+| the host (`gh`/`bb`) | the account handle |
+
+### The domain object
+
+| property | type | note |
+|---|---|---|
+| `handle` | string | **the identity** — stable, lowercase, what records should carry |
+| `displayName` | string | what a record may render; `''` when unknown |
+
+**Two fields, and only the first is identity.** `displayName` is presentation —
+the same relationship `ageMinutes` has to `createdAt`, one level up.
+
+**No email, no avatar, no role.** An email is a git artefact and a privacy
+surface; a role is a permission Plot does not model (below).
+
+### What it answers
+
+```ts
+Person.resolve(raw)      // "Jan Wloka" | "jwloka" → the same Person
+person.equals(other)     // the question 84-vs-43 cannot answer today
+```
+
+**Resolution needs a rule, and the honest one is repo-local.** Handles and
+display names correspond by convention, not by derivation — `Jan Wloka` and
+`jwloka` are the same person here and would not be in general. So the mapping is
+a small declared fact (a config key, or git's own `user.name` / `user.email`
+pairing), never an inference from string similarity.
+
+**Where it cannot resolve, it must not guess.** An unrecognised spelling is a
+Person with that raw value as its handle and an empty display name — absent is
+not false, applied to identity.
+
+### What it is not
+
+- **Not an Agent.** An Agent is a process with a session id; a Person is a
+  human. They meet only in a transition record's `who`, and an agent acting on a
+  person's behalf records the person.
+- **Not permissions.** Plot does not decide who *may* approve — the review
+  channel does: a PR's own approval, a person in the session, a ballot tally.
+  Person answers *who did*, never *who may*.
+- **Not a roster.** Nothing enumerates the people of a repo, and nothing should:
+  a Person exists because a record names them, so an estate's people are
+  derived from its artefacts.
+- **Not cross-repo.** A handle is meaningful in the repo that uses it.
+
+### Where it lands
+
+**Every transition record, and two fields beside them.** The Plan spec argues
+the record itself should be structured (`{date, by, channel, detail}`), and
+`by` is a Person. `assignee` and a story's `author` are the same type.
+
+**That is the entity's whole value: one type, five fields, one resolution
+rule** — instead of four fields that each hold whichever spelling their author
+happened to type.
+
+### Open
+
+- **Where does the handle↔name mapping live?** A config key is explicit; git's
+  `user.name`/`user.email` pairing is free but only covers committers.
+- **Should the lint flag an unresolvable `who`?** It would catch the four prose
+  clauses, and it is exactly the kind of structural check
+  `plot-story-lint.sh` already makes.
 
 ---
 
