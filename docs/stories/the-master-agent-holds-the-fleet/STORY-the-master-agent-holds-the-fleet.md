@@ -84,6 +84,10 @@ and a shell subprocess to parse it back.
   other entity relates through: seven states and the workflow phases they map
   into, the parser as the single contract, and the inversion that Plan is the
   one entity the CLI serves better than the board.
+- **[Review, stage 1 — the domain model](DESIGN-review.md)** — a pass over all
+  twelve specs: three kinds of identity and what each fails by, four sources of
+  state and the rules that follow from them, every cardinality in one place, and
+  the ports that would separate the domain from git, the filesystem and the host.
 - **[Machine](DESIGN-machine.md)** — the resource every other entity competes
   for, and the only one that does not exist: its symptoms land on whatever *is*
   modelled, which is how `exit 124` came to mean *the worker failed*.
