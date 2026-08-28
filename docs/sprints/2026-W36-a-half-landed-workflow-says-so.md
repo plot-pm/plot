@@ -52,7 +52,7 @@ Stories: [[the-master-agent-holds-the-fleet]] (the harness half)
 - [ ] [a-delivery-that-half-lands-refuses] A delivery writes its phase, its record **and** its index entry, or reports which one it could not write — measured: a phase flip without the symlink made a finished plan read as unfinished for two days
 - [ ] [a-merge-without-a-changeset-is-named] A merged branch whose changeset was never committed is reported before the release consumes the estate — measured: 2 in one session, both nearly shipping no release note
 - [ ] [a-held-worktree-names-what-holds-it] `plot-reap.sh` says *which file* holds a tree it refuses, so an operator can judge it — measured: 3 trees held by one uncommitted file each, all resolved by hand
-- [ ] [the-board-watches-instead-of-re-asking] The board holds branch, plan and worktree state between pulses and re-derives only what changed — measured: **127 git processes every 5 s**, shaped `branches + plans + worktrees + ~30`, of which ~97 sit behind three signals that cost one process each
+- [x] [the-board-watches-instead-of-re-asking] The board holds branch, plan and worktree state between pulses and re-derives only what changed — measured: **127 git processes every 5 s**, shaped `branches + plans + worktrees + ~30`, of which ~97 sit behind three signals that cost one process each <!-- status: delivered -->
 - [ ] [one-cap-holds-across-boards] Two boards on one repo cannot exceed `parallelAgents` between them — measured: the budget is `parallelAgents − liveAgentCount`, and each board computes it on its own pulse, so two boards seconds apart both read *0 live, budget 3* and each start 3
 
 ### Should Have
