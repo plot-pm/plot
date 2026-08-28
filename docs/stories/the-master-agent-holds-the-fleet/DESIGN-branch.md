@@ -126,6 +126,7 @@ fresh their answer is.
 | `worker_exit` | string | **the agent** | recorded, never inferred |
 | `worker_activity` | 3 values | **the agent** | a cue on `running` only, never a state |
 | `worker_dirty_paths` | string[] | **the agent** | what a `stalled` worker left behind |
+| `prs[]` **`+`** | PR[] | **the plan + the host** | **proposed** — see below |
 
 **A real row, measured 2026-08-28** — the worker rescued earlier in this
 session, which shows why the sources must stay distinguishable:
@@ -148,6 +149,60 @@ nothing about whether the work is done (Agent, entities §1).
 the entities doc measures (`AgentRow` and `FleetBranch` share four fields). On
 the domain object they become `branch.agent`, and the row derives what it
 renders.
+
+### `prs[]` belongs here, and the table above is a view
+
+**Yes — and its absence is evidence for the argument rather than against it.**
+
+The Plan spec asserts `branch.prs` three times as *"the association the arrays
+lose"*, and the table above does not carry it. The reason is that the table was
+built from **`FleetBranchSchema`** — which describes **the pulse's branch row**,
+not this domain object.
+
+**`FleetBranchSchema` has no `prs` field because the pulse never carried one.**
+The parser flattens branch→PR into a plan-level `prs[]` before the pulse exists
+(Plan §4), so the row could not have had it to lose.
+
+That is the entities doc's own warning, arriving in this document: **a view
+documented as though it were the domain object.**
+
+#### It is an array, and measured so
+
+**10 branches in this repo carry more than one PR, and one carries ten:**
+
+| PRs per branch | branches |
+|---|---|
+| 1 | **372** |
+| 2 | 9 |
+| **10** | **1** |
+
+```
+feature/a-plan-cites-a-jira-key          [476, 447]
+bug/a-degraded-scan-says-why             [475, 456]
+bug/an-unreachable-host-says-so          [473, 446]
+```
+
+**A second PR on one branch is ordinary**, not an anomaly — a PR closed and
+reopened, a branch re-PR'd after a rebase, or the re-claim pattern this estate
+has hit repeatedly. So `branch.pr` singular would be wrong, and `prs[]` must
+carry them all.
+
+**And it is why `mergedAt` outranks `state`** (PR spec): with several PRs on one
+branch, *"has this branch landed?"* is *did **any** of them merge* — a question
+a single `state` field cannot answer even in principle.
+
+#### Its source is two things joined
+
+| half | from |
+|---|---|
+| which PRs a plan **claims** | the plan's `→ #N` / `PR: #N` annotation |
+| which PRs **exist** on the ref | the host, by head branch |
+
+**They can disagree**, and each direction means something different: a claimed
+PR that does not exist is a stale annotation; an existing PR the plan never
+claimed is unannotated work — which `plot-impl-status.sh` resolves by *"matching
+the branch NAME against the heads of merged PRs"* precisely because the
+annotation is optional.
 
 ### Two fields that look like one
 
@@ -266,7 +321,7 @@ its PR (§2).
 | relation | mechanism | state |
 |---|---|---|
 | Wave → Branch | `(Branch: x)` in the heading | **built** — the wave owns it |
-| Branch → PR | `→ #N` / `PR: #N` | **built, but flattened** in the record |
+| Branch → PR | annotation **+** the host, joined by head | **built, but flattened** in the record — see §3 |
 | Branch → Agent | a worker in its worktree | **built** — via `worker_*` |
 | Branch → Worktree | `git worktree list` | **built** — `local_worktree` |
 
@@ -366,7 +421,7 @@ under `## Branches` parses at all (Plan §6).
 | 1 | **State decays without a fetch** — 43 merged read as 0, measured | **now** |
 | 2 | **Five `worker_*` fields are Agent data on a Branch row** | now |
 | 3 | **`claimed` and `ref_held` both look like the claim** — only one is | now |
-| 4 | Branch → PR is flattened in the plan record (Plan §4) | now |
+| 4 | **`prs[]` is not on the branch** — flattened into `plan.prs`, so the association is rebuilt downstream (Plan §4) | now |
 | 5 | **`wip` names commits, not work-in-progress** — and a resurrected ref after a squash merge reads `wip` indefinitely, measured at 3 hours | now |
 
 ---
