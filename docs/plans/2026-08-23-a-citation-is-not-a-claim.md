@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Started:** 2026-08-27, Jan Wloka, `bug/a-claim-is-a-list-item`
+- **Started:** 2026-08-28, Jan Wloka, `bug/reconcile-reports-a-double-claim`
 
 ## Changelog
 
