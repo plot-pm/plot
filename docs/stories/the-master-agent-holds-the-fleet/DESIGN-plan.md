@@ -25,19 +25,21 @@ around.
 | 2 | [Posture](#2-posture) | what each `Tracker:` makes of a plan |
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
 | 4 | [Lifecycle](#4-lifecycle) | seven plan states, and the workflow phases they map into |
-| 5 | [Relations](#5-relations) | Story · Issue · Sprint · Wave · Branch · PR |
-| 6 | [Actions](#6-actions) | idea · approve · implement · deliver · release |
-| 7 | [Scope](#7-scope) | which plans are shown, and the rolling window |
-| 8 | [The collaborators](#8-the-collaborators) | the parser is the contract |
-| 9 | [Fleet control](#9-fleet-control) | the one entity the CLI serves well |
-| 10 | [Views](#10-views) | card · row · wave · plan head |
-| 11 | [Setup](#11-setup) | what adoption declares |
-| 12 | [Gaps](#12-gaps) | |
-| 13 | [Invariants and open points](#13-invariants-and-open-points) | |
+| 5 | [Direction](#5-direction--inbound-outbound-and-neither) | inbound from a ticket · outbound unbuilt · neither, the majority |
+| 6 | [Relations](#6-relations) | Story · Issue · Sprint · Wave · Branch · PR |
+| 7 | [Actions](#7-actions) | idea · approve · implement · deliver · release |
+| 8 | [Scope](#8-scope) | which plans are shown, and the rolling window |
+| 9 | [The collaborators](#9-the-collaborators) | the parser is the contract |
+| 10 | [Fleet control](#10-fleet-control) | the one entity the CLI serves well |
+| 11 | [Views](#11-views) | card · row · wave · plan head |
+| 12 | [Setup](#12-setup) | what adoption declares |
+| 13 | [Gaps](#13-gaps) |  |
+| 14 | [Invariants and open points](#14-invariants-and-open-points) |  |
 
 ---
 
 ## 1. What a Plan is
+
 
 **A Plan describes the solution: how *this system* should change, in which
 steps, and to what standard.**
@@ -83,6 +85,7 @@ stop."*
 
 ## 2. Posture
 
+
 | posture | what a Plan is |
 |---|---|
 | **`plot`** (default) | **the record.** The plan file is the truth; the tracker, if any, sees a published summary |
@@ -106,6 +109,7 @@ plan file.
 ---
 
 ## 3. The domain object
+
 
 The normative shape, as `plot-plan-meta.sh` defines it. **This section describes
 an existing contract rather than proposing one** — the parser is authoritative
@@ -178,6 +182,7 @@ present."*
 ---
 
 ## 4. Lifecycle
+
 
 ### Seven states, five on the path and two terminal
 
@@ -295,7 +300,84 @@ see is not one."*
 
 ---
 
-## 5. Relations
+## 5. Direction — inbound, outbound, and neither
+
+
+A plan can originate from a ticket, publish one, or exist without either. The
+rule the other specs state applies here unchanged: **direction is a property of
+the individual plan, not of plans in general.**
+
+| direction | act | mechanism | status |
+|---|---|---|---|
+| **inbound** | a ticket becomes a plan | *Create plan* on an issue row → `/plot-idea` | **built** |
+| **outbound** | a plan publishes a feature ticket | posture 2, at *Plans approved* | **unbuilt** |
+| *(neither)* | a person writes a plan | `/plot-idea <slug>: <title>` | **built, and the majority** |
+
+**Both directions were specified from the Issue side and never from this one.**
+The feature ticket appears in the Issue spec as *"the outbound plan case"*, and
+*Create plan* appears there as an issue-row action. Neither was stated here,
+where the plan is the subject — the same displacement the Story spec had before
+its three create-acts were separated.
+
+### Inbound — a ticket becomes a plan
+
+*Create plan* is the board's most-used write action, and it is unconditional
+across every issue kind (Issue §7): an epic or a story may still deserve a plan
+directly, and it is the fallback where `kind` is empty.
+
+**What arrives is a problem statement, not a plan.** The issue body is handed to
+`/plot-idea`, which produces a **Draft** — the ceremony questions, the branches,
+the design are all still to be answered. So the inbound direction supplies
+*motivation*, and the solution space remains to be written.
+
+**The plan records the origin** as `Issue: #N`, which is what removes the ticket
+from the inbox. That record is the only trace of the direction: a plan written
+by hand and a plan created from a ticket are otherwise identical files.
+
+### Outbound — a plan publishes a feature ticket
+
+**Unbuilt.** Under `Tracker: plot` with an issue tracker, an approved plan
+publishes a feature/bug/task ticket carrying a content summary, so a client can
+see what is being built.
+
+**The timing is the design** and it is already argued in the Issue spec: the
+ticket is written at *Plans approved*, *"only now, because the cut now holds."*
+A ticket written at Draft would name a plan whose branches may still be
+re-sliced — so this is the tracker-side twin of the `Approved:` record, written
+when the fact becomes true.
+
+**What it publishes is the changelog, not the plan.** `changelog[]` is the one
+parsed field that says *what a plan changes* — which is precisely what a client
+needs and what `Design` and `Branches` are not. The plan stays the truth; the
+ticket is a view.
+
+**It must be idempotent**, recording the ticket id where a re-run finds it. The
+pattern is `→ #N`, and the field already exists: `Issue:` is parsed as a list,
+so a plan can carry both the issue it answers and the ticket it published —
+though nothing today distinguishes the two.
+
+**That is the one modelling question this direction raises.** An inbound
+`Issue: #226` and an outbound `Issue: PROJ-45` would sit in the same list
+meaning opposite things: *this plan answers that signal* versus *this plan
+published that view*. Distinguishing them needs either a second field or the
+provenance rule the Issue spec proposes — Plot knows its own by having recorded
+the id.
+
+### Neither — and it is the majority
+
+Measured 2026-08-28: **4 of 158 plans carry an `Issue:` line — 2%.** This repo
+runs `Tracker: plot` with no publishing, so 154 plans were written by a person
+deciding a piece of work was bounded enough to plan, with no ticket at either
+end.
+
+**That is the default case and must stay cheap.** A plan needs no ticket in
+either direction; both relations are optional, and the estate demonstrates it at
+scale.
+
+---
+
+## 6. Relations
+
 
 The Plan is the hub: every other entity relates to it, and most relate *through*
 it.
@@ -325,7 +407,8 @@ of those 8 already complete. `unsliced-wave` is the reported defect.
 
 ---
 
-## 6. Actions
+## 7. Actions
+
 
 The lifecycle *is* the action set, and each is a spoke command:
 
@@ -354,7 +437,8 @@ every step tests the source it would have written, never a progress file.
 
 ---
 
-## 7. Scope
+## 8. Scope
+
 
 **Which plans are shown depends on who is asking**, and the two answers differ
 deliberately:
@@ -375,7 +459,8 @@ the same rule — *the parser's own answer decides*.
 
 ---
 
-## 8. The collaborators
+## 9. The collaborators
+
 
 **One, and it is the contract**: `plot-plan-meta.sh`.
 
@@ -401,7 +486,8 @@ the spoke commands'.
 
 ---
 
-## 9. Fleet control
+## 10. Fleet control
+
 
 **Plan is the one entity the CLI serves better than the board**, which inverts
 the pattern Issue and Story both show.
@@ -422,7 +508,8 @@ the tooling grew where the acting happens.
 
 ---
 
-## 10. Views
+## 11. Views
+
 
 | view | where | shows |
 |---|---|---|
@@ -438,7 +525,8 @@ an action that will be refused still renders, so the refusal can name itself.
 
 ---
 
-## 11. Setup
+## 12. Setup
+
 
 Plans are what `/plot-init` exists to establish, and its keys are the
 best-covered of any entity:
@@ -459,7 +547,8 @@ user's plans."*
 
 ---
 
-## 12. Gaps
+## 13. Gaps
+
 
 | # | gap | reachable |
 |---|---|---|
@@ -477,7 +566,8 @@ three plans are in exactly that state.
 
 ---
 
-## 13. Invariants and open points
+## 14. Invariants and open points
+
 
 ### Invariants
 
