@@ -4,13 +4,18 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
-- **Sprint:** <!-- optional -->
+- **Sprint:** the-published-board-works
 - **Issue:** <!-- optional -->
 - **Story:** <!-- optional -->
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-28, Jan Wloka, in-session
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
