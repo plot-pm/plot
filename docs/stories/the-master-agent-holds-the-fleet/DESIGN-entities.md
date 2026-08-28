@@ -195,6 +195,102 @@ right and the pattern the others should copy.
 > being the board's inbox, and its read/write controller split is the worked
 > example behind **job 4** (*what is safe to run?*).
 
+### Two keys: who owns the truth, and which service is spoken to
+
+**Corrected 2026-08-28, and this supersedes how the rest of this section reads
+`Tracker:`.** Earlier drafts treated it as a connection setting — which service
+to call — and hung `scheme`, `baseUrl` and `scope` off it. It is not that. It
+sits under *"Plot 2 posture keys (repo-declared ceremony bounds)"*, beside
+`Plan PRs`, `Implementation home` and `Hosts plans`, and every one of those
+answers **what is this repo's role**, never *what to dial*.
+
+`Tracker: plot` says it outright: *plans in this repo ARE the tracker.* That is
+a claim about **who owns the truth**.
+
+So there are two independent questions, and one key was answering both:
+
+| key | question | values |
+|---|---|---|
+| **`Tracker:`** | **who owns the truth** | `plot` · `jira` · … |
+| **`Issue tracker:`** | **which service is spoken to, if any** | absent · `jira` · `github-issues` · … |
+
+#### The three postures
+
+|  | `Tracker: plot` | `Tracker: jira` |
+|---|---|---|
+| **no issue tracker** | MD files are the sole truth; no tickets exist | — |
+| **`Issue tracker: jira`** | MD files are the truth; **tickets are a publishing act** | **Jira is the truth**; MD files are a projection |
+
+**1. `plot`, no issue tracker.** Today's default and this repo's own posture.
+Git is the source of truth, nothing is published, and there is no inbox.
+
+**2. `plot` + `Issue tracker: jira` — publishing.** The MD files remain the sole
+truth. Tickets are **created to show clients what is happening**, not to record
+it: a sprint publishes an **epic** ticket, and approved plans publish
+**feature/bug/task** tickets carrying a content summary. Nothing is read back as
+authority.
+
+This is the posture I never modelled, and it re-reads the whole outbound side.
+Those tickets are not records Plot must keep true — they are **publications**.
+Which is exactly why the inbox rule falls out so cleanly:
+
+> **A ticket with no linked doc is new client input.**
+
+The client can only answer through the surface they were shown, so an
+unlinked ticket is a signal that arrived *back* through the publication
+channel — and it becomes the source for a new plan, story or sprint.
+
+**3. `jira` + `Issue tracker: jira` — Jira leads.** The whole truth is in Jira.
+Every plan is a feature/bug/task ticket, every story is a ticket, and **a sprint
+is the epic ticket**. Plot *reads its plans from there*, and the MD files in the
+repo are written **when tickets are updated** — a projection, not a record.
+
+**This posture inverts Manifesto Principle 1 for the repo that declares it.**
+Git stops being the source of truth. That is a real and deliberate departure,
+and it must be stated rather than discovered: a repo in posture 3 has an MD
+estate that is *downstream*, and the reconcile scan's whole idea of drift means
+something different there.
+
+#### What each posture makes of the same artefacts
+
+| artefact | posture 2 — publishing | posture 3 — Jira leads |
+|---|---|---|
+| plan | truth; ticket is its **summary** | **projection** of the ticket |
+| story | truth; ticket is its summary | projection |
+| sprint | truth; **epic** is its summary | projection of the epic |
+| unlinked ticket | **new client input** | work not yet projected |
+| ticket edited by a client | a signal to read | **an edit to the truth** |
+
+The difference that matters most is the last row. In posture 2 a client editing
+a ticket has *said something*, and Plot decides what to do about it. In posture
+3 they have **changed the plan**, and Plot's copy is now stale.
+
+#### What this corrects in the sections below
+
+- **`IssueTracker` as I specified it** — scheme, baseUrl, scope — is the
+  **`Issue tracker:` key**, the connection. It is not `Tracker:`.
+- **"Plot never writes to the tracker"** is true in posture 1, false as a
+  publishing act in posture 2, and false as a bidirectional sync in posture 3.
+- **The epic-as-harbour** design is posture 2's. In posture 3 the epic is not a
+  harbour Plot fills — it *is* the sprint.
+- **`Create sprint` from an inbound epic** is posture 2's inbound half; in
+  posture 3 an epic already is a sprint and there is nothing to create.
+- **The inbox filter** — *open minus referenced* — is posture 2's. It is exactly
+  the *"ticket with no linked doc"* rule, arrived at from the other direction.
+
+#### The one question this raises and does not answer
+
+Posture 3 needs a **reader** — plans parsed *out of* Jira tickets — and nothing
+in Plot does that. Every mechanism designed above writes outward or filters an
+inbox. A projection needs the inverse: ticket → MD file, on update, with all the
+conflict questions a two-way sync implies.
+
+That is a larger piece of work than this entity, and naming it as unbuilt is
+more useful than sketching it here. **Posture 2 is fully designable with what
+exists; posture 3 is a different system.**
+
+---
+
 ### Three kinds, both directions
 
 **Corrected 2026-08-28** against the agentic workflow diagram. An earlier draft
