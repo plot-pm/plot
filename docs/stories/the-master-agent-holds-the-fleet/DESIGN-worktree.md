@@ -29,7 +29,7 @@ physical.
 | 6 | [Relations](#6-relations) | Branch · Agent · Plan |
 | 7 | [Actions](#7-actions) | dispatch · migrate · reap |
 | 8 | [Scope](#8-scope) | which trees are Plot's |
-| 9 | [The collaborators](#9-the-collaborators) | the only entity nothing monitors |
+| 9 | [The collaborators](#9-the-collaborators) | a Manager and a Monitor, both missing |
 | 10 | [Fleet control](#10-fleet-control) | the five refusals |
 | 11 | [Views](#11-views) | the agent row's place |
 | 12 | [Setup](#12-setup) | `Worktree root` |
@@ -223,19 +223,85 @@ Plot's to remove, and the fifth refusal is what says so.
 
 ## 9. The collaborators
 
-**None — and it is the only entity here that nothing monitors.**
+**Two are needed and neither exists**, which is why an earlier draft of this
+section said *"none — and it is the only entity here that nothing monitors."*
+That was an observation, not a design.
+
+### `WorktreeManager` — owns creation and removal
+
+**Measured 2026-08-28: six scripts create or remove worktrees, five different
+ways.**
+
+| script | does |
+|---|---|
+| `plot-dispatch.sh` | `worktree add` per dispatched branch |
+| `plot-worker-loop.sh` | **`add` twice** — a worker creates its own next tree |
+| `plot-resolve-artifact.sh` | `add` for a repair, two shapes |
+| `plot-approve.sh` | `add` + `remove --force \|\| true` — a disposable tree |
+| `plot-deliver.sh` | as above |
+| `plot-reap.sh` | `remove`, under five refusals |
+
+**Each brings its own creation, cleanup and error handling**, and the
+disposable ones remove with `|| true` — **so a leaked tree is silent.**
+
+**There is no one place that knows what trees Plot has made.** That is the
+`planSlug` shape again (Plan §13): a property of a thing, re-implemented per
+call site because the thing has no object.
+
+#### What the Manager owns
 
 | | |
 |---|---|
-| read by | `plot-dispatch.sh`, `plot-reap.sh`, `readAgentRegistry`, the scan |
-| monitored by | **nothing** |
-| cached | **nothing** |
+| **create** | one `add`, one naming rule, one root (§12) |
+| **remove** | one path, with the refusals as its precondition |
+| **enumerate** | *which trees are Plot's* — today inferred from a prefix |
+| **repair** | a `prunable` tree whose directory vanished (§13) |
 
-**`git worktree list` is cheap and local**, so every consumer asks it directly.
-That is right, and it is why a Worktree needs no connector, no monitor and no
-budget — the opposite end of the spectrum from PR.
+**Not the refusals themselves.** `plot-reap.sh`'s five measurements stay where
+they are — the Manager performs a removal the caller has already earned, and
+*"`--dry-run` is the default"* remains the caller's contract.
 
----
+**And it must not own the disposable trees' policy.** `plot-approve.sh` making
+a throwaway checkout to commit a bookkeeping edit is a different act from
+dispatching a desk; the Manager gives it one `add`/`remove` pair, not a lifecycle.
+
+### `WorktreeMonitor` — owns the state
+
+**Nothing watches a tree**, and three of the things the fleet most needs to know
+live there:
+
+| question | where the answer is | who asks |
+|---|---|---|
+| is there uncommitted work? | the tree | **only `plot-dispatch.sh`** |
+| how long since a write? | the tree — `changed_ago_seconds` | the scan, per pulse |
+| is a `PLOT-BLOCKED` marker present? | the tree | the reap, at reap time |
+
+**The scan sees a tree only through the branch row** (Branch §3) — six
+`local_*` fields — and it re-derives them every pulse for every branch,
+whether or not a tree exists.
+
+#### Why a monitor rather than more scan fields
+
+**The tree changes on a different clock from git.** A ref moves when someone
+pushes; a working tree moves **on every keystroke** — which is exactly why
+`changed_ago_seconds` exists rather than `local_dirty` alone: *"`local_dirty` is
+a SWITCH: it flips once and stays flipped… Measured on the live board: three
+modified files, zero flashes in 40 seconds."*
+
+**So the tree is the fleet's fastest-moving surface and its least observed.**
+The story's **job 2** — *is that worker working, or just alive?* — is answered
+there, and the Wave spec's missing *in progress* verdict (§4 there) is the same
+gap seen from above.
+
+#### What it must not become
+
+**Not a filesystem watcher.** An inotify-style watch on 13 trees is a resource
+the entities doc's Machine section is about protecting, and the monitor's own
+cost would compete with the workers it observes.
+
+**Bounded like the BuildMonitor** (Build §9): it watches **the trees of
+branches the fleet owns**, and it stops when a tree's agent is gone — a tree
+with no live agent has a state that no longer changes.
 
 ## 10. Fleet control
 
@@ -331,7 +397,8 @@ job and the names can be the branch names.
 
 | # | gap | reachable |
 |---|---|---|
-| 1 | **Nothing monitors a worktree** — a tree can go dirty, be abandoned, or fill a disk unobserved | now |
+| 1 | **No `WorktreeManager`** — six scripts create or remove trees five ways, and the disposable ones remove with `\|\| true`, so a leak is silent | **now, measured** |
+| 1b | **No `WorktreeMonitor`** — a tree can go dirty, be abandoned or fill a disk unobserved | now |
 | 2 | **`prunable` is git's word, unread by Plot** — a tree whose directory vanished still lists | now |
 | 3 | **The fleet scan cannot see uncommitted work** — only dispatch can, and only locally | now |
 | 4 | **`.worktrees` is not in `.gitignore`** — adopting the intended in-project layout would expose every dispatched tree to `git status` and `git add -A` | **on adoption** |
