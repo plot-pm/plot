@@ -3,16 +3,16 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: eleven-section text report on stdout (each finding carries its exact
+# Output: twelve-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
 #         terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits an eleven-section report. This is the COMPUTATIONAL half of the
+# emits a twelve-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -78,6 +78,17 @@
 #                                 silently — section 9 already catches that.
 #                                 ADVISORY, like section 9; stays out of
 #                                 `attention`, gates nothing.
+#  12. Double-claimed branches  — a branch listed by MORE THAN ONE plan, naming
+#                                 both plans and the wave each lists it under.
+#                                 Only meaningful since the matcher anchored
+#                                 (#490): before that a dependency CITED in
+#                                 prose read as a second claim. REPORTS AND
+#                                 NEVER GATES — a double claim is a shape for a
+#                                 person to resolve, not a branch that cannot
+#                                 move — so it carries `double_claims=` and
+#                                 stays out of `attention`. Placed LAST so
+#                                 sections 1-11 keep their numbers, and with
+#                                 them /plot-deliver's `== 7.` gate marker.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -504,7 +515,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 }
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
-n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0
+n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0; n_double=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -1312,6 +1323,111 @@ fi
 if [ -n "$stale_tally_out" ]; then printf '%b' "$stale_tally_out"; else echo "  (none — every unchecked item's plan is still open)"; fi
 echo
 
+# ---------------------------------------------------------------------------
+# 12. Double-claimed branches
+#
+# A branch listed by MORE THAN ONE plan. Reports every such branch, naming both
+# plans and the wave each lists it under, and repairs nothing — Manifesto
+# Principle 3's split: this collects, a person concludes.
+#
+# WHY THIS EXISTS: the board found this defect and the sweep whose whole purpose
+# is estate faults did not. Two rows wore an orange `claimed twice` mark on
+# 2026-08-23 while all eleven sections here reported clean, so the board was the
+# only thing in the system that could see it.
+#
+# WAVE 1 IS WHAT MAKES THIS MEANINGFUL. Before the matcher was anchored (#490),
+# plot-plan-meta.sh read any backticked branch name anywhere under `## Branches`
+# as a claim, so a plan CITING another plan's branch to declare a dependency
+# read as a second claimant. Roughly two in three backticked branch names in
+# `docs/plans/` are citations rather than claims, so this section built first
+# would have been a list of false positives. Anchored, a double claim can only
+# come from two plans genuinely LISTING one branch — a real conflict needing a
+# human, and exactly what belongs here.
+#
+# IT DOES NOT GATE, and that is load-bearing, not a preference. /plot-deliver's
+# delivery-landed gate and the /plot hygiene line both read `attention=` from
+# the footer. A double claim is a SHAPE TO FIX — both plans' waves can still
+# move, and the branch itself is fine — so putting it in `attention` would stop
+# every delivery in this repo over bookkeeping. It carries its own footer
+# counter (`double_claims=`), exactly as unsliced waves, prose names, sprint
+# drift and index drift do.
+#
+# PLACEMENT: last, so the section numbers 1-11 keep their meanings. Every
+# consumer that reads a number reads an existing one — /plot-deliver's gate
+# marker is `sed -n '/^== 7./q;p'`, which stops before the first non-blocking
+# section, and that stays true only while nothing is inserted below 7.
+#
+# THE CLAIM SET IS THE PARSER'S, never a second one. Branch and wave both come
+# from plot-plan-meta.sh's `waves[]` — the same source sections 7 and 8 read.
+# Re-deriving "which branches does this plan claim" with a grep here would
+# reproduce the very defect wave 1 removed, one layer up. A file with no
+# `Phase:` is not a plan (phase == NONE) and is skipped, the same rule sections
+# 1, 7 and 8 apply: a decision log naming a branch is not a claimant.
+#
+# ONE FINDING PER BRANCH, not one per claimant: the finding IS the collision, so
+# a branch claimed by three plans is one line naming three, not three lines.
+echo "== 12. Double-claimed branches (one branch, two plans — a person decides) =="
+double_out=""
+if [ -n "$plan_json" ]; then
+  # One jq pass over the already-captured parser output. Emits one record per
+  # branch claimed more than once: branch, the claimants as `slug (wave)` joined
+  # by `, `, and how many. jq does the grouping so the shell loop stays a
+  # renderer — the same division of labour sections 7 and 8 use.
+  #
+  # `--slurp` IS LOAD-BEARING, and it is what makes this section different from
+  # every other one here. The parser emits ONE JSON OBJECT PER PLAN, and jq
+  # without `-s` evaluates the whole program once per object. Sections 7 and 8
+  # ask a question about a SINGLE plan (does this wave hold two branches, is
+  # this name too long), so per-object evaluation is exactly right for them.
+  # This section asks a question ACROSS plans — is this branch claimed twice —
+  # which cannot be answered from one object at a time. Unslurped, `group_by`
+  # groups each plan against itself, every group has length 1, and the section
+  # reports `(none)` on an estate that has a collision. That failure is INVISIBLE
+  # in the report, because a clean estate prints the same line; it was caught
+  # here only by counting the collisions independently first.
+  #
+  # Fields are joined with the ASCII unit separator (US, 0x1f) and read with
+  # IFS="$US" — NOT a tab: a wave name can contain runs of spaces, and tab is
+  # IFS whitespace, so `read` would mangle them. Same reason plan_rows and
+  # sections 7 and 8 use US.
+  #
+  # An unnamed wave (branches before any `### `) has no heading to name, so it
+  # renders as `(unnamed wave)` rather than an empty parenthesis — section 7
+  # makes the same substitution for the same reason.
+  #
+  # DEDUPED BY PLAN, not by claim line: a plan that lists one branch twice (in
+  # two waves, or twice in one) is ONE claimant, not two. Without this a single
+  # plan's own duplicate would read as a conflict between two plans, which is a
+  # different fault with a different repair — and it is not this section's.
+  while IFS="$US" read -r br claimants n_claimants; do
+    [ -n "$br" ] || continue
+    double_out+="  $br — claimed by $n_claimants plans: $claimants\n"
+    # The repair is a human editing one of the plans: deciding which plan owns
+    # the branch and how the other expresses its dependency. Not a `fix:` a
+    # shell can run — ownership is judgement — so the verb is `resolve:`,
+    # exactly as section 7's is `reslice:` and section 8's is `rename:`.
+    double_out+="    resolve: decide which plan owns \`$br\`; the other should cite it in prose, not list it\n"
+    n_double=$((n_double + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -s -r --arg US "$US" '
+        [ .[] | select(.phase != "NONE")
+          | (.file | sub("^.*/"; "") | sub("\\.md$"; "")
+                   | sub("^[0-9]{4}-[0-9]{2}-[0-9]{2}-"; "")) as $slug
+          | .waves[]? as $w
+          | $w.branches[]?
+          | { branch: .branch, slug: $slug,
+              wave: (if ($w.name // "") == "" then "(unnamed wave)" else $w.name end) } ]
+        | group_by(.branch)[]
+        | unique_by(.slug) as $per_plan
+        | select(($per_plan | length) > 1)
+        | [ ($per_plan[0].branch),
+            ($per_plan | map(.slug + " (" + .wave + ")") | join(", ")),
+            ($per_plan | length | tostring) ]
+        | join($US)')
+fi
+if [ -n "$double_out" ]; then printf '%b' "$double_out"; else echo "  (none — every branch is claimed by exactly one plan)"; fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced prose_wave_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced prose_wave_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double pr_source=$PR_SOURCE main=$MAIN"
 exit 0
