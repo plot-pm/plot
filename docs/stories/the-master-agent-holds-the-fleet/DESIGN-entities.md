@@ -610,6 +610,147 @@ of any of them — and asking it is what the remaining entity sections should do
 `unsupported` renders **no section at all** rather than an empty one — an empty
 inbox on Bitbucket would imply an empty tracker.
 
+### The three collaborators
+
+Settled 2026-08-28. Three roles, named — and **all three exist today, unnamed
+and scattered.** Naming them is the design: it says which decision belongs to
+which, so a change to one does not silently become a change to another.
+
+```
+IssueTracker            what this repo tracks with, and how the inbox is scoped
+      │                 (configuration — a declaration, not a connection)
+      ▼
+IssueTrackerConnector   how that tracker is asked; the ONE place a tracker's
+      │                 shape is known; emits one vocabulary whatever answered
+      ▼
+IssueTrackerMonitor     when it is asked, how often, and what it costs;
+                        owns the filter, the failure policy and the gate
+```
+
+#### `IssueTracker` — the declaration
+
+What the repo tracks with, and **how much of it is ours**. Today this is
+`Tracker:` in `## Plot Config`, read by `tracker_raw` / `tracker_scheme` /
+`tracker_base_url`.
+
+| property | today | note |
+|---|---|---|
+| `scheme` | `plot` \| `jira` \| `github-issues` \| `linear` | `plot` = no inbox at all |
+| `baseUrl` | second token of `Tracker:` | `''` for a bare `jira`; never composed |
+| `scope` | **per-arm, undeclared** | see below — the one real gap |
+
+**It is independent of `Git host`, and that is load-bearing:** a Bitbucket repo
+tracking in Jira is the normal enterprise case, so the connector dispatches on
+`scheme`, never on the git host.
+
+**`scheme: plot` means there is no tracker to connect to.** *Plans in this repo
+ARE the tracker.* The connector is never built and the monitor never runs — the
+default case costs nothing, and every other scheme is the *addition* of an inbox
+to a system that works without one.
+
+#### `IssueTrackerConnector` — the one place a tracker's shape is known
+
+`plot-host.sh`'s `issue-list` and `issue-view`, plus the Jira helpers
+(`jira_curl`, `jira_check`, `jira_require_config`). Its whole contract:
+
+1. **Two ops, both read-only.** There is no `issue-create`, `issue-close` or
+   `issue-comment`, and there must not be.
+2. **One vocabulary out, whatever answered.** Both arms emit the same JSON and
+   the same exit codes — *"a consumer that already maps 4 to `unsupported` and
+   anything else to `failed` must not need a second table."* Nothing above the
+   connector learns which tracker replied.
+3. **Three outcomes, never collapsed:** answered / cannot-be-asked (exit 4) /
+   failed.
+4. **It composes no address it was not given.** `''` is a real value.
+5. **A scheme with no arm must exit 4, not fall through.** Today `linear` falls
+   through to the git-host arm, so a Linear-tracking GitHub repo silently lists
+   *GitHub* issues. The connector is the layer that must refuse a scheme it
+   cannot serve.
+
+**Where a new tracker is added, and the only place.** Adding one means one arm
+here — nothing above it changes, which is the test of whether this boundary is
+real.
+
+#### `IssueTrackerMonitor` — when, how often, and what matches
+
+`refreshIssues` plus the shared PR gate. This is the collaborator your question
+names, and it owns four decisions the other two must not make:
+
+**1. Cadence, on a shared gate.** It rides `prNextAt` rather than opening a
+second timer — *"the issue lookup cannot become a second cadence quietly
+spending the host budget the gate exists to ration."* Sequential, not
+concurrent, *"because two calls at one instant is what a rate limit counts."*
+A rate limit on either pushes the shared gate out, **extend-only**.
+
+**2. Independent failure.** It runs *after* and *outside* `refreshPrs`, because
+*"a tracker outage must not blank the PR map, and a PR failure must not retract
+the inbox."* Two sources, one gate, separate failure domains.
+
+**3. The filter.** One set difference, recomputed every pass:
+
+```
+inbox = open(tracker) − referenced(every plan file)
+```
+
+with the completeness gate: **if `referenced` cannot be computed, nothing is
+reported at all** — not the unfiltered list (which surfaces planned issues), not
+an empty one (which claims the inbox is clear).
+
+**4. Degrade, never refuse.** It is a read controller: a failure keeps the last
+good list and marks it stale. The write controllers beside it do the opposite.
+
+##### What "matching" means — and the asymmetry to fix
+
+The monitor shows *open issues no plan references*. But **what counts as open is
+scoped differently per arm**, and that scoping is undeclared:
+
+| arm | query | inbox means |
+|---|---|---|
+| Jira | `assignee = currentUser() AND resolution = EMPTY` | **my** open tickets |
+| GitHub | `gh issue list --state open` | **every** open issue in the repo |
+
+On a small repo these converge. On a busy one they are different inboxes
+entirely — and `ISSUE_LIMIT = 50` then truncates *somebody else's* backlog onto
+the board, silently (gap 2).
+
+**Measured here 2026-08-28: 1 open issue, 0 assigned to the operator.** So this
+repo would show one row under the GitHub arm and **an empty inbox under Jira's
+scoping** — the two arms disagreeing about the same estate at the smallest
+possible scale, where they were supposed to converge. The asymmetry is not
+waiting for a busy repo to appear; it is visible at n=1, and the divergence
+grows with backlog rather than beginning there. Only Jira can be re-scoped, via `PLOT_JIRA_JQL`,
+and only through an environment variable rather than the config every other
+posture is declared in.
+
+**So `scope` belongs on `IssueTracker`, declared once and honoured by every
+arm** — `mine` or `all`, defaulting to whatever preserves each arm's current
+behaviour until a repo says otherwise. Two properties follow:
+
+- **The monitor never invents a scope.** It asks the connector for what the
+  tracker declared; a filter the board applied after the fetch would be a third
+  place issues are selected.
+- **A truncated list says so.** *Showing 50 of N* is a different claim from
+  *there are 50*, and the entity is scrupulous about that distinction
+  everywhere else.
+
+#### Why three and not one
+
+Each owns a decision the others must not make, and each has a different reason
+to change:
+
+| collaborator | changes when | must not decide |
+|---|---|---|
+| `IssueTracker` | a repo is configured | how to ask, or how often |
+| `IssueTrackerConnector` | a tracker is added or its API moves | when to ask, or what is unplanned |
+| `IssueTrackerMonitor` | the cost or cadence changes | a tracker's URL shape or auth |
+
+The measured argument for the split is `linear`: a value the **declaration**
+accepts and the **connector** cannot serve. With the two collapsed, that
+mismatch has nowhere to be caught. With them separate, the connector's exit 4 is
+exactly where it belongs.
+
+---
+
 ### The controllers
 
 Four, and they divide by what they are for rather than by what they touch.
