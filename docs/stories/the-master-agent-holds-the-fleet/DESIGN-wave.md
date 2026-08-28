@@ -24,7 +24,7 @@ slices.
 | 1 | [What a Wave is](#1-what-a-wave-is) | the slice, and the ordering |
 | 2 | [Posture](#2-posture) | **nothing** — a wave has no form outside the repo |
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
-| 4 | [Lifecycle](#4-lifecycle) | there is none — the verdict stands in for it |
+| 4 | [Lifecycle](#4-lifecycle) | a derived state, and the middle it does not cover |
 | 5 | [Direction](#5-direction) | none, and it is the only entity with none |
 | 6 | [Relations](#6-relations) | Plan · Branch · Worker |
 | 7 | [Actions](#7-actions) | dispatch · reslice · ask |
@@ -285,16 +285,53 @@ identity to be named by (§3).
 ## 4. Lifecycle
 
 
-**A wave has no lifecycle, and the verdict is what stands in for one.**
+**Corrected 2026-08-28.** An earlier draft said *"a wave has no lifecycle"* and
+called the verdict a reading. That is too strong: **the verdict is what the
+board tracks a wave's progress by** — `rows.tsx:1023` routes a wave into a
+section by it, and `menus.tsx:1110` gates its actions on it. Functionally it is
+the wave's state.
 
-That is the entity's defining property, stated here because every neighbouring
-spec has a lifecycle section and this one's answer is *no*: a Plan moves through
-states written into its file, a Sprint likewise, a Story likewise. **A wave is
-never written to and never transitions.** It is re-derived every pulse, and what
-looks like movement is a branch elsewhere changing.
+**What is true is narrower: a wave is never *written to*.** A Plan's state is
+recorded in its file and changed by a spoke command; a wave's is **recomputed
+every pulse**, and what looks like a transition is a branch elsewhere merging.
 
-So the verdict is not a lifecycle in disguise — it is a **reading**, and the
-four words are what a reader may do with it.
+So it is a **derived state**, and the entities doc's rule places it exactly: a
+value that depends on a pair belongs to the derivation rather than to the
+object's stated fields — the same reason `FleetBranch.state` is a field on a
+derivation while `Issue` carries none.
+
+### The four words do not cover the middle
+
+**Measured live 2026-08-28:**
+
+| wave verdicts | | branch states | |
+|---|---|---|---|
+| `unapproved` | 40 | `open` | 48 |
+| `blocked` | 8 | `wip` | **5** |
+| `eligible` | 5 | `deferred` | 5 |
+| `complete` | 5 | | |
+
+**There is no verdict for *in progress*.** A wave whose branch is claimed and
+being worked still reads `eligible`, because eligibility asks *would a dispatch
+take this* — not *has one already*. The five `wip` branches sit under waves that
+call themselves startable.
+
+**So the board tracks a wave's progress through three sources, not one:**
+
+| what | from |
+|---|---|
+| may this start | the **wave's** verdict |
+| is it under way | the **branch** — `claimed`, `wip`, `merged` |
+| is anyone on it | the **agent** — running, stalled, finished |
+
+That division is deliberate, and it is why the verdict is thin: a wave is a
+**gate over work**, so its vocabulary is about the gate, and the work's own
+progress belongs to the things doing it.
+
+**The cost is that `eligible` means two things to a reader** — *nobody has
+started this*, and *somebody has, and another dispatch would still be taken*.
+The board disambiguates by rendering the branch beneath; the wave's own word
+does not.
 
 Four words, and the contract states what a reader may **do** with each:
 
@@ -317,16 +354,16 @@ when what is needed is an approval.
 approved — *"the board routes those to DONE by phase before the verdict is
 read."* So the verdict is only meaningful for a plan still in the process.
 
-### The verdict is not a state
+### It is derived, so it is a method rather than a field
 
-**It is a relation**, recomputed every pulse from three things: the plan's state,
-the prior waves' branch states, and this wave's own. Nothing about the wave
-itself changes when its verdict moves from `blocked` to `eligible` — **a branch
-somewhere else merged.**
+Recomputed every pulse from three things: the plan's state, the prior waves'
+branch states, and this wave's own. **Nothing about the wave itself changes**
+when its verdict moves from `blocked` to `eligible` — a branch somewhere else
+merged.
 
-That is why §2 gives it no field, and why the Issue spec's rule applies here
-unchanged: a value that depends on a pair belongs to the derivation, not to the
-object's stated fields.
+So on the domain object it is `wave.verdict(plan, priorWaves)` — a method over
+the estate, never a value the parser could emit, because the parser reads a plan
+file and cannot see git.
 
 ### `--loose` is the one relaxation, and it must be verified
 
@@ -544,7 +581,8 @@ nothing catches none.
 ### Invariants
 
 1. **A wave is derived; it has no file and no record.**
-2. **The verdict is a relation, not a state** — recomputed every pulse.
+2. **The verdict is a DERIVED state** — recomputed every pulse, never stored,
+   and never covering *in progress*.
 3. **`blocked` and `unapproved` never collapse** — one waits on work, the other
    on a decision.
 4. **`eligible` is the only word that promises a dispatch agrees.**
