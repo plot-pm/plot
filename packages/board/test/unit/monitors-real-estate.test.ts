@@ -20,7 +20,39 @@ import { plansSignal, refsSignal } from '../../src/server/signals.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 const planDir = path.join(repoRoot, 'docs', 'plans');
-const here = fs.existsSync(planDir) && fs.existsSync(path.join(repoRoot, '.git'));
+
+/**
+ * How many local branches this checkout has — the precondition that actually
+ * matters, and the one the first version of this guard got wrong.
+ *
+ * IT CHECKED `.git` AND `docs/plans`, and CI has BOTH: the runner clones with
+ * `--depth 1 --single-branch`, so `refs/heads` holds exactly one ref and
+ * `for-each-ref` over it answered nothing. The estate this file exists to
+ * measure was empty, and the assertions correctly refused to pass vacuously —
+ * `expected 0 to be greater than 5`.
+ *
+ * So the guard asks the ref database rather than the filesystem. A checkout
+ * with a handful of branches is not an estate, and a test that quietly passes
+ * on one would be asserting nothing while looking green — the failure this
+ * whole file is designed to avoid.
+ */
+function localBranchCount(): number {
+  try {
+    return execFileSync('git', ['-C', repoRoot, 'for-each-ref', '--format=x', 'refs/heads'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).split('\n').filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+
+// 25 rather than 1: this file's claims are about an ESTATE — 244 branches on a
+// developer's checkout — and a shallow CI clone carrying one branch cannot
+// witness them. Skipped there, and run where the estate exists.
+const here = fs.existsSync(planDir)
+  && fs.existsSync(path.join(repoRoot, '.git'))
+  && localBranchCount() > 25;
 
 describe.skipIf(!here)('the monitors agree with git on the real estate', () => {
   const git = (...a: string[]) =>
