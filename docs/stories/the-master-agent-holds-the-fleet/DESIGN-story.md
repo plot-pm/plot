@@ -416,6 +416,8 @@ frontmatter and against `StoryCardSchema`.
 | `created` | date | **9/9** | **no** | frontmatter |
 | `updated` | date | **9/9** | **no** | frontmatter |
 | `author` | string | **9/9** | **no** | frontmatter |
+| `issue` | string | — | no | **proposed** — inbound ticket |
+| `published` | string | — | no | **proposed** — outbound ticket |
 | `unit` | string | **0/9** | no | skill requires it (§14) |
 | `archived` | date | **0/9** | no | on `done` only (§14) |
 
@@ -450,6 +452,63 @@ it, place it and link to it. Any consumer that needs the story reads the file.
 
 This is the opposite of Issue, whose five fields are the whole object because
 its body lives in a tracker Plot does not own.
+
+### `issue` — an optional stored field
+
+**Settled 2026-08-28: yes, and unlike `plans` this one is stored.**
+
+The two questions get opposite answers, and the reason is the test the entities
+doc states — *does this object's own source state it?*
+
+| | can Plot recompute it? | so |
+|---|---|---|
+| `plans` | **yes** — every plan declares `Story:` | a **method** over the estate |
+| `issue` | **no** — nothing else records it | a **stored field** |
+
+**Nothing points back to a story.** A tracker has no field for it, a plan
+records `Issue:` for itself and not for its story, and the board derives
+nothing. So if the story file does not say which ticket it came from or
+published, **the link does not exist anywhere.**
+
+#### What it must carry
+
+Both directions (§5), and they are different facts:
+
+```yaml
+issue: PROJ-100          # inbound — the ticket this story came from
+published: PROJ-142      # outbound — the ticket this story published
+```
+
+**One field cannot hold both.** An inbound ticket is *someone else's artefact
+that prompted this story*; an outbound one is *Plot's own publication of it*.
+Storing them in one list reproduces exactly the ambiguity the Plan spec flags
+for `Issue:` — *this plan answers that signal* versus *this plan published that
+view*, indistinguishable in one array.
+
+**And `published` is what makes Create Issue idempotent** (§7): a second run
+finds the recorded id rather than minting a duplicate. That is the `→ #N`
+pattern, and without the field the outbound act cannot be safe.
+
+#### It replaces the filename convention
+
+Today the only mechanism is `{JIRA-ID}-{slug}/` — and **nothing parses it.**
+Verified 2026-08-28: neither `plot-story-lint.sh` nor the board matches a key
+prefix anywhere, and zero stories in this repo use the form.
+
+A directory-name convention cannot be validated, cannot be resolved to a URL,
+and breaks silently on a rename. A frontmatter field does all three, and makes
+the story symmetric with the plan's `Issue:`.
+
+#### Optional, and absent is the norm
+
+**Both fields are optional and the majority will carry neither.** Under
+`Tracker: plot` with no issue tracker there are no tickets at all; under the
+publishing posture a story is often *deliberately* unpublished — the
+dev-team-only signal is precisely *"no ticket exists because the customer is not
+in the loop."*
+
+So absent means *no ticket*, never *unknown* — the same rule every other field
+here follows.
 
 ### Questions the object answers
 
