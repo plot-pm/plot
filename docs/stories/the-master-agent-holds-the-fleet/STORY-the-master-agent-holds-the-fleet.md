@@ -84,6 +84,10 @@ and a shell subprocess to parse it back.
   other entity relates through: seven states and the workflow phases they map
   into, the parser as the single contract, and the inversion that Plan is the
   one entity the CLI serves better than the board.
+- **[Worktree](DESIGN-worktree.md)** — a desk: one checkout, one branch, one
+  agent, and the only entity that is physical. Its existence is a *measurement*
+  — *"a shared file is a prediction, but a desk somebody is sitting at is a
+  measurement"* — and five refusals guard every reap.
 - **[Release](DESIGN-release.md)** — a version and the plans it contains: the
   tag is the truth, membership is derived with `git tag --contains` rather than
   from dates, and Plot does not cut the version — it cross-checks the notes.

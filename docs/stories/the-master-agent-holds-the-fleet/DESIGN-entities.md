@@ -90,8 +90,15 @@ one to test rather than the most expensive.
 
 ## The organizing finding
 
-Ten entities, sorted by where their truth lives. The first nine are things the
-fleet acts on; the tenth is shared by all of them:
+**Thirteen entities.** Twelve are things the fleet acts on; the thirteenth
+(Person) is shared by all of them. Each now has its own specification —
+[Issue](DESIGN-issue.md) · [Story](DESIGN-story.md) · [Plan](DESIGN-plan.md) ·
+[Sprint](DESIGN-sprint.md) · [Wave](DESIGN-wave.md) ·
+[Branch](DESIGN-branch.md) · [PR](DESIGN-pr.md) · [Build](DESIGN-build.md) ·
+[Release](DESIGN-release.md) · [Worktree](DESIGN-worktree.md) — except Agent,
+Machine and Person, which are specified below.
+
+Sorted by where their truth lives:
 
 | # | Entity | Source of truth | Domain | State today |
 |---|--------|-----------------|--------|-------------|
@@ -105,6 +112,9 @@ fleet acts on; the tenth is shared by all of them:
 | 8 | Agent | manifest + pid + tree | local | three competing models |
 | 9 | Machine | spawn cost | local | **does not exist** |
 | 10 | **Person** | every artefact that names one | **cross-cutting** | **does not exist** |
+| 11 | Sprint | the sprint file | git | solid; its state is unobserved |
+| 12 | Release | a git tag | git | solid; the version is recorded two ways |
+| 13 | Worktree | `git worktree list` | **local disk** | solid; nothing monitors it |
 
 **Everything Plot derives from git is clean. Everything else is missing,
 partial, or modelled three ways — with exactly one exception.**
