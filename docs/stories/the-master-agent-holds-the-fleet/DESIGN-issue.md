@@ -25,16 +25,17 @@ The board's inbox and Plot's tracker-facing entity, specified in full.
 | 1 | [What an Issue is](#1-what-an-issue-is) | the concept, and why it is called Issue |
 | 2 | [Posture](#2-posture--who-owns-the-truth) | who owns the truth: `Tracker:` and `Issue tracker:` |
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** — fields, identity, invariants |
-| 4 | [Kinds and directions](#4-kinds-and-directions) | story · epic · other; inbound vs outbound |
-| 5 | [Relations to Plot artefacts](#5-relations-to-plot-artefacts) |  |
-| 6 | [Actions](#6-actions) | Create plan · Create story · Create sprint |
-| 7 | [Scope](#7-scope--which-issues-reach-the-board) | the epic harbour, and the no-epic inbox |
-| 8 | [The collaborators](#8-the-collaborators) | Tracker · Connector · Monitor · Writer |
-| 9 | [Fleet control](#9-fleet-control) | what the board and the master agent each need |
-| 10 | [Views](#10-views) | what renders, where, and what must not |
-| 11 | [Setup](#11-setup) | what `/plot-board-setup` must do |
-| 12 | [Gaps](#12-gaps) | what is verified broken |
-| 13 | [Invariants and open points](#13-invariants-and-open-points) | the rules, and what is unsettled |
+| 4 | [Lifecycle](#4-lifecycle--inbox-mapped-and-the-state-that-is-missing) | inbox · mapped · **changed**, and where each matters |
+| 5 | [Kinds and directions](#5-kinds-and-directions) | story · epic · other; inbound vs outbound |
+| 6 | [Relations to Plot artefacts](#6-relations-to-plot-artefacts) |  |
+| 7 | [Actions](#7-actions) | Create plan · Create story · Create sprint |
+| 8 | [Scope](#8-scope--which-issues-reach-the-board) | the epic harbour, and the no-epic inbox |
+| 9 | [The collaborators](#9-the-collaborators) | Tracker · Connector · Monitor · Writer |
+| 10 | [Fleet control](#10-fleet-control) | what the board and the master agent each need |
+| 11 | [Views](#11-views) | what renders, where, and what must not |
+| 12 | [Setup](#12-setup) | what `/plot-board-setup` must do |
+| 13 | [Gaps](#13-gaps) | what is verified broken |
+| 14 | [Invariants and open points](#14-invariants-and-open-points) | the rules, and what is unsettled |
 
 **Where sections disagree, §3 is the specification** and the rest is
 justification. Sections marked *corrected* record a position this document held
@@ -44,6 +45,7 @@ a reader can see which arguments have already been had.
 ---
 
 ## 1. What an Issue is
+
 
 
 ### What it is
@@ -200,6 +202,7 @@ catch a `data-` attribute or a label that drifted. Neither alone is sufficient.
 ## 2. Posture — who owns the truth
 
 
+
 ### Two keys: who owns the truth, and which service is spoken to
 
 **Corrected 2026-08-28, and this supersedes how the rest of this section reads
@@ -330,6 +333,7 @@ exists; posture 3 is a different system.**
   the *"ticket with no linked doc"* rule, arrived at from the other direction.
 
 ## 3. The domain object
+
 
 
 ### Domain object specification
@@ -520,7 +524,102 @@ entity in this document is currently defined by its row.** `FleetBranch`,
 each is also the right domain shape is a question this design has not yet asked
 of any of them — and asking it is what the remaining entity sections should do.
 
-## 4. Kinds and directions
+## 4. Lifecycle — inbox, mapped, and the state that is missing
+
+
+An Issue has a lifecycle inside Plot, and it is currently **two states where it
+should be three**.
+
+### What exists: inbox and gone
+
+```
+open in the tracker, no plan cites it   ──►  INBOX      (a row, with actions)
+        │  someone writes a plan citing it
+        ▼
+open in the tracker, a plan cites it    ──►  MAPPED     (invisible)
+        │  closed in the tracker
+        ▼
+                                             GONE       (invisible)
+```
+
+**Both non-inbox states render identically: not at all.** The filter is one
+line —
+
+```ts
+.filter((i) => !referenced.has(i.number))
+```
+
+— so *mapped* and *closed* are the same answer to the board: absent. That is
+correct for the inbox's question (*is this worth a plan?*), and it is why the
+entity has felt so clean: a two-state lifecycle has nothing to go wrong.
+
+### What is missing: **changed**
+
+**A mapped issue is never looked at again.** Once a plan cites `PROJ-123`, the
+ticket can be re-scoped, re-titled, re-prioritised or closed, and nothing in
+Plot notices — because the only consumer of the fetched list subtracts it.
+
+That is a real gap and not a theoretical one: **the data already arrives.**
+`issue-list` returns every open issue including the mapped ones (verified
+`fleet.ts:1744` — the whole list is parsed before the filter runs), so
+detecting a change costs **no additional fetch**. What is missing is a
+comparison and somewhere to record what was last seen.
+
+```
+MAPPED  ──the ticket moved──►  CHANGED   (should be visible; today: silent)
+```
+
+**Recording "what was last seen" is the hard part**, and it collides with
+Principle 1: a change is a delta, and a delta needs a previous state. This is
+the same problem the story's **job 3** names — *what changed since I last
+looked?* — arriving at the Issue entity from a different direction, and it
+should be solved once for both rather than twice.
+
+The cheapest honest version needs no store at all: **the plan already records
+the title it was written against.** A plan citing `PROJ-123` whose title no
+longer matches what the tracker returns is a mismatch computable from two
+things Plot already has. That is weaker than a full change feed and it catches
+the case that matters — *the ticket does not say what the plan thinks it
+says*.
+
+### Which postures this matters in
+
+**Not `Tracker: plot` — that is where it matters least.**
+
+| posture | does *changed* matter? |
+|---|---|
+| **`plot`, no issue tracker** | **no** — there are no tickets to change |
+| **`plot` + a tracker (publishing)** | **yes** — the client edits the ticket; that is how they answer |
+| **`jira` leads (projection)** | **critically** — the ticket **is** the plan; a change is an edit to the truth |
+
+**Posture 2 is where your question bites hardest in practice.** The Issue spec
+already states that *"a ticket with no linked doc is new client input"* —
+because the client can only answer through the surface they were shown. But a
+client can also answer by **editing the ticket they already have**, and that
+edit is invisible: the ticket is mapped, so it is filtered out.
+
+So the publishing posture has a one-way door. New input arrives (unlinked
+ticket → inbox), and revised input does not (mapped ticket → silence).
+
+**Posture 3 makes it not a gap but a defect.** If Jira holds the truth, a
+changed ticket means the plan is stale — the projection's whole premise. That is
+the ticket → MD reader §2 already names as unbuilt, and *changed* is its trigger
+condition.
+
+### Why the states are not on the domain object
+
+`inbox` / `mapped` / `changed` are **not** fields on an Issue. They are
+relations between two things Plot holds — the tracker's answer and the plan
+estate — recomputed every pass, exactly like a Branch's state is a relation
+between a ref and the default branch.
+
+An `Issue.state` field would be a stored copy of a derivation, and the entity's
+§3 excludes mirrored state for precisely this reason.
+
+---
+
+## 5. Kinds and directions
+
 
 
 ### Three kinds, both directions
@@ -668,7 +767,8 @@ that might have deserved a story, rather than silently filing it nowhere.
 
 ---
 
-## 5. Relations to Plot artefacts
+## 6. Relations to Plot artefacts
+
 
 
 #### The relations — which Plot artefact an Issue maps to
@@ -817,7 +917,8 @@ sprint serves* from *the tickets it closes* needs the `kind` field this design
 has so far deferred — which is the first concrete consumer for it, and the
 argument to reconsider.
 
-## 6. Actions
+## 7. Actions
+
 
 
 ##### The actions an inbound Issue offers
@@ -958,7 +1059,8 @@ word, whatever it contains."* Outside the repo because `pnpm board` runs under
 spawned the agent. And neither action is available over a non-localhost binding:
 *"the phone that reads the board does not write stories from it."*
 
-## 7. Scope — which issues reach the board
+## 8. Scope — which issues reach the board
+
 
 
 #### The epic is the harbour — it scopes the inbox and receives what Plot mints
@@ -1192,7 +1294,8 @@ epic(2.11.0)  ⊇  { feature ticket of every plan released in 2.11.0 }
   it, the id must be recorded where a re-run will find it — a `Released:` line's
   neighbour, on the same principle as `→ #N`.
 
-## 8. The collaborators
+## 9. The collaborators
+
 
 
 ### The three collaborators
@@ -1532,7 +1635,8 @@ exactly where it belongs.
 
 ---
 
-## 9. Fleet control
+## 10. Fleet control
+
 
 
 #### Fleet control for Issue — what each consumer needs
@@ -1647,7 +1751,8 @@ ticket is what a client, a PM and a standup name, and the plan estate knows the
 answer while nothing surfaces it. It is one field on `PlanMetaSchema` and one
 link on the row — no fetch, no new host call.
 
-## 10. Views
+## 11. Views
+
 
 
 One domain object, several renderings. Each is derived at the boundary
@@ -1778,7 +1883,8 @@ belongs to the view; the identity does not. Every view listed here derives from
 the five fields and the answer state, and none needs a field the domain object
 does not already justify.
 
-## 11. Setup
+## 12. Setup
+
 
 
 #### Setting an `IssueTracker` up — what `/plot-board-setup` must do
@@ -1986,10 +2092,11 @@ Step 5 reports what was configured. For the tracker, *what* is not enough —
 That sentence is falsifiable at a glance by someone who knows the project, which
 is the only kind of verification that catches a right-shaped wrong answer.
 
-## 12. Gaps
+## 13. Gaps
 
 
-### Three genuine gaps
+
+### Four genuine gaps
 
 **1. A Jira key is a string; the board types it as a number.**
 
@@ -2071,7 +2178,19 @@ What is missing is `issues` on `PlanMetaSchema` and a link on the plan row —
 **no new fetch, and no new URL knowledge.** The link a plan needs is the one
 `issue-list` already returned for the same ticket before it left the inbox.
 
-## 13. Invariants and open points
+**4. A mapped issue is never re-read, so *changed* cannot be detected.**
+
+The filter subtracts every referenced issue, and nothing looks at one again —
+so a ticket that is re-scoped, re-titled or closed after a plan cites it moves
+silently. **The data already arrives**: `issue-list` returns the mapped ones too
+and they are parsed before the filter runs, so this costs no fetch. See §4.
+
+Reachable in every posture that has a tracker, and it is the one gap that grows
+worse with posture: a nuisance under publishing, a broken premise under
+projection.
+
+## 14. Invariants and open points
+
 
 
 ### Invariants
