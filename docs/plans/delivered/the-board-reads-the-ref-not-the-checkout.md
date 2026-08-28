@@ -1,0 +1,1 @@
+../2026-08-27-the-board-reads-the-ref-not-the-checkout.md
