@@ -305,6 +305,79 @@ epic(2.11.0)  ⊇  { feature ticket of every plan released in 2.11.0 }
   it, the id must be recorded where a re-run will find it — a `Released:` line's
   neighbour, on the same principle as `→ #N`.
 
+#### The epic is the harbour — it scopes the inbox and receives what Plot mints
+
+Settled 2026-08-28. Once an epic matching the release is found, it becomes the
+**one place both directions meet**:
+
+```
+                    epic(2.11.0)
+                    ╱          ╲
+        READ: scope of        WRITE: every feature
+        what we look for      ticket Plot mints joins it
+                    ╲          ╱
+              one harbour, two directions
+```
+
+**Reading — the epic replaces the scope heuristic.** Two sections above, the
+inbox's stage 2 was flagged as a gap: Jira scopes to `assignee = currentUser()`,
+GitHub to every open issue, and I proposed a declared `scope: mine | all` to
+reconcile them. **The epic is a better answer and this supersedes it.** Both of
+those were guesses at relevance; an epic is a *declaration* that these tickets
+belong to this release. So:
+
+```
+inbox = children(epic(release)) − referenced(every plan file)
+```
+
+Stage 2 stops asking *whose issues* and asks *which epic* — answered by the
+release key the estate already carries. Where no epic is found the previous
+behaviour stands unchanged, which is what keeps a repo with no epic working.
+
+**Writing — every ticket Plot mints joins the epic.** A feature ticket created
+at Plans approved is added to `epic(release)` at creation, not swept in later.
+That makes membership an act rather than a reconciliation, and it is what makes
+the harbour hold: a feature ticket outside its epic is invisible to the inbox
+scope above, so a later run would offer it as an unplanned signal.
+
+**The two halves are the same fact read twice**, which is the property worth
+protecting: what Plot writes into the epic is exactly what Plot later looks for
+in it. If they can disagree, the harbour has become a mirror to keep in sync —
+the failure this entity avoids everywhere else.
+
+##### The bootstrap, and why it is not circular
+
+The epic is keyed by a release version, and *"is this worth a plan?"* is asked
+before any plan exists — so it is worth showing the order does not bite:
+
+| when | what is known | epic |
+|---|---|---|
+| sprint opened | `Release: 2.11.0` **declared in the sprint file** | may be created here |
+| plan approved | the release the plan is heading for | feature ticket joins it |
+| `/plot-release` | the version is cut | epic **closes** |
+
+Verified 2026-08-28: sprint files carry `Release:` from the day they open —
+`2.6.0`, `2.8.0`, `2.9.0`, and a live `2.11.0` — while `/plot-release` only
+*determines* a version at the end. **So the key exists long before the release
+does**, and the epic can be found or created at sprint open rather than at
+release time.
+
+Where no sprint declares a release — the majority case — there is no epic, no
+harbour, and the inbox scopes as it does today. That must stay true: the epic is
+an *addition* for teams that run releases through a tracker, never a
+prerequisite for the board's inbox.
+
+##### What must not follow from this
+
+- **The epic is not a work queue.** Its children are scoped, not assigned. The
+  inbox still asks *is this worth a plan?* and still subtracts what plans
+  already reference.
+- **Plot does not manage the epic's own state** beyond closing it with the
+  release — no reordering, no priority, no assignment.
+- **A customer story ticket does not join the epic.** It is inbound and belongs
+  to whoever filed it; the epic collects what Plot mints. Conflating them is
+  what `kind` prevents.
+
 **Still not an import.** Nothing reads an epic's children to create plans.
 `story-tracking`'s rule stands for the *inbound* kind: a well-described customer
 ticket stays the umbrella. The outbound epic is a **report Plot publishes about
@@ -892,7 +965,13 @@ posture is declared in.
 
 **So `scope` belongs on `IssueTracker`, declared once and honoured by every
 arm** — `mine` or `all`, defaulting to whatever preserves each arm's current
-behaviour until a repo says otherwise. Two properties follow:
+behaviour until a repo says otherwise.
+
+> **Superseded where an epic exists.** A release-matched epic answers this
+> better than either value: `mine`/`all` are guesses at relevance, while an epic
+> is a declaration of membership. See
+> [the epic is the harbour](#the-epic-is-the-harbour--it-scopes-the-inbox-and-receives-what-plot-mints).
+> `scope` remains the answer for a repo with no epic, which is the majority. Two properties follow:
 
 - **The monitor never invents a scope.** It asks the connector for what the
   tracker declared; a filter the board applied after the fetch would be a third
