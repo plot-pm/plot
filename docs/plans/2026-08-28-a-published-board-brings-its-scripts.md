@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Started:** 2026-08-28, Jan Wloka, `bug/the-package-carries-its-scripts`
 - **Started:** 2026-08-28, Jan Wloka, `bug/an-empty-estate-still-pulses`
+- **Started:** 2026-08-28, Jan Wloka, `bug/the-package-proves-it-carries-them`
 
 ## Approval
 
@@ -177,7 +178,7 @@ the same.
 an empty fleet, with no error, and `--stream` on an empty estate ends with a
 `pulse` line.
 
-### Gated (Branch: bug/the-package-proves-it-carries-them)
+### Gated (Branch: bug/the-package-proves-it-carries-them, PR: #504)
 
 The two checks: the derived-vs-declared grep, and pack-and-run in
 `release-smoke.sh`.
