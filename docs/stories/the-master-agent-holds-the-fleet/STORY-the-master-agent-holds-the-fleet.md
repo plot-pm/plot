@@ -84,6 +84,9 @@ and a shell subprocess to parse it back.
   other entity relates through: seven states and the workflow phases they map
   into, the parser as the single contract, and the inversion that Plan is the
   one entity the CLI serves better than the board.
+- **[Branch](DESIGN-branch.md)** — a wave's unit of work and the claim on it:
+  the push *is* the lock, git outranks the plan's annotation, and its state is
+  only as fresh as the last fetch — measured, 43 merged branches reading as 0.
 - **[Wave](DESIGN-wave.md)** — a plan's unit of dispatch: the slice and the
   ordering, four verdicts of which none is a state, and the entity the fleet is
   built around. Fully derived — no file, no record.
