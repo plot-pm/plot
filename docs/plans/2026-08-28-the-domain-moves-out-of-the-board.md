@@ -6,7 +6,7 @@
 
 - **Phase:** Approved
 - **Type:** feature
-- **Sprint:** <!-- optional -->
+- **Sprint:** the-domain-is-one-implementation
 - **Issue:** <!-- optional -->
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session

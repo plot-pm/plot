@@ -10,7 +10,7 @@
 - **Phase:** Planned
 - **Start:** 2026-08-28
 - **End:** 2026-09-11
-- **Release:** 2.12.0
+- **Release:** 2.13.0
 
 ## Sprint Goal
 
@@ -52,7 +52,7 @@ Stories: [[the-master-agent-holds-the-fleet]] (the harness half)
 - [ ] [a-delivery-that-half-lands-refuses] A delivery writes its phase, its record **and** its index entry, or reports which one it could not write — measured: a phase flip without the symlink made a finished plan read as unfinished for two days
 - [ ] [a-merge-without-a-changeset-is-named] A merged branch whose changeset was never committed is reported before the release consumes the estate — measured: 2 in one session, both nearly shipping no release note
 - [ ] [a-held-worktree-names-what-holds-it] `plot-reap.sh` says *which file* holds a tree it refuses, so an operator can judge it — measured: 3 trees held by one uncommitted file each, all resolved by hand
-- [x] [the-board-watches-instead-of-re-asking] The board holds branch, plan and worktree state between pulses and re-derives only what changed — measured: **127 git processes every 5 s**, shaped `branches + plans + worktrees + ~30`, of which ~97 sit behind three signals that cost one process each <!-- status: delivered -->
+- [x] ~~[the-board-watches-instead-of-re-asking]~~ **Delivered 2026-08-29, shipped in 2.11.1** (#507, #508) — left this sprint; kept for the record. The board holds branch, plan and worktree state between pulses and re-derives only what changed — measured: **127 git processes every 5 s**, shaped `branches + plans + worktrees + ~30`, of which ~97 sit behind three signals that cost one process each <!-- status: delivered -->
 - [ ] [one-cap-holds-across-boards] Two boards on one repo cannot exceed `parallelAgents` between them — measured: the budget is `parallelAgents − liveAgentCount`, and each board computes it on its own pulse, so two boards seconds apart both read *0 live, budget 3* and each start 3
 
 ### Should Have
@@ -66,6 +66,23 @@ Stories: [[the-master-agent-holds-the-fleet]] (the harness half)
 - [ ] [the-backend-does-not-default-silently] `plot-host.sh backend` reports that it cannot tell, rather than answering `github`, in a repo with no remote
 
 ## Notes
+
+### Deferred 2026-08-29, and re-targeted from 2.12.0 to 2.13.0
+
+**This sprint was the planned next one and was displaced by the domain sprint**
+([[2026-W36-the-domain-is-one-implementation]]), by an explicit call. Nothing
+here decays by waiting: every finding is a missing record, the detection already
+exists, and `plot-reconcile-scan.sh` still reports the drift each run.
+
+**One Must left this sprint entirely.**
+`the-board-watches-instead-of-re-asking` was delivered on 2026-08-29 (#507,
+#508) and shipped in **2.11.1**, ahead of the sprint that named it. It is struck
+below rather than deleted — a sprint that silently loses an item cannot be read
+against what it set out to do.
+
+**The re-target is the point, not bookkeeping.** Two sprints both claiming
+2.12.0 would make the release gate ask both, so nine items that have no plans
+yet would block a release they were never part of.
 
 ### Why "completion", not "bugfixing"
 

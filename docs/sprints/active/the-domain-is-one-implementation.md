@@ -1,0 +1,1 @@
+../2026-W36-the-domain-is-one-implementation.md
