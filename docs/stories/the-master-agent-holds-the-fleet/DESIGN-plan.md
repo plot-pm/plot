@@ -412,6 +412,66 @@ kind 1 can go the moment the object exposes the normalized answer, which it does
 by construction; and `state_raw` goes only once `plan.state.asWritten` exists to
 hold what the normalization discards.
 
+### The idea branch is not one of the plan's branches
+
+**Correct, and the distinction is easy to lose because both are branches
+carrying the slug.**
+
+| | `idea/<slug>` | `feature/<slug>`, `bug/<slug>`, … |
+|---|---|---|
+| carries | **the plan file itself** | **the work the plan specifies** |
+| its PR is | the **plan PR** — merging it *is* the approval | implementation evidence |
+| exists during | Draft only | Approved onward |
+| belongs to | the plan's **arrival** | the plan's `## Branches` |
+
+**An idea branch is how a plan reaches main.** `/plot-idea` creates it,
+`/plot-approve` merges its PR — *that merge is the approval act* — and the
+branch is done. It carries no implementation and testifies to nothing about the
+work.
+
+**A `## Branches` entry is what the plan promises to build.** The delivery gate
+refuses on any non-deferred entry whose PR is not merged, and the fleet
+dispatches a worker per eligible one.
+
+#### The estate agrees, at a 1.3% error rate
+
+Measured 2026-08-28: **2 of 158 plans list an `idea/` branch under
+`## Branches`** — both early ones (`kanban-board-v1`, PR #40, the board's own
+v1.0 plan).
+
+**That is a mistake, not a convention**, and it has a consequence: an `idea/`
+entry makes the delivery gate count the **approval PR** as implementation
+evidence. The plan then reads as fully delivered on the strength of the merge
+that approved it.
+
+#### What the object should say
+
+**The idea branch is a property of the plan's arrival, not a member of its
+branch set:**
+
+```ts
+plan.branches          // what it promises to build — never the idea branch
+plan.planPr            // the PR whose merge approved it
+plan.ideaBranch        // where it lived while Draft, if it had one
+```
+
+**And `Impl: same branch` is the case that proves the distinction matters.**
+There, the plan and the code ride *one* branch, whose PR *"carries plan + code
+and merges once, at the end"* — so the same branch is both arrival and
+implementation. A model that conflates them cannot express that; one that
+separates them can say *this plan's arrival and its work coincide*.
+
+#### It also explains a parser rule
+
+`plot-plan-meta.sh` matches branch names against the **configured prefixes**,
+and `idea/` is among them — so an `idea/` line in `## Branches` parses as a
+branch rather than being rejected.
+
+**That is the right parser behaviour**, since the parser reports what the file
+says and does not judge it. The judgement belongs to a gate: *a plan's branch
+set should contain no idea branch*, which is exactly the kind of structural
+check `plot-reconcile-scan.sh` already makes.
+
 ### Waves hold branches; branches hold PRs — and the record flattens both
 
 **Yes, and the flat arrays are the clearest case for a domain object in this
