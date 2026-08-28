@@ -158,12 +158,23 @@ the first branch, pinned to the vitest already in use (`^4.1.10`), as a
 devDependency of the domain package alone. **The board's threshold is not
 changed by this plan**, and proposing one would be a different argument.
 
-**The moved code is the exception, and it is a deliberate one.** `allWavesMerged`
-and the pulse schemas arrive with tests already written — 25 for the rule, 53
-importers exercising the shapes. **Re-deriving them test-first would be
-theatre**: the tests exist, they pass unedited, and that is a stronger proof
-than tests written after the fact by the person moving the code. TDD binds what
-this plan *writes*, not what it *relocates*.
+**The moved code is exempt from writing tests FIRST, and from nothing else.**
+`allWavesMerged` and the pulse schemas arrive with tests already written — 25
+for the rule, 53 importers exercising the shapes — and re-deriving those
+test-first would be theatre: they exist, they pass unedited, and that is a
+stronger proof than tests written afterwards by the person doing the move.
+
+**The coverage threshold still applies to it.** If the move reveals uncovered
+branches in `allWavesMerged`, those are branches nobody ever specified, and the
+slice writes tests for them before merging. **An exemption from ordering is not
+an exemption from the gate** — a permanently uncovered region inside a package
+whose entire claim is that it is fully testable would make the number
+decorative.
+
+**Measure before assuming there is work here.** Running coverage on the moved
+code is the first act of the slice; if it is already at 97% the gap closes in
+minutes, and if it is far lower that is itself a finding about code the board
+has trusted for months.
 
 ### What proves the move is correct
 
@@ -185,6 +196,24 @@ the PR, not a patch.
 > window — **35 plans in the captured pulse**, never the full 158. The number
 > asserted something the test could not reach.
 
+### The slices are strictly sequential, and that is a choice
+
+**Each slice waits for the one before it, and only the first two have to.**
+`board.ts` imports `contract/schema.ts`, so moving `allWavesMerged` (slice 2)
+sits on top of moving the schema (slice 1). Slices 3 and 4 add new files and
+touch neither — **they could run beside slice 2 and are deliberately not
+allowed to.**
+
+**Slice 1 is a tracer bullet.** Its job is to answer *does moving a type out of
+this module work at all* — against 53 importers, a bundled server build and a
+single-file client build. **Cutting three branches on top of an unproven answer
+is how a wrong answer becomes expensive**, and the throughput bought by
+parallelising is small next to that.
+
+**The ordering also protects a live surface.** Every slice here changes what the
+board imports; two agents landing on it in one window makes a regression harder
+to attribute.
+
 ## Waves
 
 ### Moving (Branch: feature/the-domain-package-exists)
@@ -194,8 +223,9 @@ The package, the purity gate, and the entity graph moved out of
 their zod schemas. The board re-exports from `@plot-pm/domain` so its 53
 importers keep their import paths unchanged.
 
-**Done when** the purity grep is empty, `pnpm run test:board` and
-`pnpm run typecheck` pass **with no test edited**,
+**Done when** the purity grep is empty, `pnpm build:board`,
+`pnpm run typecheck` and `pnpm run test:board` all pass **with no test
+edited** — the client's single-file bundle included,
 `grep -rn "FleetPulseSchema = " packages/board/` returns nothing, and
 `@vitest/coverage-v8` is wired with the 100% threshold failing the build when
 unmet.
@@ -205,8 +235,9 @@ unmet.
 `allWavesMerged` moves to `rules/deliverable.ts` with its 25 tests. The board's
 three call sites import it.
 
-**Done when** the 25 tests pass unedited from the domain package, and
-`board.ts` no longer defines the function.
+**Done when** the 25 tests pass unedited from the domain package, `board.ts` no
+longer defines the function, and coverage of `rules/deliverable.ts` meets the
+threshold — any gap the move exposes is closed here.
 
 ### Entities (Branch: feature/the-entities-carry-their-states)
 
@@ -248,6 +279,14 @@ stale artifact fails reassuringly and reads exactly like the change not working.
 from `contract/schema.ts` means 53 files are untouched while the definitions
 move, so the diff is the move and nothing else. Collapsing the re-exports is a
 later, separable change.
+
+**That is a reviewability choice, not a rollback mechanism.** The move is
+proven before merge the way any change is: `pnpm build:board` **and**
+`pnpm run typecheck` **and** `pnpm run test:board` green on the branch. Two
+builds must both be exercised — the server bundles (`bundle: true`) and the
+client inlines to a single file (`vite-plugin-singlefile`), and a workspace
+package that resolves for one can still fail the other. **A green server build
+is not evidence about the artifact the browser loads.**
 
 **Run the e2e tier with `env -u PLOT_UNATTENDED`** — the worker environment
 trips the control tests when these run from inside a dispatched worktree.

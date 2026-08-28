@@ -138,6 +138,22 @@ messages** — a refusal that reports differently breaks whoever reads it.
 **Done when** each refusal is still individually triggerable in the e2e suite,
 `--dry-run` output is unchanged, and no refusal logic remains in either script.
 
+### Spawning (Branch: feature/one-place-reaches-a-process)
+
+The board's 46 direct process calls give way to the adapter layer's single
+`runScript()`. **10 of them invoke a `plot-*.sh` and are the point**; the `git`,
+`ps` and `tailscale` calls move behind the `Refs`, `Processes` and `Machine`
+adapters respectively.
+
+**This is where the board stops being a process-spawning application** and
+becomes one that asks ports. Until it lands, the adapters exist and the board
+routes around them — the same shape as `plot-reap.sh` reaching past
+`plot-host.sh`, one layer up.
+
+**Done when** `grep -rnE "(execFileSync|execFile|spawn|spawnSync)\(" packages/board/src/server/`
+returns only the adapter layer, the browser suite passes unedited, and no exit
+code is interpreted outside `runScript()`.
+
 ### Transitions (Branch: feature/a-transition-writes-one-value)
 
 `plot-approve.sh` and `plot-deliver.sh` take their writes from

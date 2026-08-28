@@ -269,8 +269,15 @@ script the board already spawns. Measured across `packages/board/src/server/`:
 | `plot-dispatch.sh` | 3 |
 
 **So the board is already an adapter-calling application.** What it lacks is a
-domain between the calls and the decisions — which is why 235 spawn sites are
-spread across 27 of its 30 server modules rather than concentrated in seven.
+domain between the calls and the decisions — which is why **46 spawn call sites**
+are spread across its server modules rather than concentrated in seven.
+
+> **Corrected 2026-08-28.** An earlier count said 235. That was every *mention*
+> of `spawn`/`execFile`/`execSync` — 237 today — in a codebase whose comments
+> discuss its own spawning at length. **The call sites are 46**, and of those
+> only **10 invoke a `plot-*.sh`**. The correction makes the argument smaller
+> and the work cheaper: consolidating the board's process access is a bounded
+> change, not a rewrite.
 
 **The work is not building adapters. It is naming the seam they already sit
 on**, and moving the decisions to the domain side of it.

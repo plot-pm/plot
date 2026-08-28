@@ -241,7 +241,8 @@ re-derived.
 |---|---|
 | board server modules | **30** |
 | modules that `spawn`/`execFile`/`execSync` | **27** |
-| spawn sites | **235** |
+| **spawn call sites** | **46** |
+| mentions of spawn/execFile (incl. comments) | 237 |
 | unit test files | **77** |
 | **that `mkdtemp` or spawn** | **34 (44%)** |
 

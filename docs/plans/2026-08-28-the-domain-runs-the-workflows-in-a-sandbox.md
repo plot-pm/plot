@@ -76,6 +76,36 @@ spawns the script and maps its exit code into `PortResult<T>`:
 | 3 | `{ ok: false, why: 'failed' }` — could not be asked |
 | 4 | `{ ok: false, why: 'unaskable' }` — structurally has no answer |
 
+### One spawner, because there is currently none
+
+**The board reaches processes from 46 call sites and has no shared helper for
+it** — `fleet.ts` imports `execFile`, `execFileSync` and `spawn` directly, and
+each site does its own error handling. Of those 46, **10 invoke a `plot-*.sh`**;
+the rest are `git`, `bash`, `ps` and one `tailscale`.
+
+> **Measured 2026-08-28, correcting an earlier count of 235.** That figure was
+> every *mention* of the words in a codebase that discusses its own spawning at
+> length. The real number makes this bounded rather than a rewrite.
+
+**The adapter layer gets exactly one `runScript()`**, and it is the only place
+the exit-code contract is written:
+
+```
+0 → { ok: true, value }        // NONE is a payload, not a miss
+1 → { ok: false, why: 'failed' }
+3 → { ok: false, why: 'failed' }      // could not be asked
+4 → { ok: false, why: 'unaskable' }   // structurally has no answer
+```
+
+**Seven adapters writing that mapping seven times is how 3 and 4 get
+collapsed** — and collapsing them turns a permanent configuration fact into a
+transient incident, which `plot-host.sh` warns against in its own header.
+
+**The existing 46 stay untouched in this plan**, and
+[plan 3](2026-08-28-production-calls-the-domain-one-rule-at-a-time.md) migrates
+them. Repointing them here would mean changing the board before the domain it
+would call is proven.
+
 **Rewriting a parser in TypeScript would be the very duplication this design
 forbids.** The adapter's job is to make one existing implementation reachable
 from a typed caller.
