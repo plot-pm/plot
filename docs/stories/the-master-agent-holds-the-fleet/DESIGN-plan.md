@@ -346,6 +346,53 @@ condition until recently, when it turned out that a phase flip without the
 contributor has no vocabulary for a plan that was overtaken — the value is being
 applied from the parser rather than from the documentation.
 
+### How a plan knows its state
+
+**It reads it off itself.** No comparison, no other artefact, no derivation —
+`plot-plan-meta.sh:363`:
+
+```awk
+if (fm_status != "" || fm_phase != "") {
+  praw     = (fm_status != "") ? fm_status : fm_phase
+  palt_raw = (fm_status != "" && fm_phase != "") ? fm_phase : ""
+}
+```
+
+Front matter `status:` first, `phase:` second, the `## Status` list third. The
+state is **written in the file**, and reading it is a lookup.
+
+**That is the sharpest contrast in this whole design**, and it is worth putting
+beside its neighbours:
+
+| entity | how it knows its state | what it needs |
+|---|---|---|
+| **Plan** | **reads it off itself** | the file alone |
+| **Branch** | compares a ref to the default branch | **two git refs** |
+| **Issue** | compares the tracker's answer to the plan estate | **two systems** |
+| **Agent** | compares a pid, an exit code and a tree | **three readings** |
+| **Story** | reads it off itself (`status:`) | the file alone |
+
+**Plan and Story are the only two entities whose state is a stated fact rather
+than a derived relation** — and both for the same reason: they are artefacts
+Plot writes, so Plot records what it did to them. Everything else is an
+observation of something Plot does not own.
+
+That is also why the Issue spec could refuse a `state` field while this one
+carries `phase`: an issue's state is a property of a *pair*, a plan's is a
+property of *itself*.
+
+**The cost of a stated state is that it can be wrong.** A ref cannot lie about
+whether it is merged; a file can say `Approved` when nobody approved it. Which
+is precisely why the transitions are gated and why `plot-phase-gate.sh` reads
+the plan from `origin/<main>` rather than the working tree — *"an approval
+nobody else can see is not one."*
+
+**And it is why the transition records exist.** `Approved:`, `Started:`,
+`Delivered:`, `Released:` are the evidence beside the claim: the state says
+*where*, the record says *when, by whom, and through which channel*. A state
+without its record is the shape that has bitten this repo twice — a phase flip
+with no `Delivered:` makes a plan invisible to the scan's window.
+
 ### Two states in one file is a modelled condition
 
 `phase_alt` exists because a file can carry both front-matter `status:` and a
@@ -819,13 +866,17 @@ by the plan and derived by everyone else** (§6): a sprint does not list its
 plans, a release does not list its plans, and neither does a story. The plan
 declares `Sprint:`, `Story:`, `Issue:` — one writer, many readers.
 
-**What is missing is not the field but the derivation.** Nothing surfaces
-*which plans this story holds*, though the data is one group-by away:
+**The derivation already exists, twice.** An earlier draft of this section said
+it was derived nowhere; it is derived client-side in `Swimlanes.tsx:80` and in
+`StoryModal.tsx`'s `plansInStory`, both as `cards.filter(c => c.story === slug)`.
 
 | | today |
 |---|---|
 | Plan → Story | `Story: <slug>`, parsed, **rendered on the plan row** |
-| Story → Plans | **derivable in 166 ms, derived nowhere** |
+| Story → Plans | **derived in the browser, in two views; nowhere else** |
+
+So the gap is the derivation's *reach*, not its absence: no script does it, so
+a master agent asking *what does this story hold?* re-implements the filter.
 
 Measured for this repo: `plot-board` holds 90 plans,
 `the-board-is-blank-where-it-matters` 15, `plot-planning-model` 9,

@@ -563,23 +563,42 @@ Plans declare their story; stories do not list their plans. Measured
 a story exists for knowledge, and knowledge can precede or outlive plans. A
 story with no plans is not an orphan.
 
-**The direction is right, and the derivation is cheap.** Measured 2026-08-28:
-parsing **all 158 plans in one batched invocation takes 166 ms** — so *which
-plans belong to this story* is a group-by over a query the estate already runs.
-The table above took one command.
+**The direction is right, and the derivation already exists.**
+
+**Corrected 2026-08-28.** An earlier draft said story → plans was *"derivable in
+166 ms, derived nowhere."* The first half is right; the second is wrong. It is
+derived in **two** places, both client-side:
+
+```ts
+Swimlanes.tsx:80    cards.filter((c) => c.story === s.slug)
+StoryModal.tsx:40   plansInStory(cards, slug)   // filter + sort by phase
+```
+
+There is even a named function for it. So a story **does** know its plans — it
+asks, every render, from the cards it already holds.
+
+**That is the whole mechanism, and it is the right one.** A story does not
+record its membership; it queries for it. The knowledge lives in the plans,
+which declare `Story: <slug>`, and any consumer with the plan list can
+reconstruct the grouping in a filter.
 
 A `plans:` list in a story's front matter would be a second source of truth
 that goes stale the moment a plan is written, renamed, moved between stories or
-superseded — and nothing would detect the drift, because the story's copy would
-be the only place that claim lived. The same argument made sprint→epic a
+superseded — with nothing to detect the drift, because the story's copy would be
+the only place that claim lived. The same argument made sprint→epic a
 derivation.
 
-**So a story should be able to SAY what it holds, and should not RECORD it.**
-That distinction is the whole answer: the gap is a missing derivation and a
-missing view (§13), not a missing field. See Plan §13 for the same question
-answered from the plan's side.
+**What is missing is not the derivation but its reach.** Both call sites are in
+the browser, working from `board.cards`, so:
 
-### Issue → Story is a filename convention
+- the **board** can group plans under a story — and does, in two views
+- the **CLI has no equivalent**: no script derives it, so a master agent asking
+  *what does this story hold?* re-implements the filter (§10)
+- the **count** appears in neither: `plansInStory` returns the cards, and no
+  view renders *how many* (§13)
+
+So the honest statement is: **a story knows its plans in the browser and
+nowhere else.**### Issue → Story is a filename convention
 
 `{JIRA-ID}-{slug}/` is the whole mechanism. No frontmatter field, no parser
 support, nothing machine-readable.
