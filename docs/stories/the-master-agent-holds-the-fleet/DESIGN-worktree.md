@@ -21,7 +21,7 @@ physical.
 
 | § | section | answers |
 |---|---|---|
-| 1 | [What a Worktree is](#1-what-a-worktree-is) | the desk, and why it is a measurement |
+| 1 | [What a Worktree is](#1-what-a-worktree-is) | the agent's desk, and why it is a measurement |
 | 2 | [Posture](#2-posture) | none — it is local |
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
 | 4 | [Lifecycle](#4-lifecycle) | created, occupied, reapable |
@@ -46,6 +46,34 @@ It is the fleet's unit of *isolation* — the reason several agents can work at
 once without touching each other's files — and the only entity in this design
 that exists as **bytes on a disk** rather than as a record, a ref or a
 derivation.
+
+### It belongs to an agent — the ownership runs that way
+
+**Settled 2026-08-28.** An earlier draft modelled `occupant: Agent | null` as a
+field *on the tree*, as though a desk might have somebody at it. **The ownership
+is the other way round: the worktree is the agent's desk.**
+
+```
+Agent ──has──► Worktree          the desk it works at
+```
+
+**The dispatcher creates it, the agent owns it.** `plot-dispatch.sh:1908` runs
+`git worktree add`, then `start_worker` — so the tree exists a moment before its
+agent does, and belongs to it from then on.
+
+**The reap rules prove the direction.** Every one of the five refusals (§10) is
+a question about **the agent or what it left behind** — a live pid, uncommitted
+changes, a `PLOT-BLOCKED` marker. **None asks anything about the tree itself.**
+A worktree is never refused for being a worktree.
+
+**So a tree with no agent is not an unoccupied desk — it is an orphan**, and
+that is a different thing to report. §10's fifth refusal exists precisely for
+trees Plot did not create and does not own.
+
+**And it explains why the manifest travels with it** (§6): they are two halves
+of one thing — the agent's identity and the agent's desk — rather than two
+things that happen to sit together. Removing one without the other *"converts a
+finished agent"* into an unknown row because it splits a single entity.
 
 ### Its existence is a measurement, not a claim
 
@@ -99,7 +127,7 @@ one measured here sits on the default branch (§10's fifth refusal).
 | `branch` | string | `git worktree list` | `''` when detached |
 | `isMain` | bool | `git worktree list` | **never reapable** |
 | `clean` | bool | `git status` + upstream | **two facts** — see below |
-| `occupant` | Agent \| null | the manifest / pid | who is at the desk |
+| `agent` | Agent \| null | the manifest / pid | **the owner** — `null` means orphaned, not vacant |
 | `prunable` | bool | git | git's own view — **not Plot's** |
 
 ### `clean` is two questions
@@ -152,7 +180,7 @@ with `git worktree add`."*
 | relation | mechanism | state |
 |---|---|---|
 | Worktree → Branch | `git worktree list` | **built** — 1:1 while checked out |
-| Worktree → Agent | the manifest, and `.plot-worker.pid` | **built** |
+| **Agent → Worktree** | the manifest, and `.plot-worker.pid` | **built** — the agent owns the desk |
 | Worktree → Plan | via its branch's wave | derived |
 
 **The manifest goes with the worktree**, and the reason is a measured defect:
@@ -319,16 +347,18 @@ one script.
 
 ### Invariants
 
-1. **A worktree is a measurement**, not a claim — its existence is a fact on
+1. **A worktree belongs to an agent** — it is the agent's desk, not a place an
+   agent visits.
+2. **A worktree is a measurement**, not a claim — its existence is a fact on
    disk.
-2. **The path is the identity**; the branch is not.
-3. **Found by asking git**, never by rebuilding a path from a name.
-4. **`clean` means two things** — nothing uncommitted *and* nothing unpushed.
-5. **Every reap refusal is a measurement**, and there are five.
-6. **A reap removes a checkout**; branches and refs survive.
-7. **The manifest goes with the worktree** — removing one without the other
+3. **The path is the identity**; the branch is not.
+4. **Found by asking git**, never by rebuilding a path from a name.
+5. **`clean` means two things** — nothing uncommitted *and* nothing unpushed.
+6. **Every reap refusal is a measurement**, and there are five.
+7. **A reap removes a checkout**; branches and refs survive.
+8. **The manifest goes with the worktree** — removing one without the other
    creates an unknown row.
-8. **`--dry-run` is the default** for anything that deletes.
+9. **`--dry-run` is the default** for anything that deletes.
 
 ### Open points
 
