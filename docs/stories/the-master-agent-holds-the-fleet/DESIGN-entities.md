@@ -331,9 +331,9 @@ Every entity's full shape. Marked **`+`** where the property does not exist
 today and this design proposes it; unmarked properties are already carried
 somewhere in the codebase, named as they are named there.
 
-Whether a property is re-derived each pulse or retained between them is
-deliberately **not** settled here — see [Memory](#memory-is-a-separate-question)
-at the end. What follows is the shape, not the storage.
+Whether a property is re-derived each pulse or retained between them is settled
+separately — see [Where the properties live](#where-the-properties-live). What
+follows is the shape, not the storage.
 
 ### Agent
 
