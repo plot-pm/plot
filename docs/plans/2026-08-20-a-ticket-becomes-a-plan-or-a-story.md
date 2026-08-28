@@ -9,13 +9,14 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Assignee:** jwloka
 - **Delivered:** 2026-08-28
+- **Released:** 2026-08-28, 2.11.0
 
 ## Problem
 

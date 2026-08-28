@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** <!-- optional -->
 - **Issue:** #228
@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Started:** 2026-08-28, Jan Wloka, `feature/the-fallback-asks-the-other-budget`
 - **Delivered:** 2026-08-28
+- **Released:** 2026-08-28, 2.11.0
 
 ## Changelog
 

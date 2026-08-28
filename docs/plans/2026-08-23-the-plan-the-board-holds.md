@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
@@ -15,6 +15,7 @@
 - **Rounds:** 1
 - **Started:** 2026-08-26, Jan Wloka, `feature/the-board-reads-approval-not-phase`
 - **Delivered:** 2026-08-28
+- **Released:** 2026-08-28, 2.11.0
 
 ## Changelog
 

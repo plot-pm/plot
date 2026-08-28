@@ -12,8 +12,9 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Delivered:** 2026-08-27
+- **Released:** 2026-08-28, 2.11.0
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Story:** plot-board

@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
@@ -17,6 +17,7 @@
 - **Started:** 2026-08-26, Jan Wloka, `bug/an-unreachable-host-says-so`
 - **Started:** 2026-08-26, Jan Wloka, `bug/an-unknown-pr-withholds-its-verdict`
 - **Delivered:** 2026-08-28
+- **Released:** 2026-08-28, 2.11.0
 
 ## Changelog
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
@@ -15,6 +15,7 @@
 - **Started:** 2026-08-27, Jan Wloka, `bug/a-claim-is-a-list-item`
 - **Started:** 2026-08-28, Jan Wloka, `bug/reconcile-reports-a-double-claim`
 - **Delivered:** 2026-08-28
+- **Released:** 2026-08-28, 2.11.0
 
 ## Changelog
 
