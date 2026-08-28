@@ -181,13 +181,13 @@ which is the difference between a field that exists and one that is used.
 | `prs[]` | numbers | 136 | |
 | `malformed_prs[]` | strings | **0** | near-misses; none in this estate |
 | `changelog[]` | strings | 91 | **what a plan changes** |
-| `review` / `review_raw` | normalized + verbatim | 150 | |
-| `impl` / `impl_raw` | normalized + verbatim | 150 | |
-| `approved_raw` | record | 141 | |
-| `started_raw` | record | 129 | |
-| `delivered_raw` | record | 141 | |
-| `released_raw` | record | 110 | |
-| `design_raw` | record | **0** | the design state is never used (§4) |
+| `review` | normalized | 150 | `review_raw` is unconsumed — see below |
+| `impl` | normalized | 150 | `impl_raw` is unconsumed — see below |
+| `approved` | record | 141 | **prose today** — see below |
+| `started` | record list | 129 | one entry per branch |
+| `delivered` | record | 141 | |
+| `released` | record | 110 | |
+| `design` | record | **0** | the design state is never used (§4) |
 | `long_wave_names[]` | strings | 5 | a report, not a refusal |
 
 | `rounds` | number | 68 | **an optional KEY, not just an optional value** |
@@ -297,6 +297,73 @@ most, and they are the least parseable thing in the format.
 - **No roster.** A person exists because a record names them; there is no list
   to maintain and no membership to check.
 - **No cross-repo identity.** A handle is meaningful in the repo that uses it.
+
+### The `_raw` fields: two different things, one suffix
+
+**Settled 2026-08-28.** `_raw` is worn by two kinds of field that want opposite
+treatment.
+
+#### Kind 1 — normalization pairs, which methods replace
+
+| raw | normalized | the raw adds |
+|---|---|---|
+| `review_raw` `in-session` | `review` `in-session` | **nothing — identical** |
+| `impl_raw` `own branches` | `impl` `own-branches` | **spelling** |
+| `state_raw` `Released` | `state` `released` | **casing** |
+
+**These exist because the parser emits a flat record.** It cannot offer
+behaviour, so it ships both forms and lets each caller choose — which is exactly
+the shape an object removes:
+
+```ts
+plan.impl              // 'own-branches' — the answer
+plan.impl.asWritten    // 'own branches' — only if a caller ever needs it
+```
+
+**And nothing needs it.** Measured 2026-08-28: `state_raw` has **one** consumer
+— `plot-reconcile-scan.sh:387` packs it into a `|`-separated row and never reads
+it back. `review_raw` and `impl_raw` have **none**.
+
+So they are not even a view concern; they are unconsumed. On the domain object
+they become a method nobody has yet called, and the flat record's obligation to
+guess disappears.
+
+#### Kind 2 — records with no normalized twin, which need parsing
+
+`approved_raw`, `started_raw`, `delivered_raw`, `released_raw`, `design_raw`
+have **no** normalized counterpart. `_raw` there does not mean *as written
+beside a parsed form* — it means **nobody parsed this**:
+
+```
+approved_raw: "2026-08-20 by jwloka (in-session) — measured 43s serial
+               against 25s parallel, and the parallel run exposed a real race"
+```
+
+Four facts in one string: a date, a person, a channel, and a rationale that
+itself contains commas. **That is why four records parse a prose clause as an
+approver** (Person, §3 above).
+
+**These do not want a method — they want a structure**, and the suffix should
+disappear with the parsing:
+
+```ts
+plan.approved        // { date, by: Person, channel, detail } | null
+plan.approved.by     // a Person — the 84-vs-43 question, answerable
+```
+
+`started` is a **list** (one entry per branch), which is another thing a single
+string cannot express and a structured record can.
+
+#### Why the two kinds must not be treated alike
+
+**Kind 1 is safe to drop; kind 2 is not.** Removing `impl_raw` loses a spelling
+nobody reads. Removing `approved_raw` before there is a structured record to
+replace it would lose the only copy of the approval — the fields other tooling
+depends on most.
+
+**So the order is: parse kind 2 first, then delete kind 1.** The front-matter
+migration (§14) is where kind 2 gets its structure; kind 1 can go the moment the
+object exposes the normalized answer, which it does by construction.
 
 ### Three parser rules worth lifting
 
