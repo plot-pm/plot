@@ -380,7 +380,15 @@ asks about it — the same gap Story has (Story §12).
 | 5 | **`start`/`end`/`goal` reach no view** — the board cannot show whether a sprint is on time | now |
 | 6 | Inbound and outbound epic acts unbuilt | posture 2 |
 
-**Gap 1 is the one to fix**, and the fix is a derivation rather than a field:
+**Gap 1 is the one to fix, and it belongs to the Release rather than here.**
+*"A sprint whose `Release:` has a tag is over"* is a statement about **the
+release's state** (Release §4), which the sprint reads:
+
+```
+release(2.9.0).state === 'shipped'   →   this sprint is over
+```
+
+The fix is a derivation rather than a field:
 a sprint whose `Release:` has a tag is over, whatever its state says. The data
 is already read by `/plot-release`.
 

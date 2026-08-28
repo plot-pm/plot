@@ -23,7 +23,7 @@ A version, and the set of plans that shipped in it.
 | 1 | [What a Release is](#1-what-a-release-is) | the version, and what it contains |
 | 2 | [Posture](#2-posture) | the epic it publishes |
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
-| 4 | [Lifecycle](#4-lifecycle) | RC, then cut — and the tag is the truth |
+| 4 | [Lifecycle](#4-lifecycle) | four states, and where the sprint gap belongs |
 | 5 | [Direction](#5-direction) | outbound only |
 | 6 | [Relations](#6-relations) | Plan · Sprint · Issue |
 | 7 | [Actions](#7-actions) | cut · record — and what Plot hands off |
@@ -123,9 +123,10 @@ having no version.
 
 | field | type | source | note |
 |---|---|---|---|
-| `version` | string | the git tag | **the identity** — normalize the `v` |
-| `date` | date | the tag | when it was cut |
-| `commit` | sha | the tag | what it points at |
+| `version` | string | a tag, or a sprint's declaration | **the identity** — normalize the `v` |
+| `state` | `planned`\|`candidate`\|`shipped` | **derived** — see §4 | never stored |
+| `date` | date \| null | the tag | **null while `planned`** |
+| `commit` | sha \| null | the tag | **null while `planned`** |
 | `plans[]` | Plan[] | **derived** | see §8 — never stored |
 | `channel` **`+`** | `release` \| `rc` | the tag's suffix | `v2.1.0-rc.1` is not a release |
 | `checklist` | path \| null | `docs/releases/` | RC only — **2 of 129** |
@@ -137,6 +138,73 @@ already records the version.
 ---
 
 ## 4. Lifecycle
+
+### Four states, and only one is written down
+
+**Corrected 2026-08-28.** An earlier draft gave Release no state at all — the
+only entity here without one — and that was wrong: a release has a life
+**before** its tag.
+
+```
+planned ──► candidate ──► shipped
+   │            (rc)
+   └──────────────────────► shipped        (cut directly — the common path)
+```
+
+| state | means | how it is known |
+|---|---|---|
+| `planned` | **a sprint declared it; no tag exists** | `Release:` in a sprint, no matching tag |
+| `candidate` | an RC tag exists, the release does not | `vN.N.N-rc.M` |
+| `shipped` | the tag exists | `git tag --list vN.N.N` |
+| `superseded` **`?`** | declared, then abandoned | **unrepresentable** — see below |
+
+**All three live states are visible in this estate right now:**
+
+| version | state | evidence |
+|---|---|---|
+| **2.11.0** | **`planned`** | a sprint targets it; **no tag**; 31 delivered plans accumulating |
+| 2.10.0, 2.9.0 | `shipped` | tags cut |
+| v2.1.0-rc.1 | `candidate` | an RC tag with a checklist |
+
+### The state is derived, and that is what the sprint gap needed
+
+**Nothing stores a release's state**, and nothing should: `planned` is *a
+declaration with no tag*, `shipped` is *a tag*, and both are one `git tag`
+query away.
+
+**This is where the Sprint spec's stale-phase gap actually belongs.** That spec
+records a sprint reading `Active` two days after its release shipped, and
+proposes deriving the sprint's phase from the tag. **The sprint was the wrong
+entity to hang it on:** *"a sprint whose `Release:` has a tag is over"* is a
+statement about **the release's** state, which the sprint then reads.
+
+```
+release(2.9.0).state === 'shipped'   →   the sprint targeting it is over
+```
+
+**One derivation, two consumers** — rather than the sprint re-deriving a fact
+the release already knows.
+
+### `planned` is where the estate's work accumulates
+
+**31 plans are `delivered` and not yet released**, waiting on `2.11.0` — so
+`planned` is not a formality. It is the state a release spends most of its life
+in, and the only one where its membership is still changing.
+
+**And it is the state the release gate reads.** Every refusal in §10 is asked of
+a `planned` release: *are its sprint's Must Haves done?* is meaningless once the
+tag exists.
+
+### `superseded` is unrepresentable
+
+**A declared version that is never cut has no way to say so.** If a sprint
+targets `2.11.0` and the team ships `3.0.0` instead, `2.11.0` stays `planned`
+forever — there is no tag to make it `shipped` and no record to retire it.
+
+Measured: **not reachable here**, since every declared version has either
+shipped or is current. But nothing prevents it.
+
+---
 
 ### Two shapes, and one is rarely used
 
@@ -304,6 +372,7 @@ its version comes from the project's release tooling, which `/plot-deliver` and
 | 1 | **The version is recorded two ways** — 70 lines carry the `v`, 40 do not; every tag is `vN.N.N` | **now, measured** |
 | 2 | **3 released plans carry no `Released:` record** — invisible to a version query | now |
 | 3 | **`channel` is not modelled** — an RC tag and a release tag are the same string type | now |
+| 3b | **A declared version that is never cut stays `planned` forever** — no way to retire one | not reachable here |
 | 4 | Release → epic unbuilt (posture 2) | posture 2 |
 
 **Gap 1 is the actionable one**, and it is a normalization: strip or add the `v`
@@ -316,7 +385,9 @@ uses.
 
 ### Invariants
 
-1. **The tag is the truth**; `Released:` reflects it.
+1. **The tag is the truth** for a `shipped` release; `Released:` reflects it.
+1b. **A release exists before its tag** — `planned` is a state, and the one it
+   spends most of its life in.
 2. **The version is resolved with `git tag --contains`, never from a date.**
 3. **`docs` and `infra` plans are never released** — live on merge.
 4. **Membership is derived**, never stored.
