@@ -625,8 +625,30 @@ belongs to the middle one:
 | **the derivation** | what **Plot** concludes by comparing that to the plan estate | **yes — this is where it lives** |
 | **the view row** | what a renderer needs | yes, carried |
 
-An Issue's lifecycle state is not a property *of the issue*. `PROJ-123` is
-neither *inbox* nor *mapped* — **the pair (`PROJ-123`, this repo's plans)** is.
+**This is a rule about Issue, not about domain objects in general.** A domain
+object is *"what the persisted source becomes in memory — the sole source of
+truth once the file is read"*, and a field the source states plainly belongs on
+it. Plan's `phase` and Story's `status` are exactly that: written in the file,
+read off it, and carried on the object, because a consumer that had to go back
+to the file for them would mean the object was not the source of truth after
+all.
+
+**The difference is where the value comes from, not which layer is asking.**
+
+| entity | its state is | so it |
+|---|---|---|
+| **Plan** | **stated in the file** | **carries `phase`** |
+| **Story** | **stated in the file** | **carries `status`** |
+| **Issue** | a relation to the plan estate, which the tracker knows nothing about | **carries none** |
+
+An Issue's source — the tracker's reply — contains no such field, and inventing
+one on the object would mean the object asserting something its source never
+said.
+
+The test is **whether the object's own source states it.** An Issue's lifecycle
+state is not a property *of the issue*: `PROJ-123` is neither *inbox* nor
+*mapped* — **the pair (`PROJ-123`, this repo's plans)** is, and the tracker that
+supplied the object has never heard of this repo's plans.
 The same ticket is `inbox` in a repo that has not planned it and `mapped` in one
 that has, and the tracker's answer is byte-identical in both.
 

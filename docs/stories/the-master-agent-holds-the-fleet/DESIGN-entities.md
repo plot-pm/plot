@@ -59,6 +59,40 @@ idiom for git-derived state and one worked example of a foreign one. The four
 troubled entities — PR, Build, Agent, Machine — are troubled in proportion to
 how far they sit from that example.
 
+### What a domain object is
+
+Settled 2026-08-28, and it applies to every entity below.
+
+**A domain object is what a persisted source becomes in memory — and once the
+file is read, it is the sole source of truth for that entity.** Views, actions,
+the fleet control and every other consumer read the object, never the file and
+never the parser's JSON.
+
+Three consequences that decide field membership:
+
+**1. A field the source states plainly belongs on the object.** A plan's file
+says `Phase: Approved`; the Plan object carries it. A story's front matter says
+`status: active`; the Story object carries it. A consumer that had to reopen the
+file for either would mean the object was not the source of truth after all.
+
+**2. A field the source never states does not.** An Issue's source is the
+tracker's reply, which contains no *inbox*/*mapped* notion — that is a relation
+to the plan estate, which the tracker has never heard of. Putting it on the
+object would make the object assert something its source never said (Issue §3).
+
+**3. A presentation of a field is not a field.** `ageMinutes` is `createdAt`
+relative to now; the object carries the timestamp and the view computes the age,
+with `now` passed in rather than captured.
+
+**So the test is not "is it derived?" but "does this object's own source state
+it?"** — which is why `FleetBranch.state` is correctly a field (its source is
+the pair of refs it derives from) while `Issue.state` is not.
+
+**And re-reading is how it stays true.** The object is rebuilt from the file on
+every pulse, so it cannot drift from its source: there is no update path, only
+re-creation. That is Principle 1 expressed as an object lifecycle rather than as
+a prohibition.
+
 ### The rule the whole set follows
 
 **Absent is not false.** Stated in the manifesto, restated in a dozen contract
