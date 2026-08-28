@@ -28,7 +28,7 @@ What CI said about a PR — and the entity split by what each answer costs.
 | 6 | [Relations](#6-relations) | PR · Branch |
 | 7 | [Actions](#7-actions) | none — Plot reads |
 | 8 | [Scope](#8-scope) | **the price split** — free per PR, metered per history |
-| 9 | [The collaborators](#9-the-collaborators) | one op, two budgets |
+| 9 | [The collaborators](#9-the-collaborators) | the connector, and the missing monitor |
 | 10 | [Fleet control](#10-fleet-control) | what a supervisor may conclude |
 | 11 | [Views](#11-views) | the check chip, and the three evidence lines |
 | 12 | [Setup](#12-setup) | `CI:` is recorded and unread |
@@ -94,27 +94,67 @@ affected rows rather than darkening every row.
 
 ## 3. The domain object
 
+### Two entities, not one
+
+**Corrected 2026-08-28.** An earlier draft modelled a single Build. There are
+**two**, and the evidence was already in `StuckRun` — `{ workflow, conclusion,
+startedAt, url }` carries both and the model collapsed them:
+
+| | **BuildPipeline** | **Build** |
+|---|---|---|
+| is | the thing that **runs** | one **result** of one run |
+| identity | `workflow` — its name | its `url` |
+| stable across runs | **yes** | no — one per trigger |
+| has | a URL, a definition | a state, a start time, a duration |
+
+**Measured on `main`, 2026-08-28:** two pipelines, ten builds between them.
+
+```
+workflows: { CI: 5, Release: 5 }
+states:    { success: 8, in_progress: 2 }
+```
+
+**`CI` and `Release` are pipelines**; each of those ten entries is a Build.
+
 ### Identity
 
-**A Build has no identity of its own.** It is *the CI verdict for a PR*, so it
-is addressed as its PR — there is no build id in the model, and none is needed
-while the verdict is a rollup rather than a run.
+```
+BuildPipeline.name : string       'CI' — stable, repo-scoped
+Build.url          : string       the run's own address
+```
 
-**The history's entries do have identities** (a workflow name and a start time),
-which is the first hint that these are two things.
+**A Build is addressed by its run URL**, not by its pipeline: two builds of `CI`
+minutes apart are different objects with the same pipeline. The pipeline is what
+a reader *recognises*; the build is what they *open*.
 
-### Fields
+### `state`, not `conclusion`
 
-| field | type | price | note |
-|---|---|---|---|
-| `conclusion` | `green`\|`pending`\|`failing`\|`none`\|`unknown` | **free** | the rollup, from `pr-list --rich` |
-| `failingChecks[]` | string[] | **free** | which checks failed — **names only** |
-| `asked` **`+`** | `answered`\|`not-asked`\|`failed`\|`unsupported` | — | **proposed** — whether the history was fetched |
-| `runs[]` | `{workflow, conclusion, startedAt, url}[]` | **metered** | one request per branch |
+**The field is a state, and calling it a conclusion is the error the two
+`in_progress` runs above expose:** a build that has not finished **has no
+conclusion**, and a field that must hold `in_progress` is not describing an
+outcome.
 
-**`asked` is proposed and absent.** Today a branch whose history was never
-fetched and a branch with no history are indistinguishable — the same
-absent-is-not-false shape Issue's `IssueAnswer` fixes for the tracker (§8).
+That is the same correction this design made for a plan's `Phase:` (Plan §4) —
+and I made the opposite mistake here one document later, calling a build's
+field a conclusion while arguing a plan's holds a state.
+
+| `Build.state` | means |
+|---|---|
+| `queued`, `in_progress` | **running — no conclusion exists yet** |
+| `success` | passed |
+| `failure`, `cancelled`, `timed_out` | did not pass, three ways |
+
+**The host's own word is kept verbatim** — *"success · failure · cancelled ·
+in_progress … verbatim from the host"* — and normalizing it would be the lossy
+mapping the Plan spec warns about for `state_raw`.
+
+### The PR rollup is a summary of Builds, not a Build
+
+`conclusion: green|pending|failing|none|unknown` on a **PR** is a *rollup* —
+the host's summary across every pipeline that ran. It is genuinely a
+conclusion, because it answers *may this merge*, and it is the free half of §8.
+
+**So three things wore one name:** a pipeline, a build, and a rollup.
 
 ### `conclusion: 'none'` needs `PR.mergeable`
 
@@ -225,7 +265,11 @@ does — *"a skipped one is not a worse case than a failed one."*
 
 ## 9. The collaborators
 
-**One op, and it is the only metered one in the adapter:** `plot-host.sh runs`.
+**One op today, and one collaborator missing.**
+
+### `plot-host.sh runs` — the connector
+
+**The only metered op in the adapter:** `plot-host.sh runs`.
 
 | | |
 |---|---|
@@ -237,6 +281,58 @@ does — *"a skipped one is not a worse case than a failed one."*
 'unavailable' — never as 'this branch has never failed before'."*
 
 ---
+
+### `BuildMonitor` — unbuilt, and the fleet needs it
+
+**Nothing watches a build to completion.** The board re-reads the rollup on the
+PR timer, and the history is fetched **only for branches already known to be
+failing** (§8) — so a build that is *running* is polled by nobody.
+
+**That is the gap the two `in_progress` runs above name.** A wave is dispatched,
+its branch pushes, CI starts, and the fleet learns the outcome whenever the next
+60-second PR refresh happens to land after it — up to a minute late, and only if
+the PR gate is open rather than backing off.
+
+#### What it monitors: a build attached to a wave
+
+**The attachment is what makes it affordable.** A repo has many pipelines and
+many runs; the fleet cares about **the builds of branches its waves own**, which
+is a small and known set:
+
+```
+wave → branch → PR → the build now running on it
+```
+
+**So the monitor's scope is the dispatched fleet, not the repo** — the same
+principle `branchIsWatched` already applies to the history fetch, and the reason
+it can poll faster than the general PR gate without spending more.
+
+#### What it must not become
+
+**Not a second cadence on the shared gate.** The Issue spec's rule holds:
+*"the issue lookup cannot become a second cadence quietly spending the host
+budget the gate exists to ration."* A BuildMonitor that polled every PR would
+be exactly that.
+
+**What makes it different is the bound**: it watches only builds it saw start,
+on branches a wave owns, and it **stops when the build reaches a terminal
+state** — `success`, `failure`, `cancelled`, `timed_out`. A monitor with no
+stopping condition is a poll.
+
+**And it triggers nothing** (§5, §7). It observes a state it did not cause, the
+same way the agent monitor observes a worker.
+
+#### What it would answer that nothing answers today
+
+| question | today |
+|---|---|
+| is this wave's build still running? | the rollup says `pending` — **since when, nobody knows** |
+| did it just finish? | discovered on the next 60 s refresh |
+| how long do our builds take? | **unanswerable** — `startedAt` is kept, nothing computes a duration |
+| is this build slower than usual? | as above |
+
+**The last two are why `startedAt` is carried and unused.** It is on every run
+entry, *"never reformatted"*, and no consumer subtracts it from anything.
 
 ## 10. Fleet control
 
@@ -291,6 +387,8 @@ guessed under `PLOT_UNATTENDED`, because *"`jen -I <bogus> auth status` prints
 | 2 | **No `asked`** — a history never fetched is indistinguishable from a branch with none | now |
 | 3 | **`conclusion: 'none'` is ambiguous alone** — measured, 3 PRs, 2 meanings | **now** |
 | 4 | Bitbucket has no history at all | now |
+| 5 | **No `BuildMonitor`** — a running build is polled by nobody; the outcome arrives on the next 60 s PR refresh | **now** |
+| 6 | **`startedAt` is carried and never used** — no duration, no slower-than-usual | now |
 
 ---
 
@@ -314,3 +412,5 @@ guessed under `PLOT_UNATTENDED`, because *"`jen -I <bogus> auth status` prints
   skill warning of its absence was not updated.
 - **Should the verdict carry `mergeable` beside it?** They are always read
   together and separately meaningless.
+- **Where does a `BuildMonitor` live?** The board holds the only long-lived
+  process, but a supervisor with no board open has the same question.
