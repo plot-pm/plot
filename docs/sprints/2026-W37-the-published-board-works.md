@@ -39,7 +39,7 @@ is in no diff** — only a gate does.
 
 ### Must Have
 
-- [ ] [a-published-board-brings-its-scripts] The published package carries every helper script the server spawns, **and** the fleet scan pulses on an empty estate, **and** a gate boots the packed board against both an empty repo and a populated one — measured: 2 of 11 shipped (`bash exited 127`), and with all 11 staged the board *still* hangs on `fleet scan ended without a terminal pulse line` because a repo with no plans exits before the stream's terminal line
+- [x] [a-published-board-brings-its-scripts] The published package carries every helper script the server spawns, **and** the fleet scan pulses on an empty estate, **and** a gate boots the packed board against both an empty repo and a populated one — measured: 2 of 11 shipped (`bash exited 127`), and with all 11 staged the board *still* hangs on `fleet scan ended without a terminal pulse line` because a repo with no plans exits before the stream's terminal line <!-- status: delivered -->
 
 ### Should Have
 

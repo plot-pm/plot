@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-published-board-works
 - **Issue:** <!-- optional -->
@@ -15,6 +15,7 @@
 - **Started:** 2026-08-28, Jan Wloka, `bug/the-package-carries-its-scripts`
 - **Started:** 2026-08-28, Jan Wloka, `bug/an-empty-estate-still-pulses`
 - **Started:** 2026-08-28, Jan Wloka, `bug/the-package-proves-it-carries-them`
+- **Delivered:** 2026-08-28
 
 ## Approval
 
