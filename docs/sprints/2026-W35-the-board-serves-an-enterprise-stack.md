@@ -96,7 +96,7 @@ Story: [[the-board-is-blank-where-it-matters]].
 - [x] [an-unreachable-host-is-not-an-answer] A host that cannot be reached must <!-- status: delivered -->
       not read as a host with nothing to say. Draft plan on main; the enterprise
       stack multiplies the ways a call can fail.
-- [ ] [a-degraded-scan-says-why] `/plot-reconcile` reported `pr_source=degraded`
+- [x] [a-degraded-scan-says-why] `/plot-reconcile` reported `pr_source=degraded` <!-- status: delivered -->
       — *no git-host CLI available* — with `bb` installed, authenticated and
       correct; the call had returned HTTP 429. Twelve branches were listed as
       orphans, **nine of them heads of open PRs**, each with a command inviting
