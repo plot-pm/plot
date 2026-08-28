@@ -155,7 +155,7 @@ answers it.
 
 ## Waves
 
-### Shipping (Branch: bug/the-package-carries-its-scripts)
+### Shipping (Branch: bug/the-package-carries-its-scripts, PR: #501)
 
 The nine filenames in `files`, vendored by `build.mjs` beside the two that
 already are.
