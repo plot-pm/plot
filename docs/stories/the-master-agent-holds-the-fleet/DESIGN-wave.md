@@ -306,10 +306,19 @@ derivation while `Issue` carries none.
 
 | wave verdicts | | branch states | |
 |---|---|---|---|
-| `unapproved` | 40 | `open` | 48 |
+| `unapproved` | 40 | `merged` | 43 |
 | `blocked` | 8 | `wip` | **5** |
-| `eligible` | 5 | `deferred` | 5 |
-| `complete` | 5 | | |
+| `eligible` | 5 | `open` | 5 |
+| `complete` | 5 | `deferred` | 5 |
+
+> **Corrected.** A first reading of this table used `--no-fetch` and reported
+> **48 open, 0 merged**. The scan's own docs warn of exactly that: *"the fetch
+> also PRUNES remote-tracking refs, so skipping it keeps whatever stale refs
+> this checkout holds — a branch merged and deleted upstream may read `wip`
+> rather than `merged`."* Three sampled `open` branches turned out to be PRs
+> #490, #492 and #494, all merged in this session. The footer reports
+> `merge_detect` so a consumer can tell; I passed the flag for speed and read
+> the output as authoritative.
 
 **There is no verdict for *in progress*.** A wave whose branch is claimed and
 being worked still reads `eligible`, because eligibility asks *would a dispatch
