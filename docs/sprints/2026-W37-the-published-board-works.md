@@ -43,8 +43,8 @@ is in no diff** — only a gate does.
 
 ### Should Have
 
-- [ ] [a-cold-board-says-it-is-warming] The fleet view says it is waiting for its first pulse rather than rendering as empty — measured: 0 rows at t+10s and t+20s, 60 at t+30s. **With no warming state, `127` looks like *nothing to show***
-- [ ] [a-board-says-which-repo-it-serves] The header names the repository being served — measured: `serverInfo()` carries `port` and `branch` but not the repo path, and a stray board on the usual port cost two hours on 2026-08-28
+- [ ] [a-board-that-never-scanned-says-so] A board whose first scan fails says it has never scanned, instead of rendering a screen of `none` under an error line — measured: the warming state EXISTS and is right, but is gated on `!fleet.error`, so any failure skips it
+- [ ] [a-board-names-the-repo-it-serves] The header names the repository being served — measured: `serverInfo()` carries `port` and `branch` but not the repo, and a stray board on the usual port cost two hours on 2026-08-28
 
 ## Notes
 
