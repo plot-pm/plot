@@ -178,6 +178,194 @@ defect at the row level.
 
 ---
 
+## 1b. Ticket
+
+Designed first among the foreign entities, because it is the one already done
+right and the pattern the others should copy.
+
+### What it is
+
+**A Ticket is a signal from outside Plot that nobody has decided about yet.**
+
+Not a work item, not a lifecycle stage, not a plan in an earlier phase. The
+contract states the boundary in as many words:
+
+> *NOT an `AgentRow`, and the distance is the point. […] Giving it an `AgentRow`
+> with six empty fields would make it a plan in an earlier state, and the four
+> phases would then have a fifth in everything but name.*
+
+That is the design decision the whole entity turns on. Plot has exactly four
+phases — Draft, Approved, Delivered, Released — and a Ticket is in **none** of
+them. It has not entered the lifecycle. Modelling it as a pre-Draft state would
+add a fifth phase by accident and make Plot responsible for a queue it does not
+own.
+
+### What it is for
+
+**The board's inbox, and one question only: *is this worth a plan?***
+
+Everything about the entity follows from that single question, including
+everything it refuses to carry.
+
+Its lifecycle inside Plot is one transition and one exit:
+
+```
+tracker issue, open, no plan references it
+        │
+        ▼
+   appears in the board's inbox
+        │
+        ├── someone writes a plan citing it  →  Ticket LEAVES the board
+        └── nobody does                      →  it stays, ageing
+```
+
+**Nothing marks a Ticket as handled.** It disappears because a *plan* now
+references it — `Issue: #226` in the plan file — and the filter is a set
+difference recomputed every pass: open issues minus referenced issues. The exit
+condition lives in Plot's own artefacts, never in the tracker.
+
+This is why it is the cleanest foreign entity: **Plot never writes to the
+tracker, so there is no state to keep in sync and nothing to age into a lie.**
+
+### The two ops, both read-only
+
+| op | cost | when |
+|---|---|---|
+| `issue-list` | one call, on the PR timer | the inbox; bodies omitted |
+| `issue-view <n>` | one call per click | one body, for the board's *Create plan* action |
+
+`issue-view` fetches a body **only when a human clicks**, because a body is the
+problem statement handed to `/plot-idea` and is worthless until someone acts.
+That split — a cheap list on a timer, an expensive detail on demand — is the
+same shape Build needs (§6) and the reason Ticket is the template.
+
+**There is no `issue-create`, `issue-close`, or `issue-comment`, and there must
+not be.** Per CLAUDE.md: *"a plan referencing an issue is Plot's record, not the
+tracker's."*
+
+### How it is modelled
+
+Deliberately impoverished. Five fields, and the omissions are the design:
+
+| property | type | why |
+|---|---|---|
+| `kind` | `'ticket'` | stated, never inferred from the call site |
+| `number` | number \| string | identity — **see the defect below** |
+| `title` | string | enough to answer *is this worth a plan?* |
+| `url` | string | `''` renders as plain text; a fabricated URL 404s identically |
+| `ageMinutes` | number \| null | null where the host gave no date — **0 would claim it was opened this instant** |
+
+**No labels, no assignee, no status, no priority** — *"those age into lies the
+moment the tracker moves, and Plot never writes them back."*
+
+The tracker is the authority on tracker state. Mirroring it would create a
+second copy that is wrong between refreshes and wrong forever after an outage.
+So the model carries only what the inbox question needs, and points at the
+tracker for the rest.
+
+### Askability is a separate field from the answer
+
+`IssueAnswer` — the shape this design generalizes to every entity:
+
+| value | means |
+|---|---|
+| `answered` | the host replied; an empty list honestly means none are unplanned |
+| `unsupported` | this host has no issue listing (Bitbucket) — nothing missing, nothing broken |
+| `failed` | the question was asked and did not come back |
+
+> *COLLAPSING ANY TWO REBUILDS `an-outage-is-not-an-answer`. An empty list is a
+> claim about the tracker; a failed lookup is the absence of one, and a board
+> that renders the second as the first tells a reader their inbox is clear using
+> data it never received.*
+
+`unsupported` renders **no section at all** rather than an empty one — an empty
+inbox on Bitbucket would imply an empty tracker.
+
+### The controller
+
+`refreshIssues` in `fleet.ts`, and it already does everything the reactive
+section asks of a controller. Worth stating explicitly, because it is the
+reference implementation:
+
+- **Rides the PR timer** (`prNextAt`) — *"it asks the same host at the same
+  cadence and its cost belongs to the same budget."* One gate, not two.
+- **Keeps the last good list on failure.** `entry.issues` is untouched when the
+  fetch fails — *"a row vanishing on a fetch error looks like someone planned
+  the issue."*
+- **Pushes the shared backoff out, extend-only.** A rate limit here moves
+  `prNextAt`, so the PR fetch does not immediately re-spend an exhausted budget.
+  It never pulls the gate in: a longer backoff another fetch set is a floor the
+  host named.
+- **Survives a malformed line.** One unparseable row is discarded; the rest
+  stand, and the lookup is not called failed.
+- **Refuses to answer when the filter cannot be computed.** If the plans cannot
+  be read, `referencedIssues` returns null and the whole answer becomes
+  `failed` — because the unfiltered list would surface planned issues, and an
+  empty one would claim the inbox is clear. *Neither is known*, so neither is
+  said.
+
+That last point is the completeness gate from the reactive section, already
+implemented, in the one place it was needed first.
+
+### Two genuine gaps
+
+**1. A Jira key is a string; the board types it as a number.**
+
+Verified 2026-08-28. `plot-plan-meta.sh` parses Jira-style `PROJ-123` into
+`issues[]` when `Tracker:` names a non-GitHub tracker (#447), and `issue-list`
+emits `number: .key` — a string — on the Jira arm. But the board declares:
+
+```ts
+IssueRowSchema.number: z.number()
+referencedIssues(): Promise<Set<number> | null>
+```
+
+So on a Jira repo the filter is `Set<number>.has(string)`, which is **always
+false**. Every Jira ticket would stay in the inbox forever, including ones a
+plan already cites — and `IssueRowSchema` would reject the row outright.
+
+The adapter and the parser both handle Jira; the board's contract is the layer
+that did not follow. The identity type is `string | number`, or a normalized
+string throughout.
+
+**Not reachable in this repo** — `Tracker` is unset here, so the GitHub arm runs
+and `number` is genuinely a number. It is reachable in any adopting repo that
+sets `Tracker: jira` or `linear`, which is a configuration the adapter, the
+parser and `plot-config.sh` all document as supported. Untested rather than
+broken-in-practice, and worth a test before it is worth a fix.
+
+**2. `ISSUE_LIMIT = 50` truncates silently.**
+
+The list is capped, and a truncated list is presented identically to a complete
+one. That is the same absent-is-not-false shape the entity is otherwise
+scrupulous about: *"showing 50 of N"* is a different claim from *"there are
+50"*. The Jira arm already notes it deliberately does not paginate because the
+inbox is small by construction — which is a sound reason to cap and no reason at
+all to hide the cap.
+
+### Invariants
+
+1. **Read-only, at the adapter.** No op writes to the tracker; a plan is Plot's
+   record.
+2. **A Ticket leaves by being referenced**, never by being marked. The exit
+   condition lives in the plan estate.
+3. **Nothing that mirrors tracker state** joins the model — no labels, assignee,
+   status, or priority.
+4. **Askability is carried apart from the answer.** Three values, never
+   collapsed.
+5. **`null` age, never `0`.** Absent is not "just now".
+6. **A failed lookup keeps the last good list** and says it is stale.
+
+### Open
+
+- Does an aged, never-planned Ticket deserve a signal? `ageMinutes` is carried
+  and rendered, but nothing says *this has sat for three weeks*. That is
+  arguably the inbox's whole point — and equally arguably the tracker's job.
+- Should `issue-view` bodies be cached for the session? One click, one call
+  today; a second click on the same ticket asks again.
+
+---
+
 ## 2. Machine
 
 The entity that does not exist, and whose absence caused four of the session's
