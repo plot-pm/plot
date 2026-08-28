@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { readConfig, allWavesMerged, type BuildBoardOptions } from './board.js';
 import { usableCommand } from './idea.js';
 import { deliverLogPath } from './deliver.js';
+import { pulseCompleteFor } from './fleet.js';
 import type { PlanMeta, FleetPulse } from '../contract/schema.js';
 
 /**
@@ -117,6 +118,17 @@ export function planSlug(file: string): string {
 
 export interface PlanAutoDeliverInput {
   /**
+   * Whether the scan that produced this pulse FINISHED.
+   *
+   * Threaded in because `allWavesMerged` needs it to tell *not merged* from
+   * *not yet known* (#491), and neither is a reason to deliver — but only one
+   * of them is a reason to give up on a plan. Defaults to `true`: a caller
+   * that does not know is a test with a hand-built pulse, where the pulse IS
+   * the whole world and is complete by construction.
+   */
+  complete?: boolean;
+
+  /**
    * The pulse the scan just landed — every plan's phase AND the merge state of
    * every branch, which is the whole input this decision takes.
    *
@@ -182,7 +194,7 @@ function joinKey(file: string): PlanMeta {
  * here would answer a different question than the scan does.
  */
 export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] {
-  const { pulse, inFlight } = input;
+  const { pulse, inFlight, complete = true } = input;
   if (!pulse) return [];
   const out: AutoDeliverPlan[] = [];
   for (const plan of pulse.plans) {
@@ -192,7 +204,11 @@ export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] 
     // The measurement, unmodified. `allWavesMerged` returns false for a plan the
     // pulse does not know, for any unmerged non-deferred branch, and for a plan
     // with no merged branch at all — the all-deferred case included.
-    if (!allWavesMerged(joinKey(plan.file), pulse)) continue;
+    // , not truthiness: since #491 this returns
+    // 'merged' | 'not-merged' | 'unknown', and 'unknown' means the scan could
+    // not answer. Auto-delivery acts only on a definite yes — delivering on an
+    // unanswered question is the defect #491 removes, one layer up.
+    if (allWavesMerged(joinKey(plan.file), pulse, complete) !== 'merged') continue;
     out.push({ slug, file: plan.file });
   }
   return out;
@@ -211,6 +227,7 @@ export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] 
 export function pruneDelivering(
   inFlight: Set<string>,
   pulse: FleetPulse | null,
+  complete = true,
 ): Set<string> {
   if (inFlight.size === 0) return inFlight;
   // A pulse the scan could not land says nothing about whether anything
@@ -222,7 +239,10 @@ export function pruneDelivering(
     const slug = planSlug(plan.file);
     if (!inFlight.has(slug)) continue;
     if (plan.phase.toLowerCase() !== 'approved') continue; // moved on — confirmed
-    if (!allWavesMerged(joinKey(plan.file), pulse)) continue; // not deliverable — confirmed
+    // Same rule, and the distinction matters here: only a definite answer
+    // confirms anything. 'unknown' confirms nothing, so the plan stays in
+    // flight rather than being pruned on silence.
+    if (allWavesMerged(joinKey(plan.file), pulse, complete) !== 'merged') continue;
     stillPending.add(slug);
   }
   return stillPending;
@@ -390,8 +410,9 @@ export function maybeAutoDeliver(
   pulse: FleetPulse | null,
   inFlight: Set<string>,
 ): Set<string> {
-  const pruned = pruneDelivering(inFlight, pulse);
-  const plans = planAutoDeliver({ pulse, inFlight: pruned });
+  const complete = pulseCompleteFor(opts);
+  const pruned = pruneDelivering(inFlight, pulse, complete);
+  const plans = planAutoDeliver({ pulse, inFlight: pruned, complete });
   if (plans.length === 0) return pruned;
   const started = runAutoDeliver(opts, plans);
   return new Set([...pruned, ...started]);
