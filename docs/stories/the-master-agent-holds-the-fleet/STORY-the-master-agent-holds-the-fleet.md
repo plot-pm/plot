@@ -84,6 +84,9 @@ and a shell subprocess to parse it back.
   other entity relates through: seven states and the workflow phases they map
   into, the parser as the single contract, and the inversion that Plan is the
   one entity the CLI serves better than the board.
+- **[Machine](DESIGN-machine.md)** — the resource every other entity competes
+  for, and the only one that does not exist: its symptoms land on whatever *is*
+  modelled, which is how `exit 124` came to mean *the worker failed*.
 - **[Agent](DESIGN-agent.md)** — a participant with an identity that outlives
   the branch it works on: eight states across three models that disagree, and an
   estate where **every agent row is synthesized** (0 manifests, 13 worktrees).
