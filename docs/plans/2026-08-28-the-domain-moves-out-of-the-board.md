@@ -196,6 +196,29 @@ the PR, not a patch.
 > window — **35 plans in the captured pulse**, never the full 158. The number
 > asserted something the test could not reach.
 
+### A parse failure stops looking like a missing file
+
+**Today they are indistinguishable.** `pulse-bridge.ts:201` calls
+`FleetPulseSchema.parse()`, which throws, and the surrounding `catch` returns
+`null` — the same `null` an absent file produces. **A corrupt pulse reads as
+no pulse**, and a board with no pulse shows `unknown` everywhere, which looks
+like a cold start rather than a broken payload.
+
+**This is fixed as part of the move, not after it.** The schema is being
+relocated and its one validation site is being touched anyway; leaving a known
+defect in the code being moved means the move preserves it deliberately.
+`safeParse` replaces `parse`, and the two outcomes separate:
+
+| | today | after |
+|---|---|---|
+| file absent | `null` | **a legitimate empty answer** |
+| file unparseable | `null` | **`failed`, with the reason** |
+
+> **This is a behaviour change inside a move, and that is a real cost** — it
+> makes the slice's diff more than the move. It is accepted because the
+> alternative is a `PortResult` contract in plan 2 whose first consumer already
+> collapses the distinction it exists to preserve.
+
 ### The slices are strictly sequential, and that is a choice
 
 **Each slice waits for the one before it, and only the first two have to.**
@@ -261,15 +284,48 @@ enforced in config.
 `plan.approve()`, `plan.deliver()`, `plan.release()` — returning what should be
 written rather than writing it.
 
+**Each returns `Decision | Refusal`, and checks its own precondition.** The
+design's rule is that a STATED state can be wrong — *a file can say `Approved`
+when nobody approved* — **so transitions are gated**, and a gate a caller can
+skip is a rule rather than a gate.
+
+`plot-approve.sh` already has this shape: it refuses on the phase, on the review
+channel, and on the PR state before writing anything, and it names which
+refusal fired. **The domain transition carries those same refusals** — the
+mechanical ones. What it cannot carry is the PR check, which needs a host: that
+stays a precondition the adapter supplies as a reading.
+
+**The separation is deliberate and narrow.** `approvable(plan)` remains callable
+alone — the board's Approve button needs to know whether to *offer* the action
+before anyone takes it — but `approve()` does not trust that anyone called it.
+
 **This fixes a measured defect**: a phase flip without its record made a
 delivered plan invisible to the scan, reporting zero. Today the pairing is a
 rule four call sites must remember; here it is one value that cannot come apart.
 
 **Done when** a transition's output is assertable as a value, no transition can
-produce a phase without its record, and coverage of `src/transitions/` is 100%
-with every refusal branch reached by a named test.
+produce a phase without its record, **every refusal is individually triggerable
+by a named test**, and coverage of `src/transitions/` is 100%.
 
 ## Notes
+
+### If a moved rule is subtly wrong, the scan is what says so
+
+**The existing tests prove behaviour is preserved; they cannot prove it is
+right.** A rule that was wrong before the move is wrong after it, and unedited
+tests will happily agree.
+
+**`plot-reconcile-scan.sh` is the independent check**, and it is independent for
+a reason worth stating: **its section 2 derives merged-ness from git and from
+merged PR heads — never from `allWavesMerged`.** So a plan the domain calls
+undeliverable while its branches have in fact merged appears there as
+`merged_not_delivered=N`, on the existing cadence, computed by code this plan
+does not touch.
+
+**No new mechanism, and deliberately not a dual-path assertion.** Computing the
+verdict both ways and logging mismatches would reintroduce the second
+implementation the move exists to remove — and a temporary second
+implementation is how a permanent one starts.
 
 **The board is a live surface and this changes what it imports.** Every branch
 rebuilds the artifact (`pnpm build:board`) and runs `pnpm run test:board`; a
