@@ -12,8 +12,24 @@ updated: 2026-08-27
 
 Answer two questions Plot can already source but never states:
 
-1. **What did this plan cost?** — measured, in tokens and francs, summed from
-   what the agents actually did.
+1. **What did this plan cost?** — measured, in **tokens**, summed from what the
+   agents actually did.
+
+   > **Narrowed 2026-08-29, by measurement.** This read *"in tokens and
+   > francs"*. A transcript in this repo carries all four token counters
+   > (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`,
+   > `cache_read_input_tokens`) and the `model` per turn — **and no monetary
+   > field of any kind**. Plot has no price table either; `grep -rniE
+   > "price|pricing|per million|costPerToken|CHF"` over `packages/board/src`
+   > returns only prose.
+   >
+   > **So tokens are a derivation and francs are not.** Money would require a
+   > per-model price table that Plot would have to carry, that changes
+   > externally, and that nothing could verify — a stored number that can be
+   > silently wrong, which is precisely what
+   > *"cost is derived, never stored"* was written to exclude. Currency is
+   > therefore **out of scope until a price source exists that Plot can read
+   > rather than embed**, and the unit of this story is the token.
 2. **What is this work for?** — the sprint goal and priority the plan serves,
    visible to whoever is working on it, human or agent.
 
@@ -109,12 +125,22 @@ No plans yet — `draft` until the first is interrogated. This story is
 downstream of [[plot-agent-identity]] for per-role attribution, but neither
 half below is blocked on it.
 
-- ⏸️ **A plan says what it cost** — derive from transcripts, per plan. Never
-  stored, absent when unreadable.
+- ⏸️ **A plan says what it cost** — derive from transcripts, per plan, in
+  tokens. Never stored, absent when unreadable, *incomplete* rather than smaller
+  when any slice is missing. **Not blocked on roles**: `registry.ts:236` already
+  joins a transcript by exact session id, and session → branch → slice → plan is
+  a chain Plot already has.
 - ⏸️ **A branch says what it is for** — project the sprint goal and MoSCoW tier
-  onto the slice, for the human and for the dispatched agent's brief.
-- ⏸️ **Cost per approved plan, stated as such** — the ratio and its
-  denominator, with retries visible rather than averaged away.
+  onto the plan and the board, **for the human**. Not into the worker prompt;
+  see the settled point above.
+- ⏸️ **Cost per approved plan, stated as such** — the ratio, its denominator,
+  and beside it the cost that reached no approval. Retries visible rather than
+  averaged away.
+
+**Per-role cost is a fourth plan and waits on [[plot-agent-identity]]** — with
+one implicit role it would be a column of one value. It becomes a `group by`
+over an attribute that exists by then, which is why it is cheap later and
+pointless now.
 
 ## Relation to the fleet domain design
 
@@ -140,18 +166,69 @@ denominator.
 
 ## Open Points
 
-- ⏸️ Does cost belong on the board, in the scan footer, or only in
-  `/plot-deliver`? Rendering it continuously invites optimising the commodity.
-- ⏸️ How is a *rejected* or abandoned plan counted? Its cost is real and its
-  denominator is zero — the honest number may be the uncomfortable one.
-- ⏸️ Are transcripts a stable enough source? The registry's own docstring warns
-  the format is *"the runtime's private business and may change"*. Costing must
-  degrade to absent, never to a wrong figure.
-- ⏸️ Does the sprint goal reach the **agent's brief**, or only the human's
-  view? Putting a goal into a worker prompt risks scope widening — the very
-  thing the current `Worker command` explicitly forbids.
-- ⏸️ Is per-role cost worth having before roles exist, or does this story wait
-  on [[plot-agent-identity]] entirely?
+- ✅ ~~Does cost belong on the board, in the scan footer, or only in
+  `/plot-deliver`?~~ **Settled 2026-08-29: `/plot-deliver`, and not the board.**
+  The story's own risk — *"rendering it continuously invites optimising the
+  commodity"* — decides it, and the surface reinforces the unit: delivery is the
+  moment a plan's cost is **final** and its denominator **exists**. A number on
+  a 5-second pulse is a number someone watches go up; a number stated once, at
+  the transition, is a number someone reads.
+
+  **The board may render it after a plan is delivered**, where it is history
+  rather than a live gauge. What it must not do is show a running total for work
+  in flight.
+
+- ✅ ~~How is a *rejected* or abandoned plan counted?~~ **Settled 2026-08-29:
+  reported separately, never folded into the ratio.** Its cost is real and its
+  denominator is zero, so including it makes the average meaningless and
+  excluding it silently hides the expensive half of the truth.
+
+  So a cost report has **two figures**: cost per approved plan, and cost that
+  reached no approval. Plot already distinguishes the states this needs — a plan
+  is `Draft` until `/plot-approve` writes an `Approved:` record, and a branch
+  given up carries `deferred:`/`moved:` — so the split is derived, not judged.
+  **The uncomfortable number is the point of measuring at all.**
+
+- ✅ ~~Are transcripts a stable enough source?~~ **Yes for tokens, and the
+  degradation rule already exists in code.** Measured 2026-08-29 on a live
+  transcript: `usage` carries `input_tokens`, `output_tokens`,
+  `cache_creation_input_tokens` and `cache_read_input_tokens`, with `model` per
+  turn. `transcript.ts:133` records that these paths were *"MEASURED, not
+  assumed (2026-08-19)"*, and `registry.ts:103` states the rule — *"From the
+  transcript. Absent when it could not be read — never guessed."*
+
+  **Costing inherits that rule rather than restating it**: an unreadable
+  transcript yields an absent cost, and a plan with any absent slice reports
+  *incomplete*, never a smaller total. **A partial sum is worse than no sum**,
+  because it looks like an answer.
+
+  **This is also the argument for tokens over money**: the token counters are in
+  the artifact, while a price is not, so only one of the two can degrade
+  honestly.
+
+- ✅ ~~Does the sprint goal reach the **agent's brief**?~~ **Settled 2026-08-29:
+  the human's view first; the brief only with a scope guard.** The risk is
+  precise — `.plot/worker-prompt.sh` tells a worker *"do not re-derive them, do
+  not widen the scope"*, and a sprint goal is a **wider** objective by
+  construction. Handing an agent a goal it was told not to serve is an
+  instruction conflict, and the worker prompt is the one place Plot cannot
+  afford ambiguity.
+
+  So: project the goal onto the **board and the plan**, where a person reads it.
+  If it later goes into a brief, it goes as *context for judging a discovery*,
+  never as an objective — and that is its own plan with its own interrogation.
+
+- ✅ ~~Is per-role cost worth having before roles exist?~~ **No, and the story
+  does not wait for it either.** Per-role attribution is genuinely blocked on
+  [[plot-agent-identity]] — with one implicit role, every cost attributes to
+  `default` and the grouping is a column of one value.
+
+  **But per-**plan** cost is not blocked**, because the join it needs already
+  exists: `registry.ts:236` joins a transcript *"by exact session id"*, and a
+  session belongs to a branch, which belongs to a slice, which belongs to a
+  plan. So the first plan under this story ships per-plan cost now, and per-role
+  cost becomes a later, cheap addition — a `group by` over an attribute that by
+  then exists.
 
 ## Decisions
 
@@ -161,6 +238,11 @@ denominator.
 | 2026-08-27 | Value is projection, not estimation | The sprint goal, MoSCoW tier and named approver already exist in git. Any plan that asks a human for a value number has misread this story. |
 | 2026-08-27 | The unit is cost per **approved** plan | Tokens per step are a commodity a step-cost runtime gives away; the denominator is what Plot uniquely has. Requested explicitly by Jan Wloka. |
 | 2026-08-27 | Separate story from [[plot-agent-identity]] | Different question, different failure mode; downstream, not inside. |
+| 2026-08-29 | The unit is the **token**, not the franc | A transcript carries four token counters and `model` per turn, and no monetary field; Plot has no price table. Money would need an embedded, externally-changing table that nothing can verify — a stored number that can be silently wrong. |
+| 2026-08-29 | Cost is stated at `/plot-deliver`, not on the live board | Delivery is when the cost is final and the denominator exists. A continuously rendered figure is one people optimise; the story names that risk itself. |
+| 2026-08-29 | Unapproved cost is reported beside the ratio, never inside it | Denominator zero. Folding it in makes the average meaningless; dropping it hides the expensive half. Both figures are derived from records Plot already writes (`Approved:`, `deferred:`). |
+| 2026-08-29 | An absent slice makes a plan's cost *incomplete*, never smaller | Inherits `registry.ts:103` — *"Absent when it could not be read — never guessed."* A partial sum is worse than none, because it looks like an answer. |
+| 2026-08-29 | The sprint goal reaches the human view, not the worker prompt | `.plot/worker-prompt.sh` tells a worker not to widen scope; a sprint goal is a wider objective by construction. Handing it over is an instruction conflict in the one place Plot cannot afford one. |
 
 ## Key Findings
 
@@ -179,6 +261,32 @@ a concept it has, but a thing it configures away.
 approved plan is not a metric such a runtime lacks by oversight — it is one its
 model cannot express. That is a durable difference rather than a feature race,
 and it decides how the work is framed.
+
+### 2026-08-29 — The artifact carries tokens, and no money at all
+
+**Expected:** Cost in francs was a summing problem — the numbers were in the
+transcripts and needed adding up per plan.
+
+**Discovered:** A live transcript's `usage` object carries `input_tokens`,
+`output_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`,
+plus `model` per turn. **It carries no monetary field**, and Plot has no price
+table: `grep -rniE "price|pricing|per million|costPerToken|CHF"` over
+`packages/board/src` matches only prose.
+
+`transcript.ts` reads exactly **one** of the four counters today
+(`cache_read_input_tokens`), so even the token sum is unbuilt — but every input
+it needs is present in the artifact.
+
+**Impact:** The story's unit changes from the franc to the token, and that is a
+strengthening rather than a retreat. A franc figure would need a per-model price
+table embedded in Plot, changing externally, verifiable by nothing — **a stored
+number that can be silently wrong**, which the story's own first decision
+(*"cost is derived, never stored"*) exists to forbid. Tokens degrade honestly
+because they are in the artifact; money could only degrade into a wrong figure.
+
+**This is the same defect the story warns about, found in its own objective.**
+It asked for a number that no source produces, one paragraph after establishing
+that the test of this story is whether a number is derived or typed.
 
 ### 2026-08-27 — The sprint goal never reaches the work
 
