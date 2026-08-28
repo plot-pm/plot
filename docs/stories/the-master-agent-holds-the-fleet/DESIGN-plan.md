@@ -542,6 +542,64 @@ so a migration reading one file at a time never sees a plan go empty. **That
 compatibility argument holds for `branches[]`; it never applied to `prs[]`**,
 which is flattened past the point where either dialect could reconstruct it.
 
+#### Removing them: cheaper than it looks, and already half done
+
+**Measured 2026-08-28, and the flat arrays turn out to be barely consumed.**
+
+**`branches[]` has no board consumer at all.** Every one iterates the structure
+instead — `agent-panel.ts:82`, and `auto-dispatch.ts` at lines 247, 293, 327,
+348 and 434, all `for (const b of wave.branches)`.
+
+**`meta.prs` has one:** `board.ts:1323` maps it to `CardPr`. (Other `.prs` hits
+are `entry.prs`, the host's PR map — a different thing entirely.)
+
+So on the board side, replacing them with methods is nearly a no-op: the callers
+that would use `plan.branches` are already reaching past it.
+
+##### And the shell side proves the flattening was wrong
+
+`plot-deliver.sh:197` needs exactly what `prs[]` discards:
+
+```sh
+jq -r --arg br "$br" '.prs[] | select(.branch == $br) | .state'
+```
+
+**It selects a PR *by branch*** — and it cannot ask the parser for that, because
+the parser threw the pairing away. So it asks `plot-impl-status.sh`, which
+rebuilds the association by hand:
+
+```sh
+jq -c --arg branch "$BR" '. + {repo: "", branch: $branch}'
+```
+
+**A second script exists, in part, to restore a link the first one had and
+dropped.** The plan file states `(Branch: x, PR: #N)` in one heading; the parser
+reads both halves, emits them into separate arrays, and a downstream script
+re-pairs them by re-querying the host.
+
+That is the flattening's real cost — not a misleading index, but **a whole
+script's worth of work to undo it**.
+
+##### What replaces them
+
+```ts
+plan.branches      // derived: waves.flatMap(w => w.branches)
+plan.prs           // derived: branches.flatMap(b => b.prs)
+branch.prs         // the association, never lost
+plan.wave(branch)  // the other direction
+```
+
+**The flat forms stay available as methods** — `plot-impl-status.sh` and the
+delivery gate genuinely want *"which branches, which PRs"* — but they become
+**views of the structure rather than the record of it**. Deriving flat from
+nested is one line; deriving nested from flat is impossible, which is why a
+script had to go back to the host.
+
+**Nothing needs a deprecation window.** The board's consumers already use the
+structure; the one that does not is a single `.map()`; and the shell path
+improves rather than breaks, since `branch.prs` is what
+`plot-impl-status.sh` was reconstructing.
+
 #### The one-wave-one-branch model makes this worse, not better
 
 The settled model is *plan → \* wave → **1** branch* — so in the intended shape
