@@ -256,6 +256,78 @@ outside creates one. Under publishing it produces an epic (§2), and under
 | Release → Issue | the epic, keyed by version | posture 2, **unbuilt** |
 | Release → Plans | **derived** — `git tag --contains` | **built** |
 
+### A Release has plans, not a sprint
+
+**Directly, and the sprint is optional.**
+
+**Measured: only 43 of 113 released plans carry a `Sprint:`.** The release→plan
+relation is `git tag --contains` (§8), which asks git and needs no sprint at
+all — so 67 plans belong to a release that no sprint ever mentioned.
+
+**A sprint is a lens, not a container.** It lets the membership be seen *early*
+(above); it does not hold it. A release whose sprint is deleted still contains
+exactly the same plans.
+
+**And two sprints may target one release**, which settles it structurally: a
+release cannot *have* a sprint when it may have two, or none.
+
+```
+Release ──has──► Plan[]                     always, derived from tags
+Release ◄──targets── Sprint[]               0, 1, or 2 — a lens on the above
+```
+
+### The changelog belongs to the Release — via the plans
+
+**And Plot has two channels for it, which both feed the same file.**
+
+`CHANGELOG.md` groups by **version** — `## 2.10.0`, `## 2.9.0` — so the
+changelog is the Release's, not the Sprint's. A sprint has no changelog and
+should not: it commits about *when*, and a changelog is about *what shipped*.
+
+**But the entries come from two places:**
+
+| channel | shape | count |
+|---|---|---|
+| `.changeset/*.md` | one file per change, with a semver bump | **42 pending** |
+| a plan's `## Changelog` | a section inside the plan | **91 of 158 plans** |
+
+**`changeset version` reads only the first.** It computes the bump, writes
+`CHANGELOG.md`, and never sees a plan's `## Changelog` — which is
+`plot-plan-meta.sh`'s *"one field that says WHAT A PLAN CHANGES"*.
+
+#### They barely reference each other
+
+**Measured: 1 of 42 changesets names a plan.**
+
+So the same release note is written twice — once as a changeset for the release
+tooling, once in the plan for Plot's own readers — with **no link between
+them**, and nothing checks that they agree.
+
+**That is what `/plot-release`'s cross-check exists for** (§7): comparing the
+generated changelog against delivered plans, flagging *"a delivered feature
+completely missing from the changelog, or a changelog entry that doesn't match
+any actual work."*
+
+**It is a reconciliation of two records that were never joined** — which works,
+and is more expensive than a link would be.
+
+#### Why both exist
+
+**They answer different questions and neither subsumes the other:**
+
+| | answers |
+|---|---|
+| a **changeset** | *what does the released package's user need to know?* — and **which bump** |
+| a plan's `## Changelog` | *what does this plan change?* — written at planning time, before the code |
+
+**The bump is the changeset's alone.** A plan cannot carry it: `minor` vs
+`patch` is a claim about the *package*, and one plan may touch several
+(`plot`, `@plot-pm/board`) with different bumps.
+
+**And a plan's changelog is written first** — *"during planning, refined during
+implementation"* — which is exactly why it can describe intent nobody built,
+the failure `/plot-deliver`'s completeness check watches for.
+
 ### The Sprint is the binding element
 
 **A plan reaches a release two ways, and they are not equivalent:**
@@ -423,6 +495,7 @@ its version comes from the project's release tooling, which `/plot-deliver` and
 | 2 | **3 released plans carry no `Released:` record** — invisible to a version query | now |
 | 3 | **`channel` is not modelled** — an RC tag and a release tag are the same string type | now |
 | 3b | **A declared version that is never cut stays `planned` forever** — no way to retire one | not reachable here |
+| 3c | **Two changelog channels, unlinked** — 42 pending changesets, 91 plans with a `## Changelog`, **1 changeset naming a plan** | **now, measured** |
 | 4 | Release → epic unbuilt (posture 2) | posture 2 |
 
 **Gap 1 is the actionable one**, and it is a normalization: strip or add the `v`
@@ -450,5 +523,7 @@ uses.
 
 - **Should `version` be normalized at the parser?** 70 lines say `v2.5.0` and 40
   say `2.9.0` for the same kind of thing.
+- **Should a changeset name its plan?** One of 42 does, and the cross-check
+  exists to reconcile what a link would have joined.
 - **Should an RC be the same entity?** It has a tag, a checklist and a gate that
   behaves differently — arguably `channel` is enough, arguably it is its own.
