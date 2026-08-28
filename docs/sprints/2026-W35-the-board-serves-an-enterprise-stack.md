@@ -64,7 +64,7 @@ Stories: [[the-board-is-blank-where-it-matters]] (the first three),
 - [x] [my-bitbucket-issues-are-in-the-inbox] My Bitbucket issues appear in the inbox instead of an empty section that reads as *you have no tickets* <!-- status: delivered -->
       on Bitbucket. Exit 4 is honest — *cannot be asked* is not *empty* — but a
       team whose tickets live in Bitbucket sees an empty inbox forever.
-- [ ] [setup-tells-me-what-it-found] Setup tells me what it found in my repo and asks only what it could not work out — and never records a key nothing reads
+- [x] [setup-tells-me-what-it-found] Setup tells me what it found in my repo and asks only what it could not work out — and never records a key nothing reads <!-- status: delivered -->
       tracker and CI from real signals and asks only what it cannot settle,
       writing every answer into `## Plot Config`. It currently asks and refuses
       well, but infers less than the repo already reveals.
