@@ -84,6 +84,9 @@ and a shell subprocess to parse it back.
   other entity relates through: seven states and the workflow phases they map
   into, the parser as the single contract, and the inversion that Plan is the
   one entity the CLI serves better than the board.
+- **[Agent](DESIGN-agent.md)** — a participant with an identity that outlives
+  the branch it works on: eight states across three models that disagree, and an
+  estate where **every agent row is synthesized** (0 manifests, 13 worktrees).
 - **[Worktree](DESIGN-worktree.md)** — a desk: one checkout, one branch, one
   agent, and the only entity that is physical. Its existence is a *measurement*
   — *"a shared file is a prediction, but a desk somebody is sitting at is a

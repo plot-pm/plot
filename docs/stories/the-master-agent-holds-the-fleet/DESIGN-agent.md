@@ -1,0 +1,389 @@
+---
+title: Agent — domain object specification
+story: the-master-agent-holds-the-fleet
+author: jwloka
+status: draft
+created: 2026-08-28
+updated: 2026-08-28
+---
+
+# Agent — domain object specification
+
+A participant in the fleet: something with an identity that outlives the branch
+it is working on.
+
+> **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
+>
+> **Companions:** [Entities](DESIGN-entities.md) · [Worktree](DESIGN-worktree.md) ·
+> [Branch](DESIGN-branch.md) · [Wave](DESIGN-wave.md) · [Plan](DESIGN-plan.md)
+
+## Contents
+
+| § | section | answers |
+|---|---|---|
+| 1 | [What an Agent is](#1-what-an-agent-is) | the participant, not the process |
+| 2 | [Posture](#2-posture) | none — it is local |
+| 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
+| 4 | [Lifecycle](#4-lifecycle) | eight states, three models |
+| 5 | [Direction](#5-direction) | none |
+| 6 | [Relations](#6-relations) | Worktree · Branch · Wave · Person |
+| 7 | [Actions](#7-actions) | dispatch · restart · stop · rescue |
+| 8 | [Scope](#8-scope) | which agents are the fleet's |
+| 9 | [The collaborators](#9-the-collaborators) | the registry, and the state function |
+| 10 | [Fleet control](#10-fleet-control) | the entity the story is about |
+| 11 | [Views](#11-views) | the WORKING section |
+| 12 | [Setup](#12-setup) | `Agent registry`, `Worker command` |
+| 13 | [Gaps](#13-gaps) | |
+| 14 | [Invariants and open points](#14-invariants-and-open-points) | |
+
+---
+
+## 1. What an Agent is
+
+**An Agent is a participant in the fleet: something with an identity that
+outlives the branch it is working on.**
+
+`registry.ts` states the distinction the type exists for:
+
+> *"**A branch is what an agent is working on, never what it is.** An agent
+> finishes one branch and takes another, and every fact the board held about it
+> before this — `.plot-worker.pid` inside a worktree, a transcript directory
+> derived from that worktree's path — belongs to the worktree rather than to the
+> agent, so it is lost the moment the agent moves on."*
+
+**So `branch` is optional and empty is a real value** — *"the states that matter
+most are the ones no worktree can express: an agent between branches, and an
+agent that stopped to ask."*
+
+### Agent and Worker are one entity
+
+**Settled 2026-08-28.** The manifest is its identity card; the pid is its
+liveness; the worktree is its desk; the tree and PR are its progress.
+
+**A "worker" is not a separate thing an Agent has — it is the Agent, observed
+through the process table.**
+
+### It owns its desk
+
+**The Worktree spec settles the direction** (Worktree §1): the dispatcher creates
+the tree, and **the agent owns it**. Every reap refusal is a question about the
+agent or what it left behind; none is about the tree itself.
+
+**So the manifest and the worktree are two halves of one thing** — identity and
+desk — which is why removing one without the other *"converts a finished
+agent"* into an unknown row.
+
+---
+
+## 2. Posture
+
+**None.** An Agent is a local process with a local manifest. No tracker knows
+one exists, in any posture, and nothing about `Tracker:` changes what it is.
+
+---
+
+## 3. The domain object
+
+### Identity
+
+```
+Agent.session : string        the id the dispatcher minted
+```
+
+**The session id is the identity, and it is also the transcript's name** — one
+string that addresses the agent in the registry, in the manifest filename, and
+in its own log.
+
+**Not the branch, not the worktree, not the pid.** Each of those changes while
+the agent persists: it finishes one branch and takes another, and a restart
+gives it a new pid in the same tree.
+
+### Fields
+
+**From `AgentEntry`, and grouped by which of the four readings answers.**
+
+| field | type | read from | note |
+|---|---|---|---|
+| `session` | string | manifest | **the identity** — also the transcript's name |
+| `identity` **`+`** | `manifest`\|`synthesized` | **manifest presence** | **proposed** — see below |
+| `branch` | string | manifest / worktree | `''` between waves is **a real value** |
+| `worktree` | path | manifest / `git worktree list` | its desk |
+| `command` | string | manifest | the `Worker command` as launched, verbatim |
+| `startedAt` | ISO-8601 | manifest | launch moment |
+| `pid` | string | manifest | a launch fact — **never alone means running** |
+| `previousPid` | string | manifest | what this run displaced; `''` on a first dispatch |
+| `relaunches` | number | manifest | how often this desk's worker was relaunched |
+| `state` | 8 values | pid + exit + tree | see §4 |
+| `activity` | `working`\|`idle`\|`''` | descendant CPU | **a cue on `running` only** |
+| `exitCode` | number \| null | `.plot-worker.exit` | recorded, never inferred |
+| `dirtyPaths` | string[] | the worktree | what a `stalled` agent left |
+| `machineAtDeath` **`+`** | headroom \| `unmeasured` | Machine at exit | **proposed** — entities §2 |
+| `model` | string? | transcript | absent when unreadable — **never guessed** |
+| `contextTokens` | number? | transcript | as above |
+| `lastActivity` | ISO-8601? | transcript | as above |
+
+### The identity defect, measured at 100%
+
+**A worktree with no manifest is *synthesized* into an entry.**
+
+**Measured 2026-08-28: 0 manifests, 13 dispatch worktrees, and 0 of the 13 hold
+a live worker.** The registry directory `.plot/agents/` exists and is **empty**,
+so **every agent row this estate renders is synthesized.**
+
+**The 13 are finished agents' leftovers**, not running ones — so the honest
+reading is *these desks outlived their agents*, and whether their manifests were
+cleaned up with them or never written is not distinguishable from here.
+
+**Which makes it two findings, not one:**
+
+| | |
+|---|---|
+| **the registry is empty** | every row is synthesized, and none can say so |
+| **13 reapable trees remain** | the Worktree spec's missing Manager, as accumulated debris |
+
+**A synthesized entry is not a kind of Agent — it is an Agent whose identity was
+never written**, and the row cannot say so. The registry reports the count
+(`synthesizedCount`), but a reader looking at one row cannot tell *I know who
+this is* from *I inferred that someone is here*.
+
+**Two hardening PRs (#488, #422) fixed where manifests are written** — the
+dispatcher's directory resolution and the board's drop path — and neither made
+an absent manifest legible **at the row**.
+
+**`identity` is the proposed field**, and it is Issue's `IssueAnswer` shape
+applied to identity: *could the source be asked*, kept apart from *what it
+said*.
+
+---
+
+## 4. Lifecycle
+
+### Eight states — and three models that disagree
+
+| model | where | states |
+|---|---|---|
+| `plot-worker-state.sh` | shell, **sourced** | **8** — 6 process + 2 task |
+| `WorkerStateSchema` | contract | **8** — matches the shell |
+| `AgentState` | `registry.ts` | **5** — keeps 4, collapses the rest |
+
+**The registry collapses at `registry.ts:533`**, and documents it honestly:
+`none`, `ended`, `failed` and `elsewhere` are *"not a state the registry claims
+to understand"*.
+
+**But that discards the distinction that costs most.** *"`failed` and `finished`
+are opposite actions — restart versus review"*, and collapsing `failed` into
+`unknown` means the board cannot tell a worker that needs restarting from one
+whose state could not be read.
+
+**`plot-dispatch.sh --restart` had to compensate**: it asks the PR **before**
+the state word, because *"five of five `failed` worktrees measured here held a
+PR (four open, one merged)"* — so a gate on the state alone would have restarted
+all five and destroyed what the `finished` refusal protects.
+
+### The eight
+
+| state | means | what a reader may do |
+|---|---|---|
+| `running` | the pid answers | leave it alone |
+| `waiting` | exited, `PLOT-BLOCKED` in the tree | **a person owes it an answer** |
+| `stalled` | exited 0, uncommitted or unpushed work, no PR | rescue the tree, then review |
+| `finished` | exited 0, nothing left behind | review the PR |
+| `failed` | a recorded non-zero exit | restart — **but ask the PR first** |
+| `ended` | exited, no record of how | investigate |
+| `none` | a worktree exists, no worker ever ran | dispatchable |
+| `elsewhere` | **no worktree on this machine** | not answerable here |
+
+### Why the exit code cannot answer "is the task done?"
+
+**Measured across seven worktrees during a four-agent run:** *"EVERY worker
+exited 0 — the one that opened its PR and reported cleanly, the one that stopped
+because it would not claim a test run it had not seen, and the one that stopped
+to ask which retry semantics were wanted. All three landed on `finished`, whose
+documented meaning is *review it*. Two of the three needed an answer, not a
+review."*
+
+**So `finished` is refined by the TREE**, which is where the difference lives —
+and `failed`, `ended` and `none` are deliberately **not** refined: a recorded
+non-zero exit is a fact the tree cannot soften.
+
+### `activity` is a cue, never a ninth state
+
+`working` \| `idle` \| `''`, on `running` only. **The discriminator is the
+child's CPU, not the shell's**, because the loop shell waits on its child and
+burns near-zero CPU in every case.
+
+**Measured 2026-08-25:** `running` covered *"a worker mid-thought, a worker
+between waves, and a worker whose child had crashed hours earlier while the loop
+waited on it, with **11 of 13** in that last, worst case."*
+
+---
+
+## 5. Direction
+
+**None.** Nothing outside the repo creates or observes an Agent.
+
+---
+
+## 6. Relations
+
+| relation | mechanism | state |
+|---|---|---|
+| **Agent → Worktree** | the manifest | **built** — the agent owns its desk |
+| Agent → Branch | the manifest, or the tree's checkout | **built** — and **optional** |
+| Agent → Wave | via its branch | derived |
+| Agent → Person | **none** | — |
+
+**An Agent is not a Person** (entities §1c): a Person is a human a record names;
+an Agent is a process. They meet only in a transition record's `who`, and an
+agent acting on a person's behalf records **the person**.
+
+---
+
+## 7. Actions
+
+| action | who | what |
+|---|---|---|
+| **Dispatch** | `plot-dispatch.sh` | a desk, a claim, and a worker |
+| **Restart** | `--restart <branch>` | a new worker in **the same tree** |
+| **Stop** | `--stop` | end a worker; the tree survives |
+| **Rescue** | **a person** | commit a stalled agent's tree before killing it |
+
+**`--restart` is the counterpart to `--stop`**, and it does the one thing a slug
+dispatch never can: *"it hands a branch that ALREADY holds a claim to a new
+worker… because `--next` offers only `open` branches and that lock does not
+move."*
+
+**The branch is explicit and never auto-selected** — *"replacing a stopped
+worker rather than reviewing, reaping or abandoning its work is a person's
+call."*
+
+**And there is no `--force`:** the tree is inherited untouched, because *"a
+stall IS uncommitted work, and one measured here left 324 finished lines on the
+floor."*
+
+---
+
+## 8. Scope
+
+**Which agents are the fleet's is answered by the registry, and the registry is
+two sources joined:** manifests in `Agent registry`, plus worktrees with no
+manifest, synthesized.
+
+**Liveness is resolved in one batch per pulse**, never one call per entry —
+*"the registry is re-read on the scan's 5 s timer and a fork per agent would put
+the scan's cost back."*
+
+---
+
+## 9. The collaborators
+
+| collaborator | owns |
+|---|---|
+| `readAgentRegistry` | the roster — manifests + synthesized entries |
+| `plot-worker-state.sh` | **the one answer to *is a worker running?*** |
+| `plot-dispatch.sh` | creation, restart, stop |
+
+### `plot-worker-state.sh` is sourced, not run
+
+**And the reason is a design decision worth keeping:** *"the scan asks this
+question once per branch inside a loop, and the answer is three fields that the
+caller then formats two different ways. Shelling out would fork per branch to
+serialize three values across a pipe so the caller could immediately parse them
+back."*
+
+**It returns facts and renders nothing** — `--status` prints prose for a person,
+`--json` emits tab-separated fields for a machine, and *"both are real
+interfaces with tests pinning their bytes."*
+
+**It carried five of its six states in duplicate until 2026-08-18, and the
+copies had already drifted on the sixth.**
+
+---
+
+## 10. Fleet control
+
+**Agent is the entity the story is about**, and its jobs land here:
+
+| story job | the Agent question |
+|---|---|
+| **2** — is that worker working, or just alive? | `state` + `activity` |
+| **1** — can I start work? | how many agents are live (§8) |
+| **4** — what is safe to run? | what an agent's own load costs |
+
+**`liveAgentCount` is the concurrency denominator**, and its rule is measured:
+*"a live agent ALWAYS occupies a slot, even if its branch has already merged…
+eleven workers whose branches had merged sat at zero CPU for up to ten hours,
+none counted against the cap."*
+
+**What the state model still cannot say** is whether a machine was too slow for
+the agent to finish — all seven `exit 124` deaths in the story's session were
+that, read as agent failure. `machineAtDeath` (§3) is the proposed fix.
+
+---
+
+## 11. Views
+
+| view | shows |
+|---|---|
+| the **WORKING** section | one row per **registry** agent |
+| a branch row's `worker_*` | the agent, projected onto its branch |
+
+**WORKING renders registry agents, not branch rows** — and it is filtered to
+`LIVE_STATES`, so a finished agent leaves the section rather than accumulating.
+
+**The `worker_*` fields on a branch row are Agent data on a Branch** (Branch §3)
+— the duplication the entities doc argues should become `branch.agent`.
+
+---
+
+## 12. Setup
+
+| key | default | note |
+|---|---|---|
+| `Agent registry` | `.plot/agents` | **where manifests are written and read** |
+| `Worker command` | — | what a dispatched agent runs |
+| `Worker bound` | 3600 | the loop's own timeout |
+
+**`Agent registry` exists because a shared checkout needs one place** — the
+board may be served from a different worktree than the dispatcher writes to.
+
+---
+
+## 13. Gaps
+
+| # | gap | reachable |
+|---|---|---|
+| 1 | **Every agent row here is synthesized** — 0 manifests, 13 worktrees, 0 live | **now, measured** |
+| 2 | **A synthesized row cannot say so** — no `identity` field | now |
+| 3 | **The registry collapses 8 states to 5** — `failed` becomes `unknown` | now |
+| 4 | **No `machineAtDeath`** — `exit 124` reads as agent failure | now |
+| 5 | `worker_*` duplicated onto branch rows | now |
+
+**Gap 1 is the sharpest measurement in this document**, and it is two problems
+wearing one symptom. The registry directory exists and is empty; 13 dispatched
+worktrees remain, **none of them live**. So every row the board renders is
+synthesized — and separately, thirteen desks have outlived their agents with
+nothing reaping them (Worktree §13).
+
+---
+
+## 14. Invariants and open points
+
+### Invariants
+
+1. **A branch is what an agent works on, never what it is.**
+2. **The session id is the identity** — not the branch, the pid or the tree.
+3. **A pid alone never means `running`.**
+4. **The exit code cannot say whether the task is done** — the tree can.
+5. **`failed` never means restartable on its own** — ask the PR first.
+6. **`activity` is a cue on `running`, never a ninth state.**
+7. **Liveness is resolved in one batch per pulse.**
+8. **A synthesized entry is a defect, not a category.**
+
+### Open points
+
+- **Were manifests written for these 13 and cleaned up, or never written?** The
+  directory is empty and all 13 agents are gone, so the estate cannot say —
+  which is itself an argument for the manifest outliving the run.
+- **Should the registry stop collapsing?** The shell and the contract agree on
+  eight; only the registry disagrees.
