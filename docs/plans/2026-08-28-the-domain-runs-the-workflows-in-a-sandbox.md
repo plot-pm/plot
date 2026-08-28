@@ -23,7 +23,7 @@
 ## Motivation
 
 **A domain nobody can feed is a domain nobody can trust.**
-[The previous plan](2026-08-28-the-domain-exists-beside-the-code-that-runs.md)
+[The previous plan](2026-08-28-the-domain-moves-out-of-the-board.md)
 builds entities and rules that are pure by construction and therefore proven
 only against hand-built fixtures. **A fixture agrees with whatever wrote it.**
 
@@ -113,10 +113,23 @@ something already-proven to point at.
 | **corpus** | does it agree with production, on this repo? | read-only adapters |
 | **sandbox** | does the transition write what production writes? | a temp git repo |
 
-**The corpus tier is the one that earns this plan.** For every one of the 158
-plans, the domain's `deliverable`, `eligible` and `reapable` verdicts are
-compared against what production says today. **A disagreement fails CI and is a
-finding either way** — either the port is wrong, or it found a production bug.
+**The corpus tier is the one that earns this plan**, and what it compares
+changed when plan 1 became a *move* rather than a copy.
+
+**There is no second implementation of the RULES to compare against** — the
+board imports the domain's. What the corpus tier proves instead is that **the
+adapters feed the domain the same readings production reads**: run
+`plot-fleet-scan.sh` and the `Refs` adapter over this repository and assert the
+resulting `Pulse` is identical; run `plot-plan-meta.sh` and the `PlanStore`
+adapter over all 158 plans and assert every field matches.
+
+**That is the honest comparison for an adapter.** A rule with one
+implementation cannot disagree with itself; an adapter that drops a field, or
+reads `state` where production reads `mergedAt`, absolutely can — and would
+otherwise surface as a domain that is correct about the wrong facts.
+
+**A disagreement fails CI and is a finding either way** — either the adapter is
+wrong, or it found a production bug.
 
 **The sandbox tier compares transitions.** `plot-approve.sh` and
 `plot-deliver.sh` are idempotent and already have e2e coverage in sandbox
@@ -138,11 +151,20 @@ ports only, and the completeness gate passes.
 
 ### Agreeing (Branch: feature/the-domain-agrees-with-production)
 
-The corpus tests: 158 plans, three rules, compared against production verdicts.
+The corpus tests, comparing **readings** rather than verdicts: the `PlanStore`
+adapter against `plot-plan-meta.sh` over all 158 plans, and the `Refs` adapter
+against `plot-fleet-scan.sh`'s pulse.
 
 **Done when** every disagreement is either fixed or filed as a production bug
-with its plan — **a disagreement may not be silenced by adjusting the port to
-match.** If production is wrong, that is a finding and it gets a plan.
+with its plan — **a disagreement may not be silenced by adjusting the adapter
+to match.** If production is wrong, that is a finding and it gets a plan.
+
+**Adapters are written test-first like everything else, but their coverage
+threshold is not 100%.** An adapter's uncovered branches are the ones that need
+a host to fail, a disk to be full, or a process to die at the wrong moment —
+and a threshold that forces those to be faked teaches people to fake them.
+**The gate that applies here is the purity-except-adapters grep**, which is what
+keeps the untestable code confined to this directory.
 
 ### Deciding (Branch: feature/the-workflows-decide-without-acting)
 

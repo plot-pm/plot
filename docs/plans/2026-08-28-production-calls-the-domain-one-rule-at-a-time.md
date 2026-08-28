@@ -23,7 +23,7 @@
 ## Motivation
 
 **The duplication was licensed by this plan existing.**
-[Plan 1](2026-08-28-the-domain-exists-beside-the-code-that-runs.md) builds a
+[Plan 1](2026-08-28-the-domain-moves-out-of-the-board.md) builds a
 copy of rules that already exist twice, making three, and says so: *"licensed
 only by its removal being planned."* **This is the removal.**
 
@@ -107,14 +107,19 @@ running against the live estate for two branches' worth of time.
 
 ## Waves
 
-### Delivering (Branch: feature/one-deliver-rule-decides)
+### Delivering (Branch: feature/the-shell-stops-parsing-plans)
 
-`board.ts`'s `allWavesMerged` and `plot-deliver.sh`'s branch-parsing block both
-give way to `domain.deliverable()`. Three board call sites, one shell call
-site.
+**The board half of this moved into plan 1**, which relocates `allWavesMerged`
+rather than copying it. What remains is the shell: `plot-deliver.sh`'s ~95-line
+branch-parsing block gives way to a call, because the pulse already did the
+parsing.
 
-**Done when** the 25 existing tests pass unedited, `grep -rn allWavesMerged`
-returns only the domain, and `plot-deliver.sh` no longer parses a plan.
+**This is where the measured shell bug disappears** — the `## Changelog` bullet
+read as a branch, which made four fully-merged plans undeliverable — because
+the code that had the bug stops existing.
+
+**Done when** `plot-deliver.sh` no longer parses a plan, `test/e2e/` passes
+unedited, and the delivery refusal still names every unmerged branch.
 
 ### Eligible (Branch: feature/one-eligibility-rule-decides)
 
