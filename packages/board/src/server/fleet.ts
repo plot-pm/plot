@@ -449,6 +449,19 @@ interface CacheEntry {
   /** The version each release branch would ship — see `releaseVersions`. */
   versions: Map<string, string>;
   /**
+   * Every remote branch with commits the default branch lacks — see
+   * {@link unmergedBranches}.
+   *
+   * DELIBERATELY NOT IN THE BRIDGE, unlike the ages and approval dates beside
+   * it. Those are facts that stay true while the process is gone; this one is a
+   * statement about what has landed, and a `node --watch` restart is frequently
+   * FOR a merge. A bridged set would list branches that merged while the process
+   * was down, each rendered as outstanding work in a freshly-timestamped row.
+   * Absent instead, which adds no rows until the first scan lands — a board that
+   * is briefly incomplete rather than one that is confidently wrong.
+   */
+  unmerged: Set<string>;
+  /**
    * What each `waiting` worker asked, by branch — see `workerQuestions`.
    *
    * ON THE SCAN'S CLOCK, like the ages and the approval dates beside it, and for
@@ -971,6 +984,53 @@ async function branchAges(opts: BuildBoardOptions): Promise<Map<string, number |
     /* no refs readable — every age stays null, and the UI says so */
   }
   return ages;
+}
+
+/**
+ * Every remote branch carrying commits the default branch does not have.
+ *
+ * `git branch -r --no-merged origin/<main>` is the whole definition, and
+ * `--no-merged` is the BOUND rather than an optimisation. A merged branch has
+ * nothing outstanding — that is already the rule everywhere else on this board,
+ * and it is what keeps this addition from growing with history instead of with
+ * abandoned work. Walking every branch would satisfy every other assertion the
+ * plan makes while adding a row for each one that already landed.
+ *
+ * Read on the SCAN's clock beside {@link branchAges}, for the reason every
+ * git-derived fact here is: `rowsFromPulse` is the synchronous render path and
+ * cannot spawn a process, so anything from a ref arrives as a map the caller
+ * built.
+ *
+ * One `for-each-ref`-shaped process per scan, not one per branch — the same
+ * cost `branchAges` pays, on the same timer.
+ *
+ * EMPTY ON FAILURE, and empty means *not looked at* rather than *nothing
+ * unmerged*. The only thing that reads this set adds rows from it, so a failed
+ * read renders the board exactly as it did before the field existed rather than
+ * claiming a fleet with no outstanding work.
+ */
+async function unmergedBranches(opts: BuildBoardOptions, main: string): Promise<Set<string>> {
+  const found = new Set<string>();
+  try {
+    const out = await run('git',
+      ['branch', '-r', '--no-merged', `origin/${main}`, '--format=%(refname:short)'],
+      opts.repoRoot);
+    for (const line of out.split('\n')) {
+      const ref = line.trim();
+      if (!ref) continue;
+      // `origin/HEAD` is a SYMBOLIC ref, not a branch, and it resolves to the
+      // default branch — which `--no-merged` cannot exclude because a symref is
+      // not merged into itself. Left in, it renders a row named `HEAD` that no
+      // reader can act on.
+      if (!ref.startsWith('origin/') || ref === 'origin/HEAD') continue;
+      const short = ref.slice('origin/'.length);
+      if (!short || short === main) continue;
+      found.add(short);
+    }
+  } catch {
+    /* no refs readable — the set stays empty, and no row is added from it */
+  }
+  return found;
 }
 
 /**
@@ -2095,6 +2155,12 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // the REFS for the reason stated one line up: the PR map is on its own
     // timer and is still null at the first git refresh.
     entry.versions = await releaseVersions(opts);
+    // WHICH BRANCHES STILL CARRY WORK, from the refs for the reason stated
+    // above: this is a question about git, and the PR map is on its own timer.
+    // `complete.main` rather than a literal — the default branch is the pulse's
+    // to name, and a repo whose trunk is not `main` must not have every one of
+    // its branches read as unmerged.
+    entry.unmerged = await unmergedBranches(opts, complete.main);
     // WHAT THE WAITING WORKERS ASKED, read here and nowhere else.
     //
     // After `entry.pulse` is assigned, because the pulse is what says WHICH
@@ -2198,6 +2264,11 @@ export function freshCacheEntry(): CacheEntry {
     approvedAt: new Map(),
     ideaPlans: new Map(),
     versions: new Map(),
+    // Empty until the first scan, which is *nothing measured* rather than
+    // *nothing unmerged* — see {@link unmergedBranches}. No row is added from an
+    // empty set, so a board that has not scanned yet looks exactly as it did
+    // before this field existed.
+    unmerged: new Set(),
     questions: new Map(),
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
@@ -4598,6 +4669,21 @@ export function rowsFromPulse(
    * the field.
    */
   sprintOf?: Map<string, string> | null,
+  /**
+   * Every remote branch with commits the default branch lacks — see
+   * {@link unmergedBranches}. The set a branch must be IN to get a row from the
+   * loop below, and the reason that loop is bounded.
+   *
+   * A SET RATHER THAN A LIST OF ROWS TO ADD, because the decision is this
+   * function's: the guards that keep one branch off the board twice live here,
+   * beside the rows they compare against, and a caller cannot see them.
+   *
+   * Last in the parameter list because it is the newest, so every existing
+   * caller is unchanged. A caller passing nothing has not looked, and no branch
+   * row is added — which is exactly the board that predates the field, rather
+   * than a claim that nothing is unmerged.
+   */
+  unmerged?: Set<string> | null,
 ): AgentRow[] {
   const rows: AgentRow[] = [];
   // ONE PASS OVER THE ESTATE, before the plan loop — a double claim cannot be
@@ -5273,6 +5359,168 @@ export function rowsFromPulse(
     });
   }
 
+  // A BRANCH CARRYING COMMITS IS WORK, whether or not anyone opened a PR for it.
+  //
+  // The loop above iterates PRS, and that made *has an open PR* an unstated
+  // precondition for appearing at all: a branch with commits and no PR is in
+  // neither collection — no plan names it, so the plan walk misses it, and no PR
+  // exists, so the PR loop never reaches it. Measured 2026-08-24 against the live
+  // board: 33 remote branches, 105 rows, and 8 unmerged branches with NO ROW.
+  // Re-measured on main 2026-08-27: 34 unmerged, 3 with open PRs.
+  //
+  // The finding was not the one the question expected. FOUR OF THE SIX were
+  // named by a plan — invisible *despite* being planned — so this is not
+  // "plan-less work is invisible" but **work with no open PR is invisible, plan
+  // or no plan**. A row keyed on *has a PR* answers "what is under review?"; the
+  // board's own sections ask "what is going on?", and three commits pushed
+  // yesterday on a planned branch is something going on.
+  //
+  // So the subject inverts: the BRANCH is the row and its PR — if any — is one
+  // fact about it. That is already how planned rows work; this loop was the odd
+  // one out.
+  //
+  // The union walked is `git branch -r --no-merged origin/<main>`, computed on
+  // the scan's clock by `unmergedBranches`. A merged branch has nothing
+  // outstanding and needs no row, which is the rule everywhere else here and is
+  // what keeps the addition bounded by ABANDONED WORK rather than by history.
+  //
+  // AFTER the PR loop, never before it, and the order is load-bearing: `seen`
+  // below is rebuilt from `rows` so it holds the plan rows AND the PR rows this
+  // pass just added. A branch already carrying either gets no second row — one
+  // branch on the board twice is a defect this sprint has already fixed four
+  // times.
+  const seen = new Set(rows.map((r) => r.branch));
+  for (const branch of unmerged ?? []) {
+    if (seen.has(branch)) continue;
+    // An OPEN PR means the loop above owns this branch and declined it only
+    // because a plan already had — so `seen` has caught it. Any other PR state
+    // is a branch whose PR is merged or closed while its commits are not in the
+    // default branch, and that IS outstanding work: the row belongs here, and
+    // the PR is one fact about it rather than its reason for existing.
+    const pr = prs?.get(branch) ?? null;
+    if (pr && pr.state === 'OPEN') continue;
+    const ageMinutes = ages.get(branch) ?? null;
+    // `wip` IS THE HONEST GIT ANSWER — the branch exists and carries work — and
+    // it is the state the loop above already uses for its own rows. It also lets
+    // `classify` reach its arms normally rather than needing a new state nothing
+    // else understands.
+    //
+    // No PR is handed over, so `classify` cannot reach a `waiting-on-you` arm:
+    // every one of them requires a PR record. The row lands in NOT STARTED while
+    // the commit is recent and in QUIET once the window has passed, which is the
+    // existing routing rather than a special case. Nothing is asked of the reader
+    // by a branch someone may still be writing, and WAITING ON YOU's whole value
+    // is that its rows need an answer.
+    const { group, note } = classify('wip', 'eligible', ageMinutes, quietMinutes, null);
+    rows.push({
+      repo,
+      // `branch` — and NOT a new `orphan` kind. `RowKindSchema` has seven kinds
+      // and its docstring says adding one makes two tables a compile error until
+      // both answer for it, deliberately. A branch with no PR *is* a `branch`,
+      // which is exactly what that kind means.
+      //
+      // `false` for `hasPr` states what this row is built from rather than what
+      // the host knows: this loop reaches a branch through the REFS, and a closed
+      // or merged PR on it is not the row's subject. `false` for conflicts for
+      // the reason the loop above gives — no conflict set was ever computed for
+      // a branch outside the pulse, and *not looked at* is not *clean*.
+      kind: rowKind(branch, false, false),
+      // No plan names it. An idea branch is the loop above's case, not this
+      // one — it carries an open draft PR by construction — so there is no slug
+      // to claim here and inventing one would be worse than the empty cell.
+      plan: '',
+      planFile: '',
+      sprint: '',
+      // A release branch would be caught by the loop above through its PR. If
+      // one reaches here it is a release branch nobody opened a PR for, and its
+      // version is still the honest fact to show.
+      version: versions?.get(branch) ?? '',
+      wave: '',
+      state: 'wip',
+      deferredReason: '',
+      // NO PLAN TO READ A PHASE FROM, so null — the same rule the loop above
+      // follows for every non-idea branch. `Discovery` on a branch nobody
+      // planned is a confident wrong answer where nothing is the honest one.
+      phase: null,
+      group,
+      ageMinutes,
+      note,
+      branch,
+      // Encoded per path SEGMENT, matching every other row: a branch name
+      // contains a slash, and encoding it whole yields `bug%2Ffix` — a link that
+      // 404s on the host.
+      branchUrl: urlBase
+        ? `${urlBase}${branch.split('/').map(encodeURIComponent).join('/')}`
+        : '',
+      // THE LINK ONLY, and it is why `prsByHeadMap` exists as a second map. A
+      // branch here may carry a MERGED PR whose commits are not in the default
+      // branch — a squash-merge into a release train, or a merge the local ref
+      // predates. `prs` is open-only and drops exactly that PR, which is the one
+      // a reader most wants; this map keeps its number reachable while the group
+      // and the note stay decided by git alone, above.
+      pr: (() => {
+        const link = pr ?? prsByHeadMap?.get(branch) ?? null;
+        return link ? agentPr(link) : null;
+      })(),
+      waitingDays: null,
+      // NO WORKTREE WAS VISITED for this row — it is built from the refs, the
+      // same as the PR loop above is built from the PR map. `false` and `0` mean
+      // UNOBSERVED, never "nobody is working" and never "nothing unpushed": by
+      // `ABSENT IS NOT FALSE` the row carries no activity marker rather than a
+      // claim this machine never made.
+      localDirty: false,
+      changedAgo: null,
+      changedAt: null,
+      localLocked: false,
+      localAhead: 0,
+      // No plan, so no wave to be blocked by and no ordering to be waiting on —
+      // the same answer `waitingOnFor` gives every row outside a plan.
+      waitingOn: null,
+      // A brief is written by `/plot-implement` FOR A BRANCH A PLAN NAMES, and
+      // no plan names this one. Not `missing`: nothing is absent that anything
+      // would ever write.
+      brief: 'unknown',
+      blockedBy: null,
+      verdict: null,
+      startability: null,
+      // `elsewhere` — NOWHERE TO LOOK, which is the exact truth. This row comes
+      // from a ref, so the worktree scan never visited the branch and no question
+      // about a worker was asked here. Reporting `none` would be the invented
+      // observation: looking and finding nothing sends a reader into this
+      // checkout, and nothing looked.
+      //
+      // If a worker IS running on the branch, the pulse names it and the plan
+      // walk builds the row — `seen` then keeps this loop off it, and the worker
+      // facts move it to WORKING through the same path every other row uses.
+      worker: 'elsewhere',
+      worker_activity: '',
+      // NOTHING THE HOST SAID AND NOTHING THE SCAN COMPUTED. No conflict set
+      // exists for a branch outside the pulse, and no open PR supplies checks —
+      // so `stuckState` is given a `wip` branch with nothing wrong that anyone
+      // measured, and answers accordingly. That is *no evidence of stuck*, not a
+      // clean bill of health, and it is the only answer the inputs license.
+      stuck: stuckState({
+        state: 'wip',
+        conflicts: [],
+        conflictsKnown: false,
+        localAhead: 0,
+        prState: null,
+        failingChecks: [],
+        runHistory: runs?.get(branch) ?? [],
+      }),
+      repair: repairFor(branch, now),
+      // No worktree and no open PR, so neither entity this can report exists —
+      // `elsewhere` says the local side was never looked at, and a null PR
+      // supplies no pending check. An empty list is what both facts add up to.
+      processes: machineProcesses('elsewhere', '', null),
+    });
+    // Guards the ONE-ROW-PER-BRANCH rule against the set itself: a duplicate ref
+    // name cannot produce a second row. `unmerged` is a Set so this cannot fire
+    // today, and it costs nothing to make the invariant hold locally rather than
+    // depend on a caller's collection type.
+    seen.add(branch);
+  }
+
   rows.sort((a, b) => {
     const g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
     if (g !== 0) return g;
@@ -5465,7 +5713,11 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
       // Which active sprint claims each plan — read on the render clock like the
       // brief above, and for the same reason: a sprint file edited between two
       // scans shows up on the next pulse. One dir read per pulse, no host call.
-      sprintMembership(opts))
+      sprintMembership(opts),
+      // WHICH BRANCHES STILL CARRY WORK. From the cache rather than read here:
+      // this is a git question and the render path is synchronous, the same rule
+      // the ages and versions above follow.
+      entry.unmerged)
     : [];
   return {
     generatedAt: new Date().toISOString(),
