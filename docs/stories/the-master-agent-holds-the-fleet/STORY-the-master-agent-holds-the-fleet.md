@@ -53,6 +53,15 @@ machine is not a neutral observer — it is a competing load, and three times it
 took the operator's own view away. The tools a supervisor uses and the surface
 an operator watches are coupled through a resource neither of them measures.
 
+## Design
+
+- **[The fleet's domain entities](DESIGN-entities.md)** — the nine things a
+  supervisor reasons about, one at a time: source of truth, states, invariants,
+  properties. Designed so far: **Agent** (three competing state models
+  reconciled), **Machine** (new — the entity whose absence made `exit 124` read
+  as worker failure), and **Issue** (the board's inbox, specified end to end
+  with its four controllers).
+
 ## Jobs to be done
 
 Written as jobs, not features. Each is a question the supervisor demonstrably
@@ -69,8 +78,15 @@ because the variable was *what else was spawning*, not the count.
 from every bad one this session. Under ~10 ms the fleet ran; in the hundreds it
 did not, regardless of worker count.
 
-**Not wanted:** a cap on concurrent workers. The estate has run 23 rows in
-WORKING. A number would be wrong in both directions.
+**Not wanted:** a cap the *system* sets. The estate has run 23 rows in WORKING,
+and a number derived from headroom alone would be wrong in both directions.
+
+**The cap already exists and belongs to the operator** —
+`fleetControls.parallelAgents`, default 3, with a floor of 1 and **no maximum**.
+So the want is narrower than "a headroom reading": it is the *ceiling that
+control never had*. The operator scales within a range the machine can take;
+the reading bounds the dial without taking it away. See
+[the design's Elastic section](DESIGN-entities.md).
 
 ### 2. Is that worker working, or just alive?
 

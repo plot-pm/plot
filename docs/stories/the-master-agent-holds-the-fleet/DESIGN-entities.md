@@ -190,6 +190,121 @@ defect at the row level.
 Designed first among the foreign entities, because it is the one already done
 right and the pattern the others should copy.
 
+> **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
+> — this entity serves the story's **job 5** (*what do I show the operator?*) by
+> being the board's inbox, and its read/write controller split is the worked
+> example behind **job 4** (*what is safe to run?*).
+
+### Domain object specification
+
+The normative shape. Everything after this section explains or justifies it;
+where the two disagree, this section is the specification.
+
+#### Identity
+
+```
+Issue.id : string
+```
+
+**Opaque, and a string.** Plot compares issue identities and never orders,
+increments or arithmetically manipulates them. GitHub yields `226`; Jira yields
+`PROJ-123`; both are identifiers, and only one of them is a number by accident
+of the host.
+
+Declaring `string` and normalizing at the adapter boundary closes gap 1 at its
+root: the current split — `z.number()` in the row, `Set<number>` in the filter,
+`.key` in the Jira arm — is what makes the Jira filter silently always-false.
+A rendered identity may add the tracker's own sigil (`#226`), which is a view
+concern, not the id.
+
+#### Fields
+
+| field | type | required | source | rule |
+|---|---|---|---|---|
+| `id` | `string` | yes | tracker | opaque; equality only |
+| `title` | `string` | yes | tracker | may be empty; never absent |
+| `url` | `string` | yes | tracker, **verbatim** | `''` = no address; never composed |
+| `createdAt` | `string \| null` | yes | tracker | ISO-8601; `null` = the host gave none |
+| `body` | `string \| null` | no | `issue-view` only | `null` = **not fetched**; `''` = fetched and empty |
+
+Five fields. Every one is a fact the tracker stated; none is computed, formatted,
+or relative to now.
+
+**`body` distinguishes not-fetched from empty**, because the list op omits bodies
+entirely and only a click fetches one. `null` and `''` are different answers, and
+collapsing them would make an issue with no description indistinguishable from
+one nobody has opened yet.
+
+#### Fields deliberately excluded
+
+| excluded | why |
+|---|---|
+| `status`, `state` | tracker state; ages into a lie between refreshes |
+| `assignee` | as above, and Plot never assigns |
+| `labels`, `priority` | as above |
+| `kind` (epic/story/bug) | not fetched today; see Open |
+| `ageMinutes` | a *presentation* of `createdAt` — belongs to the view |
+| row `kind: 'issue'` | a renderer discriminator — belongs to the view |
+
+The rule behind the first three: **Plot never writes to the tracker, so any
+mirrored field is a copy that is wrong between refreshes and wrong forever after
+an outage.** The tracker is the authority on tracker state; the model points at
+it and carries nothing it would have to keep in sync.
+
+#### Askability — a property of the ANSWER, not of an Issue
+
+```
+IssueAnswer : 'answered' | 'unsupported' | 'failed'
+```
+
+Carried once per fetch, beside the collection — never on an individual Issue,
+which by existing has already been answered for.
+
+| value | means | renders as |
+|---|---|---|
+| `answered` | the host replied | the list, empty honestly meaning none |
+| `unsupported` | this tracker cannot be asked at all | **no section** |
+| `failed` | asked, did not come back | last good list, marked stale |
+
+`unsupported` renders nothing rather than an empty list: an empty inbox would
+claim an empty tracker.
+
+#### Invariants
+
+1. **`id` is opaque.** Equality only — no ordering, no arithmetic, no sigil.
+2. **`url` is verbatim or empty.** Plot composes no tracker address it was not
+   given; `''` renders as plain text.
+3. **`null` is never `0` and never `''`.** Absent is a distinct answer from
+   empty at every field that has both.
+4. **No mirrored tracker state.** Adding a field the tracker owns requires a
+   reason this rule does not already refuse.
+5. **Read-only.** No operation writes to the tracker.
+6. **An Issue leaves by being referenced**, never by being marked — the exit
+   condition lives in the plan estate.
+7. **Askability is carried apart from the answer**, once per fetch.
+
+#### Derivation to the view
+
+```
+toIssueRow(issue: Issue, now: number) -> IssueRow
+```
+
+`now` is an **argument**, not a capture, because `ageMinutes` depends on it and
+a controller must not silently recompute a display value on every pulse. The
+row adds `kind: 'issue'` and `ageMinutes`; it adds nothing else.
+
+#### Not specified here
+
+- **`kind` (epic / story / bug).** Plot fetches no issue type from any tracker
+  today. Whether to add one is open: the board deliberately does not branch on
+  it (both create actions are offered unconditionally), so the field would need
+  a consumer before it earns a place — and a kind, unlike a status, does not age
+  into a lie, so the usual exclusion does not settle it.
+- **A parent or epic link.** Would mirror tracker hierarchy; refused for now on
+  the same ground as `labels`.
+
+---
+
 ### The name: Issue, not Ticket
 
 **Settled 2026-08-28: the domain concept is `Issue`.** This document called it
@@ -422,20 +537,12 @@ how to show it.
 
 #### The domain object
 
-| property | type | source |
-|---|---|---|
-| `id` | string \| number | `#N` on GitHub, `PROJ-123` on Jira |
-| `title` | string | the tracker |
-| `url` | string | verbatim from the host; `''` where none was given |
-| `createdAt` | ISO-8601 \| null | the tracker |
-| `body` | string | **only after `issue-view`** — absent from the list |
-
-Five properties, and every one is a fact the tracker stated. Nothing here is
-computed, formatted, or relative to now.
-
-Deliberately absent, and this part of the earlier draft stands: **no labels, no
-assignee, no status, no priority** — *"those age into lies the moment the
-tracker moves"*, and Plot never writes them back.
+Specified normatively above — see [Domain object
+specification](#domain-object-specification). Five fields, every one a fact the
+tracker stated: `id`, `title`, `url`, `createdAt`, `body`. Nothing computed,
+formatted, or relative to now; no labels, assignee, status or priority, because
+*"those age into lies the moment the tracker moves"* and Plot never writes them
+back.
 
 #### What belongs to the view instead
 
