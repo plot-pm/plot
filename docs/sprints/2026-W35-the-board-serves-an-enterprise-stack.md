@@ -79,7 +79,7 @@ Story: [[the-board-is-blank-where-it-matters]].
       `Phase: Draft` for plans approved minutes earlier. Its two halves have
       different sources: the scan reads `origin/main`, the plan cards read the
       working tree, and nothing pulls it.
-- [ ] [a-dead-fetch-is-not-a-slow-one] The doc viewers bound their fetch. A
+- [x] [a-dead-fetch-is-not-a-slow-one] The doc viewers bound their fetch. A <!-- status: delivered -->
       request killed by the board's own `node --watch` restart neither resolves
       nor rejects, so the panel shows "Loading…" forever while its correct error
       branch never fires.

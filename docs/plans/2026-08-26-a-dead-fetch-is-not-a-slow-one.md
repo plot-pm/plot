@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Story:** the-board-is-blank-where-it-matters
@@ -13,7 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
-- **Delivered:** <!-- YYYY-MM-DD -->
+- **Delivered:** 2026-08-28
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-27, Jan Wloka, `bug/a-dead-fetch-is-not-a-slow-one`
 
