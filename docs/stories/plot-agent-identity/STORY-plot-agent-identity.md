@@ -12,7 +12,7 @@ updated: 2026-08-27
 
 Give a Plot agent an identity that exists **before** it is dispatched and
 **survives** the branch it worked on — declared in git, not inferred from a
-running process. Then let dispatch use that identity: a wave says what kind of
+running process. Then let dispatch use that identity: a slice says what kind of
 agent it needs, and the fleet's capacity stops being one undifferentiated
 number.
 
@@ -22,12 +22,11 @@ is* and *what it can be dispatched to*.
 
 ## Why Now
 
-Comparing Plot against [kraftwerk](https://github.com/NETNODEAG/kraftwerk)
-(0.12.0, MIT, NETNODE AG) on 2026-08-27 found one asymmetry that was not a
-layer confusion. Kraftwerk's `inspector/team.ts` states the rule Plot has never
-written down:
-
-> Definitions are git-tracked project config (like workflows/), not run state.
+A survey of a comparable agent runtime on 2026-08-27 found one asymmetry that
+was not a layer confusion. That runtime separates **agent definitions** from
+**run state** as a stated policy: a definition is git-tracked project
+configuration, alongside the workflows; what a run did is output, kept
+elsewhere.
 
 Plot has only the run state. The registry answers *what is running* with real
 precision — eight worker states, batched liveness in one fork per pulse, an
@@ -39,9 +38,16 @@ repo:
 - **`.gitignore:45` excludes `.plot/agents/`** while `.plot/briefs/` beside it
   is tracked. Ten agents ran here on 2026-08-27. By the manifesto's own first
   principle — *"If it's not in git, it doesn't exist"* — none of them do. This
-  is the one Plot subsystem outside git, and it fails on the criterion the
-  Plot × Kraftwerk RefCard says Plot **wins**: what survives switching the tool
-  off.
+  is the one Plot subsystem outside git, and it fails on the criterion Plot
+  otherwise wins on: **what survives switching the tool off.**
+
+  > **Updated 2026-08-28.** The exclusion is now a reasoned decision rather
+  > than an oversight — `.gitignore` carries the argument (*"a graveyard shared
+  > with everyone who clones rather than a register of what is running"*) and
+  > `## Plot Config` gained an `Agent registry` key. **This story's claim
+  > narrows accordingly:** the defect is not that manifests are untracked, it
+  > is that **nothing declares an agent before one runs.** A run record is
+  > correctly machine-local; a role declaration is not a run record.
 - **`plot-dispatch.sh:807` reads one global `Worker command`.** Every agent on
   every branch is the same implementer, parameterised only by `PLOT_BRANCH` and
   `PLOT_SESSION_ID`. Its ~1,900-character persona is inlined into the command
@@ -72,16 +78,16 @@ was assumed from the surface they touched.
 
 **Q: Why not [[plot-planning-model]]?**
 That story owns the vocabulary for cutting *work* into pieces — story, plan,
-wave, sprint, branch. An agent is not a piece of work; it is who does one. If
+slice, sprint, branch. An agent is not a piece of work; it is who does one. If
 this story establishes that agents need their own term, that term's
 relationship to the existing five is a question for the planning-model story,
 and it should be raised there rather than settled here.
 
 **Q: What is deliberately not being built?**
-Kraftwerk's runtime half — Docker-per-run sandboxing, multi-harness adapters
+The surveyed runtime's own half — Docker-per-run sandboxing, multi-harness adapters
 (`claude`/`codex`/`pi`), the Inspector UI, cron routines. All real and all good,
 and rebuilding them puts an in-house tool against an MIT project with npm
-distribution. The RefCard's own conclusion is that this is a distribution
+distribution. The comparison's own conclusion was that this is a distribution
 fight, not a quality one. Also declined: agents-as-employees with emoji and
 routines, which quietly discards Plot's claim to coordinate **people and agents
 together**.
@@ -96,25 +102,48 @@ Expected shape, in dependency order:
   effort, tools, command, and the system prompt as the body). A repo declaring
   none keeps exactly today's behaviour via one implicit `default` role built
   from `Worker command`.
-- ⏸️ **A wave names the role it needs** — the plan-format half. Carries board
+- ⏸️ **A slice names the role it needs** — the plan-format half. Carries board
   impact and a Definition-of-Done gate, so it wants proper interrogation.
 - ⏸️ **The cap counts by kind** — `budget` becomes a vector; `startable`
   becomes a match rather than a `Math.min`. Refusals name which *kind* of slot
   is exhausted.
+
+## Relation to the fleet domain design
+
+**This story's subject now has a specification.**
+[DESIGN-agent.md](../the-master-agent-holds-the-fleet/DESIGN-agent.md) models Agent as a domain object, and two
+of its findings are this story's thesis stated as measurements:
+
+- **Agent's identity is *minted*, and its failure mode is *nobody minting*** —
+  one of [three kinds of identity](../the-master-agent-holds-the-fleet/DESIGN-review.md#1-identity-three-kinds),
+  each with its own way of going wrong. Measured: **0 manifests, 13 worktrees**
+  — every agent row the board shows is *synthesized* from a worktree, because
+  nothing declares an agent.
+- **`readAgentRegistry` only reads.** Agents are created by `start_worker`
+  inside `plot-dispatch.sh`, at two call sites. **A registry that cannot mint
+  is the gap this story is about**, located precisely.
+
+**Read the spec before writing plans under this story**, and reference it rather
+than re-deriving the entity — two descriptions of one object is the defect the
+[workflows review](../the-master-agent-holds-the-fleet/DESIGN-review-workflows.md#5-the-distinction-that-decides-it)
+names: a copy that re-implements a decision, rather than deriving one.
 
 ## Open Points
 
 - ⏸️ Where does a role declaration live — `.plot/roles/<slug>.md`, or beside
   the briefs it pairs with? The briefs directory is already tracked and already
   per-branch, which may be an argument or a confusion.
-- ⏸️ Does a role belong to the **wave** or to the **branch**? A wave is the
-  unit dispatch fans out, but a branch is what a worker holds.
+- ✅ ~~Does a role belong to the **slice** or to the **branch**?~~ **Dissolved
+  2026-08-28** by the Slice/Wave rename: a **slice holds exactly one branch by
+  definition**, so the two are the same attachment point. A plan section naming
+  several branches is an unsliced plan, not a slice with many. See
+  [Slice §1](../the-master-agent-holds-the-fleet/DESIGN-slice.md#one-branch-by-definition--not-by-repair).
 - ⏸️ Manifesto Q9 — ceremony scaled to weight. A role file per branch is
   ceremony creep; a handful per repo is not. Where is the line, and should
   anything enforce it?
-- ⏸️ Does an unmatched wave **block** or **fall back** to the default role? A
+- ⏸️ Does an unmatched slice **block** or **fall back** to the default role? A
   block is honest and can deadlock; a fallback always dispatches and can run a
-  Jenkins wave through a generalist.
+  Jenkins slice through a generalist.
 - ⏸️ What names the kinds? Free-form strings drift; an enum in a
   project-agnostic skill is exactly the hardcoding the manifesto forbids.
 
@@ -123,20 +152,20 @@ Expected shape, in dependency order:
 | Date | Decision | Rationale |
 |------|----------|-----------|
 | 2026-08-27 | Agent specs and typed capacity share one story | Capacity depends on the spec mechanism; separately, the capacity story would be mostly a pointer. Confirmed by Jan Wloka. |
-| 2026-08-27 | Kraftwerk's runtime layer is out of scope | Sandbox, harness adapters, Inspector, routines are a distribution fight against an MIT/npm project — the RefCard's stated conclusion. |
+| 2026-08-27 | The surveyed runtime's execution layer is out of scope | Sandbox, harness adapters, a separate inspector UI and cron routines are a distribution fight against a shipping MIT/npm project. |
 | 2026-08-27 | Economics gets its own story | Cost and value are a different question with a different failure mode — see [[plot-plan-economics]]. |
 
 ## Key Findings
 
 ### 2026-08-27 — The board's agent row has no agent in it
 
-**Expected:** Plot's registry lacked some fields Kraftwerk's had, and the gap
+**Expected:** Plot's registry lacked some fields the comparison had, and the gap
 was a matter of degree.
 
 **Discovered:** `AgentRowSchema` identifies a row with `repo`, `branch`,
-`plan`, `wave`, `sprint`, `version`, `phase`, `pr` — every identifying field
+`plan`, `slice`, `sprint`, `version`, `phase`, `pr` — every identifying field
 describes **the work**. The only worker-shaped fields are `worker` (a state)
-and `worker_activity` (a CPU cue): adjectives with no noun. Kraftwerk's
+and `worker_activity` (a CPU cue): adjectives with no noun. The comparison's
 `TeamMember` carries `slug`, `name`, `emoji`, `harness`, `model`, `effort`,
 `tools`, `workflows`, `knowledge`, `skills`.
 
@@ -160,7 +189,7 @@ work it had room for — silently, because the number was rendered nowhere. Five
 of the seven were `claude` processes outliving merged PRs.
 
 **Impact:** With one integer, a stale slot blocks anything. With typed slots, a
-lingering *developer* process blocks a *Jenkins* wave it could never have
+lingering *developer* process blocks a *Jenkins* slice it could never have
 performed — the same defect, more expensive. The fix for stale slots shipped;
 typing them raises the cost of any future regression, which is an argument for
 building the two together.
@@ -169,31 +198,32 @@ building the two together.
 
 | Item | Reason | Revisit If |
 |------|--------|------------|
-| Docker-per-run sandboxing | Runtime concern; Kraftwerk ships it MIT | An agent is dispatched somewhere Plot does not control the machine |
+| Docker-per-run sandboxing | Execution concern, and shipped MIT elsewhere | An agent is dispatched somewhere Plot does not control the machine |
 | Multi-harness adapters (codex, pi) | Plot is shaped on Claude Code; `Worker command` is already the seam | A project asks to mix runtimes in one fleet |
 | Cron routines / scheduled agents | Agents-as-employees; discards the people-and-agents frame | Never, as stated — revisit only with a case that is not staffing |
-| In-band question answering | Kraftwerk models blocked agents as `permission_request`/`permission_resolved` events, answerable without exiting; Plot's `PLOT-BLOCKED.md` requires the worker to have died | The blocked-worker path is reopened — noted so the option is not forgotten |
+| In-band question answering | The comparison models a blocked agent as a permission-request event answerable without exiting; Plot's `PLOT-BLOCKED.md` requires the worker to have died | The blocked-worker path is reopened — noted so the option is not forgotten |
 
 ## Session Log
 
-### 2026-08-27 — Kraftwerk comparison, registry scope
+### 2026-08-27 — runtime comparison, registry scope
 
-Read kraftwerk 0.12.0 (`src/agent.ts`, `inspector/team.ts`, `okf.ts`,
-`harness.ts`, `stats.ts`, `gates.ts`) against Plot `origin/main`
+Read a comparable agent runtime's sources — its agent, team, knowledge,
+harness, stats and gate modules — against Plot `origin/main`
 (`server/registry.ts`, `contract/schema.ts`, `plot-dispatch.sh`,
 `plot-worker-state.sh`, `auto-dispatch.ts`) and the ten live manifests in
 `.plot/agents/`.
 
-Assessment published as an internal artifact; the RefCard
-(`plot-kraftwerk-refcard-de.html`, August 2026) supplied the strategic frame and
-its conclusions are referenced, not restated.
+**The comparison itself is kept outside this repository, deliberately.** Its
+conclusions are carried here as arguments about Plot; the survey and the
+strategic frame that followed it live as internal artifacts and are referenced,
+not restated.
 
 **Key outcomes:**
 
 - The registry's gap is a missing subject, not missing fields
 - `.plot/agents/` being gitignored is a live inconsistency with manifesto
   principle 1, and the only one
-- Kraftwerk's `AgentInvocation` splits durable (`systemPrompt`, `model`,
+- The comparison's agent-invocation type splits durable (`systemPrompt`, `model`,
   `tools`, `clis`) from ephemeral (`prompt`); Plot's `Worker command` fuses both
 - Typed capacity is cheaper than expected — the cross-pulse budget already exists
 - Scope confirmed with Jan Wloka: two stories, this one plus

@@ -22,25 +22,24 @@ a number a human estimates. That constraint is the story, not a caveat on it.
 
 ## Why Now
 
-The Plot × Kraftwerk RefCard (August 2026) names this as the most urgent of its
-three consequences, and as a positioning risk rather than a feature gap:
+A survey of a comparable agent runtime (August 2026) named this as the most
+urgent of its consequences, and as a **positioning risk rather than a feature
+gap**:
 
 > Tokens per step are a commodity and free to obtain today. Cost per approved
-> plan and per human decision are not — Kraftwerk has no such reference
-> quantity, because it does not know approval. If we fail to separate these
-> sharply, we sell something that is available for nothing.
+> plan and per human decision are not. If we fail to separate these sharply, we
+> sell something that is available for nothing.
 
-Kraftwerk's `stats.ts` already carries `durationMs`, four token counters and
-`costUsd` per phase, attributed to `agent`, `harness`, `model` and `effort`,
-with `attempts` defined as *"1 + number of correction rounds"* so retries stay
-visible. It is MIT-licensed and shipping. Competing on that number is competing
-on a commodity.
+That is not hypothetical. A shipping, MIT-licensed runtime already carries
+per-phase duration, four token counters and a cost figure, attributed to agent,
+model and effort, with attempts defined as *1 + correction rounds* so retries
+stay visible. **Competing on that number is competing on a commodity.**
 
-The denominator is the part Kraftwerk **structurally cannot compute**. It has
-no approval to divide by: the word `approve` appears once in the whole
-repository, as `permissions auto-approved` for unattended routines — approval
-as something you configure away. Plot records approvals by name, in the plan,
-in git.
+**The denominator is the part such a runtime structurally cannot compute.** It
+has no approval to divide by — in the one surveyed, the word `approve` appears
+once in the entire repository, as auto-approved permissions for unattended
+routines: approval as a thing you *configure away*. Plot records approvals by
+name, in the plan, in git.
 
 ## Decisions Taken in Scoping
 
@@ -97,7 +96,7 @@ already decided — during interrogation, at approval — travels to where the w
 is done.
 
 **Why the interrogation is the valuable act.** Plot's own evidence is that the
-scarce resource is not execution. Agents produce diffs cheaply; the RefCard's
+scarce resource is not execution. Agents produce diffs cheaply; the standing
 counter-example is six hundred lines, every check green, and nobody wanted the
 result. What made a plan worth building was the interrogation that settled its
 decisions and the approval that named someone accountable. Cost per approved
@@ -113,9 +112,31 @@ half below is blocked on it.
 - ⏸️ **A plan says what it cost** — derive from transcripts, per plan. Never
   stored, absent when unreadable.
 - ⏸️ **A branch says what it is for** — project the sprint goal and MoSCoW tier
-  onto the wave, for the human and for the dispatched agent's brief.
+  onto the slice, for the human and for the dispatched agent's brief.
 - ⏸️ **Cost per approved plan, stated as such** — the ratio and its
   denominator, with retries visible rather than averaged away.
+
+## Relation to the fleet domain design
+
+**Both halves of this story are derivations over entities that now have specs.**
+
+- **Cost** sums what agents did — [Agent](../the-master-agent-holds-the-fleet/DESIGN-agent.md) — over the work
+  they did it on: [Slice](../the-master-agent-holds-the-fleet/DESIGN-slice.md), one branch each by definition.
+- **Value** is the sprint goal and priority a plan serves —
+  [Sprint](../the-master-agent-holds-the-fleet/DESIGN-sprint.md) and [Plan](../the-master-agent-holds-the-fleet/DESIGN-plan.md), whose double
+  link is what makes a `disputed` item expressible at all.
+
+**The trust-tier candidate in the session log was reached independently** by the
+fleet story's [job 6](../the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md#6-which-of-my-own-claims-have-i-actually-verified),
+which carries the caution this story should inherit: **a tier only helps where
+something DERIVES it.** This repo already measures what happens otherwise — 84
+`Jan Wloka` against 43 `jwloka` in approval records, and sprint boxes checked
+over plans that were never delivered.
+
+**That caution is this story's own constraint restated.** *"Neither half
+introduces a number a human types"* and *"a tier must be derived, never
+asserted"* are the same rule, one about the numerator and one about the
+denominator.
 
 ## Open Points
 
@@ -138,23 +159,24 @@ half below is blocked on it.
 |------|----------|-----------|
 | 2026-08-27 | Cost is derived, never stored | Keeps manifesto Q1 (git is the database) and Q8 (no effort tracking). A stored cost is a record that can be wrong. |
 | 2026-08-27 | Value is projection, not estimation | The sprint goal, MoSCoW tier and named approver already exist in git. Any plan that asks a human for a value number has misread this story. |
-| 2026-08-27 | The unit is cost per **approved** plan | Tokens per step are a commodity Kraftwerk gives away; the denominator is what Plot uniquely has. Requested explicitly by Jan Wloka. |
+| 2026-08-27 | The unit is cost per **approved** plan | Tokens per step are a commodity a step-cost runtime gives away; the denominator is what Plot uniquely has. Requested explicitly by Jan Wloka. |
 | 2026-08-27 | Separate story from [[plot-agent-identity]] | Different question, different failure mode; downstream, not inside. |
 
 ## Key Findings
 
-### 2026-08-27 — Kraftwerk cannot compute the denominator
+### 2026-08-27 — a step-cost runtime cannot compute the denominator
 
-**Expected:** Kraftwerk's cost accounting was ahead and Plot needed to catch up.
+**Expected:** the comparison's cost accounting was ahead and Plot needed to
+catch up.
 
-**Discovered:** Ahead on the numerator only. `PhaseStats` attributes cost per
-agent, model and attempt — genuinely better than Plot has. But the word
-`approve` occurs once in the repository, as `permissions auto-approved` for
+**Discovered:** Ahead on the numerator only. Its per-phase statistics attribute
+cost per agent, model and attempt — genuinely better than Plot has. But the
+word `approve` occurs once in that repository, as auto-approved permissions for
 unattended routines. There is no plan, no story, no signature; approval is not
 a concept it has, but a thing it configures away.
 
 **Impact:** The competitive line is not "we also count tokens". Cost per
-approved plan is not a metric Kraftwerk lacks by oversight — it is one its
+approved plan is not a metric such a runtime lacks by oversight — it is one its
 model cannot express. That is a durable difference rather than a feature race,
 and it decides how the work is framed.
 
@@ -178,16 +200,16 @@ not a measurement one.
 |------|--------|------------|
 | Human-estimated value or story points | Effort tracking; manifesto Q8 refuses it, and it is the exact failure this story is written to avoid | Never — a different story would have to argue against the manifesto |
 | Time tracking of human hours | Same reason; Plot schedules work, it does not meter people | Never |
-| Per-step token display as a headline | The commodity Kraftwerk gives away free; leading with it sells what costs nothing | It becomes a debugging aid rather than a value claim |
+| Per-step token display as a headline | The commodity a step-cost runtime gives away free; leading with it sells what costs nothing | It becomes a debugging aid rather than a value claim |
 | Billing or invoicing integration | External system; manifesto Q1 forbids the dependency | A customer engagement makes it concrete — then argue it there, not here |
 
 ## Session Log
 
-### 2026-08-27 — Scoping from the Kraftwerk comparison
+### 2026-08-27 — Scoping from the runtime comparison
 
 Split out of the agent-registry assessment when the cost question proved to be
-a different kind of question from the identity one. Read `stats.ts`,
-`okf.ts` and the `approve` occurrences in kraftwerk 0.12.0; read Plot's sprint
+a different kind of question from the identity one. Read the comparison's
+statistics, knowledge and approval-related sources; read Plot's sprint
 format (`docs/sprints/2026-W35-…`), `plot-sprint/SKILL.md` MoSCoW handling, and
 `AgentRowSchema` on `origin/main`.
 
@@ -202,9 +224,11 @@ the story inside manifesto Q8.
   epistemics, adjacent surfaces.
 - Neither half introduces a number a human types — the test any plan under this
   story must pass.
-- Kraftwerk's inability to compute the denominator is structural, not a gap
-- OKF's trust tiers (`unverified` / `machine-confirmed` / `human-reviewed`,
-  derived in twelve lines from a `human:` name prefix) are a candidate mechanism
-  for making the human half legible — noted, not yet scoped
+- The inability to compute the denominator is **structural**, not a gap
+- **Trust tiers** (`unverified` / `machine-confirmed` / `human-reviewed`,
+  derived rather than asserted) are a candidate mechanism for making the human
+  half legible — noted, not yet scoped. Independently reached from the fleet
+  story's job 6; see
+  [the master agent holds the fleet](../the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md#6-which-of-my-own-claims-have-i-actually-verified).
 
 ---
