@@ -404,17 +404,35 @@ That is the only link to an Issue that exists today (§4).
 
 ### Fields
 
-| field | type | required | source | rule |
+**Validated field by field, 2026-08-28** — against all nine stories'
+frontmatter and against `StoryCardSchema`.
+
+| field | type | in the estate | in `StoryCard` | source |
 |---|---|---|---|---|
-| `slug` | `string` | yes | directory name | identity |
-| `title` | `string` | yes | frontmatter | |
-| `status` | `StoryStatus` | yes | frontmatter | **the only field the lint enforces** |
-| `created` | `date` | yes | frontmatter | |
-| `updated` | `date` | yes | frontmatter | |
-| `author` | `string` | yes | frontmatter | |
-| `path` | `string` | yes | derived | `''` where no file was found |
-| `unit` | `string` | **declared, unused** | frontmatter | see §5 |
-| `archived` | `date` | on `done` only | frontmatter | see §5 |
+| `slug` | string | derived | **yes** | directory name |
+| `title` | string | **9/9** | **yes** | frontmatter |
+| `status` | `StoryStatus` | **9/9** | **yes** | frontmatter — the only field the lint enforces |
+| `path` | string | derived | **yes** | `<slug>/STORY-<slug>.md`, `''` if unfound |
+| `created` | date | **9/9** | **no** | frontmatter |
+| `updated` | date | **9/9** | **no** | frontmatter |
+| `author` | string | **9/9** | **no** | frontmatter |
+| `unit` | string | **0/9** | no | skill requires it (§14) |
+| `archived` | date | **0/9** | no | on `done` only (§14) |
+
+**The estate is perfectly consistent** — all nine stories carry exactly the same
+five keys, with no extras and no omissions. That is a stronger result than the
+Plan's, and it makes §14's divergence sharper: the files agree with each other
+and disagree with the skill.
+
+**`StoryCard` carries four fields and the estate has five.** `created`,
+`updated` and `author` are parsed by nothing in the board — verified, they
+appear in no story-related code path. So the board knows *what* a story is and
+*where*, and nothing about *when* or *whose*.
+
+That is defensible for `author` (one-time provenance) and questionable for
+`updated`: it is the only field that says whether a story is being worked on,
+and §13 declines to render a staleness cue partly because the value never
+reaches the client to begin with.
 
 **Measured 2026-08-28** across all nine stories in this repo: every one carries
 exactly `title`, `status`, `created`, `updated`, `author`. **None carries `unit`

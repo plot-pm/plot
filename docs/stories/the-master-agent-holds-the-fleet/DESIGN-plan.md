@@ -160,25 +160,66 @@ reason.
 
 ### Fields
 
-| field | type | source | note |
+**Validated field by field against the parser's output over all 158 plans,
+2026-08-28.** The `have` column is how many plans carry a non-empty value —
+which is the difference between a field that exists and one that is used.
+
+| field | type | have | note |
 |---|---|---|---|
-| `file` | path | — | identity |
-| `format` | string | — | which spelling the file uses |
-| `phase` | 7 values | `## Status` or front matter | see §4 |
-| `phase_raw`, `phase_alt`, `phase_alt_raw` | string | — | **two phases in one file is a real state** |
-| `type` | `feature`\|`bug`\|`docs`\|`infra` | | decides whether release applies |
-| `title` | string | front matter or first H1 | |
-| `sprint`, `story`, `assignee` | string | | placement; `""` when absent or a placeholder |
-| `issues[]` | numbers | `Issue:` | the signals this plan answers |
-| `branches[]` | strings | `## Branches` **or** `## Waves` | both dialects, one array |
-| `waves[]` | objects | `## Waves` | name, verdict, branches |
-| `prs[]` | numbers | `→ #N` **or** `PR: #N` | evidence |
-| `malformed_prs[]` | strings | | near-misses, **reported not dropped** |
-| `changelog[]` | strings | `## Changelog` | **the one field that says what a plan changes** |
-| `review`, `impl` | normalized | ceremony answers | how it is approved, where it is built |
-| `approved_raw`, `started_raw`, `delivered_raw`, `released_raw`, `design_raw` | string | transition records | **load-bearing** |
-| `long_wave_names[]` | strings | | a report, not a refusal |
-| `rounds`, `error` | | | |
+| `file` | path | 158 | always present |
+| `format` | `list` \| `frontmatter` | 158 | which spelling this file uses |
+| `phase` / `phase_raw` | state | 155 | 3 files are not plans |
+| `phase_alt` / `phase_alt_raw` | state | **0** | two states in one file — modelled, never seen |
+| `type` | `feature`\|`bug`\|`docs`\|`infra` | 155 | |
+| `title` | string | 157 | |
+| `sprint` | slug | 71 | |
+| `story` | slug | **121** | most plans belong to a story |
+| `assignee` | handle | 50 | |
+| `issues[]` | numbers | **4** | 2% — see §5 |
+| `branches[]` | strings | 155 | both dialects, one array |
+| `waves[]` | objects | 155 | |
+| `prs[]` | numbers | 136 | |
+| `malformed_prs[]` | strings | **0** | near-misses; none in this estate |
+| `changelog[]` | strings | 91 | **what a plan changes** |
+| `review` / `review_raw` | normalized + verbatim | 150 | |
+| `impl` / `impl_raw` | normalized + verbatim | 150 | |
+| `approved_raw` | record | 141 | |
+| `started_raw` | record | 129 | |
+| `delivered_raw` | record | 141 | |
+| `released_raw` | record | 110 | |
+| `design_raw` | record | **0** | the design state is never used (§4) |
+| `long_wave_names[]` | strings | 5 | a report, not a refusal |
+
+| `rounds` | number | 68 | **an optional KEY, not just an optional value** |
+
+**`rounds` is the format's one optional key.** 27 fields appear in every plan's
+output; `rounds` appears in 68 of 158 and is simply absent from the rest. Every
+other field is always emitted, empty when unset.
+
+That distinction matters to a consumer: `"rounds" in meta` and
+`meta.rounds !== ""` are different tests, and only one of them works here.
+
+**Corrections this validation forced — including one in my own method.**
+
+*I first reported `rounds` as unparsed.* It is parsed, from `## Status`, front
+matter, **and** the `CHALLENGE-THE-PLAN-METADATA` block. The error was in the
+validator: it read the field list from **one** plan's output, so a key absent
+from that sample looked absent from the format. **That is the same
+absence-is-not-evidence mistake this document warns about**, made while
+checking for it — the fix was to union the keys across all 158 rows.
+
+*`review_raw` and `impl_raw` were omitted from the earlier table.* Both are
+emitted beside their normalized twins, and the pairing is the point: the
+normalized value is what a consumer branches on, the raw one is what the file
+said, so a value the parser could not normalize is reportable rather than lost.
+
+*`error` is not emitted*, and an earlier draft listed it.
+
+*`slug` is not emitted*, which §13 argues it should be.
+
+**Two fields are modelled and unused**, and they are different cases.
+`phase_alt` at 0/158 is a *conflict* nobody has hit — good. `design_raw` at
+0/158 is a *state* nobody has entered, though `/plot-implement` gates on it.
 
 ### Three parser rules worth lifting
 
