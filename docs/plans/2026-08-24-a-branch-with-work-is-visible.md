@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** <!-- not a member of the-board-tells-the-truth-in-every-section -->
 - **Issue:** <!-- optional -->
@@ -11,7 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-27, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
-- **Delivered:** <!-- YYYY-MM-DD -->
+- **Delivered:** 2026-08-28
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-28, Jan Wloka, `feature/an-idle-branch-says-how-long`
 
