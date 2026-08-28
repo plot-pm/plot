@@ -1676,6 +1676,118 @@ sprint serves* from *the tickets it closes* needs the `kind` field this design
 has so far deferred — which is the first concrete consumer for it, and the
 argument to reconsider.
 
+#### Fleet control for Issue — what each consumer needs
+
+Two consumers, one derivation. The board has it; the command line does not.
+
+##### Today: total asymmetry
+
+| capability | board | master agent (CLI) |
+|---|---|---|
+| the inbox (open − referenced) | `/api/board` → `issues[]` | **nothing** |
+| whether the tracker answered | `issueAnswer` | **nothing** |
+| the failure text | `issueError` | **nothing** |
+| create a plan from an issue | `POST /api/idea` | `/plot-idea` by hand |
+| create a story from an issue | `POST /api/story` | `/story-tracking` by hand |
+| raw tracker read | — | `plot-host.sh issue-list` |
+
+Verified 2026-08-28: **no script in `skills/plot/scripts/` mentions issues at
+all** — not `plot-context.sh`, not `plot-fleet-scan.sh`. The only CLI access is
+the raw adapter, with no filter, no plan-estate subtraction, and no answer-state
+vocabulary above it.
+
+**So a master agent asking *"what is unplanned?"* with the board closed must
+re-implement `refreshIssues` in shell.** That is precisely the failure the story
+names: *"a hand-written `for` loop over worktrees, rewritten from scratch
+perhaps a dozen times in one session, each time slightly differently."* The
+inbox is the same shape of question, one derivation away from a script that does
+not exist.
+
+##### Query — one script, both consumers
+
+```
+plot-issue-scan.sh [--json] [--limit N]
+```
+
+The Issue counterpart to `plot-fleet-scan.sh`, and it must be the **same
+derivation the board runs**, not a second implementation:
+
+```
+inbox = open(tracker) − referenced(every plan file)
+```
+
+Its output carries what the answer means, never just the rows:
+
+| field | why |
+|---|---|
+| `answer` | `answered` · `unsupported` · `failed` — the three, never collapsed |
+| `error` | the host's own words when `failed` |
+| `issues[]` | id, title, url, createdAt, kind |
+| `total` | what the tracker reported **before** the limit |
+| `shown` | what this answer contains — so *50 of 400* is expressible |
+| `posture` | `plot` or `jira`, since it changes what the inbox means |
+
+**`total` beside `shown` is what closes gap 2.** The board needs it as much as
+the CLI does; today neither can express truncation because the count is lost at
+the fetch.
+
+##### Monitor — the board's cadence, unchanged
+
+`refreshIssues` on the shared PR gate is right and this design does not move it.
+What it should gain is what the scan gains:
+
+- **the pre-limit total**, so the board can render *showing 50 of 400*
+- **`kind`**, fetched in the call already being made
+- **the epic's children** as the scope where a release-matched epic exists
+
+**No new timer.** A second cadence spending the same host budget is the failure
+the shared gate exists to prevent, and it applies to any new issue capability as
+firmly as it applied to the first.
+
+**The CLI has no monitor**, deliberately. A master agent asks when it wants to
+know; a background poll from the command line would compete with the board for
+the same budget while nobody was reading it — the coupling the story's job 4 is
+about.
+
+##### Status — what a master agent reports about issues
+
+Job 5 is *what do I show the operator?*, and the board is the surface. What the
+CLI needs is the **one-line answer** a supervisor puts in a status update:
+
+```
+inbox: 3 unplanned (of 12 open) · jira PROJ · answered
+inbox: unavailable — jira: 401 Unauthorized
+inbox: none — this host has no issue listing
+```
+
+Three shapes for the three answers, and the middle one is the point: **an
+unavailable inbox must never render as an empty one.** That is
+`an-outage-is-not-an-answer` in the place a supervisor is most likely to
+paraphrase it away.
+
+##### What the master agent must NOT get
+
+- **A write path of its own.** Creating a plan or story from an issue already
+  has two entrances — the board's routes and the skills — and both spawn agents
+  through the configured commands. A third would be a second implementation of
+  a write.
+- **A cached inbox.** The scan is stateless like its fleet sibling: asked, then
+  discarded. An inbox held between invocations is a record of what *was*
+  unplanned, and plans land while nobody is looking.
+- **Its own tracker credentials.** Everything goes through `plot-host.sh`, which
+  is the one place a host is spoken to.
+
+##### The one capability neither consumer has
+
+**Plan → Issue.** Both can answer *which issues are unplanned*; neither can
+answer *which plan answers `PROJ-123`* (gap 3). The same parser run that builds
+`referenced` already holds the mapping and discards everything but the keys.
+
+Under `Tracker: jira` this is not a convenience but the primary direction: the
+ticket is what a client, a PM and a standup name, and the plan estate knows the
+answer while nothing surfaces it. It is one field on `PlanMetaSchema` and one
+link on the row — no fetch, no new host call.
+
 #### Why three and not one
 
 Each owns a decision the others must not make, and each has a different reason
