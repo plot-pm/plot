@@ -15,8 +15,9 @@ The board's inbox and Plot's tracker-facing entity, specified in full.
 > — serves **job 5** (*what do I show the operator?*); its read/write controller
 > split is the worked example behind **job 4** (*what is safe to run?*).
 >
-> **Companion:** [The fleet's domain entities](DESIGN-entities.md) — the other
-> eight entities, and the organizing finding this one is the exception to.
+> **Companions:** [The fleet's domain entities](DESIGN-entities.md) — the other
+> eight entities, and the organizing finding this one is the exception to ·
+> [Story](DESIGN-story.md) · [Plan](DESIGN-plan.md)
 
 ## Contents
 

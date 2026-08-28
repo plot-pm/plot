@@ -14,7 +14,8 @@ Plot's umbrella for work that spans plans, specified as a domain object.
 > **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
 >
 > **Companions:** [The fleet's domain entities](DESIGN-entities.md) ·
-> [Issue](DESIGN-issue.md)
+> [Issue](DESIGN-issue.md) · [Plan](DESIGN-plan.md) — the solution-space half
+> of the pair this entity opens
 
 ## Contents
 

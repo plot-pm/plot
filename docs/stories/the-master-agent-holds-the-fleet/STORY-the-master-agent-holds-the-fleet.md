@@ -64,10 +64,14 @@ an operator watches are coupled through a resource neither of them measures.
   entity, specified in full: posture (`Tracker:` vs `Issue tracker:`), the
   domain object, three kinds in both directions, relations to Story/Plan/Sprint,
   actions, scope, four collaborators, fleet control, views and setup.
-- **[Story](DESIGN-story.md)** — Plot's umbrella for knowledge that spans plans:
-  the umbrella hierarchy, the domain object, the lifecycle nobody derives, its
-  four relations, and the four-way divergence between the estate, the schema,
-  the skill and the lint.
+- **[Story](DESIGN-story.md)** — Plot's umbrella for knowledge that spans plans,
+  and the **problem-space** half of the pair: the umbrella hierarchy, the domain
+  object, the lifecycle nobody derives, its four relations, and the four-way
+  divergence between the estate, the schema, the skill and the lint.
+- **[Plan](DESIGN-plan.md)** — the **solution-space** half, and the hub every
+  other entity relates through: seven states and the workflow phases they map
+  into, the parser as the single contract, and the inversion that Plan is the
+  one entity the CLI serves better than the board.
 
 ## Jobs to be done
 
