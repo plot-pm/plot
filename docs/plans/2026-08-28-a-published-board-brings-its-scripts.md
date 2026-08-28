@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Started:** 2026-08-28, Jan Wloka, `bug/the-package-carries-its-scripts`
+- **Started:** 2026-08-28, Jan Wloka, `bug/an-empty-estate-still-pulses`
 
 ## Approval
 
@@ -165,7 +166,7 @@ board started from it **in a repo that has at least one plan** reaches
 `ready: true`. **The empty-repo case belongs to the next wave** and does not
 pass here — stating that plainly so this wave is not read as the whole fix.
 
-### Streaming (Branch: bug/an-empty-estate-still-pulses)
+### Streaming (Branch: bug/an-empty-estate-still-pulses, PR: #503)
 
 `plot-fleet-scan.sh`'s no-plans exit emits the terminal `pulse` line under
 `--stream` before returning. **An empty estate is a valid answer, not a
