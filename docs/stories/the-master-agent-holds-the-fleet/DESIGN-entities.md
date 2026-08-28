@@ -233,6 +233,120 @@ right for an epic Plot *reads* and wrong for one it *creates*. The workflow's
 epic is **per release**, and it is Plot's own artefact — so it has an identity
 Plot minted, and a derivation cannot invent one. The correction is below.
 
+#### The relations — which Plot artefact an Issue maps to
+
+Settled 2026-08-28. `kind` selects the counterpart, and this is the rule that
+makes the field load-bearing rather than decorative:
+
+| `kind` | Plot artefact | mapping |
+|---|---|---|
+| `story` | **Story** | one ticket · one story |
+| `epic` | **Release** | one epic · one release |
+| anything else | **Plan** | one ticket · one or more plans |
+
+```
+Issue(kind=story)  ─────►  Story  ──┐
+                                    ├──►  Plan  ──►  Feature ticket ──┐
+Issue(kind=bug|task|…) ─────────────┘                                 │
+                                                                      ▼
+Issue(kind=epic)  ◄────────────────  Release  ◄─────────────  epic collects
+```
+
+##### The three are not parallel — two are inbound, one is outbound
+
+The arrows look alike and the mechanics are opposite, which is the distinction
+to hold on to:
+
+| relation | who mints the id | Plot's job |
+|---|---|---|
+| story → Story | **the tracker** (a customer filed it) | *record* the reference |
+| other → Plan | **the tracker** | *record* the reference |
+| epic → Release | **Plot** | *mint it, and remember having minted it* |
+
+So the first two are references Plot writes down, and the third is an artefact
+Plot creates. A reference that goes missing is a broken link; an artefact minted
+twice is two epics for one release.
+
+##### `story` → Story
+
+*One ticket · one story* — the workflow's own words for the Discovery input.
+
+**The link exists as a naming convention and nothing else.** `story-tracking`
+names story directories `{slug}/` **or** `{JIRA-ID}-{slug}/`, so the ticket key
+can be part of the path. Verified 2026-08-28: no story in this repo uses the
+keyed form, and no STORY file carries a ticket field in its frontmatter.
+
+That is thinner than the plan relation, which has a parsed `Issue:` field. A
+`ticket:` frontmatter key would make it symmetric and machine-readable — but the
+directory convention already exists and works for a human, so this is a gap to
+name rather than a defect to rush.
+
+**The umbrella rule governs whether a Story is created at all**, and it is
+`story-tracking`'s, not this entity's: *a well-described ticket stays the
+umbrella*, and *"implement this ticket as described" never opens a story*. So
+`kind=story` says which **counterpart type** applies; it does not say a Story
+must exist.
+
+##### anything else → Plan
+
+The default, and the only relation fully built today. `Issue:` on a plan is
+parsed (`#N` and `PROJ-123` alike), and one plan may answer several signals —
+*"a plan can answer several"*, which is why the field is a list.
+
+**One ticket may also produce several plans.** The workflow's *Build n plans*
+step is exactly this: one approved story fans out into n plans, each citing the
+same origin. So the cardinality is many-to-many, and neither side is a key.
+
+This is where gap 3 bites: the reference is recorded on the plan and **never
+read back**, so the board can say which tickets are unplanned but not which plan
+answers `PROJ-123`.
+
+##### `epic` → Release
+
+The outbound one, and the only relation where Plot mints the identity.
+
+```
+epic(2.11.0)  ⟷  Release 2.11.0
+```
+
+- **Keyed by the release version** — the key the estate already carries, since
+  sprint files declare `Release:` from the day they open.
+- **Membership is the feature tickets** of every plan in that release, added at
+  creation rather than swept in later.
+- **It closes with the release**, which is the lifecycle Plot owns. A customer
+  story's state belongs to the tracker; an epic's state belongs to Plot.
+
+**The identity must be recorded where a re-run finds it.** `/plot-release` is
+idempotent by design — every step tests the source it would have written — and
+minting an epic breaks that unless the epic's key is written down. The existing
+pattern is `→ #N` on a branch line: the artefact records what was created, so
+the second run finds it rather than repeating the act. The epic's id belongs
+beside `Released:` for the same reason.
+
+##### What the mapping must not become
+
+- **Not an importer.** `kind=epic` does not mean *read its children and create
+  plans*. The epic Plot writes and the epic a customer might file are different
+  things, which is exactly why `kind` alone is not enough — see below.
+- **Not a type equivalence.** A `bug` ticket does not force a `Type: bug` plan.
+  The plan's type is a decision about the work; the ticket's kind is a fact
+  about the signal.
+- **Not a requirement.** A plan needs no `Issue:`; a release needs no epic. Both
+  relations are optional, and the majority of this repo's plans carry neither.
+
+##### The ambiguity `kind` alone cannot resolve
+
+An epic Plot minted and an epic a customer filed have the **same `kind`** and
+opposite meanings — one is Plot's own release harbour, the other is an inbound
+signal that might deserve a Story. Distinguishing them needs provenance, not
+type: *did Plot create this?*
+
+The cheapest honest answer is that Plot knows its own by **having recorded the
+id** — the same record idempotency already requires. An epic whose id appears
+beside a `Released:` line is Plot's; any other is inbound. No new field, and it
+fails in the safe direction: an unrecorded epic is treated as inbound, which
+shows a row rather than hiding one.
+
 #### Why the timing is the design
 
 The workflow says the feature ticket is written *"only now, because the cut now
@@ -452,6 +566,23 @@ It has three:
 
 `kind` is therefore not a mirrored status and does not age into a lie — it is
 **structural**, and it is what keeps the three kinds apart.
+
+**And it is what selects an Issue's counterpart**: `story` → Story, `epic` →
+Release, anything else → Plan. See
+[the relations](#the-relations--which-plot-artefact-an-issue-maps-to). Without
+`kind` there is no rule to apply, so the field moves from *deferred for want of
+a consumer* to *required by the mapping*.
+
+**It must be fetched, and today it is not.** Neither arm asks for it — GitHub
+requests `number,title,url,createdAt`, Jira requests `summary,created`. Both can
+supply it free in the call already being made (`--json issueType`, `fields=…,
+issuetype`), so this is a field to add rather than a call to add.
+
+**And it needs a value for *cannot tell*.** A tracker with no type concept, an
+older payload, or a type Plot does not recognise must render as `''` — the same
+absent-is-not-false shape every other field here uses. The mapping then falls to
+the default (Plan), which is the safe direction: it offers a plan for something
+that might have deserved a story, rather than silently filing it nowhere.
 
 ---
 
