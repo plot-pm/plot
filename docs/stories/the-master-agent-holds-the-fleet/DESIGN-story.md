@@ -191,6 +191,48 @@ flow produced for related work. Whether the standalone spec path should
 continue to exist in a Plot repo is a smaller question than it looked — a
 direct brainstorm is still legitimate; it simply has not been placed.
 
+##### Not a setup activity — but setup has a gap beside it
+
+**"`story-tracking` invokes `brainstorming`" is a skill edit, not setup.** It
+changes how the skill works, ships in the repo, and is true for every adopting
+project — there is nothing per-repo to record, so no config key and no setup
+question.
+
+The test Plot already applies: **setup writes config keys and verifies
+capabilities; it does not change how skills behave.** A repo cannot opt out of
+brainstorming any more than it can opt out of the triage front door.
+
+**What *is* setup's business is the per-repo half**, and it is currently absent
+altogether. Measured 2026-08-28: **neither `/plot-board-setup` nor `/plot-init`
+mentions stories at all** — not `Story directory`, not `Story command`, not
+`Story index`. Every story key is undeclared in every adopting repo, running on
+its default.
+
+| key | default | what setup should do |
+|---|---|---|
+| `Story directory` | `docs/stories/` | probe for an existing home; propose it |
+| `Story index` | `README.md` | ask only where a story home exists |
+| `Story command` | — | needed for the board's *Create story*; verify like `Idea command` |
+
+**The probe already has the shape.** `git ls-files '*STORY-*.md'` is the skill's
+own home-discovery command, and it is exactly the kind of structural signal
+`plot-detect-repo.sh` reports for trackers and CI: several homes found →
+**ask**, one found → **propose it**, none found → **write nothing**, because
+absence of a story home is not evidence against stories, only against having
+started.
+
+That last clause matters for the same reason the tracker's does: **a wrong
+`Story directory` sends `/story-tracking` to create a story where nobody looks
+for one**, and a missing one sends it to a default that may be wrong in a
+multi-unit repo — the case the skill goes out of its way to support and the
+board cannot see (§6).
+
+**And the board's *Create story* is unverifiable today.** `handleStory` refuses
+with `no-story-command` when the key is unset, and no setup step ever writes it
+— so the action ships refused in every repo that has not found the key by
+reading the source. That is the same 4d shape as the tracker: a capability the
+config accepts and nothing proves.
+
 ##### The gate carries over
 
 Brainstorming's hard gate — *"do NOT invoke any implementation skill … until you
@@ -574,6 +616,10 @@ them.
   cause. With `brainstorming` producing the content, a template becomes the
   shape that output is poured into rather than a file copied blind — still
   possibly worth having, no longer load-bearing.
+- **Should setup ask about stories at all?** Neither setup skill mentions them
+  today, so every story key runs on its default. The probe already exists
+  (`git ls-files '*STORY-*.md'`), and `Story command` is a capability the board
+  offers and nothing verifies.
 - **Should the standalone spec path remain in a Plot repo?** A direct
   brainstorm writes `docs/superpowers/specs/…`; invoked through
   `story-tracking` it lands as a story. Both are live here.
