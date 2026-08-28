@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -1105,6 +1105,228 @@ test('plan-meta: a fenced ## Branches example is illustration too (latent bug, n
   assert.deepEqual(meta.branches, ['feature/actually-real'],
     'the real section wins, not the fenced example');
   assert.deepEqual(meta.prs, [5], 'and only its PR counts');
+});
+// A CLAIM IS A LIST ITEM — the branch matcher is anchored to `- ` + backtick.
+//
+// `## Branches` sections cite other plans' branches to declare dependencies,
+// and the matcher read every backticked name on every line as a claim. So a
+// plan that merely MENTIONED another plan's branch claimed it: the board
+// rendered the branch twice, in two sections, as `claimed twice`, and
+// /plot-dispatch would fan out a branch the plan does not own.
+//
+// The anchor is licensed by a MEASUREMENT, not a preference. Swept across
+// `docs/plans/` on 2026-08-27: 259 lines under `## Branches` carry a backticked
+// branch name and all 259 are anchored list items — the stricter rule drops no
+// real claim. That sweep is what makes this safe, and it is why the count
+// assertion below is DIFFERENTIAL rather than a hardcoded total.
+//
+// Rewording the citations was the old repair, and it is a rule an author must
+// remember in the one section where writing branch names is the entire point.
+// It had been forgotten twice. Gates over rules: the parser is now UNABLE to
+// read a citation as a claim.
+
+test('plan-meta: a branch cited in a blockquote is not a claim', () => {
+  // THE EXACT SHAPE FROM `every-section-has-one-subject`, which is where this
+  // was found on the live board. The blockquote explains why the wave is
+  // ordered where it is — precisely what a `## Branches` section should say —
+  // and the whole line is prose. Nothing on it is a claim.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Inverted
+
+> **Depends on \`approval-hands-the-work-to-agents\` wave 1**
+> (\`feature/the-registry-knows-which-agents-live\`), and the dependency is not
+> tidiness. Measured 2026-08-22: the registry records a launch and nothing
+> marks it finished.
+
+- \`feature/working-is-about-agents\` — WORKING renders the agents list.
+`);
+  assert.deepEqual(meta.branches, ['feature/working-is-about-agents'],
+    'only the list item is a claim; the blockquote cites a dependency');
+  assert.ok(!meta.branches.includes('feature/the-registry-knows-which-agents-live'),
+    'the cited branch belongs to the plan that LISTS it, not to this one');
+});
+
+test('plan-meta: a branch cited mid-sentence inside a claim line is not a second claim', () => {
+  // THE CASE THAT DIFFERS FROM THE BLOCKQUOTE, and the one a naive anchor
+  // fails. Here the line IS a claim and the citation sits INSIDE it: the item
+  // opens with the branch it owns, then names another plan's branch as the
+  // dependency it waits on. An implementation that only skipped non-list lines
+  // would pass the blockquote test and still take two branches from this line.
+  //
+  // The shape is `a-dispatch-hands-over-a-brief`, the second of the two rows
+  // that wore `claimed twice` on the board.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Handed over
+- \`feature/the-board-asks-for-a-brief\` — waits for the brief. **Depends on \`an-approved-plan-offers-its-two-starts\` WAVE 2** (\`feature/implement-runs-from-the-board\`) — on the wave landing, not on its plan PR merging.
+`);
+  assert.deepEqual(meta.branches, ['feature/the-board-asks-for-a-brief'],
+    'the item claims the branch it opens with, and nothing else on the line');
+  assert.ok(!meta.branches.includes('feature/implement-runs-from-the-board'),
+    'the mid-sentence citation is a dependency, not a claim');
+});
+
+test('plan-meta: a branch cited on a wrapped continuation line is not a claim', () => {
+  // THE SAME CITATION, WRAPPED — which is how it actually appeared in
+  // `a-dispatch-hands-over-a-brief`. A continuation line does not start with
+  // `- `, so the anchor excludes it; but the exclusion is worth pinning
+  // separately because the description above it wraps freely and an author
+  // controls neither where the line breaks nor what lands at its start.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Handed over
+- \`feature/the-board-asks-for-a-brief\` — waits for the brief. **Depends on
+  \`an-approved-plan-offers-its-two-starts\` WAVE 2**
+  (\`feature/implement-runs-from-the-board\`) — on the wave landing.
+`);
+  assert.deepEqual(meta.branches, ['feature/the-board-asks-for-a-brief'],
+    'the claim is the item head; its wrapped tail carries a citation only');
+});
+
+test('plan-meta: a branch named in an HTML comment is not a claim', () => {
+  // A COMMENT RECORDS A REMOVAL, and recording that a branch is gone is the
+  // opposite of claiming it. The old matcher read this as a live claim, so a
+  // plan that documented dropping a branch went on dispatching it.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`bug/still-here\` — the one real claim
+<!-- \`feature/implement-and-dispatch-take-a-plan\` was removed 2026-08-22. -->
+`);
+  assert.deepEqual(meta.branches, ['bug/still-here'],
+    'the comment names a branch this plan no longer owns');
+});
+
+test('plan-meta: the anchor drops no real claim across the whole estate (differential)', () => {
+  // THE GUARD AGAINST A STRICTER MATCHER SILENTLY LOSING WORK. This is the
+  // failure mode the change must not have, and it cannot be asserted with a
+  // number: the plan was written against 248 claims, main carried 200 a few
+  // days later, and this file would fail a correct implementation the next time
+  // a plan lands. So the assertion is DIFFERENTIAL — every line under
+  // `## Branches` that the loose matcher accepts is compared against what the
+  // anchored one accepts, over the real estate, and the two must agree.
+  //
+  // A DROP here is not necessarily a bug in the parser: it means a plan in
+  // `docs/plans/` writes a claim in a shape the anchor refuses, and the
+  // failure message names the file and line so a human can read it and decide
+  // which of the two is wrong.
+  const plansDir = path.join(here, '..', '..', 'docs', 'plans');
+  const prefixes = 'idea|feature|bug|docs|infra';
+  const loose = new RegExp('`(' + prefixes + ')\\/[^`]+`');
+  const anchored = new RegExp('^[ \\t]*-[ \\t]+`(' + prefixes + ')\\/[^`]+`');
+
+  const files = readdirSync(plansDir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.md'))
+    .map((e) => path.join(plansDir, e.name));
+  assert.ok(files.length > 0, 'the estate has plans to sweep');
+
+  const dropped = [];
+  let anchoredLines = 0;
+  for (const file of files) {
+    let section = '';
+    let inFence = false;
+    let branchesSeen = false;
+    const lines = readFileSync(file, 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      if (line.startsWith('```')) { inFence = !inFence; return; }
+      if (inFence) return;
+      if (line.startsWith('## ')) {
+        // `## Branches` is the only vulnerable dialect: in `## Waves` the
+        // branch comes from the heading, so a body citation was never a claim.
+        if (line.startsWith('## Branches')) { section = branchesSeen ? '' : 'branches'; branchesSeen = true; }
+        else section = '';
+        return;
+      }
+      if (section !== 'branches') return;
+      if (anchored.test(line)) anchoredLines++;
+      else if (loose.test(line)) dropped.push(`${path.basename(file)}:${i + 1}: ${line.trim()}`);
+    });
+  }
+
+  assert.deepEqual(dropped, [],
+    'anchoring must drop no line the loose matcher read as a claim');
+  assert.ok(anchoredLines > 0, 'the sweep actually examined branch claims');
+});
+
+test('plan-meta: annotations still bind after anchoring', () => {
+  // THE ANNOTATIONS ARE READ OFF THE SAME LINE the branch was matched on, so an
+  // anchor change can break them without touching claim detection — `→ #N`,
+  // `deferred`, `claimed` and `moved` are all parsed around the match. They are
+  // asserted together here because that shared dependency is invisible from
+  // either side alone.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+- \`bug/merged\` — landed → #501
+- \`bug/put-off\` — not now <!-- deferred: superseded by the anchor 2026-08-27 -->
+- \`bug/taken\` — in flight <!-- claimed: agent-7 2026-08-27 -->
+- \`bug/bare-defer\` — <!-- deferred -->
+`);
+  assert.deepEqual(meta.branches,
+    ['bug/bare-defer', 'bug/merged', 'bug/put-off', 'bug/taken'],
+    'all four items are claims');
+  assert.deepEqual(meta.prs, [501], 'the arrow annotation still binds');
+
+  const wave = meta.waves[0];
+  const byName = Object.fromEntries(wave.branches.map((b) => [b.branch, b]));
+  assert.equal(byName['bug/put-off'].deferred, true, 'deferred still binds');
+  assert.equal(byName['bug/put-off'].deferred_reason,
+    'superseded by the anchor 2026-08-27', 'and carries its reason');
+  assert.equal(byName['bug/bare-defer'].deferred, true, 'the bare form still binds');
+  assert.equal(byName['bug/taken'].claimed, 'agent-7 2026-08-27', 'claimed still binds');
+  assert.equal(byName['bug/merged'].deferred, false, 'an unannotated branch is not deferred');
+});
+
+test('plan-meta: an indented list item is still a claim', () => {
+  // THE ANCHOR ALLOWS LEADING WHITESPACE, because a nested list item is still
+  // a list item. Pinned so a future tightening to `^- ` has to argue with a
+  // test rather than pass quietly.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Branches
+
+  - \`bug/indented\` — nested but claimed
+`);
+  assert.deepEqual(meta.branches, ['bug/indented'], 'indentation does not unmake a claim');
 });
 
 // `Issue:` under a non-GitHub tracker — a plan can cite a tracker KEY
