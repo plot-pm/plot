@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Started:** 2026-08-29, Jan Wloka, `feature/the-board-knows-what-moved`
+- **Started:** 2026-08-29, Jan Wloka, `feature/the-monitors-answer-from-memory`
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 
@@ -238,7 +239,7 @@ signals themselves become the cost.
 
 ### Watched
 
-- `feature/the-monitors-answer-from-memory` — BranchMonitor, PlanMonitor and WorktreeManager hold last answers and recompute only what a signal invalidates, feeding the scan through the `PLOT_TERMINAL_CACHE`-shaped channel. Tests: a second pulse over an unchanged estate spawns dramatically fewer git processes, asserted by count; a changed ref makes exactly that branch recompute; the scan's output is byte-identical to an uncached run
+- `feature/the-monitors-answer-from-memory` → #508 — BranchMonitor, PlanMonitor and WorktreeManager hold last answers and recompute only what a signal invalidates, feeding the scan through the `PLOT_TERMINAL_CACHE`-shaped channel. Tests: a second pulse over an unchanged estate spawns dramatically fewer git processes, asserted by count; a changed ref makes exactly that branch recompute; the scan's output is byte-identical to an uncached run
 
 ## Done when
 
