@@ -272,12 +272,45 @@ export function splitBranch(
   };
 }
 
-/** Minutes as the board says them: `45m`, `3h`, `2d`. */
+/**
+ * Minutes as the board says them: `45m`, `3h`, `2d`, `5mo`.
+ *
+ * THE MONTHS ARM IS NOT A NEW RULE — it is this estate's existing one, reaching
+ * the last clock that lacked it. Three things age a duration here: `humanAge`
+ * writes the server's prose notes, `waitingLabel` writes the waiting column, and
+ * this writes the row's age cell. `waitingLabel` already scales, and its
+ * docstring names the defect — *"waiting 180d is arithmetic the reader has to
+ * do"* — with a test titled *"scales the unit so a wait never reads 180d"*. The
+ * rule was stated and ratified for the sibling clock; this one was left behind.
+ *
+ * Measured on this estate 2026-08-28, 27 remote branches: nine under a day and
+ * eleven past thirty, tailing to 165 days. Rendered in days that column reads
+ * `119d 120d 92d 165d` — four three-digit numbers a reader decodes one at a
+ * time, which is the plan's own *"noise at 80"* arriving at 31 rows. Scaled, an
+ * idle branch differs from an active one in the character the eye lands on
+ * first, which is what *at a glance* means.
+ *
+ * SIXTY DAYS, matching `waitingLabel` to the day. Any other threshold would put
+ * a third scale in a column whose whole argument is one vocabulary — the reason
+ * `statusTone` keys on the word rather than the state.
+ *
+ * It also fixes a latent overflow: `TupleRow` budgets slot 6 as *"an age is four
+ * characters"* and the cell is `shrink-0`, so a fifth character pushes the grid
+ * rather than truncating. Days already broke that budget — every branch past
+ * 999 days rendered `1000d` and shifted its row one column wide.
+ *
+ * The new tail is bounded but not infinite: `100mo` is five characters again at
+ * 3000 days, which is 8.2 years against a repository whose first commit is
+ * 2026-02-07. `waitingLabel` carries the identical unbounded tail, and a fourth
+ * unit to close it would restore the extra vocabulary this arm exists to avoid.
+ */
 export function tupleAgeText(minutes: number): string {
   if (minutes < 60) return `${minutes}m`;
   const h = Math.floor(minutes / 60);
   if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
+  const d = Math.floor(h / 24);
+  if (d < 60) return `${d}d`;
+  return `${Math.floor(d / 30)}mo`;
 }
 
 /** Days in the unit that reads: `today`, then days, then months. */
