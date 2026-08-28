@@ -176,9 +176,9 @@ which is the difference between a field that exists and one that is used.
 | `story` | slug | **121** | most plans belong to a story |
 | `assignee` | handle | 50 | |
 | `issues[]` | numbers | **4** | 2% — see §5 |
-| `branches[]` | strings | 155 | both dialects, one array |
-| `waves[]` | objects | 155 | |
-| `prs[]` | numbers | 136 | |
+| `branches[]` | strings | 155 | **flattened from `waves[]`** — see below |
+| `waves[]` | objects | 155 | **the only field that keeps the structure** |
+| `prs[]` | numbers | 136 | **flattened past the branch it belongs to** |
 | `malformed_prs[]` | strings | **0** | near-misses; none in this estate |
 | `changelog[]` | strings | 91 | **what a plan changes** |
 | `review` | normalized | 150 | `review_raw` is unconsumed — see below |
@@ -411,6 +411,86 @@ longest.** The front-matter migration (§14) is where kind 2 gets its structure;
 kind 1 can go the moment the object exposes the normalized answer, which it does
 by construction; and `state_raw` goes only once `plan.state.asWritten` exists to
 hold what the normalization discards.
+
+### Waves hold branches; branches hold PRs — and the record flattens both
+
+**Yes, and the flat arrays are the clearest case for a domain object in this
+document.**
+
+The plan file states the containment in **one line per wave**:
+
+```markdown
+### Truth (Branch: feature/rows-mark-real-activity, PR: #182)
+### Prominence (Branch: feature/activity-marker-glows, PR: #189)
+```
+
+The parser reads both halves of that pairing — and emits them into **three
+separate arrays**:
+
+```json
+"branches": ["feature/activity-marker-glows", "feature/group-shows-inner-activity",
+             "feature/rows-mark-real-activity", "feature/unpushed-work-shows-still"],
+"prs":      [182, 189, 199, 201],
+"waves":    [{"name":"Truth","branches":[{"branch":"feature/rows-mark-real-activity"}]}, …]
+```
+
+**`waves[]` is the only one that keeps the structure.** `branches[]` is the same
+set flattened and sorted; `prs[]` is flattened further still, and **nothing in
+it says which branch each PR belongs to.**
+
+#### The flattening is actively misleading
+
+`branches[]` is sorted **alphabetically**; `prs[]` is sorted **numerically**. So
+`branches[0]` is `feature/activity-marker-glows` while `prs[0]` is `182` — which
+belongs to `feature/rows-mark-real-activity`.
+
+**Any consumer pairing them by index is wrong**, and the arrays give no hint of
+it. The association exists in the file, is read by the parser, and is discarded
+before anything downstream can use it.
+
+#### What the object should hold
+
+**One structure, and the flat views derived from it:**
+
+```
+Plan
+ └── waves[]          Wave   name, verdict
+      └── branches[]  Branch name, deferred, claimed
+           └── prs[]  PR     number, repo
+```
+
+```ts
+plan.branches          // flattened, for callers that want the set
+plan.prs               // flattened, likewise
+branch.prs             // the association the arrays lose
+plan.wave(branch)      // the other direction
+```
+
+**The flat lists stay available and stop being the record.** They are what
+`plot-impl-status.sh` and the delivery gate ask for — *"which branches, which
+PRs"* — and deriving them from the tree costs nothing, while deriving the tree
+from them is impossible.
+
+#### Why it is emitted flat today
+
+**Because the record is JSON lines from a shell parser.** `waves[]` already
+proves the format can carry nesting, so this is not a limitation — it is that
+`branches` and `prs` predate `waves` and were never re-expressed in terms of it.
+
+The parser's own docs say the two dialects *"emit the same array"* deliberately,
+so a migration reading one file at a time never sees a plan go empty. **That
+compatibility argument holds for `branches[]`; it never applied to `prs[]`**,
+which is flattened past the point where either dialect could reconstruct it.
+
+#### The one-wave-one-branch model makes this worse, not better
+
+The settled model is *plan → \* wave → **1** branch* — so in the intended shape
+each wave holds exactly one branch and one PR, and `branches[]` and `prs[]`
+would be parallel by construction.
+
+**They are not, because 8 waves hold several branches** (§6). So the flattening
+is only safe under a model the estate violates — and it is exactly the plans
+that violate it whose arrays are most misleading.
 
 ### Three parser rules worth lifting
 
