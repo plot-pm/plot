@@ -168,7 +168,7 @@ which is the difference between a field that exists and one that is used.
 |---|---|---|---|
 | `file` | path | 158 | always present |
 | `format` | `list` \| `frontmatter` | 158 | which spelling this file uses |
-| `state` / `state_raw` | state | 155 | written `Phase:`/`status:` in the file; 3 files are not plans |
+| `state` | state | 155 | written `Phase:`/`status:`; `state_raw` is lossy-mapped, not spelling — see below |
 | `state_alt` / `state_alt_raw` | state | **0** | two states in one file — modelled, never seen |
 | `type` | `feature`\|`bug`\|`docs`\|`infra` | 155 | |
 | `title` | string | 157 | |
@@ -309,7 +309,6 @@ treatment.
 |---|---|---|
 | `review_raw` `in-session` | `review` `in-session` | **nothing — identical** |
 | `impl_raw` `own branches` | `impl` `own-branches` | **spelling** |
-| `state_raw` `Released` | `state` `released` | **casing** |
 
 **These exist because the parser emits a flat record.** It cannot offer
 behaviour, so it ships both forms and lets each caller choose — which is exactly
@@ -320,13 +319,59 @@ plan.impl              // 'own-branches' — the answer
 plan.impl.asWritten    // 'own branches' — only if a caller ever needs it
 ```
 
-**And nothing needs it.** Measured 2026-08-28: `state_raw` has **one** consumer
-— `plot-reconcile-scan.sh:387` packs it into a `|`-separated row and never reads
-it back. `review_raw` and `impl_raw` have **none**.
+**And nothing needs them.** Measured 2026-08-28: `review_raw` and `impl_raw`
+have **no consumer at all**. (`state_raw` has one — `plot-reconcile-scan.sh:387`
+packs it into a `|`-separated row and never reads it back — but it is a
+different kind of field; see below.)
 
 So they are not even a view concern; they are unconsumed. On the domain object
 they become a method nobody has yet called, and the flat record's obligation to
 guess disappears.
+
+#### `state_raw` is a third kind — a lossy mapping, not a spelling
+
+**It does not belong in Kind 1**, though this estate makes it look like it does.
+Measured across all 158 plans, every pair is pure casing:
+
+```
+113  'Released'   → 'released'
+ 31  'Delivered'  → 'delivered'
+  5  'Approved'   → 'approved'
+  3  'Superseded' → 'superseded'
+  3  'Draft'      → 'draft'
+```
+
+**But that is a property of the estate, not of the field.** The parser does two
+things a casing normalizer does not:
+
+**It maps synonyms onto one state.**
+
+```awk
+if (t == "ready-for-review" || t == "in-review") return "approved"
+```
+
+`ready-for-review` and `approved` are **different words for one state**, and the
+parser's own docs draw the boundary carefully — those normalize, while a
+neighbouring value deliberately does not, *"those are synonyms; this is not."*
+So the raw can hold a word the normalized form has discarded.
+
+**And it tokenizes.** It strips leading and trailing non-letters and scans for a
+known word, so `Phase: Approved (pending CI)` yields `approved` — with the
+qualifier surviving **only** in the raw.
+
+**Which makes `state_raw` genuinely different from `impl_raw`.** `impl_raw`
+differs by a hyphen and always will. `state_raw` can differ by **meaning**:
+a synonym collapsed, or a qualifier dropped.
+
+**It still should not be a field.** The same method shape covers it —
+`plan.state` for the answer, `plan.state.asWritten` where a reader needs to see
+that the file said *ready-for-review* — and the object is where the losslessness
+is preserved rather than duplicated.
+
+**But it must be dropped last, not first.** Kind 1 is safe to delete because
+nothing consumes it and nothing is lost. Deleting `state_raw` while a plan
+somewhere says `Phase: Approved (pending CI)` loses the qualifier, and the
+estate that proves it safe today is one repo's.
 
 #### Kind 2 — records with no normalized twin, which need parsing
 
@@ -361,9 +406,11 @@ nobody reads. Removing `approved_raw` before there is a structured record to
 replace it would lose the only copy of the approval — the fields other tooling
 depends on most.
 
-**So the order is: parse kind 2 first, then delete kind 1.** The front-matter
-migration (§14) is where kind 2 gets its structure; kind 1 can go the moment the
-object exposes the normalized answer, which it does by construction.
+**So the order is: parse kind 2 first, delete kind 1, and keep `state_raw`
+longest.** The front-matter migration (§14) is where kind 2 gets its structure;
+kind 1 can go the moment the object exposes the normalized answer, which it does
+by construction; and `state_raw` goes only once `plan.state.asWritten` exists to
+hold what the normalization discards.
 
 ### Three parser rules worth lifting
 
