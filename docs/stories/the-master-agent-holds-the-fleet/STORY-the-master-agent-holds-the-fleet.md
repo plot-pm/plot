@@ -84,6 +84,10 @@ and a shell subprocess to parse it back.
   other entity relates through: seven states and the workflow phases they map
   into, the parser as the single contract, and the inversion that Plan is the
   one entity the CLI serves better than the board.
+- **[PR](DESIGN-pr.md)** — a branch's bid to land and the evidence a plan was
+  implemented: the only entity Plot pays per request for, and the one whose
+  `state` means different things on different API surfaces — REST says `closed`
+  for a PR GraphQL calls `MERGED`.
 - **[Branch](DESIGN-branch.md)** — a wave's unit of work and the claim on it:
   the push *is* the lock, git outranks the plan's annotation, and its state is
   only as fresh as the last fetch — measured, 43 merged branches reading as 0.
