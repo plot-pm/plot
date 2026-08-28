@@ -52,6 +52,30 @@ It is the third umbrella, and it differs from the other two by *axis*:
 A plan can sit in all three at once, and they do not nest: a story spans
 sprints, a sprint spans stories, and a release may draw from both.
 
+### It binds plans to a release
+
+**The sprint is the binding element**: it is what attaches a set of plans to a
+version *before that version exists*.
+
+```
+plan ──Sprint:──► sprint ──Release:──► release      knowable while planned
+plan ──────Released:───────────────► release         knowable only after the cut
+```
+
+Measured across 113 released plans: **110 carry `Released:`** and **43 carry
+`Sprint:`** — so two thirds reached a release with no sprint, and were knowable
+only retrospectively, by asking git which tag contains each merge.
+
+**That is the sprint's structural job.** A release is `planned` for most of its
+life (Release §4), and during that time **the sprint is the only artefact that
+knows what it will contain** — which is why the release gate reads the sprint
+rather than the tag.
+
+**And every plan that reaches Testing makes the release more likely and more
+valuable.** That is a live quantity the sprint carries and the release cannot:
+`plot-sprint-release.sh` scores every item `done`/`open`/`disputed`, and **that
+tally is the release's readiness**, moving each time a plan is delivered.
+
 ### It commits; it does not contain
 
 **A sprint does not own its plans.** Plans declare `Sprint: <slug>` and the

@@ -250,10 +250,60 @@ outside creates one. Under publishing it produces an epic (§2), and under
 
 | relation | mechanism | state |
 |---|---|---|
-| Plan → Release | `Released: <date>, <version>` | **built** |
-| Sprint → Release | `Release: <version>` in the sprint | **built** — the gate's key |
+| Plan → Release | `Released:` — **retrospective**, 110 of 113 | **built** |
+| Plan → Sprint → Release | `Sprint:` — **prospective**, 43 of 113 | **built** — the binding |
+| Sprint → Release | `Release: <version>` | **built** — the gate's key |
 | Release → Issue | the epic, keyed by version | posture 2, **unbuilt** |
 | Release → Plans | **derived** — `git tag --contains` | **built** |
+
+### The Sprint is the binding element
+
+**A plan reaches a release two ways, and they are not equivalent:**
+
+```
+plan ──Sprint:──► sprint ──Release:──► release       PROSPECTIVE — before the cut
+plan ──────Released:───────────────► release          RETROSPECTIVE — after it
+```
+
+**Measured across 113 released plans, 2026-08-28:**
+
+| | count |
+|---|---|
+| carry `Released:` | **110** |
+| carry `Sprint:` | **43** |
+| carry neither | 3 |
+
+**So 67 plans reached a release with no sprint at all** — and the difference is
+*when the membership is knowable*.
+
+**The sprint binds prospectively.** *These plans are intended for 2.11.0* is a
+claim made while the release is `planned` (§4), and it is the **only** way a
+release's contents are knowable before its tag exists. Without a sprint, a
+release is knowable only afterwards, by asking git which tag contains each
+plan's merge commit (§8).
+
+**That is what makes the sprint the binding element**: it is the artefact that
+holds a `planned` release together, and the release gate reads through it —
+`plot-sprint-release.sh` answers *"is 2.11.0 ready?"* by asking the sprint, not
+the tag.
+
+#### And the value accumulates as plans reach Testing
+
+**Every plan that reaches Testing makes the release both more likely and more
+valuable** — and that is a live quantity only the sprint can carry:
+
+| | what it knows |
+|---|---|
+| the **release** | nothing until its tag exists |
+| the **sprint** | how much of its commitment is done, **right now** |
+
+`plot-sprint-release.sh` already computes it: every Must / Should / Could item
+as `done`, `open` or `disputed`. **That tally *is* the release's readiness**,
+and it moves every time a plan is delivered.
+
+**Which is why the gate lives on the sprint and the state lives on the
+release.** The sprint answers *how close are we*; the release answers *did it
+ship*. Neither can answer the other's question.
 
 **Two sprints may target one release** — *"two teams, one train"* — so a Release
 has no single sprint, and any derivation that assumes one is wrong.
