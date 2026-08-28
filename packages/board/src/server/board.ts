@@ -20,7 +20,7 @@ import {
   type PlanMeta,
   type WaveSummary } from '../contract/schema.js';
 import { dispatchLogExists } from './dispatch.js';
-import { prsByNumber, pulseFor } from './fleet.js';
+import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -643,8 +643,8 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetPulse | null): Wa
 }
 
 /**
- * True when every one of a plan's non-deferred branches has merged — the
- * checkable input that lets a plan reach the phase after Development on its own.
+ * Whether every one of a plan's non-deferred branches has landed — the checkable
+ * input that lets a plan reach the phase after Development on its own.
  *
  * *Every wave being complete is a measurement; delivering is a decision*
  * (`docs/board-domain-model.md`). This is that measurement, and only that: it
@@ -652,39 +652,85 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetPulse | null): Wa
  * board never flips a phase to `delivered` from it — see `buildBoard`, which
  * moves the CARD's column and writes no record.
  *
+ * THREE ANSWERS, NOT TWO, and the third is why this stopped returning a boolean.
+ * `unknown` is *the scan did not finish, so nothing here is a measurement of
+ * anything*; `not-merged` is *the work has not landed*. Those need opposite
+ * responses from a reader — wait and retry, versus go finish the branch — and
+ * one `false` cannot carry both. It did until 2026-08-27, when an operator was
+ * told a plan whose two PRs had merged the day before had a branch that was not
+ * merged: the scan had timed out, the lookup below missed, and `false` was read
+ * as the negative rather than as the absence it actually was.
+ *
+ * `complete` is the SCAN's completeness — `entry.pulseComplete`, true only once
+ * the scan's terminal line lands. It is passed in rather than read off the pulse
+ * because a `FleetPulse` cannot carry it: a partial pulse is assembled by
+ * `publishPartial`, which composes the plans that have arrived over the ones
+ * still on screen and sets the flag BESIDE the pulse, on the cache entry.
+ *
  * Merge state is read from the PULSE, never the plan file: a `merged` branch is
  * one the scan resolved against `origin/<main>`, which is the same derivation
  * `plot-fleet-scan.sh` applies when it prints `merged_not_delivered`. Reusing it
  * rather than rebuilding it is the whole point — the plan file carries no merge
  * record, and inventing one here would answer a different question than the scan.
  *
+ * It reads the wave's own `verdict` rather than re-deriving completeness from
+ * the branch states beneath it. The scan already decided that question and the
+ * pulse already carries the answer; deciding it twice is the second
+ * implementation this repo keeps removing. The branch states are still read for
+ * the one thing the verdict cannot express — see the `merged > 0` guard below.
+ *
  * A deferred branch is exempt, matching the scan's own rule: a shelved branch is
  * not outstanding work, so a plan holding six merged and three deferred branches
  * (measured on the Testing plans) is as complete as one holding nine merged.
  *
- * Returns false — the plan stays in Development — in three cases that must not be
- * confused with each other but share one answer here:
- *  - no pulse, or the pulse does not know this plan: git has said nothing, and
- *    "nothing said" is not "all merged". A cold cache keeps a plan where it was.
- *  - any non-deferred branch is not `merged`: one open wave and the work is not
- *    done, which is the negative the plan insists be asserted directly.
+ * Returns `unknown` — nothing is asserted, and a caller must say so rather than
+ * refuse — in two cases:
+ *  - the scan did not finish (`complete` false). Its `plans` array holds only
+ *    what arrived before the timeout, so a missing plan means UNREACHED, not
+ *    absent, and no negative may be read from it.
+ *  - no pulse at all: git has said nothing, and "nothing said" is not "all
+ *    merged". A cold cache keeps a plan where it was.
+ *
+ * Returns `not-merged` — the plan stays in Development — in three:
+ *  - a COMPLETE scan does not know this plan: it looked and did not find it,
+ *    which is a real absence rather than an unfinished read.
+ *  - any non-deferred wave is not `complete`: one unfinished wave and the work
+ *    is not done, which is the negative the plan insists be asserted directly.
  *  - the plan has NO non-deferred branch (all deferred, or none at all): there
- *    is no landed work to testify to, so "every branch merged" is vacuously true
+ *    is no landed work to testify to, so "every wave complete" is vacuously true
  *    and substantively false. The explicit `merged > 0` guard is what stops the
- *    empty reduction from promoting a plan nobody built.
+ *    empty reduction from promoting a plan nobody built, and it is the reason
+ *    the branches are still walked at all.
  */
-export function allWavesMerged(meta: PlanMeta, pulse: FleetPulse | null): boolean {
-  const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
-  if (!plan) return false;
+export type Landed = 'merged' | 'not-merged' | 'unknown';
+
+export function allWavesMerged(
+  meta: PlanMeta,
+  pulse: FleetPulse | null,
+  complete: boolean,
+): Landed {
+  // ASKED BEFORE THE LOOKUP, because the lookup cannot tell the two apart. On a
+  // partial pulse an absent plan is one the scan has not reached yet, and the
+  // measured shape of this defect was exactly that: a plan missing from a
+  // `plans` array the timeout left empty, read as a claim about its branches.
+  if (!pulse || !complete) return 'unknown';
+  const plan = pulse.plans.find((p) => p.file === path.basename(meta.file));
+  // A COMPLETE scan that does not name this plan HAS looked. That is a real
+  // absence, unlike the one above, and the plan stays where it is.
+  if (!plan) return 'not-merged';
   let merged = 0;
   for (const wave of plan.waves) {
-    for (const b of wave.branches) {
-      if (b.state === 'deferred') continue;
-      if (b.state !== 'merged') return false;
-      merged += 1;
-    }
+    // A wave of only deferred branches is not outstanding work — the scan's own
+    // rule — and it contributes nothing to the `merged > 0` count either.
+    const branches = wave.branches.filter((b) => b.state !== 'deferred');
+    if (branches.length === 0) continue;
+    // THE SCAN'S VERDICT, not a second reading of the branch states under it.
+    if (wave.verdict !== 'complete') return 'not-merged';
+    merged += branches.length;
   }
-  return merged > 0;
+  // Vacuous truth caught: every wave complete over no branches at all is a plan
+  // nobody built, and it must not be promoted.
+  return merged > 0 ? 'merged' : 'not-merged';
 }
 
 /**
@@ -738,14 +784,23 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetPulse | null): boolean {
  * path, not an error, and the reason this reads the channel rather than probing
  * for a PR that a whole class of plans never has.
  */
-export function planStatus(meta: PlanMeta, pulse: FleetPulse | null): PlanStatus {
+export function planStatus(
+  meta: PlanMeta,
+  pulse: FleetPulse | null,
+  complete: boolean,
+): PlanStatus {
   switch (meta.phase) {
     case 'released':
       return 'released';
     case 'delivered':
       return 'delivered';
     case 'approved':
-      if (allWavesMerged(meta, pulse)) return 'deliverable';
+      // `unknown` is not `deliverable` and not a reason to call the plan
+      // in-progress either — it is the scan having said nothing. The card falls
+      // through to the claim/`Started:` reading below, which is a fact about the
+      // plan FILE and survives a partial pulse; a plan the scan never reached
+      // keeps whatever those say rather than being told its work is unfinished.
+      if (allWavesMerged(meta, pulse, complete) === 'merged') return 'deliverable';
       if (meta.started_raw.length > 0 || anyBranchClaimed(meta, pulse)) return 'in-progress';
       return 'approved';
     default:
@@ -1205,6 +1260,11 @@ export function buildBoard(opts: BuildBoardOptions): Board {
   // and a row can no longer disagree about whether work is in flight. null on a
   // cold cache, and the counts are then omitted rather than zeroed.
   const pulse = pulseFor(opts);
+  // Beside the pulse, never inside it: a partial pulse holds only the plans that
+  // arrived before the scan was cut short, and nothing in its shape says so. A
+  // card must not read a plan's absence from an unfinished read as its work
+  // being unfinished.
+  const pulseComplete = pulseCompleteFor(opts);
   const cards: Card[] = [];
   let metas: PlanMeta[];
   try {
@@ -1249,7 +1309,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     // branch has merged, which is the same condition the old inline boolean
     // tested — with the `mapped === 'Development'` guard folded into its own
     // phase switch (`released`/`delivered` return before the merge test).
-    const status = planStatus(meta, pulse);
+    const status = planStatus(meta, pulse, pulseComplete);
     const deliverable = status === 'deliverable';
     const phase = deliverable ? toBoardPhase('delivered')! : mapped;
     if (!phase) continue;
@@ -1449,6 +1509,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
 export function planStatusBySlug(
   opts: BuildBoardOptions,
   pulse: FleetPulse | null,
+  complete: boolean,
 ): Map<string, PlanStatus> {
   const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
   const repoRoot = resolvedRepoRoot(opts);
@@ -1486,7 +1547,7 @@ export function planStatusBySlug(
     for (const meta of readPlanMeta(opts.scriptsDir, files)) {
       const canonical = canonicalPath.get(meta.file);
       const relPath = canonical ?? path.relative(repoRoot, meta.file);
-      bySlug.set(planSlug(relPath), planStatus(meta, pulse));
+      bySlug.set(planSlug(relPath), planStatus(meta, pulse, complete));
     }
   } finally {
     if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });

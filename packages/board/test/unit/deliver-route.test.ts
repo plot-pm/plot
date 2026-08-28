@@ -217,6 +217,36 @@ describe('an action that cannot work is not offered', () => {
     assert.ok(!fs.existsSync(deliverPromptPath(dir, SLUG)), 'nothing may be written');
   });
 
+  it('refuses an incomplete scan with its OWN reason, never `not-deliverable`', async () => {
+    // Item 2. The two states need opposite responses — go finish the branch,
+    // versus wait five seconds and ask again — so one refusal cannot carry both.
+    // Asserted as a distinct reason string rather than a distinct message,
+    // because a client switching on `reason` is what makes them actionable
+    // separately.
+    const dir = repo();
+    const got = await post({ repoRoot: dir, check: () => ({ verdict: 'scan-incomplete' }) });
+    assert.equal(refusal(got), 'scan-incomplete');
+    assert.notEqual(refusal(got), 'not-deliverable');
+    assert.ok(!fs.existsSync(deliverPromptPath(dir, SLUG)), 'nothing may be written');
+  });
+
+  it('names the SCAN and not the branches when the scan is incomplete', async () => {
+    // Item 3, and the reason this plan exists. On 2026-08-27 an operator was
+    // told a plan had `a branch that is not merged` — about a plan whose two PRs
+    // had merged the day before — and went looking for the branch. The message
+    // must send them to the scan instead, and must NOT make the claim that
+    // misdirected them.
+    const dir = repo();
+    const got = await post({ repoRoot: dir, check: () => ({ verdict: 'scan-incomplete' }) });
+    const detail = String(got.body.detail);
+    assert.match(detail, /scan/i, 'the message names the scan');
+    // The exact phrase from the old refusal, which was the misdirection. Its
+    // absence is the assertion — a reader must not be told a branch is unmerged
+    // when nothing is known to be.
+    assert.doesNotMatch(detail, /has a branch that is not merged/);
+    assert.match(detail, /nothing is known to be unmerged/i);
+  });
+
   it('refuses a plan already delivered — the decision was already made', async () => {
     const dir = repo();
     const got = await post({ repoRoot: dir, check: () => ({ verdict: 'already-delivered' }) });
@@ -278,11 +308,19 @@ describe('deliverability is read through the real plan parser for the pulse-free
     // plan-unreadable.
     assert.equal(deliverability(opts, 'does-not-exist').verdict, 'not-found');
 
-    // An Approved plan with no pulse is not-merged: git has said nothing, and
-    // "nothing said" is not "all merged". This is the honest default when the
-    // scan cache is cold.
+    // An Approved plan with NO PULSE is `scan-incomplete`, not `not-merged`.
+    // Git has said nothing — and since 2026-08-27 "nothing said" is neither "all
+    // merged" NOR "a branch is unmerged". A cold cache is the same absence as a
+    // timed-out scan, and it earns the same answer: the board cannot say yet.
+    //
+    // This assertion read `not-merged` until that date, and inverting it is the
+    // point of the change rather than a casualty of it. Claiming a branch had not
+    // merged from an empty cache is what sent an operator looking for work that
+    // did not exist. The sibling suite pins the same input at the function level
+    // (`allWavesMerged(m, null, true)` is `unknown`); leaving this line as it was
+    // would have one input answered two ways in one run.
     mergedPlan(dir);
-    assert.equal(deliverability(opts, SLUG).verdict, 'not-merged');
+    assert.equal(deliverability(opts, SLUG).verdict, 'scan-incomplete');
   });
 });
 
