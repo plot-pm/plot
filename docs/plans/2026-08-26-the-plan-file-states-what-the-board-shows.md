@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Sprint:** <!-- not a member; the sprint closed 2026-08-26 -->
 - **Issue:** <!-- optional -->
@@ -14,7 +14,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
-- **Delivered:** <!-- YYYY-MM-DD -->
+- **Delivered:** 2026-08-28
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-26, Jan Wloka, `infra/a-plan-states-its-rounds`
 - **Started:** 2026-08-26, Jan Wloka, `infra/challenge-the-plan-states-its-rounds`

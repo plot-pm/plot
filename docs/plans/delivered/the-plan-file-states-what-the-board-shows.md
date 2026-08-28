@@ -1,0 +1,1 @@
+../2026-08-26-the-plan-file-states-what-the-board-shows.md
