@@ -28,6 +28,7 @@ wearing a process costume.
 |---|---|
 | 1 | [What the domain is, and what it may not import](#1-what-the-domain-is-and-what-it-may-not-import) |
 | 2 | [The driven ports — one per source of truth](#2-the-driven-ports--one-per-source-of-truth) |
+| 2b | [The pattern: how a port is recognised](#2b-the-pattern-how-a-port-is-recognised) |
 | 3 | [The driving ports — who asks the domain](#3-the-driving-ports--who-asks-the-domain) |
 | 4 | [The adapters already exist](#4-the-adapters-already-exist) |
 | 5 | [Monitors are the proof the split works](#5-monitors-are-the-proof-the-split-works) |
@@ -117,6 +118,123 @@ merged | not-merged | unknown          ← never a boolean
 a `--no-fetch` scan reading 43 merged branches as open, a timed-out pulse read
 as a claim about branches, `state: CLOSED` on a merged PR. **A port that
 collapses the third value has thrown away the only value that made it safe.**
+
+---
+
+## 2b. The pattern: how a port is recognised
+
+**A layer nobody can find is a layer that erodes.** This section is the shape
+every port and adapter follows, so the eighth one is written the way the first
+seven were — and so a reader grepping the codebase can enumerate them.
+
+**It is derived from `plot-host.sh`, not invented.** That adapter already
+follows most of this; the convention is its shape, written down.
+
+### The naming rule
+
+| thing | name | example |
+|---|---|---|
+| **port** (the interface) | a **noun**, no prefix, no `I` | `Host`, `Refs`, `PlanStore` |
+| **operation** | a **verb-noun**, kebab in shell, camel in TS | `pr-state` / `prState` |
+| **adapter** | the port's name + its technology | `HostGhAdapter`, `RefsGitAdapter` |
+| **shell adapter** | `plot-<port>.sh` | `plot-host.sh` |
+
+**A port is named for what it is asked about, never for how it answers.**
+`Host` — not `GitHubClient`, not `PrFetcher`. The name survives swapping `gh`
+for `bb`, which is the whole point and is exactly what `plot-host.sh` does.
+
+### The result shape — every operation, without exception
+
+**A port operation returns a *result*, never a bare value**, because every one
+of them can fail to be askable:
+
+```
+PortResult<T> =
+  | { ok: true,  value: T }          // answered — INCLUDING an empty answer
+  | { ok: false, why: 'failed' }     // asked, and it broke
+  | { ok: false, why: 'unaskable' }  // this source cannot answer at all
+```
+
+**Three outcomes, never two.** That is [§2's rule](#what-a-port-returns) —
+*absent is not false* — as a type rather than a discipline. **The estate has
+paid for the two-outcome version repeatedly**: a `--no-fetch` scan reading 43
+merged branches as open, a timed-out pulse read as a claim about branches,
+`state: CLOSED` on a merged PR.
+
+**`ok: true` with an empty value is an answer, not a failure.** `plot-host.sh`
+states this precisely — *"exit 0 with state NONE rather than nonzero on lookup
+misses"* — because *this branch has no PR* and *I could not ask about this
+branch* are different facts and a caller must be able to tell them apart.
+
+### The shell contract — exit codes are the result type
+
+**Shell adapters cannot return a union, so the exit code carries it.**
+`plot-host.sh` already defines this and it is the convention:
+
+| exit | means | `PortResult` |
+|---|---|---|
+| **0** | answered — the payload is on stdout, and `NONE` is a payload | `ok: true` |
+| **1** | the call failed | `failed` |
+| **3** | **could not be asked** — auth gone, host unreachable, tracker moved | `failed`, distinguished |
+| **4** | **cannot be asked at all** — this backend structurally has no answer | `unaskable` |
+
+**3 and 4 are not the same and must not be collapsed.** `plot-host.sh` says so
+in its own words — *"exit 4 means this host cannot be asked at all. Collapsing
+any two…"* — because a Bitbucket repo with no issue tracker is permanently
+unaskable, while an expired token is temporarily unanswerable. **One is a
+config fact, the other an incident.**
+
+### Where they live, and how to find them
+
+```
+packages/board/src/domain/          pure — the gate forbids node:fs here
+packages/board/src/domain/ports/    one file per port, interface only
+packages/board/src/adapters/        one directory per port
+skills/plot/scripts/plot-<port>.sh  the shell adapter for that port
+```
+
+**The enumeration is a glob, not a list somebody maintains:**
+
+```bash
+ls packages/board/src/domain/ports/     # every port
+ls packages/board/src/adapters/         # every adapter
+```
+
+**A list in a document goes stale; a directory cannot.** This is the same
+choice `plot-fleet-scan.sh` makes in deriving its plan list rather than reading
+an index — and the same reason.
+
+### The three gates that keep it honest
+
+**Each is a script, because "did I follow the pattern?" is answerable by
+recollection and therefore worthless:**
+
+| gate | checks | fails when |
+|---|---|---|
+| **purity** | no module under `domain/` reaches `node:fs`, `node:child_process`, or a network | someone imports a convenience |
+| **completeness** | every `domain/ports/*.ts` has a directory under `adapters/` | a port is declared and never implemented |
+| **result shape** | every exported port method returns `PortResult<…>` | someone returns a bare value, losing *unaskable* |
+
+**The estate has already proved this style of gate works.** `auto-deliver.ts`
+states its own invariant as a grep — *"grep this package for a phase write and
+find nothing. That absence is the design"* — and it holds today, verified.
+
+### The worked example
+
+**`plot-host.sh` is the pattern in full, and predates it:**
+
+| convention | how it already complies |
+|---|---|
+| named for the question | `Host`, not `GitHubClient` — it serves `gh` **and** `bb` |
+| verb-noun operations | `pr-state`, `pr-list`, `issue-view` — nine of them |
+| answered ≠ empty | *"exit 0 with state NONE rather than nonzero on lookup misses"* |
+| unaskable is its own outcome | exit **4** for a backend with no tracker |
+| one place per technology | *"this file is the only place that knows"* |
+| adapters do not decide | *"this collects, a human concludes"* |
+
+**The one thing it does not yet have is a typed twin on the TypeScript side** —
+which is why five board modules spawn it directly rather than calling a `Host`
+port. **The pattern's first job is to give it one.**
 
 ---
 
@@ -216,6 +334,12 @@ Refusal = { rule: string, because: string } | null
 **`null` means proceed; anything else carries why.** Today that reason exists
 only as prose on stderr, so a caller can learn *that* a reap refused but not
 *which* rule fired without parsing English.
+
+**A `Refusal` is deliberately NOT a `PortResult`** ([§2b](#the-result-shape--every-operation-without-exception)).
+A port answers *what is true*; a refusal states *what the rules decided*. **The
+port can fail to know; the rule cannot** — given readings, a refusal is total.
+Reusing `PortResult` here would let a rule return *unaskable*, which is the
+adapter's outcome leaking into the domain's.
 
 **This makes the refusals testable as domain values** — the acceptance criterion
 applied to the one part of Plot that already had the right shape and no way to
