@@ -1,0 +1,160 @@
+# Production calls the domain, one rule at a time
+
+> The parallel implementation stops being parallel. Each rule is adopted on its own branch, board first and shell second, with the old copy deleted in the same change that starts calling the new one — so the duplication this design forbids never outlives the branch that resolves it.
+
+## Status
+
+- **Phase:** Draft
+- **Type:** feature
+- **Sprint:** <!-- optional -->
+- **Issue:** <!-- optional -->
+- **Story:** the-master-agent-holds-the-fleet
+- **Review:** in-session
+- **Impl:** own branches
+
+## Changelog
+
+- The board and the helper scripts compute lifecycle rules through `@plot-pm/domain` rather than each holding their own copy — one implementation of the deliver rule, the eligibility rule and the reap refusals, where there were two.
+
+<!-- Board impact: YES, and it is the point. Every branch here changes what the
+     board computes. The pulse contract does not change: the same values are
+     produced by different code. Rebuild the artifact on every branch. -->
+
+## Motivation
+
+**The duplication was licensed by this plan existing.**
+[Plan 1](2026-08-28-the-domain-exists-beside-the-code-that-runs.md) builds a
+copy of rules that already exist twice, making three, and says so: *"licensed
+only by its removal being planned."* **This is the removal.**
+
+**Left unfinished, the parallel implementation is the worst of the three
+states** — production unchanged, a second implementation to maintain, and no
+benefit realised. **The risk this plan manages is not breaking the board; it is
+never finishing.**
+
+## Design
+
+### Approach
+
+**One rule per branch, and the branch deletes what it replaces.**
+
+The unit is deliberately small. A branch that adopts three rules cannot be
+reverted for one of them, and the board is a surface somebody is watching while
+this lands.
+
+**Each branch does exactly four things:**
+
+1. Point one production call site at the domain
+2. **Delete the old implementation in the same commit**
+3. Keep the existing tests, unchanged, as the regression lock
+4. Rebuild the board artifact
+
+**Step 2 is the discipline.** An adoption that leaves the old code behind
+"until we're sure" produces a third copy and no forcing function. The corpus
+tests from plan 2 are what makes deleting safe: agreement was proven against
+158 real plans before this plan starts.
+
+**Step 3 matters more than new tests.** The board's 25 existing tests for
+`allWavesMerged` are written against its *behaviour*, and behaviour is exactly
+what must not change. **A test that needs editing to pass is a signal the
+adoption changed something** — and the edit needs an argument, not a fix.
+
+### Board first, shell second — and why that order
+
+**The board's copy is the one that survives**, so the board adopts by *deleting
+its own function and importing the domain's* — a rename plus an import, with
+the semantics unchanged by construction.
+
+**The shell adopts by losing its copy entirely.** `plot-deliver.sh`'s ~95 lines
+of branch-parsing become a call, because the pulse already did the parsing
+([stage 2 §4](../stories/the-master-agent-holds-the-fleet/DESIGN-review-workflows.md#4-where-the-same-rule-lives-twice)).
+**This is where the measured shell bug disappears** — the `## Changelog` bullet
+read as a branch, which made four fully-merged plans undeliverable — because
+the code that had the bug stops existing.
+
+**The shell reaches the domain through `node`**, which is settled by precedent
+rather than proposed here: six scripts already invoke it, and
+`plot-sprint-candidates.sh` argues for it in its own comment — *"node is
+already required to run the board and every test suite."*
+
+### What each branch must prove before it merges
+
+| | check |
+|---|---|
+| **behaviour** | the existing tests pass **unedited** |
+| **agreement** | the corpus test still reports 158 of 158 |
+| **absence** | `grep` finds no second implementation of the adopted rule |
+| **the board** | `pnpm build:board` and `pnpm run test:board` are green |
+
+**The absence check is a gate, not a review note.** *"Did I delete the old
+one?"* is answerable without looking; *"does this grep return one hit?"* is not.
+
+### The order, and why it is this order
+
+**Deliver first** — two implementations, the widest measured divergence, and
+the one with a known bug on the shell side. It is also the rule with the most
+existing test coverage, so the regression lock is strongest exactly where the
+change is largest.
+
+**Eligibility second** — one implementation today (`plot-fleet-scan.sh`), so
+adoption is a move rather than a merge, but it is on the 5-second pulse path
+and any regression is immediately visible on a live board.
+
+**The refusals last** — reap and dispatch. They guard destructive acts, and a
+wrong refusal removes a worktree somebody is working in. **They go last because
+by then the pattern has been exercised twice** and the corpus tests have been
+running against the live estate for two branches' worth of time.
+
+## Waves
+
+### Delivering (Branch: feature/one-deliver-rule-decides)
+
+`board.ts`'s `allWavesMerged` and `plot-deliver.sh`'s branch-parsing block both
+give way to `domain.deliverable()`. Three board call sites, one shell call
+site.
+
+**Done when** the 25 existing tests pass unedited, `grep -rn allWavesMerged`
+returns only the domain, and `plot-deliver.sh` no longer parses a plan.
+
+### Eligible (Branch: feature/one-eligibility-rule-decides)
+
+`plot-fleet-scan.sh`'s slice verdicts computed by the domain. **The scan's
+output must not change** — same words, same footer counts, on the same estate.
+
+**Done when** the scan's output is byte-identical against this repo's 158 plans
+before and after, and `test/reconcile/` passes unedited.
+
+### Refusing (Branch: feature/the-refusals-are-domain-rules)
+
+`plot-reap.sh`'s five and `plot-dispatch.sh`'s four become domain predicates
+returning a named `Refusal`. **The scripts keep their exit codes and their
+messages** — a refusal that reports differently breaks whoever reads it.
+
+**Done when** each refusal is still individually triggerable in the e2e suite,
+`--dry-run` output is unchanged, and no refusal logic remains in either script.
+
+### Transitions (Branch: feature/a-transition-writes-one-value)
+
+`plot-approve.sh` and `plot-deliver.sh` take their writes from
+`plan.approve()` / `plan.deliver()` rather than composing them inline.
+
+**Done when** the sandbox e2e suite produces byte-identical plan files by both
+paths, and a phase can no longer be written without its record.
+
+## Notes
+
+**This plan can stop between branches and leave a coherent estate.** Each
+branch ends with one fewer duplicated rule, and nothing depends on the next one
+starting. **That is deliberate** — a migration that must complete to be
+coherent is one that blocks a release.
+
+**What it must not do is stop and leave a branch half-adopted.** A production
+call site pointing at the domain while the old implementation still exists is
+the third-copy state this whole design forbids, and the absence gate is what
+prevents a branch from merging in it.
+
+**The story's job 3 — the delta — is deliberately not here.** It is new
+capability rather than adoption, and it belongs after the domain is the only
+implementation. Adding it during a migration would mean the corpus tests could
+no longer compare against production, because production would have nothing to
+compare.

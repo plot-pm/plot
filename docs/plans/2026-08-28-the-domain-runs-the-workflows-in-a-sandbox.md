@@ -1,0 +1,175 @@
+# The domain runs the workflows in a sandbox
+
+> Adapters behind the seven ports, and every existing workflow expressed against the domain — approve, implement, dispatch, deliver, release, reap — proven against the live estate and still calling nothing in production.
+
+## Status
+
+- **Phase:** Draft
+- **Type:** feature
+- **Sprint:** <!-- optional -->
+- **Issue:** <!-- optional -->
+- **Story:** the-master-agent-holds-the-fleet
+- **Review:** in-session
+- **Impl:** own branches
+
+## Changelog
+
+- `@plot-pm/domain` gains adapters for its seven ports and expresses all six lifecycle workflows, verified against the live repository in read-only mode.
+
+<!-- Board impact: NONE. The adapters READ what the board reads; nothing here is
+     wired into the board or the skills. The one write path (transitions) is
+     exercised against sandbox repos only. -->
+
+## Motivation
+
+**A domain nobody can feed is a domain nobody can trust.**
+[The previous plan](2026-08-28-the-domain-exists-beside-the-code-that-runs.md)
+builds entities and rules that are pure by construction and therefore proven
+only against hand-built fixtures. **A fixture agrees with whatever wrote it.**
+
+**This plan connects the domain to the real estate without letting it act on
+it.** The adapters read: 158 plans, 303 slices, the fleet's branches, the
+host's PRs, the worktrees on this disk. The workflows compute what they would
+do. **Nothing writes** except in sandbox repos the tests create.
+
+**That is what makes the eventual replacement a swap rather than a migration.**
+When a production caller is finally repointed, the code it points at has
+already answered the same questions about the same repository, and been
+checked.
+
+## Design
+
+### Approach
+
+**Adapters land in `packages/domain/src/adapters/`, one directory per port**,
+following the discovery rule
+([Ports §2b](../stories/the-master-agent-holds-the-fleet/DESIGN-ports.md#where-they-live-and-how-to-find-them)):
+enumeration is a glob, never a maintained list.
+
+**The purity gate from plan 1 must now exclude `adapters/`** — and that
+exclusion is the layer boundary made mechanical:
+
+```bash
+grep -rlE "from '(node:|fs|child_process)" packages/domain/src/ \
+  | grep -v '^packages/domain/src/adapters/'
+```
+
+**Empty output still means the domain is pure**, and now it also means every
+world-reaching import lives in exactly one directory. **A second gate** asserts
+the converse: every `ports/*.ts` has a directory under `adapters/`, so a port
+cannot be declared and left unimplemented.
+
+### Adapters wrap the scripts; they do not replace them
+
+**The scripts are the adapters** ([Ports §4](../stories/the-master-agent-holds-the-fleet/DESIGN-ports.md#4-the-adapters-already-exist)).
+`plot-plan-meta.sh` already parses the plan format and is the contract;
+`plot-fleet-scan.sh` already derives slice verdicts; `plot-host.sh` already
+speaks to both hosts and already carries the exit-code result type.
+
+**So a TypeScript adapter is a thin translation, not a reimplementation** — it
+spawns the script and maps its exit code into `PortResult<T>`:
+
+| exit | `PortResult` |
+|---|---|
+| 0 | `{ ok: true, value }` — including a `NONE` payload |
+| 1 | `{ ok: false, why: 'failed' }` |
+| 3 | `{ ok: false, why: 'failed' }` — could not be asked |
+| 4 | `{ ok: false, why: 'unaskable' }` — structurally has no answer |
+
+**Rewriting a parser in TypeScript would be the very duplication this design
+forbids.** The adapter's job is to make one existing implementation reachable
+from a typed caller.
+
+**`plot-host.sh` gains one operation** — *has any PR for this branch merged?*
+That is the single measured gap in the port
+([Ports §7](../stories/the-master-agent-holds-the-fleet/DESIGN-ports.md#7-how-wide-is-a-port-the-measured-answer)):
+`pr-state` returns `mergeCommit` and not `mergedAt`, which is why
+`plot-reap.sh` reached past it. **This is the only production file this plan
+touches**, and it adds an operation without changing one.
+
+### The workflows, expressed and not enacted
+
+**Each workflow is the domain deciding and the adapter performing**, per
+[stage 2 §3](../stories/the-master-agent-holds-the-fleet/DESIGN-review-workflows.md#3-the-split-per-workflow).
+This plan writes the deciding half for all six and **stops before performing**:
+
+```
+workflow(readings) → Decision            // proceed, with what to write
+                   | Refusal             // which rule fired, and why
+```
+
+**A `Decision` is inert.** It says *merge PR #42, set Phase: Approved, write
+this record* and does nothing. That makes every workflow testable end to end
+with no host and no repository — and it is why the eventual production swap has
+something already-proven to point at.
+
+### How it is proven against the live estate
+
+**Three test tiers, in ascending cost:**
+
+| tier | asks | needs |
+|---|---|---|
+| **unit** | does the rule hold? | nothing — fixtures |
+| **corpus** | does it agree with production, on this repo? | read-only adapters |
+| **sandbox** | does the transition write what production writes? | a temp git repo |
+
+**The corpus tier is the one that earns this plan.** For every one of the 158
+plans, the domain's `deliverable`, `eligible` and `reapable` verdicts are
+compared against what production says today. **A disagreement fails CI and is a
+finding either way** — either the port is wrong, or it found a production bug.
+
+**The sandbox tier compares transitions.** `plot-approve.sh` and
+`plot-deliver.sh` are idempotent and already have e2e coverage in sandbox
+repos; the same sandboxes run the domain's `Decision` and assert the resulting
+files are byte-identical to what the scripts produce. **Byte-identical is the
+bar** — a transition that writes a different date format is a transition that
+breaks the parser.
+
+## Waves
+
+### Reading (Branch: feature/the-ports-have-adapters)
+
+Adapters for `PlanStore`, `Refs`, `Host`, `Processes`, `Trees`, `Clock`,
+`Machine`. The two gates: purity-except-adapters, and every-port-implemented.
+`plot-host.sh` gains its one missing operation.
+
+**Done when** the domain can be handed this repository's real state through
+ports only, and the completeness gate passes.
+
+### Agreeing (Branch: feature/the-domain-agrees-with-production)
+
+The corpus tests: 158 plans, three rules, compared against production verdicts.
+
+**Done when** every disagreement is either fixed or filed as a production bug
+with its plan — **a disagreement may not be silenced by adjusting the port to
+match.** If production is wrong, that is a finding and it gets a plan.
+
+### Deciding (Branch: feature/the-workflows-decide-without-acting)
+
+All six workflows as `readings → Decision | Refusal`, with the refusals named
+individually.
+
+**Done when** each workflow's refusals are assertable without a repository, and
+each `Decision` names every write it would make.
+
+### Writing (Branch: feature/a-decision-writes-what-the-script-writes)
+
+The sandbox tier: the domain's `Decision` applied in a temp repo, asserted
+byte-identical against `plot-approve.sh` and `plot-deliver.sh`.
+
+**Done when** approve and deliver produce identical files by both paths, in the
+sandbox e2e suite, including the transition records and the sprint annotation.
+
+## Notes
+
+**Still nothing in production calls this.** `plot-host.sh` gains an operation
+and no caller; everything else is additive.
+
+**The corpus tests are also the drift alarm.** An unused package rots, and this
+one is protected by tests that run against the live estate every CI run — a
+production rule that changes without the port following turns CI red the same
+day.
+
+**Run the e2e tier with `env -u PLOT_UNATTENDED`.** The sandbox tier inherits the
+worker environment when run from inside a dispatched worktree, and
+`PLOT_UNATTENDED` in the ambient environment trips the control tests.
