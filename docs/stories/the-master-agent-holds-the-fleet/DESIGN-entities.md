@@ -93,6 +93,68 @@ every pulse, so it cannot drift from its source: there is no update path, only
 re-creation. That is Principle 1 expressed as an object lifecycle rather than as
 a prohibition.
 
+### The cache is at the wrong layer
+
+**The board caches views and re-reads sources.** That is the inversion your
+consolidation rule fixes, and it is measurable.
+
+`CacheEntry` holds **31 fields** and **not one of them is a plan**:
+
+| what it caches | what it is |
+|---|---|
+| `ages`, `approvedAt`, `ideaPlans`, `versions`, `unmerged` | **slices of plan data**, one per consumer |
+| `pulse`, `issues` | **assembled rows** |
+| `prs`, `runs`, `terminal`, `registry`, `agents` | foreign and process facts |
+
+So five fields cache *fragments extracted from plan files*, two cache *rendered
+views*, and the plan files themselves are re-parsed behind all of them.
+
+**The expensive thing is repeated and the cheap thing is stored.** Parsing all
+158 plans costs **140 ms**, batched, measured three times. A filter over already
+-parsed objects costs microseconds. The cache holds the filters.
+
+**And the parse happens everywhere.** `plot-plan-meta.sh` is invoked from **26
+call sites across 9 server modules** — `board.ts` 7, `fleet.ts` 4, `deliver.ts`
+3, `index.ts` 3, `reslice.ts` 3, `commission.ts` 2, `transition.ts` 2,
+`auto-deliver.ts` 1, `idea.ts` 1. Each is a subprocess, and several run per
+pulse.
+
+#### What should be cached instead
+
+**The domain objects.** Read the plan and story files once, build Plan and Story
+objects, and let every consumer — views, actions, the fleet control, the
+derivations — read those.
+
+| layer | cached today | should be |
+|---|---|---|
+| **domain objects** | **nothing** | **the cache** |
+| derivations (`ages`, `approvedAt`, `versions`, `unmerged`) | cached | computed from objects, cheaply |
+| views (`pulse`, `issues`) | cached | rebuilt per render |
+
+**This does not weaken Principle 1 — it strengthens it.** The objects are
+rebuilt from the files, and the invalidation rule is the same one
+`PLOT_TERMINAL_CACHE` already follows: *"git is re-consulted on every pass and
+the entry is discarded the moment it disagrees."* A file's mtime is a cheaper
+version of that check than re-parsing it.
+
+**What makes today's arrangement fragile** is that the cached fragments have
+*no* such rule. `approvedAt` and `versions` are recomputed on a timer, not
+invalidated by their source, so a plan edited between ticks is stale in five
+caches at once with nothing detecting it.
+
+#### The two rules are one rule
+
+Caching domain objects and having views reference them are the same change seen
+from two sides:
+
+- **if views copy domain data**, the copies must be cached — and each copy needs
+  its own invalidation, which is where drift enters
+- **if views reference domain objects**, there is one thing to cache and one
+  place to invalidate
+
+The current design has neither: views copy *and* the copies are cached *and*
+the sources are re-read anyway.
+
 ### Views reference the domain object; they do not copy it
 
 Settled 2026-08-28, and it follows directly from the object being the sole
