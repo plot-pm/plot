@@ -24,7 +24,7 @@ around.
 | 1 | [What a Plan is](#1-what-a-plan-is) | solution space; why the file is the truth |
 | 2 | [Posture](#2-posture) | what each `Tracker:` makes of a plan |
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
-| 4 | [Lifecycle](#4-lifecycle) | seven states, five on the path and two terminal |
+| 4 | [Lifecycle](#4-lifecycle) | seven plan states, and the workflow phases they map into |
 | 5 | [Relations](#5-relations) | Story · Issue · Sprint · Wave · Branch · PR |
 | 6 | [Actions](#6-actions) | idea · approve · implement · deliver · release |
 | 7 | [Scope](#7-scope) | which plans are shown, and the rolling window |
@@ -207,20 +207,41 @@ rejected  rejected   superseded
 | `rejected` | — | **terminal** |
 | `superseded` | — | **terminal** — overtaken by another plan |
 
-**"Phase" is the wrong word**, and it is why `superseded` looked anomalous in
-the earlier drafts. A *phase* implies ordered progression, so a state off the
-main line reads as a violation of it. As **states**, nothing is anomalous —
-`superseded` is reachable, terminal, and used.
+#### Phases belong to the workflow; states belong to the plan
 
-The field is named `phase` and stays named `phase`: it is the plan format's
-established spelling, and renaming a parsed field to fix a conceptual
-imprecision would break every plan in every adopting repo. **The word in the
-file is `Phase:`; the thing it holds is a state.**
+**The two words have different subjects**, and conflating them is what made
+`superseded` look anomalous:
 
-**The board's five columns are not states at all.** They are a display
-partition, mapping several states onto one column, and `plot-board-setup` warns
-against gating on their names — *"a gate naming those strings would fail on a
-healthy board"* — since they have already been renamed once.
+| | **phase** | **state** |
+|---|---|---|
+| whose | **the workflow's** | **the plan's** |
+| what | a stretch of process a team moves through | one value on one artefact |
+| how many at once | many plans share a phase | one plan, one state |
+| named by | Discovery · Design · Development · Testing · Released | draft · design · approved · delivered · released · rejected · superseded |
+| rendered as | **the board's columns** | a plan's `Phase:` field |
+
+The agentic workflow — Discovery → Design → Development → Testing → Released —
+is the process the *team* runs. The board's columns render it, which is why
+they are a partition and why several plan states fall into one column.
+
+**A plan does not have a phase. It has a state, and its state places it in a
+phase.** That is a mapping, and mappings are many-to-one: `draft` and `design`
+both sit in Discovery/Design, `approved` in Development, `delivered` in Testing.
+
+This is also why `superseded` never fitted. It is a plan state with **no
+workflow phase** — a superseded plan is not somewhere in the process, it left
+it. Asking which column it belongs to has no answer, and the board's own
+schema says so: *"plans that never appear on the board (rejected / superseded /
+unknown / legacy plans)."*
+
+**The field is named `Phase:` after the workflow's vocabulary**, applied to the
+plan. It stays named that — it is the format's established spelling, and
+renaming a parsed field would break every plan in every adopting repo — but the
+name is borrowed from the wrong subject, and that borrowing is the whole source
+of the confusion these three drafts worked through.
+
+**The word in the file is `Phase:`; the thing it holds is a state; the thing it
+places the plan into is a phase.**
 
 ### What the estate actually holds
 
