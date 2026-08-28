@@ -124,6 +124,12 @@ and a shell subprocess to parse it back.
   that makes `disputed` expressible, and a phase nothing observes — measured
   stale, with a shipped release under an Active sprint.
 
+- **[Ports and adapters](DESIGN-ports.md)** — the layer the entity specs were
+  written for: seven driven ports (one per source of truth), three driving ones,
+  the rule that an adapter may not decide, and the import-graph gate that keeps
+  the domain from reaching a disk. **The adapters already exist** — they are the
+  shell scripts the board already spawns.
+
 ### Slice and Wave
 
 **A Slice is what one agent works on. A Wave is what the fleet lands together.**

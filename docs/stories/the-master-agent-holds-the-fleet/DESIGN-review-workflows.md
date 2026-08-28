@@ -263,9 +263,17 @@ host CLI."* Measured across the other 23 scripts:**
 | `plot-reap.sh` | 1 | 1 |
 | `plot-impl-status.sh` | 1 | 7 |
 
-**Stage 1 named `plot-reap.sh` as the violation. It is the smallest one.** The
-reconcile scan makes **eighteen** direct calls against one through the port —
-and the port's whole claim is that it is the only place that talks to the host.
+**Stage 1 named `plot-reap.sh` as the violation. The reconcile scan makes
+eighteen direct calls against one through the port** — and the port's whole
+claim is that it is the only place that talks to the host.
+
+> **Corrected 2026-08-28, and the correction matters.** Those 18 calls are
+> **three distinct operations** (`pr list` twice, `pr view` once), mostly one
+> PR-enumeration block — not eighteen unmet needs. And `pr-state` already
+> returns `mergeCommit`; what `plot-reap.sh` reached past the port for was
+> `mergedAt`. **The real gap is one operation across 23 scripts**, which is a
+> port in good health rather than a bypassed one. See
+> [Ports §7](DESIGN-ports.md#7-how-wide-is-a-port-the-measured-answer).
 
 **This is not an argument against the port. It is the strongest argument for
 it**: a port that a major consumer routes around is one whose interface was too
@@ -297,7 +305,7 @@ contain any git.**
 | 1 | Which copy of the deliver rule survives? | **the board's** ✅ |
 | 2 | Does the shell call the domain, or duplicate it? | **it calls** ✅ |
 | 3 | Is the pulse the domain's input or its output? | **input** ✅ |
-| 4 | **Widen `plot-host.sh` by how much?** | **open** |
+| 4 | Widen `plot-host.sh` by how much? | **one operation** — *has any PR for this branch merged?* ([Ports §7](DESIGN-ports.md#7-how-wide-is-a-port-the-measured-answer)) ✅ |
 
 ### 2 was the blocker, and the estate had already answered it
 
@@ -321,12 +329,11 @@ plan-parsing the pulse already did** — they disappear rather than move.
 **It is what the `Refs` port returns.** `allWavesMerged` already treats it that
 way, and nothing argues the other side.
 
-### 4 is what remains
+### 4 — measured, and much smaller than it looked
 
-**How far to widen the host port.** 18 direct `gh`/`bb` calls in
-`plot-reconcile-scan.sh` name the gap, but a port that answers every question is
-not a port — it is the CLI with extra steps. **The measured violations are the
-specification**: expose what a consumer reached past it for (`mergedAt` was
-`plot-reap.sh`'s), and no more.
+**The specification for widening a port is the list of things people went around
+it for**, and that list has one entry: *has any PR for this branch merged?*
+`plot-reap.sh` needs `mergedAt` and `pr-state` returns only `mergeCommit`. The
+reconcile scan's 18 calls are three operations, not eighteen gaps.
 
 > **Stage 3 — comparison against other agent runtimes — follows this.**

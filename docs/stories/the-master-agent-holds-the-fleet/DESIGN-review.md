@@ -158,6 +158,11 @@ kinds, or that the kind predicts the failure.
 
 ## 5. Ports and adapters
 
+> **Superseded in detail by [DESIGN-ports.md](DESIGN-ports.md)**, which carries
+> the full layer: the import-graph gate, the three-valued return shape, the
+> licensed exception, and the measured answer to how wide a port should be.
+> This section is the sketch that document grew from.
+
 **The goal: the domain does not know that git, a filesystem, a host CLI or a
 process table exist.**
 
