@@ -451,6 +451,38 @@ it, place it and link to it. Any consumer that needs the story reads the file.
 This is the opposite of Issue, whose five fields are the whole object because
 its body lives in a tracker Plot does not own.
 
+### Questions the object answers
+
+**Settled 2026-08-28: yes, `story.plans` — as a method, never a stored field.**
+
+The distinction the earlier sections circled without stating:
+
+| shape | on the object? | why |
+|---|---|---|
+| `plans: string[]` in the story **file** | **no** | a second source of truth, stale on the next plan written |
+| `plans: Plan[]` **stored** on the object | **no** | frozen at construction; the estate moves under it |
+| `story.plans(estate)` **method** | **yes** | computed from the argument, cannot go stale |
+
+```ts
+story.plans(estate)      // Plan[] — those whose `story` is this slug
+story.planCount(estate)  // the number §13 says no view renders
+story.isEmpty(estate)    // legitimate — 4 of 9 stories here hold none
+```
+
+**The estate is passed in, not reached for.** That is the rule the entities doc
+states for every object: *"nothing that needs the world — where a decision needs
+a fact, the fact is passed in."* A `story.plans()` that read the filesystem
+would fail the criterion these specs exist to meet.
+
+**And it satisfies both rules at once.** A test constructs a Story, an array of
+Plans, and asserts — no temp directory, no subprocess, no filesystem. The
+derivation that today lives twice in the browser
+(`Swimlanes.tsx`, `plansInStory`) becomes one method with one test.
+
+**The sort belongs with it.** `plansInStory` already orders by board phase; that
+ordering is a domain fact about a plan's state, not a rendering choice, so it
+comes along.
+
 ### Fields deliberately excluded
 
 | excluded | why |
