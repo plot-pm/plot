@@ -133,6 +133,54 @@ error.
 one, and by construction a plan can have at most one default wave — the
 unnamed case is the *absence* of headings, not a heading with no text.
 
+### The identity must be addressable, because a blocker is pointed at
+
+**A wave's identity is not only a key — it is a target.** `blocked` means *an
+earlier wave has not landed*, and the reader's next action is to go look at
+that wave, so the verdict is useless unless the blocker can be reached.
+
+**The board already implements this**, spelling the pair as a scoped selector
+rather than a composite key — `marks.tsx`:
+
+```js
+`[data-wave-list="${plan}"] [data-wave-row="${wave}"]`
+```
+
+`data-wave-list` scopes to the plan; `data-wave-row` names the wave within it.
+**That is `plan#name` in DOM form**, and it confirms the identity above: the one
+place that has to *locate* a wave arrived at the same pair independently.
+
+`blockedBy` carries the name and `Wave.section` carries which section it sits
+in, so `BlockedByMark` unfolds that section before scrolling — a blocker in a
+collapsed group is found rather than silently missed.
+
+#### Two attributes, and the failure that costs
+
+**A two-part anchor works only where both parts are present.** Measured earlier
+in this repo: the blocked-wave jump broke because **only NOT STARTED carried the
+`data-wave-list` wrapper** — the inner half was on every row, the outer half on
+one section, so the selector matched nothing everywhere else.
+
+**A single composite anchor cannot fail that way.** `data-wave-id="plan#name"`
+has no outer half to forget: a row either carries the identity or it does not,
+and the same string that identifies the wave in the payload addresses it in the
+DOM.
+
+**And it removes the escaping.** The scoped form needs `CSS.escape` twice
+because a plan slug and a wave name are both interpolated into a selector; one
+attribute needs it once, over a string the domain object already produced.
+
+#### The empty-name case is where the pair strains
+
+A wave with no branches has `branch: ''`, and `rowKey` is
+`repo/branch/plan` — **it carries no wave component at all**. So the 11 empty
+waves (§8) collapse to `repo//plan`, and two of them in one plan would share a
+row key entirely.
+
+**That is the argument for the composite id reaching the payload**, not just the
+DOM: `rowKey` is what React keys on and what change-detection compares, and a
+wave that cannot be told from its sibling is a row that flashes.
+
 ### Fields
 
 **Measured across 303 waves in 155 plans, 2026-08-28.**
@@ -406,6 +454,8 @@ it; 21 waves here disagree with it and the scan reports them (§8).
 | 3 | **Ordering is positional** — no `after:`, so reordering headings reorders the gate | now |
 | 4 | Wave names are scoped to a plan but rendered bare | cosmetic |
 | 5 | **Nothing enforces `plan#name` uniqueness** — 303/303 distinct today, by authorship rather than by a check | now |
+| 6 | **The anchor is two attributes, not one** — a blocked-wave jump breaks wherever the outer `data-wave-list` is missing, as measured | now |
+| 7 | **`rowKey` has no wave component** — the 11 empty waves collapse to `repo//plan` | now |
 
 **Gap 1 is half-reported.** `long_wave_names` already flags the sentence-length
 headings — it just flags them as *names too long to render*, not as *not a wave
@@ -436,5 +486,7 @@ nothing catches none.
   that lost their branches.
 - **Should ordering be explicit?** Positional ordering is simple and reorders
   the gate when headings move.
+- **Should the composite id reach the payload?** The DOM already needs it and
+  builds it from two attributes; `rowKey` needs it and has none.
 - **Is the 1:1 model enforced or relaxed?** 21 waves disagree and most already
   shipped.
