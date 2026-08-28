@@ -93,6 +93,78 @@ every pulse, so it cannot drift from its source: there is no update path, only
 re-creation. That is Principle 1 expressed as an object lifecycle rather than as
 a prohibition.
 
+### Views reference the domain object; they do not copy it
+
+Settled 2026-08-28, and it follows directly from the object being the sole
+source of truth.
+
+**A view carries what a renderer needs *for presentation* and references the
+domain object for everything else.** Today the opposite is true, and it is
+measurable:
+
+| view type | fields |
+|---|---|
+| `AgentRowSchema` | **32** |
+| `FleetBranchSchema` | 21 |
+| `CardSchema` | 18 |
+| `IssueRowSchema` | 5 |
+| `StoryCardSchema` | 4 |
+
+**80 fields across five view types**, and the duplication is direct:
+
+- **8 of `Card`'s 18 fields are plan domain data** — `phase`, `type`, `title`,
+  `sprint`, `story`, `assignee`, `prs`, `rounds`. Each is copied out of the
+  plan file onto a row.
+- **`AgentRow` and `FleetBranch` share 4 fields** describing the same branch —
+  `branch`, `state`, `worker`, `worker_activity`.
+
+**Every copy is a place two representations can disagree**, and this repo has
+paid for it: an `AgentRow` field defaulting client-side where a `FleetBranch`
+did not, a `state` refined in one and not the other, a row synthesized with
+fields the domain never had.
+
+#### What a view keeps
+
+Only what is **about the rendering**, and it is a short list:
+
+| keeps | example | why |
+|---|---|---|
+| a reference | `slug`, `file` | how to reach the domain object |
+| presentation of a domain value | `ageMinutes` from `createdAt` | correct only at render, needs `now` |
+| row identity | `kind`, `rowKey` | which component draws it, and its React key |
+| view-only state | expanded, filtered, selected | never persisted, never derived |
+
+Everything else — phase, type, title, sprint, story, PRs, branch state — is
+**read through the reference**.
+
+#### Why this is not merely tidier
+
+**One writer per fact.** A domain object is rebuilt from its file every pulse,
+so it cannot drift from its source. A copy on a view has no such guarantee: it
+drifts the moment one call site defaults, normalizes or refines differently
+from another — which is the exact shape of several bugs this estate has fixed
+one at a time.
+
+**The wire stops carrying the estate twice.** The pulse currently ships plan
+facts inside branch rows *and* inside cards; referencing would ship each
+entity once and let the client join.
+
+**And the client stops parsing.** A recurring defect here is the client casting
+a payload rather than parsing it, so schema defaults never apply and a new
+field reads `undefined` in the renderer. Fewer fields on the wire is fewer
+places that can happen.
+
+#### What it costs
+
+**A join.** A row that references a plan needs the plan available to the
+renderer — so the payload carries entities plus rows, and the client resolves
+`row.planFile → plans[planFile]`. That is more indirection in exchange for one
+copy of each fact.
+
+**And it must not become lazy loading.** The join is over data already in the
+payload; a view that fetched its domain object on demand would put a round trip
+behind a render, which is the opposite of what the pulse exists to avoid.
+
 ### The rule the whole set follows
 
 **Absent is not false.** Stated in the manifesto, restated in a dozen contract
