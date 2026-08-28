@@ -4,7 +4,6 @@ import { spawn } from 'node:child_process';
 import { readConfig, allWavesMerged, type BuildBoardOptions } from './board.js';
 import { usableCommand } from './idea.js';
 import { deliverLogPath } from './deliver.js';
-import { pulseCompleteFor } from './fleet.js';
 import type { PlanMeta, FleetPulse } from '../contract/schema.js';
 
 /**
@@ -410,7 +409,15 @@ export function maybeAutoDeliver(
   pulse: FleetPulse | null,
   inFlight: Set<string>,
 ): Set<string> {
-  const complete = pulseCompleteFor(opts);
+  // COMPLETENESS IS THE PULSE'S OWN, not a cache lookup.  calls this
+  // from inside a landed refresh, passing the pulse it names  for
+  // exactly that reason — a pulse reaching this path is one the scan finished.
+  //
+  // An earlier fix read  here. That worked in
+  // production and broke every unit test: these functions are documented pure
+  // ("the decision, and it is pure"), and reaching into the fleet cache made
+  // them depend on module state a temp-dir fixture cannot provide.
+  const complete = pulse !== null;
   const pruned = pruneDelivering(inFlight, pulse, complete);
   const plans = planAutoDeliver({ pulse, inFlight: pruned, complete });
   if (plans.length === 0) return pruned;

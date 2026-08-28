@@ -132,12 +132,27 @@ function fixtureWithMarker(
  */
 const settle = (ms = 2500) => new Promise((r) => setTimeout(r, ms));
 
+// THE VERDICT IS DERIVED, NOT DECLARED. It was hardcoded 'complete' for every
+// wave, including ones holding an open branch — a shape the real scan cannot
+// emit: plot-fleet-scan.sh sets complete only when outstanding -eq 0.
+//
+// That inconsistency was invisible while allWavesMerged re-walked the branch
+// states, because it never read the field. Since #491 it reads the VERDICT (the
+// scan already computed this, and two derivations of one question is the
+// duplication this repo keeps removing), so a fixture claiming complete over an
+// unmerged branch now asserts the opposite of what its test means — it turned
+// ITEM 6, the gate that delivers NOTHING while a wave is unmerged, green-to-red.
+//
+// Deriving it keeps every fixture honest by construction: a test states its
+// branches and cannot contradict itself in a field it never thought about.
 const wave = (
   name: string,
   branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred']>,
 ) => ({
   name,
-  verdict: 'complete' as const,
+  verdict: branches.every(([, st]) => st === 'merged' || st === 'deferred')
+    ? ('complete' as const)
+    : ('eligible' as const),
   branches: branches.map(([branch, state]) => ({
     branch,
     state,
