@@ -235,13 +235,20 @@ apart from *what it said*.
 
 ### What it is not
 
-- **Not a cap on workers.** The estate has run 23 rows in WORKING healthily. A
-  number would be wrong in both directions, and the operator has already refuted
-  a worker-count theory once with a screenshot.
+- **Not a cap on workers, and not the dial itself.** The cap already exists and
+  belongs to the operator: `fleetControls.parallelAgents`, default 3. Machine
+  does not set it, lower it, or refuse at it. It reports the RANGE the dial
+  moves in — today that range has a floor of 1 and no ceiling at all.
+  A number derived from headroom alone would be wrong in both directions: the
+  estate has run 23 rows in WORKING healthily, and the operator has already
+  refuted a worker-count theory once with a screenshot.
 - **Not load average.** Kept as context in the payload, explicitly not the
   verdict.
 - **Not a gate that refuses.** It informs a supervisor and an operator. A
-  dispatch on a starved machine is a decision a person may still make.
+  dispatch on a starved machine is a decision a person may still make, and the
+  reading must not prevent it — see Elastic. Plot's gates refuse on a
+  MEASUREMENT of harm already done (a live pid, an unmerged branch); this is a
+  prediction about capacity, which is a different kind of claim.
 
 ### What it enables
 
@@ -249,8 +256,10 @@ apart from *what it said*.
    machine read `starved` carries `machine_at_death: starved` — *the machine,
    not the worker*. This is the single field that would have prevented four
    corrections.
-2. **An honest answer to "can I start work?"** (story job 1) — one ~0.4 s
-   reading rather than an inference from load.
+2. **A ceiling on the dial** (story job 1). `parallelAgents` has a floor of 1
+   and no maximum, so the stepper climbs forever with nothing saying where the
+   machine's range ends. One ~0.4 s reading turns an unbounded control into a
+   bounded one — without taking it away from the operator.
 3. **Cost-aware operations** (story job 4). A supervisor can say *this spawns
    ~46 servers, and the machine is tight — shall I?* before starting, rather
    than after the board goes dark.
@@ -609,34 +618,91 @@ unreachable must not blank the branches, and a host outage must not blank git.
 collapsed flag would let one broken source take the whole object down, which is
 the failure spreading rather than being contained.
 
-### Elastic — stay fast as load changes… by shedding, not scaling
+### Elastic — the user scales within what the machine can take
 
-**This tenet inverts here, and the inversion is the point.**
+**Elastic here means the operator scales the fleet, bounded by measured
+capacity — not the controller shedding work on its own.** Corrected
+2026-08-28; an earlier draft of this section had the controller drop to
+"pulse only" at `starved`, which is a judgement it may not make.
 
-The manifesto assumes elasticity means acquiring resources under load. The fleet
-cannot: it runs on one laptop with fixed capacity, shared with the operator's
-own board. Measured this session — the supervisor's work took the operator's
-view away **three times**, and seven workers died at `exit 124` from starvation
-the supervisor itself caused.
+The manifesto's usual reading — acquire resources under load — does not apply:
+the fleet runs on one laptop with fixed capacity, shared with the operator's own
+board. But the conclusion is not that the system decides for itself. It is that
+**the range is real and measurable, and the choice inside it is the
+operator's.** A controller that refuses at `starved` cannot know the operator is
+willing to trade board responsiveness for throughput this once. That is Principle
+3 again: the controller collects and reports; a person decides.
 
-So elasticity here means **shedding work as headroom falls**:
+#### The dial already exists
 
-| headroom | the controller's behaviour |
+`fleetControls` ships it, and its default is exactly the baseline:
+
+```
+FLEET_CONTROLS_DEFAULT = { autoDispatch: false, parallelAgents: 3 }
+```
+
+- **Start at 3.** Already the shipped default.
+- **The budget is a subtraction:** `parallelAgents − (liveAgentCount + inFlight)`,
+  clamped at zero.
+- **A live agent always occupies a slot**, even once its branch has merged —
+  *"every live agent consumes a machine regardless of what its branch did."*
+  Measured: eleven workers whose branches had merged sat at zero CPU for up to
+  ten hours; excluding them let the fleet grow unbounded.
+- **The control governs STARTING, not stopping.** Lowering the dial never kills a
+  running agent. So raising it is reversible only for future dispatches, which is
+  the right asymmetry — nothing in flight is ever destroyed by a slider.
+- **A refusal names the branches holding the slots**, not just the count.
+- It is shared through `.plot/state/fleet-controls.json`, not `localStorage`,
+  *"because they spawn agents that write code, so two people reading one board
+  must not disagree about whether the fleet is running."*
+
+#### What is missing is the ceiling
+
+`MIN_PARALLEL_AGENTS = 1`. **There is no maximum.** The stepper goes up
+forever, and nothing tells the operator where the machine's range ends — so the
+dial is elastic in name and unbounded in fact.
+
+That is the whole gap this design closes, and it needs exactly one thing:
+**Machine.**
+
+| what the operator sees | source |
 |---|---|
-| `clear` | full cadence; metered fetches allowed |
-| `tight` | stretch cadences; skip metered fetches (`not-asked`, said out loud) |
-| `starved` | pulse only; **the operator's board has priority over the supervisor** |
+| the dial, at 3 | `fleetControls.parallelAgents` — exists |
+| how many slots are taken | `liveAgentCount` — exists |
+| **what the machine can currently take** | **Machine — does not exist** |
 
-The mechanism is already there and already elastic in exactly this way —
-`prRefreshMsFor` stretches the PR cadence by the host's cost multiplier, and the
-terminal cache skips host round trips for 26 of 54 branches. What is missing is
-that **none of it responds to the machine**, because no entity reports the
-machine. Elasticity needs a signal to be elastic against; §2 is that signal.
+With a headroom reading beside the stepper, the same control becomes honest:
 
-**The observer must price itself.** `Machine.sampleMs` exists for this: a
-headroom measurement that itself costs meaningfully under load makes the
-observer part of the problem — which is the story's central complaint,
-restated as a constraint on its own fix.
+| headroom | what the stepper says | what it does |
+|---|---|---|
+| `clear` | *room for more* | raising is unremarkable |
+| `tight` | *at the edge* | raising is allowed, and marked as a stretch |
+| `starved` | *the board is suffering* | raising warns first — and still obeys |
+| `unmeasured` | *capacity unknown* | no claim either way |
+
+**It still obeys.** The reading informs the operator; it never overrides them.
+That keeps the manifesto's gates-over-rules discipline intact in the right
+direction: a gate refuses on a MEASUREMENT of harm already done (an unmerged
+branch, a live pid), never on a prediction about capacity.
+
+#### Where automatic response is still legitimate
+
+The controller may adapt **its own** cost without asking, because that spends
+nothing the operator owns:
+
+- stretch its own fetch cadences (`prRefreshMsFor` already stretches 1× on
+  GitHub, 4× on Bitbucket)
+- skip metered fetches and say `not-asked` out loud
+- decline to run its own test suites and scans while headroom is low
+
+The line is ownership: **the controller may throttle itself; only the operator
+resizes the fleet.** An earlier draft of this section crossed that line, and the
+crossing is what this rewrite removes.
+
+**The observer must price itself.** `Machine.sampleMs` exists for this — a
+headroom measurement that costs meaningfully under load makes the observer part
+of the problem, which is the story's own complaint restated as a constraint on
+its fix.
 
 ### Message-Driven — asynchronous, non-blocking, loosely coupled
 
@@ -667,6 +733,6 @@ protocol. The fix is to put it in the protocol.
 |---|---|
 | Responsive | partial renders labelled; slow distinguishable from broken |
 | Resilient | last-good-value on failure, marked stale; load state **per source** |
-| Elastic | Machine is not optional — it is the signal cadence responds to |
+| Elastic | Machine bounds the operator's dial; the controller throttles only itself |
 | Message-Driven | whole-map messages, receiver-side validation, terminal signals |
 
