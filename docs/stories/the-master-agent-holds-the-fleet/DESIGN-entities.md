@@ -209,16 +209,19 @@ a claim about **who owns the truth**.
 
 So there are two independent questions, and one key was answering both:
 
-| key | question | values |
-|---|---|---|
-| **`Tracker:`** | **who owns the truth** | `plot` · `jira` · … |
-| **`Issue tracker:`** | **which service is spoken to, if any** | absent · `jira` · `github-issues` · … |
+| key | question | values | default |
+|---|---|---|---|
+| **`Tracker:`** | **who owns the truth** | `plot` · `jira` | `plot` |
+| **`Issue tracker:`** | **which service is spoken to** | `github` · `bitbucket` · `jira` · `none` | **the git host** |
+
+Both default to what already happens, so a repo declaring neither is unchanged —
+see [both keys default](#both-keys-default-and-both-defaults-are-what-already-happens).
 
 #### The three postures
 
 |  | `Tracker: plot` | `Tracker: jira` |
 |---|---|---|
-| **no issue tracker** | MD files are the sole truth; no tickets exist | **invalid** — refused |
+| **`Issue tracker: none`** | MD files are the sole truth; no tickets exist | **invalid** — refused |
 | **`Issue tracker: jira`** | MD files are the truth; **tickets are a publishing act** | **Jira is the truth**; MD files are a projection |
 
 **`Issue tracker: jira` is a prerequisite for `Tracker: jira`.** The fourth cell
@@ -1425,6 +1428,40 @@ escape for a team that wants narrower. Two properties follow:
 
 The skill already asks the tracker question, and asks it well. What follows
 separates **what to keep unchanged** from **what the Issue design adds**.
+
+##### Both keys default, and both defaults are what already happens
+
+| key | default | means |
+|---|---|---|
+| `Issue tracker:` | **the git host** (`github`, or `bitbucket`) | ask the host you already talk to |
+| `Tracker:` | **`plot`** | plans in this repo are the truth |
+
+**Neither default is new behaviour — both name what runs today.** `Tracker`'s
+absence already reads as `plot` (*"absent = same"*, in the config's own words),
+and the connection default is equally real: verified 2026-08-28 on this repo,
+where `Tracker` is unset, `tracker_scheme` returns `""`, no Jira arm matches,
+and `issue-list` falls through to the git host and returns a GitHub issue,
+exit 0.
+
+So this is naming a behaviour rather than adding one, which is the cheapest kind
+of config key: **a repo that declares nothing sees no change.**
+
+The pair of defaults lands a repo in posture 1 with an inbox — *MD files are the
+truth, and the git host's issues are the signals nobody has planned yet*. That
+is the right zero-config state: the board's inbox works out of the box on GitHub
+without anyone declaring anything, and no ticket is ever written until a repo
+asks for it.
+
+**It also retires `github-issues`.** That value belongs to the posture key's old
+vocabulary, where one key answered both questions. With the connection defaulting
+to the git host, the implemented arms are `github` and `bitbucket` — the same two
+`plot-host.sh` dispatches on — and `github-issues` was the connection wearing the
+posture key's name.
+
+**Bitbucket's default is `unsupported`, not empty.** `bb` has no issue listing,
+so the default connection there answers exit 4 and the board renders no inbox
+section — which is already the behaviour and already correct. A default that
+resolves to *cannot be asked* is still a default; it is not a failure.
 
 ##### The order: connection first, then posture
 
