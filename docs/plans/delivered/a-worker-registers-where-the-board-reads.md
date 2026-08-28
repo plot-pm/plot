@@ -1,0 +1,1 @@
+../2026-08-27-a-worker-registers-where-the-board-reads.md

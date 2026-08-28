@@ -132,7 +132,7 @@ in practice, promote it rather than letting the rules go untested.
 - [x] [done-holds-what-is-still-yours] A finished row reports neither a pulse nor a live worker state — the activity mark and the stale worker are one category error in one file <!-- status: delivered, branches: 1/1 -->
 - [x] [a-marker-is-a-file-not-a-mention] A marker is a file, not a mention — `plot_worker_blocked` greps file CONTENTS, so 28 documenting files on main make every clean worker read `waiting` and the board offer a question lifted from a brief <!-- status: delivered, branches: 1/1 -->
 - [ ] [the-pr-list-join-is-silently] Past 50 PRs per state, the Bitbucket join is silently partial — ~780 of 836 merged PRs invisible on a measured client repo, every older branch reading `no PR`, which is the fabricated verdict the scan refuses everywhere else <!-- status: draft, branches: 0/1 -->
-- [ ] [a-worker-registers-where-the-board-reads] An agent registers where the board reads — the manifest writers resolve `$repo_root/.plot/agents` from the dispatcher's own cwd while the reader honours the `Agent registry` key, so auto-dispatch from the board's checkout produced `2 manifests, 9 synthesized` with five live workers and every agent holding a manifest <!-- status: approved, branches: 0/2 -->
+- [x] [a-worker-registers-where-the-board-reads] An agent registers where the board reads — the manifest writers resolve `$repo_root/.plot/agents` from the dispatcher's own cwd while the reader honours the `Agent registry` key, so auto-dispatch from the board's checkout produced `2 manifests, 9 synthesized` with five live workers and every agent holding a manifest <!-- status: delivered, branches: 0/2 -->
 
 ### Should Have
 
