@@ -1,0 +1,1 @@
+../2026-08-27-a-partial-pulse-does-not-say-not-merged.md
