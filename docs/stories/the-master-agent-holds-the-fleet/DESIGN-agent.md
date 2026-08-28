@@ -184,7 +184,8 @@ gives it a new pid in the same tree.
 | `pid` | string | manifest | a launch fact — **never alone means running** |
 | `previousPid` | string | manifest | what this run displaced; `''` on a first dispatch |
 | `relaunches` | number | manifest | how often this desk's worker was relaunched |
-| `state` | 8 values | pid + exit + tree | see §4 |
+| `state` | 8 values | pid + exit + tree | **the process** — see §4 |
+| `isFree` **`+`** | bool | `state` + its wave | **proposed** — can it take a unit (§4) |
 | `activity` | `working`\|`idle`\|`''` | descendant CPU | **a cue on `running` only** |
 | `exitCode` | number \| null | `.plot-worker.exit` | recorded, never inferred |
 | `dirtyPaths` | string[] | the worktree | what a `stalled` agent left |
@@ -276,6 +277,53 @@ review."*
 **So `finished` is refined by the TREE**, which is where the difference lives —
 and `failed`, `ended` and `none` are deliberately **not** refined: a recorded
 non-zero exit is a fact the tree cannot soften.
+
+### The process states do not say whether an agent is *free*
+
+**Eight states answer *what is the worker doing*. The registry's model (§1) asks
+a different question: *is this agent available for the next unit of work?*** —
+and no state answers it.
+
+| | asks | answered by |
+|---|---|---|
+| `state` | what is the **process** doing | the pid, the exit code, the tree |
+| **availability** | can this agent **take a wave** | the state **plus its wave** |
+
+**They come apart in both directions:**
+
+- **`running` is not "busy".** An agent between units — one that finished a wave
+  and is asking `--next` — is `running` and has no branch. It is available.
+- **`finished` is not "free".** Its worker exited; under the model the agent and
+  its desk *become* free (§1), but nothing marks the transition, and today the
+  desk is abandoned instead (§1's divergence).
+
+**So `free` is derived, not stored** — the same shape as a Wave's verdict:
+
+```
+agent.isFree = state is live
+             ∧ its wave has merged (or it holds none)
+```
+
+#### The board already collapses eight into two, for a different question
+
+`LIVE_STATES = { running, waiting }` — and the denylist reading is deliberate:
+everything else is not live. **But that is occupancy, not availability.** A
+`waiting` agent is live and blocked on a person; it occupies a slot and can take
+nothing.
+
+**Which is why `liveAgentCount` is the right denominator for the cap** (§10) and
+the wrong answer to *who can take this wave*.
+
+#### Three questions, three answers
+
+| question | answer |
+|---|---|
+| what is this worker doing? | **`state`** — eight values |
+| does it hold a machine? | **live** — `running` \| `waiting` |
+| can it take work? | **free** — **unmodelled** |
+
+**The third is what the registry needs to place a wave**, and it is the one
+nothing computes.
 
 ### `activity` is a cue, never a ninth state
 
@@ -430,6 +478,7 @@ board may be served from a different worktree than the dispatcher writes to.
 | 4 | **No `machineAtDeath`** — `exit 124` reads as agent failure | now |
 | 5 | `worker_*` duplicated onto branch rows | now |
 | 6 | **The desk is per branch, not per agent** — an agent creates a new worktree per unit and removes the old one only on its own success path | **now, measured** |
+| 6b | **No agent state says *free*** — eight describe the process, none says whether it can take a wave | **now** |
 | 7 | **The registry enforces neither invariant** — not *every agent has a worktree*, nor *no worktree is left behind* | **now, measured** |
 
 **Gap 1 is the sharpest measurement in this document**, and it is two problems
