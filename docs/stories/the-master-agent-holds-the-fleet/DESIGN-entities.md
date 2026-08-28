@@ -295,23 +295,81 @@ spawned the agent. And neither action is available over a non-localhost binding:
 
 ### How it is modelled
 
-Deliberately impoverished. Five fields, and the omissions are the design:
+**Correction, 2026-08-28.** An earlier draft of this section listed
+`IssueRowSchema`'s fields as the entity's properties. That was wrong:
+**`IssueRow` is a VIEW, not a domain model.** It sits in `RowKindSchema`'s list
+of seven — `ticket`, `plan`, `pr`, `build`, `agent`, `branch`, `release`,
+`wave` — which is a *rendering* taxonomy, and its `kind: 'ticket'` field exists
+so *"one row component can read slot 2 from the data."* A domain object does not
+carry a field naming which component draws it.
 
-| property | type | why |
+The domain object is what the tracker was asked about, before anything decided
+how to show it.
+
+#### The domain object
+
+| property | type | source |
 |---|---|---|
-| `kind` | `'ticket'` | stated, never inferred from the call site |
-| `number` | number \| string | identity — **see the defect below** |
-| `title` | string | enough to answer *is this worth a plan?* |
-| `url` | string | `''` renders as plain text; a fabricated URL 404s identically |
-| `ageMinutes` | number \| null | null where the host gave no date — **0 would claim it was opened this instant** |
+| `id` | string \| number | `#N` on GitHub, `PROJ-123` on Jira |
+| `title` | string | the tracker |
+| `url` | string | verbatim from the host; `''` where none was given |
+| `createdAt` | ISO-8601 \| null | the tracker |
+| `body` | string | **only after `issue-view`** — absent from the list |
 
-**No labels, no assignee, no status, no priority** — *"those age into lies the
-moment the tracker moves, and Plot never writes them back."*
+Five properties, and every one is a fact the tracker stated. Nothing here is
+computed, formatted, or relative to now.
 
-The tracker is the authority on tracker state. Mirroring it would create a
-second copy that is wrong between refreshes and wrong forever after an outage.
-So the model carries only what the inbox question needs, and points at the
-tracker for the rest.
+Deliberately absent, and this part of the earlier draft stands: **no labels, no
+assignee, no status, no priority** — *"those age into lies the moment the
+tracker moves"*, and Plot never writes them back.
+
+#### What belongs to the view instead
+
+Two things in the old table were view concerns, and naming them is what the
+correction buys:
+
+- **`kind: 'ticket'`** — a row discriminator. The domain object is a ticket by
+  being one; it does not need to say so.
+- **`ageMinutes`** — a *presentation* of `createdAt`. The adapter returns
+  `createdAt`; `refreshIssues` converts it to minutes-since-now, which is
+  correct only at the instant of render and must be recomputed every pulse. The
+  domain holds the timestamp; the view holds the age.
+
+The rule that produced `ageMinutes: null` rather than `0` is still right and
+still belongs to the view: *0 would claim the issue was opened this instant.*
+Absent-is-not-false applies at both layers.
+
+#### The layering defect this exposes
+
+`CacheEntry.issues` is typed **`IssueRow[]`** (`fleet.ts:498`). So the
+controller — the thing the reactive section calls the fleet control — holds
+view rows rather than domain objects. `refreshIssues` fetches from the adapter
+and converts to rows *in the same function*, and no domain representation is
+ever materialized.
+
+That is why the earlier draft made this mistake so easily: **there was no domain
+model to read, only a row.** The consequences are concrete rather than
+theoretical:
+
+- `ageMinutes` is recomputed inside the controller on every pulse, so a value
+  whose only consumer is a renderer is refreshed by the data layer.
+- A second consumer of tickets — a supervisor asking *"what is unplanned?"* from
+  the CLI, with no board open — would receive rows shaped for a grid it is not
+  drawing.
+- The Jira `string | number` defect (gap 1) lives in the row schema, which is
+  where it was noticed. Whether the *domain* id is a string or a number is a
+  separate question that no type currently asks.
+
+**The fix is not to rename `IssueRow`.** It is a good view type and should stay
+one. The gap is that the controller should hold the domain object and the view
+should be derived at the boundary — `toIssueRow(ticket, now)`, with `now` an
+argument precisely because the age depends on it.
+
+This generalizes past Ticket, and it is the reason to record it here: **every
+entity in this document is currently defined by its row.** `FleetBranch`,
+`AgentEntry`, `Card` and `PrRecord` are all shapes the board renders. Whether
+each is also the right domain shape is a question this design has not yet asked
+of any of them — and asking it is what the remaining entity sections should do.
 
 ### Askability is a separate field from the answer
 
@@ -357,7 +415,7 @@ reference implementation:
 That last point is the completeness gate from the reactive section, already
 implemented, in the one place it was needed first.
 
-### Two genuine gaps
+### Three genuine gaps
 
 **1. A Jira key is a string; the board types it as a number.**
 
@@ -704,17 +762,25 @@ everywhere) without the cost. **This reading should be confirmed in review.**
 
 Deliberately impoverished. Adding to this table is almost always wrong.
 
+**Domain object** — what the tracker stated, before anything decided how to
+show it:
+
 | property | type | meaning |
 |---|---|---|
-| `kind` | `'ticket'` | stated, never assumed from the call site |
-| `number` | number | identity |
+| `id` | string \| number | `#N` (GitHub) or `PROJ-123` (Jira) |
 | `title` | string | enough to answer *is this worth a plan?* |
-| `url` | string | `''` renders as plain text — a fabricated URL 404s identically |
-| `ageMinutes` | number \| null | null where the host gave no date |
+| `url` | string | verbatim; `''` where the host gave none |
+| `createdAt` | ISO-8601 \| null | when it was opened |
+| `body` | string | **only after `issue-view`** — absent from the list |
 | *(fleet-level)* `issueAnswer` | `answered`\|`unsupported`\|`failed` | **whether the tracker could be asked at all** |
 
 No labels, no assignee, no status — *"those age into lies the moment the tracker
 moves"*, and Plot never writes them back.
+
+**View row** (`IssueRow`) — derived at the boundary, not stored: adds
+`kind: 'ticket'` (a row discriminator) and `ageMinutes` (a presentation of
+`createdAt`, correct only at render). See §1b's layering note: today
+`CacheEntry.issues` holds the ROW, and no domain representation exists.
 
 ### Plan
 
