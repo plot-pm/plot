@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
@@ -14,7 +14,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
-- **Delivered:** <!-- YYYY-MM-DD -->
+- **Delivered:** 2026-08-28
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-26, Jan Wloka, `feature/a-plan-cites-a-jira-key`
 - **Started:** 2026-08-26, Jan Wloka, `feature/jira-issues-reach-the-inbox`

@@ -53,7 +53,7 @@ GitHub team a fact and an enterprise team a blank.
 Stories: [[the-board-is-blank-where-it-matters]] (the first three),
 [[setup-asks-what-the-repo-already-knows]] (the fourth).
 
-- [ ] [my-jira-tickets-are-in-the-inbox] My Jira tickets appear in the board's inbox, so I can turn one into a plan without leaving the board
+- [x] [my-jira-tickets-are-in-the-inbox] My Jira tickets appear in the board's inbox, so I can turn one into a plan without leaving the board <!-- status: delivered -->
       `jira` backend, so `Tracker: jira` stops being a key nothing reads. The
       board's ticket inbox is the one section an enterprise team cannot get any
       other way.
