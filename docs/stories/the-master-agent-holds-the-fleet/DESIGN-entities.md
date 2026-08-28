@@ -195,21 +195,27 @@ right and the pattern the others should copy.
 > being the board's inbox, and its read/write controller split is the worked
 > example behind **job 4** (*what is safe to run?*).
 
-### Three kinds, two directions
+### Three kinds, both directions
 
 **Corrected 2026-08-28** against the agentic workflow diagram. An earlier draft
 of this section modelled Issue as ONE thing — an inbound signal nobody has
 decided about. The workflow has **three**, at three points, flowing in two
 directions:
 
-| kind | phase | direction | lifecycle |
-|---|---|---|---|
-| **Customer story** | Discovery | **inbound** — the signal | one ticket · one story; enters the inbox |
-| **Feature** | Development | **outbound** — Plot writes it | one per plan, *"only now, because the cut now holds"* |
-| **Epic** | Development → Testing | **outbound** — Plot writes it | one per release; collects every feature ticket; **closes with the release** |
+| workflow ticket | phase | kind | typical direction | lifecycle |
+|---|---|---|---|---|
+| **Customer story** | Discovery | `story` | inbound — the signal | one ticket · one story; enters the inbox |
+| **Feature** | Development | (any) | outbound — Plot writes it | one per plan, *"only now, because the cut now holds"* |
+| **Epic** | Development → Testing | `epic` | outbound — Plot writes it | one per release; collects every feature ticket; **closes with the release** |
 
-Two of the three are **written by Plot**, and that is what the earlier draft got
-wrong. Its invariant *"read-only; no operation writes to the tracker"* is a true
+These are the workflow's three *roles*, and the direction column says which way
+each **typically** runs — not which way it must. Direction is a property of the
+individual issue, not of its kind: a Story with no customer ticket can produce
+an outbound story ticket, and a customer can file an epic. See
+[direction is a property of the issue](#direction-is-a-property-of-the-issue-not-of-the-kind).
+
+Two of the three roles are **written by Plot**, and that is what the earlier
+draft got wrong. Its invariant *"read-only; no operation writes to the tracker"* is a true
 statement about the connector **today** and a false one about the workflow this
 is designed toward.
 
@@ -252,20 +258,54 @@ Issue(kind=bug|task|…) ─────────────┘             
 Issue(kind=epic)  ◄────────────────  Release  ◄─────────────  epic collects
 ```
 
-##### The three are not parallel — two are inbound, one is outbound
+##### Direction is a property of the issue, not of the kind
 
-The arrows look alike and the mechanics are opposite, which is the distinction
-to hold on to:
+**Corrected 2026-08-28.** An earlier draft of this section fixed direction to
+kind — epic outbound, story and plan inbound. That is wrong: **every relation
+runs in both directions**, and the two axes are independent.
 
-| relation | who mints the id | Plot's job |
+|  | **inbound** (the tracker minted it) | **outbound** (Plot minted it) |
 |---|---|---|
-| story → Story | **the tracker** (a customer filed it) | *record* the reference |
-| other → Plan | **the tracker** | *record* the reference |
-| epic → Release | **Plot** | *mint it, and remember having minted it* |
+| **story** | a customer story ticket → a Story | a Story with no ticket → Plot files one |
+| **plan** | a bug or task → a Plan | a Plan → its **Feature ticket** |
+| **epic** | a customer's epic → an inbound signal | a Release → its **epic harbour** |
 
-So the first two are references Plot writes down, and the third is an artefact
-Plot creates. A reference that goes missing is a broken link; an artefact minted
-twice is two epics for one release.
+All six cells are real. The draft denied two of them while this same document
+described them elsewhere: the **Feature ticket per plan** is the outbound plan
+case, specified one section above; and an inbound epic is the ambiguity named
+two sections below. The story case is `story-tracking`'s own — *"no ticket
+exists because the customer is not in the loop"* — where the Story is the
+umbrella and a ticket may be filed for visibility rather than the reverse.
+
+##### What actually differs: who minted the identity
+
+The distinction the draft was reaching for is real, but it belongs to the
+**individual issue**, not to its kind:
+
+| | inbound | outbound |
+|---|---|---|
+| identity minted by | the tracker | **Plot** |
+| Plot's job | *record* the reference | *mint it, and remember having minted it* |
+| failure if lost | a broken link | **two artefacts for one thing** |
+| Plot may edit it? | **no** — someone else owns it | yes — it is Plot's own |
+| lifecycle owner | the tracker | Plot (a feature ticket follows its plan; an epic closes with its release) |
+
+So the asymmetry that matters is **ownership**, and it is per issue: a Feature
+ticket Plot created is Plot's to close, while a bug someone filed is not — even
+though both map to a Plan.
+
+**How Plot tells them apart: by having recorded the id.** An issue whose key
+appears in a Plot artefact — `Issue:` on a plan, the epic id beside `Released:`
+— is one Plot knows about; whether Plot *minted* it is the same record read one
+step further. This needs no provenance field and fails in the safe direction: an
+unrecorded issue is treated as inbound, so Plot declines to edit something that
+might not be its own.
+
+**Why this matters more than tidiness.** Direction decides the write policy. An
+inbound issue is read-only by the rule that Plot must not edit what a customer
+owns; an outbound one is Plot's to close and must never be minted twice. Getting
+that per-kind rather than per-issue would either forbid Plot from closing its
+own feature tickets, or license it to edit a customer's epic.
 
 ##### `story` → Story
 
@@ -675,7 +715,7 @@ claim an empty tracker.
    reason this rule does not already refuse.
 5. **Read-only — for this kind.** No operation writes to a Customer story
    ticket. The outbound kinds (Feature, Epic) are Plot's own artefacts and are
-   written; see [Three kinds, two directions](#three-kinds-two-directions).
+   written; see [Three kinds, both directions](#three-kinds-both-directions).
    The distinction is ownership, not politeness: Plot must not edit a ticket a
    customer owns, and must own the ones it mints.
 6. **An Issue leaves by being referenced**, never by being marked — the exit
