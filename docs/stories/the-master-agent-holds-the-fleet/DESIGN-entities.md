@@ -93,6 +93,82 @@ every pulse, so it cannot drift from its source: there is no update path, only
 re-creation. That is Principle 1 expressed as an object lifecycle rather than as
 a prohibition.
 
+### The objects carry the semantics, not just the fields
+
+The three rules above all point at the same missing thing: **the domain objects
+are data, and the meaning of that data lives elsewhere.**
+
+Measured 2026-08-28: **32 comparisons against a plan's phase** across the
+codebase — 5 of them inside `PlanCard.tsx`, a *render* component. Each is a
+call site that decided for itself what `approved` permits.
+
+So the rule *"an approved plan whose waves are eligible may be dispatched"*
+exists as `p.phase === 'approved' && p.waves.some(w => w.verdict === 'eligible')`
+at one call site, and something like it at thirty-one others.
+
+#### What belongs on the object
+
+**Not more fields — answers.** The object should be able to say what its state
+*means*, so no consumer has to re-derive it:
+
+| kind | example | replaces |
+|---|---|---|
+| **predicates** | `plan.isApproved`, `plan.isTerminal` | `phase === 'approved'` at 32 sites |
+| **capabilities** | `plan.canDeliver`, `plan.canDispatch` | the gate re-implemented per caller |
+| **transitions** | `plan.approve(who, channel)` | a phase flip plus a record, done together |
+| **derived relations** | `story.plans(estate)`, `plan.wave(branch)` | `cards.filter(...)` in two components |
+
+**Capabilities are the important ones**, because they are the guardrails.
+*Can this plan be delivered?* is one question with one answer — *every
+non-deferred branch is merged* — and it is currently answered by
+`plot-deliver.sh`, by `planAutoDeliver`, by the board's action menu and by
+`/plot-deliver`'s prose. Four implementations of one rule.
+
+**A capability answers, and refuses with a reason.** `PlanActions` already wants
+this: it *"opens on `canOpen`, not `willAct`"* — an action that will be refused
+still renders, so the refusal can name itself. That pattern needs the object to
+carry both the verdict and the because.
+
+#### Transitions are where the pairs live
+
+**A state change is never one write.** Every one of Plot's transitions is a
+phase flip *plus* a record, and the estate has been bitten twice by them coming
+apart — a plan flipped to `Delivered` with no `Delivered:` record is invisible to
+the scan's rolling window.
+
+`plan.deliver(date)` writing both is the difference between a rule and a
+structure: **the pairing stops being something four call sites must remember.**
+
+That is the same reason `plot-approve.sh` and `plot-deliver.sh` exist as scripts
+rather than prose — the mechanical half was extracted so it could not be
+half-done. This puts the same extraction one layer up, where the board and the
+CLI both reach it.
+
+#### What must not move onto the object
+
+- **Nothing that needs the world.** `plan.canDeliver` reads its own waves;
+  it does not call a host. Where a decision needs a PR's merge status, the fact
+  is passed in — the object stays pure and testable, which is the whole point of
+  the rule above it.
+- **No persistence.** The object does not write files. A transition returns
+  *what should be written*; the script or route performs it, so there remains one
+  writer per artefact.
+- **No rendering.** `plan.isApproved` is a fact; *"show it in Development"* is
+  the board's mapping (§4), and the object should not know about columns.
+
+#### The three rules, completed
+
+| | |
+|---|---|
+| views | **reference** domain objects |
+| the cache | **holds** domain objects |
+| workflow | is **expressed, tested and gated on** domain objects |
+| **and the objects** | **carry the semantics those three depend on** |
+
+Without the fourth, the first three are unreachable: a view cannot reference an
+object that cannot answer questions, and a test cannot assert a rule that lives
+in its callers.
+
 ### Domain logic can only be tested on domain objects
 
 A workflow rule is a statement about entities, so it can only be **stated,
