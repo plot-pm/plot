@@ -130,19 +130,62 @@ That is the same shape as a plan's `Approved:` holding a free-text `who`
 (Person, entities §1c): **a field that must hold two facts eventually holds one
 of them as a comment.** The object should carry `plannedEnd` and `actualEnd`.
 
-### An item is its own small object
+### A MoSCoW item IS a plan
+
+**Corrected 2026-08-28.** An earlier draft called the slug optional. It is not:
+**an item names a plan**, and the exceptions prove it rather than qualifying it.
 
 ```
 { tier: must|should|could|deferred,
   checked: boolean,
-  slug: string | null,        // [slug] where the item names a plan
-  text: string,
+  plan: Plan,                 // [slug] — resolved, not a string
+  text: string,               // the sprint's own wording of it
   annotation: string }        // <!-- status: delivered -->
 ```
 
-**`slug` is optional, and that is real.** Some items name a plan; others name
-work with no plan (*"Set the 32 delivered-but-unreleased plans to Released"*).
-An item without a slug can only ever be judged by its checkbox.
+Measured across all four sprint files, 81 items:
+
+| | count |
+|---|---|
+| name a plan slug | **72** |
+| **malformed line**, but name a plan | **6** |
+| genuinely not a plan | **3** |
+
+**The six are a typo, not a category.** They read `- [a-startable-wave-says-so]
+…` — missing the checkbox, so the line is `- [slug]` rather than `- [ ] [slug]`.
+All six resolve to real plan files. That is a lint finding, and one nothing
+currently makes.
+
+**And the three that are not plans should not have been items.** They are:
+
+| item | what it actually is |
+|---|---|
+| *"Set the 32 delivered-but-unreleased plans to Released"* | housekeeping — a one-off act with no design |
+| *"Decide PR #57"* | a decision, not work |
+| *"A release window… (drafted, not yet committed)"* | **a plan not yet written**, and it says so |
+
+None is work Plot would plan. The first two have nothing to design; the third is
+a plan in waiting whose own annotation admits it.
+
+#### Why this matters more than tidiness
+
+**An item that is a plan can be judged by the estate. An item that is only prose
+can be judged by nothing but its checkbox** — and a checkbox is the weakest
+claim in the format, which is exactly why `plot-sprint-release.sh` exists to
+outrank it.
+
+So the three exceptions are the only items in this estate whose completion
+**cannot** be verified, and the release gate must take their word for it.
+
+#### The item's `text` is not the plan's title
+
+The sprint states the item in **its own words**, aimed at the sprint's goal —
+*"My Jira tickets appear in the board's inbox, so I can turn one into a plan
+without leaving the board"* — while the plan carries a title of its own.
+
+**That is worth keeping.** The same plan can serve two sprints for different
+reasons, and the item's text is the sprint's *commitment* rather than a copy of
+the plan's name. It is the one field here that is genuinely the sprint's.
 
 ### What is derived, not stored
 
@@ -333,8 +376,9 @@ asks about it — the same gap Story has (Story §12).
 | 1 | **A sprint's state is stale and nothing detects it** — 2.9.0 shipped, sprint still Active | **now, measured** |
 | 2 | **`end` holds two facts** — one file records `(closed …)` as prose in the date | **now, measured** |
 | 3 | **Setup never asks about `Sprint directory`** | now |
-| 4 | **`start`/`end`/`goal` reach no view** — the board cannot show whether a sprint is on time | now |
-| 5 | Inbound and outbound epic acts unbuilt | posture 2 |
+| 4 | **Six MoSCoW lines are malformed** — `- [slug]` without the checkbox, so they parse as neither checked nor unchecked | **now, measured** |
+| 5 | **`start`/`end`/`goal` reach no view** — the board cannot show whether a sprint is on time | now |
+| 6 | Inbound and outbound epic acts unbuilt | posture 2 |
 
 **Gap 1 is the one to fix**, and the fix is a derivation rather than a field:
 a sprint whose `Release:` has a tag is over, whatever its state says. The data
