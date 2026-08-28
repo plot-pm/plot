@@ -33,12 +33,14 @@ around.
 | 10 | [Fleet control](#10-fleet-control) | the one entity the CLI serves well |
 | 11 | [Views](#11-views) | card · row · wave · plan head |
 | 12 | [Setup](#12-setup) | what adoption declares |
-| 13 | [Gaps](#13-gaps) |  |
-| 14 | [Invariants and open points](#14-invariants-and-open-points) |  |
+| 13 | [The shape the format should take](#13-the-shape-the-format-should-take) | **designing forward** — front matter, and a Qualities section |
+| 14 | [Gaps](#14-gaps) |  |
+| 15 | [Invariants and open points](#15-invariants-and-open-points) |  |
 
 ---
 
 ## 1. What a Plan is
+
 
 
 **A Plan describes the solution: how *this system* should change, in which
@@ -86,6 +88,7 @@ stop."*
 ## 2. Posture
 
 
+
 | posture | what a Plan is |
 |---|---|
 | **`plot`** (default) | **the record.** The plan file is the truth; the tracker, if any, sees a published summary |
@@ -109,6 +112,7 @@ plan file.
 ---
 
 ## 3. The domain object
+
 
 
 The normative shape, as `plot-plan-meta.sh` defines it. **This section describes
@@ -205,6 +209,7 @@ present."*
 ---
 
 ## 4. Lifecycle
+
 
 
 ### Seven states, five on the path and two terminal
@@ -326,6 +331,7 @@ see is not one."*
 ## 5. Direction — inbound, outbound, and neither
 
 
+
 A plan can originate from a ticket, publish one, or exist without either. The
 rule the other specs state applies here unchanged: **direction is a property of
 the individual plan, not of plans in general.**
@@ -402,6 +408,7 @@ scale.
 ## 6. Relations
 
 
+
 The Plan is the hub: every other entity relates to it, and most relate *through*
 it.
 
@@ -431,6 +438,7 @@ of those 8 already complete. `unsliced-wave` is the reported defect.
 ---
 
 ## 7. Actions
+
 
 
 Eight acts in two kinds. **Seven are lifecycle acts**, each a spoke command
@@ -519,6 +527,7 @@ every step tests the source it would have written, never a progress file.
 ## 8. Scope
 
 
+
 **Which plans are shown depends on who is asking**, and the two answers differ
 deliberately:
 
@@ -539,6 +548,7 @@ the same rule — *the parser's own answer decides*.
 ---
 
 ## 9. The collaborators
+
 
 
 **One, and it is the contract**: `plot-plan-meta.sh`.
@@ -568,6 +578,7 @@ the spoke commands'.
 ## 10. Fleet control
 
 
+
 **Plan is the one entity the CLI serves better than the board**, which inverts
 the pattern Issue and Story both show.
 
@@ -590,6 +601,7 @@ the tooling grew where the acting happens.
 ## 11. Views
 
 
+
 | view | where | shows |
 |---|---|---|
 | **card** | a board column | title, type, waves, PRs, sprint, story |
@@ -605,6 +617,7 @@ an action that will be refused still renders, so the refusal can name itself.
 ---
 
 ## 12. Setup
+
 
 
 Plans are what `/plot-init` exists to establish, and its keys are the
@@ -626,7 +639,152 @@ user's plans."*
 
 ---
 
-## 13. Gaps
+## 13. The shape the format should take
+
+
+Designing forward rather than describing. Two changes, and the first is
+**smaller than it looks** because the parser has already made it.
+
+### The `## Status` section holds no status
+
+```markdown
+## Status
+
+- **Phase:** Draft
+- **Type:** feature
+- **Sprint:** …   **Issue:** …   **Story:** …
+- **Review:** …   **Impl:** …    **Rounds:** …
+<!-- Approved: / Started: / Delivered: / Released: -->
+```
+
+**It is frontmatter written as a list**, and the naming is wrong in both
+directions: the section is called *Status* and contains no `Status:` field,
+while the field is called *Phase* and holds a state (§4).
+
+Three different lifetimes are also mixed in one block:
+
+| kind | fields | changes |
+|---|---|---|
+| **identity & shape** | title, type | once, at creation |
+| **placement** | sprint, story, issue, assignee | when the plan is filed |
+| **ceremony** | review, impl | once, at creation |
+| **transitions** | approved, started, delivered, released | **accumulate over the plan's life** |
+
+The transition records are the odd ones: they are *appended* as things happen,
+and they are the fields other tooling depends on most — the scan's rolling
+window reads `Delivered:`, and a phase flip without the record makes a plan
+invisible.
+
+### The parser has already moved; the template has not
+
+**Verified 2026-08-28** at `plot-plan-meta.sh:363`:
+
+```awk
+praw = (fm_status != "") ? fm_status : fm_phase
+```
+
+**Front matter `status:` is the PRIMARY spelling**, and `phase:` is the
+fallback. Eleven other fields already have a front-matter spelling too —
+`title`, `type`, `sprint`, `story`, `issue`, `assignee`, `review`, `impl`,
+`approved`, `delivered`, `released`, `design`.
+
+So a plan written as front matter parses **today**, unchanged:
+
+```markdown
+---
+title: A worker registers where the board reads
+status: draft
+type: bug
+story: plot-agent-identity
+review: pr
+impl: own-branches
+---
+```
+
+**Demonstrated, not inferred.** That exact file, parsed 2026-08-28:
+
+```json
+{ "format": "frontmatter", "phase": "draft", "type": "bug",
+  "title": "A frontmatter plan parses today",
+  "story": "plot-agent-identity", "sprint": "2026-W35-example",
+  "issues": [226, 228], "review": "pr", "impl": "own-branches" }
+```
+
+Every field resolved, including the issue list, and the parser labels the
+spelling `frontmatter` in its own output — so it is a first-class format rather
+than a tolerated one.
+
+**The format the future wants already exists and is already preferred.** What
+is behind is the template, which teaches the list spelling, and 158 plans
+written from it.
+
+**This also settles the field name.** An earlier sketch proposed `state:` to
+match §4's vocabulary. That would be a **third** spelling for one value, and
+worse than either: `status:` is canonical, primary and tested. **The field is
+`status:` and the thing it holds is a state** — the same reconciliation §4
+makes for `Phase:`.
+
+### What migration would actually cost
+
+| step | cost |
+|---|---|
+| parser change | **none** — both spellings already read |
+| template change | one file |
+| new plans | free — they parse either way |
+| 158 existing plans | **nothing required**; the list spelling stays supported |
+| `plot-plan-meta.sh` tests | extend, do not replace |
+
+**Nothing has to move at once**, which is the property that makes this
+tractable: both spellings coexist by design, exactly as `## Branches` and
+`## Waves` do — *"the parser reads both so a migration that moves files one at
+a time never makes a plan silently empty."*
+
+**One thing genuinely does not fit front matter:** the transition records
+accumulate (`Started:` is one line per branch), and a YAML list of
+`{date, who, branch}` objects is a poor fit for something a human appends to
+mid-flight. A `## Transitions` section, or leaving those in the body while the
+stable fields move up, is the open part of this design.
+
+### `## Qualities` — the missing section
+
+The Story spec's pair says a plan carries *"the non-functional requirements of
+**this** solution"*. **The template has nowhere to put them.**
+
+Measured: the template has `Motivation`, `Design`, `Branches`, `Changelog`,
+`Notes` — so qualities land inside `Design` prose or as `Done when` assertions,
+by improvisation.
+
+```markdown
+## Design
+  how the system changes
+
+## Qualities              ← proposed
+  - the pulse spends no additional host call
+  - the scan stays under 5 s on 90 branches
+  - a failed fetch keeps the last good value
+
+## Branches
+  the steps to land it
+```
+
+**Why a section rather than folding into `Done when`.** They are different
+claims: `Done when` says *this branch is finished*, and a quality says *the
+solution must hold this property* — which outlives any one branch and is what a
+reviewer challenges. A quality buried in design prose is not reviewable as a
+list, and `challenge-the-plan`'s non-functional round has nothing to read.
+
+**And it gives the challenge something to bite on.** The skill interrogates
+security, performance and scalability today by inferring them from `Design`; a
+named section is what turns that from extraction into review.
+
+**It stays optional.** Most of this estate's 158 plans have no NFRs worth
+stating, and a mandatory section would be filled with "n/a" — the failure mode
+the manifesto's ceremony principle exists to avoid.
+
+---
+
+## 14. Gaps
+
 
 
 | # | gap | reachable |
@@ -645,7 +803,8 @@ three plans are in exactly that state.
 
 ---
 
-## 14. Invariants and open points
+## 15. Invariants and open points
+
 
 
 ### Invariants
