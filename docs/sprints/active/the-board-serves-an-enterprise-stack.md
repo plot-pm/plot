@@ -1,1 +1,0 @@
-../2026-W35-the-board-serves-an-enterprise-stack.md

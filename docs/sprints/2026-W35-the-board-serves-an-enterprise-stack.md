@@ -6,10 +6,11 @@
 
 ## Status
 
-- **Phase:** Active
+- **Phase:** Closed
 - **Start:** 2026-08-26
 - **End:** 2026-09-09
 - **Release:** 2.11.0
+- **Closed:** 2026-08-28, 25/25 delivered, released as v2.11.0
 
 ## Sprint Goal
 

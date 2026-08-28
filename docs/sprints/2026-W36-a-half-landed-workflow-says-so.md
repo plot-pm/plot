@@ -52,6 +52,8 @@ Stories: [[the-master-agent-holds-the-fleet]] (the harness half)
 - [ ] [a-delivery-that-half-lands-refuses] A delivery writes its phase, its record **and** its index entry, or reports which one it could not write — measured: a phase flip without the symlink made a finished plan read as unfinished for two days
 - [ ] [a-merge-without-a-changeset-is-named] A merged branch whose changeset was never committed is reported before the release consumes the estate — measured: 2 in one session, both nearly shipping no release note
 - [ ] [a-held-worktree-names-what-holds-it] `plot-reap.sh` says *which file* holds a tree it refuses, so an operator can judge it — measured: 3 trees held by one uncommitted file each, all resolved by hand
+- [ ] [one-cap-holds-across-boards] Two boards on one repo cannot exceed `parallelAgents` between them — measured: the budget is `parallelAgents − liveAgentCount`, and each board computes it on its own pulse, so two boards seconds apart both read *0 live, budget 3* and each start 3
+- [ ] [a-board-says-which-repo-it-serves] The header names the repository the board is serving — measured: `serverInfo()` carries `port` and `branch` but **not the repo path**, and a stray board serving a one-plan fixture on the usual port cost two hours before anyone could tell it apart from the real one
 
 ### Should Have
 
@@ -90,6 +92,28 @@ computed, which is why this sprint is small.
 and refuses to declare success on a self-asserted claim. That is the shape the
 other workflows lack.
 
+### Two boards is not two of the same problem
+
+**The cap and the identity are different failures, and both were met today.**
+
+**The cap is a check-then-act race.** `liveAgentCount` reads the shared agent
+registry, so its *input* is machine-wide and correct. What is not atomic is
+read → decide → spawn: nothing holds a slot between deciding there is one and
+filling it. **The fix is the pattern Plot already trusts** — a branch claim is
+`git push` of a ref, and *"rejection means another session won the race"*
+(`plot-dispatch.sh:1961`). A slot claimed the same way cannot be double-taken,
+with no lock manager and none wanted.
+
+**The identity is a rendering gap, and cheaper than it looks.** `serverInfo()`
+already runs on every `/api/board` response and already carries `port` and
+`branch`. It does not carry the repository. **Adding one field is the whole
+change** — and it is the difference between *"the board is broken"* and *"that
+board is serving somewhere else."*
+
+**Neither is hypothetical.** Both were measured on 2026-08-28, in the session
+that wrote this sprint, and the second one is why the first release nearly did
+not ship.
+
 ### What this sprint does not claim
 
 **It does not make the board cheaper.** The board's pulse cost is real and has
@@ -104,9 +128,10 @@ harder to judge.
 
 ### Nothing here has a plan yet
 
-All eight items are findings, not plans. Each needs `/plot-idea` before it can
-be dispatched, and the three Musts should be written first — they share a shape,
+All ten items are findings, not plans. Each needs `/plot-idea` before it can
+be dispatched, and the three completion Musts should be written first — they share a shape,
 and writing them together is what keeps them one mechanism rather than three.
+The two board Musts are independent of those and of each other.
 
 ### Scope Changes
 
