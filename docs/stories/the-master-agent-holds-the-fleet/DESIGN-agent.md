@@ -55,6 +55,77 @@ outlives the branch it is working on.**
 most are the ones no worktree can express: an agent between branches, and an
 agent that stopped to ask."*
 
+### The unit of work is a Wave
+
+**An agent's unit of work is one wave**, and the fleet's shape follows from it:
+
+```
+registry  ──provides──►  agents
+agent     ──takes────►   a wave        (its unit of work)
+agent     ──owns─────►   a worktree    (its desk, while it lives)
+wave merged ─────────►   agent and desk are FREE for the next unit
+```
+
+**The code is branch-granular and the model is wave-granular**, and at the
+intended shape they coincide: *plan → \* wave → **1** branch* (Wave §8). Where
+they diverge — the 21 waves holding several branches — the agent takes a branch
+and the wave is not the unit it was meant to be.
+
+### An agent takes a *next* unit, and the loop already does this
+
+**`plot-worker-loop.sh` implements it**: when a unit completes, *"it asks
+`--next` for another claimable branch OF THE SAME PLAN, claims it, creates its
+worktree, and loops. Exit 1 from `--next` is"* the end of work.
+
+**That is why `branch` is optional** (§3) — an agent between units genuinely
+holds none — and it is the mechanism behind *"an agent finishes one branch and
+takes another."*
+
+### But the desk does not persist — and that is the divergence
+
+**The model says an agent keeps its worktree; the loop makes a new one per
+unit:**
+
+```sh
+new_wt="$wt_root/plot-wt-$suffix"
+git worktree add -b "$next_branch" "$new_wt" "origin/$main_branch"
+```
+
+**So the desk is per-branch, not per-agent.** An agent that completes three
+waves creates three worktrees, and the loop removes the previous one *"and tries
+`--next` again"* — but only on its own success path.
+
+**That is where the 13 dead trees come from** (§3): each is a desk an agent
+abandoned, and nothing outside the loop owns their removal.
+
+#### What the model asks for instead
+
+| | today | the model |
+|---|---|---|
+| a desk is | **per branch** | **per agent** |
+| created | on each unit | **on the agent's first unit** |
+| removed | by the loop, on its own success | **by the registry, when the agent ends** |
+| reused | never | **for the next unit** |
+
+**Reusing the desk is cheaper and safer**: `git worktree add` costs a full
+checkout, and a tree removed on a path the loop does not take is a leak — which
+is what 13 of them are.
+
+### The registry's job is the invariant
+
+**Two things it must guarantee**, and neither is enforced today:
+
+> **every agent has a worktree, and no worktree is left behind**
+
+**Measured: 0 manifests, 13 orphaned trees** (§3) — so both halves currently
+fail in this estate. The registry knows about agents through manifests; a tree
+whose agent is gone and whose manifest was never written is invisible to it, and
+`readAgentRegistry` **synthesizes a row** rather than reporting an orphan.
+
+**That is the pairing argument from the other side.** The Worktree spec says the
+manifest and the desk are two halves of one thing; this says the **registry** is
+what keeps them paired — creating both, and ensuring neither outlives the other.
+
 ### Agent and Worker are one entity
 
 **Settled 2026-08-28.** The manifest is its identity card; the pid is its
@@ -358,6 +429,8 @@ board may be served from a different worktree than the dispatcher writes to.
 | 3 | **The registry collapses 8 states to 5** — `failed` becomes `unknown` | now |
 | 4 | **No `machineAtDeath`** — `exit 124` reads as agent failure | now |
 | 5 | `worker_*` duplicated onto branch rows | now |
+| 6 | **The desk is per branch, not per agent** — an agent creates a new worktree per unit and removes the old one only on its own success path | **now, measured** |
+| 7 | **The registry enforces neither invariant** — not *every agent has a worktree*, nor *no worktree is left behind* | **now, measured** |
 
 **Gap 1 is the sharpest measurement in this document**, and it is two problems
 wearing one symptom. The registry directory exists and is empty; 13 dispatched
@@ -379,6 +452,10 @@ nothing reaping them (Worktree §13).
 6. **`activity` is a cue on `running`, never a ninth state.**
 7. **Liveness is resolved in one batch per pulse.**
 8. **A synthesized entry is a defect, not a category.**
+9. **An agent's unit of work is a wave**, and it is free for the next one once
+   that wave has merged.
+10. **The registry guarantees the pairing** — every agent has a desk, and no
+   desk outlives its agent.
 
 ### Open points
 
@@ -387,3 +464,5 @@ nothing reaping them (Worktree §13).
   which is itself an argument for the manifest outliving the run.
 - **Should the registry stop collapsing?** The shell and the contract agree on
   eight; only the registry disagrees.
+- **Should a desk be reused across units?** The loop creates one per branch;
+  the model says one per agent, which is cheaper and leaks less.
