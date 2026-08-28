@@ -339,10 +339,10 @@ PLAN
         done
       fi
       if [ "$rdy" = ready ]; then
-        ok "the packed board reaches ready:true on a $shape repo"
+        ok "the packed board reaches ready:true on an ${shape} estate"
       else
         err=$(node -e 'try{console.log(require(process.argv[1]).error||"no error reported")}catch{console.log("no payload")}' "$r/f.json" 2>/dev/null)
-        no "the packed board never became ready ($shape repo)" "$err"
+        no "the packed board never became ready (${shape} estate)" "$err"
       fi
       kill "$SERVER_PID" 2>/dev/null; SERVER_PID=""
     done
