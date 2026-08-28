@@ -218,8 +218,38 @@ So there are two independent questions, and one key was answering both:
 
 |  | `Tracker: plot` | `Tracker: jira` |
 |---|---|---|
-| **no issue tracker** | MD files are the sole truth; no tickets exist | — |
+| **no issue tracker** | MD files are the sole truth; no tickets exist | **invalid** — refused |
 | **`Issue tracker: jira`** | MD files are the truth; **tickets are a publishing act** | **Jira is the truth**; MD files are a projection |
+
+**`Issue tracker: jira` is a prerequisite for `Tracker: jira`.** The fourth cell
+is not an unused combination — it is a **contradiction**: a repo declaring that
+Jira owns the truth while giving Plot no way to reach Jira, asserting its plans
+live somewhere it cannot read.
+
+So the two keys are orthogonal in *meaning* and **ordered in validity**: the
+connection may exist without the posture (that is posture 2, publishing), but
+the posture may never exist without the connection.
+
+```
+Issue tracker: jira   ──enables──►   Tracker: jira
+     (connection)                      (posture)
+```
+
+**This is Plot's first cross-key config rule**, which is why it needs stating.
+The other posture keys — `Plan PRs`, `Hosts plans`, `Implementation home` — are
+each independently valid, so nothing until now has had to validate a
+combination.
+
+**It must refuse, not default.** Falling back to `Tracker: plot` would leave a
+repo believing Jira leads while Plot treats its MD files as truth — the two
+sides of the system disagreeing about which one is authoritative, silently. That
+is worse than either posture, and it is the shape a wrong `Tracker:` already
+takes: *"answers with an empty list, and the board renders an empty inbox that
+reads as you have no tickets."*
+
+Where setup writes the keys, the dependency is checked there (4e's neighbour);
+where a human edits `CLAUDE.md` by hand, the first read of `Tracker: jira` with
+no connection must say so and stop rather than proceed on a guess.
 
 **1. `plot`, no issue tracker.** Today's default and this repo's own posture.
 Git is the source of truth, nothing is published, and there is no inbox.
