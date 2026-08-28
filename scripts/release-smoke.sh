@@ -247,6 +247,111 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+head_ "3b. The PACKED package carries what the server spawns"
+# ---------------------------------------------------------------------------
+
+# THE SECTION THAT WOULD HAVE CAUGHT THE ORIGINAL DEFECT. Everything above
+# tests the BUILT artifact in this working tree, where all 24 scripts sit on
+# disk at skills/plot/scripts/ — the board finds them because they are THERE,
+# not because they were shipped. The published package is the one artifact
+# nothing tested, and it shipped 2 of 11 scripts for nine releases.
+
+if ! command -v npm >/dev/null 2>&1; then
+  skipm "packed package" "npm not on PATH"
+else
+  # 1. DERIVE, THEN COMPARE. Fast and specific: it names the missing file.
+  derived=$(grep -rhoE "'plot-[a-z-]+\.sh'" "$ROOT/packages/board/src/server/"*.ts 2>/dev/null \
+    | tr -d "'" | sort -u)
+  declared=$(node -e 'console.log(require(process.argv[1]).files.filter(f=>f.endsWith(".sh")).sort().join("\n"))' \
+    "$ROOT/packages/board/package.json" 2>/dev/null)
+  if [ "$derived" = "$declared" ]; then
+    ok "every spawned script is declared in \`files\` ($(printf '%s' "$derived" | grep -c . ) of them)"
+  else
+    missing=$(comm -23 <(printf '%s\n' "$derived") <(printf '%s\n' "$declared") | tr '\n' ' ')
+    extra=$(comm -13 <(printf '%s\n' "$derived") <(printf '%s\n' "$declared") | tr '\n' ' ')
+    no "files declares the wrong scripts" "missing: ${missing:-none} | declared-but-unspawned: ${extra:-none}"
+  fi
+
+  # 2. PACK AND RUN — the truth. The grep above reads single-quoted literals and
+  # would miss a spawn built from a variable; this boots what npm would publish
+  # and asks the board itself.
+  packdir="$SANDBOX/packed"
+  mkdir -p "$packdir"
+  if ( cd "$ROOT/packages/board" && npm pack --pack-destination "$packdir" >/dev/null 2>&1 ); then
+    tgz=$(ls "$packdir"/*.tgz 2>/dev/null | head -1)
+    tar xzf "$tgz" -C "$packdir" 2>/dev/null
+    art="$packdir/package/dist/board-server.mjs"
+    n_sh=$(tar tzf "$tgz" | grep -c '\.sh$')
+    [ -f "$art" ] \
+      && ok "npm pack produced an artifact carrying $n_sh script(s)" \
+      || no "npm pack" "no dist/board-server.mjs in the tarball"
+
+    # BOTH REPO SHAPES, and the empty one is the new-user path. An earlier
+    # version of this check tested only a populated repo — and passed while the
+    # published board hung forever on an empty one, because the fleet scan
+    # exited before its terminal pulse line. A test that quietly meets the
+    # precondition it should be checking is worse than no test.
+    for shape in empty populated; do
+      r="$packdir/repo-$shape"
+      mkdir -p "$r/docs/plans" && ( cd "$r" && git init -q -b main \
+        && git config user.email s@s && git config user.name s \
+        && git config commit.gpgsign false )
+      printf '## Plot Config\n- **Plan directory:** docs/plans/\n' > "$r/CLAUDE.md"
+      if [ "$shape" = populated ]; then
+        cat > "$r/docs/plans/2026-01-01-a-plan.md" <<'PLAN'
+# A plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Review:** in-session
+- **Impl:** own branches
+
+## Waves
+
+### Only (Branch: feature/a-branch)
+
+- x
+PLAN
+      fi
+      ( cd "$r" && git add -A && git commit -qm fixture )
+
+      # PLOT_SCRIPTS_DIR deliberately UNSET: the artifact must resolve its own
+      # helpers from the package layout, which is the thing being tested.
+      ( cd "$r" && PORT=0 exec node "$art" ) >"$r/board.log" 2>&1 &
+      SERVER_PID=$!
+      burl=""
+      for _ in $(seq 1 40); do
+        burl=$(grep -oE 'http://(localhost|127\.0\.0\.1):[0-9]+' "$r/board.log" 2>/dev/null | head -1)
+        [ -n "$burl" ] && break
+        sleep 0.5
+      done
+      rdy=""
+      if [ -n "$burl" ]; then
+        # The first scan is ~18 s; poll rather than guess a single sleep.
+        for _ in $(seq 1 12); do
+          curl -s --max-time 20 "$burl/api/fleet" -o "$r/f.json" 2>/dev/null
+          rdy=$(node -e 'try{const f=require(process.argv[1]);console.log(f.ready?"ready":"")}catch{console.log("")}' "$r/f.json" 2>/dev/null)
+          [ "$rdy" = ready ] && break
+          sleep 5
+        done
+      fi
+      if [ "$rdy" = ready ]; then
+        ok "the packed board reaches ready:true on an ${shape} estate"
+      else
+        err=$(node -e 'try{console.log(require(process.argv[1]).error||"no error reported")}catch{console.log("no payload")}' "$r/f.json" 2>/dev/null)
+        no "the packed board never became ready (${shape} estate)" "$err"
+      fi
+      kill "$SERVER_PID" 2>/dev/null; SERVER_PID=""
+    done
+  else
+    no "npm pack" "the pack step failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 head_ "4. The release's own bookkeeping is coherent"
 # ---------------------------------------------------------------------------
 
