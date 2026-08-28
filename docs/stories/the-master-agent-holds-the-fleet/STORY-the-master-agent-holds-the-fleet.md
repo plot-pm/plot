@@ -84,6 +84,9 @@ and a shell subprocess to parse it back.
   other entity relates through: seven states and the workflow phases they map
   into, the parser as the single contract, and the inversion that Plan is the
   one entity the CLI serves better than the board.
+- **[Build](DESIGN-build.md)** — what CI said about a PR, split by price: the
+  verdict is free per PR, the history costs a request per branch. Evidence,
+  never a gate — Plot refuses nothing on a red build.
 - **[PR](DESIGN-pr.md)** — a branch's bid to land and the evidence a plan was
   implemented: the only entity Plot pays per request for, and the one whose
   `state` means different things on different API surfaces — REST says `closed`
