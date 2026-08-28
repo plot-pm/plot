@@ -545,9 +545,21 @@ Plans declare their story; stories do not list their plans. Measured
 a story exists for knowledge, and knowledge can precede or outlive plans. A
 story with no plans is not an orphan.
 
-**The direction is right.** A story listing its plans would be a second source
-of truth that goes stale the moment a plan is written — the same argument that
-made sprint→epic a derivation.
+**The direction is right, and the derivation is cheap.** Measured 2026-08-28:
+parsing **all 158 plans in one batched invocation takes 166 ms** — so *which
+plans belong to this story* is a group-by over a query the estate already runs.
+The table above took one command.
+
+A `plans:` list in a story's front matter would be a second source of truth
+that goes stale the moment a plan is written, renamed, moved between stories or
+superseded — and nothing would detect the drift, because the story's copy would
+be the only place that claim lived. The same argument made sprint→epic a
+derivation.
+
+**So a story should be able to SAY what it holds, and should not RECORD it.**
+That distinction is the whole answer: the gap is a missing derivation and a
+missing view (§13), not a missing field. See Plan §13 for the same question
+answered from the plan's side.
 
 ### Issue → Story is a filename convention
 

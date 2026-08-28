@@ -724,6 +724,78 @@ worse than either: `status:` is canonical, primary and tested. **The field is
 `status:` and the thing it holds is a state** — the same reconciliation §4
 makes for `Phase:`.
 
+### A plan should emit its own slug
+
+**Yes — and its absence is the same defect `StoryCard.path` was created to
+prevent.**
+
+`plot-plan-meta.sh` emits `sprint` and `story` — **other entities' slugs** — and
+not the plan's own. So every consumer that needs one strips the date prefix
+itself, re-encoding `YYYY-MM-DD-<slug>.md` at each site. The schema already
+states why that is wrong, about the story:
+
+> *"A story slug is a directory name AND a filename component, so rebuilding it
+> client-side means encoding that convention twice and letting the copies
+> drift."*
+
+**Story learned this lesson and Plan did not**, which is the asymmetry that
+makes the two specs read differently. The fix is one field:
+
+```
+slug   the plan's own slug, from the filename with the date prefix removed
+```
+
+Derived, never declared — a `slug:` field a human could write would be a second
+source of truth against the filename, and they would disagree the first time a
+file was renamed.
+
+**It also makes the uniqueness gap visible.** §3 records that 158 plans have
+zero duplicate slugs and nothing enforces it; a parser that emits the slug is
+where a duplicate could be detected at all.
+
+### Should a story know its member plans?
+
+**No — and this is the one place the two entities should stay asymmetric.**
+
+The pull is real: a story is an umbrella, and an umbrella that cannot name what
+it covers feels incomplete. But the direction is a deliberate choice with a
+measurement behind it.
+
+**Deriving it is cheap.** Measured 2026-08-28: parsing **all 158 plans in one
+batched invocation takes 166 ms** — against 4.0 s for one invocation per file,
+which is the mistake to avoid rather than an argument against the derivation.
+So *"which plans belong to this story"* is a group-by over a query the estate
+already runs.
+
+**Storing it is not cheap, and the cost is correctness rather than time.** A
+`plans:` list in a story's front matter would go stale the moment a plan is
+written, renamed, moved between stories, or superseded — and nothing would
+detect the drift, because the story's copy would be the only place that claim
+lives.
+
+This estate has paid that bill repeatedly. **Every relation in Plot is declared
+by the plan and derived by everyone else** (§6): a sprint does not list its
+plans, a release does not list its plans, and neither does a story. The plan
+declares `Sprint:`, `Story:`, `Issue:` — one writer, many readers.
+
+**What is missing is not the field but the derivation.** Nothing surfaces
+*which plans this story holds*, though the data is one group-by away:
+
+| | today |
+|---|---|
+| Plan → Story | `Story: <slug>`, parsed, **rendered on the plan row** |
+| Story → Plans | **derivable in 166 ms, derived nowhere** |
+
+Measured for this repo: `plot-board` holds 90 plans,
+`the-board-is-blank-where-it-matters` 15, `plot-planning-model` 9,
+`plot-gates` 6, and five stories hold none. **That table took one command and
+appears in no view.**
+
+So the answer to *"should a story know its member plans?"* is: **it should be
+able to say, and it should not record.** The story spec's §13 already names the
+missing view — a plans-per-story count on the story card — and this is the same
+gap seen from the plan's side.
+
 ### What migration would actually cost
 
 | step | cost |
