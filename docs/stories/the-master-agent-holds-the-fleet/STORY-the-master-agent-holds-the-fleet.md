@@ -58,9 +58,12 @@ an operator watches are coupled through a resource neither of them measures.
 - **[The fleet's domain entities](DESIGN-entities.md)** — the nine things a
   supervisor reasons about, one at a time: source of truth, states, invariants,
   properties. Designed so far: **Agent** (three competing state models
-  reconciled), **Machine** (new — the entity whose absence made `exit 124` read
-  as worker failure), and **Issue** (the board's inbox, specified end to end
-  with its four controllers).
+  reconciled) and **Machine** (new — the entity whose absence made `exit 124`
+  read as worker failure).
+- **[Issue](DESIGN-issue.md)** — the board's inbox and Plot's tracker-facing
+  entity, specified in full: posture (`Tracker:` vs `Issue tracker:`), the
+  domain object, three kinds in both directions, relations to Story/Plan/Sprint,
+  actions, scope, four collaborators, fleet control, views and setup.
 
 ## Jobs to be done
 
