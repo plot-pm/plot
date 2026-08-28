@@ -238,6 +238,33 @@ leak. Each was plausible, each was measured false, and each cost a correction.
 statement itself. This is a discipline, not a script — but a harness that makes
 measuring cheap is what makes the discipline affordable.
 
+**A shape worth borrowing: a claim carries how it was established.** Three
+tiers — *asserted* (someone said so), *machine-confirmed* (something ran and
+checked), *human-reviewed* (a person looked) — attached to the claim rather than
+kept in the claimant's head.
+
+**Plot already states the rule in two places and enforces it in neither.**
+`/plot-deliver` step 5 says *"a deliverable confirmed by reading a PR body
+rather than a diff is not confirmed"* and asks subagents to report **what they
+EXECUTED versus what they only READ** — the tier distinction, written as prose
+an agent is asked to honour. `/plot-release` leaves its sign-off lines blank
+under `PLOT_UNATTENDED` because *"an agent writing into them forges it"* — the
+same rule, at a different transition.
+
+**The caution is the estate's own measurement.** A tier that can be *asserted*
+becomes a box that gets ticked: this repo carries **84 `Jan Wloka` against 43
+`jwloka`** in approval records, and sprint items checked over plans that were
+never delivered — the `disputed` state exists precisely because a checkbox
+outran the truth. **So a tier only helps where something DERIVES it.**
+`machine-confirmed` must mean *a gate ran and passed*, never *an agent typed the
+word*, and the estate already knows which claims can be derived: a merged PR, a
+green build, a passing refusal.
+
+**Not designed here.** It touches every transition record and the deliver
+verification, and it is a second story — noted because job 6 is the one job
+that currently ends with *"this is a discipline"* and this is the shape that
+would make it a gate.
+
 ## Excluded from Scope
 
 - **A fleet database.** Manifesto Principle 1 stands: everything re-derived, no

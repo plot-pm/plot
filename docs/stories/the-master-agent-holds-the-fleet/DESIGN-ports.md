@@ -80,6 +80,29 @@ claim goes stale after 24 h, a delivered plan leaves a rolling window, a sprint
 outlives its release, a machine reading decays on the next spawn. **Every one of
 those is untestable against a real clock** and trivial against an injected one.
 
+### Config is not state, and the filesystem enforces it
+
+**A port reads configuration; it never writes it.** That sounds like a
+convention and is currently a measured property:
+
+| | lives in | writers |
+|---|---|---|
+| **config** | `## Plot Config` in `CLAUDE.md` — 25 keys | **none** |
+| **state** | `.plot/state/` — `fleet-controls.json`, `last-pulse.json` | **five** |
+
+**Measured 2026-08-28: nothing in 14,133 lines of shell or 19,110 lines of
+board writes to the config section.** `plot-config.sh` is `get`-only, by name.
+
+**Recorded here because the specs never stated it**, and an unstated property is
+one a future spec can break by proposing a state field in `## Plot Config` —
+which would look reasonable, since the file is already where Plot's settings
+live. **The rule: if something changes without a person editing it, it is state
+and belongs under `.plot/state/`.**
+
+**`last-pulse.json` is where the delta's previous reading already lives** (§3),
+so `FleetEvents` needs no new storage — only a domain function that diffs two
+pulses.
+
 ### What a port returns
 
 **Facts, and their askability, kept apart.** The `Host` port already does this
@@ -178,6 +201,32 @@ The estate states this twice, in its own words, without naming it as a rule.
 **So a port returns facts and the domain applies rules** — Manifesto Principle 3
 (*scripts collect and report; skills interpret and adapt*) expressed as an
 architecture rather than a convention.
+
+### A refusal is a domain value, not a script's exit code
+
+**The estate's refusals are already pure predicates over measurements** —
+`plot-reap.sh` refuses on five, `plot-dispatch.sh` on four, and both say so:
+*"THE REFUSALS ARE THE FEATURE"*, *"refuses on five MEASUREMENTS rather than a
+judgement"*. What they lack is a **type**:
+
+```
+Refusal = { rule: string, because: string } | null
+```
+
+**`null` means proceed; anything else carries why.** Today that reason exists
+only as prose on stderr, so a caller can learn *that* a reap refused but not
+*which* rule fired without parsing English.
+
+**This makes the refusals testable as domain values** — the acceptance criterion
+applied to the one part of Plot that already had the right shape and no way to
+assert on it. A test constructs five readings and asserts five distinct rules
+fire, with no worktree, no pid and no host.
+
+**One borrowed idea deliberately not taken.** Other agent runtimes feed a
+gate's failure text back into a resumed agent session as a correction prompt,
+looping until it passes. **Plot's refusals go to a person or halt a script**, and
+that difference is the point: a Plot gate protects a lifecycle transition, not
+an agent's output. Taking the type without the loop is the whole adoption.
 
 ### The one licensed exception, and why it is licensed
 
