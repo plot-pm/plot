@@ -42,10 +42,26 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 SANDBOX=""
 cleanup() {
+  # KILL FIRST, THEN REMOVE. The reverse order is what leaked here on
+  # 2026-08-28: the sandbox went away while a board still held it as its
+  # working directory, and the survivor then reported `spawn bash ENOENT`
+  # forever — a failure that reads like a broken PATH and is really a missing
+  # cwd.
+  if [ -n "${SERVER_PID:-}" ]; then
+    kill "$SERVER_PID" 2>/dev/null
+    for _ in 1 2 3 4 5; do kill -0 "$SERVER_PID" 2>/dev/null || break; sleep 0.4; done
+    kill -9 "$SERVER_PID" 2>/dev/null
+  fi
+  # The belt to that brace: anything still serving THIS sandbox dies too, whoever
+  # started it. A recorded pid is a claim about one process; this is a
+  # measurement over all of them.
+  if [ -n "$SANDBOX" ]; then
+    pgrep -f "board-server.mjs" 2>/dev/null | while read -r p; do
+      cwd=$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | grep '^n' | sed 's/^n//')
+      case "$cwd" in "$SANDBOX"*|/private"$SANDBOX"*) kill -9 "$p" 2>/dev/null ;; esac
+    done
+  fi
   [ -n "$SANDBOX" ] && [ -d "$SANDBOX" ] && [ "$KEEP" = 0 ] && rm -rf "$SANDBOX"
-  # Reap anything we started, on EVERY exit path — a smoke test that leaks a
-  # server is worse than no smoke test, because the next run binds a used port.
-  [ -n "${SERVER_PID:-}" ] && kill "$SERVER_PID" 2>/dev/null
   return 0
 }
 trap cleanup EXIT INT TERM
@@ -181,10 +197,16 @@ head_ "3. The board serves against a foreign repo"
 if ! command -v node >/dev/null 2>&1; then
   skipm "board serve" "node not on PATH"
 else
-  PORT=0
   logf="$SANDBOX/board.log"
-  ( cd "$SANDBOX/repo" && PLOT_PORT=0 node "$ART" >"$logf" 2>&1 & echo $! > "$SANDBOX/pid" )
-  SERVER_PID=$(cat "$SANDBOX/pid" 2>/dev/null)
+  # STARTED DIRECTLY, NOT IN A SUBSHELL. A `( ... & echo $! )` records the pid
+  # of the process the SUBSHELL forked, and the surviving server can be a
+  # different one — measured 2026-08-28, when this leaked a board that outlived
+  # the run, kept the deleted sandbox as its cwd, and then failed every helper
+  # spawn with ENOENT because that directory no longer existed. A stray board
+  # serving a fixture estate is indistinguishable, at a glance, from the real
+  # board having broken.
+  ( cd "$SANDBOX/repo" && exec env PORT=0 node "$ART" ) >"$logf" 2>&1 &
+  SERVER_PID=$!
 
   url=""
   for _ in $(seq 1 40); do
