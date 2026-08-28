@@ -1426,6 +1426,61 @@ escape for a team that wants narrower. Two properties follow:
 The skill already asks the tracker question, and asks it well. What follows
 separates **what to keep unchanged** from **what the Issue design adds**.
 
+##### The order: connection first, then posture
+
+**The prerequisite dictates the sequence.** `Issue tracker:` must be settled
+before `Tracker:` can be asked, because the answer to the first bounds the
+answers available to the second:
+
+```
+1. Issue tracker: ─── absent ──────────►  Tracker: plot  (only valid answer)
+   (connection)   └── jira ───────────►  Tracker: plot | jira  (a real choice)
+                                              publish      project
+```
+
+So setup asks two questions in this order:
+
+**1. "Does this repo speak to an issue tracker, and which?"** — a question about
+*infrastructure*, answerable from evidence: a `ticket_prefix`, an existing Jira
+config, the git host's own issues. This is where `scheme`, `baseUrl` and the
+`4d` connector check belong.
+
+**2. "Who owns the truth?"** — a question about *process*, which no probe can
+answer. It is the same class as `Plan PRs` and `Hosts plans`: a team decision,
+and one with visible consequences worth stating when asking:
+
+> Jira is reachable. Where does the truth live?
+> - **`Tracker: plot`** — plans in this repo are the record; Plot **publishes**
+>   tickets to Jira so clients can see progress. Unlinked tickets arrive as new
+>   client input.
+> - **`Tracker: jira`** — Jira holds the record; plans and stories *are*
+>   tickets, a sprint *is* an epic, and the MD files here are a projection
+>   written when tickets update.
+
+**Where the connection is absent, question 2 is not asked at all** — `plot` is
+the only valid answer, and asking would imply a choice that does not exist.
+
+##### Today's order is the reverse, and the fallback is wrong
+
+The skill asks `Tracker:` in step 2 with no connection question anywhere, and
+step 3 writes it with this warning:
+
+> *"A `Tracker: jira` or `Tracker: linear` is recorded but unread: the board's
+> inbox will show nothing until a backend for that tracker lands."*
+
+**That is now false for Jira.** The backend landed: `plot-host.sh` dispatches on
+`tracker_scheme` with a full Jira arm — `jira_curl`, a JQL search, `issue/<key>`
+— and the skill's stated derivation (*"if the confirmed `Tracker` value is
+neither `github` nor `bitbucket`, warn"*) is precisely what that arm broke. The
+warning is now correct only for `linear`, which is the value that genuinely has
+no arm (4e).
+
+So setup currently **discourages the posture this model needs**, telling a user
+their inbox will be empty when it will work. Fixing the order and fixing this
+warning are the same edit: once the connection is asked first and verified by
+4d, the warning is replaced by a measurement — *Jira reached `PROJ`* or *no arm
+for `linear`* — rather than a claim about what has landed.
+
 ##### What already works, and must not be disturbed
 
 Three properties, each earned from a measured failure:
