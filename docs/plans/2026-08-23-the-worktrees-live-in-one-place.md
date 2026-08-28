@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
@@ -15,6 +15,7 @@
 - **Started:** 2026-08-26, Jan Wloka, `infra/the-worktree-root-is-configurable`
 - **Started:** 2026-08-26, Jan Wloka, `infra/idle-worktrees-can-be-migrated`
 - **Started:** 2026-08-27, Jan Wloka, `infra/the-worktree-root-is-configurable`
+- **Delivered:** 2026-08-28
 
 ## Changelog
 
