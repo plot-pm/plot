@@ -41,6 +41,7 @@ import { collectSprints, planStatusBySlug, readConfig, type BuildBoardOptions } 
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetControls } from './fleet-controls.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
+import { maybeAutoDeliver } from './auto-deliver.js';
 import { readAgentRegistryWithInfo, bashCleanliness } from './registry.js';
 import type { RegistryInfo } from './registry.js';
 import type { AgentEntry } from './registry.js';
@@ -528,6 +529,20 @@ export interface CacheEntry {
    * second source of truth about a repo whose only one is git.
    */
   autoInFlight: Set<string>;
+  /**
+   * The slugs a DELIVERY has been started for and whose effect no pulse has
+   * confirmed yet — the same cross-pulse guard `autoInFlight` is, for the same
+   * reason and with the same lifetime.
+   *
+   * `plot-deliver.sh` pushes to the default branch, and the scan fires every few
+   * seconds; without this a plan would be delivered a dozen times over while the
+   * first run was still working. Idempotence makes that harmless, not free.
+   *
+   * IN MEMORY AND NOWHERE ELSE. A restart re-derives it: a plan whose delivery
+   * landed no longer reads `approved`, and one whose delivery did not is simply
+   * offered again.
+   */
+  deliverInFlight: Set<string>;
   prs: Map<string, PrRecord> | null;
   /**
    * The same records keyed by PR NUMBER. The fleet tab asks "what is this
@@ -2297,6 +2312,25 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
       entry.agents,
       entry.autoInFlight,
     );
+
+    // THE THIRD AUTOMATIC WRITE — a finished plan delivers itself, and its
+    // desks are cleared behind it.
+    //
+    // Beside the two above and of exactly the same kind: on the SCAN's clock,
+    // inside its success path, from a pulse that actually landed. Off the
+    // request path entirely, so it is a route nobody can reach.
+    //
+    // LAST of the three, which is not arbitrary. `maybeAutoDispatch` starts work
+    // and this finishes it, so running it after means a branch dispatched this
+    // pulse is already counted live before anything asks whether its plan is
+    // done. And it reaps, which removes worktrees the two writes above read.
+    //
+    // The board writes NONE of the transition: `maybeAutoDeliver` calls
+    // `plot-deliver.sh`, which flips the phase, writes the `Delivered:` record
+    // and moves the index symlink in one commit — then, and only on its success,
+    // reaps. See `auto-deliver.ts` for why the ordering is a listener rather
+    // than a second spawn.
+    entry.deliverInFlight = maybeAutoDeliver(opts, complete, entry.deliverInFlight);
   } catch (err) {
     // A failed refresh NEVER overwrites a good result. Replacing real state
     // with emptiness because one scan failed is what makes a monitoring view
@@ -2350,6 +2384,7 @@ export function freshCacheEntry(): CacheEntry {
     // Empty at construction — nothing was dispatched before this process began,
     // and a restart re-derives liveness from git rather than trusting a set.
     autoInFlight: new Set(),
+    deliverInFlight: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false,
