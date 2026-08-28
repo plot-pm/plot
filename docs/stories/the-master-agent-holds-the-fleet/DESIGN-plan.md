@@ -221,6 +221,83 @@ said, so a value the parser could not normalize is reportable rather than lost.
 `phase_alt` at 0/158 is a *conflict* nobody has hit — good. `design_raw` at
 0/158 is a *state* nobody has entered, though `/plot-implement` gates on it.
 
+### Is there a Person, to model "approved by"?
+
+**No, and the measurement says there should be.**
+
+A transition record is a **string** — `approved_raw`, `started_raw`,
+`delivered_raw`, `released_raw` — and the approver is whatever the second
+comma-separated chunk happens to be. Measured across 141 approval records,
+2026-08-28:
+
+| the "who" | records |
+|---|---|
+| `Jan Wloka` | **84** |
+| `jwloka` | **43** |
+| *(no who at all)* | 4 |
+| **a prose clause** | **4** |
+
+Three defects, and each is the format's rather than an author's.
+
+**One person, two spellings, 84 and 43.** Nothing can tell they are the same
+approver, so *who approved most of this estate?* has no answer a machine can
+give.
+
+**Four records name something that is not a person.** *"do not fall back to a
+second budget"*, *"kind is a server-set field"* — the field is free text
+containing commas, so a comma-split lands mid-sentence and returns a clause. The
+parser is not wrong; there is nothing to parse.
+
+**And the same split repeats in `assignee`** — 30 `Jan Wloka`, 16 `jwloka`,
+4 `eins78` — where the parser documents the field as *"github handle"* and it
+holds a display name.
+
+#### What a Person would be
+
+**Not a new entity with a lifecycle — an identity.** The estate needs one thing:
+that two spellings of one person resolve to one value.
+
+| carries | why |
+|---|---|
+| a handle | the stable identifier (`jwloka`) |
+| a display name | what a record shows (`Jan Wloka`) |
+
+**Everything else belongs to the transition, not the person.** *When* and
+*through which channel* are properties of the approval; the person is only the
+`who`.
+
+#### And the record should be structured
+
+The deeper issue is that a transition is stored as prose:
+
+```
+- **Approved:** 2026-08-17, Jan Wloka, plan-PR #179 merged
+```
+
+Three facts in one string, comma-separated, where one of them may itself contain
+commas. **That is why four records parse a clause as an approver.** A structured
+record — date, who, channel — makes the failure impossible rather than rare:
+
+```yaml
+approved:
+  date: 2026-08-17
+  by: jwloka
+  channel: pr
+  detail: plan-PR #179 merged
+```
+
+**This is the front-matter migration's hardest part** (§14), and it is the one
+that pays most: the transition records are the fields other tooling depends on
+most, and they are the least parseable thing in the format.
+
+#### What it does not need
+
+- **No permissions.** Plot does not decide who *may* approve; the review channel
+  does — a PR's own approval, a person in the session, a ballot tally.
+- **No roster.** A person exists because a record names them; there is no list
+  to maintain and no membership to check.
+- **No cross-repo identity.** A handle is meaningful in the repo that uses it.
+
 ### Three parser rules worth lifting
 
 These are decisions, not implementation details, and they generalize:
