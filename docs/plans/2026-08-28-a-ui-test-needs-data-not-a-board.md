@@ -98,6 +98,19 @@ readable without letting it diverge silently.
 The mock serves `dist/client/index.html` on `/` and the catalogue on `/api/*`.
 One process, no scan timers, no git.
 
+**IT IS NOT THE BOARD ARTIFACT.** The mock is a few dozen lines that read a
+fixture and write a response; it never imports `board-server.mjs`, never starts
+a refresh timer, and never spawns `plot-fleet-scan.sh`. A UI test must not start
+the real board under any circumstance — that is the constraint this whole plan
+exists to satisfy, and it is stated here as a rule rather than left to follow
+from the design, because "reuse the artifact, just point it at a fixture" is the
+obvious shortcut and it reintroduces the entire cost.
+
+The real board spawns **115 git processes per scan on a 5-second timer**
+(measured 2026-08-28). Forty-six of those per test run is what made an
+operator's own board unusable three times in one session. `Done when` item 1
+asserts the absence by grep so the shortcut cannot be taken later.
+
 **Not `page.setContent`.** That is faster still and needs no process, but the
 page then has no real origin: relative fetches, same-origin behaviour and the
 client's own routing go untested, and those are UI behaviour. The mock keeps the
@@ -159,9 +172,12 @@ down a tier would trade real assertions for approximations of them.
 
 ## Done when
 
-1. **No fully-stubbed browser test starts a board.** Asserted by grep for
-   `spawn(` / `startServer` in files that also `page.route('**/api/board'`, so
-   the split cannot silently reverse.
+1. **No fully-stubbed browser test starts a board — the real artifact least of
+   all.** Asserted by grep: no `spawn(`, `startServer`, or reference to
+   `ARTIFACT` / `board-server.mjs` in any file that also stubs
+   `page.route('**/api/board'`. The grep names the artifact explicitly, because
+   the failure mode is not "forgot to mock" but "reused the real server pointed
+   at a fixture", which passes a test that only checks for `startServer`.
 2. **The 22 HTTP-route tests AND the 11 unstubbed browser tests still start a
    real board.** The regression this invites: a sweep that mocks everything
    would delete the only coverage of whether an endpoint accepts or refuses,
