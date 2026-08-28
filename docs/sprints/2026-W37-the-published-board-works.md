@@ -43,7 +43,7 @@ is in no diff** — only a gate does.
 
 ### Should Have
 
-- [ ] [a-board-that-never-scanned-says-so] A board whose first scan fails says it has never scanned, instead of rendering a screen of `none` under an error line — measured: the warming state EXISTS and is right, but is gated on `!fleet.error`, so any failure skips it
+- [x] [a-board-that-never-scanned-says-so] A board whose first scan fails says it has never scanned, instead of rendering a screen of `none` under an error line — measured: the warming state EXISTS and is right, but is gated on `!fleet.error`, so any failure skips it <!-- status: delivered -->
 - [x] [a-board-names-the-repo-it-serves] The header names the repository being served — measured: `serverInfo()` carries `port` and `branch` but not the repo, and a stray board on the usual port cost two hours on 2026-08-28 <!-- status: delivered -->
 
 ## Notes
