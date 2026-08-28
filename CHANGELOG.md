@@ -1,5 +1,62 @@
 # plot
 
+## 2.11.1
+
+### Patch Changes
+
+- [#503](https://github.com/plot-pm/plot/pull/503) [`5b1eb03`](https://github.com/plot-pm/plot/commit/5b1eb035f13086d7dc1009feaadc1e3c062d3080) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+  An empty estate is a complete answer, not a partial one.
+
+  `plot-fleet-scan.sh` handled the no-plans case by printing a sentence and a
+  summary line, then exiting — **before the emitter**. So `--json` and `--stream`
+  were ignored entirely there: a machine consumer got human prose on stdout, and
+  under `--stream` no terminal `pulse` line at all.
+
+  The board's contract makes that decisive. Its own comment: _"a consumer that has
+  seen `plan` lines and no `pulse` line has a PARTIAL answer and must say so."_
+  The board was right; the scan was breaking the contract. A complete answer read
+  as a scan failure — every pulse, forever, because the next scan said the same.
+
+  **Every new user has zero plans**, so this was the first thing a board installed
+  from npm did: `ready:false` and _"fleet scan ended without a terminal pulse
+  line"_, indefinitely.
+
+  The machine paths now fall through to the emitter, which already renders
+  `"plans":[]` with a zeroed summary — the same document shape a populated estate
+  produces. One emitter, one shape, no second place to drift. `--next` still exits
+  1 and the human sentence is unchanged: a person reading an empty estate wants
+  the sentence, not an empty JSON document.
+
+- [#504](https://github.com/plot-pm/plot/pull/504) [`6508379`](https://github.com/plot-pm/plot/commit/6508379569a55a055c2d3cd8fdd6460fe747a67a) Thanks [@jwloka](https://github.com/jwloka)! - <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+  `release-smoke.sh` boots the board out of the packed tarball.
+
+  Two checks, in ascending order of truth. A **derive-and-compare** greps the
+  server sources for spawned script names and compares them against `files` — it
+  is fast and names the missing file. Then **pack-and-run** does what the grep
+  cannot: `npm pack`, unpack, and boot the artifact with `PLOT_SCRIPTS_DIR`
+  deliberately unset, so it must resolve its own helpers from the package layout.
+
+  **Both repo shapes, and the empty one is the point.** A new user has zero plans,
+  and an earlier version of this check tested only a populated repo — it passed
+  while the published board hung forever on an empty one. A test that quietly
+  meets the precondition it should be checking is worse than no test.
+
+  **This is the check that would have caught the original drift.** Everything else
+  in the script tests the built artifact in the working tree, where all 24 scripts
+  sit on disk and the board finds them because they are _there_, not because they
+  were shipped. The published package was the one artifact nothing tested, and it
+  shipped 2 of 11 scripts for nine releases.
+
 ## 2.11.0
 
 ### Minor Changes
@@ -89,11 +146,11 @@ instance` configured exits 3, because that is a config error the op cannot
   since a multibranch container is the parent of a branch and cannot be derived
   from the branch name.
 
-  <!--
-  bumps:
-    skills:
-      plot: minor
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: minor
+    -->
 
 - [#447](https://github.com/plot-pm/plot/pull/447) [`bedff09`](https://github.com/plot-pm/plot/commit/bedff09b465aaa5775a02d4b9214f24c956a50af) Thanks [@jwloka](https://github.com/jwloka)! - A plan can cite a tracker key (`PROJ-123`) where `## Plot Config` names a
   non-GitHub `Tracker:`.
@@ -747,11 +804,11 @@ instance` configured exits 3, because that is a config error the op cannot
   The check is per-FLAG, not per-version — a high version number that rejects
   `--json` is still rejected.
 
-  <!--
-  bumps:
-    skills:
-      plot: patch
-  -->
+    <!--
+    bumps:
+      skills:
+        plot: patch
+    -->
 
 - [#487](https://github.com/plot-pm/plot/pull/487) [`27ab657`](https://github.com/plot-pm/plot/commit/27ab657521e86bf82c9c0e722a4a5f17c2a50d80) Thanks [@jwloka](https://github.com/jwloka)! - <!--
   bumps:
@@ -1117,11 +1174,11 @@ instance` configured exits 3, because that is a config error the op cannot
   The write is replace-or-insert-after-`Impl:` and touches nothing else: `##
 Status` holds the transition records, which nothing in the repo can reconstruct.
 
-    <!--
-    bumps:
-      skills:
-        challenge-the-plan: minor
-    -->
+      <!--
+      bumps:
+        skills:
+          challenge-the-plan: minor
+      -->
 
 ### Patch Changes
 
@@ -1450,13 +1507,13 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   keys are read back by the skill to check auth against the right instance, and
   the skill says plainly that the board does not yet display Jenkins status.
 
-        <!--
-        bumps:
-          skills:
-            plot-board-setup: minor
-            plot-init: patch
-            plot: patch
-        -->
+          <!--
+          bumps:
+            skills:
+              plot-board-setup: minor
+              plot-init: patch
+              plot: patch
+          -->
 
 - [#253](https://github.com/plot-pm/plot/pull/253) [`2e389a1`](https://github.com/plot-pm/plot/commit/2e389a12eef6c928fc8b8127103b1c04df8c512d) Thanks [@jwloka](https://github.com/jwloka)! - plot-sprint: sprint creation proposes the plans that serve the goal
 
@@ -1644,12 +1701,12 @@ auth status` exits 0 and prints "Keycloak: signed in" for a slug that does not
   `/plot-idea` unattended stops without one and writes no plan file, which is
   exactly the exit-0-having-done-nothing failure `docs/unattended.md` documents.
 
-        <!--
-        bumps:
-          skills:
-            plot: minor
-            plot-idea: minor
-        -->
+          <!--
+          bumps:
+            skills:
+              plot: minor
+              plot-idea: minor
+          -->
 
 - [#242](https://github.com/plot-pm/plot/pull/242) [`5c2cf58`](https://github.com/plot-pm/plot/commit/5c2cf58faaade305776a7bc1a6cc52a570260058) Thanks [@jwloka](https://github.com/jwloka)! - The board renders what has arrived
 
@@ -2171,13 +2228,13 @@ plan (decision log / note?)`. What changes is the claim, and that it no longer
   slices the report at section 7 (`sed -n '/^== 7\./q;p'`) before grepping, so the
   sections that mean _defect_ still block and the convenience section never does.
 
-        <!--
-        bumps:
-          skills:
-            plot: minor
-            plot-reconcile: minor
-            plot-deliver: patch
-        -->
+          <!--
+          bumps:
+            skills:
+              plot: minor
+              plot-reconcile: minor
+              plot-deliver: patch
+          -->
 
 - [#265](https://github.com/plot-pm/plot/pull/265) [`e50de93`](https://github.com/plot-pm/plot/commit/e50de93c0d075efa36ee4b211cf62542ee0f3a7e) Thanks [@jwloka](https://github.com/jwloka)! - plot: the two pre-Approved gates know the Design phase
 
@@ -2458,11 +2515,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   the throttle is `feature/every-host-consumer-slows-down`; the banner and the note
   that say a spent budget from an unreachable host are the two `Says` branches.
 
-        <!--
-        bumps:
-          skills:
-            plot: minor
-        -->
+          <!--
+          bumps:
+            skills:
+              plot: minor
+          -->
 
 ### Patch Changes
 
@@ -3203,12 +3260,12 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-            bumps:
-              skills:
-                plot: minor
-                plot-dispatch: minor
-                plot-fleet: minor
-            -->
+              bumps:
+                skills:
+                  plot: minor
+                  plot-dispatch: minor
+                  plot-fleet: minor
+              -->
 
   plot: `finished` is not a verdict
 
@@ -3434,11 +3491,11 @@ api rate_limit')` that feeds the pure parser, and it returns null on any throw s
   -->
 
 - [#215](https://github.com/plot-pm/plot/pull/215) [`2175cb5`](https://github.com/plot-pm/plot/commit/2175cb561ec6d4e6cd1518e131b3a32556ebd73e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-              bumps:
-                skills:
-                  plot: patch
-                  plot-dispatch: patch
-              -->
+                bumps:
+                  skills:
+                    plot: patch
+                    plot-dispatch: patch
+                -->
 
   plot: the phase gate reads the plan from the shared ref
 
@@ -3681,11 +3738,11 @@ kill` guard inside `cleanup` would abort the trap whenever `pid` was empty and
   skip the tempfile removal — the handler that exists to prevent a leak would
   become one.
 
-              <!--
-              bumps:
-                skills:
-                  plot: patch
-              -->
+                <!--
+                bumps:
+                  skills:
+                    plot: patch
+                -->
 
 - [#214](https://github.com/plot-pm/plot/pull/214) [`890163c`](https://github.com/plot-pm/plot/commit/890163cb551d97c1e5bd34279ad2cbc4d0922e3b) Thanks [@jwloka](https://github.com/jwloka)! - Board test suite retries git calls when index.lock is held by the servers scan
 
