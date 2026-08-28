@@ -1295,42 +1295,121 @@ escape for a team that wants narrower. Two properties follow:
   *there are 50*, and the entity is scrupulous about that distinction
   everywhere else.
 
-#### Setting an `IssueTracker` up
+#### Setting an `IssueTracker` up — what `/plot-board-setup` must do
 
-**`/plot-board-setup` already asks**, and its handling is the model this design
-should not disturb. Three properties worth keeping:
+The skill already asks the tracker question, and asks it well. What follows
+separates **what to keep unchanged** from **what the Issue design adds**.
 
-1. **Propose from evidence, never from a default.** `plot-detect-repo.sh`
-   reports a `ticket_prefix`, and a repeated one is proposed *with the count
-   shown*: — *"Found `QUACDS-*` in 6 of 80 commit subjects → propose
-   `Tracker: jira`."*
-2. **Absence is not evidence.** An empty `ticket_prefix` *"is not evidence
-   against a tracker"*, so setup **asks** rather than proposing `Tracker: none`.
+##### What already works, and must not be disturbed
+
+Three properties, each earned from a measured failure:
+
+1. **Propose from named evidence, never from a default.** *"Found `QUACDS-*` in
+   6 of 80 commit subjects → propose `Tracker: jira`."* The prefix is
+   explicitly one-directional — Linear and GitHub issues carry prefixed keys
+   too — so it proposes and a human confirms.
+2. **Absence proves nothing.** An empty `ticket_prefix` *"is not evidence
+   against a tracker"*, so setup **asks** and never proposes `Tracker: none`
+   from silence.
 3. **Unanswered means unwritten.** Under `PLOT_UNATTENDED` it refuses and
-   discloses, rather than guessing:
+   discloses, and its reasoning is this entity's own: a wrong `Tracker: jira`
+   *"answers with an empty list, and the board renders an empty inbox that reads
+   as you have no tickets."*
 
-   > `PLOT-UNASKED: which tracker — refused — no Tracker key written; inbox
-   > source unverified`
+##### The gap: nothing ever asks the tracker
 
-   The reasoning is exactly this entity's: *"a wrong `Tracker: jira` sends
-   `issue-list` to the wrong system, which answers with somebody else's
-   backlog."*
+**4a verifies the CLI is authenticated. 4b verifies the board serves. Neither
+asks the tracker anything.**
 
-**What setup does not yet ask is `scope`** — and it is the same class of
-question, with the same failure if guessed. It belongs beside the tracker
-question, proposed from the same evidence:
+So a repo passes every gate today with `Tracker: jira` pointing at a project
+that holds none of its work — `bb`/`gh` authenticated, board serving, columns
+populated from git — and the first symptom is an empty inbox weeks later,
+indistinguishable from a genuinely empty backlog.
 
-| signal | propose |
+The skill already names that failure as the thing it exists to prevent, but only
+for a **guessed** key. A **confirmed** key gets no verification at all, and a
+human confirming `jira` is confirming the tracker's *name*, not that Plot can
+reach the right project in it.
+
+##### 4d — the connector answers
+
+A new sub-gate, in the shape 4b already established: ask once, report three
+outcomes, never round up.
+
+```bash
+../plot/scripts/plot-host.sh issue-list --limit 1
+```
+
+| result | report |
 |---|---|
-| a personal or small repo | `scope: all` — every open issue is plausibly yours |
-| a shared team tracker (a `ticket_prefix` with many authors) | `scope: mine` |
-| no signal | **ask**, and refuse unattended, as the tracker question already does |
+| exit 0, ≥1 issue | **verified** — name one, so the reader sees *which* tracker answered |
+| exit 0, empty | **answered, empty** — the tracker has no open issues, or none in scope |
+| exit 4 | **unsupported** — this host has no issue listing; not a failure |
+| any other | **failed** — print the CLI's own words |
 
-Setup should also **prove the connector answers**, the way it already proves the
-board serves. A `Tracker:` written but never exercised is the shape
-`plot-board-probe.sh` exists to prevent elsewhere: one `issue-list --limit 1`
-distinguishes *configured* from *working*, and reports `ok` / `failed` /
-`unsupported` — never *assumed*.
+**Naming the issue it found is the point.** *"`PROJ-412: Reporting export
+times out`"* proves the connector reached the **right** project; a bare *"3
+issues"* does not, and neither does an exit code. This is the same standard 4b
+holds the board to — it prints the payload rather than asserting a 200.
+
+**`Tracker: plot` skips this entirely.** Plans in this repo *are* the tracker,
+so there is no connector to verify and no inbox to render. Running the check
+would be asking a question the configuration has already answered.
+
+**Not a hard stop**, matching 4a: *"the board is useful with no host auth at
+all."* An unreachable tracker degrades the inbox and nothing else.
+
+**Verified 2026-08-28** — the check runs today and returns exactly the shape the
+gate needs, on the first try, with no new script:
+
+```
+$ plot-host.sh issue-list --limit 1
+{"number":333,"title":"Bitbucket: the PR-list join is silently partial past
+ 50 PRs per state","url":"…","createdAt":"2026-08-23T05:13:02Z"}
+exit=0
+```
+
+One call, one JSON line, and a title a human can recognise. So 4d costs a
+sub-step in the skill and nothing else — no helper, no new adapter op, and one
+host request on a gate that already spends several.
+
+##### 4e — the scheme has an arm
+
+Before asking anything, check the declared scheme is one the connector serves.
+`linear` is a documented `Tracker:` value that appears **zero times** in
+`plot-host.sh`, so it falls through to the git-host arm — a Linear-tracking
+GitHub repo silently lists *GitHub* issues.
+
+Setup must not write a scheme the adapter cannot serve without saying so. The
+cheapest fix is in the connector (exit 4 for an unserved scheme), and until it
+lands, setup names it:
+
+> `Tracker: linear` is accepted by the config and not implemented by the
+> adapter — the inbox will show this repo's GitHub issues instead. Write it
+> anyway, or choose another?
+
+##### What setup does NOT need to ask
+
+Two questions this design considered and retired, worth recording so they are
+not re-raised:
+
+- **`scope` (`mine` / `all`)** — retired. The epic scopes the inbox where one
+  exists; every open ticket, newest first, where none does. Both cases are
+  answered without a key.
+- **The epic** — not a setup question. It is keyed by a release version, and a
+  repo being adopted has no sprint declaring one yet. The epic is found or
+  created when a sprint opens, which is where the key first exists.
+
+##### The summary must say which inbox the board will show
+
+Step 5 reports what was configured. For the tracker, *what* is not enough —
+**which inbox** is the fact a reader can check:
+
+> `Tracker: jira` · verified, reached `PROJ` · inbox shows every open ticket no
+> plan references, newest first, capped at 50.
+
+That sentence is falsifiable at a glance by someone who knows the project, which
+is the only kind of verification that catches a right-shaped wrong answer.
 
 #### Mapping a Sprint to an epic
 
