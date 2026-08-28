@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-published-board-works
 - **Issue:** <!-- optional -->
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Started:** 2026-08-28, Jan Wloka, `bug/a-board-names-the-repo-it-serves`
+- **Delivered:** 2026-08-28
 
 ## Approval
 
