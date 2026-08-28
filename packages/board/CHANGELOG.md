@@ -1,5 +1,140 @@
 # @plot-pm/board
 
+## 0.9.1
+
+### Patch Changes
+
+- [#505](https://github.com/plot-pm/plot/pull/505) [`244fcf0`](https://github.com/plot-pm/plot/commit/244fcf073d917f7fe85b1b8003071b966e21710d) Thanks [@jwloka](https://github.com/jwloka)! - The board header names the repository it is serving.
+
+  `serverInfo()` reported the port and the branch and not the repository — so two
+  boards on one machine were told apart by neither. Measured 2026-08-28: a board
+  left running by a test served a one-plan scratch estate on :7777, the usual
+  port, with a plausible branch. It was read as the real board for two hours, and
+  the conclusions drawn were _the sprint is empty_, _the board shows nothing_ and
+  finally _we cannot ship the release_ — none of them true.
+
+  **This is not the branch chip returning.** That one was removed for a good
+  reason: it answered _which worktree is the server in_ while appearing to answer
+  _where am I_, and two branch names in one header is worse than either alone. A
+  repository carries no such ambiguity — exactly one is served, and a reader
+  comparing two tabs is asking precisely which.
+
+  The chip shows the basename, because that is the tell a reader needs at a
+  glance: `plot` against `plot-smoke-0oMvVS` settles it, where two long paths do
+  not. The full path is the element's `title`.
+
+  `repo` is a startup fact the server already holds, so it costs no fork on the
+  request path — and unlike `branch` it is reported even where git cannot answer,
+  because a board serving a broken checkout still needs to say which one.
+
+- [#506](https://github.com/plot-pm/plot/pull/506) [`06d68bd`](https://github.com/plot-pm/plot/commit/06d68bda3ff75582468344ae2e9637cba15153ee) Thanks [@jwloka](https://github.com/jwloka)! - A board that has never completed a scan says so.
+
+  The warming state existed and was right — _"a tab that has never had an answer
+  cannot have one it no longer trusts"_ — but it was gated on `!fleet.error`. Any
+  failure skipped it, and the reader got the ordinary view instead: every section
+  rendering `none`, under an amber _Last scan failed_ line. **At a glance that is
+  a healthy board over an empty estate.**
+
+  The amber line hedged the wrong way too. It appends _"showing the last
+  successful pulse below"_ only when `ready` is true, so a board that had never
+  scanned said nothing at all about the emptiness beneath the error — the fact a
+  reader most needs.
+
+  Measured 2026-08-28 against a board installed from npm: the truth for ten
+  seconds, then indistinguishable from a working board, forever. Two readers
+  concluded the release was broken. It was not.
+
+  The `!ready` case now owns its render whether or not an error is set, and states
+  both facts in the reader's order — what they are looking at, then why. The
+  sections are **suppressed rather than filled**: rendering `none` per section is a
+  claim about the repository, and a board that never scanned has no basis for one.
+  The error text is kept **verbatim**, because a friendlier message that dropped
+  `bash exited 127` would have made the diagnosis impossible.
+
+- [#501](https://github.com/plot-pm/plot/pull/501) [`4d59908`](https://github.com/plot-pm/plot/commit/4d5990856bd7fbe4904077e7612cd5323d6a7504) Thanks [@jwloka](https://github.com/jwloka)! - A board installed from npm can scan.
+
+  The package shipped 2 of the 11 helper scripts its server spawns, so an
+  installed board answered `bash exited 127` and never became ready — in every
+  release since v2.5.0. Verified against the published tarball on 2026-08-28:
+  five pulses, `ready:false` throughout.
+
+  The `files` whitelist was correct when written (2026-07-14, when the board
+  spawned exactly those two). Nine spawns accumulated over six weeks, each by a
+  change that was correct in itself and none with reason to touch a package
+  manifest. **No review catches a defect that is in no diff** — CI never saw it
+  because every CI job runs inside this repository, where all 24 scripts sit on
+  disk and the board finds them because they are _there_, not because they were
+  shipped.
+
+  The nine join `files` and `build.mjs`'s vendored list, which now carries the
+  comment explaining why it must not be trimmed back.
+
+  **This alone does not make the published board work.** A repo with no plans
+  still exits the fleet scan before its terminal pulse line, which is the next
+  wave — every new user has zero plans, and the packaging fix merely reveals it.
+
+- [#507](https://github.com/plot-pm/plot/pull/507) [`7c398f6`](https://github.com/plot-pm/plot/commit/7c398f6865baa0c1ea294f9ec30820f62fc6de63) Thanks [@jwloka](https://github.com/jwloka)! - Three signals that say whether an expensive answer can still be trusted.
+
+  A `--json --offline` scan spawns **127 git processes** (re-traced 2026-08-28)
+  and the board runs one every 5 seconds — roughly 45,000 launches an hour. The
+  shape is `branches + plans + worktrees + ~30`: three per-item loops over the
+  three things that grow, and only the constant term is bounded.
+
+  These are the cheap facts that establish _cannot have changed_: all ref SHAs,
+  all plan mtimes, the worktree list. **Two processes and a directory read for the
+  whole set** — 275 refs in 0.007 s, measured.
+
+  Nothing consumes them yet; the monitors that do are the next wave. Nothing is
+  written to disk either, so a restarted board re-derives everything on its first
+  pulse — the rule `PLOT_TERMINAL_CACHE` already follows: _a cache checked against
+  a cheap fact every pass is a derivation; one that is trusted is a record._
+
+  **The ref signal reads `refs/remotes` as well as `refs/heads`**, and that is
+  load-bearing rather than thorough: the counts it guards read
+  `refs/remotes/origin/<main>..refs/heads/<branch>`, and the scan fetches every
+  pulse — so a heads-only signal would report _unchanged_ while every ahead-count
+  in the estate had silently gone stale.
+
+- [#508](https://github.com/plot-pm/plot/pull/508) [`9196036`](https://github.com/plot-pm/plot/commit/9196036959ae2c2783a670e42552b9005d117466) Thanks [@jwloka](https://github.com/jwloka)! - Three monitors that answer from memory when nothing moved.
+
+  Wave 1 established _what changed_; this establishes _what may therefore be
+  reused_. A `--json --offline` scan on this repo spawns **121 git processes**
+  (traced 2026-08-29), and **88 of them — 42 `rev-list`, 37 `hash-object`, 9
+  `git -C status` — are three per-item loops** over the three things that grow.
+  The board runs one such scan every 5 seconds.
+
+  `BranchMonitor`, `PlanMonitor` and `WorktreeManager` hold the last answer and
+  recompute only what a signal invalidates. On a quiet pulse those 88 spawns
+  become **2** — the cost of asking whether anything moved.
+
+  **They are derivations, not records.** `PLOT_TERMINAL_CACHE` set the rule this
+  obeys: _"git is re-consulted every pass and the entry is discarded the moment it
+  disagrees."_ A cache checked against a cheap fact every pass is a derivation; one
+  that is trusted is a record. Nothing is written to disk, so a restarted board
+  re-derives everything on its first pulse.
+
+  Three properties are pinned by tests that a mutation proved were needed:
+
+  - **A moved ref invalidates exactly its branch** — but a moved `origin/<main>`
+    invalidates every count, because the range's left endpoint changed and every
+    count in the set genuinely did.
+  - **A short batch reply is discarded whole.** `hash-object --stdin-paths`
+    answers positionally, so a partial reply would key one plan's cached branch
+    answers to another plan's revision.
+  - **A worktree status has a maximum age.** The set-level signal deliberately
+    cannot see dirtiness — that is what `status` reports, so it cannot also be the
+    signal deciding whether to ask — and time is the only bound left.
+
+  Verified against this repository rather than a fixture: 37 plans and 67 branch
+  rows, with every cached ahead-count and plan oid equal to what git answers
+  directly, and the scan's own output byte-identical across runs apart from two
+  wall-clock age fields.
+
+  One defect found and fixed in wave 1's signal along the way: it keyed plan files
+  on `mtimeMs`, a float carrying sub-millisecond noise that does not round-trip, so
+  two reads of an untouched file could compare unequal and discard the entry for
+  nothing. It now uses the exact `mtimeNs`.
+
 ## 0.9.0
 
 ### Minor Changes
@@ -1461,11 +1596,11 @@ HEAD..origin/main` with `0`, indistinguishable from a genuinely current
 command` in CLAUDE.md is tightened to name the `PLOT-BLOCKED.md` file it asks
   workers to write, so the instruction and the classifier agree.
 
-      <!--
-      bumps:
-        skills:
-          plot: patch
-      -->
+        <!--
+        bumps:
+          skills:
+            plot: patch
+        -->
 
 - [#352](https://github.com/plot-pm/plot/pull/352) [`299b4e1`](https://github.com/plot-pm/plot/commit/299b4e19c0b8093418b61053e70de0c6044df2ed) Thanks [@jwloka](https://github.com/jwloka)! - board: a release row's fallback number says it is a PR
 
@@ -2782,11 +2917,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   controls and their shared state on top of wave 1's live registry, and it
   dispatches nothing — the dispatch loop is wave 3.
 
-        <!--
-        bumps:
-          skills:
-            plot: minor
-        -->
+          <!--
+          bumps:
+            skills:
+              plot: minor
+          -->
 
 ### Patch Changes
 
@@ -2984,11 +3119,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   never mounted, and it fails against the pre-fix code for the stated reason:
   the Commission design item is absent without the prop.
 
-        <!--
-        bumps:
-          skills:
-            plot: patch
-        -->
+          <!--
+          bumps:
+            skills:
+              plot: patch
+          -->
 
   ## And a wave said _nobody has taken it_ over finished work
 
@@ -3847,10 +3982,10 @@ has taken it`. The server was right on every field — the row sat in
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-          <!--
-          bumps:
-            skills:
-          -->
+            <!--
+            bumps:
+              skills:
+            -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -3940,10 +4075,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-          <!--
-          bumps:
-            skills:
-          -->
+            <!--
+            bumps:
+              skills:
+            -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -4153,10 +4288,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-          <!--
-          bumps:
-            skills:
-          -->
+            <!--
+            bumps:
+              skills:
+            -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -4555,10 +4690,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-          <!--
-          bumps:
-            skills:
-          -->
+            <!--
+            bumps:
+              skills:
+            -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -4906,11 +5041,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-          <!--
-          bumps:
-            skills:
-              plot: patch
-          -->
+            <!--
+            bumps:
+              skills:
+                plot: patch
+            -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -5102,10 +5237,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-          <!--
-          bumps:
-            skills:
-          -->
+            <!--
+            bumps:
+              skills:
+            -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -5608,10 +5743,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-          <!--
-          bumps:
-            skills:
-          -->
+            <!--
+            bumps:
+              skills:
+            -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -6241,10 +6376,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-          <!--
-          bumps:
-            skills:
-          -->
+            <!--
+            bumps:
+              skills:
+            -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -6530,12 +6665,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-              bumps:
-                skills:
-                  plot: minor
-                  plot-dispatch: minor
-                  plot-fleet: minor
-              -->
+                bumps:
+                  skills:
+                    plot: minor
+                    plot-dispatch: minor
+                    plot-fleet: minor
+                -->
 
   plot: `finished` is not a verdict
 
@@ -6685,10 +6820,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-              <!--
-              bumps:
-                skills:
-              -->
+                <!--
+                bumps:
+                  skills:
+                -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -7195,11 +7330,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-                  <!--
-                  bumps:
-                    skills:
-                      plot: patch
-                  -->
+                    <!--
+                    bumps:
+                      skills:
+                        plot: patch
+                    -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 

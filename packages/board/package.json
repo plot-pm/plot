@@ -1,7 +1,7 @@
 {
   "name": "@plot-pm/board",
-  "version": "0.9.0",
-  "description": "Local Kanban board for Plot \u2014 a glanceable view of plan phases from docs/plans, with sprint and story filters",
+  "version": "0.9.1",
+  "description": "Local Kanban board for Plot — a glanceable view of plan phases from docs/plans, with sprint and story filters",
   "type": "module",
   "license": "MIT",
   "author": "Max Albrecht",
