@@ -84,6 +84,10 @@ and a shell subprocess to parse it back.
   other entity relates through: seven states and the workflow phases they map
   into, the parser as the single contract, and the inversion that Plan is the
   one entity the CLI serves better than the board.
+- **[Sprint](DESIGN-sprint.md)** — the timebox: a commitment about *when*, over
+  plans that already exist. MoSCoW as graduated promise, the double link to Plan
+  that makes `disputed` expressible, and a phase nothing observes — measured
+  stale, with a shipped release under an Active sprint.
 
 ## Jobs to be done
 
