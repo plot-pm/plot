@@ -173,7 +173,7 @@ a prohibition.
 The three rules above all point at the same missing thing: **the domain objects
 are data, and the meaning of that data lives elsewhere.**
 
-Measured 2026-08-28: **32 comparisons against a plan's phase** across the
+Measured 2026-08-28: **32 comparisons against a plan's state** across the
 codebase — 5 of them inside `PlanCard.tsx`, a *render* component. Each is a
 call site that decided for itself what `approved` permits.
 
@@ -188,7 +188,7 @@ at one call site, and something like it at thirty-one others.
 
 | kind | example | replaces |
 |---|---|---|
-| **predicates** | `plan.isApproved`, `plan.isTerminal` | `phase === 'approved'` at 32 sites |
+| **predicates** | `plan.isApproved`, `plan.isTerminal` | `state === 'approved'` at 32 sites |
 | **capabilities** | `plan.canDeliver`, `plan.canDispatch` | the gate re-implemented per caller |
 | **transitions** | `plan.approve(who, channel)` | a phase flip plus a record, done together |
 | **derived relations** | `story.plans(estate)`, `plan.wave(branch)` | `cards.filter(...)` in two components |
@@ -229,7 +229,8 @@ CLI both reach it.
   *what should be written*; the script or route performs it, so there remains one
   writer per artefact.
 - **No rendering.** `plan.isApproved` is a fact; *"show it in Development"* is
-  the board's mapping (§4), and the object should not know about columns.
+  the WORKFLOW's mapping from states to phases, which the board renders. The
+  object carries a state and knows nothing about phases or columns.
 
 #### The three rules, completed
 

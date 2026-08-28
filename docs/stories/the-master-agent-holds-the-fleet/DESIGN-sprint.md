@@ -170,14 +170,14 @@ Planning ──► Committed ──► Active ──► Closed
 **These are states, not phases** — the distinction the Plan spec settles (§4
 there), applied here, and Sprint is its cleanest case.
 
-**A plan's `Phase:` at least maps to a workflow phase**: `approved` lands in
-Development, `delivered` in Testing, so the borrowed word had a referent even
-though the thing it held was a state.
+**A plan's state at least has a workflow mapping**: the workflow maps `approved`
+onto Development and `delivered` onto Testing, so the file's borrowed word had a
+referent even though the thing it held was a state.
 
-**A sprint's has none.** `Planning`, `Committed`, `Active`, `Closed` map to *no*
-workflow phase — the board has five columns and not one of them is *Committed*.
-So the field name is borrowed from a vocabulary this entity never participates
-in, with nothing behind the borrowing.
+**A sprint's has none.** The workflow maps no phase onto `Planning`,
+`Committed`, `Active` or `Closed` — the board has five columns and not one of
+them is *Committed*. So the file's field name is borrowed from a vocabulary this
+entity never participates in, with nothing behind the borrowing.
 
 Sprint is also where *state* fits best of the three: a sprint is not **at** a
 stage of the team's process, it **is in** a condition. `Committed` describes the
@@ -186,8 +186,8 @@ sprint, not where the work has reached.
 **The field stays named `Phase:`** for the same reason the plan's does — it is
 the established spelling across four files and the board's `SPRINT_PHASES`
 enum, and renaming a parsed field to fix an imprecision costs more than it
-buys. **The word in the file is `Phase:`; the thing it holds is a state; and
-unlike a plan's, it places the sprint into no phase at all.**
+buys. **The word in the file is `Phase:`; the thing it holds is a state; and unlike a
+plan's state, the workflow maps no phase onto it at all.**
 
 Unlike a plan's states — each gated, each written by a spoke command — **a
 sprint's state is a hand-written field that nothing enforces and nothing

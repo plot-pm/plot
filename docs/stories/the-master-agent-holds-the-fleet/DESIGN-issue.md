@@ -788,7 +788,7 @@ first imagined.
 And the epic *"closes with the release"*, which gives the outbound kinds
 something the inbound kind explicitly refuses: **a lifecycle Plot owns.** A
 customer story's state belongs to the tracker and would age into a lie if
-mirrored. A feature ticket's state is Plot's own — the plan's phase *is* the
+mirrored. A feature ticket's state is Plot's own — the plan's state *is* the
 ticket's truth.
 
 #### The `kind` question, now settled

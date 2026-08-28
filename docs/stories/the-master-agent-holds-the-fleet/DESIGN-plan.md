@@ -168,8 +168,8 @@ which is the difference between a field that exists and one that is used.
 |---|---|---|---|
 | `file` | path | 158 | always present |
 | `format` | `list` \| `frontmatter` | 158 | which spelling this file uses |
-| `phase` / `phase_raw` | state | 155 | 3 files are not plans |
-| `phase_alt` / `phase_alt_raw` | state | **0** | two states in one file — modelled, never seen |
+| `state` / `state_raw` | state | 155 | written `Phase:`/`status:` in the file; 3 files are not plans |
+| `state_alt` / `state_alt_raw` | state | **0** | two states in one file — modelled, never seen |
 | `type` | `feature`\|`bug`\|`docs`\|`infra` | 155 | |
 | `title` | string | 157 | |
 | `sprint` | slug | 71 | |
@@ -375,9 +375,29 @@ The agentic workflow — Discovery → Design → Development → Testing → Re
 is the process the *team* runs. The board's columns render it, which is why
 they are a partition and why several plan states fall into one column.
 
-**A plan does not have a phase. It has a state, and its state places it in a
-phase.** That is a mapping, and mappings are many-to-one: `draft` and `design`
-both sit in Discovery/Design, `approved` in Development, `delivered` in Testing.
+**A plan does not have a phase. It has a state — and the WORKFLOW maps states
+onto phases.**
+
+The direction matters and an earlier draft had it backwards ("its state places
+it in a phase", as though the plan did the placing). **The plan knows nothing
+about phases.** It carries a state; the workflow owns a many-to-one mapping from
+states to its own phases, and the board renders that mapping as columns:
+
+```
+plan state            workflow phase        (the workflow's mapping, not the plan's)
+  draft ─────────┐
+  design ────────┼──► Discovery / Design
+  approved ──────────► Development
+  delivered ─────────► Testing
+  released ──────────► Released
+  rejected ──────┐
+  superseded ────┴──► (none — the plan left the process)
+```
+
+**This is what keeps the domain object clean.** If a plan placed itself, the
+object would need to know Discovery from Development — a rendering concern, and
+exactly what the entities doc forbids putting on a domain object: *"`isApproved`
+is a fact; 'show it in Development' is the board's mapping."*
 
 This is also why `superseded` never fitted. It is a plan state with **no
 workflow phase** — a superseded plan is not somewhere in the process, it left
@@ -391,8 +411,8 @@ renaming a parsed field would break every plan in every adopting repo — but th
 name is borrowed from the wrong subject, and that borrowing is the whole source
 of the confusion these three drafts worked through.
 
-**The word in the file is `Phase:`; the thing it holds is a state; the thing it
-places the plan into is a phase.**
+**The word in the file is `Phase:`; the thing it holds is a state; and the
+workflow — not the plan — maps that state onto a phase.**
 
 ### What the estate actually holds
 
