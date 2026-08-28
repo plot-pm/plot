@@ -232,7 +232,7 @@ tracker, so there is no state to keep in sync and nothing to age into a lie.**
 | op | cost | when |
 |---|---|---|
 | `issue-list` | one call, on the PR timer | the inbox; bodies omitted |
-| `issue-view <n>` | one call per click | one body, for the board's *Create plan* action |
+| `issue-view <n>` | one call per click | one body, for the row's create actions |
 
 `issue-view` fetches a body **only when a human clicks**, because a body is the
 problem statement handed to `/plot-idea` and is worthless until someone acts.
@@ -242,6 +242,56 @@ same shape Build needs (§6) and the reason Ticket is the template.
 **There is no `issue-create`, `issue-close`, or `issue-comment`, and there must
 not be.** Per CLAUDE.md: *"a plan referencing an issue is Plot's record, not the
 tracker's."*
+
+### A Ticket leads to a plan OR a story — the reader chooses
+
+The ticket row carries **three** actions, and the design decision is that the
+board offers all of them and guesses at none:
+
+| action | what it starts | refuses when |
+|---|---|---|
+| **Create plan** | `/plot-idea` agent → a Draft plan | the host cannot be asked; the lookup broke |
+| **Create story** | `/story-tracking` agent → a story | no `Story command`; several story homes; non-localhost binding; host unreadable |
+| **Open on host** | navigation to `issue.url` | never — no guard, no fetch |
+
+**Both create actions are offered unconditionally.** The board does not inspect
+a ticket to decide whether it is epic-shaped or plan-shaped, and that restraint
+is the design. It cannot know: an epic's title looks like a story's, a
+well-scoped bug looks like a plan, and the same ticket can honestly be either
+depending on how much of it the team intends to take on. Guessing wrong costs
+either a story nobody wanted or a missing option on the row that needed it.
+
+So the judgement stays with the person who read the ticket — Principle 3 applied
+to an action rather than to a report. What the board contributes is **making
+both cheap and naming why either is refused.**
+
+This is also the answer to *when a Jira epic and a Plot Story both claim the
+umbrella*: nothing resolves it automatically, because `story-tracking` already
+rules on it and its rule needs a reader —
+
+> *A well-described **ticket** holds [the umbrella]; the ticket stays the
+> umbrella. […] **Negative rule:** "implement this ticket as described" never
+> opens a story.*
+
+A rich Jira epic is not duplicated into a local Story. That is the same
+discipline as carrying no labels and no assignee: **do not mirror what the
+tracker already owns better.** The board offers *Create story*; the skill behind
+it declines to create one where the ticket is already the umbrella.
+
+**The menu is always present**, whatever the binding — *Create story* and *Open*
+are there even where they refuse, so a ticket row is never menuless. A refusal
+that names its cause is more useful than an absent button, and each refusal
+sends the reader somewhere different: `no-story-command`, `several-story-homes`,
+`tracker-unsupported`, `issue-unreadable`.
+
+**Both actions spawn agents, and that is fenced.** The issue body is written by
+whoever can file an issue, and `Story command` is a shell fragment run through
+`sh -c` — so the brief is written to a file **outside the repo** and named in the
+environment, never interpolated. *"No part of an issue ever becomes a shell
+word, whatever it contains."* Outside the repo because `pnpm board` runs under
+`node --watch`, so a prompt written inside would restart the server that just
+spawned the agent. And neither action is available over a non-localhost binding:
+*"the phone that reads the board does not write stories from it."*
 
 ### How it is modelled
 
