@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Active
+- **Phase:** Planned
 - **Start:** 2026-08-28
 - **End:** 2026-09-11
 - **Release:** 2.12.0
@@ -53,11 +53,9 @@ Stories: [[the-master-agent-holds-the-fleet]] (the harness half)
 - [ ] [a-merge-without-a-changeset-is-named] A merged branch whose changeset was never committed is reported before the release consumes the estate — measured: 2 in one session, both nearly shipping no release note
 - [ ] [a-held-worktree-names-what-holds-it] `plot-reap.sh` says *which file* holds a tree it refuses, so an operator can judge it — measured: 3 trees held by one uncommitted file each, all resolved by hand
 - [ ] [one-cap-holds-across-boards] Two boards on one repo cannot exceed `parallelAgents` between them — measured: the budget is `parallelAgents − liveAgentCount`, and each board computes it on its own pulse, so two boards seconds apart both read *0 live, budget 3* and each start 3
-- [ ] [a-board-says-which-repo-it-serves] The header names the repository the board is serving — measured: `serverInfo()` carries `port` and `branch` but **not the repo path**, and a stray board serving a one-plan fixture on the usual port cost two hours before anyone could tell it apart from the real one
 
 ### Should Have
 
-- [ ] [a-cold-board-says-it-is-warming] The fleet view says it is waiting for its first pulse rather than rendering as empty — measured: 0 rows at t+10s and t+20s, 60 rows at t+30s, with nothing on screen distinguishing *cold* from *nothing to show*
 - [ ] [the-scan-drift-counter-is-acted-on] `sprint_drift=27` reaches a reader instead of a footer — the count has been non-zero for weeks and nothing consumes it
 
 ### Could Have
@@ -128,11 +126,17 @@ harder to judge.
 
 ### Nothing here has a plan yet
 
-All ten items are findings, not plans. Each needs `/plot-idea` before it can
+All eight items are findings, not plans. Each needs `/plot-idea` before it can
 be dispatched, and the three completion Musts should be written first — they share a shape,
 and writing them together is what keeps them one mechanism rather than three.
 The two board Musts are independent of those and of each other.
 
 ### Scope Changes
+
+- 2026-08-28: **`a-cold-board-says-it-is-warming`** and
+  **`a-board-says-which-repo-it-serves`** moved out to the 2.11.1 patch sprint.
+  A published board cannot scan at all (`bash exited 127`, nine releases), and
+  these two are what make that failure *illegible* rather than merely present —
+  they belong with the fix, not a release later.
 
 <!-- logged here as the sprint's contents change -->

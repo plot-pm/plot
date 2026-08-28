@@ -1,1 +1,0 @@
-../2026-W36-a-half-landed-workflow-says-so.md

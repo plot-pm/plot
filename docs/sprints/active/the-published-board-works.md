@@ -1,0 +1,1 @@
+../2026-W37-the-published-board-works.md
