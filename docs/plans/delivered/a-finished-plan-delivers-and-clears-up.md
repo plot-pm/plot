@@ -1,0 +1,1 @@
+../2026-08-27-a-finished-plan-delivers-and-clears-up.md
