@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->
@@ -13,6 +13,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-26, Jan Wloka, in-session
 - **Started:** 2026-08-26, Jan Wloka, `bug/loose-checks-the-rollup`
+- **Delivered:** 2026-08-28
 
 ## Changelog
 

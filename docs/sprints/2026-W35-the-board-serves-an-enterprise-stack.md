@@ -126,7 +126,7 @@ Story: [[the-board-is-blank-where-it-matters]].
       starts at the document origin and overflow is exactly 0 at any viewport
       that holds the content. The 13px was the board's own rows at a viewport
       too short for them.
-- [ ] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
+- [x] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft <!-- status: delivered -->
 - [ ] [the-worktrees-live-in-one-place] Worktrees under a configurable root.
       Interrogated twice, Draft, unrelated to the enterprise stack but ready.
 - [ ] [a-closed-sprint-says-what-it-achieved] Closing reconciles the tally
