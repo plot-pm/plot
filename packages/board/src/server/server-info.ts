@@ -129,5 +129,9 @@ export function serverInfo(opts: BuildBoardOptions, port: number): ServerInfo {
     // path. Empty for a detached HEAD or an unreadable repo, which the header
     // renders as no element rather than a fabricated name.
     branch: currentBranch(opts),
+    // A STARTUP FACT, like `branch`, and already resolved before the first
+    // response — `repoRoot` is what every helper spawn is measured against, so
+    // this reports a value the server already holds rather than computing one.
+    repo: opts.repoRoot,
   };
 }

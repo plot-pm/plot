@@ -893,6 +893,31 @@ export function App() {
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
       <header className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-bold tracking-tight">Plot</h1>
+        {/*
+            WHICH REPOSITORY THIS BOARD SERVES. Beside the title because that is
+            where a reader looks when two tabs disagree, and because the tell
+            they need is the NAME, not the path: `plot` vs `plot-smoke-0oMvVS`
+            settles it in one glance, where two long paths do not. The full path
+            is the `title`, for whoever looks twice.
+
+            This is NOT the branch chip returning. That one answered *which
+            worktree is the server in* while appearing to answer *where am I*,
+            and two branch names in one header was worse than either alone. A
+            repository has no such ambiguity: exactly one is served, and a
+            reader comparing tabs is asking precisely which.
+
+            Renders nothing where the root is unreadable or the server predates
+            the field — no fabricated name, the same rule `branch` followed.
+        */}
+        {board?.server?.repo && (
+          <span
+            data-server-repo
+            title={board.server.repo}
+            className="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+          >
+            {board.server.repo.replace(/\/+$/, '').split('/').pop() || board.server.repo}
+          </span>
+        )}
         {/* The branch chip that used to live here (lines 830–847 before this
             change) has been REMOVED, not moved or relabelled.
 
