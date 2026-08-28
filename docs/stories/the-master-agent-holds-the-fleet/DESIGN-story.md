@@ -387,10 +387,17 @@ the specification.
 Story.slug : string
 ```
 
-The directory name, and a filename component: `<slug>/STORY-<slug>.md`. The
-slug appears **twice** on disk by convention, which is why `StoryCard.path` is
-carried rather than reconstructed — *"rebuilding it client-side means encoding
-that convention twice and letting the copies drift."*
+The directory name, and a filename component: `<slug>/STORY-<slug>.md`.
+
+**The slug resolves to a file directly** — no date, no index, no precedence —
+because it *is* the directory name. That is the one identity difference from
+Plan, whose slug sits inside a dated filename (`YYYY-MM-DD-<slug>.md`) and
+needs a three-step lookup. **Both entities are identified by their slug**; only
+the resolution differs, and Plan §3 records why.
+
+The slug appears **twice** on disk by convention, which is why `StoryCard.path`
+is carried rather than reconstructed — *"rebuilding it client-side means
+encoding that convention twice and letting the copies drift."*
 
 A slug may carry a tracker key: `{JIRA-ID}-{slug}` (`FOOBAR-1234-wcag-audit`).
 That is the only link to an Issue that exists today (§4).
