@@ -45,6 +45,30 @@ Over thirty minutes that is roughly **41,000 process launches**. Nothing leaks �
 accumulation. It is a RATE, and it is the reason an operator running the board
 beside any other spawn-heavy work has to restart the machine.
 
+### Re-traced 2026-08-28, and the shape held
+
+The trace above was taken earlier the same day. Re-run before implementing,
+because a stale count is how a reader concludes the rule is wrong when only the
+tally is:
+
+| | first trace | re-trace | loops over |
+|---|---|---|---|
+| `rev-list --count` | 43 | **47** | plan branches |
+| `hash-object` | 34 | **41** | plan files |
+| `status` (`-C <worktree>`) | 11 | **9** | worktrees |
+| everything else | 27 | **30** | one-offs |
+| **total** | **115** | **127** | |
+
+**The shape is confirmed, and it is the finding.** Three per-item loops over the
+three things that grow, and only the constant term is bounded. The counts moved
+because the estate did — and that they moved *upward in a day* is the argument,
+not a footnote.
+
+**One correction to the original reading.** `rev-list` loops over the branches
+the PLANS name (76 today across 41 plans), not over all local refs — this
+checkout has **243**. The cost tracks the plan estate, which is the thing that
+grows without bound; it does not track a branch list an operator can prune.
+
 ### Why the loops are there, and why they are no longer small
 
 Both large loops were optimised once already, and their comments say so.
@@ -132,6 +156,20 @@ and the estate is what keeps growing. Worth doing INSIDE the monitors, though:
 when a signal says something did change, the recompute should use the batch
 form rather than the loop.
 
+### The batch form is version-gated, and degrades rather than breaks
+
+`for-each-ref --format='%(ahead-behind:HEAD)'` arrived in **git 2.41** (2023).
+This repo declares a floor of **git ≥ 2.38** (`plot-merge-queue/SKILL.md`), so a
+user on Debian bookworm's 2.39 does not have it.
+
+**Detect once and fall back to the per-branch loop.** The monitors are the
+primary win and need no modern git at all — an older git gets the caching, and
+pays the old price only on the pulses where something actually moved.
+
+**Raising the floor was rejected.** It would break Plot on a stable distro for
+an optimisation this plan itself calls *"the smaller idea"*. A secondary
+speed-up must not become a compatibility requirement.
+
 ### Not chosen: a fleet database
 
 A file the board writes and later trusts is the record Principle 1 forbids, and
@@ -165,6 +203,12 @@ signals themselves become the cost.
    same estate. This is a performance change; a verdict that moves is a
    regression, and `--next`, `--json`, the board and `plot-dispatch.sh` all read
    it.
+
+   **Proven by diffing two full pulses on THIS repository** — cold, then warm —
+   not on a fixture. A fixture agrees with whatever wrote it, and the cache-miss
+   and cache-hit paths must agree on real data: 41 plans, 76 plan branches, 10
+   worktrees, with the terminal-state and degraded-host cases a fixture would
+   have to be told to include.
 3. **A moved ref invalidates exactly its branch**, not the whole set. A monitor
    that recomputes everything on any change has bought nothing on a busy estate,
    which is when the board matters most.
