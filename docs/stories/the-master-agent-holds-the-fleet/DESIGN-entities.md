@@ -93,6 +93,66 @@ every pulse, so it cannot drift from its source: there is no update path, only
 re-creation. That is Principle 1 expressed as an object lifecycle rather than as
 a prohibition.
 
+### Domain logic can only be tested on domain objects
+
+A workflow rule is a statement about entities, so it can only be **stated,
+tested and enforced** in terms of entities. Today several are expressed against
+view payloads, and the cost is visible in the tests.
+
+**The worked example is the deliver gate.** `planAutoDeliver` decides whether a
+plan may transition — pure domain logic, and one of Plot's four guardrails. Its
+rule is one sentence: *every non-deferred wave has merged.*
+
+To test that sentence, the fixture must build a **`FleetPulse`**:
+
+```ts
+FleetPulseSchema.parse({
+  main: 'main',
+  head: 'abc1234',
+  plans: [...],
+  summary: { plans, waves, branches, claimed, eligible, blocked, deferred },
+})
+```
+
+— plus, per branch, `ref_held` and `claimed`, which are **git-derived view
+fields**, and per wave a `verdict` the fixture computes itself.
+
+**None of that is the decision.** A head SHA, seven summary counts and a
+ref-held flag are what the *wire* needs; the rule needs plans, waves and merge
+status. The test constructs a transport to ask a domain question.
+
+#### The cost is not verbosity — it is drift
+
+**Measured in this session:** the `wave()` helper hard-coded
+`verdict: 'complete'` for every wave it built, including ones holding open
+branches. So a test asserting *the gate refuses while a wave is unmerged* was
+passing because the fixture said `complete`, not because the gate refused.
+
+That is the failure mode of testing logic through a view: **the fixture
+re-implements the derivation, and the copy drifts from the original.** The
+verdict belongs to the domain; a fixture that computes its own is asserting
+against itself.
+
+#### What changes
+
+| | today | with domain objects |
+|---|---|---|
+| the fixture | a `FleetPulse` with head, summary, ref flags | **a Plan with waves** |
+| the verdict | computed in the fixture | **read from the object** |
+| what can drift | fixture vs. real derivation | **nothing — one derivation** |
+| what the test reads like | transport assembly | **the rule** |
+
+**And the same applies to actions, not only tests.** `plot-phase-gate.sh`
+already gets this right for the same reason: it reads the plan from
+`origin/<main>` — the **source** — rather than from anything downstream, because
+*"an approval nobody else can see is not one."* A gate that consulted a rendered
+row would be enforcing a rule against a copy.
+
+**So the rule is symmetric with the two above.** Views reference domain objects;
+the cache holds domain objects; **and domain workflow is expressed, tested and
+gated on domain objects.** Each of the three fails the same way when broken — a
+second representation that can disagree with the first.
+
 ### The cache is at the wrong layer
 
 **The board caches views and re-reads sources.** That is the inversion your
