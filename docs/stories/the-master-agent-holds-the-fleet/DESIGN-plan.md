@@ -914,6 +914,50 @@ Derived, never declared — a `slug:` field a human could write would be a secon
 source of truth against the filename, and they would disagree the first time a
 file was renamed.
 
+#### Why it has none: an omission, not a decision
+
+**There is no design reason.** The asymmetry is the tell — the parser emits
+`sprint` and `story` as slugs, so slugs are clearly the right abstraction here;
+a plan simply cannot name *itself* that way:
+
+```
+file:   docs/plans/2026-08-27-a-worker-registers-where-the-board-reads.md
+slug:   ABSENT
+sprint: 'the-board-tells-the-truth-in-every-section'   ← a slug
+story:  'plot-board'                                    ← a slug
+```
+
+#### What the omission costs, measured
+
+Every consumer strips the prefix itself. The clearest case is **two
+byte-identical `planSlug` functions**, in `auto-deliver.ts:114` and
+`auto-dispatch.ts:67`:
+
+```ts
+path.basename(file).replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '')
+```
+
+**And the duplication is deliberate**, argued in a comment:
+
+> *A private twin rather than an import, deliberately kept byte-identical: the
+> two modules are independent actors on the same clock, and a shared helper
+> would make one able to break the other's slug resolution.*
+
+**That reasoning is coherent and it is on the wrong axis.** It is correct *if*
+slug resolution is a helper two modules call: isolate the actors, accept two
+copies, neither can break the other.
+
+But the slug is not a function — **it is a property of the plan.** Once the Plan
+object carries it, there is nothing to import and nothing to isolate: both
+actors read the same object's field, and the failure the comment guards against
+cannot arise.
+
+**So the duplication is not a mistake. It is the correct workaround for a
+missing domain object** — and that makes it the strongest evidence in this
+document for the four rules the entities doc states, because a careful author
+reasoned their way to duplication rather than to the layer that removes the
+need for it.
+
 **It also makes the uniqueness gap visible.** §3 records that 158 plans have
 zero duplicate slugs and nothing enforces it; a parser that emits the slug is
 where a duplicate could be detected at all.
