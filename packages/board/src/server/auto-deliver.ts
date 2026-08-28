@@ -81,6 +81,31 @@ export const DELIVER_SCRIPT = 'plot-deliver.sh';
 /** The reaper, run after the delivery. Plot ships it; the board only calls it. */
 export const REAP_SCRIPT = 'plot-reap.sh';
 
+/**
+ * The ref release, run after the reap — the LAST link in the chain.
+ *
+ * Deliver, then reap, then delete. The ordering is a `Done when` item and it is
+ * asserted as ordering rather than as end state, because every order ends with
+ * a delivered plan, no worktree and no ref: only this one never shows an
+ * intermediate a person would misread. Reversed, a worktree would outlive the
+ * ref it tracks — a checkout of a branch that no longer exists anywhere.
+ *
+ * WHY THE REFS ARE WORTH DELETING AT ALL. They are what the scan actually
+ * costs. Measured 2026-08-27 across four runs: 54 worktrees/43 branches took
+ * 462.9 s, 42/43 took 51.3 s, 11/43 took 218.5 s, and 11/34 took 111.5 s.
+ * Worktree count does not order those runs — 11 worktrees was slower than 42.
+ * Deleting nine merged branches is what moved it reliably, roughly halving it.
+ *
+ * SLUG-SCOPED, unlike the reap beside it, and that asymmetry is the whole
+ * safety argument. `plot-reap.sh` sweeps every worktree because a removed
+ * checkout is re-creatable with `git worktree add`; a deleted ref is not
+ * re-creatable at all. So this is told WHICH plan finished and touches only the
+ * branches that plan names — a sweep over every merged ref on the estate would
+ * satisfy "a delivered plan's merged branches lose their refs" while destroying
+ * unlanded work belonging to plans nobody delivered.
+ */
+export const RELEASE_REFS_SCRIPT = 'plot-release-refs.sh';
+
 /** The prompt handed to a configured `Deliver command`. The slug is the only variable. */
 export function deliverPrompt(slug: string): string {
   return `/plot-deliver ${slug}`;
@@ -248,7 +273,8 @@ export function pruneDelivering(
 }
 
 /**
- * Deliver each finished plan, then reap — and the ORDER is the point.
+ * Deliver each finished plan, then reap, then release its refs — and the ORDER
+ * is the point, at both links.
  *
  * The reap is chained to the delivery's `exit`, not spawned beside it. Both
  * orders end with a delivered plan and no worktree, so an end-state assertion
@@ -256,7 +282,8 @@ export function pruneDelivering(
  * mid-flight, which is the state a human reads as *work in progress with nobody
  * on it*. The ordering is therefore structural rather than incidental: two
  * detached spawns fired together would race, and a test of the end state would
- * not notice.
+ * not notice. The reap chains a third link the same way — the ref release —
+ * so the whole sequence is deliver → reap → delete, each waiting on the last.
  *
  * It also matters that the reap runs at ALL only after a delivery succeeded.
  * `plot-deliver.sh` exits non-zero on every refusal it owns — a phase that is
@@ -360,14 +387,15 @@ export function runAutoDeliver(
 }
 
 /**
- * Clear the desks of work that has landed — the second half, run only from the
+ * Clear the desks of work that has landed — the second link, run only from the
  * delivery's success.
  *
  * Slug-blind on purpose: `plot-reap.sh` takes no plan argument and reaps every
  * worktree that passes its five measurements. That is not this module widening
  * its scope, it is the reaper's existing behaviour — a branch belonging to no
  * plan is reaped by an ordinary run too, and needs no plan-shaped trigger. The
- * slug travels only so the log line says which delivery caused the sweep.
+ * slug travels so the log line says which delivery caused the sweep, AND
+ * because the ref release chained to this exit is not slug-blind at all.
  */
 function reap(opts: BuildBoardOptions, slug: string): void {
   const log = deliverLogPath(opts.repoRoot, slug);
@@ -383,10 +411,63 @@ function reap(opts: BuildBoardOptions, slug: string): void {
     detached: true,
     stdio: ['ignore', out, out],
   });
+
+  // THE SECOND ORDERING, and the same mechanism as the first: a listener on the
+  // exit, never a spawn beside it. The refs go after the desks are cleared,
+  // because a worktree must not outlive the ref it tracks.
+  //
+  // Unlike the delivery→reap link, this one does NOT gate on the exit code. The
+  // reaper exits 0 whatever it decides and reports its verdicts as text — a
+  // `keep` is a normal outcome, not a failure — so there is no non-zero to read
+  // as a refusal. And the release re-derives every fact for itself: it asks the
+  // host about each branch and checks the worktree list again. A reap that
+  // failed halfway leaves a worktree in place, which the release then SEES and
+  // refuses on. The guards are the gate here, not the exit code.
+  child.on('exit', () => releaseRefs(opts, slug));
   child.on('error', (err) => console.error('auto-deliver reap failed to spawn:', err));
-  // Unreferenced, unlike the delivery: nothing is chained to THIS exit code, so
-  // the board need not outlive it. A reap interrupted midway leaves a worktree
-  // the next run removes.
+  // No `unref`, since 2026-08-28: the ref release is chained to THIS exit code
+  // now, and dropping the handle would drop the listener with it — every plan
+  // would be reaped and no ref would ever be deleted. This is the same reason
+  // the delivery above keeps its handle, arriving one link later.
+  fs.closeSync(out);
+}
+
+/**
+ * Delete the remote refs of the delivered plan's merged branches — the third
+ * and last link.
+ *
+ * SCOPED TO THE PLAN, and passed the slug for exactly that reason. Every
+ * refusal that protects an unlanded ref lives in the script: a `deferred:`
+ * annotation, no merged PR, an open PR, a checkout sitting on the branch, the
+ * default branch itself. The board asks for none of those judgements and makes
+ * none — it names the plan that finished, which is the one fact it has that the
+ * script does not.
+ *
+ * `--yes` because this IS the decision to release; without it the script
+ * reports and does nothing, which would be a wire ending in a dry run — the
+ * same reason the reap above passes it.
+ *
+ * Unreferenced, unlike the two before it: nothing is chained to this exit code,
+ * so the board need not outlive it. A release interrupted midway leaves refs the
+ * next delivery's run — or a typed one — removes, because every gate is
+ * re-derived from the host and from git rather than from a progress file.
+ */
+function releaseRefs(opts: BuildBoardOptions, slug: string): void {
+  const log = deliverLogPath(opts.repoRoot, slug);
+  let out: number;
+  try {
+    out = fs.openSync(log, 'a');
+  } catch (err) {
+    console.error(`auto-deliver could not open ${log} for the ref release:`, err);
+    return;
+  }
+  const child = spawn(
+    'bash',
+    [path.join(opts.scriptsDir, RELEASE_REFS_SCRIPT), '--yes', slug],
+    { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
+  );
+  child.on('error', (err) =>
+    console.error('auto-deliver ref release failed to spawn:', err));
   child.unref();
   fs.closeSync(out);
 }
