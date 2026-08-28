@@ -108,16 +108,30 @@ loses its narrative, and a wave loses its **only reason to exist**.
 ### Identity
 
 ```
-Wave.name : string        within its plan
+Wave.id = plan.slug + '#' + wave.name        e.g. a-wave-is-a-thing#Sized
 ```
 
-**The name is the identity, and it is scoped to the plan.** `Counted` appears in
-11 plans and means something different in each. So a wave is addressed as
+**The name alone is not an identity; the pair is.** `Counted` appears in 11
+plans and means something different in each, so a wave is addressed as
 `(plan, name)` — never by name alone.
 
-**5 waves are unnamed** (the default wave, where a plan lists branches without
-`### ` headings), which is why the name may be `''` and why the board carries a
-default-wave label of its own.
+**Verified 2026-08-28: 303 waves, 303 distinct pairs, zero collisions.**
+
+**And nothing enforces it.** That is the same shape as the plan slug (158 files,
+zero duplicates, no check) with one difference that makes Wave's case weaker: a
+plan slug is a **filename**, so the filesystem enforces uniqueness by accident.
+A wave name is a **heading**, and nothing stops a plan carrying `### Counted`
+twice. The 303/303 result is authorial care, not a constraint.
+
+**A collision would be worse here than for a plan**, because the pair is what
+the fleet addresses. Two `Counted` waves in one plan would make `--next`, the
+dispatcher and the board disagree about which one a verdict describes — and the
+symptom would be a branch dispatched against the wrong gate rather than an
+error.
+
+**The default wave has an empty name**, so its id is `slug#`. Five plans carry
+one, and by construction a plan can have at most one default wave — the
+unnamed case is the *absence* of headings, not a heading with no text.
 
 ### Fields
 
@@ -125,7 +139,7 @@ default-wave label of its own.
 
 | field | type | note |
 |---|---|---|
-| `name` | string | `''` for the default wave — 5 of 303 |
+| `name` | string | `''` for the default wave — 5 of 303; unique **within its plan** |
 | `plan` | Plan | the owner; the name means nothing without it |
 | `branches[]` | Branch[] | **1 in 271 of 303** — see §8 |
 | `index` | number | position among its plan's waves — **the ordering** |
@@ -391,6 +405,7 @@ it; 21 waves here disagree with it and the scan reports them (§8).
 | 2 | **21 waves hold several** — against the 1:1 model | now, reported |
 | 3 | **Ordering is positional** — no `after:`, so reordering headings reorders the gate | now |
 | 4 | Wave names are scoped to a plan but rendered bare | cosmetic |
+| 5 | **Nothing enforces `plan#name` uniqueness** — 303/303 distinct today, by authorship rather than by a check | now |
 
 **Gap 1 is half-reported.** `long_wave_names` already flags the sentence-length
 headings — it just flags them as *names too long to render*, not as *not a wave
@@ -410,7 +425,8 @@ nothing catches none.
    on a decision.
 4. **`eligible` is the only word that promises a dispatch agrees.**
 5. **A wave is never dispatched; its branches are.**
-6. **A wave's name is meaningless without its plan.**
+6. **A wave's identity is `plan.slug#wave.name`** — the name alone is
+   meaningless, and `Counted` appears in 11 plans.
 7. **`--loose` is refused where it cannot be verified.**
 
 ### Open points
