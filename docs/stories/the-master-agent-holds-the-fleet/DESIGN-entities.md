@@ -343,6 +343,52 @@ scrupulous about: *"showing 50 of N"* is a different claim from *"there are
 inbox is small by construction — which is a sound reason to cap and no reason at
 all to hide the cap.
 
+**3. The link is one-way: a plan cites a ticket, and nothing links back.**
+
+Verified 2026-08-28. `plot-plan-meta.sh` emits `issues` — every `Issue:`
+reference a plan makes — and the board reads it in exactly two places:
+
+```ts
+fleet.ts:1680   for (const n of meta.issues ?? []) referenced.add(n);
+idea.ts:456     for (const n of meta.issues ?? []) referenced.add(n);
+```
+
+Both do the same thing: add the number to a set, use the set to answer *is this
+ticket already planned?*, and discard it. **`issues` never reaches
+`PlanMetaSchema`, and never reaches `Card`.**
+
+So the relationship exists in one direction only:
+
+| direction | works? | how |
+|---|---|---|
+| Ticket → plan | yes | the ticket VANISHES from the inbox once cited |
+| plan → Ticket | **no** | nothing on the board says which ticket a plan answers |
+
+The association is modelled purely as a *disappearance*. That is why the entity
+reads as clean — the harder direction was never built, so it never went wrong.
+
+**This is where `Tracker: jira` changes the stakes.** Under `Tracker: plot`
+(the default — *"plans in this repo ARE the tracker"*) a backlink is a
+convenience: the plan is already the record, and the issue number is
+provenance. Under `Tracker: jira` the ticket is what the customer, the PM and
+the standup all reference — and the board cannot say which plan answers
+`PROJ-123`, nor offer a link to it. The plan estate knows; the board drops the
+fact one layer before rendering.
+
+Carrying it costs nothing new, and every piece already exists:
+
+- the parser emits `issues`, GitHub `#N` and Jira `PROJ-123` alike (#447)
+- both board call sites already parse it, then drop it
+- `Tracker: jira https://acme.atlassian.net` carries the base URL as its second
+  token, and `tracker_base_url` returns `""` for a bare `jira` — the same
+  honest-absence shape `IssueRow.url` uses, where `''` renders as plain text
+  rather than a fabricated link
+- `IssueRow.url` already proves the board can hold a tracker link honestly
+
+What is missing is `issues` on `PlanMetaSchema` and a link on the plan row —
+**no new fetch, and no new URL knowledge.** The link a plan needs is the one
+`issue-list` already returned for the same ticket before it left the inbox.
+
 ### Invariants
 
 1. **Read-only, at the adapter.** No op writes to the tracker; a plan is Plot's
@@ -355,6 +401,9 @@ all to hide the cap.
    collapsed.
 5. **`null` age, never `0`.** Absent is not "just now".
 6. **A failed lookup keeps the last good list** and says it is stale.
+7. **A tracker link is carried verbatim or not at all.** `''` renders as plain
+   text; Plot composes no tracker URL it was not given — the rule
+   `AgentRow.pr.url` and `branchUrlBase` already follow.
 
 ### Open
 
