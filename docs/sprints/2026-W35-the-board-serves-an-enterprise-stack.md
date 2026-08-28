@@ -57,7 +57,7 @@ Stories: [[the-board-is-blank-where-it-matters]] (the first three),
       `jira` backend, so `Tracker: jira` stops being a key nothing reads. The
       board's ticket inbox is the one section an enterprise team cannot get any
       other way.
-- [ ] [i-can-see-whether-my-build-passed] I can see whether my build passed, from the board, without opening Jenkins
+- [x] [i-can-see-whether-my-build-passed] I can see whether my build passed, from the board, without opening Jenkins <!-- status: delivered -->
       path. The probe already finds `jen`, a Jenkinsfile, and the instance —
       `plot-host.sh` has no `jen` reference at all, so the trail ends before the
       board.
