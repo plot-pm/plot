@@ -29,7 +29,7 @@ it is working on.
 | 6 | [Relations](#6-relations) | Worktree · Branch · Wave · Person |
 | 7 | [Actions](#7-actions) | dispatch · restart · stop · rescue |
 | 8 | [Scope](#8-scope) | which agents are the fleet's |
-| 9 | [The collaborators](#9-the-collaborators) | the registry, and the state function |
+| 9 | [The collaborators](#9-the-collaborators) | a Registry that owns, a Monitor that watches |
 | 10 | [Fleet control](#10-fleet-control) | the entity the story is about |
 | 11 | [Views](#11-views) | the WORKING section |
 | 12 | [Setup](#12-setup) | `Agent registry`, `Worker command` |
@@ -396,28 +396,85 @@ the scan's cost back."*
 
 ## 9. The collaborators
 
-| collaborator | owns |
+**Two, and the split is the same one Worktree has** (Worktree §9): a thing that
+**owns**, and a thing that **watches**.
+
+### `AgentRegistry` — owns and controls every agent
+
+**Settled 2026-08-28: all agents are owned and controlled by the registry.** It
+provides them, places work on them, and guarantees the pairing (§1):
+
+> **every agent has a worktree, and no worktree is left behind**
+
+#### What exists is a reader, not an owner
+
+**`readAgentRegistry` only reads** — the name says so, and it is a pure function
+over a directory: manifests in, entries out, worktrees with no manifest
+synthesized.
+
+**`start_worker` is what actually creates an agent**, and it lives in
+`plot-dispatch.sh` at two call sites (the fan-out and `--restart`).
+
+**So ownership is scattered across the dispatcher**, and that is why the
+registry cannot enforce its own invariants: **it never created anything to
+enforce them on.** It is the `WorktreeManager` finding one entity over, and the
+two are the same missing object seen from two sides — the registry that owns an
+agent is the thing that would give it a desk.
+
+#### What the Registry owns
+
+| | |
 |---|---|
-| `readAgentRegistry` | the roster — manifests + synthesized entries |
-| `plot-worker-state.sh` | **the one answer to *is a worker running?*** |
-| `plot-dispatch.sh` | creation, restart, stop |
+| **provide** | a bounded number of agents (`parallelAgents`, entities §Elastic) |
+| **place** | a wave onto a free agent (§4 — `free`, currently unmodelled) |
+| **pair** | a desk with every agent, and neither outliving the other |
+| **retire** | an agent whose work is done, with its desk |
+| **attach** | a monitor, at creation |
 
-### `plot-worker-state.sh` is sourced, not run
+**Not the states themselves.** `plot-worker-state.sh` stays *"the ONE answer to
+is a worker running"*; the registry asks it rather than re-deriving.
 
-**And the reason is a design decision worth keeping:** *"the scan asks this
-question once per branch inside a loop, and the answer is three fields that the
-caller then formats two different ways. Shelling out would fork per branch to
-serialize three values across a pipe so the caller could immediately parse them
-back."*
+### `AgentMonitor` — watches one agent, reports to two consumers
 
-**It returns facts and renders nothing** — `--status` prints prose for a person,
-`--json` emits tab-separated fields for a machine, and *"both are real
-interfaces with tests pinning their bytes."*
+**The registry attaches a monitor to every agent it creates**, and the monitor
+reports to **the master agent and the board**.
 
-**It carried five of its six states in duplicate until 2026-08-18, and the
-copies had already drifted on the sixth.**
+#### Attached at creation, not polled from a roster
 
----
+**That is the design decision**, and it buys what a scan cannot have:
+
+| | a scan over the roster | **a monitor attached at creation** |
+|---|---|---|
+| knows the agent started | infers it from a manifest | **witnessed it** |
+| knows what it was given | reads a branch field | **holds the assignment** |
+| notices a death | on the next pulse | **at the exit** |
+| costs | a pass over every agent | **one watch per agent** |
+
+**And it makes `machineAtDeath` possible** (§3). A scan finding a dead worker
+cannot know what the machine was like when it died; a monitor present at the
+exit can read it then — which is the fix for all seven `exit 124` deaths in the
+story's session being read as agent failure.
+
+#### What it reports
+
+| to the **master agent** | to the **board** |
+|---|---|
+| *is that worker working, or just alive?* (job 2) | the WORKING row's state and activity |
+| a death, with the machine's state at it | a row that stops being live |
+| *what changed since I looked?* (job 3) | the change marks |
+
+**Job 3 is the one only a monitor can answer.** The scan is stateless by
+design — *"re-derived from git refs every run"* — so a delta needs something
+that was present for both moments, and an attached monitor is.
+
+#### What it must not become
+
+**Not a poll per agent.** Thirteen monitors each shelling out per second is the
+load the Machine entity exists to protect against, and *"liveness is resolved in
+one batch per pulse"* (§8) remains the rule for the roster.
+
+**A monitor watches its own agent** — it knows the pid it was given, so it can
+wait on it rather than scanning for it, and the batch stays the registry's job.
 
 ## 10. Fleet control
 
@@ -480,6 +537,8 @@ board may be served from a different worktree than the dispatcher writes to.
 | 6 | **The desk is per branch, not per agent** — an agent creates a new worktree per unit and removes the old one only on its own success path | **now, measured** |
 | 6b | **No agent state says *free*** — eight describe the process, none says whether it can take a wave | **now** |
 | 7 | **The registry enforces neither invariant** — not *every agent has a worktree*, nor *no worktree is left behind* | **now, measured** |
+| 8 | **The registry only READS** — `readAgentRegistry` is a pure function over a directory, while `start_worker` in `plot-dispatch.sh` creates agents | **now** |
+| 9 | **No `AgentMonitor`** — nothing is attached at creation, so a death is noticed on the next pulse and `machineAtDeath` is unknowable | **now** |
 
 **Gap 1 is the sharpest measurement in this document**, and it is two problems
 wearing one symptom. The registry directory exists and is empty; 13 dispatched
@@ -505,6 +564,8 @@ nothing reaping them (Worktree §13).
    that wave has merged.
 10. **The registry guarantees the pairing** — every agent has a desk, and no
    desk outlives its agent.
+11. **Every agent gets a monitor at creation**, and it reports to the master
+   agent and the board.
 
 ### Open points
 
