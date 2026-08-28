@@ -21,24 +21,25 @@ Plot's umbrella for work that spans plans, specified as a domain object.
 | § | section | answers |
 |---|---|---|
 | 1 | [What a Story is](#1-what-a-story-is) | problem space vs solution space; who creates one |
-| 2 | [The domain object](#2-the-domain-object) | **the normative spec** |
-| 3 | [Lifecycle](#3-lifecycle) | statuses, and why nothing derives them |
-| 4 | [Relations](#4-relations) | Plan · Issue · Sprint · Unit |
-| 5 | [Posture](#5-posture--what-tracker-jira-makes-of-a-story) | what `Tracker: jira` makes of a Story |
-| 6 | [Direction](#6-direction--inbound-and-outbound) | inbound from a ticket; outbound unbuilt |
+| 2 | [Posture](#2-posture--what-tracker-jira-makes-of-a-story) | what `Tracker: jira` makes of a Story |
+| 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
+| 4 | [Lifecycle](#4-lifecycle) | statuses, and why nothing derives them |
+| 5 | [Direction](#5-direction--inbound-and-outbound) | inbound from a ticket; outbound unbuilt |
+| 6 | [Relations](#6-relations) | Plan · Issue · Sprint · Unit |
 | 7 | [Actions](#7-actions) | Create · Resume · Attach · Archive · Open |
 | 8 | [Scope](#8-scope--which-stories-are-shown) | which homes, not which stories |
 | 9 | [The collaborators](#9-the-collaborators--story-has-almost-none) | why Story needs none |
 | 10 | [Fleet control](#10-fleet-control--the-master-agent-cannot-see-stories) | the board sees stories; the CLI does not |
-| 11 | [Setup](#11-setup) | three keys nobody writes |
-| 12 | [The four-way divergence](#12-the-four-way-divergence) | estate vs schema vs skill vs lint |
-| 13 | [Views](#13-views) | what renders, and what does not |
+| 11 | [Views](#11-views) | what renders, and what does not |
+| 12 | [Setup](#12-setup) | three keys nobody writes |
+| 13 | [The four-way divergence](#13-the-four-way-divergence) | estate vs schema vs skill vs lint |
 | 14 | [Gaps](#14-gaps) | consolidated, ranked by reachability |
-| 15 | [Invariants and open points](#15-invariants-and-open-points) | |
+| 15 | [Invariants and open points](#15-invariants-and-open-points) |  |
 
 ---
 
 ## 1. What a Story is
+
 
 ### Problem space and solution space
 
@@ -338,7 +339,43 @@ written when the fact becomes true.**
 
 ---
 
-## 2. The domain object
+## 2. Posture — what `Tracker: jira` makes of a Story
+
+
+The Issue spec's three postures apply here, and the middle and last make very
+different things of a Story.
+
+| posture | what a Story is |
+|---|---|
+| **`plot`, no issue tracker** | the sole home of problem-space knowledge |
+| **`plot` + an issue tracker** | the sole home; a ticket may **publish** it to clients |
+| **`jira` leads** | *"every story is a jira ticket"* — the MD file is a **projection** |
+
+**Posture 2 is where the Story is most itself.** The narrative, the Decisions
+table and the session log stay in the repo where the dev team works, and a
+ticket carries a summary outward. The dev-team-only overflow signal — *"no
+ticket exists because the customer is not in the loop"* — is precisely a story
+that has **not** been published, and the model must keep that a legitimate
+state rather than an omission.
+
+**Posture 3 inverts it, and the cost is specific.** If Jira holds the truth, a
+story's *narrative* lives in a ticket description — and the one thing this
+entity's §2 insists on is that **the body is the artefact**. A Jira description
+is a poor home for a Decisions table and a session log that grow over months,
+which is the same objection `story-tracking` already raises about epics:
+*"epics structurally cannot hold narrative."*
+
+That is worth stating plainly rather than deferring: **posture 3 asks a Story to
+live where the skill says stories cannot live.** Either the projection keeps the
+narrative in the repo and syncs only the frontmatter — a narrower claim than
+*"the whole truth is in Jira"* — or the story layer degrades to a stub under
+that posture. This design does not settle which, and it should not be discovered
+by a team that adopts posture 3 and finds their session log truncated.
+
+---
+
+## 3. The domain object
+
 
 The normative shape. Where this document disagrees with itself, this section is
 the specification.
@@ -399,7 +436,8 @@ its body lives in a tracker Plot does not own.
 
 ---
 
-## 3. Lifecycle
+## 4. Lifecycle
+
 
 ### Six statuses, two in use
 
@@ -438,7 +476,37 @@ exercised here.
 
 ---
 
-## 4. Relations
+## 5. Direction — inbound and outbound
+
+
+Story has no kinds. It has both directions, and the Issue spec's rule applies
+unchanged: **direction is a property of the individual artefact, not of the
+type.**
+
+| direction | shape | mechanism |
+|---|---|---|
+| **inbound** | a ticket becomes a Story | *Create story* on an issue row (`kind = story`) |
+| **outbound** | a Story publishes a ticket | posture 2 — **unbuilt** |
+
+**Inbound exists**: `POST /api/story`, keyed by issue number, spawning the
+`Story command` agent. The story-tracking triage still governs whether one is
+warranted — a well-described ticket stays the umbrella.
+
+**Outbound does not.** Nothing publishes a story to a tracker, and under posture
+2 that is the missing half: a client sees plans as feature tickets and releases
+as epics, but the problem-space knowledge that justified them has no
+publication. Whether it should is a genuine question — a story is often
+*deliberately* internal — which is why this is named as unbuilt rather than as a
+gap.
+
+**And a Story created from neither direction is the common case.** Six of nine
+here began as a person deciding knowledge had overflowed, with no ticket
+involved.
+
+---
+
+## 6. Relations
+
 
 | relation | direction | mechanism | state |
 |---|---|---|---|
@@ -494,69 +562,8 @@ their `Story:`.
 
 ---
 
-## 5. Posture — what `Tracker: jira` makes of a Story
-
-The Issue spec's three postures apply here, and the middle and last make very
-different things of a Story.
-
-| posture | what a Story is |
-|---|---|
-| **`plot`, no issue tracker** | the sole home of problem-space knowledge |
-| **`plot` + an issue tracker** | the sole home; a ticket may **publish** it to clients |
-| **`jira` leads** | *"every story is a jira ticket"* — the MD file is a **projection** |
-
-**Posture 2 is where the Story is most itself.** The narrative, the Decisions
-table and the session log stay in the repo where the dev team works, and a
-ticket carries a summary outward. The dev-team-only overflow signal — *"no
-ticket exists because the customer is not in the loop"* — is precisely a story
-that has **not** been published, and the model must keep that a legitimate
-state rather than an omission.
-
-**Posture 3 inverts it, and the cost is specific.** If Jira holds the truth, a
-story's *narrative* lives in a ticket description — and the one thing this
-entity's §2 insists on is that **the body is the artefact**. A Jira description
-is a poor home for a Decisions table and a session log that grow over months,
-which is the same objection `story-tracking` already raises about epics:
-*"epics structurally cannot hold narrative."*
-
-That is worth stating plainly rather than deferring: **posture 3 asks a Story to
-live where the skill says stories cannot live.** Either the projection keeps the
-narrative in the repo and syncs only the frontmatter — a narrower claim than
-*"the whole truth is in Jira"* — or the story layer degrades to a stub under
-that posture. This design does not settle which, and it should not be discovered
-by a team that adopts posture 3 and finds their session log truncated.
-
----
-
-## 6. Direction — inbound and outbound
-
-Story has no kinds. It has both directions, and the Issue spec's rule applies
-unchanged: **direction is a property of the individual artefact, not of the
-type.**
-
-| direction | shape | mechanism |
-|---|---|---|
-| **inbound** | a ticket becomes a Story | *Create story* on an issue row (`kind = story`) |
-| **outbound** | a Story publishes a ticket | posture 2 — **unbuilt** |
-
-**Inbound exists**: `POST /api/story`, keyed by issue number, spawning the
-`Story command` agent. The story-tracking triage still governs whether one is
-warranted — a well-described ticket stays the umbrella.
-
-**Outbound does not.** Nothing publishes a story to a tracker, and under posture
-2 that is the missing half: a client sees plans as feature tickets and releases
-as epics, but the problem-space knowledge that justified them has no
-publication. Whether it should is a genuine question — a story is often
-*deliberately* internal — which is why this is named as unbuilt rather than as a
-gap.
-
-**And a Story created from neither direction is the common case.** Six of nine
-here began as a person deciding knowledge had overflowed, with no ticket
-involved.
-
----
-
 ## 7. Actions
+
 
 | action | who | status |
 |---|---|---|
@@ -585,6 +592,7 @@ filesystem side effect.
 
 ## 8. Scope — which stories are shown
 
+
 **No filter question, unlike Issue.** Every story in the directory is shown;
 there is no *unplanned* subtraction, no limit, no sort beyond directory order.
 That is correct — a story is not an inbox item and nobody triages the list.
@@ -600,6 +608,7 @@ one deliberate scope rule that exists.
 ---
 
 ## 9. The collaborators — Story has almost none
+
 
 Issue needs four (Tracker, Connector, Monitor, Writer) because it is a **foreign
 entity**: its truth lives in a system Plot does not own, reached over a metered
@@ -626,6 +635,7 @@ configuration (§4b).
 ---
 
 ## 10. Fleet control — the master agent cannot see stories
+
 
 **Measured 2026-08-28: no script in `skills/plot/scripts/` reads a story.**
 `plot-plan-meta.sh` parses a plan's `story:` field — the reference, not the
@@ -655,65 +665,8 @@ person edits it.
 
 ---
 
-## 11. Setup
+## 11. Views
 
-**Neither `/plot-board-setup` nor `/plot-init` mentions stories** — see §1's
-setup note for the measurement and the proposed probe. In summary:
-
-| key | default | setup should |
-|---|---|---|
-| `Story directory` | `docs/stories/` | probe with `git ls-files '*STORY-*.md'`; several → ask, one → propose, none → write nothing |
-| `Story index` | `README.md` | ask only where a home exists |
-| `Story command` | — | write and verify, or *Create story* ships refused |
-
----
-
-## 12. The four-way divergence
-
-**Four sources disagree about what a Story is**, and each is authoritative about
-something different. This is the Story's version of Agent's three competing
-state models.
-
-| source | says a Story has | enforces |
-|---|---|---|
-| the **live estate** (9 files) | 5 frontmatter keys | — |
-| the **schema** (`STORY_STATUSES`) | 6 statuses | client-side parse |
-| the **skill** (`story-tracking`) | `unit:` required, `archived:` on done | nothing |
-| the **lint** (`plot-story-lint.sh`) | `status:` must exist | **exit 1** |
-
-### The three specific gaps
-
-**1. `unit:` is required by the skill and absent everywhere.**
-*"Fill frontmatter — including `unit:`, the owning unit, so the placement is
-recorded."* Nine of nine stories omit it, and the lint does not ask for it. A
-field required by prose and by nothing else is the shape CLAUDE.md's own
-gates-over-rules section warns about: *"if prose-only, it's a rule and will
-eventually be violated."*
-
-Either it is enforced or it is not required. **The measurement says it is not
-required in practice** — so the honest fix is likely to drop it from the skill,
-unless multi-unit repos need it, in which case the lint must ask.
-
-**2. Four of six statuses are unexercised.**
-`ready`, `in-review`, `paused`, `done` have never been used here. `done` matters
-most because it carries the archive side effect, and an untested transition with
-a filesystem move is where a defect waits.
-
-**3. `archived:` has never been written.**
-The `archived/` directory is documented in the skill's structure and does not
-exist in this repo. The transition is entirely untested.
-
-### What is NOT a divergence
-
-The lint's minimalism is deliberate and correct. It checks the file exists, has
-frontmatter, has a `status:`, is not done-but-unarchived, and is in the index —
-**structural facts a machine can settle.** It does not check `unit:` because it
-cannot know the right value. That is the right split; the problem is the skill
-asking for something nothing verifies.
-
----
-
-## 13. Views
 
 ### Reading — `collectStories`
 
@@ -760,7 +713,68 @@ them.
 
 ---
 
+## 12. Setup
+
+
+**Neither `/plot-board-setup` nor `/plot-init` mentions stories** — see §1's
+setup note for the measurement and the proposed probe. In summary:
+
+| key | default | setup should |
+|---|---|---|
+| `Story directory` | `docs/stories/` | probe with `git ls-files '*STORY-*.md'`; several → ask, one → propose, none → write nothing |
+| `Story index` | `README.md` | ask only where a home exists |
+| `Story command` | — | write and verify, or *Create story* ships refused |
+
+---
+
+## 13. The four-way divergence
+
+
+**Four sources disagree about what a Story is**, and each is authoritative about
+something different. This is the Story's version of Agent's three competing
+state models.
+
+| source | says a Story has | enforces |
+|---|---|---|
+| the **live estate** (9 files) | 5 frontmatter keys | — |
+| the **schema** (`STORY_STATUSES`) | 6 statuses | client-side parse |
+| the **skill** (`story-tracking`) | `unit:` required, `archived:` on done | nothing |
+| the **lint** (`plot-story-lint.sh`) | `status:` must exist | **exit 1** |
+
+### The three specific gaps
+
+**1. `unit:` is required by the skill and absent everywhere.**
+*"Fill frontmatter — including `unit:`, the owning unit, so the placement is
+recorded."* Nine of nine stories omit it, and the lint does not ask for it. A
+field required by prose and by nothing else is the shape CLAUDE.md's own
+gates-over-rules section warns about: *"if prose-only, it's a rule and will
+eventually be violated."*
+
+Either it is enforced or it is not required. **The measurement says it is not
+required in practice** — so the honest fix is likely to drop it from the skill,
+unless multi-unit repos need it, in which case the lint must ask.
+
+**2. Four of six statuses are unexercised.**
+`ready`, `in-review`, `paused`, `done` have never been used here. `done` matters
+most because it carries the archive side effect, and an untested transition with
+a filesystem move is where a defect waits.
+
+**3. `archived:` has never been written.**
+The `archived/` directory is documented in the skill's structure and does not
+exist in this repo. The transition is entirely untested.
+
+### What is NOT a divergence
+
+The lint's minimalism is deliberate and correct. It checks the file exists, has
+frontmatter, has a `status:`, is not done-but-unarchived, and is in the index —
+**structural facts a machine can settle.** It does not check `unit:` because it
+cannot know the right value. That is the right split; the problem is the skill
+asking for something nothing verifies.
+
+---
+
 ## 14. Gaps
+
 
 Consolidated, ranked by whether they are reachable today.
 
@@ -787,6 +801,7 @@ choice nobody has made.
 ---
 
 ## 15. Invariants and open points
+
 
 ### Invariants
 

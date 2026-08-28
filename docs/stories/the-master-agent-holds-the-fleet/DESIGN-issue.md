@@ -26,15 +26,15 @@ The board's inbox and Plot's tracker-facing entity, specified in full.
 | 2 | [Posture](#2-posture--who-owns-the-truth) | who owns the truth: `Tracker:` and `Issue tracker:` |
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** — fields, identity, invariants |
 | 4 | [Kinds and directions](#4-kinds-and-directions) | story · epic · other; inbound vs outbound |
-| 5 | [Relations](#5-relations-to-plot-artefacts) | which Plot artefact each kind maps to |
+| 5 | [Relations to Plot artefacts](#5-relations-to-plot-artefacts) |  |
 | 6 | [Actions](#6-actions) | Create plan · Create story · Create sprint |
 | 7 | [Scope](#7-scope--which-issues-reach-the-board) | the epic harbour, and the no-epic inbox |
 | 8 | [The collaborators](#8-the-collaborators) | Tracker · Connector · Monitor · Writer |
 | 9 | [Fleet control](#9-fleet-control) | what the board and the master agent each need |
-| 9b | [Views](#9b-views) | what renders, where, and what must not |
-| 10 | [Setup](#10-setup) | what `/plot-board-setup` must do |
-| 11 | [Gaps](#11-gaps) | what is verified broken |
-| 12 | [Invariants and open points](#12-invariants-and-open-points) | the rules, and what is unsettled |
+| 10 | [Views](#10-views) | what renders, where, and what must not |
+| 11 | [Setup](#11-setup) | what `/plot-board-setup` must do |
+| 12 | [Gaps](#12-gaps) | what is verified broken |
+| 13 | [Invariants and open points](#13-invariants-and-open-points) | the rules, and what is unsettled |
 
 **Where sections disagree, §3 is the specification** and the rest is
 justification. Sections marked *corrected* record a position this document held
@@ -44,6 +44,7 @@ a reader can see which arguments have already been had.
 ---
 
 ## 1. What an Issue is
+
 
 ### What it is
 
@@ -198,6 +199,7 @@ catch a `data-` attribute or a label that drifted. Neither alone is sufficient.
 
 ## 2. Posture — who owns the truth
 
+
 ### Two keys: who owns the truth, and which service is spoken to
 
 **Corrected 2026-08-28, and this supersedes how the rest of this section reads
@@ -328,6 +330,7 @@ exists; posture 3 is a different system.**
   the *"ticket with no linked doc"* rule, arrived at from the other direction.
 
 ## 3. The domain object
+
 
 ### Domain object specification
 
@@ -519,6 +522,7 @@ of any of them — and asking it is what the remaining entity sections should do
 
 ## 4. Kinds and directions
 
+
 ### Three kinds, both directions
 
 **Corrected 2026-08-28** against the agentic workflow diagram. An earlier draft
@@ -665,6 +669,7 @@ that might have deserved a story, rather than silently filing it nowhere.
 ---
 
 ## 5. Relations to Plot artefacts
+
 
 #### The relations — which Plot artefact an Issue maps to
 
@@ -814,6 +819,7 @@ argument to reconsider.
 
 ## 6. Actions
 
+
 ##### The actions an inbound Issue offers
 
 The mapping is what a reader acts on, so each relation gets an action. Settled
@@ -953,6 +959,7 @@ spawned the agent. And neither action is available over a non-localhost binding:
 *"the phone that reads the board does not write stories from it."*
 
 ## 7. Scope — which issues reach the board
+
 
 #### The epic is the harbour — it scopes the inbox and receives what Plot mints
 
@@ -1186,6 +1193,7 @@ epic(2.11.0)  ⊇  { feature ticket of every plan released in 2.11.0 }
   neighbour, on the same principle as `→ #N`.
 
 ## 8. The collaborators
+
 
 ### The three collaborators
 
@@ -1526,6 +1534,7 @@ exactly where it belongs.
 
 ## 9. Fleet control
 
+
 #### Fleet control for Issue — what each consumer needs
 
 Two consumers, one derivation. The board has it; the command line does not.
@@ -1638,7 +1647,8 @@ ticket is what a client, a PM and a standup name, and the plan estate knows the
 answer while nothing surfaces it. It is one field on `PlanMetaSchema` and one
 link on the row — no fetch, no new host call.
 
-## 9b. Views
+## 10. Views
+
 
 One domain object, several renderings. Each is derived at the boundary
 (`toIssueRow(issue, now)`) and holds no authority — §3's rule, applied.
@@ -1768,8 +1778,8 @@ belongs to the view; the identity does not. Every view listed here derives from
 the five fields and the answer state, and none needs a field the domain object
 does not already justify.
 
+## 11. Setup
 
-## 10. Setup
 
 #### Setting an `IssueTracker` up — what `/plot-board-setup` must do
 
@@ -1976,7 +1986,8 @@ Step 5 reports what was configured. For the tracker, *what* is not enough —
 That sentence is falsifiable at a glance by someone who knows the project, which
 is the only kind of verification that catches a right-shaped wrong answer.
 
-## 11. Gaps
+## 12. Gaps
+
 
 ### Three genuine gaps
 
@@ -2060,7 +2071,8 @@ What is missing is `issues` on `PlanMetaSchema` and a link on the plan row —
 **no new fetch, and no new URL knowledge.** The link a plan needs is the one
 `issue-list` already returned for the same ticket before it left the inbox.
 
-## 12. Invariants and open points
+## 13. Invariants and open points
+
 
 ### Invariants
 
