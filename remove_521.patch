@@ -1,0 +1,10 @@
+--- /Users/jwloka/Quatico/Agentic-Tools/plot/skills/plot-sprint/SKILL.md	2026-08-27 18:08:24
++++ /Users/jwloka/Quatico/Agentic-Tools/plot/skills/plot-sprint/SKILL_new.md	2026-08-27 19:13:31
+@@ -518,7 +518,6 @@
+ > mechanical and objective, not a judgement. The only question this step might
+ > ask is "should I tick items the estate says are done?", and the answer is
+ > always yes. Name the items it ticked and the items it could not resolve.
+-> `PLOT-UNASKED: Tick <n> items the estate says are done? — default — reconciled; <n> ticked, <m> unresolvable and named`
+ 
+ #### 2b. False-Positive Completion Check
+ 

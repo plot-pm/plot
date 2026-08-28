@@ -1,0 +1,224 @@
+
+#### 2b. False-Positive Completion Check
+
+**After reconciliation**, check for false positives: items marked `[x]` whose
+plans are NOT delivered or released. For each `[x]` item with a `[slug]`
+reference:
+
+```bash
+../plot/scripts/plot-plan-meta.sh docs/plans/*/<slug>.md 2>/dev/null
+```
+
+Read the plan's `phase` field. If the phase is anything OTHER than `delivered`
+or `released` (i.e., `draft`, `design`, `approved`, or `NONE` for missing
+files), this is a **false-positive completion**.
+
+**Both directions now read the phase, not the directory.** The existing guard
+used to check `docs/plans/active/<slug>.md` vs `docs/plans/delivered/<slug>.md`.
+That was the directory, not the phase — and `/plot-deliver` made the phase edit
+the transition while making the index write best-effort, precisely so a
+delivered plan whose symlink move failed would not be treated as undelivered.
+Reading the phase respects that design; reading the directory would refuse on
+the bookkeeping of a plan that shipped.
+
+Present results, listing any false positives **before** the totals:
+
+```
+⚠ False-positive completions detected:
+  - [slug] — checked but plan phase is draft (not delivered)
+  - [slug] — checked but plan file not found
+
+Must Have:  2/4 complete (1 false positive)
+Should Have: 1/2 complete
+Could Have:  0/1 complete
+```
+
+**If false positives exist, do NOT proceed to close until the user resolves them.** Present three options:
+
+> **Unattended (`PLOT_UNATTENDED=1`):** **refuse, exactly as when a person is
+> present.** This is a gate, not a question — a checked box whose plan was never
+> delivered is a false claim, and option 3 ("override and close anyway") is a
+> person's judgement to record under their own name. `PLOT_UNATTENDED` grants no
+> authority the operator lacks, and it least of all grants the authority to
+> close a sprint over its own evidence. Report the false positives and stop.
+> `PLOT-UNASKED: How should <n> false-positive completions be resolved? — refused — gate; sprint not closed`
+1. **Run `/plot-deliver <slug>`** for each false-positive item (preferred — actually delivers the plan)
+2. **Uncheck the box** in the sprint file (acknowledges it's not really done)
+3. **Override and close anyway** (last resort) — requires logging a one-liner reason in the sprint file's `## Notes > ### Scope Changes` section, mirroring the existing scope-change log convention. Format: `- YYYY-MM-DD: Closed with [slug] marked complete despite plan not delivered — <reason>`
+
+After false positives are resolved, continue with the regular Must-Have completeness flow:
+
+If must-haves are incomplete, present three options:
+1. Close anyway (must-haves stay unchecked in place)
+2. Move incomplete must-haves to Deferred — move each unchecked `- [ ]` line from `### Must Have` to `### Deferred`, preserving the original text
+3. Hold off (don't close yet)
+
+#### 2c. Report the Release State
+
+If the sprint declares a `Release:` target, say where it stands — and **do not
+refuse on it, ever.**
+
+```bash
+../plot/scripts/plot-sprint-release.sh <slug> 2>/dev/null
+git tag --list "v<release>"
+```
+
+Report one of:
+
+- **Cut** — the tag exists: `Release 2.5.2: cut.`
+- **Not cut** — no tag: `Release 2.5.2: not cut. 1 Must Have open.`
+- **Cut over the gate** — a `--ignore-sprint` line is in `## Notes`: quote it.
+
+**Closing a sprint whose release slipped is a legitimate outcome, and this step
+never blocks it.** A timebox that ends is the definition of a timebox; a command
+that would not let one end is lying about what a timebox is. The retrospective
+is where a slipped release gets discussed, and it can only discuss what close
+reported.
+
+This is deliberately unlike step 2b's false-positive check, which *does* hold
+the close: that one catches a claim contradicted by the estate, which is a
+mistake to fix. An uncut release is not a mistake — it is news.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop. All three options are live and
+> none is safe by default — closing over unfinished Must Haves and deferring
+> them are different claims about the same sprint, and both are the team's to
+> make. Leave the sprint Active and name what is outstanding.
+> `PLOT-UNASKED: Close, defer, or hold with <n> Must Haves unfinished? — stopped — sprint left Active; the <n> are listed above`
+
+#### 3. Capture Retrospective
+
+Ask the user: "Add a retrospective? (optional)"
+
+> **Unattended (`PLOT_UNATTENDED=1`):** skip it and proceed — the step calls
+> itself optional, so its documented default is to continue. Write the Metrics
+> subsection, which is counted rather than recalled, and leave the prose
+> sections empty rather than inventing a retrospective nobody held.
+> `PLOT-UNASKED: Add a retrospective? — default — skipped; metrics written, prose left blank`
+
+If yes, prompt for:
+- What went well?
+- What could improve?
+- Action items for next sprint?
+
+Fill the `## Retrospective` section using the template from `skills/plot/templates/retrospective.md`. Include the Metrics subsection with actual counts from step 2.
+
+#### 4. Update Phase and Remove Symlink
+
+Change `**Phase:** Active` → `**Phase:** Closed`
+
+```bash
+git rm docs/sprints/active/<slug>.md
+git add docs/sprints/*-<slug>.md
+git commit -m "sprint: close <slug>"
+git push
+```
+
+#### 5. Summary
+
+Print:
+- Closed: `<slug>`
+- Sprint: `[ ] Planning > [ ] Committed > [ ] Active > [x] Closed`
+- Must-haves: N/M complete
+- Release: `<version>` cut / not cut / cut over the gate (omit if no target)
+- Deferred: N items (if any moved)
+- Retrospective: captured / skipped
+- Suggested next actions:
+  1. Review the retrospective action items
+  2. Carry deferred items to the next sprint: `/plot-sprint <new-slug>: <goal>`
+  3. If all planned work is delivered: `/plot-release` to cut a release — and
+     if this sprint declared a `Release:`, that command reads it as a gate
+     rather than as a suggestion
+
+---
+
+### Scope Change
+
+Scope changes are allowed during Active (or Committed) sprints. All changes are logged in the sprint file's `## Notes > ### Scope Changes` section for traceability.
+
+**Adding items mid-sprint — dispatched work only.**
+
+A plan may be added to a RUNNING sprint only once it has been **dispatched**:
+its branch is claimed on the remote, or work on it has otherwise started. A plan
+that is merely written, or even approved, does not go in.
+
+**Why the line is there.** A sprint is a commitment about a timebox, and its
+Must Haves gate a release. Adding an approved-but-unstarted plan mid-flight
+inflates the commitment with work nobody has picked up — so the sprint reports a
+scope it never agreed to, and the release gate then refuses on an item that was
+added after the sprint was committed. The scope a sprint is judged against must
+be the scope it took on, plus what actually got started.
+
+*Unstarted* plans belong to the **next** sprint's planning, where they are
+weighed against its goal rather than appended to one already underway.
+
+Check before adding, rather than asserting it:
+
+```bash
+git ls-remote --heads origin "<branch>"   # non-empty → dispatched
+```
+
+Then:
+- Add the new `- [ ]` item to the appropriate MoSCoW tier
+- Log: `- YYYY-MM-DD: Added [slug] to Must/Should/Could — <reason>`
+- If plan-backed (`[slug]`), update the plan's Sprint field
+
+**A dispatched plan still has to earn its tier.** Being started is what makes it
+*eligible* for the sprint; whether it serves the sprint's goal is the separate
+judgement that decides Must vs Should vs Could — or that it does not belong at
+all. Work can be in flight and still be outside this sprint's subject.
+
+**Removing or deferring items:**
+- Move the item to the `### Deferred` section (do not delete — preserve history)
+- Log: `- YYYY-MM-DD: Deferred [slug] from Must — <reason>`
+
+**Changing MoSCoW tier:**
+- Move the item between tier sections (e.g., Must → Should)
+- Log: `- YYYY-MM-DD: Reprioritized [slug] Must → Should — <reason>`
+
+Commit scope changes directly to main with message: `sprint: scope change <slug>`.
+
+---
+
+### Status: `/plot-sprint` or `/plot-sprint <slug>`
+
+Show sprint status.
+
+#### 1. Resolve Slug
+
+**If slug provided** (`$ARGUMENTS[0]` present, no subcommand):
+- Find sprint file: `ls docs/sprints/*-<slug>.md 2>/dev/null`
+- Found → show status for that sprint (step 2)
+- Not found → "No sprint `<slug>` found. Create it with `/plot-sprint <slug>: <goal>`"
+
+**If no arguments:**
+- List active sprints: `ls docs/sprints/active/ 2>/dev/null`
+- One active sprint → use it, show status (step 2)
+- Multiple → list all active sprints with summary
+- None → "No active sprints. Create one with `/plot-sprint <slug>: <goal>`"
+
+#### 2. For Each Sprint
+
+Read the sprint file and display:
+- Sprint name and goal
+- Phase
+- Time remaining (days until end date; "ended N days ago" if past)
+- MoSCoW progress: Must N/M, Should N/M, Could N/M
+- For plan-backed items with annotations: show PR number, status, and branch
+- **False-positive flag:** for `[x]` items with `[slug]` refs, run `plot-plan-meta.sh` and check the plan's phase. If the phase is anything other than `delivered` or `released`, prefix the line with `⚠ ` and note `(plan phase: <phase>)`. This makes the discrepancy visible during routine status checks, not just at close time.
+
+#### 3. Summary
+
+```
+## Active Sprints
+
+- `<slug>` — "<goal>" | [*] Active | 3 days remaining | Must: 2/4 | Should: 1/2 | Could: 0/1
+```
+
+---
+
+## Common Mistakes
+
+| Mistake | Effect | Prevention |
+|---------|--------|------------|
+| Closing a sprint with `[x] [slug]` items whose plans' phase is not `delivered` or `released` | Sprint reads as complete but plans remain undelivered; `/plot-deliver` later reverts the plan to Draft | Step 2b of close runs a false-positive check via `plot-plan-meta.sh`; resolve via `/plot-deliver` or uncheck before closing |
+| Squash-merging a sprint planning PR | Readiness/defer/dates collapse into one commit; reasoning lost | Default to `--merge` (matches `plot-approve` for plan PRs) — squash is for messy WIP, not planning |

@@ -31,21 +31,28 @@ Nine entities, sorted by where their truth lives:
 | 4 | Worktree | `git worktree list` | local | thin |
 | 5 | PR | host API | foreign | rich, conflated with Branch |
 | 6 | Build | host checks + runs | foreign | partial by construction |
-| 7 | Ticket | tracker | foreign | **exemplary** |
+| 7 | Issue | tracker | foreign | **best-designed; 3 gaps** |
 | 8 | Agent | manifest + pid + tree | local | three competing models |
 | 9 | Machine | spawn cost | local | **does not exist** |
 
 **Everything Plot derives from git is clean. Everything else is missing,
 partial, or modelled three ways — with exactly one exception.**
 
-That exception is Ticket, and it is the exception that names the rule. Ticket is
+That exception is Issue, and it is the exception that names the rule. Issue is
 the only non-git entity that was designed *as* a foreign entity: deliberately
 impoverished (number, title, url, age — no labels, no status, because *"those
 age into lies the moment the tracker moves"*), read-only at the adapter, and
 carrying a three-valued answer about whether its source could be asked at all
 (`answered` / `unsupported` / `failed`).
 
-It is also the non-git entity with no reported defects.
+It is also the non-git entity whose defects are the fewest and the shallowest.
+Three are recorded in §1b, and it is worth being exact about them rather than
+calling the entity clean: one is unreachable without a Jira tracker, one is a
+silent truncation at 50, and the third — no link back from a plan to the issue
+it answers — exists because **the association was only ever modelled as a
+disappearance**. None of the three is a wrong ANSWER; all three are answers
+never asked for. That is a different and better failure mode than the other
+foreign entities have.
 
 So the discipline exists; it is simply not applied uniformly. Plot has a mature
 idiom for git-derived state and one worked example of a foreign one. The four
@@ -65,7 +72,7 @@ comments, and violated at least once per troubled entity:
 - a machine under load reports nothing at all
 
 Every entity below therefore carries, explicitly, **whether its source could be
-asked** — separately from what the source said. Ticket's `IssueAnswer` is the
+asked** — separately from what the source said. Issue's `IssueAnswer` is the
 model; the others adopt its shape rather than inventing one each.
 
 ---
@@ -152,7 +159,7 @@ Proposed: an `identity` field beside `state`.
 | `manifest` | a manifest was read; session id is real |
 | `synthesized` | a worktree with no manifest; session id is a placeholder |
 
-This is Ticket's `IssueAnswer` shape applied to identity: *could the source be
+This is Issue's `IssueAnswer` shape applied to identity: *could the source be
 asked*, kept apart from *what it said*. Two hardening PRs (#488, #422) fixed
 where manifests are written; neither made an absent manifest legible as a
 defect at the row level.
@@ -178,14 +185,121 @@ defect at the row level.
 
 ---
 
-## 1b. Ticket
+## 1b. Issue
 
 Designed first among the foreign entities, because it is the one already done
 right and the pattern the others should copy.
 
+### The name: Issue, not Ticket
+
+**Settled 2026-08-28: the domain concept is `Issue`.** This document called it
+Ticket in its first draft; the codebase had already decided otherwise, and the
+counts say so plainly:
+
+| layer | `ticket` | `issue` |
+|---|---|---|
+| `contract/` | 7 | 29 |
+| `server/` | 17 | 215 |
+| `app/` | 52 | 184 |
+| `skills/` | 72 | 231 |
+
+Every domain-facing name is already Issue: `issue-list`, `issue-view`,
+`issueAnswer`, `referencedIssues`, `Issue:` in the plan format, `IssueRowSchema`
+itself. `ticket` survives almost entirely in the **view** layer, as a row kind
+and a chip style — which is exactly the confusion §1b corrects. So this is less
+a rename of a concept than the removal of the last place two words compete for
+one meaning.
+
+#### What the change touches
+
+Measured 2026-08-28: 148 occurrences of `ticket`/`Ticket` across 25 files under
+`packages/board/src` and `skills/`, in three groups with very different risk.
+The count is a case-insensitive text match, so it includes prose and this
+document's own quotations — it sizes the sweep, and is not a list of edits.
+
+**1. The wire value — `RowKind` and `IssueRow.kind`.**
+
+```
+RowKindSchema:  'ticket' → 'issue'
+IssueRowSchema: kind: z.literal('ticket') → z.literal('issue')
+```
+
+Renamed outright, no transitional union. Server and client ship from one build
+into one artifact; there is no independent deployment and no stored payload, so
+the only skew window is a browser tab left open across a rebuild.
+
+**2. The chip style — `what: 'ticket'` — which is TWO things.**
+
+This is the part a blind rename gets wrong, and the code already says so:
+
+> *`what: 'ticket'` is worn by TWO different things — an issue's
+> number-and-title, and an AGENT's session id — so a hook keyed on it would
+> stamp `data-issue-link` on an agent row.*
+
+`tuple-row.ts:725` and `rows.tsx:2234` both emit `what: 'ticket'` for an
+**agent's session id**, where it means *render this like a ticket chip* and has
+nothing to do with a tracker. Renaming those to `'issue'` would label a session
+id "Issue" — worse than the ambiguity being fixed.
+
+So the value **splits**: `'issue'` for issue links, `'session'` for agent
+session ids.
+
+**And that is not cosmetic.** The overload already costs code. `nameHooks` can
+answer `what: 'branch'` once for all seven row kinds — *"every `what: 'branch'`
+link on every kind is a branch"* — but cannot answer `'ticket'`, because the
+function is not told the row kind and the two meanings need different hooks.
+The result is that a ticket's hooks are passed in as `nameAttr` from the one
+call site that knows better. **Splitting the value makes the general answer
+possible**: an unambiguous `'issue'` could be answered in the same place
+`'branch'` is.
+
+Stated carefully, because the first draft of this section overstated it:
+`nameAttr` is a general escape hatch used by several kinds and does not
+disappear. What the split removes is the *reason this particular kind needs
+it* — and whether to then move the hooks into `nameHooks` is a judgement for
+whoever does the work, not a promise this spec should make on their behalf.
+
+**3. Prose — comments, skill docs, README tables.** ~90 occurrences, no risk.
+Worth doing in the same pass so the vocabulary lands whole; worth doing last so
+a mechanical sweep never touches code.
+
+#### What does NOT change
+
+- **`story-tracking`'s use of "ticket"** is about a Jira work item as a customer
+  or PM speaks of it, not about this entity. Its rule — *a well-described ticket
+  stays the umbrella* — is quoted in this document and reads correctly in its
+  own vocabulary. Renaming there would be translating a domain that is not ours.
+- **`Tracker:`** stays `Tracker:`. It names the SYSTEM (`plot`, `jira`,
+  `github-issues`, `linear`), not the item, and `Issue system:` would be worse.
+- **`plot-host.sh`'s ops** are already `issue-list` / `issue-view`.
+
+#### Order, and the gate
+
+The rename is only safe with the tests that pin the current vocabulary: 21
+assertions across 10 test files, including four browser tests
+(`unplanned-issues`, `issue-becomes-a-plan`, `tuple-row`, `one-grid`). Those
+assertions are the contract, so they are what says the rename is complete rather
+than partially applied.
+
+1. Split `what:` into `'issue'` / `'session'`, and collapse the `nameHooks`
+   exception the split makes unnecessary.
+2. Rename the wire value in `contract/`, then follow the type errors.
+3. Update the 21 test assertions.
+4. `pnpm build:board`, then `pnpm run test:board` — the artifact is generated
+   and the browser tests load it, so a stale artifact fails reassuringly
+   (a rename is exactly the change that produces one).
+5. Prose sweep — last, so a mechanical `s/ticket/issue/` never runs over code.
+
+**The gate is the 21 assertions passing, not the sweep being finished.** A
+rename is the archetypal change that looks complete while a renderer still
+matches on the old string: `tsc` catches the enum, and only the browser tests
+catch a `data-` attribute or a label that drifted. Neither alone is sufficient.
+
+---
+
 ### What it is
 
-**A Ticket is a signal from outside Plot that nobody has decided about yet.**
+**An Issue is a signal from outside Plot that nobody has decided about yet.**
 
 Not a work item, not a lifecycle stage, not a plan in an earlier phase. The
 contract states the boundary in as many words:
@@ -195,7 +309,7 @@ contract states the boundary in as many words:
 > phases would then have a fifth in everything but name.*
 
 That is the design decision the whole entity turns on. Plot has exactly four
-phases — Draft, Approved, Delivered, Released — and a Ticket is in **none** of
+phases — Draft, Approved, Delivered, Released — and an Issue is in **none** of
 them. It has not entered the lifecycle. Modelling it as a pre-Draft state would
 add a fifth phase by accident and make Plot responsible for a queue it does not
 own.
@@ -215,11 +329,11 @@ tracker issue, open, no plan references it
         ▼
    appears in the board's inbox
         │
-        ├── someone writes a plan citing it  →  Ticket LEAVES the board
+        ├── someone writes a plan citing it  →  Issue LEAVES the board
         └── nobody does                      →  it stays, ageing
 ```
 
-**Nothing marks a Ticket as handled.** It disappears because a *plan* now
+**Nothing marks an Issue as handled.** It disappears because a *plan* now
 references it — `Issue: #226` in the plan file — and the filter is a set
 difference recomputed every pass: open issues minus referenced issues. The exit
 condition lives in Plot's own artefacts, never in the tracker.
@@ -237,13 +351,13 @@ tracker, so there is no state to keep in sync and nothing to age into a lie.**
 `issue-view` fetches a body **only when a human clicks**, because a body is the
 problem statement handed to `/plot-idea` and is worthless until someone acts.
 That split — a cheap list on a timer, an expensive detail on demand — is the
-same shape Build needs (§6) and the reason Ticket is the template.
+same shape Build needs (§6) and the reason Issue is the template.
 
 **There is no `issue-create`, `issue-close`, or `issue-comment`, and there must
 not be.** Per CLAUDE.md: *"a plan referencing an issue is Plot's record, not the
 tracker's."*
 
-### A Ticket leads to a plan OR a story — the reader chooses
+### An Issue leads to a plan OR a story — the reader chooses
 
 The ticket row carries **three** actions, and the design decision is that the
 board offers all of them and guesses at none:
@@ -365,7 +479,7 @@ one. The gap is that the controller should hold the domain object and the view
 should be derived at the boundary — `toIssueRow(ticket, now)`, with `now` an
 argument precisely because the age depends on it.
 
-This generalizes past Ticket, and it is the reason to record it here: **every
+This generalizes past Issue, and it is the reason to record it here: **every
 entity in this document is currently defined by its row.** `FleetBranch`,
 `AgentEntry`, `Card` and `PrRecord` are all shapes the board renders. Whether
 each is also the right domain shape is a question this design has not yet asked
@@ -469,8 +583,8 @@ So the relationship exists in one direction only:
 
 | direction | works? | how |
 |---|---|---|
-| Ticket → plan | yes | the ticket VANISHES from the inbox once cited |
-| plan → Ticket | **no** | nothing on the board says which ticket a plan answers |
+| Issue → plan | yes | the ticket VANISHES from the inbox once cited |
+| plan → Issue | **no** | nothing on the board says which ticket a plan answers |
 
 The association is modelled purely as a *disappearance*. That is why the entity
 reads as clean — the harder direction was never built, so it never went wrong.
@@ -501,7 +615,7 @@ What is missing is `issues` on `PlanMetaSchema` and a link on the plan row —
 
 1. **Read-only, at the adapter.** No op writes to the tracker; a plan is Plot's
    record.
-2. **A Ticket leaves by being referenced**, never by being marked. The exit
+2. **An Issue leaves by being referenced**, never by being marked. The exit
    condition lives in the plan estate.
 3. **Nothing that mirrors tracker state** joins the model — no labels, assignee,
    status, or priority.
@@ -515,7 +629,7 @@ What is missing is `issues` on `PlanMetaSchema` and a link on the plan row —
 
 ### Open
 
-- Does an aged, never-planned Ticket deserve a signal? `ageMinutes` is carried
+- Does an aged, never-planned Issue deserve a signal? `ageMinutes` is carried
   and rendered, but nothing says *this has sat for three weeks*. That is
   arguably the inbox's whole point — and equally arguably the tracker's job.
 - Should `issue-view` bodies be cached for the session? One click, one call
@@ -575,7 +689,7 @@ occasion and starved the machine at load 8 on another, because the variable was
 | `unmeasured` | — | not asked, or the measurement failed |
 
 The thresholds are **provisional and must be re-measured** — see Open below.
-`unmeasured` is Ticket's `IssueAnswer` shape again: *could this be asked* kept
+`unmeasured` is Issue's `IssueAnswer` shape again: *could this be asked* kept
 apart from *what it said*.
 
 ### What it is not
@@ -743,7 +857,7 @@ Its own entity, on every PR. Split by price — see the note below the table.
 |---|---|---|---|
 | `conclusion` | `green`\|`pending`\|`failing`\|`none`\|`unknown` | **free** | from the bundled `pr-list --rich` |
 | `failingChecks` | string[] | **free** | *which* checks — names only, nothing interprets them |
-| `asked` **`+`** | `answered`\|`not-asked`\|`failed`\|`unsupported` | — | Ticket's `IssueAnswer` shape, applied to run history |
+| `asked` **`+`** | `answered`\|`not-asked`\|`failed`\|`unsupported` | — | Issue's `IssueAnswer` shape, applied to run history |
 | `runs` | `{workflow, conclusion, startedAt, url}[]` | **metered** | one REST call per branch |
 
 **The split is the design.** Today `checks` and `runs` are both metered, because
@@ -758,7 +872,7 @@ run history is asked for selectively — with `not-asked` stated rather than
 collapsed into `none`. That preserves the intent (Build is a first-class entity
 everywhere) without the cost. **This reading should be confirmed in review.**
 
-### Ticket
+### Issue
 
 Deliberately impoverished. Adding to this table is almost always wrong.
 
@@ -851,7 +965,7 @@ An entity assembled from several of them is **partially loaded** for most of its
 life, and today that state has no name — so a consumer cannot tell *the answer
 is no* from *the answer has not arrived*.
 
-The vocabulary already exists and is the one Ticket uses. Every entity adopts
+The vocabulary already exists and is the one Issue uses. Every entity adopts
 it, per source:
 
 | load state | means |

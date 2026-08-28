@@ -1,0 +1,744 @@
+---
+name: plot-sprint
+description: >-
+  Manage time-boxed sprints with MoSCoW prioritization.
+  Part of the Plot workflow. Use on /plot-sprint.
+globs: []
+license: MIT
+metadata:
+  author: eins78
+  repo: https://github.com/plot-pm/plot
+  version: 1.3.0
+compatibility: Designed for Claude Code and Cursor. Requires git. Sprint skeletons commit directly to main; planning refinement may optionally go through a draft PR (see "Refine via PR").
+---
+
+# Plot: Sprint
+
+**Tracker gate — check before anything else.** Sprints exist only where
+plot is the tracker. Read the declared tracker:
+
+```bash
+TRACKER=$(../plot/scripts/plot-config.sh get "Tracker" "plot")
+```
+
+If it names an external tracker (jira, github-issues, linear, …), decline:
+"This repo's sprints live in <tracker> — plot writes no sprint artifact
+here, because a shadow board drifts. Plan-level status stays visible via
+`/plot` and the board." This is a gate, not advice; the config must change
+before `/plot-sprint` operates in this repo. Only `Tracker: plot` (or no
+declaration) proceeds.
+
+Sprints are **not plans**. Plans track *what* to build; sprints track *when* to ship it. Sprint files live in `docs/sprints/`. The initial skeleton commits directly to main; subsequent Planning-phase refinement may optionally happen on a `sprint/<slug>` branch with a draft PR for review. Principle 2 ("Plans are approved before implementation") does not apply to sprints — sprints don't spawn implementation branches — but the *refinement* benefits from the same review surface.
+
+**Input:** `$ARGUMENTS` determines the subcommand.
+
+| Form | Action |
+|------|--------|
+| `/plot-sprint` | Status (infer slug or list all) |
+| `/plot-sprint <slug>` | Status of slug (or create if not found) |
+| `/plot-sprint <slug> commit` | Lock sprint contents |
+| `/plot-sprint <slug> start` | Begin the sprint |
+| `/plot-sprint <slug> close` | End timebox, capture retro |
+| `/plot-sprint <slug> add/remove/reprio` | Change sprint scope (see Scope Change) |
+| `/plot-sprint <slug>: <goal>` | Create slug with goal |
+
+**Argument parsing:** `$ARGUMENTS` = `[<slug>] [<subcommand>] [<args>]`
+
+- `$ARGUMENTS[0]` → slug (first word, if present)
+- `$ARGUMENTS[1]` → subcommand: `commit`, `start`, `close`
+- Create detected by `:` in slug token (e.g. `week-1: Ship auth`)
+- If no slug given: discover from `docs/sprints/active/` — one active sprint → use it, multiple → list and ask, none → offer to create
+
+<!-- keep in sync with plot/SKILL.md Setup -->
+## Setup
+
+Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
+
+    ## Plot Config
+    <!-- Optional: uncomment if using a GitHub Projects board -->
+    <!-- - **Project board:** owner/number (e.g. eins78/5) -->
+    - **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+    - **Plan directory:** docs/plans/
+    - **Active index:** docs/plans/active/
+    - **Delivered index:** docs/plans/delivered/
+    - **Sprint directory:** docs/sprints/
+
+## Model Guidance
+
+| Steps | Min. Tier | Notes |
+|-------|-----------|-------|
+| Create, commit, start | Small | Git commands, templates, file ops |
+| Status | Small | File existence checks for delivery state are mechanical; no judgment needed |
+| Reconcile checkboxes (close step 2a) | Small | `plot-plan-meta.sh` to read phase; tick if `delivered` or `released`; mechanical |
+| False-positive check (close step 2b) | Mid | `plot-plan-meta.sh` to read phase; a checked box over an undelivered plan needs resolution |
+| Release state (close step 2c) | Small | `plot-sprint-release.sh` plus `git tag --list`; reports, never refuses |
+| Propose plans from the goal (create step 4) | **Frontier** | Reading a goal against each plan's title, story and changelog is semantic, not lexical: the measured case — goal *"the board tells the truth"*, plan *"none printed before the first fetch"* — shares no word and is the same subject, and word overlap ranks it last. **Fallback below Frontier:** list everything grouped by story and say that is what happened; a fallback that does not announce itself is read as a ranking |
+
+Every other sprint operation is structural (Small or Mid). The proposal step is
+the one exception, and it is the one place in this skill where a smaller model
+cannot degrade into asking the human — handing the operator every open plan is
+the behaviour the step replaces. So it degrades into the previous behaviour and
+labels it, rather than into a question.
+
+> **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor) for all questions, proposals, and confirmations.
+>
+> **No user present?** If `PLOT_UNATTENDED=1` is set, do not call the question tool — each question below declares what to do instead, and every skipped question is named in the output. See [Running unattended](../plot/docs/unattended.md).
+
+## Sprint Lifecycle
+
+```mermaid
+flowchart LR
+    A["/plot-sprint<br/><slug>: <goal>"] -->|"⏸ drafting"| B["Planning"]
+    B -->|"⏳ /plot-sprint commit"| C["Committed"]
+    C -->|"⚡ /plot-sprint start"| D["Active"]
+    D -->|"⏳ /plot-sprint close"| E["Closed"]
+```
+
+Legend: ⚡ automate ASAP · ⏸ natural pause · ⏳ human-paced
+
+## Guardrails
+
+### Plan vs Sprint
+
+Sprint files must not contain `## Design` or `## Approach` sections. If detected, warn: "This looks like a plan, not a sprint. Use `/plot-idea` for plans."
+
+### Phase Transitions
+
+The `Phase` field is only updated by named subcommands: `commit`, `start`, `close`. Any other action — opening a PR for review, refining items, adjusting dates, fixing typos — leaves the phase unchanged. If the user says "start a PR for the sprint", that means open a draft PR for plan review, not `/plot-sprint <slug> start`. When in doubt, ask which subcommand the user means.
+
+## Subcommands
+
+### Create: `/plot-sprint <slug>: <goal> [--all]`
+
+Create a new sprint in Planning phase.
+
+**Pacing:** ⏸ natural pause (drafting)
+
+#### 1. Parse Input
+
+Extract `<slug>` (before the colon) and `<goal>` (after the colon). Both are required.
+
+- Slug: trimmed, lowercase, hyphens only
+- Goal: the sprint goal as a sentence
+- `--all`: strip it from the input before parsing slug and goal. It asks step 4
+  to list every candidate plan instead of proposing a ranked few, and it is
+  never part of the goal sentence.
+
+If no colon or missing parts: "Usage: `/plot-sprint <slug>: <goal> [--all]`"
+
+**Multiline input:** If `$ARGUMENTS` contains newlines, the first line is parsed for slug + goal as above. Any subsequent lines are treated as **context for the goal** (e.g., motivation, scope hints) and become the body of the `## Sprint Goal` section in the new sprint file — not the one-line `> <sprint goal>` headline.
+
+#### 2. Determine ISO Week Prefix
+
+Derive the ISO week prefix from today's date for the filename:
+
+```bash
+WEEK_PREFIX=$(date -u +%Y-W%V)
+```
+
+The sprint file will be named `docs/sprints/${WEEK_PREFIX}-<slug>.md`.
+
+#### 3. Pre-flight Checks
+
+```bash
+ls docs/sprints/${WEEK_PREFIX}-<slug>.md 2>/dev/null
+```
+
+If file exists: "Sprint `<slug>` already exists for week ${WEEK_PREFIX}."
+
+#### 4. Propose the Plans That Serve the Goal
+
+Collect the candidates — every unfinished plan, and what each one says it does:
+
+```bash
+bash skills/plot/scripts/plot-sprint-candidates.sh
+```
+
+That reports `{plans: [{slug, phase, type, title, story, changelog}], count,
+changelog_available}` and ranks nothing. **Read the goal against each
+candidate's title, story and changelog, and propose the plans that serve it** —
+ranked, most relevant first, each row carrying the sentence that earned it a
+place:
+
+```
+Plans that may serve "the board tells the truth":
+
+  [the-row-says-what-it-knows]     story: plot-board · "a row that cannot say
+                                   why it is stuck reports a guess"
+  [working-shows-the-agent]        story: —          · "the board watches the
+                                   machine it runs on"
+
+  ... 4 other plans not shown. Ask for them with --all.
+
+Which of these belong in this sprint, and in which tier?
+```
+
+**Every row shows the reason it was proposed.** A ranking without one is an
+oracle: the operator cannot tell a good match from a coincidence, and cannot
+correct it. The proposal will be wrong sometimes, and a ranked list whose
+mistakes are invisible is worse than an unranked one — it hides them behind an
+order. The reason is a short quote or paraphrase from the plan's own changelog
+or title, never a restatement of the goal.
+
+**The match is semantic, not lexical.** The case this step exists for, measured
+across the estate before it was built:
+
+| | |
+|---|---|
+| goal | *"the board tells the truth"* |
+| plan | *"none printed before the first fetch"* |
+| shared words | **none** |
+
+Those are obviously the same subject and share not one word, so that plan must
+rank highly. Scoring on word overlap ranks it last, which is the failure this
+step replaces rather than the method it uses.
+
+**Story is a signal, not a filter.** A goal about the board will mostly draw
+from a board story, but a plan from another story can still serve the goal —
+this very plan belongs to `plot-planning-model` and served a board-flavoured
+sprint. Never exclude a candidate because its story differs.
+
+**When `changelog_available` is `false`,** `plot-plan-meta.sh` does not report
+the field: rank on title and story, and say in the output that the third signal
+was unavailable. A proposal that ranked on two signals while implying three
+would be confident about a reading it did not do.
+
+**`--all` lists everything**, unranked and grouped by story, when the operator
+wants the full estate rather than a proposal.
+
+**Propose only; never add.** The operator selects; selected plans are added as
+`[slug]` items under the tier they chose. Which MoSCoW tier a plan belongs to is
+a statement about what the team is committing to — an agent that filled the
+tiers itself would be committing on someone's behalf. **Nothing is written to
+the sprint's tiers without an explicit selection.**
+
+> **Smaller model (below Frontier):** ranking the goal against the candidates is
+> a judgement this step declares Frontier (see Model Guidance). A smaller model
+> **falls back to listing everything grouped by story, and says that is what
+> happened** — for example: *"Not ranked: this ran below the Frontier tier, so
+> these are all <n> unfinished plans grouped by story, in no order of relevance."*
+> The announcement is not optional. A reader who believes a fallback list was
+> ranked will trust an ordering that is alphabetical.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** create the sprint with its tiers empty,
+> and stop before assigning anything. Which tier a plan belongs to is a
+> statement about what the team is committing to — it has no safe default, and
+> it is not derivable from the plan file, which is why this step asks rather
+> than computes. List the candidates — the ranked proposal if the tier allows
+> it, the grouped fallback if not — so a person can place them in one pass.
+> `PLOT-UNASKED: Which plans, in which MoSCoW tier? — stopped — <n> candidate plans listed; sprint created empty`
+
+#### 5. Create Sprint File
+
+```bash
+mkdir -p docs/sprints
+```
+
+Write `docs/sprints/${WEEK_PREFIX}-<slug>.md` using the template from `skills/plot/templates/sprint.md`, substituting `<title>` and `<sprint goal>`.
+
+Item format: `- [ ] [slug] description` (plan reference) or `- [ ] description` (lightweight task).
+
+#### Item Annotations
+
+Plan-backed items carry HTML comment annotations for automation tracking:
+
+```markdown
+- [ ] [slug] description <!-- pr: #N, status: draft, branch: feature/slug -->
+```
+
+| Field | Set by | Values |
+|-------|--------|--------|
+| `pr` | `/plot-approve` | PR number (`#N`) or `none` |
+| `status` | `/plot-approve`, `/plot-deliver`, `/plot-reject` | `not-started`, `draft`, `open`, `merged`, `delivered`, `rejected` |
+| `branch` | `/plot-approve` | Implementation branch name |
+| `reviewed_at` | Review tracking | ISO 8601 timestamp |
+| `review_sha` | Review tracking | HEAD SHA at time of review |
+
+Annotations are created by `/plot-approve` and updated by `/plot-deliver`. The status subcommand reads them for enriched output.
+
+#### Review Tracking
+
+The `review_sha` annotation enables skip-if-unchanged review:
+
+1. Compare current HEAD SHA of the PR branch to the `review_sha` in the annotation
+2. If same → no new commits since last review, skip
+3. If different → new commits, needs re-review
+4. If status is `merged` → never needs review
+
+Use `skills/plot/scripts/plot-review-status.sh <sprint-slug>` to get review freshness for all sprint items as JSON.
+
+Leave Start/End dates as placeholders — the user fills them during the Planning phase.
+
+#### The Release Target (optional)
+
+A sprint may name the version it is working toward:
+
+```markdown
+## Status
+
+- **Phase:** Active
+- **Start:** 2026-08-18
+- **End:** 2026-08-22
+- **Release:** 2.5.2
+```
+
+**Ask whether the sprint has one; do not assume.** A sprint that groups work
+without shipping a version is still a sprint, and one with no `Release:` field
+behaves exactly as it did before this field existed.
+
+When present, `/plot-release` reads it as a gate: it refuses to cut past an
+unfinished **Must Have** and asks about unfinished **Should Haves**. Could Haves
+neither block nor prompt. That is the whole of what the field does.
+
+**The version is never validated** — not here, not by the gate. `2.5.2` is named
+before it is cut, so there is nothing to check it against; a typo surfaces when
+the release command fails on its own terms.
+
+#### 6. Update Plan Files
+
+For each plan-backed item (`[slug]`) added in step 4, update the referenced plan file to record sprint membership:
+
+- Resolve the plan file via `docs/plans/active/<slug>.md`
+- Add `- **Sprint:** <sprint-slug>` to its `## Status` section (after the Phase line)
+
+This enables sprint awareness in `/plot-approve` and `/plot-deliver`.
+
+#### 7. Commit Skeleton to Main
+
+Commit the initial sprint skeleton directly to main:
+
+```bash
+git add docs/sprints/${WEEK_PREFIX}-<slug>.md docs/plans/
+git commit -m "sprint: create <slug>"
+git push
+```
+
+Refinement (fleshing out items, readiness assessments, deferrals) happens optionally on a `sprint/<slug>` branch with a draft PR — see "Refine via PR (optional)" below.
+
+#### 8. Summary
+
+Print:
+- Created: `docs/sprints/${WEEK_PREFIX}-<slug>.md`
+- Sprint: `[*] Planning > [ ] Committed > [ ] Active > [ ] Closed`
+- Plan files updated: N (if any)
+- Next: add items, set dates, then `/plot-sprint <slug> commit` when ready
+
+---
+
+### Refine via PR (optional)
+
+Once the skeleton is on main, sprint refinement can move to a `sprint/<slug>` feature branch with a draft PR. This is optional — small or solo sprints can stay on main. Use a PR when:
+
+- Multiple stakeholders need to review scope before locking
+- Readiness assessments or deferral decisions deserve their own commits in history
+- The sprint is large enough that scope conversations benefit from inline comments
+
+**Phase stays `Planning` throughout the PR.** The `commit` subcommand handles the phase bump and merge atomically (see Commit subcommand below).
+
+Workflow:
+
+1. `git checkout -b sprint/<slug> origin/main`
+2. Refine the sprint file on the branch (one commit per substantive change — readiness, defer X, set dates)
+3. `gh pr create --draft --title "Sprint: <goal>" --body "..."` — keep as draft while in Planning phase
+4. Phase stays `Planning` throughout. Do NOT change the phase here.
+5. When the team agrees: run `/plot-sprint <slug> commit` (see Commit subcommand for PR-aware behavior).
+
+---
+
+### Commit: `/plot-sprint <slug> commit`
+
+Lock sprint contents. Team has agreed on what's in scope.
+
+**Pacing:** ⏳ human-paced (team agreement)
+
+#### 1. Find Sprint File
+
+```bash
+ls docs/sprints/*-<slug>.md 2>/dev/null
+```
+
+If not found: "No sprint found for `<slug>`."
+
+Read the sprint file. Check Phase field:
+- If not `Planning`: "Sprint is in `<phase>` phase, not Planning. Cannot commit."
+
+#### 2. Validate End Date
+
+Check that the `**End:**` field has a real date (not the placeholder `YYYY-MM-DD`).
+
+If missing or placeholder: "Set an end date before committing. Edit the sprint file directly."
+
+#### 3. Detect Sprint PR
+
+Run `gh pr list --head sprint/<slug> --json number,state,isDraft --jq '.[]'`.
+
+- **PR exists and not merged:** proceed to step 4a (PR-aware commit)
+- **No PR / PR already merged:** proceed to step 4b (direct main commit)
+
+#### 4a. PR-Aware Commit
+
+Update phase **on the PR branch**, push, mark ready, merge:
+
+```bash
+# Should already be on sprint/<slug> branch — confirm with: git branch --show-current
+# If not, check it out worktree-safe: git checkout -b sprint/<slug> origin/sprint/<slug>
+
+# Bump phase in the sprint file
+# **Phase:** Planning → **Phase:** Committed
+git add docs/sprints/*-<slug>.md
+git commit -m "sprint: commit <slug>"
+git push
+
+gh pr ready <number>          # if currently draft
+gh pr merge <number> --merge --delete-branch
+```
+
+Default to **merge commits** (`--merge`) to preserve granular planning history (readiness, deferrals, scope changes are valuable context). If the project's `CLAUDE.md` specifies a different merge strategy, follow that instead. Do NOT default to `--squash` — it collapses the planning trail.
+
+The merge itself is the "scope locked" transition. No follow-up commit on main needed.
+
+#### 4b. Direct Main Commit (no PR)
+
+```bash
+# Bump phase in the sprint file
+# **Phase:** Planning → **Phase:** Committed
+git add docs/sprints/*-<slug>.md
+git commit -m "sprint: commit <slug>"
+git push
+```
+
+#### 5. Summary
+
+Print:
+- Committed: `<slug>`
+- Sprint: `[ ] Planning > [x] Committed > [ ] Active > [ ] Closed`
+- End date: `<end date>`
+- Items: N must-haves, N should-haves, N could-haves
+- Next: `/plot-sprint <slug> start` when the sprint begins
+
+---
+
+### Start: `/plot-sprint <slug> start`
+
+Begin the sprint. Creates the active symlink.
+
+**Pacing:** ⚡ automate ASAP (mechanical transition)
+
+#### 1. Find and Validate Sprint File
+
+Find sprint file, check Phase is `Committed`.
+
+#### 2. Create Active Symlink
+
+```bash
+mkdir -p docs/sprints/active
+ln -s ../${WEEK_PREFIX}-<slug>.md docs/sprints/active/<slug>.md
+```
+
+#### 3. Update Phase
+
+Change `**Phase:** Committed` → `**Phase:** Active`
+
+#### 4. Commit
+
+```bash
+git add docs/sprints/*-<slug>.md docs/sprints/active/<slug>.md
+git commit -m "sprint: start <slug>"
+git push
+```
+
+#### 5. Summary
+
+Print:
+- Started: `<slug>`
+- Sprint: `[ ] Planning > [ ] Committed > [x] Active > [ ] Closed`
+- End date: `<end date>`
+- Active symlink: `docs/sprints/active/<slug>.md`
+- Next: work on sprint items. When timebox ends, `/plot-sprint <slug> close`
+
+---
+
+### Close: `/plot-sprint <slug> close`
+
+End the timebox. Check MoSCoW completeness and capture retrospective.
+
+**Pacing:** ⏳ human-paced (retrospective)
+
+#### 1. Find and Validate Sprint File
+
+Find sprint file, check Phase is `Active`.
+
+#### 2. MoSCoW Completeness Check
+
+Parse the sprint file for checkbox items in each tier:
+
+- Count checked `- [x]` vs unchecked `- [ ]` items per tier
+
+#### 2a. Reconcile Checkboxes Against Plan Phases
+
+**Before** checking for false positives, reconcile unchecked items whose plans
+are already delivered or released. For each `- [ ]` item with a `[slug]`
+reference:
+
+```bash
+../plot/scripts/plot-plan-meta.sh docs/plans/*/<slug>.md 2>/dev/null
+```
+
+Read the plan's `phase` field from the JSON output. If the phase is `delivered`
+or `released`:
+
+1. Tick the checkbox: `- [ ]` → `- [x]`
+2. Annotate the line with the phase that justified the tick:
+   `- [x] [slug] description <!-- reconciled: <phase> -->`
+
+**Why this step exists.** `/plot-deliver` moves the plan and nobody re-ticks
+the box by hand, so an item whose plan shipped after sprint planning reads as
+incomplete even though the work is done. Reconciling at close time is the
+moment the tally stops being recomputed and becomes the record — the ONE place
+it matters that the checkbox reflects what actually happened.
+
+**An item with no resolvable plan is left alone and named.** These sprints
+carry bare prose lines — "Decide PR #57…", "A release window: dispatch
+refuses…" — with no phase to read. A step that ticks what it cannot verify is
+the false completion the false-positive guard exists to prevent.
+
+Present the reconciliation results:
+
+```
+Reconciled 3 items whose plans have shipped:
+  - [slug-a] — plan is released
+  - [slug-b] — plan is delivered
+  - [slug-c] — plan is delivered
+
+1 item could not be resolved (no plan file):
+  - Decide PR #57 approach
+```
+
+> **Unattended (`PLOT_UNATTENDED=1`):** perform the reconciliation — it is
+> mechanical and objective, not a judgement. The only question this step might
+> ask is "should I tick items the estate says are done?", and the answer is
+> always yes. Name the items it ticked and the items it could not resolve.
+
+#### 2b. False-Positive Completion Check
+
+**After reconciliation**, check for false positives: items marked `[x]` whose
+plans are NOT delivered or released. For each `[x]` item with a `[slug]`
+reference:
+
+```bash
+../plot/scripts/plot-plan-meta.sh docs/plans/*/<slug>.md 2>/dev/null
+```
+
+Read the plan's `phase` field. If the phase is anything OTHER than `delivered`
+or `released` (i.e., `draft`, `design`, `approved`, or `NONE` for missing
+files), this is a **false-positive completion**.
+
+**Both directions now read the phase, not the directory.** The existing guard
+used to check `docs/plans/active/<slug>.md` vs `docs/plans/delivered/<slug>.md`.
+That was the directory, not the phase — and `/plot-deliver` made the phase edit
+the transition while making the index write best-effort, precisely so a
+delivered plan whose symlink move failed would not be treated as undelivered.
+Reading the phase respects that design; reading the directory would refuse on
+the bookkeeping of a plan that shipped.
+
+Present results, listing any false positives **before** the totals:
+
+```
+⚠ False-positive completions detected:
+  - [slug] — checked but plan phase is draft (not delivered)
+  - [slug] — checked but plan file not found
+
+Must Have:  2/4 complete (1 false positive)
+Should Have: 1/2 complete
+Could Have:  0/1 complete
+```
+
+**If false positives exist, do NOT proceed to close until the user resolves them.** Present three options:
+
+> **Unattended (`PLOT_UNATTENDED=1`):** **refuse, exactly as when a person is
+> present.** This is a gate, not a question — a checked box whose plan was never
+> delivered is a false claim, and option 3 ("override and close anyway") is a
+> person's judgement to record under their own name. `PLOT_UNATTENDED` grants no
+> authority the operator lacks, and it least of all grants the authority to
+> close a sprint over its own evidence. Report the false positives and stop.
+> `PLOT-UNASKED: How should <n> false-positive completions be resolved? — refused — gate; sprint not closed`
+1. **Run `/plot-deliver <slug>`** for each false-positive item (preferred — actually delivers the plan)
+2. **Uncheck the box** in the sprint file (acknowledges it's not really done)
+3. **Override and close anyway** (last resort) — requires logging a one-liner reason in the sprint file's `## Notes > ### Scope Changes` section, mirroring the existing scope-change log convention. Format: `- YYYY-MM-DD: Closed with [slug] marked complete despite plan not delivered — <reason>`
+
+After false positives are resolved, continue with the regular Must-Have completeness flow:
+
+If must-haves are incomplete, present three options:
+1. Close anyway (must-haves stay unchecked in place)
+2. Move incomplete must-haves to Deferred — move each unchecked `- [ ]` line from `### Must Have` to `### Deferred`, preserving the original text
+3. Hold off (don't close yet)
+
+#### 2c. Report the Release State
+
+If the sprint declares a `Release:` target, say where it stands — and **do not
+refuse on it, ever.**
+
+```bash
+../plot/scripts/plot-sprint-release.sh <slug> 2>/dev/null
+git tag --list "v<release>"
+```
+
+Report one of:
+
+- **Cut** — the tag exists: `Release 2.5.2: cut.`
+- **Not cut** — no tag: `Release 2.5.2: not cut. 1 Must Have open.`
+- **Cut over the gate** — a `--ignore-sprint` line is in `## Notes`: quote it.
+
+**Closing a sprint whose release slipped is a legitimate outcome, and this step
+never blocks it.** A timebox that ends is the definition of a timebox; a command
+that would not let one end is lying about what a timebox is. The retrospective
+is where a slipped release gets discussed, and it can only discuss what close
+reported.
+
+This is deliberately unlike step 2b's false-positive check, which *does* hold
+the close: that one catches a claim contradicted by the estate, which is a
+mistake to fix. An uncut release is not a mistake — it is news.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** stop. All three options are live and
+> none is safe by default — closing over unfinished Must Haves and deferring
+> them are different claims about the same sprint, and both are the team's to
+> make. Leave the sprint Active and name what is outstanding.
+> `PLOT-UNASKED: Close, defer, or hold with <n> Must Haves unfinished? — stopped — sprint left Active; the <n> are listed above`
+
+#### 3. Capture Retrospective
+
+Ask the user: "Add a retrospective? (optional)"
+
+> **Unattended (`PLOT_UNATTENDED=1`):** skip it and proceed — the step calls
+> itself optional, so its documented default is to continue. Write the Metrics
+> subsection, which is counted rather than recalled, and leave the prose
+> sections empty rather than inventing a retrospective nobody held.
+> `PLOT-UNASKED: Add a retrospective? — default — skipped; metrics written, prose left blank`
+
+If yes, prompt for:
+- What went well?
+- What could improve?
+- Action items for next sprint?
+
+Fill the `## Retrospective` section using the template from `skills/plot/templates/retrospective.md`. Include the Metrics subsection with actual counts from step 2.
+
+#### 4. Update Phase and Remove Symlink
+
+Change `**Phase:** Active` → `**Phase:** Closed`
+
+```bash
+git rm docs/sprints/active/<slug>.md
+git add docs/sprints/*-<slug>.md
+git commit -m "sprint: close <slug>"
+git push
+```
+
+#### 5. Summary
+
+Print:
+- Closed: `<slug>`
+- Sprint: `[ ] Planning > [ ] Committed > [ ] Active > [x] Closed`
+- Must-haves: N/M complete
+- Release: `<version>` cut / not cut / cut over the gate (omit if no target)
+- Deferred: N items (if any moved)
+- Retrospective: captured / skipped
+- Suggested next actions:
+  1. Review the retrospective action items
+  2. Carry deferred items to the next sprint: `/plot-sprint <new-slug>: <goal>`
+  3. If all planned work is delivered: `/plot-release` to cut a release — and
+     if this sprint declared a `Release:`, that command reads it as a gate
+     rather than as a suggestion
+
+---
+
+### Scope Change
+
+Scope changes are allowed during Active (or Committed) sprints. All changes are logged in the sprint file's `## Notes > ### Scope Changes` section for traceability.
+
+**Adding items mid-sprint — dispatched work only.**
+
+A plan may be added to a RUNNING sprint only once it has been **dispatched**:
+its branch is claimed on the remote, or work on it has otherwise started. A plan
+that is merely written, or even approved, does not go in.
+
+**Why the line is there.** A sprint is a commitment about a timebox, and its
+Must Haves gate a release. Adding an approved-but-unstarted plan mid-flight
+inflates the commitment with work nobody has picked up — so the sprint reports a
+scope it never agreed to, and the release gate then refuses on an item that was
+added after the sprint was committed. The scope a sprint is judged against must
+be the scope it took on, plus what actually got started.
+
+*Unstarted* plans belong to the **next** sprint's planning, where they are
+weighed against its goal rather than appended to one already underway.
+
+Check before adding, rather than asserting it:
+
+```bash
+git ls-remote --heads origin "<branch>"   # non-empty → dispatched
+```
+
+Then:
+- Add the new `- [ ]` item to the appropriate MoSCoW tier
+- Log: `- YYYY-MM-DD: Added [slug] to Must/Should/Could — <reason>`
+- If plan-backed (`[slug]`), update the plan's Sprint field
+
+**A dispatched plan still has to earn its tier.** Being started is what makes it
+*eligible* for the sprint; whether it serves the sprint's goal is the separate
+judgement that decides Must vs Should vs Could — or that it does not belong at
+all. Work can be in flight and still be outside this sprint's subject.
+
+**Removing or deferring items:**
+- Move the item to the `### Deferred` section (do not delete — preserve history)
+- Log: `- YYYY-MM-DD: Deferred [slug] from Must — <reason>`
+
+**Changing MoSCoW tier:**
+- Move the item between tier sections (e.g., Must → Should)
+- Log: `- YYYY-MM-DD: Reprioritized [slug] Must → Should — <reason>`
+
+Commit scope changes directly to main with message: `sprint: scope change <slug>`.
+
+---
+
+### Status: `/plot-sprint` or `/plot-sprint <slug>`
+
+Show sprint status.
+
+#### 1. Resolve Slug
+
+**If slug provided** (`$ARGUMENTS[0]` present, no subcommand):
+- Find sprint file: `ls docs/sprints/*-<slug>.md 2>/dev/null`
+- Found → show status for that sprint (step 2)
+- Not found → "No sprint `<slug>` found. Create it with `/plot-sprint <slug>: <goal>`"
+
+**If no arguments:**
+- List active sprints: `ls docs/sprints/active/ 2>/dev/null`
+- One active sprint → use it, show status (step 2)
+- Multiple → list all active sprints with summary
+- None → "No active sprints. Create one with `/plot-sprint <slug>: <goal>`"
+
+#### 2. For Each Sprint
+
+Read the sprint file and display:
+- Sprint name and goal
+- Phase
+- Time remaining (days until end date; "ended N days ago" if past)
+- MoSCoW progress: Must N/M, Should N/M, Could N/M
+- For plan-backed items with annotations: show PR number, status, and branch
+- **False-positive flag:** for `[x]` items with `[slug]` refs, run `plot-plan-meta.sh` and check the plan's phase. If the phase is anything other than `delivered` or `released`, prefix the line with `⚠ ` and note `(plan phase: <phase>)`. This makes the discrepancy visible during routine status checks, not just at close time.
+
+#### 3. Summary
+
+```
+## Active Sprints
+
+- `<slug>` — "<goal>" | [*] Active | 3 days remaining | Must: 2/4 | Should: 1/2 | Could: 0/1
+```
+
+---
+
+## Common Mistakes
+
+| Mistake | Effect | Prevention |
+|---------|--------|------------|
+| Closing a sprint with `[x] [slug]` items whose plans' phase is not `delivered` or `released` | Sprint reads as complete but plans remain undelivered; `/plot-deliver` later reverts the plan to Draft | Step 2b of close runs a false-positive check via `plot-plan-meta.sh`; resolve via `/plot-deliver` or uncheck before closing |
+| Squash-merging a sprint planning PR | Readiness/defer/dates collapse into one commit; reasoning lost | Default to `--merge` (matches `plot-approve` for plan PRs) — squash is for messy WIP, not planning |
