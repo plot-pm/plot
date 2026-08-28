@@ -112,7 +112,7 @@ Story: [[the-board-is-blank-where-it-matters]].
       is untouched at 4999/5000. The board asks the host the same question
       through the exhausted bucket. Directly relevant to the enterprise stack,
       where a 429 already broke every `bb` call on this machine.
-- [ ] [a-claimed-branch-is-not-startable] Auto-dispatch spends its budget only on
+- [x] [a-claimed-branch-is-not-startable] Auto-dispatch spends its budget only on <!-- status: delivered -->
       branches a dispatch can claim. **Was filed against W34, which has closed**
       — moved here rather than left orphaned in a finished timebox.
 
