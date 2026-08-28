@@ -46,7 +46,26 @@ fs.chmodSync(shippedArtifact, 0o755);
 // cannot drift from source. Shipped via `files` in package.json; gitignored.
 // (In the plot checkout layout the artifact sits in skills/plot/scripts/board/,
 // so `../` already resolves to the real scripts — this copy is npm-only.)
-const vendoredScripts = ['plot-config.sh', 'plot-plan-meta.sh'];
+// EVERY script the server spawns, not just the plan-format two. The list
+// stood at two from 2026-07-14 (when the board spawned exactly those) until
+// nine more spawns accumulated over six weeks — each commit correct in
+// itself, none with reason to touch a package manifest. Nine releases
+// shipped a board that answered `bash exited 127` and never became ready.
+// A list nobody is prompted to update is one that falls behind, so a gate
+// derives this from the server sources and fails on any difference.
+const vendoredScripts = [
+  'plot-approve.sh',
+  'plot-config.sh',
+  'plot-deliver.sh',
+  'plot-dispatch.sh',
+  'plot-fleet-scan.sh',
+  'plot-host.sh',
+  'plot-plan-meta.sh',
+  'plot-reap.sh',
+  'plot-release-refs.sh',
+  'plot-resolve-artifact.sh',
+  'plot-worker-state.sh',
+];
 for (const name of vendoredScripts) {
   const src = path.join(here, '../../skills/plot/scripts', name);
   const dest = path.join(here, name); // package root — matches scriptsDir resolution

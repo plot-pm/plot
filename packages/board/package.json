@@ -1,7 +1,7 @@
 {
   "name": "@plot-pm/board",
   "version": "0.9.0",
-  "description": "Local Kanban board for Plot — a glanceable view of plan phases from docs/plans, with sprint and story filters",
+  "description": "Local Kanban board for Plot \u2014 a glanceable view of plan phases from docs/plans, with sprint and story filters",
   "type": "module",
   "license": "MIT",
   "author": "Max Albrecht",
@@ -22,8 +22,17 @@
   },
   "files": [
     "dist/board-server.mjs",
+    "plot-approve.sh",
     "plot-config.sh",
-    "plot-plan-meta.sh"
+    "plot-deliver.sh",
+    "plot-dispatch.sh",
+    "plot-fleet-scan.sh",
+    "plot-host.sh",
+    "plot-plan-meta.sh",
+    "plot-reap.sh",
+    "plot-release-refs.sh",
+    "plot-resolve-artifact.sh",
+    "plot-worker-state.sh"
   ],
   "scripts": {
     "dev": "vite",
