@@ -130,15 +130,30 @@ plan_content=$(cat "$plan_file")
 # Extract branch lines from ## Branches or ## Waves section
 branches_section=$(printf '%s' "$plan_content" | sed -n '/^## *[Bb]ranches\|^## *[Ww]aves/,/^## /p')
 
+# A BRANCH LINE CARRIES A BRANCH PREFIX, and without that test a changelog
+# bullet is read as a branch. The section range above closes at the next `## `,
+# but a plan whose `## Changelog` bullet mentions a backticked identifier —
+# `impl`, `pr_ready`, `--migrate`, `/api/story` were the four measured on
+# 2026-08-27 — hands one of those to the merge check, which then refuses
+# delivery over a branch that does not exist and never will.
+#
+# Four fully-merged plans were undeliverable for this reason. The prefixes come
+# from `Branch prefixes` rather than a hardcoded list, the same derivation
+# `plot-fleet-scan.sh:187` uses, so a project with its own prefixes is read
+# correctly and one with none falls back to Plot's defaults.
+prefix_re=$(bash "$script_dir/plot-config.sh" get "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" \
+  | tr -d ' ' | tr ',' '\n' | sed 's#/$##' | grep -v '^$' | paste -sd'|' - )
+[ -n "$prefix_re" ] || prefix_re="idea|feature|bug|docs|infra"
+
 # Parse branches from old-style ## Branches section (backtick-quoted on list lines)
 old_style_branches=$(printf '%s' "$branches_section" \
-  | grep -oE '^- `[A-Za-z0-9_./-]+`' 2>/dev/null \
+  | grep -oE "^- \`($prefix_re)/[A-Za-z0-9_./-]+\`" 2>/dev/null \
   | sed 's/^- `//; s/`$//' \
   | sort -u || true)
 
 # Parse branches from new-style ## Waves section (Branch: in ### headings)
 new_style_branches=$(printf '%s' "$branches_section" \
-  | grep -oE '### .*\(Branch: [A-Za-z0-9_./-]+' 2>/dev/null \
+  | grep -oE "### .*\(Branch: ($prefix_re)/[A-Za-z0-9_./-]+" 2>/dev/null \
   | sed 's/.*Branch: //' \
   | sort -u || true)
 
