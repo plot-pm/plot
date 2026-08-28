@@ -10,7 +10,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-28, Jan Wloka, in-session
-- **Started:** <!-- YYYY-MM-DD, who, `branch` -->
+- **Started:** 2026-08-29, Jan Wloka, `feature/the-board-knows-what-moved`
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 
@@ -234,7 +234,7 @@ signals themselves become the cost.
 
 ### Signalled
 
-- `feature/the-board-knows-what-moved` — the three invalidation signals as one cheap pass: all ref SHAs, all plan mtimes, the worktree list. Tests: one process per signal, asserted by spawn count; a moved ref is detected; a rewritten plan file is detected; an added or removed worktree is detected
+- `feature/the-board-knows-what-moved` → #507 — the three invalidation signals as one cheap pass: all ref SHAs, all plan mtimes, the worktree list. Tests: one process per signal, asserted by spawn count; a moved ref is detected; a rewritten plan file is detected; an added or removed worktree is detected
 
 ### Watched
 
