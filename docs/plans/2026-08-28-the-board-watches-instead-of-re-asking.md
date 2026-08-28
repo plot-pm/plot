@@ -2,17 +2,21 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
-- **Sprint:** <!-- optional -->
+- **Sprint:** a-half-landed-workflow-says-so
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
@@ -99,9 +103,51 @@ Each holds the last answer and the cheap fact that invalidates it:
 
 | monitor | replaces | invalidated by |
 |---|---|---|
-| **BranchMonitor** | 43 `rev-list` + 7 `log -1 --format=%ct` | any ref SHA moving |
-| **PlanMonitor** | 34 `hash-object` | a plan file's mtime |
-| **WorktreeManager** | 11 `git -C status` | the worktree list changing |
+| **BranchMonitor** | 47 `rev-list` + `log -1 --format=%ct` | **any SHA in `refs/heads` OR `refs/remotes` moving** |
+| **PlanMonitor** | 41 `hash-object` | **mtime to SKIP; content to KEY** — see below |
+| **WorktreeManager** | 9 `git -C status` | the worktree list changing |
+
+#### The ref signal must read remotes, not just heads
+
+**`refs/heads` alone would be wrong, and silently.** The counts read
+`refs/remotes/origin/$MAIN..refs/heads/$br` — **both** a local and a remote ref
+— and **the scan runs `git fetch` on every pulse**. So `origin/main` moves
+constantly, and a signal over local refs would leave every branch's ahead-count
+stale with no local SHA having moved.
+
+**One pass covers both**, and it is still one process:
+
+```
+git for-each-ref --format='%(refname) %(objectname:short)' refs/heads refs/remotes
+    → 275 refs in 0.007 s, ONE process
+```
+
+If `origin/$MAIN` moved, **every** cached ahead-count is invalidated — correct,
+not conservative: the range's left endpoint changed, so every count in the set
+genuinely did.
+
+#### mtime GATES the hash; it does not replace it
+
+**The 41 `hash-object` calls are not a cost to remove — they are an existing
+invalidation.** The code says so at `plot-fleet-scan.sh:3004`: *"THE PLAN'S
+IDENTITY FOR THE TERMINAL CACHE — its CONTENT, hashed, not its name or its
+mtime."*
+
+**Substituting mtime for content would weaken a check the terminal cache
+deliberately made content-based.** So the monitor does both:
+
+- **mtime unchanged → skip entirely**, reuse the cached oid. The quiet-pulse win.
+- **mtime moved → rehash, batched**, in one process:
+
+```
+ls docs/plans/*.md | git hash-object --stdin-paths
+    → 164 plans in 0.014 s, ONE process
+```
+
+**The terminal cache keeps keying on CONTENT.** A mtime-preserving copy
+(`rsync -t`, `cp -p`) would leave a stale oid until the next real edit; that is
+the accepted risk, and it is strictly smaller than today's, where a `git
+checkout` already rewrites every mtime and over-invalidates.
 
 That is ~95 of 115 calls behind three signals, and each signal is one call for
 the whole set. **Measured on this repo:**
@@ -224,7 +270,14 @@ signals themselves become the cost.
    of any new file.
 7. **The three signals are one process each**, asserted by count. A signal that
    loops has reintroduced the problem in the invalidation layer.
-8. `pnpm test`, `pnpm run test:board`, `pnpm run test:reconcile` green.
+8. **A fetch that moves `origin/<main>` invalidates every branch count.** The
+   hole a heads-only signal would leave, asserted directly: move the remote ref
+   with no local ref moving, and the next pulse must recompute rather than serve
+   a cached count.
+9. **A plan edited with its mtime PRESERVED still keys correctly.** The terminal
+   cache keys on content; this pins that mtime is a skip-gate and never the
+   identity.
+10. `pnpm test`, `pnpm run test:board`, `pnpm run test:reconcile` green.
 
 ## Notes
 

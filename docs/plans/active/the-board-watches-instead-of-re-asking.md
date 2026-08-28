@@ -1,0 +1,1 @@
+../2026-08-28-the-board-watches-instead-of-re-asking.md
