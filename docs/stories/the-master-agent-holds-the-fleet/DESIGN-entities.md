@@ -363,6 +363,86 @@ pattern is `→ #N` on a branch line: the artefact records what was created, so
 the second run finds it rather than repeating the act. The epic's id belongs
 beside `Released:` for the same reason.
 
+##### The actions an inbound Issue offers
+
+The mapping is what a reader acts on, so each relation gets an action. Settled
+2026-08-28:
+
+| action | offered when | starts | maps to |
+|---|---|---|---|
+| **Create plan** | **always** | `/plot-idea` | Plan |
+| **Create story** | `kind = story` | `/story-tracking` | Story |
+| **Create sprint** | `kind = epic` | *(unbuilt)* | Sprint → Release |
+| **Open on host** | always | navigation | — |
+
+**Create plan is unconditional**, and stays the default for every kind. An epic
+or a story may still deserve a plan directly — the workflow's own *Build n
+plans* fans one approved story into several — so nothing gates it. It is also
+the fallback where `kind` is `''`, which is the safe direction: offering a plan
+for something that deserved a story beats filing it nowhere.
+
+**The other two are gated on a fact, not on a guess** — and this reverses an
+earlier position in this document, deliberately. That draft said *"both create
+actions are offered unconditionally; the board does not inspect a ticket to
+decide whether it is epic-shaped or plan-shaped, and that restraint is the
+design."* It was right **while no kind was fetched**: with no type available,
+any gating would have been an inference from the title. Now that `kind` is a
+fetched fact, gating stops being a guess and becomes a reading.
+
+The restraint was never about refusing to gate. It was about refusing to
+*infer* — and the rule is unchanged: **Plot may act on what the tracker stated
+and must not act on what it inferred.**
+
+##### `Create sprint` — the unbuilt one
+
+An inbound epic is a customer saying *here is a body of work*. The counterpart
+is a Sprint, because a sprint is Plot's unit for a body of work with a release
+attached — and the epic is keyed by exactly that.
+
+```
+Issue(kind=epic)  ──Create sprint──►  Sprint(Release: <version>)
+                                             │
+                                             └──►  epic harbour for that release
+```
+
+The relation closes on itself, which is the property worth noticing: an inbound
+epic creates a sprint, and that sprint's release then has an epic — **the same
+one**. So *Create sprint* is where an inbound epic becomes the outbound harbour,
+and the two directions meet in one artefact rather than producing two.
+
+**What it needs, none of which exists:**
+
+| piece | status |
+|---|---|
+| `Sprint command` config key | **absent** — no such key in `plot-config.sh` |
+| `POST /api/sprint` route | **absent** — no sprint module in `server/` |
+| the sprint's `Release:` value | the epic must carry or imply a version |
+
+**The version is the hard part, and it is a judgement.** A sprint declares
+`Release: 2.11.0` from the day it opens, but an epic titled *"Q3 reporting"*
+names no version. So *Create sprint* cannot mint the sprint outright the way
+*Create plan* mints a draft — it spawns an agent that proposes the sprint and
+asks, exactly as `/plot-sprint` does today. That keeps the version a decision a
+person makes, which is the same line every other Plot gate draws.
+
+**It follows the two existing spawn actions in every other respect**: brief
+written to a file outside the repo and named in the environment, so no part of
+an epic's body becomes a shell word; localhost-only, because it writes to this
+disk; and refusals named rather than hidden — `no-sprint-command` joins
+`no-story-command` as a reason a reader can act on.
+
+##### Actions an outbound Issue offers
+
+**None, on the row.** An outbound issue is Plot's own artefact and its lifecycle
+follows the artefact: a feature ticket tracks its plan, an epic closes with its
+release. There is nothing for a reader to decide, which is why outbound issues
+do not appear in the inbox at all — they are subtracted by the same filter that
+removes any referenced issue.
+
+An outbound issue that *does* surface in the inbox is a defect, not a row with
+missing actions: it means Plot minted something and lost the record of having
+done so.
+
 ##### What the mapping must not become
 
 - **Not an importer.** `kind=epic` does not mean *read its children and create
@@ -924,7 +1004,15 @@ board offers all of them and guesses at none:
 
 **Both create actions are offered unconditionally.** The board does not inspect
 a ticket to decide whether it is epic-shaped or plan-shaped, and that restraint
-is the design. It cannot know: an epic's title looks like a story's, a
+is the design.
+
+> **Revised once `kind` is fetched.** This holds while no type is available —
+> gating on an inferred shape would be a guess. With `kind` as a fetched fact,
+> *Create story* is offered on `kind = story` and *Create sprint* on
+> `kind = epic`, while *Create plan* stays unconditional. See
+> [the actions an inbound Issue offers](#the-actions-an-inbound-issue-offers).
+> The rule is unchanged: act on what the tracker stated, never on what was
+> inferred. It cannot know: an epic's title looks like a story's, a
 well-scoped bug looks like a plan, and the same ticket can honestly be either
 depending on how much of it the team intends to take on. Guessing wrong costs
 either a story nobody wanted or a missing option on the row that needed it.
