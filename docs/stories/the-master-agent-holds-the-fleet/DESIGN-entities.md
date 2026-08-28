@@ -345,6 +345,59 @@ protecting: what Plot writes into the epic is exactly what Plot later looks for
 in it. If they can disagree, the harbour has become a mirror to keep in sync —
 the failure this entity avoids everywhere else.
 
+##### Without an epic — all open, newest first
+
+Settled 2026-08-28, and it is the majority case: **no epic, no scope
+heuristic.** One rule on both arms.
+
+```
+inbox = open(tracker) − referenced(every plan file)
+  sort   created DESC
+  limit  50, and the count says so
+```
+
+| arm | query | change |
+|---|---|---|
+| Jira | `resolution = EMPTY ORDER BY created DESC` | **drops `assignee = currentUser()`** |
+| GitHub | `--state open --search "sort:created-desc"` | **adds an explicit sort** |
+
+**This changes Jira's behaviour, deliberately.** Today its arm asks
+`assignee = currentUser() AND resolution = EMPTY` — *my* open tickets — so a
+team's unassigned backlog never reaches the board at all. That is the wrong
+default for a triage inbox, because **an unassigned ticket is the most likely
+thing to be worth a plan.** A filter that hides untriaged work defeats the one
+question the inbox exists to ask.
+
+`PLOT_JIRA_JQL` still overrides for a team that wants narrower, so nothing is
+taken away — only the default moves from *mine* to *everything nobody has
+planned*.
+
+**And it fixes a GitHub gap found while specifying this.** The arm passes no
+sort at all and relies on `gh`'s default ordering, so *newest first* is
+currently an assumption rather than a request. Verified 2026-08-28:
+`--search "sort:created-desc"` returns the expected order.
+
+**Why not filter by assignee at all.** Two reasons, and the second is the
+decisive one:
+
+1. **It costs an identity Plot does not have.** Jira resolves `currentUser()`
+   server-side from the auth token, free. GitHub does not — nothing in the
+   adapter resolves a user, and the board has no user concept. Assignee
+   filtering would introduce one on one arm to match a convenience on the other.
+2. **The inbox's question is triage, and triage is about the unassigned.**
+   "Is this worth a plan?" is asked hardest of tickets nobody has picked up.
+   Scoping to assigned tickets answers a different question — *what is on my
+   plate* — which is what the tracker's own UI already does better.
+
+**The limit must state itself.** 50 is a bound on the fetch, not a claim about
+the tracker, so a truncated list renders as *showing 50 of N* (gap 2). With no
+epic and no assignee filter this matters more, not less: the inbox is now the
+whole open backlog, and 50 of 400 shown as "50" is a materially wrong picture.
+
+**Where an epic exists, it replaces this entirely** — `children(epic(release))`
+is a declaration of membership rather than a bound on recency, so neither the
+sort nor the limit is doing the same job.
+
 ##### The bootstrap, and why it is not circular
 
 The epic is keyed by a release version, and *"is this worth a plan?"* is asked
@@ -923,7 +976,7 @@ constant, and no single place says what a reader is looking at.
 | # | stage | decided by | today |
 |---|---|---|---|
 | 1 | **open** | the tracker | `--state open` / `resolution = EMPTY` |
-| 2 | **scope** — whose issues | the tracker query | **per-arm, undeclared** ← the gap |
+| 2 | **scope** — which issues | the epic, or all open | epic children where one exists; else everything |
 | 3 | **unplanned** | the plan estate | `− referenced(every plan file)` |
 | 4 | **limit** | `ISSUE_LIMIT = 50` | **truncates silently** ← gap 2 |
 
@@ -963,15 +1016,18 @@ grows with backlog rather than beginning there. Only Jira can be re-scoped, via 
 and only through an environment variable rather than the config every other
 posture is declared in.
 
-**So `scope` belongs on `IssueTracker`, declared once and honoured by every
-arm** — `mine` or `all`, defaulting to whatever preserves each arm's current
-behaviour until a repo says otherwise.
+**Resolved 2026-08-28, and `scope` is not the answer.** Both cases are now
+settled without a new config key:
 
-> **Superseded where an epic exists.** A release-matched epic answers this
-> better than either value: `mine`/`all` are guesses at relevance, while an epic
-> is a declaration of membership. See
-> [the epic is the harbour](#the-epic-is-the-harbour--it-scopes-the-inbox-and-receives-what-plot-mints).
-> `scope` remains the answer for a repo with no epic, which is the majority. Two properties follow:
+- **With an epic** — `children(epic(release))` scopes the inbox. A declaration
+  of membership, not a guess at relevance. See
+  [the epic is the harbour](#the-epic-is-the-harbour--it-scopes-the-inbox-and-receives-what-plot-mints).
+- **Without one** — every open ticket, newest first, capped at 50 with the count
+  stated. See [without an epic](#without-an-epic--all-open-newest-first).
+
+The asymmetry is removed by making both arms ask the same question, rather than
+by declaring which of two answers a repo prefers. `PLOT_JIRA_JQL` remains the
+escape for a team that wants narrower. Two properties follow:
 
 - **The monitor never invents a scope.** It asks the connector for what the
   tracker declared; a filter the board applied after the fetch would be a third
