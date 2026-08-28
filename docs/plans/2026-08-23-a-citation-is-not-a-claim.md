@@ -195,7 +195,7 @@ queryable.
 ## Waves
 
 
-### Anchored (Branch: bug/a-claim-is-a-list-item)
+### Anchored (Branch: bug/a-claim-is-a-list-item, PR: #490)
 - the branch matcher anchors to the start of a list item, so a citation in a blockquote, a comment or a sentence is no longer a claim; all 248 existing claims still parse
 
 

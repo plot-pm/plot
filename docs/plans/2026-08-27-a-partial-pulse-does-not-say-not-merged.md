@@ -161,7 +161,7 @@ added.
 
 ## Waves
 
-### Verdicted (Branch: bug/the-deliver-gate-reads-the-verdicts)
+### Verdicted (Branch: bug/the-deliver-gate-reads-the-verdicts, PR: #491)
 
 `allWavesMerged` reads the wave verdicts the pulse carries, and the Deliver gate
 returns a distinct *scan incomplete* verdict rather than `not-merged` when

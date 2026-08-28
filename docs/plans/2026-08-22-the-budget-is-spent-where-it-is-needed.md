@@ -189,7 +189,7 @@ failure behind it.
 
 ### Watched
 
-- `feature/the-board-refreshes-what-is-watched` — the board's cadence skips branches whose state cannot change for a waiting reader. Tests: a merged PR is not re-asked across two passes, counted with a stubbed CLI; a WORKING branch is asked every pass; the skip is re-derived from git each pass and never persists a verdict
+- `feature/the-board-refreshes-what-is-watched` — the board's cadence skips branches whose state cannot change for a waiting reader. Tests: a merged PR is not re-asked across two passes, counted with a stubbed CLI; a WORKING branch is asked every pass; the skip is re-derived from git each pass and never persists a verdict → #494
 
 ### Fallen back
 

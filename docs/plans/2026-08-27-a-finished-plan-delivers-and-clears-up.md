@@ -249,7 +249,7 @@ calls it. Idempotent and refusing on its own preconditions, the way
 `plot-approve.sh` is. **No behaviour changes**: this is the extraction that gives
 the next wave something to call.
 
-### Delivered (Branch: feature/a-finished-plan-delivers-itself)
+### Delivered (Branch: feature/a-finished-plan-delivers-itself, PR: #493)
 
 The board delivers a plan whose every non-deferred wave has merged, by calling
 that script — direct, or through an agent where a `Deliver command` is set — and

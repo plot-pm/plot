@@ -147,7 +147,7 @@ climbing, revisit **grouping**, never visibility.
 
 ## Waves
 
-### Seen (Branch: feature/a-branch-with-work-is-seen)
+### Seen (Branch: feature/a-branch-with-work-is-seen, PR: #492)
 
 The server builds a row for every unmerged branch with no open PR and no plan
 row, `kind: 'branch'`, `state: 'wip'`, grouped by the existing classifier.
