@@ -73,7 +73,7 @@ Stories: [[the-board-is-blank-where-it-matters]] (the first three),
 
 Story: [[the-board-is-blank-where-it-matters]].
 
-- [ ] [the-board-says-how-old-its-plans-are] The board reports how far behind
+- [x] [the-board-says-how-old-its-plans-are] The board reports how far behind <!-- status: delivered -->
       its checkout is. Measured 2026-08-26: the board worktree fell 33 commits
       behind, was pulled, and gained 23 more in one session — rendering
       `Phase: Draft` for plans approved minutes earlier. Its two halves have

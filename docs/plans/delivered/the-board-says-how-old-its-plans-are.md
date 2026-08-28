@@ -1,0 +1,1 @@
+../2026-08-26-the-board-says-how-old-its-plans-are.md
