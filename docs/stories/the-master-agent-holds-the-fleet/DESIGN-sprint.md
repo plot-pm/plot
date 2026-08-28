@@ -23,7 +23,7 @@ Plot's timebox: a commitment about **when**, over plans that already exist.
 | 1 | [What a Sprint is](#1-what-a-sprint-is) | the timebox, and what it is not |
 | 2 | [Posture](#2-posture) | what `Tracker: jira` makes of it |
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
-| 4 | [Lifecycle](#4-lifecycle) | four phases, and the one nothing observes |
+| 4 | [Lifecycle](#4-lifecycle) | four states, and the gate none of them has |
 | 5 | [Direction](#5-direction) | inbound from an epic; outbound as one |
 | 6 | [Relations](#6-relations) | Plan · Release · Issue · Person |
 | 7 | [Actions](#7-actions) | open · add · close · the release gate |
@@ -59,7 +59,7 @@ sprint file lists them as MoSCoW items — so the sprint file is a **statement o
 intent**, and the plan estate is what actually happened.
 
 That double record is unusual in Plot and it is deliberate: the checkbox says
-*we said we would*, the plan's phase says *we did*. `plot-sprint-release.sh`
+*we said we would*, the plan's state says *we did*. `plot-sprint-release.sh`
 exists to compare them, and calls the disagreement `disputed`.
 
 ### MoSCoW is the commitment's shape
@@ -114,7 +114,7 @@ week *is* the prefix), no index precedence — closer to Story's than to Plan's.
 |---|---|---|---|
 | `slug` | string | 4/4 | from the filename |
 | `title` | string | 4/4 | the `# Sprint: …` heading |
-| `phase` | `Planning`\|`Committed`\|`Active`\|`Closed` | 4/4 | see §4 |
+| `state` | `Planning`\|`Committed`\|`Active`\|`Closed` | 4/4 | written `Phase:` in the file — see §4 |
 | `start` | date | 4/4 | |
 | `end` | date | 4/4 | **one carries prose — see below** |
 | `release` | version | **4/4** | the gate's key |
@@ -149,7 +149,7 @@ An item without a slug can only ever be judged by its checkbox.
 | question | from |
 |---|---|
 | which plans are in this sprint | the estate — plans declare `Sprint:` |
-| is an item really done | **the plan's phase**, outranking the checkbox |
+| is an item really done | **the plan's state**, outranking the checkbox |
 | how many are open | count over the above |
 
 **The plan estate outranks the checkbox, in one direction only** — and
@@ -161,19 +161,41 @@ undelivered plan is `disputed`, while an unchecked box over a delivered one is
 
 ## 4. Lifecycle
 
-### Four phases, and no gate on any of them
+### Four states, and no gate on any of them
 
 ```
 Planning ──► Committed ──► Active ──► Closed
 ```
 
+**These are states, not phases** — the distinction the Plan spec settles (§4
+there), applied here, and Sprint is its cleanest case.
+
+**A plan's `Phase:` at least maps to a workflow phase**: `approved` lands in
+Development, `delivered` in Testing, so the borrowed word had a referent even
+though the thing it held was a state.
+
+**A sprint's has none.** `Planning`, `Committed`, `Active`, `Closed` map to *no*
+workflow phase — the board has five columns and not one of them is *Committed*.
+So the field name is borrowed from a vocabulary this entity never participates
+in, with nothing behind the borrowing.
+
+Sprint is also where *state* fits best of the three: a sprint is not **at** a
+stage of the team's process, it **is in** a condition. `Committed` describes the
+sprint, not where the work has reached.
+
+**The field stays named `Phase:`** for the same reason the plan's does — it is
+the established spelling across four files and the board's `SPRINT_PHASES`
+enum, and renaming a parsed field to fix an imprecision costs more than it
+buys. **The word in the file is `Phase:`; the thing it holds is a state; and
+unlike a plan's, it places the sprint into no phase at all.**
+
 Unlike a plan's states — each gated, each written by a spoke command — **a
-sprint's phase is a hand-written field that nothing enforces and nothing
+sprint's state is a hand-written field that nothing enforces and nothing
 observes.**
 
 **Measured 2026-08-28, and it has already gone wrong:**
 
-| sprint | phase | release | tag cut? |
+| sprint | state | release | tag cut? |
 |---|---|---|---|
 | `2026-W34-the-board-tells-the-truth` | Closed | 2.6.0 | yes |
 | `2026-W34-working-shows-the-agent` | Closed | 2.8.0 | yes |
@@ -223,10 +245,10 @@ release gate handles and which forbids assuming a release has one sprint.
 
 | action | kind | command | writes |
 |---|---|---|---|
-| **Open** | lifecycle | `/plot-sprint` | the file, Planning |
+| **Open** | lifecycle | `/plot-sprint` | the file, `Planning` |
 | **Add** | lifecycle | `/plot-sprint` | a MoSCoW item |
 | **Move** | lifecycle | by hand | an item to Deferred, logged in `### Scope Changes` |
-| **Close** | lifecycle | `/plot-sprint close` | phase → Closed, refuses on false completion |
+| **Close** | lifecycle | `/plot-sprint close` | state → `Closed`, refuses on false completion |
 | **Gate a release** | **read-only** | `/plot-release` step 0 | **nothing** — it decides |
 
 **The release gate is a Sprint action that changes no sprint.** It reads
@@ -242,7 +264,7 @@ happened **to** the sprint."*
 
 ## 8. Scope
 
-**Every sprint file is read; the phase decides what each means.** There is no
+**Every sprint file is read; the state decides what each means.** There is no
 rolling window and no index — four files, all parsed.
 
 **`plot-sprint-candidates.sh` scopes the other direction**: which plans a sprint
@@ -287,7 +309,7 @@ terminal.
 
 | view | shows |
 |---|---|
-| sprint card | slug, title, phase, release, members |
+| sprint card | slug, title, state, release, members |
 | sprint chip | WIP against the sprint |
 | the gate's report | the refusal, naming each open Must |
 
@@ -308,14 +330,14 @@ asks about it — the same gap Story has (Story §12).
 
 | # | gap | reachable |
 |---|---|---|
-| 1 | **A sprint's phase is stale and nothing detects it** — 2.9.0 shipped, sprint still Active | **now, measured** |
+| 1 | **A sprint's state is stale and nothing detects it** — 2.9.0 shipped, sprint still Active | **now, measured** |
 | 2 | **`end` holds two facts** — one file records `(closed …)` as prose in the date | **now, measured** |
 | 3 | **Setup never asks about `Sprint directory`** | now |
 | 4 | **`start`/`end`/`goal` reach no view** — the board cannot show whether a sprint is on time | now |
 | 5 | Inbound and outbound epic acts unbuilt | posture 2 |
 
 **Gap 1 is the one to fix**, and the fix is a derivation rather than a field:
-a sprint whose `Release:` has a tag is over, whatever its phase says. The data
+a sprint whose `Release:` has a tag is over, whatever its state says. The data
 is already read by `/plot-release`.
 
 ---
@@ -333,7 +355,7 @@ is already read by `/plot-release`.
 
 ### Open points
 
-- **Should the phase be derived rather than stated?** A sprint whose release is
+- **Should the state be derived rather than stated?** A sprint whose release is
   tagged is Closed in every sense but the field.
 - **Should `end` split into planned and actual?** One file already needs it.
 - **Should the board show the timebox?** `start` and `end` are parsed nowhere,
