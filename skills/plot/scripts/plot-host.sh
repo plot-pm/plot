@@ -339,6 +339,103 @@ host_miss_or_fail() {
   return 3
 }
 
+# WHY A SECOND PATH EXISTS AT ALL: GitHub meters GraphQL and REST separately,
+# so a spent GraphQL bucket leaves a full REST one. `gh pr view` spends GraphQL;
+# `gh api` spends REST. When the first budget is gone the second is sitting
+# there unused, and the same question can still be answered — degraded and more
+# expensive, but answered.
+#
+# BE HONEST ABOUT WHAT THIS BUYS. It is a second path when one bucket is
+# GENUINELY spent, which is a real state a long-running board reaches. It is NOT
+# immunity from throttling. The outage this repo actually had on 2026-08-27 was
+# GitHub's SECONDARY limit — concurrent-request throttling, eight workers
+# against a cap of seven — and during it both budgets read:
+#
+#   graphql: 5000/5000  used=0  reset_in=3599s
+#   core:    5000/5000  used=0  reset_in=3599s
+#
+# Both full, nothing spent, every call refused. `rate_limit` does not report the
+# secondary limit and cannot, so this gate would have read 5000 available at the
+# exact moment nothing worked. Backing off on the 403 itself is a separate
+# change and is not this one.
+#
+# THE CHEAP PATH STAYS THE DEFAULT, and the reason is measured. For 93 branches:
+# ONE GraphQL call (`pr-list` with the check rollup) versus ~186 REST calls,
+# because REST's list endpoint returns `mergeable_state: null` and no rollup, so
+# full data costs two calls per PR. "Use REST whenever possible" trades one cheap
+# call for a hundred and eighty. This returns true only when GraphQL is
+# ACTUALLY spent.
+#
+# UNKNOWN IS NOT ZERO. #485 pinned that rule where it was informational; here is
+# where it bites. A host that cannot be asked reports `unknown`, and reading
+# that as "exhausted" would send every branch down the expensive path forever,
+# for as long as the budget query kept failing. So anything that is not a
+# number that is not greater than zero leaves the default alone.
+graphql_budget_spent() {
+  local rate remaining
+  # The budget query is FREE — `gh api rate_limit` consumes neither bucket
+  # (measured 2026-08-27: three consecutive readings, all used=0) — so asking
+  # before each lookup costs nothing against either limit.
+  rate="$(gh api rate_limit 2>/dev/null)" || return 1
+  remaining="$(jq -r '.resources.graphql.remaining // "unknown"' <<<"$rate" 2>/dev/null)" || return 1
+  # `== 0` and not `<= 0`: only a number can be spent. `unknown`, an empty
+  # string and a malformed payload all fall through to false, which is the
+  # cheap path — the honest direction to be wrong in.
+  [[ "$remaining" =~ ^[0-9]+$ ]] && [ "$remaining" -eq 0 ]
+}
+
+# BOTH PATHS MUST PRODUCE ONE VOCABULARY, or the adapter's contract forks in two
+# and every caller has to learn which route answered.
+#
+# This is stricter than it looks. `plot-fleet-scan.sh` reads the state with a
+# regex over the JSON TEXT (`sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p'`), so a
+# lowercase REST `state` would read as NO ANSWER AT ALL rather than as a wrong
+# one — a silent failure, not a loud one.
+#
+# REST'S `state` IS NOT GRAPHQL'S, and that is the trap this function exists
+# for. A merged PR reports `state: "closed"` over REST, with the merge in a
+# SEPARATE field; GraphQL says `MERGED` outright. An adapter that merely
+# uppercases `.state` reports every merged PR as CLOSED — the same confusion
+# `plot-reap.sh` was built around, and the reason it reads `mergedAt` rather
+# than `state`.
+#
+# THE MERGE SIGNAL HAS TWO SPELLINGS, because the two endpoints disagree:
+#
+#   /repos/{repo}/pulls/{number}          → `merged`     (boolean)
+#   /repos/{repo}/pulls?head=owner:branch → `merged_at`  (timestamp, or null)
+#
+# The list row carries no `merged` key at all — measured against this repo
+# 2026-08-28, where PR #494's row has `has("merged") == false`. Reading only
+# `.merged` there reports every merged branch as CLOSED, so both are consulted
+# and either one suffices.
+# REST NEEDS AN `owner/repo` IN THE PATH, where the GraphQL path needed nothing:
+# `gh pr view 7` infers the repo from the git remote, but `gh api repos/.../pulls/7`
+# has to be told. So the fallback needs one more fact than the path it replaces.
+#
+# `--repo` may already carry it (the caller passed `-R owner/repo`), in which
+# case no call is needed at all. Otherwise it has to be resolved.
+#
+# TODO(decision): resolve the repo when `--repo` was not supplied.
+gh_rest_repo() {
+  if [ ${#repo_args[@]} -gt 0 ]; then
+    echo "${repo_args[1]}"
+    return 0
+  fi
+  echo "TODO"
+}
+
+rest_pr_to_state() {
+  jq -c '
+    (if (.merged == true) or (.merged_at != null) then "MERGED"
+     else (.state // "" | ascii_upcase) end) as $state
+    | { number: .number,
+        state: $state,
+        draft: (.draft // false),
+        url: (.html_url // ""),
+        mergeCommit: (.merge_commit_sha // "") }
+  '
+}
+
 # Bitbucket's --state vocabulary is not GitHub's, and this adapter used to
 # translate in one direction only: every response mapper turns DECLINED into
 # CLOSED, while the request carried the caller's GitHub word unchanged. `bb`
@@ -785,10 +882,54 @@ case "$op" in
       esac
     done
     if [ "$be" = "github" ]; then
+      # THE ROUTE IS CHOSEN ONCE, HERE, and the cheap path is the default. See
+      # `graphql_budget_spent` above for why REST is the exception rather than
+      # the rule (~186 calls versus one for a 93-branch scan) and for what this
+      # fallback honestly does and does not buy.
+      if graphql_budget_spent; then
+        # THE GRAPHQL PATH IS NOT ATTEMPTED FIRST once its budget is known to be
+        # gone. Trying it anyway would spend a call that is already refused, to
+        # learn what was just read for free.
+        #
+        # A number and a branch name need DIFFERENT endpoints, and their
+        # payload shapes differ too — see `rest_pr_to_state`, which is the one
+        # place that knows how to read either.
+        rest_repo="$(gh_rest_repo)" || exit $?
+        if [[ "$ref" =~ ^[0-9]+$ ]]; then
+          if out="$(gh api "repos/$rest_repo/pulls/$ref" 2>/tmp/plot-host-err.$$)"; then
+            rm -f "/tmp/plot-host-err.$$"
+            rest_pr_to_state <<<"$out"
+          else
+            err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+            host_miss_or_fail "$err" \
+              '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
+          fi
+        else
+          # `?head=owner:branch` is the list form. AN EMPTY ARRAY IS AN ANSWER —
+          # the branch has no PR — while a call that never arrived is not, which
+          # is why the empty case is handled here and the failure goes through
+          # `host_miss_or_fail` like every other transport error.
+          #
+          # `state=all`, because the default is `open` and a merged PR would
+          # otherwise read as NONE — wrong in the reassuring direction.
+          rest_owner="${rest_repo%%/*}"
+          if out="$(gh api "repos/$rest_repo/pulls?head=$rest_owner:$ref&state=all&per_page=1" 2>/tmp/plot-host-err.$$)"; then
+            rm -f "/tmp/plot-host-err.$$"
+            if [ "$(jq -r 'length' <<<"$out" 2>/dev/null)" = "0" ]; then
+              echo '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}'
+            else
+              jq -c '.[0]' <<<"$out" | rest_pr_to_state
+            fi
+          else
+            err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+            host_miss_or_fail "$err" \
+              '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
+          fi
+        fi
       # mergeCommit is what lets a caller ask "which release contains this?" —
       # `git tag --contains <sha>` answers exactly, where dates cannot. It is ""
       # for anything unmerged, which is the honest answer rather than a guess.
-      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit 2>/tmp/plot-host-err.$$)"; then
+      elif out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr view "$ref" --json number,state,isDraft,url,mergeCommit 2>/tmp/plot-host-err.$$)"; then
         rm -f "/tmp/plot-host-err.$$"
         jq -c '{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // "")}' <<<"$out"
       else
