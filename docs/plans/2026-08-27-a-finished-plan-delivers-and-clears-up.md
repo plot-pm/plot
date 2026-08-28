@@ -16,6 +16,7 @@
 - **Started:** 2026-08-27, Jan Wloka, `bug/the-reaper-reads-any-merged-pr`
 - **Started:** 2026-08-27, Jan Wloka, `feature/plot-deliver-has-a-script`
 - **Started:** 2026-08-27, Jan Wloka, `feature/a-finished-plan-delivers-itself`
+- **Started:** 2026-08-28, Jan Wloka, `feature/a-delivered-plan-releases-its-refs`
 
 ## Changelog
 
