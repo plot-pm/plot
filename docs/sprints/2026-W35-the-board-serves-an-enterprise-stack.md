@@ -120,7 +120,7 @@ Story: [[the-board-is-blank-where-it-matters]].
 
 - [x] [the-header-names-the-branch-it-is-serving] The Master Agent row names the branch the board is serving, instead of rendering blank where a fact belongs <!-- status: delivered -->
 - [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
-- [ ] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
+- [x] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them <!-- status: delivered -->
 - [x] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains <!-- status: closed not-a-defect, 2026-08-26 -->
       **No change shipped.** Measured against the running board: the wrapper
       starts at the document origin and overflow is exactly 0 at any viewport

@@ -1,0 +1,1 @@
+../2026-08-23-the-plan-the-board-holds.md
