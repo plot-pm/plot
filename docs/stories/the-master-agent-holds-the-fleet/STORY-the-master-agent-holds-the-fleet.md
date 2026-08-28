@@ -55,6 +55,17 @@ an operator watches are coupled through a resource neither of them measures.
 
 ## Design
 
+These specs are the **foundation for building Plot's domain layer** — one
+object per entity, with its source of truth, fields, states, transitions,
+relations and the questions it can answer.
+
+**The acceptance criterion: every domain object can be tested with no external
+dependency.** No temp directory, no subprocess, no git, no host. Measured
+2026-08-28, 41 of the board's 77 unit tests touch disk or spawn a process (53%)
+— a test of the deliver *rule* currently needs a temp dir, a written plan file
+and a shell subprocess to parse it back.
+
+
 - **[The fleet's domain entities](DESIGN-entities.md)** — the nine things a
   supervisor reasons about, one at a time: source of truth, states, invariants,
   properties. Designed so far: **Agent** (three competing state models

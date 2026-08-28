@@ -19,6 +19,75 @@ Principle 1 stands: nothing is stored that is not re-derived from git, the host,
 or the process table on every pulse. Designing one means naming where it is read
 from and what its values are permitted to mean — not deciding where to keep it.
 
+## What these specs are for
+
+**These documents are the foundation for building Plot's domain layer**, not a
+description of the board. Each entity spec — [Issue](DESIGN-issue.md),
+[Story](DESIGN-story.md), [Plan](DESIGN-plan.md), and the entities below —
+defines one object: its source of truth, its fields, its states, its
+transitions, its relations, and the questions it can answer.
+
+**The acceptance criterion is that every one of them can be tested with no
+external dependency.** No temp directory, no subprocess, no git, no host, no
+filesystem. A domain object is constructed in memory and asked a question.
+
+### Where that stands today
+
+Measured 2026-08-28 across the board's 77 unit tests:
+
+| | count | of 77 |
+|---|---|---|
+| touch disk **or** spawn a process | **41** | **53%** |
+| create a temp directory (`mkdtemp`) | 28 | 36% |
+| spawn a subprocess | 25 | 32% |
+
+**A test of the deliver rule needs a filesystem today.** `deliver-route.test.ts`
+creates a temp dir, writes a `docs/plans/` tree, writes markdown plan files, and
+runs `plot-plan-meta.sh` as a subprocess to parse them back — all to ask *is
+every non-deferred branch merged?*
+
+Everything before the assertion is **reconstructing a Plan object the long way
+round**, because there is no way to construct one directly.
+
+### What the specs must therefore define
+
+For each entity, enough that a test can build one **without its source**:
+
+| the spec defines | so a test can |
+|---|---|
+| the fields and their types (§3 of each) | construct a valid object literally |
+| what absent means per field | build the honest edge cases |
+| the states and legal transitions | assert a transition, not a file write |
+| the capabilities and their refusals | assert *why* a gate refused |
+| what is derived vs. stated | know what the fixture may not invent |
+
+**That last row is the one this session kept re-learning.** A fixture that
+computes a wave's `verdict` itself is asserting against its own arithmetic —
+the drift measured earlier. If the spec says a verdict is derived from branch
+states, the object derives it and the fixture supplies only the branch states.
+
+### What stays integration-tested, deliberately
+
+**Reading and writing.** Parsing a plan file *is* filesystem work, and
+`plot-plan-meta.sh` is the contract that does it — tested where it lives, by
+`pnpm run test:reconcile`, against real files.
+
+The split is clean and it is the point:
+
+| layer | tested with | example |
+|---|---|---|
+| **domain** | **nothing external** | *may this plan be delivered?* |
+| **parsing** | real files | *does this markdown produce that object?* |
+| **effects** | real git, stubbed hosts | *does approving merge the PR?* |
+| **rendering** | a browser, mock payloads | *does the row show the refusal?* |
+
+**Today those four are entangled**, which is why 53% of unit tests reach
+outside. A domain layer that can be constructed in memory is what separates
+them — and it makes the first layer, where every guardrail lives, the cheapest
+one to test rather than the most expensive.
+
+---
+
 ## The organizing finding
 
 Nine entities, sorted by where their truth lives:
