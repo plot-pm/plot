@@ -15,7 +15,7 @@ physical.
 > **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
 >
 > **Companions:** [Entities](DESIGN-entities.md) · [Branch](DESIGN-branch.md) ·
-> [Wave](DESIGN-wave.md) · [Plan](DESIGN-plan.md)
+> [Slice](DESIGN-slice.md) · [Plan](DESIGN-plan.md)
 
 ## Contents
 
@@ -187,7 +187,7 @@ with `git worktree add`."*
 |---|---|---|
 | Worktree → Branch | `git worktree list` | **built** — 1:1 while checked out |
 | **Agent → Worktree** | the manifest, and `.plot-worker.pid` | **built** — the agent owns the desk |
-| Worktree → Plan | via its branch's wave | derived |
+| Worktree → Plan | via its branch's slice | derived |
 
 **The manifest goes with the worktree**, and the reason is a measured defect:
 *"`readAgentRegistry` renders one row per manifest, so a reap that removes only
@@ -296,7 +296,7 @@ modified files, zero flashes in 40 seconds."*
 
 **So the tree is the fleet's fastest-moving surface and its least observed.**
 The story's **job 2** — *is that worker working, or just alive?* — is answered
-there, and the Wave spec's missing *in progress* verdict (§4 there) is the same
+there, and the Slice spec's missing *in progress* verdict (§4 there) is the same
 gap seen from above.
 
 #### What it must not become

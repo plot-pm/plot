@@ -86,13 +86,13 @@ a script.**
 |---|---|---|
 | **approve** | phase is Draft/Design · channel is satisfiable · which records to write | merge the PR · write the file · push |
 | **implement** | is the plan stale · which branch is next · what the brief must say | create the branch · push the claim |
-| **dispatch** | which waves are eligible · which branches are free · the four refusals | `worktree add` · spawn a worker |
+| **dispatch** | which slices are eligible · which branches are free · the four refusals | `worktree add` · spawn a worker |
 | **deliver** | every non-deferred branch merged · phase is Approved | flip the file · move the symlink · push |
 | **release** | the sprint gate's three tiers · version from `--contains` | tag · changesets · push |
 | **reap** | do the five refusals pass | `worktree remove` |
-| **reslice** | the argued wave order | rewrite `## Branches` |
+| **reslice** | the argued slice order | rewrite `## Branches` |
 | **merge-queue** | the order and the collisions | `git merge-tree` |
-| **fleet pulse** | wave verdicts · claim state | 115 git processes |
+| **fleet pulse** | slice verdicts · claim state | 115 git processes |
 
 **Every decision in the left column is a predicate over facts.** None needs a
 subprocess to *decide* — only to *learn*. That is what makes the separation
@@ -122,7 +122,7 @@ most.**
 |---|---|---|
 | **where** | `plot-deliver.sh:120–215` | `board.ts:707 allWavesMerged` |
 | **size** | ~95 lines | 27 lines |
-| **asks** | **each PR's state** via `plot-impl-status.sh` | **each wave's verdict** from the pulse |
+| **asks** | **each PR's state** via `plot-impl-status.sh` | **each slice's verdict** from the pulse |
 | **parses the plan** | itself, with `sed` + `grep` + a prefix regex | not at all — reads the pulse |
 | **values** | merged / not-merged | merged / not-merged / **`unknown`** |
 | **call sites** | 1 | **3** (`auto-deliver` ×2, `planStatus`, `deliver`) |
@@ -131,14 +131,14 @@ most.**
 **They are not two spellings of one rule. They are two different rules that
 usually agree.**
 
-- The shell asks **per PR**; the board asks **per wave verdict** — and
+- The shell asks **per PR**; the board asks **per slice verdict** — and
   `allWavesMerged` says so explicitly: *"THE SCAN'S VERDICT, not a second
   reading of the branch states under it."*
 - The board has a third value the shell cannot express. **`unknown` exists
   because of a measured defect** (#491): a plan missing from a timed-out
   pulse's `plans` array was read as a claim about its branches. **The shell has
   no equivalent guard.**
-- The board catches vacuous truth — *every wave complete over no branches* —
+- The board catches vacuous truth — *every slice complete over no branches* —
   with a `merged > 0` count. **The shell's loop over an empty branch list falls
   through to "proceeding (nothing to verify)".**
 
@@ -218,7 +218,7 @@ of truth.**
 
 | new workflow | the domain DECIDES | the adapter PERFORMS | job |
 |---|---|---|---|
-| **place a wave on an agent** | which agent is `free` | start or reuse a worker | 1 |
+| **place a slice on an agent** | which agent is `free` | start or reuse a worker | 1 |
 | **bound the dial** | what headroom permits | sample spawn cost | 1 |
 | **watch a build** | has it reached a terminal state | poll the host | — |
 | **report the delta** | what changed since the last pulse | nothing — it is pure | 3 |

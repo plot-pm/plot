@@ -15,7 +15,7 @@ domain separates from the infrastructure it currently sits inside.
 > **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
 >
 > **Specs:** [Issue](DESIGN-issue.md) · [Story](DESIGN-story.md) ·
-> [Plan](DESIGN-plan.md) · [Sprint](DESIGN-sprint.md) · [Wave](DESIGN-wave.md) ·
+> [Plan](DESIGN-plan.md) · [Sprint](DESIGN-sprint.md) · [Slice](DESIGN-slice.md) ·
 > [Branch](DESIGN-branch.md) · [PR](DESIGN-pr.md) · [Build](DESIGN-build.md) ·
 > [Release](DESIGN-release.md) · [Worktree](DESIGN-worktree.md) ·
 > [Agent](DESIGN-agent.md) · [Machine](DESIGN-machine.md) ·
@@ -46,7 +46,7 @@ states, and which predicts each one's lifecycle.**
 |---|---|---|---|
 | **slug** | Plan, Story, Sprint | a name a human chose | **a person, once** |
 | **natural key** | Branch, PR, Release, Issue, Build, Worktree | whatever the source calls it | **the source** |
-| **minted** | Agent (`session`), Wave (`plan#name`) | composed or generated | **Plot** |
+| **minted** | Agent (`session`), Slice (`plan#name`) | composed or generated | **Plot** |
 
 **Machine has none** — there is exactly one (Machine §3), and that singularity is
 load-bearing: if there were two, headroom would be a property of a *pair*.
@@ -72,7 +72,7 @@ entity uses.**
 | source | entities | goes wrong by |
 |---|---|---|
 | **STATED** in a file | Plan · Story · Sprint | **being wrong** — a file can say `Approved` when nobody approved |
-| **DERIVED** from local facts | Wave · Branch · Release · Agent · Worktree · Issue | **staleness** — a `--no-fetch` scan read 43 merged branches as open |
+| **DERIVED** from local facts | Slice · Branch · Release · Agent · Worktree · Issue | **staleness** — a `--no-fetch` scan read 43 merged branches as open |
 | **FOREIGN** | PR · Build | **the surface disagreeing** — REST `closed` vs GraphQL `MERGED` |
 | **MEASURED** | Machine | **decaying instantly** — the next process anyone starts |
 
@@ -99,13 +99,13 @@ Story 1 ──── * Plan                    a story spans plans; a plan has �
 Sprint 1 ─── * Plan                    a plan has ≤1 sprint; a sprint has many
 Release 1 ── * Plan                    derived from tags
 Sprint * ─── 1 Release                 TWO sprints may target one release
-Plan 1 ───── * Wave                    ordered; position is the ordering
-Wave 1 ───── 1 Branch                  INTENDED; 271 of 303 conform, 21 hold more, 11 hold none
+Plan 1 ───── * Slice                    ordered; position is the ordering
+Slice 1 ───── 1 Branch                  INTENDED; 271 of 303 conform, 21 hold more, 11 hold none
 Branch 1 ─── * PR                      372 have one, 9 have two, ONE has ten
 PR 1 ─────── 1 BuildRollup             free, per PR
 Branch 1 ─── * Build                   the history, metered
 Agent 1 ──── 1 Worktree                the agent OWNS its desk
-Agent 1 ──── * Wave                    over time — one at a time, then --next
+Agent 1 ──── * Slice                    over time — one at a time, then --next
 Worktree 1 ─ 1 Branch                  while checked out
 Machine 1 ── * everything              one machine, many tenants
 Issue * ──── * Plan                    a plan answers several; a signal fans into n plans
@@ -113,10 +113,10 @@ Issue * ──── * Plan                    a plan answers several; a signal 
 
 ### Three that are not what they look like
 
-**`Wave 1 ─ 1 Branch` is intended and violated**: 21 waves hold several, 11 hold
-none — and 9 of those 11 are prose headings the parser reads as waves (Wave §8).
+**`Slice 1 ─ 1 Branch` is intended and violated**: 21 slices hold several, 11 hold
+none — and 9 of those 11 are prose headings the parser reads as slices (Slice §8).
 
-**`Agent 1 ─ * Wave` is over time, not concurrent.** An agent takes one unit,
+**`Agent 1 ─ * Slice` is over time, not concurrent.** An agent takes one unit,
 completes it, asks `--next`. The loop implements it; the desk does not persist,
 which is the divergence (Agent §1).
 
@@ -140,7 +140,7 @@ argues should become `branch.agent`.
 ### 4b. Cardinality is stated inline, never collected
 
 **19 of 84 rows state none at all**, and no spec carries the diagram §3 above
-now holds. A reader wanting *how many waves does a plan have* reads twelve
+now holds. A reader wanting *how many slices does a plan have* reads twelve
 files.
 
 ### 4c. Three specs carry the same open question
@@ -239,9 +239,9 @@ Principle 3 expressed as an architecture rather than as a convention.
 | # | question | blocks |
 |---|---|---|
 | 1 | **Where do monitors live when the board is closed?** | every monitor's design |
-| 2 | **Is the wave-per-agent desk reused or recreated?** | the Registry's contract |
+| 2 | **Is the slice-per-agent desk reused or recreated?** | the Registry's contract |
 | 3 | **Are the Machine thresholds right?** | one session, one sample |
-| 4 | **Does `Wave 1─1 Branch` get enforced or relaxed?** | 21 waves disagree |
+| 4 | **Does `Slice 1─1 Branch` get enforced or relaxed?** | 21 slices disagree |
 | 5 | **Should the parser emit a plan slug?** | two duplicated functions say yes |
 
 **1 is the one to settle first**, because it is the only one three specs are

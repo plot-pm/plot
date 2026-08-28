@@ -62,7 +62,7 @@ For each entity, enough that a test can build one **without its source**:
 | what is derived vs. stated | know what the fixture may not invent |
 
 **That last row is the one this session kept re-learning.** A fixture that
-computes a wave's `verdict` itself is asserting against its own arithmetic —
+computes a slice's `verdict` itself is asserting against its own arithmetic —
 the drift measured earlier. If the spec says a verdict is derived from branch
 states, the object derives it and the fixture supplies only the branch states.
 
@@ -93,7 +93,7 @@ one to test rather than the most expensive.
 **Thirteen entities.** Twelve are things the fleet acts on; the thirteenth
 (Person) is shared by all of them. Each now has its own specification —
 [Issue](DESIGN-issue.md) · [Story](DESIGN-story.md) · [Plan](DESIGN-plan.md) ·
-[Sprint](DESIGN-sprint.md) · [Wave](DESIGN-wave.md) ·
+[Sprint](DESIGN-sprint.md) · [Slice](DESIGN-slice.md) ·
 [Branch](DESIGN-branch.md) · [PR](DESIGN-pr.md) · [Build](DESIGN-build.md) ·
 [Release](DESIGN-release.md) · [Worktree](DESIGN-worktree.md) — except Agent,
 Machine and Person, which are specified below.
@@ -103,7 +103,7 @@ Sorted by where their truth lives:
 | # | Entity | Source of truth | Domain | State today |
 |---|--------|-----------------|--------|-------------|
 | 1 | Plan | the file's `Phase:` | git | solid |
-| 2 | Wave | plan's `## Waves` + branch states | git | solid |
+| 2 | Slice | plan's `## Branches`/`## Waves` sections + branch states | git | solid |
 | 3 | Branch | `origin/<branch>` ref | git | solid |
 | 4 | Worktree | `git worktree list` | local | thin |
 | 5 | PR | host API | foreign | rich, conflated with Branch |
@@ -148,7 +148,7 @@ how far they sit from that example.
 
 **Collected from 84 relation rows across twelve specs, 65 of which state a
 cardinality.** Each spec states its own relations; **this is the only place the
-whole graph appears**, so a reader asking *how many waves does a plan have* does
+whole graph appears**, so a reader asking *how many slices does a plan have* does
 not read twelve files to find out.
 
 ```
@@ -156,13 +156,16 @@ Story 1 ──── * Plan                    a story spans plans; a plan has �
 Sprint 1 ─── * Plan                    a plan has ≤1 sprint; a sprint has many
 Release 1 ── * Plan                    derived from tags
 Sprint * ─── 1 Release                 TWO sprints may target one release
-Plan 1 ───── * Wave                    ordered; position is the ordering
-Wave 1 ───── 1 Branch                  INTENDED; 271 of 303 conform
+Plan 1 ───── * Slice                   ordered; position is the ordering
+Slice 1 ──── 1 Branch                  BY DEFINITION — several branches in
+                                       one section is an UNSLICED plan
+Wave 1 ───── * Slice                   the fleet's cohort: spans plans,
+                                       formed at dispatch, persisted nowhere
 Branch 1 ─── * PR                      372 have one, 9 have two, ONE has ten
 PR 1 ─────── 1 BuildRollup             free, per PR
 Branch 1 ─── * Build                   the history, metered
 Agent 1 ──── 1 Worktree                the agent OWNS its desk
-Agent 1 ──── * Wave                    over time — one at a time, then --next
+Agent 1 ──── * Slice                   over time — one at a time, then --next
 Agent 1 ──── * Branch                  likewise over time (Branch §6)
 Worktree 1 ─ 1 Branch                  while checked out
 Machine 1 ── * everything              one machine, many tenants
@@ -170,9 +173,12 @@ Issue * ──── * Plan                    a plan answers several; a signal 
 ```
 
 **Three of these are not what they look like**, and the stage-1 review argues
-each: `Wave 1─1 Branch` is *intended and violated* (21 waves hold several, 11
-hold none — 9 of those being prose headings the parser reads as waves);
-`Agent 1─* Wave` is **over time, not concurrent**; and `Branch 1─* PR` is why
+each: `Slice 1─1 Branch` **was** *intended and violated* until the Slice/Wave
+rename dissolved it — 271 of 303 sections hold one branch and the 21 holding
+several are now **unsliced plans rather than violations** ([Slice
+§1](DESIGN-slice.md#one-branch-by-definition--not-by-repair)); the 11 empty
+sections remain a parser defect, 9 being prose headings read as sections;
+`Agent 1─* Slice` is **over time, not concurrent**; and `Branch 1─* PR` is why
 `mergedAt` outranks `state`. See
 [stage 1 §3](DESIGN-review.md#3-cardinalities-in-one-place).
 
@@ -315,7 +321,7 @@ Measured 2026-08-28: **32 comparisons against a plan's state** across the
 codebase — 5 of them inside `PlanCard.tsx`, a *render* component. Each is a
 call site that decided for itself what `approved` permits.
 
-So the rule *"an approved plan whose waves are eligible may be dispatched"*
+So the rule *"an approved plan whose slices are eligible may be dispatched"*
 exists as `p.phase === 'approved' && p.waves.some(w => w.verdict === 'eligible')`
 at one call site, and something like it at thirty-one others.
 
@@ -359,7 +365,7 @@ CLI both reach it.
 
 #### What must not move onto the object
 
-- **Nothing that needs the world.** `plan.canDeliver` reads its own waves;
+- **Nothing that needs the world.** `plan.canDeliver` reads its own slices;
   it does not call a host. Where a decision needs a PR's merge status, the fact
   is passed in — the object stays pure and testable, which is the whole point of
   the rule above it.
@@ -391,7 +397,7 @@ view payloads, and the cost is visible in the tests.
 
 **The worked example is the deliver gate.** `planAutoDeliver` decides whether a
 plan may transition — pure domain logic, and one of Plot's four guardrails. Its
-rule is one sentence: *every non-deferred wave has merged.*
+rule is one sentence: *every non-deferred slice has merged.*
 
 To test that sentence, the fixture must build a **`FleetPulse`**:
 
@@ -400,22 +406,22 @@ FleetPulseSchema.parse({
   main: 'main',
   head: 'abc1234',
   plans: [...],
-  summary: { plans, waves, branches, claimed, eligible, blocked, deferred },
+  summary: { plans, slices, branches, claimed, eligible, blocked, deferred },
 })
 ```
 
 — plus, per branch, `ref_held` and `claimed`, which are **git-derived view
-fields**, and per wave a `verdict` the fixture computes itself.
+fields**, and per slice a `verdict` the fixture computes itself.
 
 **None of that is the decision.** A head SHA, seven summary counts and a
-ref-held flag are what the *wire* needs; the rule needs plans, waves and merge
+ref-held flag are what the *wire* needs; the rule needs plans, slices and merge
 status. The test constructs a transport to ask a domain question.
 
 #### The cost is not verbosity — it is drift
 
-**Measured in this session:** the `wave()` helper hard-coded
-`verdict: 'complete'` for every wave it built, including ones holding open
-branches. So a test asserting *the gate refuses while a wave is unmerged* was
+**Measured in this session:** the `slice()` helper hard-coded
+`verdict: 'complete'` for every slice it built, including ones holding open
+branches. So a test asserting *the gate refuses while a slice is unmerged* was
 passing because the fixture said `complete`, not because the gate refused.
 
 That is the failure mode of testing logic through a view: **the fixture
@@ -427,7 +433,7 @@ against itself.
 
 | | today | with domain objects |
 |---|---|---|
-| the fixture | a `FleetPulse` with head, summary, ref flags | **a Plan with waves** |
+| the fixture | a `FleetPulse` with head, summary, ref flags | **a Plan with slices** |
 | the verdict | computed in the fixture | **read from the object** |
 | what can drift | fixture vs. real derivation | **nothing — one derivation** |
 | what the test reads like | transport assembly | **the rule** |
@@ -617,7 +623,7 @@ it is the Agent, observed through the process table.
 | aspect | read from | note |
 |--------|-----------|------|
 | identity | `.plot/agents/<session>.json` | the manifest; `Agent registry` config key |
-| place | `worktree`, `branch` | branch may be `''` — between waves is a real state |
+| place | `worktree`, `branch` | branch may be `''` — between slices is a real state |
 | liveness | `pid`, `.plot-worker.exit` | `kill -0`; exit code is recorded, not inferred |
 | progress | working tree, PR, `PLOT-BLOCKED` marker | what the exit code cannot say |
 
@@ -973,7 +979,7 @@ Identity, place, liveness, progress — the four readings of one entity.
 |---|---|---|---|
 | `session` | string | manifest | the identity; also the transcript's name |
 | `identity` **`+`** | `manifest` \| `synthesized` | manifest presence | whether this Agent's identity was read or inferred |
-| `branch` | string | manifest / worktree | what it works on; `''` between waves is real |
+| `branch` | string | manifest / worktree | what it works on; `''` between slices is real |
 | `worktree` | path | manifest / `git worktree list` | where it sits |
 | `command` | string | manifest | the `Worker command` as launched, verbatim |
 | `startedAt` | ISO-8601 | manifest | launch moment |
@@ -1106,19 +1112,19 @@ moves"*, and Plot never writes them back.
 | `phase` | `draft`\|`approved`\|`delivered`\|`released` | the lifecycle |
 | `type` | `feature`\|`bug`\|`docs`\|`infra` | decides whether release applies |
 | `title`, `sprint`, `story`, `assignee` | string | placement |
-| `branches`, `waves`, `prs` | list | what it governs |
+| `branches`, `slices`, `prs` | list | what it governs |
 | `review`, `impl` | ceremony answers | how it is approved and where it is built |
 | `approved_raw`, `started_raw`, `delivered_raw`, `released_raw` | string | the transition records — **load-bearing, not provenance** |
 | `status` | `PlanStatus` | derived aggregate |
 | `error` | string | why parsing failed — a file with no phase is not a plan |
 
-### Wave
+### Slice
 
 | property | type | meaning |
 |---|---|---|
-| `name` | string | `''` for the default wave |
+| `name` | string | `''` for the default slice |
 | `verdict` | `complete`\|`eligible`\|`blocked`\|`unapproved` | `eligible` is the only one promising a dispatch agrees |
-| `branches` | Branch[] | **should be exactly one** — see `unsliced-wave` |
+| `branches` | Branch[] | **should be exactly one** — see `unsliced-slice` |
 
 ### Worktree
 

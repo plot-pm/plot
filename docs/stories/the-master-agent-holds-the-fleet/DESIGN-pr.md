@@ -14,7 +14,7 @@ A branch's bid to land, and the evidence a plan was implemented.
 > **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
 >
 > **Companions:** [Entities](DESIGN-entities.md) · [Branch](DESIGN-branch.md) ·
-> [Wave](DESIGN-wave.md) · [Plan](DESIGN-plan.md) · [Issue](DESIGN-issue.md)
+> [Slice](DESIGN-slice.md) · [Plan](DESIGN-plan.md) · [Issue](DESIGN-issue.md)
 
 ## Contents
 
@@ -198,7 +198,7 @@ artefact, the way an issue can become a plan.
 | Branch → PR | the host, by `head` | **built** — see Branch §3 |
 | Plan → PR | `→ #N` / `PR: #N` annotation | **built, and optional** |
 | PR → Build | `checks`, `failing_checks[]` | **built** |
-| PR → Wave | via its branch | derived |
+| PR → Slice | via its branch | derived |
 
 **The plan's annotation is a convenience, not a precondition.** The delivery
 gate resolves an unannotated branch *"by matching the branch NAME against the

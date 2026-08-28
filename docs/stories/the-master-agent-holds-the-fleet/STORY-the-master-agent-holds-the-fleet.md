@@ -112,10 +112,10 @@ and a shell subprocess to parse it back.
   implemented: the only entity Plot pays per request for, and the one whose
   `state` means different things on different API surfaces — REST says `closed`
   for a PR GraphQL calls `MERGED`.
-- **[Branch](DESIGN-branch.md)** — a wave's unit of work and the claim on it:
+- **[Branch](DESIGN-branch.md)** — a slice's unit of work and the claim on it:
   the push *is* the lock, git outranks the plan's annotation, and its state is
   only as fresh as the last fetch — measured, 43 merged branches reading as 0.
-- **[Wave](DESIGN-wave.md)** — a plan's unit of dispatch: the slice and the
+- **[Slice](DESIGN-slice.md)** — a plan's unit of dispatch: the slice and the
   ordering, four verdicts of which none is a state, and the entity the fleet is
   built around. Fully derived — no file, no record.
 - **[Sprint](DESIGN-sprint.md)** — the timebox: a commitment about *when*, over

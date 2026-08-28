@@ -195,7 +195,7 @@ checks ran* for a host that was never reached.
 
 ### A build is not a state that transitions
 
-Like a Wave's verdict, it is **re-read rather than moved through**: a
+Like a Slice's verdict, it is **re-read rather than moved through**: a
 `pending` build becomes `green` because CI finished, not because Plot did
 anything. Nothing in Plot ever writes a Build.
 
@@ -294,19 +294,19 @@ does — *"a skipped one is not a worse case than a failed one."*
 PR timer, and the history is fetched **only for branches already known to be
 failing** (§8) — so a build that is *running* is polled by nobody.
 
-**That is the gap the two `in_progress` runs above name.** A wave is dispatched,
+**That is the gap the two `in_progress` runs above name.** A slice is dispatched,
 its branch pushes, CI starts, and the fleet learns the outcome whenever the next
 60-second PR refresh happens to land after it — up to a minute late, and only if
 the PR gate is open rather than backing off.
 
-#### What it monitors: a build attached to a wave
+#### What it monitors: a build attached to a slice
 
 **The attachment is what makes it affordable.** A repo has many pipelines and
-many runs; the fleet cares about **the builds of branches its waves own**, which
+many runs; the fleet cares about **the builds of branches its slices own**, which
 is a small and known set:
 
 ```
-wave → branch → PR → the build now running on it
+slice → branch → PR → the build now running on it
 ```
 
 **So the monitor's scope is the dispatched fleet, not the repo** — the same
@@ -321,7 +321,7 @@ budget the gate exists to ration."* A BuildMonitor that polled every PR would
 be exactly that.
 
 **What makes it different is the bound**: it watches only builds it saw start,
-on branches a wave owns, and it **stops when the build reaches a terminal
+on branches a slice owns, and it **stops when the build reaches a terminal
 state** — `success`, `failure`, `cancelled`, `timed_out`. A monitor with no
 stopping condition is a poll.
 
@@ -332,7 +332,7 @@ same way the agent monitor observes a worker.
 
 | question | today |
 |---|---|
-| is this wave's build still running? | the rollup says `pending` — **since when, nobody knows** |
+| is this slice's build still running? | the rollup says `pending` — **since when, nobody knows** |
 | did it just finish? | discovered on the next 60 s refresh |
 | how long do our builds take? | **unanswerable** — `startedAt` is kept, nothing computes a duration |
 | is this build slower than usual? | as above |

@@ -9,11 +9,11 @@ updated: 2026-08-28
 
 # Branch — domain object specification
 
-A wave's unit of work, and the one entity whose truth is a git ref.
+A slice's unit of work, and the one entity whose truth is a git ref.
 
 > **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
 >
-> **Companions:** [Entities](DESIGN-entities.md) · [Wave](DESIGN-wave.md) ·
+> **Companions:** [Entities](DESIGN-entities.md) · [Slice](DESIGN-slice.md) ·
 > [Plan](DESIGN-plan.md) · [Sprint](DESIGN-sprint.md) ·
 > [Story](DESIGN-story.md) · [Issue](DESIGN-issue.md)
 
@@ -26,7 +26,7 @@ A wave's unit of work, and the one entity whose truth is a git ref.
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
 | 4 | [Lifecycle](#4-lifecycle) | five states, and the ref that decides |
 | 5 | [Direction](#5-direction) | none |
-| 6 | [Relations](#6-relations) | Wave · PR · Agent · Worktree |
+| 6 | [Relations](#6-relations) | Slice · PR · Agent · Worktree |
 | 7 | [Actions](#7-actions) | claim · dispatch · merge · defer |
 | 8 | [Scope](#8-scope) | which branches are a plan's |
 | 9 | [The collaborators](#9-the-collaborators) | the scan, and the fetch it needs |
@@ -40,7 +40,7 @@ A wave's unit of work, and the one entity whose truth is a git ref.
 
 ## 1. What a Branch is
 
-**A Branch is one wave's unit of work, and the claim on it.**
+**A Branch is one slice's unit of work, and the claim on it.**
 
 Two jobs, and the second is what makes the fleet possible:
 
@@ -62,7 +62,7 @@ fast-forward a diverged ref is what stops two agents doing one job.
 ### Its truth is a ref, not a file
 
 **A Branch is the only entity here whose source is git itself.** A Plan is a
-file, a Story is a file, an Issue is a tracker's answer, a Wave is computed —
+file, a Story is a file, an Issue is a tracker's answer, a Slice is computed —
 a Branch *is* `refs/remotes/origin/<name>`, and everything else about it is read
 from that.
 
@@ -74,8 +74,8 @@ plan's.
 
 ## 2. Posture
 
-**No posture changes what a Branch is.** Like a Wave, it has no representation
-outside the repo — but for a different reason: a wave is *unpublishable* (it is
+**No posture changes what a Branch is.** Like a Slice, it has no representation
+outside the repo — but for a different reason: a slice is *unpublishable* (it is
 a gate, §2 there), while a branch is simply **git's, not Plot's**.
 
 **A tracker never sees branches**; it sees the PR a branch produced. So under
@@ -98,7 +98,7 @@ thing published.
 Branch.name : string        e.g. feature/a-branch-with-work-is-seen
 ```
 
-**The ref name is the identity, and it is repo-global** — unlike a Wave, whose
+**The ref name is the identity, and it is repo-global** — unlike a Slice, whose
 name means nothing outside its plan. That is what lets a claim work: two plans
 naming one branch is a *collision*, and the scan reports it as
 `double-claimed`.
@@ -260,7 +260,7 @@ elsewhere:**
 |---|---|
 | is the working tree dirty? | `local_dirty`, `changed_ago_seconds` — read from the **worktree** |
 | is an agent working on it? | `worker`, `worker_activity` — the **Agent** |
-| is this wave under way? | **nothing** — the gap the Wave spec records (§4 there) |
+| is this slice under way? | **nothing** — the gap the Slice spec records (§4 there) |
 
 **`local_dirty` is deliberately one-directional**: it *"may only LIFT a branch
 out of quiet, never downgrade an answer"* — because on a machine with no
@@ -279,7 +279,7 @@ squash rewrote the commits — so `ahead > 0` and `real > 0` against work that
 has **already landed**.
 
 Measured 2026-08-23: `bug/done-holds-finished-plans-only`, **PR #356 merged, read
-`wip` for three hours.** Its wave reported *"3 merged, the rest not yet"* over
+`wip` for three hours.** Its slice reported *"3 merged, the rest not yet"* over
 four merged branches and never completed, so the plan sat in Development with
 nothing left to do.
 
@@ -289,7 +289,7 @@ here through the branch classifier rather than through a PR state.
 
 ### The state is only as fresh as the last fetch
 
-**Measured 2026-08-28, and it caught me while writing the Wave spec.** The same
+**Measured 2026-08-28, and it caught me while writing the Slice spec.** The same
 scan, seconds apart:
 
 | | `merged` | `open` |
@@ -326,7 +326,7 @@ its PR (§2).
 
 | relation | mechanism | state |
 |---|---|---|
-| Wave → Branch | `(Branch: x)` in the heading | **built** — the wave owns it |
+| Slice → Branch | `(Branch: x)` in the heading | **built** — the slice owns it |
 | Branch → PR | annotation **+** the host, joined by head | **built, but flattened** in the record — see §3 |
 | **Agent → Branch** | the manifest, or the worker in its worktree | **built** — via `worker_*`, see below |
 | Branch → Worktree | `git worktree list` | **built** — `local_worktree` |
@@ -336,11 +336,11 @@ This spec stated it as `Branch → Agent` until the stage-1 review, against the
 rule [Agent §6](DESIGN-agent.md#6-relations) and
 [Worktree §6](DESIGN-worktree.md#6-relations) both bold: *the agent owns its
 desk*. A branch does not acquire a worker; **an agent takes a branch, works it,
-and asks for the next one** — which is why `Agent → Wave` is one-at-a-time over
+and asks for the next one** — which is why `Agent → Slice` is one-at-a-time over
 *time* rather than a set. The five `worker_*` fields on a branch row are the
 projection of that arrow, not evidence of its direction (§3).
 
-**A branch belongs to exactly one wave**, and two plans naming it is the
+**A branch belongs to exactly one slice**, and two plans naming it is the
 `double-claimed` defect — *"the same shape as `conflict` one level up: that one
 is two branches disagreeing about a file, this is two plans disagreeing about a
 branch."*
@@ -367,7 +367,7 @@ annotated instead.
 
 ## 8. Scope
 
-**A branch is a plan's if a wave names it.** The scan reads plans, collects
+**A branch is a plan's if a slice names it.** The scan reads plans, collects
 branch names, and asks git about each — so a ref that no plan names is invisible
 to the fleet, however much work it holds.
 
@@ -450,7 +450,7 @@ under `## Branches` parses at all (Plan §6).
 3. **A branch's state is as fresh as the last fetch**, and the footer says so.
 4. **`conflicts` is meaningless without `conflicts_known`.**
 5. **Plot never merges and never deletes a remote ref.**
-6. **A branch belongs to one wave**; two plans naming it is `double-claimed`.
+6. **A branch belongs to one slice**; two plans naming it is `double-claimed`.
 7. **`deferred` comes from the plan, not from git.**
 
 ### Open points

@@ -15,7 +15,7 @@ it is working on.
 > **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
 >
 > **Companions:** [Entities](DESIGN-entities.md) · [Worktree](DESIGN-worktree.md) ·
-> [Branch](DESIGN-branch.md) · [Wave](DESIGN-wave.md) · [Plan](DESIGN-plan.md)
+> [Branch](DESIGN-branch.md) · [Slice](DESIGN-slice.md) · [Plan](DESIGN-plan.md)
 
 ## Contents
 
@@ -26,7 +26,7 @@ it is working on.
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
 | 4 | [Lifecycle](#4-lifecycle) | eight states, three models |
 | 5 | [Direction](#5-direction) | none |
-| 6 | [Relations](#6-relations) | Worktree · Branch · Wave · Person |
+| 6 | [Relations](#6-relations) | Worktree · Branch · Slice · Person |
 | 7 | [Actions](#7-actions) | dispatch · restart · stop · rescue |
 | 8 | [Scope](#8-scope) | which agents are the fleet's |
 | 9 | [The collaborators](#9-the-collaborators) | a Registry that owns, a Monitor that watches |
@@ -55,21 +55,21 @@ outlives the branch it is working on.**
 most are the ones no worktree can express: an agent between branches, and an
 agent that stopped to ask."*
 
-### The unit of work is a Wave
+### The unit of work is a Slice
 
-**An agent's unit of work is one wave**, and the fleet's shape follows from it:
+**An agent's unit of work is one slice**, and the fleet's shape follows from it:
 
 ```
 registry  ──provides──►  agents
-agent     ──takes────►   a wave        (its unit of work)
+agent     ──takes────►   a slice        (its unit of work)
 agent     ──owns─────►   a worktree    (its desk, while it lives)
-wave merged ─────────►   agent and desk are FREE for the next unit
+slice merged ─────────►   agent and desk are FREE for the next unit
 ```
 
-**The code is branch-granular and the model is wave-granular**, and at the
-intended shape they coincide: *plan → \* wave → **1** branch* (Wave §8). Where
-they diverge — the 21 waves holding several branches — the agent takes a branch
-and the wave is not the unit it was meant to be.
+**The code is branch-granular and the model is slice-granular**, and at the
+intended shape they coincide: *plan → \* slice → **1** branch* (Slice §8). Where
+they diverge — the 21 slices holding several branches — the agent takes a branch
+and the slice is not the unit it was meant to be.
 
 ### An agent takes a *next* unit, and the loop already does this
 
@@ -92,7 +92,7 @@ git worktree add -b "$next_branch" "$new_wt" "origin/$main_branch"
 ```
 
 **So the desk is per-branch, not per-agent.** An agent that completes three
-waves creates three worktrees, and the loop removes the previous one *"and tries
+slices creates three worktrees, and the loop removes the previous one *"and tries
 `--next` again"* — but only on its own success path.
 
 **That is where the 13 dead trees come from** (§3): each is a desk an agent
@@ -183,7 +183,7 @@ gives it a new pid in the same tree.
 |---|---|---|---|
 | `session` | string | manifest | **the identity** — also the transcript's name |
 | `identity` **`+`** | `manifest`\|`synthesized` | **manifest presence** | **proposed** — see below |
-| `branch` | string | manifest / worktree | `''` between waves is **a real value** |
+| `branch` | string | manifest / worktree | `''` between slices is **a real value** |
 | `worktree` | path | manifest / `git worktree list` | its desk |
 | `command` | string | manifest | the `Worker command` as launched, verbatim |
 | `startedAt` | ISO-8601 | manifest | launch moment |
@@ -191,7 +191,7 @@ gives it a new pid in the same tree.
 | `previousPid` | string | manifest | what this run displaced; `''` on a first dispatch |
 | `relaunches` | number | manifest | how often this desk's worker was relaunched |
 | `state` | 8 values | pid + exit + tree | **the process** — see §4 |
-| `isFree` **`+`** | bool | `state` + its wave | **proposed** — can it take a unit (§4) |
+| `isFree` **`+`** | bool | `state` + its slice | **proposed** — can it take a unit (§4) |
 | `activity` | `working`\|`idle`\|`''` | descendant CPU | **a cue on `running` only** |
 | `exitCode` | number \| null | `.plot-worker.exit` | recorded, never inferred |
 | `dirtyPaths` | string[] | the worktree | what a `stalled` agent left |
@@ -293,21 +293,21 @@ and no state answers it.
 | | asks | answered by |
 |---|---|---|
 | `state` | what is the **process** doing | the pid, the exit code, the tree |
-| **availability** | can this agent **take a wave** | the state **plus its wave** |
+| **availability** | can this agent **take a slice** | the state **plus its slice** |
 
 **They come apart in both directions:**
 
-- **`running` is not "busy".** An agent between units — one that finished a wave
+- **`running` is not "busy".** An agent between units — one that finished a slice
   and is asking `--next` — is `running` and has no branch. It is available.
 - **`finished` is not "free".** Its worker exited; under the model the agent and
   its desk *become* free (§1), but nothing marks the transition, and today the
   desk is abandoned instead (§1's divergence).
 
-**So `free` is derived, not stored** — the same shape as a Wave's verdict:
+**So `free` is derived, not stored** — the same shape as a Slice's verdict:
 
 ```
 agent.isFree = state is live
-             ∧ its wave has merged (or it holds none)
+             ∧ its slice has merged (or it holds none)
 ```
 
 #### The board already collapses eight into two, for a different question
@@ -318,7 +318,7 @@ everything else is not live. **But that is occupancy, not availability.** A
 nothing.
 
 **Which is why `liveAgentCount` is the right denominator for the cap** (§10) and
-the wrong answer to *who can take this wave*.
+the wrong answer to *who can take this slice*.
 
 #### Three questions, three answers
 
@@ -328,7 +328,7 @@ the wrong answer to *who can take this wave*.
 | does it hold a machine? | **live** — `running` \| `waiting` |
 | can it take work? | **free** — **unmodelled** |
 
-**The third is what the registry needs to place a wave**, and it is the one
+**The third is what the registry needs to place a slice**, and it is the one
 nothing computes.
 
 ### `activity` is a cue, never a ninth state
@@ -338,7 +338,7 @@ child's CPU, not the shell's**, because the loop shell waits on its child and
 burns near-zero CPU in every case.
 
 **Measured 2026-08-25:** `running` covered *"a worker mid-thought, a worker
-between waves, and a worker whose child had crashed hours earlier while the loop
+between slices, and a worker whose child had crashed hours earlier while the loop
 waited on it, with **11 of 13** in that last, worst case."*
 
 ---
@@ -355,7 +355,7 @@ waited on it, with **11 of 13** in that last, worst case."*
 |---|---|---|
 | **Agent → Worktree** | the manifest | **built** — the agent owns its desk |
 | Agent → Branch | the manifest, or the tree's checkout | **built** — and **optional** |
-| Agent → Wave | via its branch | derived |
+| Agent → Slice | via its branch | derived |
 | Agent → Person | **none** | — |
 
 **An Agent is not a Person** (entities §1c): a Person is a human a record names;
@@ -432,7 +432,7 @@ agent is the thing that would give it a desk.
 | | |
 |---|---|
 | **provide** | a bounded number of agents (`parallelAgents`, entities §Elastic) |
-| **place** | a wave onto a free agent (§4 — `free`, currently unmodelled) |
+| **place** | a slice onto a free agent (§4 — `free`, currently unmodelled) |
 | **pair** | a desk with every agent, and neither outliving the other |
 | **retire** | an agent whose work is done, with its desk |
 | **attach** | a monitor, at creation |
@@ -541,7 +541,7 @@ board may be served from a different worktree than the dispatcher writes to.
 | 4 | **No `machineAtDeath`** — `exit 124` reads as agent failure | now |
 | 5 | `worker_*` duplicated onto branch rows | now |
 | 6 | **The desk is per branch, not per agent** — an agent creates a new worktree per unit and removes the old one only on its own success path | **now, measured** |
-| 6b | **No agent state says *free*** — eight describe the process, none says whether it can take a wave | **now** |
+| 6b | **No agent state says *free*** — eight describe the process, none says whether it can take a slice | **now** |
 | 7 | **The registry enforces neither invariant** — not *every agent has a worktree*, nor *no worktree is left behind* | **now, measured** |
 | 8 | **The registry only READS** — `readAgentRegistry` is a pure function over a directory, while `start_worker` in `plot-dispatch.sh` creates agents | **now** |
 | 9 | **No `AgentMonitor`** — nothing is attached at creation, so a death is noticed on the next pulse and `machineAtDeath` is unknowable | **now** |
@@ -566,8 +566,8 @@ nothing reaping them (Worktree §13).
 6. **`activity` is a cue on `running`, never a ninth state.**
 7. **Liveness is resolved in one batch per pulse.**
 8. **A synthesized entry is a defect, not a category.**
-9. **An agent's unit of work is a wave**, and it is free for the next one once
-   that wave has merged.
+9. **An agent's unit of work is a slice**, and it is free for the next one once
+   that slice has merged.
 10. **The registry guarantees the pairing** — every agent has a desk, and no
    desk outlives its agent.
 11. **Every agent gets a monitor at creation**, and it reports to the master

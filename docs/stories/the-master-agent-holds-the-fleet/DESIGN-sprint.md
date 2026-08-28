@@ -181,7 +181,7 @@ Measured across all four sprint files, 81 items:
 | **malformed line**, but name a plan | **6** |
 | genuinely not a plan | **3** |
 
-**The six are a typo, not a category.** They read `- [a-startable-wave-says-so]
+**The six are a typo, not a category.** They read `- [a-startable-slice-says-so]
 …` — missing the checkbox, so the line is `- [slug]` rather than `- [ ] [slug]`.
 All six resolve to real plan files. That is a lint finding, and one nothing
 currently makes.

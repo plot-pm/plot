@@ -466,8 +466,8 @@ row adds `kind: 'issue'` and `ageMinutes`; it adds nothing else.
 **Correction, 2026-08-28.** An earlier draft of this section listed
 `IssueRowSchema`'s fields as the entity's properties. That was wrong:
 **`IssueRow` is a VIEW, not a domain model.** It sits in `RowKindSchema`'s list
-of seven — `ticket`, `plan`, `pr`, `build`, `agent`, `branch`, `release`,
-`wave` — which is a *rendering* taxonomy, and its `kind: 'ticket'` field exists
+of eight — `ticket`, `plan`, `pr`, `build`, `agent`, `branch`, `release`,
+`wave` (the enum's own spelling, unrenamed) — which is a *rendering* taxonomy, and its `kind: 'ticket'` field exists
 so *"one row component can read slot 2 from the data."* A domain object does not
 carry a field naming which component draws it.
 

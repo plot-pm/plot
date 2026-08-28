@@ -26,12 +26,12 @@ around.
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
 | 4 | [Lifecycle](#4-lifecycle) | seven plan states, and the workflow phases they map into |
 | 5 | [Direction](#5-direction--inbound-outbound-and-neither) | inbound from a ticket · outbound unbuilt · neither, the majority |
-| 6 | [Relations](#6-relations) | Story · Issue · Sprint · Wave · Branch · PR |
+| 6 | [Relations](#6-relations) | Story · Issue · Sprint · Slice · Branch · PR |
 | 7 | [Actions](#7-actions) | lifecycle acts, and the quality acts beside them |
 | 8 | [Scope](#8-scope) | which plans are shown, and the rolling window |
 | 9 | [The collaborators](#9-the-collaborators) | the parser is the contract |
 | 10 | [Fleet control](#10-fleet-control) | the one entity the CLI serves well |
-| 11 | [Views](#11-views) | card · row · wave · plan head |
+| 11 | [Views](#11-views) | card · row · slice · plan head |
 | 12 | [Setup](#12-setup) | what adoption declares |
 | 13 | [The shape the format should take](#13-the-shape-the-format-should-take) | **designing forward** — front matter, and a Qualities section |
 | 14 | [Gaps](#14-gaps) |  |
@@ -182,8 +182,8 @@ which is the difference between a field that exists and one that is used.
 | `story` | slug | **121** | most plans belong to a story |
 | `assignee` | handle | 50 | |
 | `issues[]` | numbers | **4** | 2% — see §5 |
-| `branches[]` | strings | 155 | **flattened from `waves[]`** — see below |
-| `waves[]` | objects | 155 | **the only field that keeps the structure** |
+| `branches[]` | strings | 155 | **flattened from `slices[]`** — see below |
+| `slices[]` | objects | 155 | **the only field that keeps the structure** |
 | `prs[]` | numbers | 136 | **flattened past the branch it belongs to** |
 | `malformed_prs[]` | strings | **0** | near-misses; none in this estate |
 | `changelog[]` | strings | 91 | **what a plan changes** |
@@ -478,12 +478,12 @@ says and does not judge it. The judgement belongs to a gate: *a plan's branch
 set should contain no idea branch*, which is exactly the kind of structural
 check `plot-reconcile-scan.sh` already makes.
 
-### Waves hold branches; branches hold PRs — and the record flattens both
+### Slices hold branches; branches hold PRs — and the record flattens both
 
 **Yes, and the flat arrays are the clearest case for a domain object in this
 document.**
 
-The plan file states the containment in **one line per wave**:
+The plan file states the containment in **one line per slice**:
 
 ```markdown
 ### Truth (Branch: feature/rows-mark-real-activity, PR: #182)
@@ -497,10 +497,10 @@ separate arrays**:
 "branches": ["feature/activity-marker-glows", "feature/group-shows-inner-activity",
              "feature/rows-mark-real-activity", "feature/unpushed-work-shows-still"],
 "prs":      [182, 189, 199, 201],
-"waves":    [{"name":"Truth","branches":[{"branch":"feature/rows-mark-real-activity"}]}, …]
+"slices":    [{"name":"Truth","branches":[{"branch":"feature/rows-mark-real-activity"}]}, …]
 ```
 
-**`waves[]` is the only one that keeps the structure.** `branches[]` is the same
+**`slices[]` is the only one that keeps the structure.** `branches[]` is the same
 set flattened and sorted; `prs[]` is flattened further still, and **nothing in
 it says which branch each PR belongs to.**
 
@@ -520,7 +520,7 @@ before anything downstream can use it.
 
 ```
 Plan
- └── waves[]          Wave   name, verdict
+ └── slices[]          Slice   name, verdict
       └── branches[]  Branch name, deferred, claimed
            └── prs[]  PR     number, repo
 ```
@@ -539,9 +539,9 @@ from them is impossible.
 
 #### Why it is emitted flat today
 
-**Because the record is JSON lines from a shell parser.** `waves[]` already
+**Because the record is JSON lines from a shell parser.** `slices[]` already
 proves the format can carry nesting, so this is not a limitation — it is that
-`branches` and `prs` predate `waves` and were never re-expressed in terms of it.
+`branches` and `prs` predate `slices` and were never re-expressed in terms of it.
 
 The parser's own docs say the two dialects *"emit the same array"* deliberately,
 so a migration reading one file at a time never sees a plan go empty. **That
@@ -554,7 +554,7 @@ which is flattened past the point where either dialect could reconstruct it.
 
 **`branches[]` has no board consumer at all.** Every one iterates the structure
 instead — `agent-panel.ts:82`, and `auto-dispatch.ts` at lines 247, 293, 327,
-348 and 434, all `for (const b of wave.branches)`.
+348 and 434, all `for (const b of slice.branches)`.
 
 **`meta.prs` has one:** `board.ts:1323` maps it to `CardPr`. (Other `.prs` hits
 are `entry.prs`, the host's PR map — a different thing entirely.)
@@ -589,7 +589,7 @@ script's worth of work to undo it**.
 ##### What replaces them
 
 ```ts
-plan.branches      // derived: waves.flatMap(w => w.branches)
+plan.branches      // derived: slices.flatMap(w => w.branches)
 plan.prs           // derived: branches.flatMap(b => b.prs)
 branch.prs         // the association, never lost
 plan.wave(branch)  // the other direction
@@ -606,13 +606,13 @@ structure; the one that does not is a single `.map()`; and the shell path
 improves rather than breaks, since `branch.prs` is what
 `plot-impl-status.sh` was reconstructing.
 
-#### The one-wave-one-branch model makes this worse, not better
+#### The one-slice-one-branch model makes this worse, not better
 
-The settled model is *plan → \* wave → **1** branch* — so in the intended shape
-each wave holds exactly one branch and one PR, and `branches[]` and `prs[]`
+The settled model is *plan → \* slice → **1** branch* — so in the intended shape
+each slice holds exactly one branch and one PR, and `branches[]` and `prs[]`
 would be parallel by construction.
 
-**They are not, because 8 waves hold several branches** (§6). So the flattening
+**They are not, because 8 slices hold several branches** (§6). So the flattening
 is only safe under a model the estate violates — and it is exactly the plans
 that violate it whose arrays are most misleading.
 
@@ -640,7 +640,7 @@ present."*
 | a slug field | derived from the filename; a second copy would drift |
 | plan → story back-reference | the plan declares `Story:`; the story does not list plans |
 | branch state | git's, read per pulse — a plan says which branches, never how they are doing |
-| progress % | a plan's progress is its waves' verdicts, derived |
+| progress % | a plan's progress is its slices' verdicts, derived |
 
 ---
 
@@ -920,8 +920,8 @@ it.
 | Plan → **Story** | plan declares | `Story: <slug>` | **built** |
 | Plan → **Issue** | plan declares | `Issue: #N` | **built, one-way** (Issue §13 gap 3) |
 | Plan → **Sprint** | plan declares | `Sprint: <slug>` | **built** |
-| Plan → **Wave** | contains | `## Waves` headings | **built** |
-| Wave → **Branch** | contains | `Branch:` in a heading | **built, 1:1 intended** |
+| Plan → **Slice** | contains | `## Waves` headings | **built** |
+| Slice → **Branch** | contains | `Branch:` in a heading | **built, 1:1 intended** |
 | Branch → **PR** | annotation | `→ #N` | **built** |
 | Plan → **Release** | record | `Released:` + git tag | **built** |
 
@@ -934,9 +934,9 @@ recomputed by reading every plan file.
 one batched invocation. The benefit is that no copy can drift, which is the
 lesson this repo has learned repeatedly and expensively.
 
-**One wave, one branch** is the model settled 2026-08-21 — *plan → \* wave →
-1 branch* — and the estate disagrees: 49 waves hold one branch, 8 hold more, 7
-of those 8 already complete. `unsliced-wave` is the reported defect.
+**One slice, one branch** is the model settled 2026-08-21 — *plan → \* slice →
+1 branch* — and the estate disagrees: 49 slices hold one branch, 8 hold more, 7
+of those 8 already complete. `unsliced-slice` is the reported defect.
 
 ---
 
@@ -960,7 +960,7 @@ plan's content and not its state.
 | **Reslice** | lifecycle | `/plot-reslice` | rewrites `## Branches` only, after a person confirms |
 
 **Reslice is the odd lifecycle act**: it changes the plan's shape rather than
-its state, and needs a person's confirmation because naming waves is judgement.
+its state, and needs a person's confirmation because naming slices is judgement.
 It is still a lifecycle act — the branches it writes are what the fleet
 dispatches against.
 
@@ -1089,7 +1089,7 @@ the pattern Issue and Story both show.
 |---|---|---|
 | parse a plan | `plot-plan-meta.sh` | via the same |
 | which plan governs this branch | `plot-context.sh` | — |
-| wave/claim state | `plot-fleet-scan.sh` | consumes its pulse |
+| slice/claim state | `plot-fleet-scan.sh` | consumes its pulse |
 | drift across the estate | `plot-reconcile-scan.sh` | — |
 | merge order + collisions | `plot-merge-queue.sh` | — |
 | deliverable plans | `plot-impl-status.sh` | — |
@@ -1107,9 +1107,9 @@ the tooling grew where the acting happens.
 
 | view | where | shows |
 |---|---|---|
-| **card** | a board column | title, type, waves, PRs, sprint, story |
-| **plan head** | grouped fleet rows | the plan above its waves, with actions |
-| **wave row** | fleet | one wave, its verdict, its branches |
+| **card** | a board column | title, type, slices, PRs, sprint, story |
+| **plan head** | grouped fleet rows | the plan above its slices, with actions |
+| **slice row** | fleet | one slice, its verdict, its branches |
 | **branch row** | fleet | state, worker, PR, age |
 | **plan page** | `/plan/<file>` | the file, rendered |
 
@@ -1414,7 +1414,7 @@ the manifesto's ceremony principle exists to avoid.
 |---|---|---|
 | 1 | **Outcomes are undocumented** — `superseded` is used by 3 plans and named nowhere in CLAUDE.md; `design` is a real phase the four-phase list omits | **now** |
 | 2 | **Plan → Issue is one-way** — `issues[]` is parsed, consumed as a set membership test, and never surfaced | **now** (Issue §13) |
-| 3 | **`unsliced-wave`** — 8 waves hold several branches against a 1:1 model | now, reported |
+| 3 | **`unsliced-slice`** — 8 slices hold several branches against a 1:1 model | now, reported |
 | 4 | **`docs` type unused** — 0 of 158; either it is dead or docs plans are being mistyped | cosmetic |
 | 5 | **`plot-reap.sh` reads `mergedAt` via `gh` directly**, bypassing the host adapter | now |
 
@@ -1456,5 +1456,5 @@ three plans are in exactly that state.
 - **Is `docs` a dead type?** Zero of 158 plans use it.
 - **Where do a plan's qualities go?** The template has no NFR section, so they
   land in `Design` or `Done when` by improvisation (Story §1).
-- **Does the one-wave-one-branch model get enforced or relaxed?** Eight waves
+- **Does the one-slice-one-branch model get enforced or relaxed?** Eight slices
   disagree with it and seven of those already shipped.
