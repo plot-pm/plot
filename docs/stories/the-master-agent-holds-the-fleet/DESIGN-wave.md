@@ -22,20 +22,24 @@ slices.
 | § | section | answers |
 |---|---|---|
 | 1 | [What a Wave is](#1-what-a-wave-is) | the slice, and the ordering |
-| 2 | [The domain object](#2-the-domain-object) | **the normative spec** |
-| 3 | [The verdict](#3-the-verdict) | four words, and why none is a state |
-| 4 | [Relations](#4-relations) | Plan · Branch · Worker |
-| 5 | [Actions](#5-actions) | dispatch · reslice |
-| 6 | [Scope](#6-scope) | one wave, one branch — and the 21 that disagree |
-| 7 | [The collaborators](#7-the-collaborators) | the scan derives; nothing stores |
-| 8 | [Fleet control](#8-fleet-control) | the entity the fleet is built around |
-| 9 | [Views](#9-views) | the wave row, and the two arms |
-| 10 | [Gaps](#10-gaps) | |
-| 11 | [Invariants and open points](#11-invariants-and-open-points) | |
+| 2 | [Posture](#2-posture) | **nothing** — a wave has no form outside the repo |
+| 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
+| 4 | [Lifecycle](#4-lifecycle) | there is none — the verdict stands in for it |
+| 5 | [Direction](#5-direction) | none, and it is the only entity with none |
+| 6 | [Relations](#6-relations) | Plan · Branch · Worker |
+| 7 | [Actions](#7-actions) | dispatch · reslice · ask |
+| 8 | [Scope](#8-scope) | one wave, one branch — and the 32 that disagree |
+| 9 | [The collaborators](#9-the-collaborators) | the scan derives; nothing stores |
+| 10 | [Fleet control](#10-fleet-control) | the entity the fleet is built around |
+| 11 | [Views](#11-views) | the wave row, and the two arms |
+| 12 | [Setup](#12-setup) | no key, and none wanted |
+| 13 | [Gaps](#13-gaps) |  |
+| 14 | [Invariants and open points](#14-invariants-and-open-points) |  |
 
 ---
 
 ## 1. What a Wave is
+
 
 **A Wave is one slice of a plan's work, plus its place in an order.**
 
@@ -68,7 +72,38 @@ Story and Sprint are files; Issue and PR come from a host; Wave is computed.
 
 ---
 
-## 2. The domain object
+## 2. Posture
+
+
+**No posture changes what a Wave is**, and that is worth stating rather than
+omitting: a wave is the only entity here with **no representation outside the
+repo at all**.
+
+| posture | what a Wave is |
+|---|---|
+| `plot` | headings in a plan file |
+| `plot` + a tracker | **unchanged** — nothing publishes a wave |
+| `jira` leads | **unchanged** — see below |
+
+**Under publishing, a wave is invisible to the client.** A sprint publishes an
+epic and a plan publishes a feature ticket; a wave publishes nothing. The
+client sees *what is being built*, never *in which order it is being proved* —
+which is right, because the ordering is an engineering concern rather than a
+commitment.
+
+**Under `jira` leads it is the one thing that cannot project.** If the plan is a
+ticket, its waves would have to be sub-tasks with an ordering constraint — and
+a wave is not work, it is a *gate over* work. So posture 3 either loses the
+ordering or reinvents it in a tracker that has no notion of *may not start
+until*.
+
+That is a sharper version of the Story spec's objection to posture 3: a story
+loses its narrative, and a wave loses its **only reason to exist**.
+
+---
+
+## 3. The domain object
+
 
 ### Identity
 
@@ -92,7 +127,7 @@ default-wave label of its own.
 |---|---|---|
 | `name` | string | `''` for the default wave — 5 of 303 |
 | `plan` | Plan | the owner; the name means nothing without it |
-| `branches[]` | Branch[] | **1 in 271 of 303** — see §6 |
+| `branches[]` | Branch[] | **1 in 271 of 303** — see §8 |
 | `index` | number | position among its plan's waves — **the ordering** |
 
 **No verdict field.** The verdict is derived (§3), and storing it would be the
@@ -111,7 +146,19 @@ bears the rule out: `Implementation` 19, `Counted` 11, `Named` 9, `Offered` 5,
 
 ---
 
-## 3. The verdict
+## 4. Lifecycle
+
+
+**A wave has no lifecycle, and the verdict is what stands in for one.**
+
+That is the entity's defining property, stated here because every neighbouring
+spec has a lifecycle section and this one's answer is *no*: a Plan moves through
+states written into its file, a Sprint likewise, a Story likewise. **A wave is
+never written to and never transitions.** It is re-derived every pulse, and what
+looks like movement is a branch elsewhere changing.
+
+So the verdict is not a lifecycle in disguise — it is a **reading**, and the
+four words are what a reader may do with it.
 
 Four words, and the contract states what a reader may **do** with each:
 
@@ -159,7 +206,28 @@ A flag that would silently degrade to *assume ready* is instead refused.
 
 ---
 
-## 4. Relations
+## 5. Direction
+
+
+**A wave has no direction**, and it is the only entity here with none.
+
+| | |
+|---|---|
+| inbound | **impossible** — nothing outside the repo describes a wave |
+| outbound | **nothing publishes one** (§2) |
+| neither | **always** — a wave exists because a plan was sliced |
+
+**A wave is created only by slicing**, never by conversion. `/plot-idea` writes
+the headings, or `/plot-reslice` rewrites them; there is no ticket, no
+discussion and no external artefact a wave can come from.
+
+That follows from §2: an entity with no representation outside the repo cannot
+have a direction, because direction is a statement about crossing that boundary.
+
+---
+
+## 6. Relations
+
 
 | relation | mechanism | state |
 |---|---|---|
@@ -174,7 +242,8 @@ is simple and it is also fragile: reordering the headings reorders the gate.
 
 ---
 
-## 5. Actions
+## 7. Actions
+
 
 | action | who | what |
 |---|---|---|
@@ -190,7 +259,8 @@ for the new waves, and naming is judgement."*
 
 ---
 
-## 6. Scope
+## 8. Scope
+
 
 ### One wave, one branch — and the 32 that disagree
 
@@ -246,7 +316,8 @@ an authoring convention, and only the 2 want a wave-shape check.
 
 ---
 
-## 7. The collaborators
+## 9. The collaborators
+
 
 **One, and it derives rather than stores:** `plot-fleet-scan.sh`.
 
@@ -259,7 +330,8 @@ every pass.
 
 ---
 
-## 8. Fleet control
+## 10. Fleet control
+
 
 **Wave is the entity the fleet is built around**, and the tooling shows it:
 
@@ -278,7 +350,8 @@ cannot go stale"*).
 
 ---
 
-## 9. Views
+## 11. Views
+
 
 | view | shows |
 |---|---|
@@ -292,7 +365,24 @@ right verdict in the wrong place.
 
 ---
 
-## 10. Gaps
+## 12. Setup
+
+
+**No config key, and none is wanted.**
+
+A wave is structure inside a plan file, so it inherits everything: `Plan
+directory` locates the file, `Branch prefixes` decides what parses as a branch
+name, and nothing else applies. There is no `Wave directory` to declare and no
+wave-shaped behaviour to configure.
+
+**The one thing adoption should know is the model** — *one wave, one branch* —
+and that is documentation rather than configuration. A repo cannot opt out of
+it; 21 waves here disagree with it and the scan reports them (§8).
+
+---
+
+## 13. Gaps
+
 
 | # | gap | reachable |
 |---|---|---|
@@ -309,7 +399,8 @@ nothing catches none.
 
 ---
 
-## 11. Invariants and open points
+## 14. Invariants and open points
+
 
 ### Invariants
 
