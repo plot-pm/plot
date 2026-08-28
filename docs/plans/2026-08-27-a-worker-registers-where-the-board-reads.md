@@ -200,7 +200,7 @@ refuse worktrees it currently serves.
 
 ### Gated
 
-- `bug/an-unregistered-worker-does-not-start` — the manifest is asserted at the resolved path BEFORE the spawn, and a branch whose manifest cannot be written is not launched. Tests: a write failure spawns no worker at all and names the path it could not write; the ordinary path is unaffected and reports nothing; `/api/continue`'s tolerance of a manifest-less older worktree is unchanged
+- `bug/an-unregistered-worker-does-not-start` — the manifest is asserted at the resolved path BEFORE the spawn, and a branch whose manifest cannot be written is not launched. Tests: a write failure spawns no worker at all and names the path it could not write; the ordinary path is unaffected and reports nothing; `/api/continue`'s tolerance of a manifest-less older worktree is unchanged → #496
 
 ## Done when
 
