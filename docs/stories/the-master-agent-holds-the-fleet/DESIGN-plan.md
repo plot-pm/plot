@@ -118,14 +118,37 @@ and this is its reading.
 ### Identity
 
 ```
-Plan.file : path
+Plan.slug : string          the identity
+Plan.file : path            where it currently lives
 ```
 
-The file path, and nothing else. A plan has **no slug field**: the slug is a
-convention read out of the filename (`YYYY-MM-DD-<slug>.md`), and consumers
-resolve a slug to a file by trying the dated name, then `active/`, then
-`delivered/` — the precedence `plot-approve.sh`, `plot-deliver.sh`,
-`plot-dispatch.sh` and `plot-fleet-scan.sh` all share.
+**Corrected 2026-08-28.** An earlier draft said the identity *is* the file
+path, which described the implementation rather than the identity — and made
+Plan and Story answer the same question differently for no reason.
+
+**Both entities are identified by their slug.** What differs is how expensively
+a slug resolves to a file:
+
+| | slug → file | why |
+|---|---|---|
+| **Story** | `<slug>/STORY-<slug>.md` — **direct** | the slug IS the directory name |
+| **Plan** | try `docs/plans/*<slug>.md`, then `active/<slug>.md`, then `delivered/<slug>.md` | the filename carries a **date** the slug does not know |
+
+A plan's file is `YYYY-MM-DD-<slug>.md`, so the slug alone cannot name it — and
+the two index directories may hold symlinks under the bare slug. Hence the
+three-step precedence that `plot-approve.sh`, `plot-deliver.sh`,
+`plot-dispatch.sh` and `plot-fleet-scan.sh` all share, *"so a slug resolves
+identically whoever is asking."*
+
+**The slug is unique in practice and unenforced.** Measured 2026-08-28: **158
+plans, zero duplicate slugs.** Nothing checks it — two plans could take the same
+slug on different dates, and the precedence above would silently resolve to
+whichever the glob returned first. That has not happened here, and nothing
+prevents it.
+
+**`file` is carried rather than derived**, for the same reason `StoryCard.path`
+is: the resolution encodes a convention, and rebuilding it in a consumer means
+encoding that convention twice and letting the copies drift.
 
 **The index directories are not identity.** A plan with no symlink is a valid
 plan; `/plot-deliver` treats the index move as best-effort for exactly this
