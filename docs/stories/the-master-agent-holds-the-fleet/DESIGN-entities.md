@@ -699,6 +699,32 @@ an empty one (which claims the inbox is clear).
 **4. Degrade, never refuse.** It is a read controller: a failure keeps the last
 good list and marks it stale. The write controllers beside it do the opposite.
 
+##### Which issues reach the board — the whole filter
+
+Four stages, and **only one of them is Plot's own judgement**. Stated together
+because they are currently spread across the adapter, the monitor and a
+constant, and no single place says what a reader is looking at.
+
+| # | stage | decided by | today |
+|---|---|---|---|
+| 1 | **open** | the tracker | `--state open` / `resolution = EMPTY` |
+| 2 | **scope** — whose issues | the tracker query | **per-arm, undeclared** ← the gap |
+| 3 | **unplanned** | the plan estate | `− referenced(every plan file)` |
+| 4 | **limit** | `ISSUE_LIMIT = 50` | **truncates silently** ← gap 2 |
+
+Stage 3 is the only one Plot decides, and it is a set difference with no
+judgement in it. There is deliberately **no ranking, no relevance scoring and no
+sorting** beyond the tracker's own order: the single question is *is this worth
+a plan?*, and that is a reader's call made from the title. A score here would be
+the same mistake `plot-sprint-candidates.sh` refuses to make — *"which plans
+serve a stated goal is the semantic judgement"* — and it would rank by whatever
+a shell can compute rather than by what matters.
+
+Two of the four stages are unsound as they stand, and both fail the same way:
+**a filter the reader cannot see.** Stage 2 differs per tracker without saying
+so; stage 4 removes rows without saying so. A filter is honest only when its
+result carries what it excluded.
+
 ##### What "matching" means — and the asymmetry to fix
 
 The monitor shows *open issues no plan references*. But **what counts as open is
@@ -732,6 +758,90 @@ behaviour until a repo says otherwise. Two properties follow:
 - **A truncated list says so.** *Showing 50 of N* is a different claim from
   *there are 50*, and the entity is scrupulous about that distinction
   everywhere else.
+
+#### Setting an `IssueTracker` up
+
+**`/plot-board-setup` already asks**, and its handling is the model this design
+should not disturb. Three properties worth keeping:
+
+1. **Propose from evidence, never from a default.** `plot-detect-repo.sh`
+   reports a `ticket_prefix`, and a repeated one is proposed *with the count
+   shown*: — *"Found `QUACDS-*` in 6 of 80 commit subjects → propose
+   `Tracker: jira`."*
+2. **Absence is not evidence.** An empty `ticket_prefix` *"is not evidence
+   against a tracker"*, so setup **asks** rather than proposing `Tracker: none`.
+3. **Unanswered means unwritten.** Under `PLOT_UNATTENDED` it refuses and
+   discloses, rather than guessing:
+
+   > `PLOT-UNASKED: which tracker — refused — no Tracker key written; inbox
+   > source unverified`
+
+   The reasoning is exactly this entity's: *"a wrong `Tracker: jira` sends
+   `issue-list` to the wrong system, which answers with somebody else's
+   backlog."*
+
+**What setup does not yet ask is `scope`** — and it is the same class of
+question, with the same failure if guessed. It belongs beside the tracker
+question, proposed from the same evidence:
+
+| signal | propose |
+|---|---|
+| a personal or small repo | `scope: all` — every open issue is plausibly yours |
+| a shared team tracker (a `ticket_prefix` with many authors) | `scope: mine` |
+| no signal | **ask**, and refuse unattended, as the tracker question already does |
+
+Setup should also **prove the connector answers**, the way it already proves the
+board serves. A `Tracker:` written but never exercised is the shape
+`plot-board-probe.sh` exists to prevent elsewhere: one `issue-list --limit 1`
+distinguishes *configured* from *working*, and reports `ok` / `failed` /
+`unsupported` — never *assumed*.
+
+#### Mapping a Sprint to an epic
+
+**Derive it; do not store it.** A sprint carries plans, and a plan carries
+`Issue:` — so the sprint-to-epic relation already exists as a union over the
+sprint's members:
+
+```
+sprint  →  its plans  →  their Issue: refs  →  the epic they share
+```
+
+Nothing new is written. This is the same shape `plot-sprint-release.sh` uses to
+derive a release's contents from plan phases rather than from a stored list, and
+the reason is this repo's most repeated lesson: **the copies are what drift.**
+An `Epic:` field on the sprint file would be a second source of truth about a
+fact the plans already state, and it would go stale the first time a plan joined
+or left the sprint.
+
+Verified 2026-08-28: `Issue:` is parsed on **plans only** — no sprint file in
+this repo carries a ticket reference, and `plot-plan-meta.sh` has no sprint-level
+issue field. So the derivation is the *only* mapping there is, and the question
+is whether to surface it rather than whether to build it.
+
+What a reader would get from surfacing it:
+
+- **A sprint's tracker footprint** — *this timebox answers PROJ-100, PROJ-104*
+  — computed, always current, and free once `meta.issues` stops being discarded
+  (gap 3).
+- **The inverse, which is the useful direction under `Tracker: jira`:** *which
+  sprint is working on PROJ-100?* That is what a PM asks, and it is the same
+  index read the other way.
+
+Two things this must not become:
+
+- **Not a sprint field.** `Sprint: <name>` on a plan and `Issue:` on a plan are
+  enough; a third annotation would need maintaining in a file nobody re-reads.
+- **Not an epic→sprint import.** Plot does not read a Jira epic's children and
+  create plans from them. `story-tracking` already rules that a well-described
+  ticket *stays* the umbrella, and the manifesto keeps issues as signals rather
+  than commitments. The mapping is a **report about what was decided**, never a
+  queue to work through.
+
+**One honest limit.** A plan cites its `Issue:` as a flat list; nothing says
+whether `PROJ-100` is an epic or a sibling ticket. Distinguishing *the epic this
+sprint serves* from *the tickets it closes* needs the `kind` field this design
+has so far deferred — which is the first concrete consumer for it, and the
+argument to reconsider.
 
 #### Why three and not one
 
