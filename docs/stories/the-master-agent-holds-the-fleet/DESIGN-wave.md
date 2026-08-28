@@ -191,20 +191,61 @@ wave that cannot be told from its sibling is a row that flashes.
 | `plan` | Plan | the owner; the name means nothing without it |
 | `branches[]` | Branch[] | **1 in 271 of 303** — see §8 |
 | `index` | number | position among its plan's waves — **the ordering** |
+| `nameIsLabel` | derived | replaces the plan's `long_wave_names[]` — see above |
 
 **No verdict field.** The verdict is derived (§3), and storing it would be the
 error the entities doc names: a derived relation cached where it can disagree
 with its source.
 
-### Names are labels, and the parser says so
+### A name is a label — and that judgement belongs to the wave
 
-`long_wave_names[]` reports names past a threshold — *"a wave name is a label
-(`Shaped`, `Gated`, `Offered first`); a sentence-length heading is a
-plan-authoring mistake the board can only render badly."*
+**`long_wave_names[]` is a Plan field holding a verdict about its Waves**, and
+it should be a method on the wave that has the name:
 
-**Reported, never refused.** 5 plans carry one. The estate's own vocabulary
-bears the rule out: `Implementation` 19, `Counted` 11, `Named` 9, `Offered` 5,
-`Sized` 4 — one word, naming what the slice achieves.
+```ts
+wave.nameIsLabel        // false where the heading is a sentence
+plan.longWaveNames      // derived: waves.filter(w => !w.nameIsLabel)
+```
+
+The rule itself is right — *"a wave name is a label (`Shaped`, `Gated`,
+`Offered first`); a sentence-length heading is a plan-authoring mistake the
+board can only render badly"* — and **reported, never refused.** 5 plans carry
+one. The estate's vocabulary bears it out: `Implementation` 19, `Counted` 11,
+`Named` 9, `Offered` 5, `Sized` 4 — one word, naming what the slice achieves.
+
+#### It is the same flattening as `branches[]`, one level down
+
+A per-wave property is **hoisted into a plan-level list**, losing which wave it
+describes — exactly the shape the Plan spec identifies for `branches[]` and
+`prs[]`.
+
+**And it is worse than either**, because it is a **judgement rather than a
+fact**. `branches[]` at least holds real values; this holds *the subset of names
+that failed a threshold*. So the plan carries a verdict about its waves, and a
+consumer asking *"is this wave's name a label?"* must search a list of strings
+for a match.
+
+**The one consumer proves the cost.** `plot-reconcile-scan.sh:1087` reads the
+field and immediately re-pairs each name back to its file:
+
+```jq
+.long_wave_names[]? | [$f, .] | join("")
+```
+
+**It is reassembling the association the flattening removed** — the same
+`plot-impl-status.sh` pattern the Plan spec measures for `prs[]`, at smaller
+scale.
+
+#### Why the judgement is the wave's, not the plan's
+
+The threshold `LONG_WAVE_NAME_MAX` is *"set from the estate's longest legitimate
+name"* — a property of **what a wave name is for**, not of any plan. A plan has
+no opinion about name length; it merely contains waves that have names.
+
+**And it makes the finding actionable.** Today the scan reports *this plan has a
+long wave name*; a reader then opens the file and finds which. With the method,
+the wave that is wrong is the thing that says so — and it already has an
+identity to be named by (§3).
 
 ---
 
