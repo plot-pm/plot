@@ -257,9 +257,11 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // prose-name section is silent too and contributes its own zero counter.
   // sprint_drift: 0 — the fixture has no sprint files, so the section is silent.
   // stale_tally: 0 — no sprint files, so section 11 is also silent.
+  // double_claims: 0 — every branch in this fixture is named by exactly one
+  // plan, so section 12 is silent; its collision case has its own fixture.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=3 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -1679,4 +1681,226 @@ test('scan: section 11 covers CLOSED sprints, not just active ones', () => {
   // were somehow active-only, stale_tally=0 would be the silent failure.
   const footer = stReport.trim().split('\n').at(-1);
   assert.match(footer, /\bstale_tally=2\b/, 'closed sprint must produce findings');
+});
+
+// ---------------------------------------------------------------------------
+// Section 12: double-claimed branches (one branch listed by more than one plan).
+//
+// A SEVENTH fixture, minimal like the unsliced and prose ones: pure plan
+// parsing (reads the parser's waves[]), no git host, run --offline. This
+// section is the FIRST that reasons ACROSS plans rather than within one, which
+// is why it gets its own fixture rather than an assertion on the main one — the
+// live estate is expected to be nearly clean, and a section whose only evidence
+// is a clean estate is untested.
+//
+// The properties under test are the ones the plan's `## Done when` names: a
+// branch listed by two plans is reported ONCE naming both plans and their
+// waves, with a footer count; a singly-claimed branch is silent; a CITATION is
+// not a claim (the defect wave 1 removed, asserted from this side); a
+// phase-less file is not a claimant; a plan listing one branch twice is one
+// claimant, not a collision with itself; and — the property a naive
+// implementation breaks — `attention=` is unchanged by a double claim.
+// ---------------------------------------------------------------------------
+
+let dcTmp, dcRepo, dcReport, dcSections;
+
+before(() => {
+  dcTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-dc-'));
+  const origin = path.join(dcTmp, 'origin.git');
+  dcRepo = path.join(dcTmp, 'repo');
+  git(dcTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(dcTmp, 'clone', '-q', origin, dcRepo);
+  git(dcRepo, 'config', 'user.email', 'test@example.invalid');
+  git(dcRepo, 'config', 'user.name', 'Plot Test');
+  git(dcRepo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(dcRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+
+  // THE COLLISION. Two plans that each LIST `feature/contested` in a wave of
+  // their own — the real conflict this section exists to surface. Each also
+  // owns a branch nobody else claims, which must stay silent: the finding is
+  // per-branch, not per-plan.
+  w('plans/2026-03-01-first-claimant.md', `# First claimant
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Alpha
+- \`feature/first-only\` — claimed once, must stay silent
+
+### Shared
+- \`feature/contested\` — this plan lists it
+`);
+
+  w('plans/2026-03-02-second-claimant.md', `# Second claimant
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Beta
+- \`feature/second-only\` — claimed once, must stay silent
+
+### Disputed
+- \`feature/contested\` — this plan lists it too
+`);
+
+  // A CITATION, not a claim — the defect wave 1 (#490) removed, asserted from
+  // this section's side. This plan mentions `feature/contested` in a
+  // blockquote and inside its own branch line's description, exactly the two
+  // shapes the parser used to read as claims. If the anchor ever regresses,
+  // this plan joins the collision and the claimant count rises to 3.
+  w('plans/2026-03-03-citing.md', `# Citing
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+> Depends on first-claimant's \`feature/contested\` landing first, and the
+> dependency is not tidiness.
+
+### Gamma
+- \`feature/citing-own\` — waits on \`feature/contested\` before it can start
+`);
+
+  // A phase-less file — a decision log, not a plan. It LISTS `feature/contested`
+  // in claim shape, but with no Phase: it is not a claimant, the same rule
+  // sections 1, 7 and 8 apply. Without the phase filter the count would be 3.
+  w('plans/2026-03-04-notes.md', `# Worker report, not a plan
+
+## Branches
+
+### Recorded
+- \`feature/contested\` — a log naming the branch is not a plan claiming it
+`);
+
+  // ONE plan listing ONE branch in TWO waves. This is a different fault with a
+  // different repair (it is section 7/reslice territory, not ownership), and it
+  // must NOT read as a collision between a plan and itself.
+  w('plans/2026-03-05-self-repeat.md', `# Self repeat
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+### Early
+- \`feature/repeated\` — listed here
+
+### Late
+- \`feature/repeated\` — and again here, by the same plan
+`);
+
+  fs.mkdirSync(path.join(dcRepo, 'plans', 'active'), { recursive: true });
+  fs.mkdirSync(path.join(dcRepo, 'plans', 'delivered'), { recursive: true });
+  // Link every plan so index drift stays silent — keeps this fixture's footer
+  // focused on double_claims without unrelated noise.
+  for (const [link, target] of [
+    ['first-claimant.md', '../2026-03-01-first-claimant.md'],
+    ['second-claimant.md', '../2026-03-02-second-claimant.md'],
+    ['citing.md', '../2026-03-03-citing.md'],
+    ['self-repeat.md', '../2026-03-05-self-repeat.md'],
+  ]) fs.symlinkSync(target, path.join(dcRepo, 'plans', 'active', link));
+
+  git(dcRepo, 'add', '-A');
+  git(dcRepo, 'commit', '-q', '-m', 'plans');
+  git(dcRepo, 'push', '-q', 'origin', 'main');
+
+  dcReport = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: dcRepo });
+  dcSections = splitSections(dcReport);
+});
+after(() => fs.rmSync(dcTmp, { recursive: true, force: true }));
+
+test('scan: section 12 reports a doubly-claimed branch once, naming both plans and their waves', () => {
+  const hits = dcSections['12'].split('\n').filter((l) => l.includes('feature/contested') && l.includes('claimed by'));
+  assert.equal(hits.length, 1, `expected exactly one collision finding, got:\n${hits.join('\n')}`);
+  // Both plans AND the wave each lists it under — the plan line asks for both.
+  assert.match(hits[0], /first-claimant \(Shared\)/);
+  assert.match(hits[0], /second-claimant \(Disputed\)/);
+  assert.match(hits[0], /claimed by 2 plans/);
+  // And the actionable line a person runs — resolve:, not fix:.
+  assert.match(dcSections['12'], /resolve: decide which plan owns `feature\/contested`/);
+});
+
+test('scan: section 12 is silent for a branch claimed by exactly one plan', () => {
+  assert.doesNotMatch(dcSections['12'], /feature\/first-only/);
+  assert.doesNotMatch(dcSections['12'], /feature\/second-only/);
+  assert.doesNotMatch(dcSections['12'], /feature\/citing-own/);
+});
+
+test('scan: section 12 does not read a CITATION as a second claim', () => {
+  // citing.md names `feature/contested` in a blockquote AND inside its own
+  // branch line's description — the two shapes the pre-#490 matcher read as
+  // claims. It must not appear as a claimant, and the count must stay 2.
+  assert.doesNotMatch(dcSections['12'], /citing \(/);
+  const hits = dcSections['12'].split('\n').filter((l) => l.includes('claimed by'));
+  assert.match(hits[0], /claimed by 2 plans/, 'a citation must not raise the claimant count');
+});
+
+test('scan: section 12 does not treat a phase-less file as a claimant', () => {
+  // notes.md lists `feature/contested` in claim shape but has no Phase:, so it
+  // is not a plan. Catches a second parser that treats every .md as a plan.
+  assert.doesNotMatch(dcSections['12'], /notes \(/);
+});
+
+test('scan: section 12 does not report a plan colliding with itself', () => {
+  // self-repeat.md lists `feature/repeated` in two of its own waves. That is one
+  // claimant, not a conflict — a different fault with a different repair.
+  assert.doesNotMatch(dcSections['12'], /feature\/repeated/);
+});
+
+test('scan: section 12 footer counter matches the number of findings', () => {
+  // One collision (feature/contested). The counter must be wired to the same
+  // variable the body increments — a footer wired to a different variable is a
+  // bug no single-finding assertion above can see.
+  const bodyFindings = dcSections['12'].split('\n').filter((l) => l.includes('claimed by')).length;
+  assert.equal(bodyFindings, 1, `expected 1 body finding, got ${bodyFindings}`);
+  const footer = dcReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bdouble_claims=1\b/);
+});
+
+test('scan: a double claim leaves attention= unchanged — the section does NOT gate', () => {
+  // THE property a naive implementation breaks, and the one every other test
+  // above passes without: adding a finding to attention= looks like diligence
+  // and turns a report into a gate. /plot-deliver's delivery-landed gate and
+  // the /plot hygiene line read attention= from this footer, and a double claim
+  // is a shape for a person to resolve, not a branch that cannot move.
+  const footer = dcReport.trim().split('\n').at(-1);
+  assert.match(footer, /\battention=0\b/);
+});
+
+test('scan: section 12 sits last, leaving /plot-deliver\'s `== 7.` gate marker intact', () => {
+  // The gate marker is `sed -n '/^== 7./q;p'` — a hardcoded number meaning "the
+  // first non-blocking section". Inserting this section below 7 would silently
+  // shrink the delivery gate, so it goes last. This pins that placement.
+  const nums = dcReport.split('\n')
+    .map((l) => /^== (\d+)\. /.exec(l)).filter(Boolean).map((m) => Number(m[1]));
+  assert.equal(Math.max(...nums), 12, 'the double-claim section must be the last one');
+  assert.match(dcReport, /^== 7\. Unsliced waves/m, 'section 7 must still be unsliced waves');
 });
