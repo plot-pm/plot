@@ -84,6 +84,9 @@ and a shell subprocess to parse it back.
   other entity relates through: seven states and the workflow phases they map
   into, the parser as the single contract, and the inversion that Plan is the
   one entity the CLI serves better than the board.
+- **[Release](DESIGN-release.md)** — a version and the plans it contains: the
+  tag is the truth, membership is derived with `git tag --contains` rather than
+  from dates, and Plot does not cut the version — it cross-checks the notes.
 - **[Build](DESIGN-build.md)** — what CI said about a PR, split by price: the
   verdict is free per PR, the history costs a request per branch. Evidence,
   never a gate — Plot refuses nothing on a red build.
