@@ -137,17 +137,56 @@ that was never attempted.
 
 ### Five states
 
-| state | means |
-|---|---|
-| `open` | the ref exists, no work on it beyond the base |
-| `wip` | commits the default branch lacks |
-| `claimed` | a ref exists and someone took it |
-| `merged` | its work is in the default branch |
-| `deferred` | the plan said not to build it |
+| state | rule | means |
+|---|---|---|
+| *(no ref)* | — | nobody has claimed it |
+| `claimed` | `ahead > 0`, `real == 0` | a ref was pushed, **carrying no real work yet** |
+| `wip` | `ahead > 0`, `real > 0` | **the ref holds commits the default branch lacks** |
+| `merged` | `ahead == 0` | its work is in the default branch |
+| `deferred` | from the **plan** | the plan said not to build it |
 
-**`deferred` is the odd one**: it comes from the *plan*, not from git. A deferred
-branch may not exist at all, and the delivery gate exempts it — *"the deferred
-ones are exempt"*.
+#### `wip` is about commits, not about anyone working
+
+**The name misleads, and the rule is precise.** `wip` says *this ref carries
+real commits that `main` does not* — nothing about an agent, a worktree, or
+uncommitted changes.
+
+So the pair `claimed` / `wip` splits one question: **has any real work landed on
+the ref?** `claimed` is *someone pushed it*; `wip` is *and there are commits*.
+
+**Three neighbouring things are what the name suggests, and each lives
+elsewhere:**
+
+| the question | the field |
+|---|---|
+| is the working tree dirty? | `local_dirty`, `changed_ago_seconds` — read from the **worktree** |
+| is an agent working on it? | `worker`, `worker_activity` — the **Agent** |
+| is this wave under way? | **nothing** — the gap the Wave spec records (§4 there) |
+
+**`local_dirty` is deliberately one-directional**: it *"may only LIFT a branch
+out of quiet, never downgrade an answer"* — because on a machine with no
+worktree for the branch it is false, which must change nothing.
+
+#### `deferred` is the odd one
+
+It comes from the **plan**, not from git. A deferred branch may not exist at
+all, and the delivery gate exempts it — *"the deferred ones are exempt"*.
+
+#### The `wip` rule has a measured failure
+
+**A squash-merge that resurrects the ref reads `wip` forever.** The host deletes
+the branch on merge, a worktree that still holds it pushes it back, and the
+squash rewrote the commits — so `ahead > 0` and `real > 0` against work that
+has **already landed**.
+
+Measured 2026-08-23: `bug/done-holds-finished-plans-only`, **PR #356 merged, read
+`wip` for three hours.** Its wave reported *"3 merged, the rest not yet"* over
+four merged branches and never completed, so the plan sat in Development with
+nothing left to do.
+
+**That is the same squash-merge trap the estate keeps hitting** — `mergedAt`
+outranks ancestry, recorded in `plot-reap.sh` and in the PR entity — arriving
+here through the branch classifier rather than through a PR state.
 
 ### The state is only as fresh as the last fetch
 
@@ -290,6 +329,7 @@ under `## Branches` parses at all (Plan §6).
 | 2 | **Five `worker_*` fields are Agent data on a Branch row** | now |
 | 3 | **`claimed` and `ref_held` both look like the claim** — only one is | now |
 | 4 | Branch → PR is flattened in the plan record (Plan §4) | now |
+| 5 | **`wip` names commits, not work-in-progress** — and a resurrected ref after a squash merge reads `wip` indefinitely, measured at 3 hours | now |
 
 ---
 
