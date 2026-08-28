@@ -503,7 +503,152 @@ of any of them — and asking it is what the remaining entity sections should do
 `unsupported` renders **no section at all** rather than an empty one — an empty
 inbox on Bitbucket would imply an empty tracker.
 
-### The controller
+### The controllers
+
+Four, and they divide by what they are for rather than by what they touch.
+
+| controller | kind | cadence | on failure |
+|---|---|---|---|
+| `refreshIssues` | read | PR timer (60 s × host cost) | keep last good list, mark stale |
+| `referencedIssues` (fleet) | read — the filter | per refresh | `null` → the whole answer is `failed` |
+| `referencedIssues` (idea) | **write precondition** | per click | `null` → **refuse the write** |
+| `handleIdea` / `handleStory` | write | per click | refuse, naming which of four reasons |
+
+#### Read and write controllers fail in opposite directions
+
+`referencedIssues` exists **twice**, and it is not duplication to remove. Same
+question, opposite failure direction, and the code argues it:
+
+> *There it filters a list on a timer; here it is a PRECONDITION on a write. […]
+> reporting an unfiltered list is a display error that a refresh corrects, while
+> spawning an agent on an unchecked precondition writes a plan file nobody asked
+> for.*
+
+So a read controller degrades — last good value, marked stale — and a write
+controller refuses. That is the general rule for every entity in this document,
+and Issue is where it is already implemented.
+
+The write side has a second job the read side does not: a second click on a row
+the board has not yet refreshed away would start a second `/plot-idea` for an
+issue that already has a plan, and **two plans answering one signal is worse
+than the stale row that prompted them.**
+
+#### What must be monitored, and at what price
+
+Four sources, three of which the board already watches:
+
+| source | what it yields | cost | cadence |
+|---|---|---|---|
+| the tracker (`issue-list`) | open issues | 1 host call | PR timer, shared gate |
+| the plan estate (`plot-plan-meta.sh`) | every `Issue:` reference | 1 parser run, 132 ms / 59 plans | per refresh |
+| the tracker (`issue-view`) | one body | 1 host call | **per click only** |
+| the agent's own output | did the click's agent finish? | local state file | per poll |
+
+Two properties of this set are worth stating because they are choices:
+
+**The plan estate is read WHOLE, not from the pulse.** `referencedIssues` walks
+every plan file rather than `pulse.plans`, and the reason is a measured trap:
+
+> *The pulse carries active plans plus a rolling 24 hours of delivered ones […]
+> A plan delivered last week is still the decision that was made about its
+> issue, and reading the pulse would drop it from this set and put the issue
+> back on the board a day later, under a heading that says nobody has decided
+> about it.*
+
+**The reference has to outlive the branch.** That is the sharpest illustration
+of the entity's whole shape: what removes an Issue from the inbox is a decision,
+and decisions do not expire on a 24-hour window.
+
+**The issue poll rides the PR gate rather than opening its own.** Same host,
+same budget, one cadence — and a rate limit on either pushes the shared gate
+out, extend-only. A second independent timer would spend an exhausted budget to
+be refused again.
+
+#### How the issues are filtered
+
+One set difference, recomputed every pass, with a refusal built in:
+
+```
+inbox = open(tracker) − referenced(every plan file)
+```
+
+- **`open`** is the tracker's own answer. On GitHub it is `gh issue list`, not
+  `gh api /issues` — *"on GitHub every PR IS an issue"*, so the REST endpoint
+  would deliver every open PR as an unplanned signal. The subcommand filters
+  them out, and the code notes the trap *"is invisible while it works."*
+- **`referenced`** is every `Issue:` value any plan carries, GitHub `#N` and
+  Jira `PROJ-123` alike.
+- **If `referenced` cannot be computed, nothing is reported.** Not the
+  unfiltered list (which would surface planned issues), not an empty one (which
+  would claim the inbox is clear). `issueAnswer: 'failed'` — *neither is known,
+  so neither is said.* This is the completeness gate, already built.
+
+No sorting, no ranking, no relevance scoring. The one question is *is this worth
+a plan?*, and that is a judgement the reader makes from the title.
+
+#### How different trackers are handled
+
+The adapter is the only place that knows, and it **dispatches on `Tracker:`,
+never on the git host**:
+
+| `Tracker:` | how issues are read | note |
+|---|---|---|
+| `plot` (or absent) | — | *plans in this repo ARE the tracker*; there is no inbox |
+| `github-issues` | `gh issue list` / `gh issue view` | ids are numbers |
+| `jira` | REST `search/jql` + `issue/<key>` | ids are **keys** (`PROJ-123`) |
+| `linear` | **nothing** — see below | config accepts it; no arm exists |
+| Bitbucket as git host | — | `bb` has no issue listing → exit 4 → `unsupported` |
+
+**`linear` is declared and unimplemented.** `plot-config.sh` documents
+`Tracker: plot | jira | github-issues | linear`, and `plot-host.sh` contains the
+string `linear` **zero times** (verified 2026-08-28). `tracker_scheme` returns
+`linear`, no arm matches it, and the request falls through to the git-host arm —
+so a Linear-tracking GitHub repo would silently list GitHub issues instead, and a
+Linear-tracking Bitbucket repo would exit 4 and report `unsupported`. Neither
+is an honest answer to *"list my Linear issues"*.
+
+This is the same absent-is-not-false failure the entity is otherwise careful
+about, one layer up: **the config advertises a capability the adapter does not
+have.** Either the arm is built, or `linear` leaves the documented values, or
+`tracker_scheme` refuses a scheme it has no arm for with the exit code that
+already means *this cannot be asked*. The third is the cheapest and is probably
+right — an explicit `unsupported` is what every other unaskable case returns.
+
+Three things make the implemented arms work, and each is a decision:
+
+**Dispatch on the tracker, not the host.** *"A Bitbucket repo tracking in Jira
+is the normal enterprise case, so the git host is irrelevant here."* The two
+questions are independent and the config keys are separate (`Git host`,
+`Tracker`).
+
+**One vocabulary out, whatever answered.** Both arms emit the same JSON shape
+and the same exit codes — *"a consumer that already maps 4 to `unsupported` and
+anything else to `failed` must not need a second table."* The board never learns
+which tracker replied.
+
+**The URL is composed only where its shape is known.** `Tracker: jira <url>`
+carries the base as its second token; `tracker_base_url` returns `""` for a bare
+`jira`, and an empty URL renders as plain text. Plot composes no address it was
+not given.
+
+**`Tracker: plot` is the case that needs no controller at all.** The default —
+*plans in this repo ARE the tracker* — has no external inbox, so the whole
+read path is inert and the board shows no issue section. Every other tracker
+is the *addition* of an inbox to a system that works without one, which is why
+`unsupported` renders nothing rather than an empty list.
+
+#### The gap, restated as a controller
+
+The four controllers above are all **inbox-side**: they answer *what has nobody
+decided about?* Nothing answers the inverse — *which plan answers `PROJ-123`?* —
+because `meta.issues` is consumed as set membership and discarded (gap 3). That
+is not a missing fetch but a missing controller: the same parser run that builds
+`referenced` already holds the plan-to-issue mapping and throws away everything
+but the keys.
+
+---
+
+### How the read controller behaves
 
 `refreshIssues` in `fleet.ts`, and it already does everything the reactive
 section asks of a controller. Worth stating explicitly, because it is the
