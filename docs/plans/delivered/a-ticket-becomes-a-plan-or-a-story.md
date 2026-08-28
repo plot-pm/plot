@@ -1,0 +1,1 @@
+../2026-08-20-a-ticket-becomes-a-plan-or-a-story.md
