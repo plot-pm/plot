@@ -64,6 +64,20 @@ answers exist.
 `check-changeset-packages.sh` derives valid changeset names from the workspace
 rather than a hardcoded list — a new package is accepted the day it exists.
 
+**A package, not a directory — and the boundary is the whole reason.**
+`contract/schema.ts` is already pure, so `src/domain/` inside the board would
+satisfy the same grep. **What it would not do is make the dependency direction
+enforceable**: a directory can import `../server/fleet.js`, and eventually
+something will. A package cannot — the module resolver refuses, with no grep to
+run and no reviewer to notice. **That is the difference between a gate and a
+rule**, and this repo's own doctrine says to prefer the gate.
+
+**It is `private: true`, and nothing is lost.** Measured: the board declares
+zero runtime dependencies and ships three files; zod is a devDependency esbuild
+inlines into the 1 MB artifact. A workspace package bundles identically, so the
+published board is byte-for-byte unaffected by where the domain lives —
+**the boundary is bought for free.**
+
 ```
 packages/domain/
   src/
@@ -347,12 +361,37 @@ is not evidence about the artifact the browser loads.**
 **Run the e2e tier with `env -u PLOT_UNATTENDED`** — the worker environment
 trips the control tests when these run from inside a dispatched worktree.
 
+### When to stop rather than continue
+
+**The done-when clauses say when a slice is finished. This says when the design
+is wrong.**
+
+**If the purity gate cannot be satisfied — stop, and take it back to the
+design.** A moved rule that genuinely needs to reach a disk, a host or a process
+means the domain/adapter line is drawn in the wrong place, and no amount of
+patching the slice fixes a boundary that is mis-drawn. **That is a design
+failure, not a coding one**, and the response is a finding in
+[DESIGN-ports.md](../stories/the-master-agent-holds-the-fleet/DESIGN-ports.md),
+not a `// eslint-disable`.
+
+**It halts the other two plans as well.** Both rest on the same boundary, and
+they are Draft precisely so this can happen — a design that fails its first
+real contact should not have two approved plans behind it.
+
+**Tests needing edits is the weaker signal and is handled inside the slice.** It
+means the move altered behaviour, which is usually a mistake in the move rather
+than in the design — the edit needs an argument, not a halt.
+
 ## Open Questions
 
 - [ ] [Technical] Do the board's re-exports get collapsed, and when? Leaving
   them permanently means two import paths for one type; collapsing them touches
   53 files for no behaviour change. Not urgent, and not this plan's.
-- [ ] [Technical] Does `@plot-pm/domain` publish to npm, or stay private to the
-  workspace? The board publishes; a domain package that ships is a public API
-  Plot then owes compatibility to. — *deferred: decide before the first release
-  that would include it*
+- [x] [Technical] Does `@plot-pm/domain` publish to npm? **No — `private: true`,
+  and nothing is lost by it.** Measured: `@plot-pm/board` declares **zero**
+  runtime dependencies and ships three files (`dist/board-server.mjs` plus two
+  shell scripts); zod is a *devDependency* that esbuild inlines into the 1 MB
+  artifact. A workspace package is bundled the same way, so the published board
+  is byte-for-byte unaffected by where the domain lives. **Publishing would only
+  create a public API Plot then owes compatibility to** — a cost with no
+  matching benefit, since no external consumer exists.

@@ -22,6 +22,22 @@
 
 ## Motivation
 
+> **Depends on [`2026-08-28-the-domain-moves-out-of-the-board.md`](2026-08-28-the-domain-moves-out-of-the-board.md)
+> being fully delivered.** Every branch here imports `@plot-pm/domain`, which
+> that plan creates.
+>
+> **Plot cannot enforce this and will not stop it.** Slice eligibility is
+> computed *per plan* — `plot-fleet-scan.sh` marks a slice eligible when the
+> prior slices **of the same plan** are complete — and `plot-dispatch.sh`
+> requires a plan slug, so no component compares two plans. With auto-dispatch
+> on (measured 2026-08-28: `autoDispatch: true`, `parallelAgents: 11`) approving
+> this plan claims its first branch within about a minute, against a package
+> that does not exist yet.
+>
+> **So this plan stays Draft until the first is Delivered.** That is the gate,
+> and it is a human one because Plot has no other.
+
+
 **A domain nobody can feed is a domain nobody can trust.**
 [The previous plan](2026-08-28-the-domain-moves-out-of-the-board.md)
 builds entities and rules that are pure by construction and therefore proven
