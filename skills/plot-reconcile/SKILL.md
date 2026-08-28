@@ -194,6 +194,14 @@ the plan, and a cosmetic name must not gate a delivery.
 gap is visible, and it must never be read as a blocker: `attention=0` with
 `index_drift=2` is a healthy estate with two stale browsing links.
 
+`double_claims` is the count from section 12 — branches listed by more than one
+plan, each finding naming both plans and the wave each lists it under. Only
+meaningful since the branch matcher anchored to the start of a list item: before
+that, a plan CITING another plan's branch to declare a dependency read as a
+second claim. Non-blocking for the same reason as the others — a double claim is
+a shape for a person to resolve, not a branch that cannot move — so it stays out
+of `attention=`.
+
 ### Stage 2 — Act (your judgment)
 
 For each finding, decide whether to run the printed command. The scan never runs them; you do, deliberately.
@@ -205,6 +213,7 @@ For each finding, decide whether to run the printed command. The scan never runs
 - **Unsliced waves (section 7):** a wave carrying more than one branch. Run the printed `/plot-reslice <slug>` only when someone decides to slice it — the order is a human judgment `/plot-reslice` asks for. Non-blocking: never present it alongside drift as comparable work, and a `complete` wave listed here is history `/plot-reslice` will decline.
 - **Prose wave names (section 8):** a wave heading written as a sentence, not a label. The fix is a human editing the plan — shorten the heading to a label; the full name stays on hover on the board. Non-blocking: never present it alongside drift as comparable work.
 - **Index drift (section 9):** optional, always. Run the printed `ln -s` only if someone wants the browsing path back. A phase-less file listed here is pre-plot history or a note — leave it (no backfill) unless you are deliberately adopting it into the plot lifecycle. Never propose "fixing" all of section 9.
+- **Double-claimed branches (section 12):** two plans listing one branch. There is no command to run — deciding which plan OWNS the branch is the judgment, and the other plan should cite it in prose rather than list it. Read both plans before proposing either side; the branch itself is usually fine, and the fault is in the bookkeeping. Non-blocking: never present it alongside drift as comparable work.
 
 Batch the fixes you choose into one commit, then re-run the scan to confirm the sections you acted on are clear.
 
@@ -218,6 +227,7 @@ You produce **text only** — a short summary of what the scan found and which f
 - **Do not flag a phase-less file as a broken plan.** It never claimed to be one — `plot-fleet-scan.sh` applies the same rule. It appears in section 9 for visibility; report the count and move on.
 - **Do not report index drift as something to fix.** Section 9 findings block nothing. Presenting `index_drift=3` alongside `drift=3` as comparable work is the misreading this split exists to prevent.
 - **Do not report an unsliced wave or a prose wave name as a blocker.** Sections 7 and 8 findings block nothing either; `/plot-reslice` and a plan rename are the repairs, and both are human judgments. Presenting `unsliced_waves=3` or `prose_wave_names=3` alongside `drift=3` as comparable work is the same misreading.
+- **Do not report a double claim as a blocker, and do not resolve one yourself.** Section 12 findings block nothing, and which plan owns a contested branch is not a fact the scan holds — it is a decision about what the two plans MEAN. Present the collision and both claimants; let a person choose.
 - **Do not delete a branch the scan degraded on.** If no git-host CLI was available, the "no open PR" signal is unverified — confirm before any deletion.
 - **Do not re-derive the state by hand.** Trust the scan for *what is*; spend your judgment on *what to do*.
 
