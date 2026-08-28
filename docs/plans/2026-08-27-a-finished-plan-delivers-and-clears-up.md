@@ -256,7 +256,7 @@ The board delivers a plan whose every non-deferred wave has merged, by calling
 that script — direct, or through an agent where a `Deliver command` is set — and
 reaps its worktrees afterwards. **Depends on `Extracted`.**
 
-### Cleared (Branch: feature/a-delivered-plan-releases-its-refs)
+### Cleared (Branch: feature/a-delivered-plan-releases-its-refs, PR: #497)
 
 Delivery deletes the remote refs of its merged branches, after the reap. Gated on
 a merged PR read as `plot-reap.sh` reads it, so an unlanded ref is never touched.
