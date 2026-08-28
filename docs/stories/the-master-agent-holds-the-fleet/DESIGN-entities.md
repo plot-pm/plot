@@ -144,6 +144,100 @@ idiom for git-derived state and one worked example of a foreign one. The four
 troubled entities — PR, Build, Agent, Machine — are troubled in proportion to
 how far they sit from that example.
 
+### How it composes: who holds what, and who asks whom
+
+**Measured 2026-08-28: there is no composition today.**
+
+The board has `buildBoard`, which re-derives everything per request. The CLI has
+scripts that each re-derive everything themselves. **The only thing that ever
+fetches `/api/board` is `plot-board-verify.sh`**, and only to prove the server
+answers.
+
+**So the master agent and the board are two independent readers of the same
+files** — not two consumers of one thing. The question *"how do they talk to the
+machine?"* has no answer because **nothing owns the machine for them to talk
+to.**
+
+#### The shape the specs imply
+
+Every entity spec named an owner and a watcher, and together they compose:
+
+```
+Machine  (one, always there)
+   │
+   ├── FleetControl ──── the operator's dial, bounded by headroom
+   │
+   ├── AgentRegistry ─── owns agents; pairs each with a desk
+   │        └── AgentMonitor      one per agent, attached at creation
+   │
+   ├── WorktreeManager ─ owns desks
+   │        └── WorktreeMonitor   one per tree, while its agent lives
+   │
+   └── BuildMonitor ──── per build, while it runs
+
+                    ▲                         ▲
+                    │                         │
+              master agent                  board
+```
+
+**A machine has a registry and a fleet control** — both singular, because the
+machine is (Machine §3).
+
+#### Subscribe or ask: both, and the difference is who is waiting
+
+| | **ask** | **subscribe** |
+|---|---|---|
+| shape | *what is the state now?* | *tell me when it changes* |
+| suits | the master agent, at a decision point | the board, rendering continuously |
+| cost | one read | a held connection |
+| answers job | 1, 2, 4 — *can I start, is it working, is this safe* | 3 — **what changed since I looked** |
+
+**Job 3 is why subscription is not optional.** The scan is stateless by design —
+*"re-derived from git refs every run"* — so a delta needs something present for
+**both** moments, and only a subscriber is.
+
+**And asking must stay possible**, because the master agent's questions arrive
+at unpredictable moments: *can I start work right now?* is asked once, before
+dispatching, and a subscription would be a held connection for a single answer.
+
+#### The constraint that decides where they live
+
+**The board is the only long-lived process — and it is closed exactly when a
+supervisor most needs it.**
+
+That is recorded as an open question in three specs now, and it is the same
+question each time. Three answers are possible:
+
+| | monitors live in | when the board is closed |
+|---|---|---|
+| **A** | the board | the master agent has **nothing** — today's state |
+| **B** | a separate daemon | both subscribe; a third process to own |
+| **C** | whoever asks first | the master agent starts them, the board attaches |
+
+**C is the shape the estate already has**, without naming it: `plot-dispatch.sh`
+starts detached workers that outlive it, and the board discovers them through
+the registry. **A monitor could be started the same way** — by whoever needs it,
+outliving them, found by the next reader.
+
+**And it is why the registry must own agents rather than read them** (Agent §9):
+a reader cannot attach a monitor, because it was not there when the agent was
+created.
+
+#### What must not happen
+
+**Not two implementations.** The board deriving one way and the CLI another is
+today's state, and it is what produced a `--no-fetch` scan being read as
+authoritative (Branch §4) and two byte-identical `planSlug` functions (Plan
+§13).
+
+**Not a database.** Monitors hold what they witnessed, in memory, and die with
+their subject. A monitor that persisted would be the fleet database Principle 1
+refuses.
+
+**Not a poll per entity.** Thirteen agent monitors each shelling out per second
+is the load Machine exists to protect against — a monitor **waits on the pid it
+was given** rather than scanning for it.
+
 ### What a domain object is
 
 Settled 2026-08-28, and it applies to every entity below.
