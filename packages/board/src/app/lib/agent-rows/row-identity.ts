@@ -2,23 +2,29 @@ import {
   type AgentRow,
   type WaitingOn,
 } from '../../../contract/schema.js';
+// One direction only: `tuple-row` imports nothing from this directory — it
+// reads the contract alone — so naming it here cannot close a cycle.
+import { tupleAgeText } from '../tuple-row.js';
 
 /**
- * Minutes as the board says them: `45m`, `3h`, `2d`.
+ * Minutes as the board says them: `45m`, `3h`, `2d`, `5mo`.
  *
  * Split out of `age` so an ISSUE row and a BRANCH row cannot render the same
  * duration two ways. `age` takes an `AgentRow`, which an issue is deliberately
  * not — and the alternative to sharing this was a second copy of four lines
  * that would drift the first time either changed.
  *
+ * IT HAD ALREADY BECOME THAT COPY. This body was byte-identical to
+ * `tupleAgeText` until 2026-08-28, when the age gained a months arm and became
+ * the first thing to change either of them — precisely the drift the paragraph
+ * above was written to warn about. It now DELEGATES rather than matching by
+ * inspection: one formatter, so the two row kinds cannot disagree even in
+ * principle. The re-export keeps both names, because the docstrings above and in
+ * `AgentList` and `stuck.ts` cite this one for why the split exists.
+ *
  * Exported for test.
  */
-export function ageLabel(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`;
-  const h = Math.floor(minutes / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
+export const ageLabel = tupleAgeText;
 
 /**
  * The waiting age in the unit that reads: days for the first weeks, months once
