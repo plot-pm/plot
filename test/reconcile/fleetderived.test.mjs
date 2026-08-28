@@ -292,6 +292,45 @@ test('a released plan is terminal too', () => {
   }
 });
 
+test('an empty estate is a complete answer, not a partial one', () => {
+  // THE FIRST THING AN INSTALLED BOARD DOES. A new user has zero plans, and
+  // this branch used to `exit 0` before the emitter — so `--json` got human
+  // prose and `--stream` got no terminal `pulse` line at all. The board's
+  // contract makes a missing `pulse` line mean *the scan did not finish*, so a
+  // complete answer was reported as a scan failure, every pulse, forever.
+  //
+  // Measured 2026-08-28 against a board installed from npm: "fleet scan ended
+  // without a terminal pulse line", `ready:false`, five pulses running.
+  const { tmp, repo } = makeRepo([]);
+  try {
+    const out = scanJson(repo);
+    assert.deepEqual(out.plans, [], 'an empty estate reports no plans');
+    assert.equal(out.summary.plans, 0, 'and says so in the summary');
+    // The keys a consumer indexes. An empty estate must produce the SAME
+    // document shape as a populated one — a second shape is a second thing to
+    // keep in step, which is how the original defect was written.
+    for (const key of ['main', 'plans', 'summary']) {
+      assert.ok(key in out, `an empty estate still carries \`${key}\``);
+    }
+
+    // The stream's terminal line is the whole contract: it is what says the
+    // scan finished. A closed pipe does not, because a killed scan closes it
+    // too.
+    const streamed = execFileSync('bash', [scan, '--stream', '--offline'], {
+      encoding: 'utf8', cwd: repo,
+    }).trim().split('\n');
+    const last = JSON.parse(streamed[streamed.length - 1]);
+    assert.equal(last.kind, 'pulse', 'the stream ends with its terminal pulse line');
+
+    // The human path is UNCHANGED and deliberately so: a person reading an
+    // empty estate wants the sentence, not an empty JSON document.
+    const human = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: repo });
+    assert.match(human, /No plans found/, 'a person still gets the sentence');
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test('a file with no Phase: field is not a plan', () => {
   // The rule had to be DECIDED rather than inherited. The old glob excluded
   // notes by ACCIDENT — nobody had linked them — so enumerating the directory
