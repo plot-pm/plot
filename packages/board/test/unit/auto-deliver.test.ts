@@ -110,7 +110,21 @@ function fixtureWithMarker(
 
   fs.writeFileSync(
     path.join(scriptsDir, 'plot-reap.sh'),
-    `#!/usr/bin/env bash\nprintf 'reap %s\\n' "$*" >> ${JSON.stringify(marker)}\n`,
+    `#!/usr/bin/env bash\nprintf 'reap %s\\n' "$*" >> ${JSON.stringify(marker)}\n` +
+      // The same beat, for the same reason one link further down: a ref release
+      // fired BESIDE the reap rather than after it would otherwise be able to
+      // land first, and the marker could not tell the two orders apart.
+      `sleep 0.15\n`,
+    { mode: 0o755 },
+  );
+
+  // The ref release — the third link, and the one this wave adds. It records
+  // its arguments because the SLUG is load-bearing here in a way it is not for
+  // the reap: this script is plan-scoped, and a call that dropped the slug
+  // would be asking it to act on the wrong set of branches.
+  fs.writeFileSync(
+    path.join(scriptsDir, 'plot-release-refs.sh'),
+    `#!/usr/bin/env bash\nprintf 'release %s\\n' "$*" >> ${JSON.stringify(marker)}\n`,
     { mode: 0o755 },
   );
 
@@ -122,15 +136,17 @@ function fixtureWithMarker(
 }
 
 /**
- * Long enough for a delivery AND the reap chained to its exit.
+ * Long enough for a delivery, the reap chained to its exit, AND the ref release
+ * chained to the reap's.
  *
- * Two spawns in SEQUENCE, not one: the reap starts only when the delivery's
- * `exit` fires, so this must cover both process startups plus the stub's own
- * `sleep 0.15`. At 700 ms it was under-budgeted and the reap assertions read an
- * empty marker — which looks exactly like the ordering being broken, rather
- * than like a wait that ended too early.
+ * THREE spawns in SEQUENCE, not one: each starts only when the previous one's
+ * `exit` fires, so this must cover three process startups plus two stub
+ * `sleep 0.15`s. At 700 ms it was under-budgeted for two links and the reap
+ * assertions read an empty marker — which looks exactly like the ordering being
+ * broken, rather than like a wait that ended too early. Raised from 2500 ms
+ * when the third link was added, for the same reason.
  */
-const settle = (ms = 2500) => new Promise((r) => setTimeout(r, ms));
+const settle = (ms = 4000) => new Promise((r) => setTimeout(r, ms));
 
 // THE VERDICT IS DERIVED, NOT DECLARED. It was hardcoded 'complete' for every
 // wave, including ones holding an open branch — a shape the real scan cannot
@@ -311,18 +327,49 @@ describe('maybeAutoDeliver — the act', () => {
       `sh -c 'printf "agent %s\\n" "$1" >> ${JSON.stringify(marker)}' _`);
     maybeAutoDeliver(opts, finished(), new Set());
     await settle();
-    expect(runs().map((l) => l.split(' ')[0])).toEqual(['agent', 'reap']);
+    expect(runs().map((l) => l.split(' ')[0])).toEqual(['agent', 'reap', 'release']);
   });
 
-  // ITEM 4 — THE ORDERING, and the reason this whole fixture funnels both stubs
-  // into one file. Both orders end with a delivered plan and no worktree; only
-  // this sequence never shows a desk-less `Approved` plan mid-flight.
-  it('ITEM 4: the reap runs AFTER the delivery, in that order', async () => {
+  // ITEMS 4 AND 14 — THE ORDERING, and the reason this whole fixture funnels
+  // every stub into one file. All six orders of these three acts end with a
+  // delivered plan, no worktree and no ref, so an end-state assertion passes
+  // for any of them. Only this sequence never shows a desk-less `Approved`
+  // plan mid-flight (item 4), and never leaves a worktree outliving the ref it
+  // tracks (item 14).
+  it('ITEMS 4 and 14: deliver, THEN reap, THEN release the refs', async () => {
     const { opts, runs } = fixture('');
     maybeAutoDeliver(opts, finished(), new Set());
     await settle();
     const order = runs().map((l) => l.split(' ')[0]);
-    expect(order).toEqual(['deliver', 'reap']);
+    expect(order).toEqual(['deliver', 'reap', 'release']);
+  });
+
+  // ITEM 14, pinned on its own. The test above would still pass if the release
+  // were chained to the DELIVERY's exit rather than the reap's, whenever the
+  // reap happened to finish first — a race that would pass in CI most days and
+  // fail on a loaded machine. The reap stub sleeps, so a release racing it lands
+  // first and this catches it.
+  it('ITEM 14: the release waits for the reap, not merely for the delivery', async () => {
+    const { opts, runs } = fixture('');
+    maybeAutoDeliver(opts, finished(), new Set());
+    await settle();
+    const lines = runs();
+    const reapAt = lines.findIndex((l) => l.startsWith('reap'));
+    const releaseAt = lines.findIndex((l) => l.startsWith('release'));
+    expect(reapAt).toBeGreaterThanOrEqual(0);
+    expect(releaseAt).toBeGreaterThan(reapAt);
+  });
+
+  // The release is PLAN-SCOPED, where the reap beside it is slug-blind, and
+  // that asymmetry is the whole safety argument: a removed checkout is
+  // re-creatable with `git worktree add`, a deleted ref is not. A release
+  // called without its slug would act on branches belonging to plans nobody
+  // delivered.
+  it('ITEM 14: the release is told WHICH plan finished, and to act', async () => {
+    const { opts, runs } = fixture('');
+    maybeAutoDeliver(opts, finished(), new Set());
+    await settle();
+    expect(runs().find((l) => l.startsWith('release'))).toBe('release --yes ship-it');
   });
 
   it('ITEM 4, and it reaps with --yes — without it the wire ends in a dry run', async () => {
@@ -342,6 +389,10 @@ describe('maybeAutoDeliver — the act', () => {
     await settle();
     expect(runs()).toEqual(['deliver ship-it']);
     expect(runs().some((l) => l.startsWith('reap'))).toBe(false);
+    // And the third link never fires either — it hangs off the reap, so a
+    // refusal that stops the reap stops the ref deletion with it. That is the
+    // chain doing what a chain is for: one gate protects everything behind it.
+    expect(runs().some((l) => l.startsWith('release'))).toBe(false);
   });
 
   it('spawns nothing for a plan that is not deliverable', async () => {
