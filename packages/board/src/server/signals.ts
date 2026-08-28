@@ -106,8 +106,16 @@ export function plansSignal(planDir: string): Signal {
     for (const name of names) {
       // `statSync` is not a process. The loop is over syscalls, not spawns —
       // which is the distinction this whole module is about.
-      const s = fs.statSync(path.join(planDir, name));
-      parts.push(`${name} ${s.mtimeMs} ${s.size}`);
+      // `bigint: true` for `mtimeNs`, and it is not a preference. `mtimeMs` is
+      // a FLOAT carrying sub-millisecond noise that does not round-trip: a file
+      // whose timestamp is restored exactly (`utimesSync`, `cp -p`, `rsync -t`)
+      // reads back 1787955502638.5098 as 1787955502638.999, so two reads of an
+      // untouched file compare unequal and the entry is discarded for nothing.
+      // That is a silent erosion of the whole saving, in the safe direction —
+      // which is exactly the kind that is never noticed. `mtimeNs` is a BigInt
+      // and exact.
+      const s = fs.statSync(path.join(planDir, name), { bigint: true });
+      parts.push(`${name} ${s.mtimeNs} ${s.size}`);
     }
     return { token: parts.join('\n'), spawns: 0 };
   } catch {
