@@ -195,7 +195,145 @@ right and the pattern the others should copy.
 > being the board's inbox, and its read/write controller split is the worked
 > example behind **job 4** (*what is safe to run?*).
 
+### Three kinds, two directions
+
+**Corrected 2026-08-28** against the agentic workflow diagram. An earlier draft
+of this section modelled Issue as ONE thing — an inbound signal nobody has
+decided about. The workflow has **three**, at three points, flowing in two
+directions:
+
+| kind | phase | direction | lifecycle |
+|---|---|---|---|
+| **Customer story** | Discovery | **inbound** — the signal | one ticket · one story; enters the inbox |
+| **Feature** | Development | **outbound** — Plot writes it | one per plan, *"only now, because the cut now holds"* |
+| **Epic** | Development → Testing | **outbound** — Plot writes it | one per release; collects every feature ticket; **closes with the release** |
+
+Two of the three are **written by Plot**, and that is what the earlier draft got
+wrong. Its invariant *"read-only; no operation writes to the tracker"* is a true
+statement about the connector **today** and a false one about the workflow this
+is designed toward.
+
+#### What survives the correction, and what does not
+
+**Survives — everything about the inbound kind.** The Customer story ticket is
+exactly the entity specified below: impoverished, read-only, exiting by being
+referenced. *"NOT an `AgentRow`, and the distance is the point"* still holds;
+so does carrying no labels, assignee or status.
+
+**Does not survive — the claim that Plot never writes.** It does not write
+*today* because the write path does not exist: `issue-create` appears nowhere in
+`plot-host.sh`, and neither "feature ticket" nor "epic ticket" appears anywhere
+in `skills/` or `docs/` (verified 2026-08-28). The workflow is a **target
+state**, and the honest reading is that the read-only rule holds for the inbound
+kind and is *unbuilt* for the two outbound ones.
+
+**Does not survive — my sprint→epic answer.** An earlier section argued: derive
+the epic from the union of the plans' `Issue:` refs, and never store it. That is
+right for an epic Plot *reads* and wrong for one it *creates*. The workflow's
+epic is **per release**, and it is Plot's own artefact — so it has an identity
+Plot minted, and a derivation cannot invent one. The correction is below.
+
+#### Why the timing is the design
+
+The workflow says the feature ticket is written *"only now, because the cut now
+holds"* — at **Plans approved**, not at Draft.
+
+That is the same discipline as every other Plot record. A ticket written at
+Draft would name a plan whose branches may still be re-sliced; the cut holding
+is what makes the ticket's scope true. It is the tracker-side twin of
+`Approved:` — a record written when the fact becomes true, not when it is
+first imagined.
+
+And the epic *"closes with the release"*, which gives the outbound kinds
+something the inbound kind explicitly refuses: **a lifecycle Plot owns.** A
+customer story's state belongs to the tracker and would age into a lie if
+mirrored. A feature ticket's state is Plot's own — the plan's phase *is* the
+ticket's truth.
+
+#### What this means for the three collaborators
+
+The split holds and gains a fourth role, unbuilt:
+
+| collaborator | inbound | outbound |
+|---|---|---|
+| `IssueTracker` | scheme, scope | **project/board to write into** — undeclared |
+| `IssueTrackerConnector` | `issue-list`, `issue-view` | **`issue-create`, `issue-close`** — do not exist |
+| `IssueTrackerMonitor` | polls the inbox | — |
+| **`IssueTrackerWriter`** | — | **unbuilt**: mints feature and epic tickets, closes them |
+
+The writer is the collaborator the workflow implies and the codebase lacks. It
+is deliberately a **fourth** rather than an extension of the connector, for the
+reason this document keeps finding: reads degrade, writes refuse. A connector
+that both polls an inbox and creates tickets would have two failure policies in
+one place, and the read policy is *keep the last good answer* — precisely wrong
+for a write that must never happen twice.
+
+**Its hardest problem is idempotency, and Plot already has the pattern.** A
+feature ticket must be created once per plan, and re-running approval must not
+mint a second one. That is what `→ #N` annotation does for PRs: **the plan file
+records the identity of what was created**, so the second run finds it rather
+than repeating the act. The same field shape (`Issue: PROJ-123`) is already
+parsed — today it is only ever written by a human.
+
+#### Sprint → epic, corrected
+
+The release is the unit, not the sprint. `plot-sprint-release.sh` already reads
+a sprint's declared `Release:` target, so the mapping runs through it:
+
+```
+sprint --Release:--> release --epic ticket--> collects each plan's feature ticket
+```
+
+**The epic's key is the release version, and that is the whole model.** An epic
+collects the feature tickets of one release, so `2.11.0` names it, finds it, and
+closes it. Verified 2026-08-28: `plot-sprint-release.sh` already reports a live
+sprint targeting `2.11.0`, so the key exists and is read today — nothing new has
+to be invented for the epic to be addressable.
+
+Membership is therefore derived, not maintained:
+
+```
+epic(2.11.0)  ⊇  { feature ticket of every plan released in 2.11.0 }
+```
+
+- **The epic is per release**, so a sprint with no `Release:` has none — which is
+  the majority case and must stay silent.
+- **Two sprints may target one release**, which the release gate already handles
+  (*"two teams, one train"*). One epic, several sprints: the derivation must not
+  assume a single owner.
+- **The epic's identity is minted, not derived.** Once `/plot-release` creates
+  it, the id must be recorded where a re-run will find it — a `Released:` line's
+  neighbour, on the same principle as `→ #N`.
+
+**Still not an import.** Nothing reads an epic's children to create plans.
+`story-tracking`'s rule stands for the *inbound* kind: a well-described customer
+ticket stays the umbrella. The outbound epic is a **report Plot publishes about
+a release it made**, which is the opposite direction and does not touch that
+rule.
+
+#### The `kind` question, now settled
+
+Two sections above, `kind` (epic/story/bug) was deferred for want of a consumer.
+It has three:
+
+1. An inbound Customer story and an outbound Feature ticket are **different
+   entities that live in the same tracker** — without `kind`, Plot's own feature
+   tickets would reappear in its inbox as unplanned signals the moment a plan
+   stopped referencing them.
+2. The epic→feature relation needs to know which is which.
+3. A reader asking *is this worth a plan?* is asking a different question of an
+   epic than of a bug.
+
+`kind` is therefore not a mirrored status and does not age into a lie — it is
+**structural**, and it is what keeps the three kinds apart.
+
+---
+
 ### Domain object specification
+
+> Specifies the **inbound Customer story ticket** — the kind that exists today.
+> The two outbound kinds are specified by the workflow and unbuilt; their shape
+> follows from the writer above and is not settled here.
 
 The normative shape. Everything after this section explains or justifies it;
 where the two disagree, this section is the specification.
@@ -239,7 +377,7 @@ one nobody has opened yet.
 
 | excluded | why |
 |---|---|
-| `status`, `state` | tracker state; ages into a lie between refreshes |
+| `status`, `state` | tracker state Plot does not own; ages into a lie between refreshes |
 | `assignee` | as above, and Plot never assigns |
 | `labels`, `priority` | as above |
 | `kind` (epic/story/bug) | not fetched today; see Open |
@@ -278,7 +416,11 @@ claim an empty tracker.
    empty at every field that has both.
 4. **No mirrored tracker state.** Adding a field the tracker owns requires a
    reason this rule does not already refuse.
-5. **Read-only.** No operation writes to the tracker.
+5. **Read-only — for this kind.** No operation writes to a Customer story
+   ticket. The outbound kinds (Feature, Epic) are Plot's own artefacts and are
+   written; see [Three kinds, two directions](#three-kinds-two-directions).
+   The distinction is ownership, not politeness: Plot must not edit a ticket a
+   customer owns, and must own the ones it mints.
 6. **An Issue leaves by being referenced**, never by being marked — the exit
    condition lives in the plan estate.
 7. **Askability is carried apart from the answer**, once per fetch.
