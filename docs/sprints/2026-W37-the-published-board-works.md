@@ -39,7 +39,7 @@ is in no diff** — only a gate does.
 
 ### Must Have
 
-- [ ] [a-published-board-brings-its-scripts] The published package carries every helper script the server spawns, and a gate packs the tarball and runs the board out of it — measured: 2 of 11 shipped, `bash exited 127`, nine releases
+- [ ] [a-published-board-brings-its-scripts] The published package carries every helper script the server spawns, **and** the fleet scan pulses on an empty estate, **and** a gate boots the packed board against both an empty repo and a populated one — measured: 2 of 11 shipped (`bash exited 127`), and with all 11 staged the board *still* hangs on `fleet scan ended without a terminal pulse line` because a repo with no plans exits before the stream's terminal line
 
 ### Should Have
 
@@ -54,6 +54,19 @@ is in no diff** — only a gate does.
 for the same reason it fell behind the first time — so the plan's real
 deliverable is a check that **derives** the list from the code, plus a
 pack-and-run that boots the board from the tarball and asserts `ready: true`.
+
+### Two defects, and either alone leaves it broken
+
+**Measured 2026-08-28, testing the fix rather than assuming it.** Staging all 11
+scripts changes the error from `bash exited 127` to *"fleet scan ended without a
+terminal pulse line"* — **the board is still dead.** `plot-fleet-scan.sh` exits
+the no-plans case before `--stream` emits its terminal `pulse` line, and **every
+new user has zero plans.**
+
+**The packaging fix merely reveals the second defect.** That is why the Must
+carries both, and why the gate boots the packed board against an *empty* repo
+as well as a populated one — the first proof-of-fix passed only because its
+scratch repo had a plan in it.
 
 ### Why the two Shoulds are here and not in W36
 

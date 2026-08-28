@@ -1,6 +1,6 @@
 # A published board brings its scripts
 
-> `@plot-pm/board` ships 2 of the 11 helper scripts its server spawns, so a board installed from npm answers `bash exited 127` and never becomes ready. Broken in every release since v2.5.0. The fix is nine filenames — and a gate that packs the tarball and runs the board out of it, because nine filenames is exactly the kind of list that falls behind again.
+> A board installed from npm never becomes ready, and **two independent defects have to be fixed before it does**. The package ships 2 of the 11 scripts its server spawns (`bash exited 127`), and the fleet scan exits before its terminal `pulse` line when a repo has **no plans** — which is every new user's repo. Fixing either alone leaves the board unusable. Broken since v2.5.0.
 
 ## Status
 
@@ -45,6 +45,35 @@ t+40s  rows=0  ready=false  error=bash exited 127
 `plot-worker-state.sh`, `plot-dispatch.sh`, `plot-approve.sh`,
 `plot-deliver.sh`, `plot-reap.sh`, `plot-release-refs.sh`,
 `plot-resolve-artifact.sh`.
+
+### Shipping the scripts is not enough — measured
+
+**Tested before planning, not assumed.** With all 11 scripts staged beside the
+artifact and `PLOT_SCRIPTS_DIR` pointed at them, in a repo with **no plans**:
+
+```
+t+20s  ready=false  rows=0  error=fleet scan ended without a terminal pulse line
+t+40s  ready=false  rows=0  error=fleet scan ended without a terminal pulse line
+```
+
+**The 127 is gone and the board is still dead.** Add one plan to the same repo
+and it works — `ready=true`, 1 row, at t+20s.
+
+**The cause is an early exit.** `plot-fleet-scan.sh:2624` handles the no-plans
+case by printing a message and a `summary:` line, then `exit 0` — **before the
+`--stream` terminal `pulse` line at :3407.** A board consuming the stream waits
+for a line that is never coming, and reports the wait as a scan failure.
+
+**Every new user has zero plans.** So this is not an edge case behind the
+packaging bug; it is the *first* thing anyone installing Plot meets, and the
+packaging fix merely reveals it.
+
+> **This is the finding that changed the plan.** An earlier draft had one Must —
+> ship the scripts — and a Done-when that a packed board reaches `ready: true`.
+> **That would have been implemented, merged, and left the board unusable**, and
+> the proof-of-fix passed only because the scratch repo had a plan in it. A test
+> that quietly meets the precondition it should be checking is worse than no
+> test.
 
 ### Nobody wrote this bug
 
@@ -126,16 +155,33 @@ The nine filenames in `files`, vendored by `build.mjs` beside the two that
 already are.
 
 **Done when** `npm pack` produces a tarball containing all 11 scripts, and a
-board started from that tarball in a scratch repo reaches `ready: true` with
-rows.
+board started from it **in a repo that has at least one plan** reaches
+`ready: true`. **The empty-repo case belongs to the next wave** and does not
+pass here — stating that plainly so this wave is not read as the whole fix.
+
+### Streaming (Branch: bug/an-empty-estate-still-pulses)
+
+`plot-fleet-scan.sh`'s no-plans exit emits the terminal `pulse` line under
+`--stream` before returning. **An empty estate is a valid answer, not a
+failure** — the scan already says so in its own summary, and the stream must say
+the same.
+
+**Done when** a board on a repo with no plans reaches `ready: true` and renders
+an empty fleet, with no error, and `--stream` on an empty estate ends with a
+`pulse` line.
 
 ### Gated (Branch: bug/the-package-proves-it-carries-them)
 
 The two checks: the derived-vs-declared grep, and pack-and-run in
 `release-smoke.sh`.
 
-**Done when** deleting any one script from `files` turns the gate red, and the
-gate names which file is missing.
+**The gate boots the packed board TWICE** — against a repo with **no plans** and
+one with a single plan — and requires `ready: true` from both. **The empty case
+is the new-user path**, and it is exactly the one the first version of this plan
+missed by adding a plan to its scratch repo before looking.
+
+**Done when** deleting any one script from `files` turns the gate red and names
+it, and removing the streaming fix turns the empty-repo case red.
 
 ## Notes
 
