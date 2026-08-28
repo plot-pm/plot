@@ -99,12 +99,50 @@ naming one branch is a *collision*, and the scan reports it as
 
 ### Fields
 
-`FleetBranchSchema` carries 21. They divide by **who answers**:
+`FleetBranchSchema` carries 21, and they divide by **who answers** — which is
+the column that matters, because four different sources disagree about how
+fresh their answer is.
 
-| from git | from the plan | from the local disk | from the agent |
+| field | type | answered by | note |
 |---|---|---|---|
-| `state`, `held`, `ref_held`, `local_ahead` | `deferred`, `deferred_reason`, `claimed` | `local_dirty`, `local_locked`, `local_worktree`, `changed_ago_seconds`, `changed_at`, `changed_paths` | `worker`, `worker_pid`, `worker_exit`, `worker_dirty_paths`, `worker_activity` |
-| `conflicts`, `conflicts_known` | | | |
+| `branch` | string | the plan | the ref name — **the identity** (§3) |
+| `state` | 5 values | **git** | see §4; only as fresh as the last fetch |
+| `held` | bool | **git** | a ref exists |
+| `ref_held` | bool | **git** | **the claim itself** — outranks `claimed` |
+| `local_ahead` | number | **git** | commits the default branch lacks |
+| `conflicts` | string[] | **git** | **meaningless without `conflicts_known`** |
+| `conflicts_known` | bool | **git** | whether the merge was attempted at all |
+| `deferred` | bool | **the plan** | exempts it from the delivery gate |
+| `deferred_reason` | string | **the plan** | `''` on every non-deferred branch |
+| `claimed` | string | **the plan** | a human-written note — **a reflection, not the claim** |
+| `local_worktree` | path | **local disk** | `''` where this machine has none |
+| `local_locked` | bool | **local disk** | a worktree holds it |
+| `local_dirty` | bool | **local disk** | uncommitted changes — **one-directional** (§4) |
+| `changed_at` | epoch | **local disk** | newest write in that worktree |
+| `changed_ago_seconds` | number \| null | **local disk** | makes a write an *event*, not a switch |
+| `changed_paths` | string[] | **local disk** | scope, for collision prediction |
+| `worker` | 8 states | **the agent** | `plot-worker-state.sh`'s answer |
+| `worker_pid` | string | **the agent** | `''` where none |
+| `worker_exit` | string | **the agent** | recorded, never inferred |
+| `worker_activity` | 3 values | **the agent** | a cue on `running` only, never a state |
+| `worker_dirty_paths` | string[] | **the agent** | what a `stalled` worker left behind |
+
+**A real row, measured 2026-08-28** — the worker rescued earlier in this
+session, which shows why the sources must stay distinguishable:
+
+```json
+{ "branch": "feature/the-fallback-asks-the-other-budget",
+  "state": "wip",              "local_ahead": 0,
+  "held": true,                "ref_held": true,
+  "local_dirty": false,        "changed_ago_seconds": 13807,
+  "worker": "finished",        "worker_exit": "0",
+  "conflicts": [],             "conflicts_known": true }
+```
+
+**`state: wip` beside `local_ahead: 0`** is the squash-merge case from §4 — the
+ref carries commits `main` lacks by ancestry, while the count says otherwise.
+**`worker: finished` with `worker_exit: 0`** is the agent's answer, and it says
+nothing about whether the work is done (Agent, entities §1).
 
 **The five `worker_*` fields are Agent data on a Branch row** — the duplication
 the entities doc measures (`AgentRow` and `FleetBranch` share four fields). On
