@@ -292,16 +292,41 @@ contain any git.**
 
 ## 9. What is unresolved
 
-| # | question | blocks |
+| # | question | state |
 |---|---|---|
-| 1 | **Which copy of the deliver rule survives?** The board's is better-guarded; the shell's runs where there is no board | the split's first move |
-| 2 | **Does the shell call the domain, or duplicate a compiled artefact?** A shell script cannot import TypeScript | every workflow with a script entrance |
-| 3 | **Is the pulse the domain's input or its output?** `allWavesMerged` reads a pulse; `plot-deliver.sh` reads PRs | where the boundary sits |
-| 4 | **Widen `plot-host.sh` by how much?** 18 direct calls name the gap; a port that answers everything is not a port | the reconcile scan |
+| 1 | Which copy of the deliver rule survives? | **the board's** ✅ |
+| 2 | Does the shell call the domain, or duplicate it? | **it calls** ✅ |
+| 3 | Is the pulse the domain's input or its output? | **input** ✅ |
+| 4 | **Widen `plot-host.sh` by how much?** | **open** |
 
-**2 is the one to settle first.** Every other answer depends on it: if the
-shell entrances must keep their own implementations, the deliver rule stays
-duplicated by necessity and the rule in §5 cannot be applied. **If they can
-shell out to one binary, the whole left column collapses into one place.**
+### 2 was the blocker, and the estate had already answered it
+
+**A shell script cannot import TypeScript — but it does not need to.** Six
+scripts already invoke `node`, and `plot-sprint-candidates.sh` argues for it in
+its own comment: *"node is already required to run the board and every test
+suite."* `packages/board` already declares a `bin`.
+
+**So the shell entrances stay, and the left column collapses into one place.**
+The precedent is not hypothetical; it is six call sites old.
+
+### 1 — the board's copy survives
+
+**Stage 2 §4's evidence decides it.** The board's has the three-valued `unknown`
+added after a measured defect (#491), catches vacuous truth via `merged > 0`,
+and carries 25 tests against the shell's zero. **The shell's extra ~95 lines are
+plan-parsing the pulse already did** — they disappear rather than move.
+
+### 3 — the pulse is an input
+
+**It is what the `Refs` port returns.** `allWavesMerged` already treats it that
+way, and nothing argues the other side.
+
+### 4 is what remains
+
+**How far to widen the host port.** 18 direct `gh`/`bb` calls in
+`plot-reconcile-scan.sh` name the gap, but a port that answers every question is
+not a port — it is the CLI with extra steps. **The measured violations are the
+specification**: expose what a consumer reached past it for (`mergedAt` was
+`plot-reap.sh`'s), and no more.
 
 > **Stage 3 — comparison against other agent runtimes — follows this.**

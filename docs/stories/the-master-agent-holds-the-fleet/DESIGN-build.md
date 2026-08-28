@@ -418,5 +418,11 @@ guessed under `PLOT_UNATTENDED`, because *"`jen -I <bogus> auth status` prints
   skill warning of its absence was not updated.
 - **Should the verdict carry `mergeable` beside it?** They are always read
   together and separately meaningless.
-- **Where does a `BuildMonitor` live?** The board holds the only long-lived
-  process, but a supervisor with no board open has the same question.
+- ~~**Where does a `BuildMonitor` live?**~~ **Settled** — a monitor is a **pure
+  function** from readings to a verdict, and the readings come from the `Host`
+  port ([entities §A monitor is a pure function](DESIGN-entities.md#a-monitor-is-a-pure-function)).
+  So a `BuildMonitor` lives wherever it is called: the board calls it each
+  pulse, a supervisor calls it before starting work. **The cost accepted is that
+  nothing watches while nobody asks** — a build is not polled unless someone
+  wants its verdict, which for Build is the cheap case anyway, since the rollup
+  is free per PR and only the history is metered (§8).

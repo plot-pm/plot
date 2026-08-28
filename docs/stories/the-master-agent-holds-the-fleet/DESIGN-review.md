@@ -238,11 +238,16 @@ Principle 3 expressed as an architecture rather than as a convention.
 
 | # | question | blocks |
 |---|---|---|
-| 1 | **Where do monitors live when the board is closed?** | every monitor's design |
+| 1 | ~~Where do monitors live when the board is closed?~~ **SETTLED** — a monitor is a pure function; liveness is a port ([entities](DESIGN-entities.md#a-monitor-is-a-pure-function)) | ~~every monitor's design~~ |
 | 2 | **Is the slice-per-agent desk reused or recreated?** | the Registry's contract |
 | 3 | **Are the Machine thresholds right?** | one session, one sample |
-| 4 | **Does `Slice 1─1 Branch` get enforced or relaxed?** | 21 slices disagree |
+| 4 | ~~Does `Slice 1─1 Branch` get enforced or relaxed?~~ **DISSOLVED** — the Slice/Wave rename made one branch definitional; the 21 are unsliced plans, not violations ([Slice §1](DESIGN-slice.md#one-branch-by-definition--not-by-repair)) | ~~21 slices disagree~~ |
 | 5 | **Should the parser emit a plan slug?** | two duplicated functions say yes |
 
-**1 is the one to settle first**, because it is the only one three specs are
-waiting on.
+**1 was the one to settle first**, because it was the only one three specs were
+waiting on. **Settled 2026-08-28: a monitor is a pure function from readings to
+a verdict, and the readings come from a port.** The question dissolved rather
+than being answered — a monitor with nowhere to live was one that owned its own
+readings, and once the reading is a port's job a monitor is just a function.
+The accepted cost is that **nothing watches while nobody asks**, which is
+Manifesto Principle 1's existing trade rather than a new one.

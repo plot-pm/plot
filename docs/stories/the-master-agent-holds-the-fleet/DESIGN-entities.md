@@ -279,14 +279,58 @@ dispatching, and a subscription would be a held connection for a single answer.
 **The board is the only long-lived process — and it is closed exactly when a
 supervisor most needs it.**
 
-That is recorded as an open question in three specs now, and it is the same
-question each time. Three answers are possible:
+That was recorded as an open question in three specs. **It is settled: a
+monitor is a pure function, and liveness lives behind a port.**
 
 | | monitors live in | when the board is closed |
 |---|---|---|
 | **A** | the board | the master agent has **nothing** — today's state |
 | **B** | a separate daemon | both subscribe; a third process to own |
-| **C** | whoever asks first | the master agent starts them, the board attaches |
+| **C** | **whoever asks — a monitor is pure** | **it still answers** — ✅ **chosen** |
+
+### A monitor is a pure function
+
+**A monitor computes a verdict from readings. It does not take them.**
+
+```
+AgentMonitor   : (readings) → AgentState
+WorktreeMonitor: (readings) → TreeState
+BuildMonitor   : (readings) → BuildState
+MachineMonitor : (readings) → Headroom
+```
+
+**Where the readings come from is the `Processes` port's problem**, not the
+monitor's — the same split §Ports draws for every other source. So the question
+*where does a monitor live?* stops being a question about processes and becomes
+one about **who calls it**, which each caller answers for itself: the board
+calls it on its 5 s pulse, the master agent calls it before starting work, a
+test calls it with a fixture.
+
+**The answer that dissolves the question is the honest one.** A monitor with
+nowhere to live was a monitor that owned its own readings — the moment the
+reading is a port's job, a monitor is just a function, and functions do not need
+a home.
+
+### What this buys, and what it does not
+
+| | |
+|---|---|
+| ✅ | **a monitor is testable with no process at all** — the acceptance criterion, met by construction |
+| ✅ | **the board being closed stops mattering** — a closed board is a caller that is not calling |
+| ✅ | **one implementation, many callers** — `plot-worker-state.sh` is already this shape, sourced by two callers who render it differently |
+| ❌ | **nothing is watched while nobody asks.** A monitor that is not called computes nothing |
+
+**That last row is a real cost and is accepted.** Continuous watching is what
+option B buys, and it buys it with a daemon to supervise — the thing Plot has
+deliberately never had. **Manifesto Principle 1 already made this trade**:
+everything is re-derived, nothing is recorded, and a fact nobody asked for is a
+fact nobody needed.
+
+**The delta (job 3) is where this bites**, because a comparison needs a previous
+reading and a pure function holds none. That does not reopen the question: the
+*storage* of the previous pulse is an adapter's job and the *diff* is the
+domain's, exactly as [stage 2 §7](DESIGN-review-workflows.md#7-the-new-workflows-fit-the-same-shape)
+argues. A caller that wants a delta keeps the last reading and passes both.
 
 **C is the shape the estate already has**, without naming it: `plot-dispatch.sh`
 starts detached workers that outlive it, and the board discovers them through
@@ -989,9 +1033,11 @@ apart from *what it said*.
 - **Is spawn cost the right signal or a proxy?** It separated every observed
   good and bad state, which is evidence, not proof. It may be standing in for
   something better (I/O wait, memory pressure, `syspolicyd` queue depth).
-- **Who measures it — the scan, the board, or a helper?** The board polls every
-  5 s and would carry it free; but a supervisor needs it *before* starting work,
-  when the board may be closed.
+- ~~**Who measures it — the scan, the board, or a helper?**~~ **Settled:**
+  whoever asks. `MachineMonitor` is a pure function over a reading, and the
+  reading comes from the `Machine` port — so the board takes one per pulse and a
+  supervisor takes one before starting work, from the same code. A closed board
+  is a caller that is not calling.
 
 ---
 
@@ -1273,10 +1319,12 @@ and they are re-established from scratch on restart. Neither becomes a file.
 
 #### Open
 
-- **Where does the controller live for a supervisor with no board open?** The
-  board process holds it today, and the board is closed exactly when a
-  supervisor most needs job 1. A short-lived CLI materialization answering from
-  the same code is the obvious candidate, and is not designed here.
+- ~~**Where does the controller live for a supervisor with no board open?**~~
+  **Settled:** nowhere in particular, because a monitor is a pure function and
+  the controller composes them. The board holds one instance because it is
+  long-lived, not because it owns them; a supervisor materializes its own from
+  the same code. What a caller must supply is the *readings*, and those come
+  from ports.
 - **What is the completeness granularity?** Per entity, per source, or per
   action? `auto-deliver`'s single `complete` flag is per pulse, which is coarse
   but has held.
