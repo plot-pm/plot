@@ -27,7 +27,7 @@ Plot's umbrella for work that spans plans, specified as a domain object.
 | 4 | [Lifecycle](#4-lifecycle) | statuses, and why nothing derives them |
 | 5 | [Direction](#5-direction--inbound-and-outbound) | inbound from a ticket; outbound unbuilt |
 | 6 | [Relations](#6-relations) | Plan · Issue · Sprint · Unit |
-| 7 | [Actions](#7-actions) | Create · Resume · Attach · Archive · Open |
+| 7 | [Actions](#7-actions) | six lifecycle acts, and the quality acts beside them |
 | 8 | [Scope](#8-scope--which-stories-are-shown) | which homes, not which stories |
 | 9 | [The collaborators](#9-the-collaborators--story-has-almost-none) | why Story needs none |
 | 10 | [Fleet control](#10-fleet-control--the-master-agent-cannot-see-stories) | the board sees stories; the CLI does not |
@@ -662,6 +662,48 @@ That is defensible — both are conversational acts, and a button that spawned a
 agent to write a session entry would be doing the writing a person came to do.
 But it means the board shows stories it cannot help you work on, which is a
 different relationship than it has with plans.
+
+### Challenge — a quality act, not a lifecycle one
+
+**A story is interrogated, and that is an action too** — but of a different kind
+from the six above. The workflow names its agents beside Problem-space analysis:
+**critic** and **reality-checker**, in a box labelled *"Agents advise"*, and
+*"Challenge the story"* as its own step before approval.
+
+| | **lifecycle** acts | **quality** acts |
+|---|---|---|
+| examples | Create · Create Story · Archive | **critic · reality-checker · challenge-the-story** |
+| writes | a status change, a file, a directory move | **the story refines itself** |
+| gated | archive requires `done` | **no** — nothing requires a challenge |
+| skippable | no | **yes** |
+
+**What they check is specific to problem space**: *how coherent the story is,
+and how precisely the problem can be grasped from it.* That is not a review of
+correctness — there is no solution yet to be correct about — it is a review of
+whether the problem statement holds together and can be acted on.
+
+Which makes it the exact counterpart of `challenge-the-plan`, one space up:
+
+| | interrogates | asks |
+|---|---|---|
+| **critic / reality-checker** | a **story** | is the problem coherent and precisely grasped? |
+| **challenge-the-plan** | a **plan** | does the solution survive technical, domain, UX and NFR questioning? |
+
+**Both are advisory, and both leave `## Open Questions`.** The skill that does
+this for plans is a *Companion* in CLAUDE.md rather than a spoke, and the same
+is true here: a challenged story is at the same status it was before.
+
+**Story has no equivalent skill.** `challenge-the-plan` *"works on any
+PLAN/SPEC/STORY file; no plot conventions required"* — so it can be pointed at a
+story — but its five question categories are solution-space
+(stack, architecture, implementation, error states, scalability). Asking those
+of a problem statement gets solution answers, which is the one thing a story
+must not contain.
+
+**So the gap is a question set, not a skill.** The critic and reality-checker
+agents exist and the workflow names their slot; what has not been written is the
+problem-space interview — coherence, precision, whose problem, what changes if
+it is solved.
 
 ### Archive is the untested one
 

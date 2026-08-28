@@ -27,7 +27,7 @@ around.
 | 4 | [Lifecycle](#4-lifecycle) | seven plan states, and the workflow phases they map into |
 | 5 | [Direction](#5-direction--inbound-outbound-and-neither) | inbound from a ticket · outbound unbuilt · neither, the majority |
 | 6 | [Relations](#6-relations) | Story · Issue · Sprint · Wave · Branch · PR |
-| 7 | [Actions](#7-actions) | idea · approve · implement · deliver · release |
+| 7 | [Actions](#7-actions) | lifecycle acts, and the quality acts beside them |
 | 8 | [Scope](#8-scope) | which plans are shown, and the rolling window |
 | 9 | [The collaborators](#9-the-collaborators) | the parser is the contract |
 | 10 | [Fleet control](#10-fleet-control) | the one entity the CLI serves well |
@@ -422,6 +422,55 @@ The lifecycle *is* the action set, and each is a spoke command:
 | **Deliver** | `/plot-deliver` → `plot-deliver.sh` | phase flip, `Delivered:`, index moved |
 | **Release** | `/plot-release` | tag, `Released:`, sprint gate |
 | **Reslice** | `/plot-reslice` | rewrites `## Branches` only, after a person confirms |
+
+### Two kinds of action: lifecycle and quality
+
+The table above is **lifecycle** actions — each writes a state transition or
+creates an artefact, and each has a gate. There is a second kind that does
+neither:
+
+| | **lifecycle** | **quality** |
+|---|---|---|
+| examples | approve · deliver · release | **challenge-the-plan** · plan-challenger |
+| writes | a state transition | **the artefact refines itself** |
+| gated | yes — a guardrail refuses | **no** — approval never requires it |
+| leaves | `Approved:`, `Delivered:` | an `## Open Questions` section |
+| skippable | no | **yes, and often is** |
+
+**A challenged plan is still Draft.** The interrogation changes the plan's
+*content*, never its state — which is precisely why it is a Companion in
+CLAUDE.md's own table rather than a spoke: *"usable standalone, not a plot
+spoke."* The taxonomy already knew.
+
+`challenge-the-plan` interviews across technical, domain, UX, non-functional and
+trade-off dimensions, weaves the answers **back into the plan's narrative**
+(*"no meta-commentary… expand existing sections as if always there"*), and
+tracks deferrals in `## Open Questions`. The plan comes out better and
+identically staged.
+
+**Its slot is named and it is advisory:** *"after `/plot-idea` refinement,
+before `/plot-approve` — wrong directions get caught while they still cost
+markdown edits, not code."*
+
+**Why it is not a gate.** Making it one would be defensible — it catches
+mistakes at their cheapest — but it would also make every plan pay an interview,
+and the estate's 158 plans include many whose design fits in a paragraph. The
+manifesto's ceremony-matched-to-change principle applies: **the challenge is
+offered, and a person decides the plan needs it.**
+
+**The one thing the quality kind leaves behind is `## Open Questions`, and
+nothing reads it.** Measured 2026-08-28: **45 of 158 plans carry the section**
+— over a quarter of the estate — and it appears in no script, no scan, no
+schema and no view.
+
+So a plan approved with three unresolved questions is indistinguishable, to
+every consumer, from one with none. The section exists precisely to survive
+into approval and be answered later, and nothing surfaces it — not the board's
+plan card, not `plot-plan-meta.sh`, not the reconcile sweep.
+
+That is the largest unread field in the plan format, and it is a **view** gap
+before it is a parser one: the questions are already written down and already
+in the file every consumer opens.
 
 **The mechanical halves are scripts; the judgement stays in the skills** —
 Principle 3, and the split is explicit: `plot-approve.sh` merges, flips, fills,
