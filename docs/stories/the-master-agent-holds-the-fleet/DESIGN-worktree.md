@@ -252,9 +252,50 @@ worktrees. **The fix was to reap the worktree, not delete the manifest** (§6).
 
 ## 12. Setup
 
-**`Worktree root`** — where dispatch puts its trees. A recent addition; before
-it, `plot-dispatch.sh` *"put every worktree in the repo's parent, with a
-`plot-wt-` prefix that existed only to make Plot's worktrees identifiable."*
+**`Worktree root`** — where dispatch puts its trees, and **the intended value is
+`.worktrees`, inside the project folder.**
+
+`resolve_wt_root` supports it directly: an **absolute** value is taken as given,
+a **relative** one is resolved against the repo root — so `Worktree root:
+.worktrees` yields `<repo>/.worktrees/<branch>`.
+
+### The legacy default is beside the repo, not inside it
+
+**Unset, dispatch falls back to the repo's parent** with a `plot-wt-` prefix
+*"that existed only to make Plot's worktrees identifiable among the"* siblings.
+
+**Measured here 2026-08-28** — `Worktree root` is unset, so this repo runs the
+legacy shape:
+
+| location | trees |
+|---|---|
+| `…/Agentic-Tools/` (the repo's parent) | **15** |
+| scratch dirs under `/tmp` | 4 |
+| a job dir | 1 |
+
+**So this estate has not adopted the intended layout**, which is why `--migrate`
+exists: *"move legacy worktrees into the configured `Worktree root:`"*, skipping
+a busy one with the reason, and dry-run by default.
+
+### Inside the project is a different shape, not just a different path
+
+**Three things change when the trees move inside:**
+
+| | beside the repo | **inside it** |
+|---|---|---|
+| `git status` in the main checkout | unaffected | **sees `.worktrees/` unless ignored** |
+| `git add -A` | cannot reach them | **can** |
+| a recursive tool (`rg`, a test runner, `node --watch`) | skips them | **descends into every tree** |
+
+**`.worktrees` is not in this repo's `.gitignore`**, and adopting the layout
+without adding it would put every dispatched tree in front of `git status` — in
+a repo whose `.gitignore` already carries a warning about exactly this class of
+mistake: *"a `git add -A` in a worker's worktree carries someone's console log
+into"* the commit.
+
+**The prefix becomes unnecessary.** `plot-wt-` existed to distinguish Plot's
+trees from their siblings; inside a dedicated directory, containment does that
+job and the names can be the branch names.
 
 ---
 
@@ -265,6 +306,8 @@ it, `plot-dispatch.sh` *"put every worktree in the repo's parent, with a
 | 1 | **Nothing monitors a worktree** — a tree can go dirty, be abandoned, or fill a disk unobserved | now |
 | 2 | **`prunable` is git's word, unread by Plot** — a tree whose directory vanished still lists | now |
 | 3 | **The fleet scan cannot see uncommitted work** — only dispatch can, and only locally | now |
+| 4 | **`.worktrees` is not in `.gitignore`** — adopting the intended in-project layout would expose every dispatched tree to `git status` and `git add -A` | **on adoption** |
+| 5 | **This estate runs the legacy layout** — `Worktree root` unset, 15 trees in the repo's parent | now, measured |
 
 **Gap 3 is the story's own job 2** seen from the filesystem: *is that worker
 working, or just alive?* is answered by the tree, and the tree is visible to
@@ -292,3 +335,6 @@ one script.
 - **Should a worktree be monitored?** Nothing watches one, and job 2's answer
   lives there.
 - **Should `prunable` be read?** Git already knows a tree's directory is gone.
+- **Should `/plot-init` propose `Worktree root: .worktrees`?** It is the intended
+  layout, it is unset here, and adopting it needs a `.gitignore` line the setup
+  step would be the natural place to add.
