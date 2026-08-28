@@ -455,22 +455,218 @@ Thin today: `path`, `branch`, `isMain`. Proposed additions in §4 (below).
 | `occupant` **`+`** | session \| null | which Agent sits here, if any |
 | `reapable` **`+`** | bool + reason | five measurements, never a judgement (`plot-reap.sh`) |
 
-### Memory is a separate question
+### Where the properties live
 
-Nothing above says which properties survive between pulses. Two of them
-provably must — `Machine.measuredAt` describes a moment that cannot be
-re-derived, and story job 3's delta needs a previous state to diff against —
-while most are re-read from git, the host, or the process table every time.
+Settled 2026-08-28: **the properties live on in-memory domain objects held by a
+controller — the fleet control — hydrated asynchronously, with actions deferred
+until the data an action needs has arrived.**
 
-The precedent that settles it is `PLOT_TERMINAL_CACHE`: it keeps answers across
-pulses and stays legal because it is **checked against git every pass and
-discarded the moment it disagrees** — *"which is what keeps it a derivation
-rather than a record."*
+Nothing is persisted. The objects are materialized per process and die with it,
+so this is not the fleet database Principle 1 forbids; it is the shape the board
+already reaches for, made explicit and applied to every entity rather than to
+one.
 
-That gives the test each property should be put to, in a later pass:
-**can this be re-derived from its source?** If yes, it may be cached but never
-stored. If no, it is a moment, and retaining it is the only way it exists at
-all. Splitting the table on that line before the entities themselves are agreed
-would settle storage before shape.
+#### It is already half-built
+
+`CacheEntry` in `fleet.ts` **is** this controller. It holds the pulse, the
+terminal-answer map, branch ages, approval dates, PR records, run histories and
+worker questions — each hydrated on its own timer, each with its own cost. Its
+own comment states the rule this design generalizes:
+
+> *IN MEMORY AND NOWHERE ELSE. Never written to disk, never to `.plot/` — a
+> restart re-derives everything. […] it is the SCAN, not this field, that
+> decides an entry is still valid: git is re-consulted on every pass and the
+> entry is discarded the moment it disagrees.*
+
+So the controller exists and is already Principle-1 compliant. What it lacks is
+the two things that make deferred action possible.
+
+#### 1. Each entity carries its own load state
+
+Different sources answer at different speeds and prices: git every 5 s, the host
+every 60 s (metered), the process table per pulse, the tracker on its own timer.
+An entity assembled from several of them is **partially loaded** for most of its
+life, and today that state has no name — so a consumer cannot tell *the answer
+is no* from *the answer has not arrived*.
+
+The vocabulary already exists and is the one Ticket uses. Every entity adopts
+it, per source:
+
+| load state | means |
+|---|---|
+| `answered` | the source replied; the value is what it said |
+| `not-asked` | deliberately skipped — metered, out of budget, or filtered |
+| `failed` | asked, and it did not come back |
+| `unsupported` | this host cannot answer at all (Bitbucket has no issue listing) |
+
+**Collapsing any two rebuilds `an-outage-is-not-an-answer`**, the defect the
+contract already names: *"a board that renders the second as the first tells a
+reader their inbox is clear using data it never received."*
+
+#### 2. The controller gates actions on completeness
+
+An action fires only when the entities it reads are loaded enough to decide.
+This is not hypothetical — it is a bug already fixed once in exactly this shape.
+
+`auto-deliver.ts` carries a `complete` flag through `planAutoDeliver` and
+`allWavesMerged`, and `allWavesMerged` returns **three** values —
+`merged` / `not-merged` / `unknown` — precisely so an incomplete pulse cannot
+be read as *not merged* and suppress a delivery, nor as *merged* and fire one
+on data that never arrived.
+
+The precedent for the whole idea is the scan's own `--stream`:
+
+> *A consumer that has seen plan lines and no pulse line holds a PARTIAL answer
+> […] The terminal line is what says the scan finished; a closed pipe does not,
+> because a killed scan closes it too.*
+
+That is this design in miniature — asynchronous hydration, an explicit
+completeness signal, and the refusal to treat absence of data as data. The
+generalization is that **every** entity gets it, and the controller — not each
+call site — is what holds it.
+
+#### The rule that keeps it a derivation
+
+A materialized object may be held across pulses **only where its source is
+re-consulted and the object discarded the moment they disagree.** That is the
+`PLOT_TERMINAL_CACHE` rule, and it is what separates a cache from a record.
+
+Two properties cannot satisfy it, and they are the design's honest exceptions:
+
+- **`Machine.measuredAt`** — spawn cost describes a moment. It cannot be
+  re-derived, only re-measured, which produces a *different* fact. Its
+  staleness is therefore a first-class property rather than a cache concern.
+- **The delta** (story job 3) — *what changed since I last looked* needs a
+  previous state to diff against, and a stateless scan has none by
+  construction.
+
+Both are legitimate here for the same reason: they live in a process that dies,
+and they are re-established from scratch on restart. Neither becomes a file.
+
+#### What this buys the story's jobs
+
+| job | what the controller gives it |
+|---|---|
+| 1 — can I start work? | Machine hydrated beside the pulse; *"not measured yet"* is a real answer |
+| 2 — working or just alive? | Agent's four readings assembled into one object; `machineAtDeath` attaches at exit |
+| 3 — what changed? | the previous materialization is the diff's other operand |
+| 4 — what is safe to run? | operations priced against a Machine reading the controller already holds |
+| 5 — what do I show? | the supervisor asks the controller, not a competing scan |
+
+#### Open
+
+- **Where does the controller live for a supervisor with no board open?** The
+  board process holds it today, and the board is closed exactly when a
+  supervisor most needs job 1. A short-lived CLI materialization answering from
+  the same code is the obvious candidate, and is not designed here.
+- **What is the completeness granularity?** Per entity, per source, or per
+  action? `auto-deliver`'s single `complete` flag is per pulse, which is coarse
+  but has held.
+- **Does the delta belong to the controller or to a consumer?** It is the only
+  property whose value is a *comparison*, and the story's own Open Points leave
+  it unsettled.
 
 ---
+## The control is async, so it follows the Reactive Manifesto
+
+The controller hydrates from four sources at four cadences and prices. That
+makes it a reactive system whether or not it is designed as one, and the four
+tenets each land on a defect this session actually produced.
+
+Three map directly. **One inverts, and the inversion is load-bearing.**
+
+### Responsive — reply quickly and consistently; surface errors fast
+
+The board polls a scan that takes **18.3 s** against a **5 s** cadence. A
+consumer that renders nothing for 18 s does not look slow; it looks broken —
+which is why `--stream` exists, emitting each plan the moment it resolves and a
+terminal `pulse` line to say the scan finished.
+
+**What this design adds:** the same discipline for every entity, not just the
+scan. A partially-hydrated entity renders *what it has*, labelled with what it
+is still waiting for — never a blank that reads as an answer.
+
+**And errors surface as errors.** `CacheEntry` already keeps `error` (a scan
+that failed and was discarded) apart from `shrink` (a scan that succeeded and
+lost rows). Consistency here means a reader can always tell *slow* from
+*broken* — the exact distinction the supervisor inverted when it diagnosed a
+dead board as a starved one.
+
+### Resilient — stay working when parts break; isolate failures
+
+Failures here are ordinary, not exceptional: a metered host refuses, a worker
+dies, a tracker times out, `gh` hits a secondary limit. The rule already
+practised in `refreshRuns` and `refreshPrs` is the right one and generalizes:
+
+> *A row losing a line it carried a minute ago reads as the branch changing
+> rather than as a fetch failing.*
+
+So a failed fetch **keeps the last good value and says it is stale** — it never
+degrades to empty. Isolation is per entity and per source: the tracker being
+unreachable must not blank the branches, and a host outage must not blank git.
+
+**This is why the load state is per source rather than per object.** One
+collapsed flag would let one broken source take the whole object down, which is
+the failure spreading rather than being contained.
+
+### Elastic — stay fast as load changes… by shedding, not scaling
+
+**This tenet inverts here, and the inversion is the point.**
+
+The manifesto assumes elasticity means acquiring resources under load. The fleet
+cannot: it runs on one laptop with fixed capacity, shared with the operator's
+own board. Measured this session — the supervisor's work took the operator's
+view away **three times**, and seven workers died at `exit 124` from starvation
+the supervisor itself caused.
+
+So elasticity here means **shedding work as headroom falls**:
+
+| headroom | the controller's behaviour |
+|---|---|
+| `clear` | full cadence; metered fetches allowed |
+| `tight` | stretch cadences; skip metered fetches (`not-asked`, said out loud) |
+| `starved` | pulse only; **the operator's board has priority over the supervisor** |
+
+The mechanism is already there and already elastic in exactly this way —
+`prRefreshMsFor` stretches the PR cadence by the host's cost multiplier, and the
+terminal cache skips host round trips for 26 of 54 branches. What is missing is
+that **none of it responds to the machine**, because no entity reports the
+machine. Elasticity needs a signal to be elastic against; §2 is that signal.
+
+**The observer must price itself.** `Machine.sampleMs` exists for this: a
+headroom measurement that itself costs meaningfully under load makes the
+observer part of the problem — which is the story's central complaint,
+restated as a constraint on its own fix.
+
+### Message-Driven — asynchronous, non-blocking, loosely coupled
+
+Already the shape, and worth stating so it is not lost: the scan is spawned per
+pulse and cannot span two, so it takes the terminal map in **through the
+environment** and reports the next map **on stderr**. Two processes, no shared
+memory, no blocking call — a message.
+
+The rules that keep it loosely coupled, and that this design keeps:
+
+- **The whole map, never a delta** — *"so there is no merge rule here to get
+  wrong."*
+- **The receiver validates and may reject.** The scan re-consults git every pass
+  and discards any entry that disagrees. The message is a proposal, not a
+  command.
+- **A terminal message ends a stream.** Absence of further messages is not a
+  message; a killed scan closes the pipe exactly as a finished one does.
+
+**Where this design pushes back:** `plot-reap.sh` calls `gh` directly rather
+than through `plot-host.sh`, bypassing the one adapter that owns host
+conversation. That is the coupling this tenet forbids — a component reaching
+past the boundary because the message it needed (`mergedAt`) was not in the
+protocol. The fix is to put it in the protocol.
+
+### What the four tenets add to the entity design
+
+| tenet | consequence for the entities |
+|---|---|
+| Responsive | partial renders labelled; slow distinguishable from broken |
+| Resilient | last-good-value on failure, marked stale; load state **per source** |
+| Elastic | Machine is not optional — it is the signal cadence responds to |
+| Message-Driven | whole-map messages, receiver-side validation, terminal signals |
+
