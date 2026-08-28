@@ -32,6 +32,77 @@ Plot's umbrella for work that spans plans, specified as a domain object.
 
 ## 1. What a Story is
 
+### Problem space and solution space
+
+**A Story describes the problem. A plan describes the solution.** That is the
+distinction the two artefacts turn on, and everything else about them follows
+from it.
+
+| | **Story** — problem space | **Plan** — solution space |
+|---|---|---|
+| **asks** | what problem do users have, and how should software support them with it | how should *this system* change |
+| **carries** | the problem · how a solution should help · **desired qualities** · workflow — how users want the system to behave, which steps should be automated and how | the change to the current system · **the steps to land it** · the non-functional requirements of *this* solution |
+| **is true** | independently of any system | only of the system it targets |
+| **outlives** | implementations, rewrites, whole stacks | its own delivery |
+
+**Qualities appear on both sides, and they are different qualities.** A story
+says *"this must stay usable while the network is flaky"* — a property of the
+problem, true whatever gets built. A plan says *"the retry backoff is capped at
+30 s and the queue drains in under 2 s"* — a property of **this** solution,
+meaningless without it. Reading them as one thing is how a plan ends up
+carrying requirements that outlive it, and how a story ends up specifying an
+implementation.
+
+**Workflow belongs to the story**, and this is the part most easily lost: *how
+users want the system to behave*, and *which steps should be automated and how*,
+are statements about the problem — they constrain a solution without being one.
+A plan that invents its own workflow is answering a question the story should
+have settled.
+
+### The templates already enforce this, and say so nowhere
+
+Measured 2026-08-28:
+
+| Story sections | Plan sections |
+|---|---|
+| Objective · Why Now · Decisions Taken in Scoping · Current Plan · Open Points · Key Findings · Excluded from Scope | Status · Changelog · Motivation · **Design** · **Branches** · Notes |
+
+**A story has no `Design` and no `Branches`** — nowhere to put a solution. **A
+plan has one `Motivation` section** against `Design` plus `Branches` — barely
+anywhere to put a problem.
+
+The split is already structural. What is missing is that **nothing states it**:
+neither template explains what the other is for, so the boundary is enforced by
+the shape of a form rather than by an understanding, and a contributor learns it
+by having a section refused rather than by being told.
+
+**And there is no story template at all.** `.plot/templates/` holds `plan.md`
+and nothing else, so a story's shape is whatever the last author copied. That is
+the likelier explanation for §5's four-way divergence than any of the four
+sources being wrong: a form nobody wrote cannot be filled in consistently.
+
+### Why overflow is a consequence, not the definition
+
+An earlier draft of this section defined a Story by the `story-tracking` skill's
+**umbrella rule** — a story exists when knowledge overflows the umbrella that
+holds it. That explains *when* a story is needed and not *what one is*.
+
+With the two spaces named, overflow follows: **problem-space knowledge overflows
+a solution-space artefact because the plan has no section for it.** Research
+before implementing, multi-repo coordination, external gates, dev-team-only
+topics — every overflow signal the skill lists is problem-space knowledge with
+nowhere to go.
+
+The negative rule reads the same way. *"Implement this ticket as described"
+never opens a story* precisely because a described ticket **is** the problem
+statement — the problem space is already occupied, and only the solution remains
+to be planned.
+
+So the umbrella rule is kept below as the operational test, and this is what it
+is testing for.
+
+---
+
 **A Story is the home for knowledge that no single plan can hold.**
 
 Not a bigger plan, not a phase, not a container. The `story-tracking` skill
@@ -351,15 +422,23 @@ them.
 
 ### Invariants
 
-1. **A Story is a knowledge home, not a work container.** Size never triggers
-   one; overflow of knowledge does.
-2. **A Story is created late**, at the moment of overflow, and backfilled.
-3. **`slug` appears twice on disk** — directory and filename — so `path` is
+1. **A Story is problem space; a plan is solution space.** A story is true
+   independently of any system and outlives implementations; a plan is true only
+   of the system it changes.
+2. **Qualities live on both sides and are not the same qualities.** A story's
+   are properties of the problem; a plan's are properties of that solution.
+3. **Workflow belongs to the story** — how users want the system to behave, and
+   what should be automated, constrain a solution without being one.
+4. **A Story is a knowledge home, not a work container.** Size never triggers
+   one; overflow of knowledge does — and it overflows *because* the plan has no
+   section for problem-space knowledge.
+5. **A Story is created late**, at the moment of overflow, and backfilled.
+6. **`slug` appears twice on disk** — directory and filename — so `path` is
    carried, never reconstructed.
-4. **Plans declare their story; stories do not list their plans.**
-5. **A Story's status is written by a person and derived by nothing.**
-6. **A story with no plans is legitimate**, not an orphan — measured, 4 of 9.
-7. **The body is the artefact.** The domain object represents what a board needs
+7. **Plans declare their story; stories do not list their plans.**
+8. **A Story's status is written by a person and derived by nothing.**
+9. **A story with no plans is legitimate**, not an orphan — measured, 4 of 9.
+10. **The body is the artefact.** The domain object represents what a board needs
    to know, never the Story itself.
 
 ### Open points
@@ -372,5 +451,13 @@ them.
   `Tracker: plot`.
 - **Should the board search all story homes?** The skill does; the board reads
   one. A multi-home repo's stories are invisible today.
+- **Should a story template exist?** `.plot/templates/` holds only `plan.md`,
+  so a story's shape is whatever the last author copied — the likeliest cause of
+  §5's divergence.
+- **Should each template name the other's scope?** The problem/solution split is
+  enforced structurally and stated nowhere, so it is learned by having a section
+  refused.
+- **Where do a plan's qualities go?** The template has no section for
+  non-functional requirements; today they land in `Design` or in `Done when`.
 - **Does `done` work?** The transition writes two fields and moves a directory,
   and has never run in this repo.
