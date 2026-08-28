@@ -83,7 +83,7 @@ Story: [[the-board-is-blank-where-it-matters]].
       request killed by the board's own `node --watch` restart neither resolves
       nor rejects, so the panel shows "Loading…" forever while its correct error
       branch never fires.
-- [ ] [the-adapter-checks-the-cli-it-got] A `bb` too old for the flags Plot
+- [x] [the-adapter-checks-the-cli-it-got] A `bb` too old for the flags Plot <!-- status: delivered -->
       passes makes every Bitbucket PR read as *no PR*. Measured 2026-08-26:
       homebrew's `bb` 0.6.0 has no `--json` and shadows 1.0.0 on PATH, the
       error goes to `/dev/null`, and `jq` exits 0. Blocks the plan below —

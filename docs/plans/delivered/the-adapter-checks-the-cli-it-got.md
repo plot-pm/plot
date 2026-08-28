@@ -1,0 +1,1 @@
+../2026-08-26-the-adapter-checks-the-cli-it-got.md
