@@ -1,0 +1,1 @@
+../2026-08-26-a-reaped-worktree-takes-its-manifest.md
