@@ -1655,39 +1655,66 @@ It renders id, title, age and a `⋯` menu, and it is placed in the section that
 means *a person owes this something* — correct, because an unplanned issue is
 waiting on a human decision and on nothing else.
 
-**And the guard hides a failure.** When `issueAnswer` is `failed`, no issue rows
-render and **nothing says why**. The section shows its branch rows and looks
-complete, so an unavailable inbox is indistinguishable from an empty one — the
-exact confusion this entity is scrupulous about everywhere else, in the one
-place a reader actually looks. `issueError` is carried in the payload and
-rendered nowhere.
+**Correction 2026-08-28.** An earlier draft of this section claimed the guard
+hides a failure — that when `issueAnswer` is `failed` nothing renders and
+nothing says why. **That is wrong.** `AgentList.tsx:1959` renders a
+`data-issue-error` row in the same section, and `issueNote` chooses its wording
+between *could not be read* for an outage and *the rate limit is spent, returns
+in ~N* for a refused budget — a third state I had not distinguished, and which
+*"does not claim a check that never ran."*
+
+So the failure path is not only present, it is more careful than the two-state
+model I proposed. The lesson is the document's own: I read a guard
+(`=== 'answered'`) and inferred the absence of its complement instead of looking
+for it thirty lines below.
 
 ### The views this design needs
 
-| view | where | shows | why |
+| view | where | shows | status |
 |---|---|---|---|
-| **inbox row** | WAITING ON YOU | id · title · age · actions | exists |
-| **answer state** | the section header | *unavailable* · *50 of 400* · *none* | **missing** — the failure above |
+| **inbox row** | WAITING ON YOU | id · title · age · actions | **exists** |
+| **failure note** | same section | *could not be read* · *rate limit spent* | **exists** |
+| **detail** | on demand | the body, from `issue-view` | **exists**, behind the create actions |
+| **truncation** | the section header | *50 shown of 400 open* | **missing** — gap 2 |
 | **plan backlink** | plan / branch row | *answers `PROJ-123`* → link | **missing** — gap 3 |
 | **sprint footprint** | sprint card | the epic, and its ticket count | **missing** — posture 2 |
-| **detail** | on demand | the body, from `issue-view` | exists, behind *Create plan* |
 
-#### The answer state belongs in the header, not in a row
+**Three of six exist**, and the two that matter most for a reader — the row and
+the failure note — are among them. What is missing divides cleanly: one is a
+count the fetch discards, and two are views of relations that are themselves
+unbuilt.
 
-Three states, three renderings, and none of them is an absent row:
+#### Is a row all the board needs?
 
-| `issueAnswer` | header reads |
+Largely, yes — and that is the design rather than a shortcoming. **An Issue's
+own affordances belong to the tracker**; what the board adds is the one thing
+the tracker cannot know: *has anyone here decided about this?*
+
+So the row carries exactly what that question needs — id, title, age, and the
+actions that answer it — and everything else stays where it is owned:
+
+| the board does | the tracker does |
 |---|---|
-| `answered` | *3 unplanned* — or *3 unplanned of 50 shown, 400 open* when truncated |
-| `failed` | ***inbox unavailable*** — with `issueError`'s own words on hover |
-| `unsupported` | nothing at all — no count, no row, no empty state |
+| show what is **unplanned here** | show everything, with its own filters |
+| offer *Create plan · story · sprint* | assign, label, prioritise, comment, close |
+| say whether the tracker answered | be the record |
+| link out | everything else |
 
-`unsupported` renders nothing because an empty inbox on Bitbucket would claim an
-empty tracker. `failed` must render *something*, because silence there is a
-claim too — the claim that there is nothing to see.
+**Two things are not rows, though, and cannot be.**
 
-This is the same three-way split the payload already carries and the view
-already flattens to two.
+*The answer state is a property of the fetch, not of any issue.* `unsupported`
+must render **nothing at all** — no count, no empty state — because an empty
+inbox on Bitbucket would claim an empty tracker. That is an absence the row
+model cannot express: there is no row to leave out.
+
+*Truncation is a property of the collection.* `ISSUE_LIMIT = 50` bounds the
+fetch, so *50 shown of 400 open* is a statement about what the reader is not
+seeing — and a row cannot say that about the rows beside it. It belongs in the
+section header, and it is the one genuinely missing view in this group (gap 2).
+
+The existing failure note is the precedent: it is already a non-row line in the
+section, carrying a fact about the fetch rather than about an issue. The
+truncation count is its sibling.
 
 #### The backlink is a view on Plan, not on Issue
 
@@ -1722,6 +1749,16 @@ Where no epic exists — the majority — it renders nothing, on the same rule
 - **No inbox sorting or grouping controls.** The order is *newest first* and the
   filter is *unplanned*; a control implying Plot ranks relevance would promise a
   judgement it declines to make.
+- **No editing of any kind.** Assign, label, prioritise, comment, close — all of
+  it belongs to the tracker, and for an inbound issue Plot has no standing to do
+  any of it. The row's only writes are the three create actions, and each spawns
+  an agent that writes to **Plot's** estate, not to the tracker's.
+
+**The through-line:** everything the board declines here is something the
+tracker already does better, and doing it twice would mean holding a copy that
+is wrong between refreshes. The board's one contribution is the question the
+tracker cannot answer — *has anyone here decided about this?* — and a row is the
+right size for that.
 
 ### One rendering rule, from §3
 
