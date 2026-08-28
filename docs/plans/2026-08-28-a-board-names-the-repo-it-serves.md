@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-28, Jan Wloka, in-session
+- **Started:** 2026-08-28, Jan Wloka, `bug/a-board-names-the-repo-it-serves`
 
 ## Approval
 
@@ -105,7 +106,7 @@ startup fact too, and is already resolved before the first response.
 
 ## Waves
 
-### Named (Branch: bug/a-board-names-the-repo-it-serves)
+### Named (Branch: bug/a-board-names-the-repo-it-serves, PR: #505)
 
 `repo` on `ServerInfoSchema`, set in `serverInfo()` from `opts.repoRoot`,
 rendered in the header beside the branch.

@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-28, Jan Wloka, in-session
+- **Started:** 2026-08-28, Jan Wloka, `bug/a-board-that-never-scanned-says-so`
 
 ## Approval
 
@@ -111,7 +112,7 @@ merging the two is the error this plan exists to undo.
 
 ## Waves
 
-### Told (Branch: bug/a-board-that-never-scanned-says-so)
+### Told (Branch: bug/a-board-that-never-scanned-says-so, PR: #506)
 
 The `!ready` case owns its render whether or not an error is set: the never-
 scanned sentence, the error text beneath it, and no sections.
