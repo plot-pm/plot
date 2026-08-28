@@ -483,10 +483,15 @@ Story has no kinds. It has both directions, and the Issue spec's rule applies
 unchanged: **direction is a property of the individual artefact, not of the
 type.**
 
-| direction | shape | mechanism |
+| direction | act | mechanism |
 |---|---|---|
-| **inbound** | a ticket becomes a Story | *Create story* on an issue row (`kind = story`) |
-| **outbound** | a Story publishes a ticket | posture 2 — **unbuilt** |
+| **inbound** | **Create Story** — a ticket becomes a Story | *Create story* on an issue row (`kind = story`) |
+| **outbound** | **Create Issue** — a Story publishes a ticket | posture 2 — **unbuilt** (§7) |
+| *(neither)* | **Create** — a person starts one | `/story-tracking` → `brainstorming` |
+
+**The third row is the common case**, and it has no direction because no
+artefact precedes it: six of nine stories here began with a person deciding
+knowledge had overflowed.
 
 **Inbound exists**: `POST /api/story`, keyed by issue number, spawning the
 `Story command` agent. The story-tracking triage still governs whether one is
@@ -499,9 +504,9 @@ publication. Whether it should is a genuine question — a story is often
 *deliberately* internal — which is why this is named as unbuilt rather than as a
 gap.
 
-**And a Story created from neither direction is the common case.** Six of nine
-here began as a person deciding knowledge had overflowed, with no ticket
-involved.
+**Direction is a property of the individual story**, not of stories in general
+— the rule the Issue spec states and this inherits. The same story may be
+created from a ticket and later publish a different one.
 
 ---
 
@@ -564,31 +569,104 @@ their `Story:`.
 
 ## 7. Actions
 
+Six acts, and the first three are commonly confused because all three say
+"create". **They differ in where the content comes from**, which is the only
+distinction that matters:
 
-| action | who | status |
-|---|---|---|
-| **Create** | `/story-tracking`, invoking `brainstorming` | exists; template step broken (§1) |
-| **Create from issue** | board — *Create story* on a ticket row | **exists** |
-| **Resume** | `/story-tracking` — search homes, read, summarise state | **exists**, CLI only |
-| **Attach** | log a session entry on an existing story | **exists**, CLI only |
-| **Archive** | `status: done` + `archived:` + move to `archived/` | **exists, never run here** |
-| **Open** | board — the story modal | **exists** |
+| act | content comes from | direction | status |
+|---|---|---|---|
+| **Create** | **a conversation with a person** | — | exists; template step broken (§1) |
+| **Create Story** *(from an issue)* | a ticket body someone else wrote | inbound | **exists** |
+| **Create Issue** *(from a story)* | a story file Plot already holds | **outbound** | **unbuilt** |
+| **Resume** | the story file, read back | — | exists, CLI only |
+| **Attach** | a session entry appended | — | exists, CLI only |
+| **Archive** | `status: done` + `archived:` + move | — | exists, **never run here** |
 
-**Resume and Attach are the most-used and the least visible.** *"Continue on X"*
-is the skill's own trigger phrase, and the triage's second branch — *"an existing
-story that covers the effort: attach, don't create"* — makes attaching the
-preferred outcome. Neither has any board affordance: a reader looking at a story
-card cannot log a session against it.
+### Create — "let's start a new story"
+
+**Yes: the user is the input.** The skill says so directly —
+
+> *A story is created **before** its work exists, so its home cannot be derived
+> from anything on disk.*
+
+There is nothing to read and nothing to convert. That is precisely why Create
+invokes `brainstorming` (§1): the problem statement does not exist yet, so it
+has to be elicited — purpose, constraints, success criteria, approaches, and
+approval, in dialogue.
+
+Its triggers are conversational by nature: *"create story"*, *"new story"*,
+*"work on"*, *"continue on"*. A person arriving with a problem is the whole
+input, and the triage front door decides whether a story is the right home for
+it at all.
+
+**So Create is an origin, not a conversion.** It is the only one of the three
+where no prior artefact exists.
+
+### Create Story — from an issue
+
+A conversion **inbound**: a ticket someone else wrote becomes a story. The
+content is the issue body, fetched by `issue-view` and handed to the spawned
+agent.
+
+The distinction from Create is not the trigger but the **provenance**: here a
+problem statement already exists in a system Plot does not own, and the story
+is a home for the knowledge that ticket cannot hold. The triage still governs —
+*a well-described ticket stays the umbrella* — so this act is legitimate exactly
+when the ticket is **not** self-sufficient.
+
+### Create Issue — from a story, and it is the missing one
+
+A conversion **outbound**: an existing story publishes a ticket so people
+outside the repo can see it. **Unbuilt** — nothing in Plot writes a ticket from
+a story.
+
+**This is the story-side half of the publishing posture.** Under
+`Tracker: plot` + an issue tracker, a client already sees plans as feature
+tickets and releases as epics; the problem-space knowledge that justified them
+has no publication. The Issue spec calls this outbound direction unbuilt from
+its side; this is the same gap named from the Story's.
+
+**What it publishes is a summary, never the story.** The story's body is the
+artefact (§3) — a Decisions table and a session log spanning months — and a
+ticket is not a home for it. What a client needs is *what problem is being
+solved and why*, which is the story's `## Objective`, not its narrative.
+
+**Three properties it must have**, all inherited from decisions already made:
+
+- **It is a publishing act, not a sync.** The story stays the truth; the ticket
+  is a view. Nothing reads back.
+- **It must be idempotent**, recording the ticket's id in the story's
+  frontmatter — the same job `→ #N` does for a plan's PRs, and the same reason:
+  a second run must find what the first created rather than mint a duplicate.
+- **It is optional, per story.** The dev-team-only overflow signal is
+  *"no ticket exists because the customer is not in the loop"* — a story
+  deliberately unpublished is a legitimate and common state, so this can never
+  be automatic.
+
+**Where it is offered** is an open question. A board action on a story card is
+the obvious place; a step in `/story-tracking` is the other. It should not be
+part of Create — publication is a decision about audience, taken later than the
+decision to write a story at all.
+
+### Resume and Attach are the most-used and the least visible
+
+*"Continue on X"* is the skill's own trigger phrase, and the triage's second
+branch — *"an existing story that covers the effort: attach, don't create"* —
+makes attaching the **preferred** outcome over creating.
+
+Neither has a board affordance: a reader looking at a story card cannot log a
+session against it.
 
 That is defensible — both are conversational acts, and a button that spawned an
 agent to write a session entry would be doing the writing a person came to do.
 But it means the board shows stories it cannot help you work on, which is a
 different relationship than it has with plans.
 
-**Archive is the untested one** (§12), and it is the only story action with a
-filesystem side effect.
+### Archive is the untested one
 
----
+`status: done` plus `archived:`, and the directory moves to `archived/` — the
+only story action with a filesystem side effect, and **never run in this repo**
+(§14).
 
 ## 8. Scope — which stories are shown
 
@@ -786,7 +864,7 @@ Consolidated, ranked by whether they are reachable today.
 | 4 | **`unit:` required by prose, written nowhere**, enforced by nothing | now, silently | §12 |
 | 5 | **`Issue → Story` is a filename convention** — unvalidatable, breaks on rename | with a tracker | §4 |
 | 6 | **`archived:` and `status: done` never exercised** — a filesystem move, untested | at first archive | §3, §12 |
-| 7 | **Outbound publication unbuilt** — posture 2 shows plans and releases to clients, never the problem | posture 2 | §6 |
+| 7 | **Create Issue unbuilt** — no story publishes a ticket, so posture 2 shows plans and releases to clients but never the problem | posture 2 | §6 |
 | 8 | **Posture 3 asks a Story to live where narrative cannot** | posture 3 | §5 |
 
 **Gaps 1 and 2 are the ones to fix first**, and they compound: an agent told to
