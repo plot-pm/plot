@@ -86,6 +86,12 @@ thing published.
 
 ## 3. The domain object
 
+> **Identity:** a **natural key** — [three kinds](DESIGN-review.md#1-identity-three-kinds),
+> and this one fails by *the source lying*.
+> **State:** **DERIVED** — [four sources](DESIGN-review.md#2-state-where-each-entitys-truth-lives),
+> going wrong by *staleness*, so the derivation is **re-run every pulse** — a state is a claim about a moment.
+
+
 ### Identity
 
 ```
@@ -322,8 +328,17 @@ its PR (§2).
 |---|---|---|
 | Wave → Branch | `(Branch: x)` in the heading | **built** — the wave owns it |
 | Branch → PR | annotation **+** the host, joined by head | **built, but flattened** in the record — see §3 |
-| Branch → Agent | a worker in its worktree | **built** — via `worker_*` |
+| **Agent → Branch** | the manifest, or the worker in its worktree | **built** — via `worker_*`, see below |
 | Branch → Worktree | `git worktree list` | **built** — `local_worktree` |
+
+**The agent→branch arrow points that way because the agent owns the desk.**
+This spec stated it as `Branch → Agent` until the stage-1 review, against the
+rule [Agent §6](DESIGN-agent.md#6-relations) and
+[Worktree §6](DESIGN-worktree.md#6-relations) both bold: *the agent owns its
+desk*. A branch does not acquire a worker; **an agent takes a branch, works it,
+and asks for the next one** — which is why `Agent → Wave` is one-at-a-time over
+*time* rather than a set. The five `worker_*` fields on a branch row are the
+projection of that arrow, not evidence of its direction (§3).
 
 **A branch belongs to exactly one wave**, and two plans naming it is the
 `double-claimed` defect — *"the same shape as `conflict` one level up: that one

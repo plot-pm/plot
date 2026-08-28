@@ -335,6 +335,12 @@ exists; posture 3 is a different system.**
 
 ## 3. The domain object
 
+> **Identity:** a **natural key** — [three kinds](DESIGN-review.md#1-identity-three-kinds),
+> and this one fails by *the source lying*.
+> **State:** **DERIVED** — [four sources](DESIGN-review.md#2-state-where-each-entitys-truth-lives),
+> going wrong by *staleness*, so the derivation is **re-run every pulse** — a state is a claim about a moment.
+
+
 
 
 ### Domain object specification

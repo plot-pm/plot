@@ -104,6 +104,12 @@ loses its narrative, and a wave loses its **only reason to exist**.
 
 ## 3. The domain object
 
+> **Identity:** a **minted** — [three kinds](DESIGN-review.md#1-identity-three-kinds),
+> and this one fails by *nobody minting*.
+> **State:** **DERIVED** — [four sources](DESIGN-review.md#2-state-where-each-entitys-truth-lives),
+> going wrong by *staleness*, so the derivation is **re-run every pulse** — a state is a claim about a moment.
+
+
 
 ### Identity
 

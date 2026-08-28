@@ -74,6 +74,15 @@ nor a process, but **the operating system**.
 
 ## 3. The domain object
 
+> **Identity: none.** There is exactly one Machine, and that singularity is
+> load-bearing — with two, headroom would be a property of a *pair*. It is the
+> one entity outside the [three kinds](DESIGN-review.md#1-identity-three-kinds).
+> **State: MEASURED** — the fourth
+> [source](DESIGN-review.md#2-state-where-each-entitys-truth-lives), and the only
+> one that **decays instantly**: the next process anyone starts invalidates it,
+> which is why a reading carries `measuredAt`.
+
+
 ### Identity
 
 **A Machine has no identity, because there is exactly one.** Everything in this

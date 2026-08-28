@@ -144,6 +144,40 @@ idiom for git-derived state and one worked example of a foreign one. The four
 troubled entities — PR, Build, Agent, Machine — are troubled in proportion to
 how far they sit from that example.
 
+### How they relate: every cardinality in one place
+
+**Collected from 84 relation rows across twelve specs, 65 of which state a
+cardinality.** Each spec states its own relations; **this is the only place the
+whole graph appears**, so a reader asking *how many waves does a plan have* does
+not read twelve files to find out.
+
+```
+Story 1 ──── * Plan                    a story spans plans; a plan has ≤1 story
+Sprint 1 ─── * Plan                    a plan has ≤1 sprint; a sprint has many
+Release 1 ── * Plan                    derived from tags
+Sprint * ─── 1 Release                 TWO sprints may target one release
+Plan 1 ───── * Wave                    ordered; position is the ordering
+Wave 1 ───── 1 Branch                  INTENDED; 271 of 303 conform
+Branch 1 ─── * PR                      372 have one, 9 have two, ONE has ten
+PR 1 ─────── 1 BuildRollup             free, per PR
+Branch 1 ─── * Build                   the history, metered
+Agent 1 ──── 1 Worktree                the agent OWNS its desk
+Agent 1 ──── * Wave                    over time — one at a time, then --next
+Agent 1 ──── * Branch                  likewise over time (Branch §6)
+Worktree 1 ─ 1 Branch                  while checked out
+Machine 1 ── * everything              one machine, many tenants
+Issue * ──── * Plan                    a plan answers several; a signal fans into n plans
+```
+
+**Three of these are not what they look like**, and the stage-1 review argues
+each: `Wave 1─1 Branch` is *intended and violated* (21 waves hold several, 11
+hold none — 9 of those being prose headings the parser reads as waves);
+`Agent 1─* Wave` is **over time, not concurrent**; and `Branch 1─* PR` is why
+`mergedAt` outranks `state`. See
+[stage 1 §3](DESIGN-review.md#3-cardinalities-in-one-place).
+
+---
+
 ### How it composes: who holds what, and who asks whom
 
 **Measured 2026-08-28: there is no composition today.**

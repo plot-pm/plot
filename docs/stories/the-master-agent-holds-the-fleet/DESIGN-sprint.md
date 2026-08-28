@@ -117,6 +117,12 @@ artefact rather than two.
 
 ## 3. The domain object
 
+> **Identity:** a **slug** — [three kinds](DESIGN-review.md#1-identity-three-kinds),
+> and this one fails by *collision*.
+> **State:** **STATED** — [four sources](DESIGN-review.md#2-state-where-each-entitys-truth-lives),
+> going wrong by *being wrong*, so transitions are **gated** — a file can say `Approved` when nobody approved.
+
+
 ### Identity
 
 ```

@@ -70,6 +70,12 @@ the *work*, not the pull request. So a PR appears in no tracker, in any posture.
 
 ## 3. The domain object
 
+> **Identity:** a **natural key** — [three kinds](DESIGN-review.md#1-identity-three-kinds),
+> and this one fails by *the source lying*.
+> **State:** **FOREIGN** — [four sources](DESIGN-review.md#2-state-where-each-entitys-truth-lives),
+> going wrong by *the surface disagreeing*, so **askability** is carried apart from the answer — the source may not answer at all.
+
+
 ### Identity
 
 ```

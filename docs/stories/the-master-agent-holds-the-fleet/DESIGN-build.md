@@ -94,6 +94,12 @@ affected rows rather than darkening every row.
 
 ## 3. The domain object
 
+> **Identity:** a **natural key** — [three kinds](DESIGN-review.md#1-identity-three-kinds),
+> and this one fails by *the source lying*.
+> **State:** **FOREIGN** — [four sources](DESIGN-review.md#2-state-where-each-entitys-truth-lives),
+> going wrong by *the surface disagreeing*, so **askability** is carried apart from the answer — the source may not answer at all.
+
+
 ### Two entities, not one
 
 **Corrected 2026-08-28.** An earlier draft modelled a single Build. There are
