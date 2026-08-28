@@ -189,13 +189,46 @@ wave that cannot be told from its sibling is a row that flashes.
 |---|---|---|
 | `name` | string | `''` for the default wave — 5 of 303; unique **within its plan** |
 | `plan` | Plan | the owner; the name means nothing without it |
-| `branches[]` | Branch[] | **1 in 271 of 303** — see §8 |
+| `branches[]` | Branch[] | **the wave OWNS these** — 1 in 271 of 303, see §8 |
 | `index` | number | position among its plan's waves — **the ordering** |
 | `nameIsLabel` | derived | replaces the plan's `long_wave_names[]` — see above |
 
 **No verdict field.** The verdict is derived (§3), and storing it would be the
 error the entities doc names: a derived relation cached where it can disagree
 with its source.
+
+### The wave owns its branches; the plan asks
+
+**A branch belongs to a wave, and to a plan only through it.** The plan file
+says so directly — a branch is named *inside* a wave's heading:
+
+```markdown
+### Truth (Branch: feature/rows-mark-real-activity, PR: #182)
+```
+
+There is no place in the format where a plan names a branch outside a wave. Even
+the default wave is a wave: a plan listing branches without `### ` headings has
+**one unnamed wave** holding them (§3), not a bare branch list.
+
+**So `plan.branches` is a method, not a field:**
+
+```ts
+wave.branches      // the record — what this slice will build
+plan.branches      // derived: waves.flatMap(w => w.branches)
+```
+
+**And the ownership is what makes the gate work.** A wave's verdict is computed
+from *its own* branches against *prior waves'* branches — a question that cannot
+be asked of a flat plan-level list at all, because the list has forgotten which
+wave each belongs to.
+
+**The Plan spec measures the cost** of the flat form: `branches[]` has no board
+consumer (every one iterates `wave.branches`), and `prs[]` is flattened so far
+that `plot-deliver.sh` re-queries the host to rebuild the pairing.
+
+**This spec adds the reason.** Not merely *the flat array is lossy* — the
+containment is **the domain's own shape**, stated by the file, relied on by the
+gate, and flattened only in the record.
 
 ### A name is a label — and that judgement belongs to the wave
 
