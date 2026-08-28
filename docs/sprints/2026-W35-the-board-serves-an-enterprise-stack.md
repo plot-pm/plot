@@ -61,7 +61,7 @@ Stories: [[the-board-is-blank-where-it-matters]] (the first three),
       path. The probe already finds `jen`, a Jenkinsfile, and the instance —
       `plot-host.sh` has no `jen` reference at all, so the trail ends before the
       board.
-- [ ] [my-bitbucket-issues-are-in-the-inbox] My Bitbucket issues appear in the inbox instead of an empty section that reads as *you have no tickets*
+- [x] [my-bitbucket-issues-are-in-the-inbox] My Bitbucket issues appear in the inbox instead of an empty section that reads as *you have no tickets* <!-- status: delivered -->
       on Bitbucket. Exit 4 is honest — *cannot be asked* is not *empty* — but a
       team whose tickets live in Bitbucket sees an empty inbox forever.
 - [ ] [setup-tells-me-what-it-found] Setup tells me what it found in my repo and asks only what it could not work out — and never records a key nothing reads
