@@ -606,15 +606,51 @@ changed ticket means the plan is stale — the projection's whole premise. That 
 the ticket → MD reader §2 already names as unbuilt, and *changed* is its trigger
 condition.
 
-### Why the states are not on the domain object
+### Does the domain object need a `state` property?
 
-`inbox` / `mapped` / `changed` are **not** fields on an Issue. They are
-relations between two things Plot holds — the tracker's answer and the plan
-estate — recomputed every pass, exactly like a Branch's state is a relation
-between a ref and the default branch.
+**No — but the reason is not "derived things are not fields."**
 
-An `Issue.state` field would be a stored copy of a derivation, and the entity's
-§3 excludes mirrored state for precisely this reason.
+`FleetBranch.state` is a schema field, and it is exactly as derived as this: a
+relation between a ref and the default branch. So a rule forbidding derived
+fields would be wrong, and it would be contradicted by the entity beside this
+one.
+
+**The real rule is which object carries it.** Three layers, and the state
+belongs to the middle one:
+
+| layer | what it is | may hold `state`? |
+|---|---|---|
+| **domain object** (§3) | what the **tracker said** — id, title, url, createdAt, body | **no** |
+| **the derivation** | what **Plot** concludes by comparing that to the plan estate | **yes — this is where it lives** |
+| **the view row** | what a renderer needs | yes, carried |
+
+An Issue's lifecycle state is not a property *of the issue*. `PROJ-123` is
+neither *inbox* nor *mapped* — **the pair (`PROJ-123`, this repo's plans)** is.
+The same ticket is `inbox` in a repo that has not planned it and `mapped` in one
+that has, and the tracker's answer is byte-identical in both.
+
+That is the test, and it is the one that also explains `FleetBranch`: a branch's
+`state` is a property of the pair (ref, default branch) — and `FleetBranch` **is
+that pair's derivation**, not a copy of what git said. It is correctly a field
+there for the same reason it would be wrong here.
+
+**Two practical consequences.**
+
+*The domain object stays the tracker's answer, verbatim.* Adding `state` would
+make it impossible to say what the tracker returned without also saying what
+Plot thinks about it — and the two have different lifetimes, since the estate
+changes while the ticket does not.
+
+*The derivation is where `changed` becomes expressible.* `changed` needs a
+comparison the tracker cannot supply — the title a plan was written against
+versus the title returned now. A field on the tracker's answer has nowhere to
+put the other operand; the derivation has both.
+
+**What this means concretely:** the inbox the board renders is not
+`Issue[]` filtered — it is a derived collection, and today that derivation is
+inlined into `refreshIssues` as a `.filter()`. Naming it is what would let
+`mapped` and `changed` exist at all, since a filter can only produce *present*
+and *absent*.
 
 ---
 
