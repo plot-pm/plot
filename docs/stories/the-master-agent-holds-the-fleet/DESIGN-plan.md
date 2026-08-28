@@ -410,18 +410,25 @@ of those 8 already complete. `unsliced-wave` is the reported defect.
 ## 7. Actions
 
 
-The lifecycle *is* the action set, and each is a spoke command:
+Eight acts in two kinds. **Seven are lifecycle acts**, each a spoke command
+that moves the plan or its branches; **one is a quality act** that changes the
+plan's content and not its state.
 
-| action | command | what it writes |
-|---|---|---|
-| **Create** | `/plot-idea` | the plan file, Draft, with ceremony answers |
-| **Challenge** | `challenge-the-plan` | open questions woven into the plan |
-| **Approve** | `/plot-approve` → `plot-approve.sh` | phase flip, `Approved:`, holds cleared, PR merged |
-| **Implement** | `/plot-implement` | branch claimed, brief written, `Started:` |
-| **Dispatch** | `/plot-dispatch` | worktree + worker per eligible branch |
-| **Deliver** | `/plot-deliver` → `plot-deliver.sh` | phase flip, `Delivered:`, index moved |
-| **Release** | `/plot-release` | tag, `Released:`, sprint gate |
-| **Reslice** | `/plot-reslice` | rewrites `## Branches` only, after a person confirms |
+| action | kind | command | what it writes |
+|---|---|---|---|
+| **Create** | lifecycle | `/plot-idea` | the plan file, Draft, with ceremony answers |
+| **Challenge** | **quality** | `challenge-the-plan` | **open questions woven in — no state change** |
+| **Approve** | lifecycle | `/plot-approve` → `plot-approve.sh` | state flip, `Approved:`, holds cleared, PR merged |
+| **Implement** | lifecycle | `/plot-implement` | branch claimed, brief written, `Started:` |
+| **Dispatch** | lifecycle | `/plot-dispatch` | worktree + worker per eligible branch |
+| **Deliver** | lifecycle | `/plot-deliver` → `plot-deliver.sh` | state flip, `Delivered:`, index moved |
+| **Release** | lifecycle | `/plot-release` | tag, `Released:`, sprint gate |
+| **Reslice** | lifecycle | `/plot-reslice` | rewrites `## Branches` only, after a person confirms |
+
+**Reslice is the odd lifecycle act**: it changes the plan's shape rather than
+its state, and needs a person's confirmation because naming waves is judgement.
+It is still a lifecycle act — the branches it writes are what the fleet
+dispatches against.
 
 ### Two kinds of action: lifecycle and quality
 

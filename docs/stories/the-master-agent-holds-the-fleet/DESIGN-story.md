@@ -570,18 +570,22 @@ their `Story:`.
 
 ## 7. Actions
 
-Six acts, and the first three are commonly confused because all three say
-"create". **They differ in where the content comes from**, which is the only
-distinction that matters:
+Seven acts in two kinds. **Six are lifecycle acts** — they create an artefact
+or change a status — and **one is a quality act**, which does neither.
 
-| act | content comes from | direction | status |
-|---|---|---|---|
-| **Create** | **a conversation with a person** | — | exists; template step broken (§1) |
-| **Create Story** *(from an issue)* | a ticket body someone else wrote | inbound | **exists** |
-| **Create Issue** *(from a story)* | a story file Plot already holds | **outbound** | **unbuilt** |
-| **Resume** | the story file, read back | — | exists, CLI only |
-| **Attach** | a session entry appended | — | exists, CLI only |
-| **Archive** | `status: done` + `archived:` + move | — | exists, **never run here** |
+The first three are commonly confused because all three say "create". **They
+differ in where the content comes from**, which is the only distinction that
+matters:
+
+| act | kind | content comes from | direction | status |
+|---|---|---|---|---|
+| **Create** | lifecycle | **a conversation with a person** | — | exists; template step broken (§1) |
+| **Create Story** *(from an issue)* | lifecycle | a ticket body someone else wrote | inbound | **exists** |
+| **Create Issue** *(from a story)* | lifecycle | a story file Plot already holds | **outbound** | **unbuilt** |
+| **Resume** | lifecycle | the story file, read back | — | exists, CLI only |
+| **Attach** | lifecycle | a session entry appended | — | exists, CLI only |
+| **Challenge** | **quality** | **the story, interrogated** | — | agents exist, **no question set** |
+| **Archive** | lifecycle | `status: done` + `archived:` + move | — | exists, **never run here** |
 
 ### Create — "let's start a new story"
 
