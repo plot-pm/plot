@@ -115,13 +115,45 @@ and a shell subprocess to parse it back.
 - **[Branch](DESIGN-branch.md)** — a slice's unit of work and the claim on it:
   the push *is* the lock, git outranks the plan's annotation, and its state is
   only as fresh as the last fetch — measured, 43 merged branches reading as 0.
-- **[Slice](DESIGN-slice.md)** — a plan's unit of dispatch: the slice and the
-  ordering, four verdicts of which none is a state, and the entity the fleet is
-  built around. Fully derived — no file, no record.
+- **[Slice](DESIGN-slice.md)** — **one branch's worth of a plan's work**, and
+  its place in an order: four verdicts of which none is a state, fully derived —
+  no file, no record. **Called a Wave until 2026-08-28**, and the rename split
+  one word that was doing two jobs (below).
 - **[Sprint](DESIGN-sprint.md)** — the timebox: a commitment about *when*, over
   plans that already exist. MoSCoW as graduated promise, the double link to Plan
   that makes `disputed` expressible, and a phase nothing observes — measured
   stale, with a shipped release under an Active sprint.
+
+### Slice and Wave
+
+**A Slice is what one agent works on. A Wave is what the fleet lands together.**
+
+Both were called a Wave until 2026-08-28, and the conflation is why
+`Wave 1─1 Branch` was a rule the estate kept enforcing and plans kept breaking —
+**21 of 303 sections held several branches**, with `/plot-reslice` existing
+solely to repair them.
+
+| | **Slice** | **Wave** |
+|---|---|---|
+| holds | **exactly one branch, by definition** | **many slices** |
+| scope | one plan | **the fleet — slices from several plans** |
+| sized by | the work a person cut | **the agents free, bounded by what can land** |
+| written | in the plan, as a section | **nowhere — formed at dispatch** |
+| **exists today** | yes | **no** |
+
+**Naming them apart dissolved the question rather than answering it.** A section
+naming three branches is not a slice holding three — it is a plan nobody has
+sliced. Slicing becomes authoring rather than repair.
+
+**The wave is why this story exists.** *The master agent holds the fleet* — the
+fleet's unit is the wave, and it is the only entity here with **no source of
+truth at all**, because nothing forms one. `plot-dispatch.sh:199` requires a
+plan slug, so no component sees eligible slices across plans. The two halves
+exist and have never been joined: `plot-fleet-scan.sh` computes eligibility
+across all plans, `/plot-merge-queue` computes what can land together. **A wave
+is those two, bounded by `parallelAgents`** — which is also
+[job 1](#1-can-i-start-work-right-now), stated as an entity instead of a
+question.
 
 ## Jobs to be done
 

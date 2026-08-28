@@ -90,13 +90,47 @@ one to test rather than the most expensive.
 
 ## The organizing finding
 
-**Thirteen entities.** Twelve are things the fleet acts on; the thirteenth
-(Person) is shared by all of them. Each now has its own specification —
+**Fourteen entities.** Twelve are things the fleet acts on; Person is shared by
+all of them; and **Wave is the one the fleet *forms*** — see below. Each has its
+own specification —
 [Issue](DESIGN-issue.md) · [Story](DESIGN-story.md) · [Plan](DESIGN-plan.md) ·
 [Sprint](DESIGN-sprint.md) · [Slice](DESIGN-slice.md) ·
 [Branch](DESIGN-branch.md) · [PR](DESIGN-pr.md) · [Build](DESIGN-build.md) ·
 [Release](DESIGN-release.md) · [Worktree](DESIGN-worktree.md) — except Agent,
-Machine and Person, which are specified below.
+Machine and Person, which are specified below, and Wave, which is specified
+alongside Slice ([Slice §1](DESIGN-slice.md#a-wave-is-now-something-else-entirely)).
+
+### Slice and Wave: one word that was doing two jobs
+
+**Until 2026-08-28 both of these were called a Wave**, and the conflation is
+what made `Wave 1─1 Branch` a rule the estate kept enforcing and plans kept
+breaking — 21 of 303 sections held several branches.
+
+| | **Slice** | **Wave** |
+|---|---|---|
+| **is** | one branch's worth of a plan's work | what the fleet lands together |
+| **holds** | **exactly one branch, by definition** | **many slices** |
+| **scope** | one plan | **the fleet — slices from several plans** |
+| **sized by** | the work a person cut | **the agents free, bounded by what can land** |
+| **written** | in the plan, as a `###` section | **nowhere — formed at dispatch** |
+| **authored by** | a person | **the fleet, at the moment of dispatch** |
+| **exists today** | yes | **no** |
+
+**The rename dissolved a question rather than answering it.** A section naming
+three branches is not a slice holding three — it is a plan nobody has sliced,
+and `/plot-reslice` is the act of slicing it. Slicing becomes *authoring*
+rather than *repair*, and the 21 stop being violations.
+
+**Wave, in the new sense, does not exist.** `plot-dispatch.sh:199` requires a
+plan slug and computes ordering within one plan, so no component sees eligible
+slices across plans. **The two halves exist and have never been joined:**
+`plot-fleet-scan.sh` computes which slices are eligible across all plans, and
+`/plot-merge-queue` computes which branches can land together. A wave is those
+two, bounded by `parallelAgents`.
+
+**This is what makes the story's title literal.** *The master agent holds the
+fleet* — the fleet's unit is the wave, and it is the one entity in the table
+with no source of truth at all, because nothing forms one yet.
 
 Sorted by where their truth lives:
 
@@ -105,16 +139,16 @@ Sorted by where their truth lives:
 | 1 | Plan | the file's `Phase:` | git | solid |
 | 2 | Slice | plan's `## Branches`/`## Waves` sections + branch states | git | solid |
 | 3 | Branch | `origin/<branch>` ref | git | solid |
-| 4 | Worktree | `git worktree list` | local | thin |
-| 5 | PR | host API | foreign | rich, conflated with Branch |
-| 6 | Build | host checks + runs | foreign | partial by construction |
-| 7 | Issue | tracker | foreign | **best-designed; 3 gaps** |
-| 8 | Agent | manifest + pid + tree | local | three competing models |
-| 9 | Machine | spawn cost | local | **does not exist** |
-| 10 | **Person** | every artefact that names one | **cross-cutting** | **does not exist** |
-| 11 | Sprint | the sprint file | git | solid; its state is unobserved |
-| 12 | Release | a git tag | git | solid; the version is recorded two ways |
-| 13 | Worktree | `git worktree list` | **local disk** | solid; nothing monitors it |
+| 4 | PR | host API | foreign | rich, conflated with Branch |
+| 5 | Build | host checks + runs | foreign | partial by construction |
+| 6 | Issue | tracker | foreign | **best-designed; 3 gaps** |
+| 7 | Agent | manifest + pid + tree | local | three competing models |
+| 8 | Machine | spawn cost | local | **does not exist** |
+| 9 | **Person** | every artefact that names one | **cross-cutting** | **does not exist** |
+| 10 | Sprint | the sprint file | git | solid; its state is unobserved |
+| 11 | Release | a git tag | git | solid; the version is recorded two ways |
+| 12 | Worktree | `git worktree list` | **local disk** | solid; nothing monitors it |
+| 13 | **Wave** | **nothing — formed at dispatch** | **cross-cutting** | **does not exist**; the two halves have never been joined |
 
 **Everything Plot derives from git is clean. Everything else is missing,
 partial, or modelled three ways — with exactly one exception.**
