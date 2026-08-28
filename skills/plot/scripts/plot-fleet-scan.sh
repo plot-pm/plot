@@ -2618,12 +2618,29 @@ if [ ${#plans[@]} -eq 0 ]; then
   # all. Exiting 0 here would hand a caller an EMPTY branch name as if it were
   # valid work.
   [ "$next_only" = 1 ] && exit 1
-  # Names the directory that was actually READ. It named `$ACTIVE_DIR` while
-  # the scan globbed it; pointing a reader at the index would now send them to
-  # look for the cause of an empty list in a directory nothing consults.
-  echo "No plans found in ${PLAN_DIR}."
-  echo "summary: plans=0 waves=0 branches=0 claimed=0 eligible=0 blocked=0 deferred=0 main=$MAIN"
-  exit 0
+  # A MACHINE CONSUMER FALLS THROUGH. An empty estate is a COMPLETE answer, and
+  # this branch used to end the run before the emitter — so `--json` and
+  # `--stream` were ignored entirely here and a consumer got human prose on
+  # stdout. Under `--stream` that meant no terminal `pulse` line, and the
+  # board's contract (":3407": *"a consumer that has seen `plan` lines and no
+  # `pulse` line has a PARTIAL answer and must say so"*) made it report a
+  # complete answer as a scan failure — forever, because the next scan said the
+  # same. Measured 2026-08-28 against a board installed from npm: *"fleet scan
+  # ended without a terminal pulse line"*, `ready:false`, every pulse.
+  #
+  # EVERY NEW USER HAS ZERO PLANS, so this was the first thing an installed
+  # board did. Falling through costs nothing: every loop below is per-plan and
+  # a no-op over none, and the emitter already renders `"plans":[]` with a
+  # zeroed summary — the same document a populated estate produces, which is
+  # the point. One emitter, one shape, no second place to drift.
+  if [ "$as_json" != 1 ]; then
+    # Names the directory that was actually READ. It named `$ACTIVE_DIR` while
+    # the scan globbed it; pointing a reader at the index would now send them to
+    # look for the cause of an empty list in a directory nothing consults.
+    echo "No plans found in ${PLAN_DIR}."
+    echo "summary: plans=0 waves=0 branches=0 claimed=0 eligible=0 blocked=0 deferred=0 main=$MAIN"
+    exit 0
+  fi
 fi
 
 # A branch is merged when its remote ref is an ancestor of origin/<main>, or —
