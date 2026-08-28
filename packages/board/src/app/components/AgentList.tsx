@@ -224,6 +224,38 @@ function useActivity(rows: readonly AgentRow[]): ReadonlySet<string> {
 
 
 
+/**
+ * What a board that has NOT completed a scan should say — or `null` where it
+ * has, and the ordinary view takes over.
+ *
+ * Exported and pure because the bug was a CONDITION, not a layout: the render
+ * asked `!ready && !error`, so any failure skipped the never-scanned branch and
+ * fell through to the ordinary view — every section rendering `none` under an
+ * amber "Last scan failed" line, which at a glance is a healthy board over an
+ * empty estate. Three cases, and two of them produced the same screen.
+ *
+ * Measured 2026-08-28 against a board installed from npm: the truth for ten
+ * seconds, then indistinguishable from a working board, forever.
+ */
+export function coldState(
+  ready: boolean,
+  error: string | undefined | null,
+): { headline: string; failure: string } | null {
+  // A board that HAS scanned is not cold, whatever it is now doing. Staleness
+  // and a failing re-scan are different statements and the ordinary view owns
+  // both — merging them would make an empty view claim data it never held.
+  if (ready) return null;
+  if (!error) return { headline: 'Waiting for the first fleet scan…', failure: '' };
+  return {
+    // What the reader is looking at, THEN why. The emptiness is the fact they
+    // most need and the one the old render never stated.
+    headline: 'This board has never completed a scan, so it has nothing to show.',
+    // Verbatim. A friendlier message that dropped `bash exited 127` would have
+    // made the 2026-08-28 diagnosis impossible.
+    failure: `The last attempt failed: ${error}`,
+  };
+}
+
 export function AgentList({
   fleet,
   pollSeconds,
@@ -501,8 +533,38 @@ export function AgentList({
   // tab that has never had an answer cannot have one it no longer trusts. The
   // two are different statements, and merging them would make an empty view
   // claim data it never held.
-  if (!fleet.ready && !fleet.error) {
-    return <p className="text-sm text-slate-500">Waiting for the first fleet scan…</p>;
+  const cold = coldState(fleet.ready, fleet.error);
+  if (cold) {
+    // THE `&& !fleet.error` USED TO BE HERE, AND IT WAS THE DEFECT. Any error
+    // skipped this branch, so a board whose FIRST scan fails fell through to
+    // the ordinary view: every section rendering `none`, under an amber
+    // "Last scan failed" line. At a glance that is a healthy board over an
+    // empty estate — and the amber line hedges the wrong way for this case,
+    // appending "showing the last successful pulse below" only when `ready`,
+    // so a board that never scanned said nothing about the emptiness beneath.
+    //
+    // Measured 2026-08-28 against a board installed from npm: the truth for ten
+    // seconds ("Waiting for the first fleet scan…"), then indistinguishable
+    // from a working board, forever. Two readers concluded the release was
+    // broken; it was not.
+    //
+    // The sections are SUPPRESSED rather than filled. Rendering `none` per
+    // section is a claim about the repository, and a board that never completed
+    // a scan has no basis for one.
+    return (
+      <div className="text-sm text-slate-500">
+        <p>{cold.headline}</p>
+        {/* The failure text is the only actionable thing on screen. A friendlier
+            message that dropped `bash exited 127` would have made the 2026-08-28
+            diagnosis impossible, so it is kept verbatim and second — what the
+            reader is looking at, then why. */}
+        {cold.failure && (
+          <p data-never-scanned className="mt-1 text-amber-600 dark:text-amber-500">
+            {cold.failure}
+          </p>
+        )}
+      </div>
+    );
   }
 
   // Both countdowns come from the SERVER, because both are the server's own

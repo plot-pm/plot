@@ -14,6 +14,7 @@ import {
   storyRefusal,
   splitBranch,
   isUnpushed,
+  coldState,
 } from '../../src/app/components/AgentList.js';
 import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
@@ -3700,3 +3701,52 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
 // why it could never render and why it is deleted rather than repaired. The
 // plan head's Commission design item is covered by
 // `plan-head-controls.browser.test.ts`.
+
+describe('a board that never scanned says so', () => {
+  // THREE CASES, AND TWO OF THEM USED TO PRODUCE THE SAME SCREEN. The render
+  // asked `!ready && !error`, so any failure skipped the never-scanned branch
+  // and fell through to the ordinary view: every section rendering `none` under
+  // an amber line. At a glance that is a healthy board over an empty estate.
+  //
+  // Measured 2026-08-28 against a board installed from npm: the truth for ten
+  // seconds, then indistinguishable from a working board, forever. Two readers
+  // concluded the release was broken. It was not.
+
+  it('never scanned, no error — waits, and says only that', () => {
+    const cold = coldState(false, '');
+    expect(cold?.headline).toMatch(/Waiting for the first fleet scan/);
+    expect(cold?.failure).toBe('');
+  });
+
+  it('never scanned, scan FAILING — says both, emptiness first', () => {
+    // The case that was broken. Both facts, and the emptiness leads: it is what
+    // the reader most needs and what the old render never stated.
+    const cold = coldState(false, 'bash exited 127');
+    expect(cold?.headline).toMatch(/never completed a scan/);
+    expect(cold?.failure).toContain('bash exited 127');
+  });
+
+  it('keeps the error VERBATIM — a friendlier message would have hidden the cause', () => {
+    // `bash exited 127` is the only actionable thing on screen. Dropping it for
+    // a kinder sentence would have made the 2026-08-28 diagnosis impossible.
+    expect(coldState(false, 'spawn bash ENOENT')?.failure).toContain('spawn bash ENOENT');
+  });
+
+  it('scanned before, now failing — NOT cold; the ordinary view owns it', () => {
+    // The distinction the original comment argued for and the fix preserves: a
+    // tab that has never had an answer cannot have one it no longer trusts.
+    // Staleness is a different statement, and merging the two would make an
+    // empty view claim data it never held.
+    expect(coldState(true, 'bash exited 127')).toBeNull();
+  });
+
+  it('the three states are three DIFFERENT screens', () => {
+    // The regression this file exists to prevent, stated directly: if any two
+    // of these collapse, the bug is back.
+    const a = coldState(false, '');
+    const b = coldState(false, 'bash exited 127');
+    const c = coldState(true, 'bash exited 127');
+    expect(a?.headline).not.toBe(b?.headline);
+    expect(c).toBeNull();
+  });
+});
