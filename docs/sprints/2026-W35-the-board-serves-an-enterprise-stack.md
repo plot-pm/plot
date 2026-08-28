@@ -93,7 +93,7 @@ Story: [[the-board-is-blank-where-it-matters]].
       *no PR* — the fabricated verdict the scan refuses everywhere else. A plan
       exists in **PR #408** — unmerged, so `docs/plans/` on main does not carry
       it yet — with two open questions its interrogation must settle.
-- [ ] [an-unreachable-host-is-not-an-answer] A host that cannot be reached must
+- [x] [an-unreachable-host-is-not-an-answer] A host that cannot be reached must <!-- status: delivered -->
       not read as a host with nothing to say. Draft plan on main; the enterprise
       stack multiplies the ways a call can fail.
 - [ ] [a-degraded-scan-says-why] `/plot-reconcile` reported `pr_source=degraded`
