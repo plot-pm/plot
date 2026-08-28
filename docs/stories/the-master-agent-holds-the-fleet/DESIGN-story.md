@@ -81,7 +81,125 @@ and nothing else, so a story's shape is whatever the last author copied. That is
 the likelier explanation for §5's four-way divergence than any of the four
 sources being wrong: a form nobody wrote cannot be filled in consistently.
 
-### Why overflow is a consequence, not the definition
+### Who creates a Story: the `brainstorming` skill
+
+**Corrected 2026-08-28.** §6 below documents `POST /api/story` → the
+`Story command` agent as the creation path. That is *one* entrance — the
+board's, for turning an inbound issue into a story. **The general one is the
+`superpowers` plugin's `brainstorming` skill**, and it is the process that
+produces problem-space knowledge in the first place.
+
+Its checklist is the problem space, step by step:
+
+| step | what it produces |
+|---|---|
+| 1. explore project context | the ground the problem sits on |
+| 3. **clarifying questions** — purpose, constraints, success criteria | the problem, its bounds, and what "solved" means |
+| 4. **propose 2-3 approaches** with trade-offs | the qualities a solution must have |
+| 5. present design, approved section by section | the agreed problem statement |
+| 6. write the design doc | the artefact |
+| 9. **invoke `writing-plans`** | **the handoff to solution space** |
+
+**Step 9 is the story → plan boundary made operational.** Brainstorming ends by
+handing off to plan-writing, which is the transition this spec has described as
+a *relation* and never as a *process*. The two spaces are not just two document
+shapes; they are two phases of one conversation, with an approval gate between
+them:
+
+> *Do NOT invoke any implementation skill, write any code, scaffold any
+> project, or take any implementation action until you have presented a design
+> and the user has approved it.*
+
+That gate is the problem/solution boundary enforced as a rule — and it is
+`/plot-approve`'s counterpart one level up: **a plan may not start until it is
+approved; a solution may not be designed until the problem is.**
+
+#### The seam: two conventions for one artefact
+
+Brainstorming writes to:
+
+```
+docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md
+```
+
+Plot's stories live at:
+
+```
+docs/stories/<slug>/STORY-<slug>.md
+```
+
+**Both are live in this repo.** Measured 2026-08-28: one superpowers spec
+(`2026-08-18-plot-board-setup-design.md`) and nine Plot stories — and
+`plot-board-setup` exists as **both**, a spec and a story, for the same effort.
+
+This is the likeliest explanation for §5's four-way divergence, more than the
+missing template: **the skill that creates the artefact does not know Plot's
+convention**, so the frontmatter Plot's lint expects is written by whoever
+remembers to. A spec produced by brainstorming has no `status:`, no `unit:`, and
+no place in `docs/stories/`.
+
+#### Settled: `story-tracking` invokes `brainstorming`
+
+**Decided 2026-08-28.** `/story-tracking` is the command that creates a story,
+and **its content comes from the `brainstorming` skill** rather than from a
+template it copies.
+
+The two split cleanly along what each knows:
+
+| `brainstorming` owns | `story-tracking` owns |
+|---|---|
+| the problem — purpose, constraints, success criteria | **which home** the story belongs to |
+| 2-3 approaches and their trade-offs | the `{slug}/STORY-{slug}.md` shape |
+| the qualities a solution must have | Plot's frontmatter, `unit:` included |
+| approval, section by section | the index entry |
+| the handoff to plan-writing | the triage that decides a story is warranted at all |
+
+So `story-tracking` keeps the triage front door, the placement question and the
+bookkeeping; **brainstorming produces what goes inside.**
+
+##### This fixes the divergence at its source
+
+Step 4 of *Creating a Story* today reads:
+
+> *Copy the story template → `STORY-{slug}.md`*
+
+**There is no story template.** `.plot/templates/` holds `plan.md` and nothing
+else, so every agent that has followed this step improvised the frontmatter
+instead — which is exactly why nine stories carry the same five keys, why
+`unit:` is never written despite step 5 requiring it, and why §5's four sources
+disagree.
+
+Replacing that step with *invoke `brainstorming`* removes the missing file from
+the path: the content comes from a process that exists, and the frontmatter
+becomes `story-tracking`'s to write because it is the only participant that
+knows Plot's conventions.
+
+**A template may still be worth having** — as the shape brainstorming's output
+is poured into, not as a file an agent copies blind.
+
+##### What this makes of a brainstorming spec
+
+Brainstorming's own step 6 writes to
+`docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. Invoked *through*
+`story-tracking`, the output lands as a story instead — so the spec path is
+what brainstorming does when nobody has told it where the story belongs.
+
+**Both remain live in this repo**, and that is now explicable rather than
+contradictory: `2026-08-18-plot-board-setup-design.md` is what a direct
+brainstorming run produced, and `docs/stories/plot-board/` is what the story
+flow produced for related work. Whether the standalone spec path should
+continue to exist in a Plot repo is a smaller question than it looked — a
+direct brainstorm is still legitimate; it simply has not been placed.
+
+##### The gate carries over
+
+Brainstorming's hard gate — *"do NOT invoke any implementation skill … until you
+have presented a design and the user has approved it"* — becomes the story's
+gate too. That is `/plot-approve`'s counterpart one level up: **a plan may not
+start until it is approved; a solution may not be designed until the problem
+is.**
+
+### Why overflow is a consequence, not the definition### Why overflow is a consequence, not the definition
 
 An earlier draft of this section defined a Story by the `story-tracking` skill's
 **umbrella rule** — a story exists when knowledge overflows the umbrella that
@@ -451,9 +569,14 @@ them.
   `Tracker: plot`.
 - **Should the board search all story homes?** The skill does; the board reads
   one. A multi-home repo's stories are invisible today.
-- **Should a story template exist?** `.plot/templates/` holds only `plan.md`,
-  so a story's shape is whatever the last author copied — the likeliest cause of
-  §5's divergence.
+- **Should a story template exist?** Settled in part: `story-tracking` step 4
+  tells an agent to copy a template that does not exist, which is §5's root
+  cause. With `brainstorming` producing the content, a template becomes the
+  shape that output is poured into rather than a file copied blind — still
+  possibly worth having, no longer load-bearing.
+- **Should the standalone spec path remain in a Plot repo?** A direct
+  brainstorm writes `docs/superpowers/specs/…`; invoked through
+  `story-tracking` it lands as a story. Both are live here.
 - **Should each template name the other's scope?** The problem/solution split is
   enforced structurally and stated nowhere, so it is learned by having a section
   refused.
