@@ -2217,6 +2217,128 @@ test('dispatch: the session id reaches the worker as PLOT_SESSION_ID', () => {
   assert.equal(fs.readFileSync(seen, 'utf8').trim(), m.session,
     'the worker saw the same session id the manifest records');
 });
+// ---------------------------------------------------------------------------
+// THE GATE — a worker whose manifest cannot be written is never launched
+// ---------------------------------------------------------------------------
+//
+// Both writes used to be `|| true`, so a worker whose manifest could not be
+// written started anyway and was invisible to the registry for its whole life.
+// An agent outside the registry cannot be seen, stopped, restarted or reaped
+// through the board, and it holds a claim nobody can release — which is why the
+// gate REFUSES rather than launching. A worker that cannot be registered is
+// worse than one that never started, because the second state is visible, and
+// the worktree and claim survive either way so the operator can retry.
+//
+// The gate sits BEFORE the spawn, and that ordering is the whole design: the
+// manifest is written ~75 lines ahead of the launch, so this has a launch to
+// PREVENT rather than a process to kill. An earlier draft said *assert after
+// launch, then kill*; the test below pins the difference by asserting that no
+// worker was ever spawned, not that one started and died.
+
+/**
+ * A self-contained repo whose plan has one branch, a brief, and a `Worker
+ * command` that touches `sentinel` the instant it runs. Returns the paths a
+ * gate test needs. The sentinel is the whole measurement: a launch is proved by
+ * the file appearing, and a refusal by it never appearing.
+ */
+function gateRepo() {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gate-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  const sentinel = path.join(t, 'worker-ran');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + `- **Worker command:** touch ${sentinel}\n`);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-g.md'),
+    '# G\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/gated` — one\n');
+  fs.symlinkSync('../2026-01-01-g.md', path.join(r, 'plans', 'active', 'g.md'));
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'gated.md'), 'spec\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+  return { tmp: t, repo: r, sentinel, agents: path.join(r, '.plot', 'agents') };
+}
+
+/**
+ * True once `sentinel` exists, waiting up to `ms` for a DETACHED worker to reach
+ * it. A refusal is proved by exhausting this wait: the worker is spawned into
+ * the background, so an immediate check would report "no worker" even for a
+ * launch that simply had not run yet.
+ */
+function workerRan(sentinel, ms = 3000) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline && !fs.existsSync(sentinel)) execFileSync('sleep', ['0.1']);
+  return fs.existsSync(sentinel);
+}
+
+test('dispatch: a branch whose manifest cannot be written spawns no worker', () => {
+  // Item 5. The write is made to fail the way it fails in the field — the
+  // directory cannot be written — rather than by stubbing the writer, because
+  // what is under test is the check at the RESOLVED path, and only a real run
+  // resolves it.
+  const { tmp: t, repo: r, sentinel, agents } = gateRepo();
+  // `mkdir -p` on an existing directory SUCCEEDS, so the registry has to exist
+  // and be unwritable: that is precisely the state where the old `|| true` let
+  // a launch through. Creating it read-only would make `mkdir -p` the failure
+  // instead, and the gate must hold for the write, not only the mkdir.
+  fs.mkdirSync(agents, { recursive: true });
+  fs.chmodSync(agents, 0o500);
+  try {
+    const out = spawnSync('bash', [dispatch, '--offline', 'g'],
+      { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+    // NO WORKER WAS EVER SPAWNED — not one that started and died. The sentinel
+    // is touched by the command's first act, so its absence after a full wait
+    // is proof the command never ran at all.
+    assert.equal(workerRan(sentinel), false,
+      'the Worker command must never run when its manifest could not be written');
+
+    // The dispatch NAMES THE PATH IT COULD NOT WRITE. A refusal that says only
+    // "could not start" sends the operator reading the script to learn where it
+    // looked, and the whole defect was a path nobody could see.
+    const said = out.stdout + out.stderr;
+    assert.ok(said.includes(agents),
+      `the refusal must name the registry path it could not write, got: ${said}`);
+
+    // THE WORKTREE AND CLAIM SURVIVE. The operator fixes the cause and retries;
+    // a gate that also tore down the desk would turn a permissions slip into
+    // lost setup.
+    assert.ok(fs.existsSync(path.join(path.dirname(r), 'plot-wt-feature-gated')),
+      'the worktree remains, so a retry costs nothing once the cause is fixed');
+  } finally {
+    // Restore the mode before the harness cleans up, or the directory cannot be
+    // removed.
+    fs.chmodSync(agents, 0o700);
+  }
+});
+
+test('dispatch: the ordinary path says nothing new about the manifest', () => {
+  // Item 6. A fix that prints a warning on every successful dispatch trains the
+  // reader to skip the line, and item 5's message is only useful if it is rare.
+  // So the successful path is asserted to be SILENT about the manifest, not
+  // merely correct.
+  const { repo: r, sentinel, agents } = gateRepo();
+  const out = execFileSync('bash', [dispatch, '--offline', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+  assert.equal(workerRan(sentinel), true, 'the ordinary path still starts its worker');
+  assert.equal(fs.readdirSync(agents).filter((n) => n.endsWith('.json')).length, 1,
+    'and still writes exactly one manifest');
+
+  // Nothing about manifests, registries or the path reaches a successful run's
+  // output. Asserted against the words the gate would use, since those are the
+  // ones that would leak.
+  assert.doesNotMatch(out, /manifest/i, 'a successful dispatch says nothing about manifests');
+  assert.doesNotMatch(out, /registry/i, 'nor about the registry');
+  assert.ok(!out.includes(agents), 'nor names the registry path');
+});
 
 // ---------------------------------------------------------------------------
 // WHERE THE WORKTREES LIVE — the `Worktree root:` config key
