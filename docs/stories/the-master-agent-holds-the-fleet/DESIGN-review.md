@@ -203,13 +203,13 @@ consumer reached past the port rather than extending it (PR §13).
 **The acceptance criterion is already stated** (entities §What these specs are
 for): every domain object testable with no external dependency.
 
-**Today 41 of 77 unit tests touch disk or spawn** — 28 `mkdtemp`, 25 subprocess.
+**Today 34 of 77 unit tests touch disk or spawn** — 28 `mkdtemp`, 25 subprocess, 19 both.
 A test of the *deliver rule* writes a `docs/plans/` tree and shells out to a
 parser, to ask *is every non-deferred branch merged?*
 
 **With ports, that test constructs a Plan and asserts.** The filesystem test
 moves to the adapter, where it belongs and where it is one test rather than
-forty-one.
+thirty-four.
 
 ### The rule that keeps adapters honest
 
@@ -229,7 +229,7 @@ Principle 3 expressed as an architecture rather than as a convention.
 | stage | covers | state |
 |---|---|---|
 | **1 — domain model** | identity, state, cardinalities, ports | **this document** |
-| **2 — workflows** | modelling the existing and new flows into the domain | next |
+| **2 — workflows** | modelling the existing and new flows into the domain | **[written](DESIGN-review-workflows.md)** |
 | **3 — comparison** | capabilities against other agent runtimes | after 2 |
 
 ---

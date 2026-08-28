@@ -61,7 +61,7 @@ relations and the questions it can answer.
 
 **The acceptance criterion: every domain object can be tested with no external
 dependency.** No temp directory, no subprocess, no git, no host. Measured
-2026-08-28, 41 of the board's 77 unit tests touch disk or spawn a process (53%)
+2026-08-28, 34 of the board's 77 unit tests touch disk or spawn a process (44%)
 — a test of the deliver *rule* currently needs a temp dir, a written plan file
 and a shell subprocess to parse it back.
 
@@ -88,6 +88,10 @@ and a shell subprocess to parse it back.
   twelve specs: three kinds of identity and what each fails by, four sources of
   state and the rules that follow from them, every cardinality in one place, and
   the ports that would separate the domain from git, the filesystem and the host.
+- **[Review, stage 2 — the workflows](DESIGN-review-workflows.md)** — where the
+  domain/adapter cut falls across nine workflows: the rule two board modules
+  found independently, the one rule that lives twice in two languages with two
+  bug histories, and the test that tells a derivation from a re-implementation.
 - **[Machine](DESIGN-machine.md)** — the resource every other entity competes
   for, and the only one that does not exist: its symptoms land on whatever *is*
   modelled, which is how `exit 124` came to mean *the worker failed*.
