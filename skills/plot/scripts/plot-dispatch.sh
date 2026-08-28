@@ -413,6 +413,50 @@ start_worker() {
   # place a Worker command's full text is recorded.
   write_agent_manifest "$manifest_dir/$session.json" \
     "$session" "$branch" "$wt" "$cmd" || true
+  #
+  # THE GATE: NO MANIFEST, NO WORKER.
+  #
+  # Both writes above are `|| true`, so until this check existed a worker whose
+  # manifest could not be written started anyway and was invisible to the
+  # registry for its whole life. `always write a manifest` is a RULE the code
+  # already believed it followed — and did; the file was simply unreachable.
+  # The enforceable condition is that the manifest is WHERE THE READER LOOKS,
+  # which only a test at the resolved path can establish, so this asserts the
+  # post-condition rather than either write's exit status: a future edit may
+  # rearrange the writing, and this still holds.
+  #
+  # REFUSE RATHER THAN LAUNCH. An agent outside the registry cannot be seen,
+  # stopped, restarted or reaped through the board, and it holds a claim nobody
+  # can release. A worker that cannot be registered is worse than one that never
+  # started, because the second state is VISIBLE. The worktree and the claim are
+  # left exactly as they are, so the operator retries for free once the cause is
+  # fixed — this refuses a launch, it does not undo the setup.
+  #
+  # BEFORE THE SPAWN, AND THE ORDERING IS THE WHOLE DESIGN. The spawn is ~75
+  # lines below, deliberately: there is a spawn-to-first-write window a scan
+  # must not misread as an absent agent. So this has a launch to PREVENT rather
+  # than a process to kill — no race, no kill path, no orphan risk. An earlier
+  # draft of the plan said *assert after launch, then kill*; that would have
+  # built a teardown path for a state that cannot arise.
+  #
+  # It NAMES THE PATH. The defect this closes was a directory nobody could see;
+  # a refusal reading only "could not start" would send the operator into the
+  # script to learn where it had looked. `return 1` is the same refusal contract
+  # the briefless and no-Worker-command arms above use, so the fan-out does not
+  # count this branch as started.
+  #
+  # `/api/continue`'s tolerance of a manifest-less worktree is NOT this gate and
+  # must stay tolerant: that is about CONTINUING a worker in a worktree older
+  # than manifests. This is CREATION, where the dispatcher has just minted a
+  # session id and there is no older-worktree case to tolerate.
+  if [ ! -f "$manifest_dir/$session.json" ]; then
+    echo "    refusing to start $branch — its agent manifest could not be written:"
+    echo "      $manifest_dir/$session.json"
+    echo "      An unregistered worker cannot be seen, stopped or reaped, and holds"
+    echo "      a claim nobody can release. The worktree and claim are untouched —"
+    echo "      fix the path above (see the 'Agent registry' key) and dispatch again."
+    return 1
+  fi
   # TWO PIDS, TWO NAMES. `.plot-worker.pid` must name the AGENT — the process
   # doing the work, which is what the panel, `--status` and the scan describe.
   # `$!` from the parent names the `sh -c` WRAPPER, and recording that is the
