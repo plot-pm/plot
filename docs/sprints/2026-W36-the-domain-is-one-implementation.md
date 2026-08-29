@@ -46,7 +46,7 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 
 ### Should Have
 
-*(none — see "Why only one Must", below)*
+- [ ] [the-domain-speaks-slices] The code calls a slice a slice, and `Wave` is freed for the cohort the fleet lands together — measured 2026-08-29: `FleetWaveSchema` holds `branches[]`, belongs to one plan and is persisted in the pulse, which is a **Slice** by every property `DESIGN-slice.md` defines, while the real Wave (cross-plan, formed at dispatch, persisted nowhere) does not exist in code at all
 
 ### Could Have
 
