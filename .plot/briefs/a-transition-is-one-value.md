@@ -101,6 +101,28 @@ it. If the `Decision | Refusal` shape does not survive contact with
    commit message, dated and findable with `git log -S`. The measured problem:
    **28 lines of code under 109 lines of comment.**
 
+### Two traps this plan's earlier slices fell into
+
+**`tsc` is a strong gate with one hole: a cast.** Slice 2's brief promised its
+rename was *"purely mechanical, and gated by `tsc` — the compiler names every
+site that has not moved"*. It could not name one: a fixture built with
+`as never` switches type checking off for that literal, so the compiler saw a
+valid assertion and CI died at runtime with
+`Cannot read properties of undefined (reading 'flatMap')`.
+
+So when you change a shape, **run the suite** — `tsc` alone does not close it.
+Grep for `as never`, `as unknown as` and `as any` in the tests you touch.
+
+**Read occurrences; do not count them.** A `grep` for `.waves` finds ~21 sites
+and reads like unfinished work. Four are `meta.waves` (the parser's output),
+several are the board's own `WaveSchema` (a DIFFERENT entity that keeps its
+name), and most of the rest are prose. **Seven were real, and they were already
+correct.** A mechanical replace would have erased a distinction the schema
+documents at `contract/schema.ts`.
+
+The same applies to your own work: `allSlicesMerged` is the rule's name. It is
+not a licence to rename every `wave` you find.
+
 ### Bookkeeping
 
 - Push your first real commit **as soon as it exists**; push again after any rebase.
