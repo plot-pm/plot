@@ -270,7 +270,7 @@ describe('no row that is not an agent moves', () => {
     plans: [{
       file: '2026-08-20-every-section-has-one-subject.md',
       phase: 'approved',
-      waves: [{ name: 'Surfaced', verdict: 'eligible', branches: [branch] }],
+      slices: [{ name: 'Surfaced', verdict: 'eligible', branches: [branch] }],
     }],
     summary: { plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0 },
   } as never);
@@ -359,7 +359,7 @@ describe("#300's rule still holds: no worker state reaches WAITING ON A MACHINE"
     plans: [{
       file: '2026-08-20-every-section-has-one-subject.md',
       phase: 'approved',
-      waves: [{ name: 'Surfaced', verdict: 'eligible', branches: [branch] }],
+      slices: [{ name: 'Surfaced', verdict: 'eligible', branches: [branch] }],
     }],
     summary: { plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0 },
   } as never);

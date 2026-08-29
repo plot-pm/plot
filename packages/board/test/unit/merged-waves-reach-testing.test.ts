@@ -41,7 +41,7 @@ const wave = (
 const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetPulse => ({
   main: 'main',
   head: 'abc1234',
-  plans: [{ file, waves }],
+  plans: [{ file, slices: waves }],
   summary: {
     plans: 1, waves: waves.length, branches: 0, claimed: 0,
     eligible: 0, blocked: 0, deferred: 0,

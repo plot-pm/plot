@@ -107,9 +107,9 @@ describe('the verdict is read as a field, never matched as prose', () => {
   it('has the field it replaced the prose with', () => {
     // The positive half, and it is not ceremony: every assertion above passes
     // against a board that deleted the feature outright. `verdict` must be on
-    // the contract, typed by the WAVE's own enum, and written onto the row.
+    // the contract, typed by the SLICE's own enum, and written onto the row.
     const schema = sources.find((s) => s.file === DECLARING_FILE)!;
-    expect(schema.code).toMatch(/verdict:\s*WaveVerdictSchema\.nullable\(\)\.default\(null\)/);
+    expect(schema.code).toMatch(/verdict:\s*SliceVerdictSchema\.nullable\(\)\.default\(null\)/);
     const fleet = sources.find((s) => s.file === path.join('server', 'fleet.ts'))!;
     expect(fleet.code).toMatch(/verdict,/);
   });

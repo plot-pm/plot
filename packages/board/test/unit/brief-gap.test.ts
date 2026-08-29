@@ -69,7 +69,7 @@ const pulse = (branch = BRANCH): FleetPulse => ({
   plans: [{
     file: '2026-08-19-the-row-says-what-it-knows.md',
     phase: 'approved',
-    waves: [{
+    slices: [{
       name: 'Saying it',
       verdict: 'eligible',
       branches: [{ branch, state: 'open', deferred: false, deferred_reason: '', claimed: '' }],
@@ -170,7 +170,7 @@ describe('the row carries whether it can be started', () => {
         ...pulse(),
         plans: [{
           ...pulse().plans[0],
-          waves: [{
+          slices: [{
             name: 'Saying it',
             verdict: 'eligible',
             branches: [{

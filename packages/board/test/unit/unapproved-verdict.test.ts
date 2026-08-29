@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  FleetPulseSchema, FleetWaveSchema, WaveVerdictSchema,
+  FleetPulseSchema, FleetSliceSchema, SliceVerdictSchema,
 } from '../../src/contract/schema.js';
 import { classify, waveVerdict } from '../../src/server/fleet.js';
 import { tupleFromWave, statusTone } from '../../src/app/lib/tuple-row.js';
@@ -17,7 +17,7 @@ describe('the fleet payload accepts the unapproved verdict', () => {
   // and the board falls back to "waiting for its first scan". Shipping the
   // scan's new word without widening this enum would have blanked the board.
   it('parses a wave the scan reports as unapproved', () => {
-    const parsed = FleetWaveSchema.safeParse({
+    const parsed = FleetSliceSchema.safeParse({
       name: 'Worded', verdict: 'unapproved', branches: [],
     });
     expect(parsed.success).toBe(true);
@@ -30,7 +30,7 @@ describe('the fleet payload accepts the unapproved verdict', () => {
       plans: [{
         file: '2026-08-27-a-draft.md',
         phase: 'draft',
-        waves: [{ name: 'Worded', verdict: 'unapproved', branches: [] }],
+        slices: [{ name: 'Worded', verdict: 'unapproved', branches: [] }],
       }],
       summary: {
         plans: 1, waves: 1, branches: 0, claimed: 0,
@@ -38,7 +38,7 @@ describe('the fleet payload accepts the unapproved verdict', () => {
       },
     });
     expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.plans[0].waves[0].verdict)
+    expect(parsed.success && parsed.data.plans[0].slices[0].verdict)
       .toBe('unapproved');
   });
 
@@ -56,9 +56,9 @@ describe('the fleet payload accepts the unapproved verdict', () => {
   // Done-when 5, on the CONTRACT: the new state has its own word and did not
   // reuse `blocked`, which already means *an earlier wave has not landed*.
   it('is a fourth word, not a reuse of blocked', () => {
-    expect(WaveVerdictSchema.options).toContain('unapproved');
-    expect(WaveVerdictSchema.options).toContain('blocked');
-    expect(WaveVerdictSchema.options).toHaveLength(4);
+    expect(SliceVerdictSchema.options).toContain('unapproved');
+    expect(SliceVerdictSchema.options).toContain('blocked');
+    expect(SliceVerdictSchema.options).toHaveLength(4);
   });
 });
 

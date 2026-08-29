@@ -93,7 +93,7 @@ function pulseWith(branch: string, phase: string): FleetPulse {
     main: 'main', head: 'abc', plans: [{
       file: `docs/plans/2026-08-27-${phase}.md`,
       phase,
-      waves: [{
+      slices: [{
         name: 'Watched', verdict: 'eligible', branches: [{
           branch, state: 'open', deferred: false, deferred_reason: '',
           claimed: '', local_dirty: false, local_locked: false,

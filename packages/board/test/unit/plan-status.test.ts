@@ -44,7 +44,7 @@ const wave = (
 const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetPulse => ({
   main: 'main',
   head: 'abc1234',
-  plans: [{ file, waves }],
+  plans: [{ file, slices: waves }],
   summary: {
     plans: 1, waves: waves.length, branches: 0, claimed: 0,
     eligible: 0, blocked: 0, deferred: 0,
@@ -252,7 +252,7 @@ describe('deliverable is exactly status === deliverable — the one word', () =>
       const plan = p.plans.find((x) => x.file === SLUG);
       if (!plan) return false;
       let merged = 0;
-      for (const w of plan.waves) for (const b of w.branches) {
+      for (const w of plan.slices) for (const b of w.branches) {
         if (b.state === 'deferred') continue;
         if (b.state !== 'merged') return false;
         merged += 1;

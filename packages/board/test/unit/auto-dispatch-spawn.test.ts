@@ -109,7 +109,7 @@ const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): Fleet
   FleetPulseSchema.parse({
     main: 'main',
     head: 'abc1234',
-    plans: plans.map(([file, phase, waves]) => ({ file, phase, waves })),
+    plans: plans.map(([file, phase, waves]) => ({ file, phase, slices: waves })),
     summary: { plans: plans.length, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
   });
 

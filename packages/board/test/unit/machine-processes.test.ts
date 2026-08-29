@@ -218,7 +218,7 @@ describe('the two entities, on the rows a pulse produces', () => {
     plans: [{
       file: '2026-08-17-working-shows-the-agent.md',
       phase: 'approved',
-      waves: [{ name: 'Machine', verdict: 'eligible', branches: [branch] }],
+      slices: [{ name: 'Machine', verdict: 'eligible', branches: [branch] }],
     }],
     summary: { plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0 },
   } as never);

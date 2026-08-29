@@ -137,7 +137,7 @@ describe('the server decides the kind, and the renderer reads it', () => {
   const pulse: FleetPulse = {
     main: 'main', head: 'abc', plans: [{
       file: '2026-08-20-a-plan.md', phase: 'approved',
-      waves: [{
+      slices: [{
         name: 'Shaped', verdict: 'eligible',
         branches: [
           { branch: 'feature/plain', state: 'open', deferred: false },

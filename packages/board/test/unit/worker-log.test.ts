@@ -50,7 +50,7 @@ function pulse(branches: { branch: string; local_worktree: string }[]): FleetPul
       {
         file: '2026-08-17-a-plan.md',
         phase: 'approved',
-        waves: [
+        slices: [
           {
             name: 'Log',
             verdict: 'eligible',

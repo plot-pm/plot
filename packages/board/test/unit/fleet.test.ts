@@ -1314,7 +1314,7 @@ describe('a deferred row answers to the phase too', () => {
       plans: [{
         file: '2026-02-10-plot-sprint-support.md',
         phase,
-        waves: [{
+        slices: [{
           name: 'Implementation', verdict: 'eligible',
           branches: [{ branch: 'feature/plot-sprint-support', state: 'deferred', deferred: true, claimed: '' }],
         }],
@@ -1352,7 +1352,7 @@ describe('the section follows the plan through rowsFromPulse', () => {
     plans: [{
       file: '2026-08-15-example-plan.md',
       phase,
-      waves: [{
+      slices: [{
         name: 'Implementation', verdict: 'eligible',
         branches: [{ branch: 'feature/c', state: 'open', deferred: false, claimed: '' }],
       }],
@@ -1692,7 +1692,7 @@ describe('rowsFromPulse', () => {
     head: 'abc1234',
     plans: [{
       file: '2026-08-15-example-plan.md',
-      waves: [
+      slices: [
         {
           name: 'Tracer', verdict: 'complete',
           branches: [{ branch: 'feature/a', state: 'merged', deferred: false, claimed: '' }],
@@ -2132,7 +2132,7 @@ describe('rowsFromPulse', () => {
       ...pulse,
       plans: [{
         file: '2026-08-15-example-plan.md',
-        waves: [{
+        slices: [{
           name: 'w', verdict: 'eligible',
           branches: [{ branch: 'feature/a b', state: 'open', deferred: false, claimed: '' }],
         }],
@@ -2209,7 +2209,7 @@ describe('rowsFromPulse', () => {
         ...pulse,
         plans: [{
           file: '2026-08-15-example-plan.md', phase: 'approved',
-          waves: [{
+          slices: [{
             name: 'Implementation', verdict: 'eligible',
             branches: [{
               branch: 'feature/shelved', state: 'deferred', deferred: true, claimed: '',
@@ -2241,7 +2241,7 @@ describe('rowsFromPulse', () => {
       ...pulse,
       plans: [{
         file: '2026-08-01-shipped-plan.md', phase: 'released',
-        waves: [{
+        slices: [{
           name: 'Tracer', verdict: 'complete',
           branches: [
             { branch: 'feature/shipped-a', state: 'merged', deferred: false, claimed: '' },
@@ -2391,7 +2391,7 @@ describe('rowsFromPulse', () => {
         plans: [
           {
             file: '2026-08-15-example-plan.md',
-            waves: [{
+            slices: [{
               name: 'Implementation', verdict: 'eligible',
               branches: [
                 { branch: 'feature/ancient', state: 'open', deferred: false, claimed: '' },
@@ -2401,7 +2401,7 @@ describe('rowsFromPulse', () => {
           },
           {
             file: '2026-08-15-undated-plan.md',
-            waves: [{
+            slices: [{
               name: 'Implementation', verdict: 'eligible',
               branches: [
                 { branch: 'feature/nodate', state: 'open', deferred: false, claimed: '' },
@@ -2433,7 +2433,7 @@ describe('rowsFromPulse', () => {
       ...pulse,
       plans: [{
         file: '2026-08-15-example-plan.md',
-        waves: [{
+        slices: [{
           name: 'Implementation', verdict: 'eligible',
           branches: [{
             branch, state: 'wip', deferred: false, claimed: '',
@@ -2468,7 +2468,7 @@ describe('rowsFromPulse', () => {
       ...pulse,
       plans: [{
         file: '2026-08-15-example-plan.md',
-        waves: [{
+        slices: [{
           name: 'Implementation', verdict: 'eligible',
           branches: [{
             branch, state: 'wip', deferred: false, claimed: '',
@@ -2516,7 +2516,7 @@ describe('rowsFromPulse', () => {
       ...pulse,
       plans: [{
         file: '2026-08-15-example-plan.md',
-        waves: [{
+        slices: [{
           name: 'Implementation', verdict: 'eligible',
           branches: [{
             branch: 'feature/d', state: 'claimed', deferred: false, claimed: '',
@@ -3296,7 +3296,7 @@ describe('the row carries the PR condition as fields', () => {
     generatedAt: '2026-08-17T00:00:00Z',
     plans: [{
       file: '2026-08-17-p.md', slug: 'p', title: 'P', phase: 'approved', story: '',
-      waves: [{
+      slices: [{
         name: 'One', verdict: 'eligible',
         branches: [{
           branch: 'feature/a', state: 'wip', claimed: '', local_dirty: false,
@@ -3359,12 +3359,12 @@ describe('the row carries the PR condition as fields', () => {
         ...pulse,
         plans: [{
           ...pulse.plans[0],
-          waves: [{
-            ...pulse.plans[0].waves[0],
+          slices: [{
+            ...pulse.plans[0].slices[0],
             verdict: 'blocked',
             // `open` — the branch does not exist yet, which is the only state
             // in which "an earlier wave has not landed" is the row's answer.
-            branches: [{ ...pulse.plans[0].waves[0].branches[0], state: 'open' }],
+            branches: [{ ...pulse.plans[0].slices[0].branches[0], state: 'open' }],
           }],
         }],
       } as never,
@@ -3377,20 +3377,20 @@ describe('the row carries the PR condition as fields', () => {
     // literal, so renaming the fixture cannot leave a passing test measuring
     // nothing. The forced-blocked wave holds this fixture's one open branch, so
     // one is outstanding.
-    expect(blocked[0].note).toBe(`blocked by ${pulse.plans[0].waves[0].name} — 1 outstanding`);
+    expect(blocked[0].note).toBe(`blocked by ${pulse.plans[0].slices[0].name} — 1 outstanding`);
     // And the field says it too, so nothing downstream has to read the prose.
     expect(blocked[0].waitingOn).toBe('time');
-    expect(blocked[0].blockedBy).toBe(pulse.plans[0].waves[0].name);
+    expect(blocked[0].blockedBy).toBe(pulse.plans[0].slices[0].name);
 
     const claimed = rowsFromPulse(
       {
         ...pulse,
         plans: [{
           ...pulse.plans[0],
-          waves: [{
-            ...pulse.plans[0].waves[0],
+          slices: [{
+            ...pulse.plans[0].slices[0],
             branches: [{
-              ...pulse.plans[0].waves[0].branches[0],
+              ...pulse.plans[0].slices[0].branches[0],
               claimed: 'claimed by someone',
             }],
           }],
@@ -3487,7 +3487,7 @@ describe('rowsFromPulse carries stuck detection onto the row', () => {
     head: 'abc1234',
     plans: [{
       file: '2026-08-17-p.md', phase: 'approved',
-      waves: [{ name: 'One', verdict: 'eligible', branches: [branch(over)] }],
+      slices: [{ name: 'One', verdict: 'eligible', branches: [branch(over)] }],
     }],
     summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
   });
@@ -4030,7 +4030,7 @@ describe('the row carries its verdict', () => {
     plans: [{
       file: '2026-08-20-verdict-fixture.md',
       phase: 'approved',
-      waves: [
+      slices: [
         {
           name: 'Truth', verdict: 'eligible',
           branches: [
@@ -4160,7 +4160,7 @@ describe('the row carries its verdict', () => {
 });
 
 describe('an eligible wave is not a blocker', () => {
-  // The collapse: `plan.waves.find((w) => w.verdict !== 'complete')` treated
+  // The collapse: `plan.slices.find((w) => w.verdict !== 'complete')` treated
   // `eligible` and `blocked` as one answer, so the wave a reader can START
   // could be reported as the thing holding everything up — or worse, a BLOCKED
   // wave could be named as a blocker, answering *blocked by which one* with
@@ -4172,7 +4172,7 @@ describe('an eligible wave is not a blocker', () => {
     plans: [{
       file: '2026-08-20-blocker-fixture.md',
       phase: 'approved',
-      waves: waves.map((w) => ({
+      slices: waves.map((w) => ({
         name: w.name,
         verdict: w.verdict,
         branches: w.branches.map((b) => ({
@@ -4393,7 +4393,7 @@ describe('a blocked wave names how many branches are outstanding', () => {
     plans: [{
       file: '2026-08-20-count-fixture.md',
       phase: 'approved',
-      waves: waves.map((w) => ({
+      slices: waves.map((w) => ({
         name: w.name,
         verdict: w.verdict,
         branches: w.branches.map((b) => ({
@@ -4503,7 +4503,7 @@ describe('the deferral reason travels from the plan to the row', () => {
     plans: [{
       file: '2026-08-18-the-repair-exists-but-nothing-calls-it.md',
       phase: 'approved',
-      waves: [{
+      slices: [{
         name: 'Implementation', verdict: 'eligible',
         branches: [{
           branch: 'feature/the-pulse-repairs-the-artifact',

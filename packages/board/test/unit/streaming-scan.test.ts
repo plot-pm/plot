@@ -32,7 +32,7 @@ const wave = (
 });
 
 const plan = (file: string, waves: ReturnType<typeof wave>[]) =>
-  ({ file, phase: 'approved', waves });
+  ({ file, phase: 'approved', slices: waves });
 
 /**
  * A fake scan script that writes the lines it is given, with an optional pause
@@ -319,7 +319,7 @@ describe('mergePlan keeps a re-emitted plan idempotent', () => {
     const a2 = plan('a.md', [wave('One', 'complete', [['feature/a', 'merged']])]);
     const merged = mergePlan([a, b], a2);
     expect(merged.map((p) => p.file)).toEqual(['a.md', 'b.md']);
-    expect(merged[0].waves[0].verdict).toBe('complete');
+    expect(merged[0].slices[0].verdict).toBe('complete');
   });
 });
 

@@ -61,7 +61,7 @@ function pulse(branches: { branch: string; worker: WorkerState; local_worktree: 
     plans: [{
       file: '2026-08-17-a-plan.md',
       phase: 'approved',
-      waves: [{
+      slices: [{
         name: 'Asking',
         verdict: 'eligible',
         branches: branches.map((b) => ({

@@ -14,13 +14,12 @@ import type { FleetPulse } from '../../src/contract/schema.js';
 // truncated.
 
 /**
- * The slices of the one plan below, named once and referenced twice.
+ * The slices of the one plan below.
  *
- * `slices` is the entity's name; `waves` is the deprecated alias of the SAME
- * array, kept while the board's call sites move across in their own change. The
- * parsed pulse carries both, so a fixture compared whole must carry both — and
- * sharing one array here is what stops the two drifting in the fixture as they
- * cannot drift in the schema.
+ * `slices` is the entity's name, and now the only one a parsed plan carries:
+ * the deprecated `waves` alias went with the board's call sites. This fixture
+ * is compared WHOLE against a parsed pulse, so a second key here would fail the
+ * round trip rather than merely duplicate it.
  */
 const SLICES: FleetPulse['plans'][number]['slices'] = [{
   name: 'One',
@@ -56,7 +55,6 @@ const PULSE: FleetPulse = {
     file: '2026-08-17-a-plan.md',
     phase: 'approved',
     slices: SLICES,
-    waves: SLICES,
   }],
   summary: {
     plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0,
