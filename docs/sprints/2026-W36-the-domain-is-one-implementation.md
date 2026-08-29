@@ -46,31 +46,44 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 
 ### Should Have
 
+- [ ] [the-domain-runs-the-workflows-in-a-sandbox] The domain's ports get adapters and the workflows decide without acting, proven against the real estate — 4 slices; **Draft, and blocked on the Must above**
 - [ ] [the-domain-speaks-slices] The code calls a slice a slice, and `Wave` is freed for the cohort the fleet lands together — measured 2026-08-29: `FleetWaveSchema` holds `branches[]`, belongs to one plan and is persisted in the pulse, which is a **Slice** by every property `DESIGN-slice.md` defines, while the real Wave (cross-plan, formed at dispatch, persisted nowhere) does not exist in code at all
 
 ### Could Have
 
+- [ ] [production-calls-the-domain-one-rule-at-a-time] Production code calls the domain instead of duplicating its rules, one rule at a time — 5 slices; **Draft, and blocked on both items above**
 - [ ] [a-domain-rule-has-one-owner] Any lifecycle rule found duplicated **while moving** gets its second implementation deleted in the same slice, rather than noted for later — opportunistic, and only where the two provably agree
 
 ## Notes
 
-### Why only one Must, when three domain plans exist
+### One Must, and two tiers below it — the chain decides which
 
-**Because the other two cannot be started.** The three plans form a strict
-chain, each stating its dependency in its own header:
+**All three domain plans are in this sprint**, added 2026-08-29 at the
+operator's request. What separates them is not importance but **what can
+start**, and the tier says so:
 
 ```
-the-domain-moves-out-of-the-board          APPROVED   4 slices   startable now
-  └─ the-domain-runs-the-workflows-…       DRAFT      4 slices   Depends on ↑
-       └─ production-calls-the-domain-…    DRAFT      5 slices   Depends on ↑
+the-domain-moves-out-of-the-board          APPROVED   4 slices   MUST    running
+  └─ the-domain-runs-the-workflows-…       DRAFT      4 slices   SHOULD  blocked on ↑
+       └─ production-calls-the-domain-…    DRAFT      5 slices   COULD   blocked on ↑
 ```
 
-Putting all fourteen slices in one sprint would promise work the fleet cannot
-begin: nine of them are blocked on day one, and two of the three plans are not
-approved. **A timebox whose contents cannot start is not a plan, it is a wish.**
+Each states its dependency in its own header. **Nine of the fourteen slices
+cannot begin on day one**, and two of the three plans are not approved — so
+tiering them by startability is what keeps the sprint honest rather than
+optimistic. A Must that cannot start would be a wish; a Should that is blocked
+is a stated intention.
 
-The two dependent plans are the obvious next sprints. They are named here, and
-deliberately not counted here.
+**The release gate reads this correctly.** An unfinished Must **refuses** the
+release; an unfinished Should **prompts** and a person decides. So if the chain
+runs out of time, 2.12.0 ships what landed and asks about the rest — which is
+the behaviour a chain of dependent plans needs.
+
+**And the ordering is real, not advisory.** Measured after slice 1 merged
+(#509): `Moving — complete`, `Deliverable — eligible`, `Entities — blocked`,
+`Transitions — blocked`. The wave gate serialises even the slices *within* one
+plan, so a sprint promising fourteen concurrent pieces would be describing a
+fleet that does not exist.
 
 ### The four slices, and why they are ordered as they are
 
@@ -123,10 +136,12 @@ and the [Definition of Done](../definition-of-done.md) gates it in CI.
 | [[plot-agent-identity]] — *An agent is someone, not something running* | `Agent` and `Person` as entities with a declared identity kind | **Entities** |
 | [[plot-plan-economics]] — *What a plan costs, and what the approval was worth* | a plan transition as a **value** that can be summed over | **Transitions** |
 
-**They are named here and deliberately not counted here.** A story with no plan
-is not a sprint item — it is a finding, and the fleet cannot start one. This is
-the shape the deferred sprint states about its own contents (*"All eight items
-are findings, not plans"*), and it is what makes a timebox unstartable.
+**They are named here and deliberately not counted here** — unlike the two
+dependent domain PLANS, which are now sprint items in the Should and Could
+tiers. The difference is that a plan can be dispatched once its predecessor
+lands, while a story with no plan cannot be dispatched at all: it is a finding,
+and `/plot-idea` has to run first. That is the shape the deferred sprint states
+about its own contents (*"All eight items are findings, not plans"*).
 
 **The dependency is real rather than thematic.** `plot-agent-identity` asks for
 an identity that exists *before* dispatch and *survives* the branch; that is a
