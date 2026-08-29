@@ -185,6 +185,13 @@ describe('board: contract fields + frontmatter visibility', () => {
       phase: 'Active',
       // The target release, read from the sprint file's `- **Release:** x.y.z`.
       release: '4.2.0',
+      // Empty because this fixture carries no `## Sprint Goal` and no dates —
+      // the server reads all three and reports "" when the section is absent,
+      // rather than omitting the key. Asserted so a sprint that DOES carry them
+      // cannot start reporting them silently.
+      goal: '',
+      start: '',
+      end: '',
       members: [
         // `sprint-support` is a plan the board found; `ghost-plan` is not, and is
         // flagged rather than dropped. A `- [x]` item is still a member.
