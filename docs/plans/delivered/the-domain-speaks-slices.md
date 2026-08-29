@@ -1,0 +1,1 @@
+../2026-08-29-the-domain-speaks-slices.md
