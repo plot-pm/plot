@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** 2026-W36-the-board-shows-the-strategic-layer
 - **Issue:** <!-- optional -->
@@ -18,6 +18,7 @@
 - **Started:** 2026-08-29, Jan Wloka, `feature/stories-tab`
 - **Started:** 2026-08-29, Jan Wloka, `feature/story-modal`
 - **Started:** 2026-08-29, Jan Wloka, `feature/tab-rename-reorder`
+- **Delivered:** 2026-08-29
 
 ## Changelog
 

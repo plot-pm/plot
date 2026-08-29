@@ -33,7 +33,7 @@ at the bottom.
 
 ### Must Have
 
-- [x] [the-board-shows-stories] Stories tab with columns by status, story cards, tag cloud, archived toggle, empty-state redirect — **UI wave in progress** <!-- status: approved -->
+- [x] [the-board-shows-stories] Stories tab with columns by status, story cards, tag cloud, archived toggle, empty-state redirect — **UI wave in progress** <!-- status: delivered -->
 
 ### Should Have
 
