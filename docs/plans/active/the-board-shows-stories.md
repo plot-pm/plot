@@ -1,1 +1,0 @@
-../2026-08-29-the-board-shows-stories.md

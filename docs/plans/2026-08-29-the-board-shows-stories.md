@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** 2026-W36-the-board-shows-the-strategic-layer
 - **Issue:** <!-- optional -->
@@ -19,6 +19,7 @@
 - **Started:** 2026-08-29, Jan Wloka, `feature/story-modal`
 - **Started:** 2026-08-29, Jan Wloka, `feature/tab-rename-reorder`
 - **Delivered:** 2026-08-29
+- **Released:** 2026-08-29, 2.12.0
 
 ## Changelog
 
@@ -218,18 +219,15 @@ Waves are ordered: Schema must land before Backend (contract first), Backend bef
 
 ### Schema
 
-- `feature/story-card-schema` — Add `StoryCard`, `StoriesResponse`, `TagCount`, `SprintRef` to contract schema; add `/api/stories` endpoint type; add `statusDrift` and `designDocs` fields
-
+- `feature/story-card-schema` — Add `StoryCard`, `StoriesResponse`, `TagCount`, `SprintRef` to contract schema; add `/api/stories` endpoint type; add `statusDrift` and `designDocs` fields → #512
 ### Backend
 
-- `feature/story-file-parsing` — Parse story files from `docs/stories/*/STORY-*.md` in TypeScript, extract frontmatter and sections, compute plan counts from plans with matching `Story:` field, detect status drift, list DESIGN-*.md files, implement 30s caching
-
+- `feature/story-file-parsing` — Parse story files from `docs/stories/*/STORY-*.md` in TypeScript, extract frontmatter and sections, compute plan counts from plans with matching `Story:` field, detect status drift, list DESIGN-*.md files, implement 30s caching → #514
 ### UI
 
-- `feature/stories-tab` — New Stories tab component with column layout (Draft/Active/Done/Archived), story cards with drift warnings, tag cloud with moderate scaling, archived toggle, empty-state redirect to Plans
-- `feature/story-modal` — StoryModal component with objective, design section, plan list with back-navigation, design docs list, open points, session log sections
-- `feature/tab-rename-reorder` — Rename "Board" to "Plans", reorder tabs to Stories · Plans · Agents, redirect `?tab=board` to `?tab=plans`, update URL param handling
-
+- `feature/stories-tab` — New Stories tab component with column layout (Draft/Active/Done/Archived), story cards with drift warnings, tag cloud with moderate scaling, archived toggle, empty-state redirect to Plans → #517
+- `feature/story-modal` — StoryModal component with objective, design section, plan list with back-navigation, design docs list, open points, session log sections → #518
+- `feature/tab-rename-reorder` — Rename "Board" to "Plans", reorder tabs to Stories · Plans · Agents, redirect `?tab=board` to `?tab=plans`, update URL param handling → #516
 ## Notes
 
 ### Definition of Done

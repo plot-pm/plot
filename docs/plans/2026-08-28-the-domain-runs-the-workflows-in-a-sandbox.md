@@ -36,6 +36,11 @@
 >
 > **So this plan stays Draft until the first is Delivered.** That is the gate,
 > and it is a human one because Plot has no other.
+>
+> **The condition is met as of 2026-08-29:** `the-domain-moves-out-of-the-board`
+> is Released in v2.12.0, and `@plot-pm/domain` is on the default branch. The
+> gate is still a person's to open — this records that it may be opened, not
+> that it was.
 
 
 **A domain nobody can feed is a domain nobody can trust.**

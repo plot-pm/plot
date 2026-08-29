@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-board-shows-the-strategic-layer
 - **Issue:** <!-- optional -->
@@ -16,6 +16,7 @@
 - **Started:** 2026-08-29, Jan Wloka, `feature/one-deliver-rule-decides-in-the-domain`
 - **Started:** 2026-08-29, Jan Wloka, `feature/a-transition-is-one-value`
 - **Delivered:** 2026-08-29
+- **Released:** 2026-08-29, 2.12.0
 
 ## Approval
 

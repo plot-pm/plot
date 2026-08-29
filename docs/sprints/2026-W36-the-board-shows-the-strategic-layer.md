@@ -47,6 +47,24 @@ at the bottom.
 
 ## Notes
 
+### Three of its items shipped in 2.12.0 before this sprint opened — 2026-08-29
+
+This sprint starts 2026-09-01 and its `Release:` is still an empty placeholder,
+so the release gate correctly reads it as having no target and did not consult
+it for `v2.12.0`.
+
+Its Must Have and both Should Haves are nevertheless **Released** already:
+`the-board-shows-stories`, `the-domain-moves-out-of-the-board` and
+`the-domain-speaks-slices` are all shared with `the-domain-is-one-implementation`,
+which did target 2.12.0. Two sprints naming one plan is legitimate — the gate
+answers to both — and the shared items are simply finished before this timebox
+begins.
+
+What remains here is the two Could Haves, both Draft with no branch on the
+remote: `the-domain-runs-the-workflows-in-a-sandbox` (now startable, its blocker
+released) and `production-calls-the-domain-one-rule-at-a-time` (still blocked on
+the former).
+
 ### Why this sprint focuses on Stories tab
 
 The story `the-master-agent-holds-the-fleet` has five plans and spans domain

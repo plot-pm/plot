@@ -42,12 +42,12 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 
 ### Must Have
 
-- [ ] [the-domain-moves-out-of-the-board] A `@plot-pm/domain` package carries Plot's entities, states, rules and transitions; the board imports them rather than defining them — measured: `contract/schema.ts` is 4,052 lines with one import and no world access, i.e. a pure domain layer that no other component can depend on because it lives inside the board
+- [x] [the-domain-moves-out-of-the-board] A `@plot-pm/domain` package carries Plot's entities, states, rules and transitions; the board imports them rather than defining them — measured: `contract/schema.ts` is 4,052 lines with one import and no world access, i.e. a pure domain layer that no other component can depend on because it lives inside the board
 
 ### Should Have
 
 - [ ] [the-domain-runs-the-workflows-in-a-sandbox] The domain's ports get adapters and the workflows decide without acting, proven against the real estate — 4 slices; **Draft, and blocked on the Must above**
-- [ ] [the-domain-speaks-slices] The code calls a slice a slice, and `Wave` is freed for the cohort the fleet lands together — measured 2026-08-29: `FleetWaveSchema` holds `branches[]`, belongs to one plan and is persisted in the pulse, which is a **Slice** by every property `DESIGN-slice.md` defines, while the real Wave (cross-plan, formed at dispatch, persisted nowhere) does not exist in code at all
+- [x] [the-domain-speaks-slices] The code calls a slice a slice, and `Wave` is freed for the cohort the fleet lands together — measured 2026-08-29: `FleetWaveSchema` holds `branches[]`, belongs to one plan and is persisted in the pulse, which is a **Slice** by every property `DESIGN-slice.md` defines, while the real Wave (cross-plan, formed at dispatch, persisted nowhere) does not exist in code at all
 
 ### Could Have
 
@@ -201,3 +201,42 @@ scan already reports the drift today even though nothing consumes it.
 **So while this sprint runs, read `plot-reconcile-scan.sh` by hand** rather than
 trusting a workflow to report its own incompleteness. That is the protection the
 deferred sprint would have automated.
+
+### 2.12.0 shipped the Must and one Should — 2026-08-29
+
+`v2.12.0` is tagged. The release gate was clear: the Must Have was Delivered,
+so no `--ignore-sprint` was needed and none was used.
+
+| | |
+|---|---|
+| `the-domain-moves-out-of-the-board` | **Released** in 2.12.0 (MUST) |
+| `the-domain-speaks-slices` | **Released** in 2.12.0 (SHOULD) |
+| `the-domain-names-its-entities` | shipped in 2.12.0 (#526) — not a sprint item |
+
+The two boxes above were ticked in this pass rather than at delivery:
+`/plot-deliver` moves the plan and nobody re-ticks the box, so the sprint read
+its own Must Have as unfinished while the plan estate said Released. The gate
+resolves that correctly (`checked:false, delivered:true → done`), but a person
+reading the file saw the wrong thing.
+
+**What the release did NOT contain**, and why neither is a gap:
+
+- `the-domain-runs-the-workflows-in-a-sandbox` — Draft, 4 slices, **no branch
+  exists**. Its blocker (the Must) is now met, so it is startable; that gate is
+  a person's to open.
+- `production-calls-the-domain-one-rule-at-a-time` — Draft, 5 slices, no branch
+  exists, still blocked on the sandbox plan.
+
+Both are unstarted rather than unlanded: measured 2026-08-29, no branch on the
+remote carries a `packages/domain` commit that the default branch lacks.
+
+### The four Could Haves are measurements from this sprint
+
+`a-throttled-host-says-so`, `a-reset-branch-is-not-a-merged-one`,
+`the-artifact-builds-the-same-everywhere` and `a-domain-rule-has-one-owner`
+were each written from a defect observed while doing the work above. They carry
+their measurements and are open for 2.13.0.
+
+`a-domain-rule-has-one-owner` has **no plan file** — it reads as a policy for
+work in flight ("delete the duplicate in the same slice") rather than a plan to
+schedule. Worth settling which it is before the next sprint closes.

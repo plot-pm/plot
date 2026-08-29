@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Story:** plot-board
@@ -13,6 +13,7 @@
 - **Impl:** none
 - **Rounds:** 1
 - **Delivered:** 2026-08-26
+- **Released:** 2026-08-22, 2.7.0
 
 ## Changelog
 

@@ -1,1 +1,0 @@
-../2026-08-28-the-domain-moves-out-of-the-board.md
