@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Started:** 2026-08-29, Jan Wloka, `feature/the-domain-package-exists`
 - **Started:** 2026-08-29, Jan Wloka, `feature/one-deliver-rule-decides-in-the-domain`
+- **Started:** 2026-08-29, Jan Wloka, `feature/a-transition-is-one-value`
 
 ## Approval
 
