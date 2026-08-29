@@ -1,5 +1,264 @@
 # @plot-pm/board
 
+## 0.10.0
+
+### Minor Changes
+
+- [`46c3583`](https://github.com/plot-pm/plot/commit/46c3583e72c21f528e2e61ab2e5138b13b875460) Thanks [@jwloka](https://github.com/jwloka)! - Add sprint modal overlay to the Stories tab. Clicking a sprint link now opens a modal showing:
+
+  - Sprint title, phase, and release target
+  - Start and end dates
+  - Sprint goal (highlighted)
+  - Progress bar with completion count
+  - MoSCoW-grouped plan members with checkmarks and "Delivered" badges
+
+  The modal works both for sprints with files in `docs/sprints/active/` and for sprints synthesized from plan references (when a plan's `Sprint:` field names a sprint with no file).
+
+  Fix plan links in story content. Relative links like `[plan](../../plans/2026-08-16-slug.md)` are now rewritten to `/plan/slug.md` board routes. Also fix symlink resolution: plans accessed via symlinks in `active/` or `delivered/` now resolve correctly (previously failed when the symlink name differed from the date-prefixed filename).
+
+  Derive story status from plan phases:
+
+  - All plans released → archived
+  - All plans delivered → done
+  - Any plan approved → active
+  - Otherwise → draft
+
+  Redesign tag cloud as compact pills with variable sizing (larger topics get bigger pills) and highlighted border for selected tag.
+
+  Improve topic extraction with domain-focused approach: extract keywords from story slugs and compound terms from plan titles, with extensive stop word filtering for meaningful domain vocabulary.
+
+  Render markdown (bold/italic) in story card objectives.
+
+### Patch Changes
+
+- [#525](https://github.com/plot-pm/plot/pull/525) [`4d29d68`](https://github.com/plot-pm/plot/commit/4d29d68bcb1f4dd608aa5fb28baff8c23d607161) Thanks [@jwloka](https://github.com/jwloka)! - Assert the rewritten story link, not the broken relative one.
+
+  `d23c03a0` taught the plan viewer to rewrite relative story and plan links to
+  board routes, because `../stories/raised-beds/STORY-raised-beds.md` resolves
+  against `/plan/<file>` rather than the docs tree and is therefore dead in a
+  browser. It changed the renderer and rebuilt the artifact, but touched no test —
+  and the `tiny-garden` plan-viewer test was still asserting the un-rewritten
+  path, so it became an assertion that the bug was still present. main went red at
+  that commit and stayed red; the release PR inherited the failure.
+
+  The assertion now checks both halves — the board route arrives AND the relative
+  path is gone. Neither alone is discriminating: the route by itself would pass on
+  a renderer that emitted it for every link, and the absence by itself would pass
+  on one that dropped the link. Mutation-tested by making `rewritePlanLinks` a
+  no-op, which turns the test red.
+
+- [#528](https://github.com/plot-pm/plot/pull/528) [`e18949c`](https://github.com/plot-pm/plot/commit/e18949c5a5b5c0fe3e6626e042a89072a8ee570b) Thanks [@jwloka](https://github.com/jwloka)! - Remove three unused TF-IDF helpers that broke the board typecheck.
+
+  `46c3583e` shipped `topics.ts` with `tokenize`, `computeTf` and `computeIdf`
+  written but never called: `extractTopics` counts how many stories each term
+  appears in, and never computes TF-IDF at all. The TF-IDF path was abandoned in
+  favour of that simpler count, and these three were the remainder.
+
+  `noUnusedLocals` rejects them, so `main` failed `tsc --noEmit` and every branch
+  cut from it inherited the failure.
+
+  Deleted rather than silenced: keeping dead code alive behind a suppression
+  would preserve an implementation the file does not use and cannot reach.
+  `STOP_WORDS` still has seven other callers and stays.
+
+- [#523](https://github.com/plot-pm/plot/pull/523) [`2fe3209`](https://github.com/plot-pm/plot/commit/2fe3209d6c6286cb28c6d4af0e066c512e4c4d18) Thanks [@jwloka](https://github.com/jwloka)! - One deliver rule, and it decides in the domain.
+
+  The deliverable measurement leaves `packages/board/src/server/board.ts` for
+  `@plot-pm/domain` as `src/rules/deliverable.ts`. It is the first _rule_ in a
+  package that until now held only entities — the entity graph moved first
+  because a rule with nowhere to stand had to wait for one.
+
+  **It is named `allSlicesMerged`, because that is what it asks.**
+  `DESIGN-slice.md` settled on 2026-08-28 that a Slice holds exactly one branch
+  and belongs to one plan, while a Wave is the fleet's cross-plan cohort, formed
+  at dispatch and persisted nowhere. This rule walks one plan's slices. The old
+  name said Wave and meant Slice, and an earlier attempt (**PR [#511](https://github.com/plot-pm/plot/issues/511)**) moved the
+  same logic under it and was closed rather than merged for exactly that reason:
+  merging it would have grown the defect, and `Entities` and `Transitions` would
+  have been built on top of it.
+
+  **The board keeps compiling, and no board test was edited.** `board.ts`
+  re-exports the domain rule under the name its two external call sites still use
+  (`deliver.ts`, `auto-deliver.ts`), marked in one line as temporary; renaming
+  those sites is a separable change. Its own internal call site in `planStatus`
+  reads the domain name directly, because a re-export is a module binding and not
+  a local one — `tsc` named that site, which a grep would not have.
+
+  **The board's four existing suites are what prove the behaviour survived.**
+  `merged-waves-reach-testing.test.ts`, `auto-deliver.test.ts`,
+  `deliver-route.test.ts` and `plan-status.test.ts` — 81 tests — pass unedited
+  through the re-export. They could not have moved: they build fixtures with
+  `PlanMetaSchema.parse`, the board's plan contract, which the domain neither has
+  nor may import.
+
+  **14 new cases cover the rule at the domain boundary**, reading it through the
+  narrow `{ file }` it declares, and meeting the package's 100% threshold on 16
+  of 16 branches. The gate fails the build when unmet, so the coverage is a
+  measurement rather than a claim.
+
+  **The parameter is `PlanFile`, not `PlanMeta`.** The old signature claimed a
+  dependency on thirty fields — phase, sprint, story, assignee, PR numbers,
+  transition records — to read one. The domain could not import that type in any
+  case; the module resolver refuses, which is the point of the boundary.
+  Structural typing keeps the narrowing free, so no call site casts.
+
+  **The three house rules hold, and the vocabulary gate's `allowed=` is not
+  raised.** The new file adds zero occurrences of the counted misuse (the count
+  stays at 10 against an allowed 12), declares no `function`, and carries factual
+  TSDoc: what each export does, its parameters, its return, its failure modes.
+  The reasoning [#511](https://github.com/plot-pm/plot/issues/511) kept in 109 lines of comment above 28 lines of code is in
+  the commit message instead, where it is dated and `git log -S` finds it —
+  including the two measurements worth keeping, the 2026-08-27 timeout read as a
+  negative and the 2026-08-20 plan with no merged slice that read as delivered.
+
+- [#521](https://github.com/plot-pm/plot/pull/521) [`6b2e53d`](https://github.com/plot-pm/plot/commit/6b2e53d0d49c65781a8e28d932a8e59e3659ddf3) Thanks [@jwloka](https://github.com/jwloka)! - The board reads a slice.
+
+  The board's call sites move from `plan.waves` to `plan.slices`, and the
+  compatibility aliases slice 1 left behind are removed. One vocabulary, one
+  entity.
+
+  **The aliases were a bridge with an end date, and this is the end date.** They
+  existed so the domain's rename could land without touching the board's call
+  sites in the same diff — the schema change and the call-site churn reviewed as
+  distinct claims. Both have now landed. Leaving one behind would mean two names
+  for one entity, which is the defect the rename removes.
+
+  **`tsc` named the work, not a grep.** Deleting the downward alias — the
+  `.transform((plan) => ({ ...plan, waves: plan.slices }))` on `FleetPlanSchema` —
+  is what made the compiler enumerate every site that had not moved: **21 property
+  accesses across 6 server files** (`fleet.ts`, `auto-dispatch.ts`, `board.ts`,
+  `agent-panel.ts`, `worker-log.ts`, `worker-question.ts`), plus 5 type references
+  to `WaveVerdict`/`WaveVerdictSchema` in the contract and two client modules. A
+  grep would have been the wrong instrument: `schema.ts` alone carries ~200
+  occurrences of "wave", nearly all of them either prose or the board's own
+  `WaveSchema`.
+
+  **Three fields spelled `waves` survive, and each is a different entity.** Only
+  the first was ever this branch's:
+
+  - `FleetPlanSchema`'s outbound alias — **removed.** Its slices are slices.
+  - `summary.waves` — **kept.** A counter in the wire format `plot-fleet-scan.sh`
+    still emits; renaming it here would break parsing against an unchanged scan.
+  - `PlanMetaSchema.waves` — **kept.** A different producer (`plot-plan-meta.sh`)
+    with its own wire format.
+
+  **The inbound tolerance stays.** The `z.preprocess` that rewrites an incoming
+  `waves` key to `slices` is untouched, so a new board still reads an old scan.
+  The producer emitting the new name is step 2 of the migration, with its own
+  timing decision, and a branch that edited the emitter would have widened past
+  its plan. Removing the outbound alias while keeping the inbound one is the whole
+  safety argument: two mechanisms in one file, and only one of them belonged here.
+
+  **The board's own `WaveSchema` keeps its name.** It is a genuinely different
+  entity — the derived per-`(plan, wave)` render state the board builds for
+  itself, not the domain's slice — and renaming it belongs to whoever builds the
+  real fleet cohort.
+
+  **What proves it:** `pnpm run typecheck` clean; the board suite passing with no
+  test edited beyond the renames. Two domain tests moved: one readout of
+  `p.plans[0].waves[0]` became `.slices[0]` — a rename — and the test asserting
+  the alias was _inverted into a regression lock_ asserting its absence, since the
+  behaviour it guarded is the behaviour this change removes. The board's `.mjs`
+  fixtures still feed `waves:` as scan input, untouched, which is what keeps them
+  proof that the inbound compatibility survived.
+
+- [#513](https://github.com/plot-pm/plot/pull/513) [`8584af5`](https://github.com/plot-pm/plot/commit/8584af5ce19f4f46d00d2e05c53e6d6dd017450e) Thanks [@jwloka](https://github.com/jwloka)! - The domain names a Slice a Slice.
+
+  `FleetWaveSchema` → `FleetSliceSchema`, `WaveVerdictSchema` →
+  `SliceVerdictSchema`, and `FleetPlanSchema.waves` → `.slices`, inside
+  `@plot-pm/domain`.
+
+  **The name was occupied by the wrong tenant.** `DESIGN-slice.md` settled the
+  vocabulary on 2026-08-28, and by every property the object in code is a Slice:
+  it holds `branches[]` and belongs to exactly one plan. A **Wave** is the fleet's
+  cohort — slices drawn from several plans, sized by the agents available,
+  assembled at dispatch and persisted nowhere. That entity does not exist in code
+  yet, and building it was awkward while its name was taken. The domain now
+  reserves it, in a comment that says what it will hold.
+
+  **The wire accepts both spellings.** `plot-fleet-scan.sh` is a separate process
+  that ships separately and still emits `"waves"` — the version skew this repo
+  already got wrong across v2.5.0–v2.11.0. So the schema reads `slices` when
+  present and falls back to `waves`, normalizing to `slices`. A new board works
+  against an old scan. The producer emitting the new name is step 2 of the
+  migration and has its own timing decision; the scan is deliberately untouched
+  here.
+
+  **The board keeps compiling, unedited.** Old names remain as re-exports
+  (`SliceVerdictSchema as WaveVerdictSchema`, `FleetSliceSchema as
+FleetWaveSchema`), and the parsed plan carries `waves` as a deprecated alias of
+  the same array. Both are a bridge with an end date: the branch that moves the
+  board's 44 call sites removes them, and `tsc` is what will name any site left
+  behind. Without the alias the rename breaks 37 call sites across 6 server files
+  — a diff this change is specified not to make, so that the schema change and the
+  call-site churn can be reviewed as distinct claims.
+
+  `FleetPulseSchema` stays a plain `z.object`, because the board reads
+  `FleetPulseSchema.shape.summary` and a preprocessed schema exposes no `.shape`.
+  `summary.waves` likewise keeps its wire name: the summary is a tally the board
+  BUILDS as well as parses, so its counter moves with those producers.
+
+  **What proves it:** a pulse in either spelling parses to the same object,
+  asserted on both inputs rather than on one plus a claim about the other. The
+  domain's 100% coverage gate holds over the package's first real branches — nine
+  of them, including both arms of the fallback and the non-object guard. The
+  vocabulary gate drops from 34 occurrences to 14, every survivor either the
+  comment reserving the name or the compatibility path itself.
+
+- [#509](https://github.com/plot-pm/plot/pull/509) [`aeb512b`](https://github.com/plot-pm/plot/commit/aeb512b5ad7df9627c9030acdc5061fbfd37f35a) Thanks [@jwloka](https://github.com/jwloka)! - Plot's entity graph moves out of the board into `@plot-pm/domain`.
+
+  `FleetBranch`, `FleetWave`, `FleetPlan` and `FleetPulse` — with the four enums
+  they are built from (`BranchState`, `WaveVerdict`, `WorkerState`,
+  `WorkerActivity`) — leave `contract/schema.ts` for a new workspace package.
+  **547 lines, byte-for-byte**: the diff is the move and nothing else.
+
+  **They were never the board's.** A `FleetPulse` is `plans[] → waves[] →
+branches[]` — Plan, Wave and Branch, already assembled, and assembled since the
+  pulse first had a schema. They were invisible as entities because they carry
+  transport names in a file called `contract/`. The work was not to build a
+  domain but to move the one that already existed somewhere it can be depended
+  on.
+
+  **A move, not a copy.** An earlier draft proposed building fresh entities
+  _beside_ the pulse types and proving agreement with a corpus test. That creates
+  a third implementation of shapes that already exist twice, and then needs a
+  later plan to remove it. A move creates no duplication, so there is no window in
+  which two answers exist — and a corpus test would compare a thing to itself.
+
+  **A package rather than a directory, and the boundary is the whole reason.**
+  `contract/schema.ts` was already a pure domain layer — measured: one import
+  (`zod`), no disk, no process, no network — so `src/domain/` inside the board
+  would satisfy the same grep today. What it would not do is make the dependency
+  direction _enforceable_: a directory can import `../server/fleet.js`, and
+  eventually something will. A package cannot — the module resolver refuses, with
+  no grep to run and no reviewer to notice. A gate rather than a rule, which is
+  this repo's own doctrine.
+
+  **The board re-exports what it moved**, so all 53 importers keep their import
+  paths unchanged and the review reads as the move it is. Collapsing those
+  re-exports would touch 53 files for no behaviour change; it is a later,
+  separable decision.
+
+  **Nothing ships differently.** `@plot-pm/domain` is `private: true`. The board
+  declares zero runtime dependencies and bundles zod into its 1 MB artifact, so a
+  workspace package bundles identically — the published board is byte-for-byte
+  unaffected by where the domain lives. Publishing would only create a public API
+  Plot then owes compatibility to.
+
+  **What proves it: the board's existing tests, passing unedited.** No test was
+  edited. Both builds were exercised, because a workspace package that resolves
+  for one can still fail the other — the server bundles through esbuild, the
+  client inlines to a single file through vite, and a green server build is not
+  evidence about the artifact the browser loads.
+
+  **Coverage arrives as a gate, not a report.** `@vitest/coverage-v8` is wired
+  for the domain package alone at a 100% threshold that **fails the build** when
+  unmet — verified by making it fail, not assumed. 100% is defensible here and
+  nowhere else in this repo: the board spawns processes, binds ports and drives a
+  browser, and a threshold it structurally cannot meet is one that gets lowered
+  until it means nothing. The purity boundary leaves the domain no such excuse, so
+  an uncovered line is a line nobody specified.
+
 ## 0.9.1
 
 ### Patch Changes
@@ -1596,11 +1855,11 @@ HEAD..origin/main` with `0`, indistinguishable from a genuinely current
 command` in CLAUDE.md is tightened to name the `PLOT-BLOCKED.md` file it asks
   workers to write, so the instruction and the classifier agree.
 
-        <!--
-        bumps:
-          skills:
-            plot: patch
-        -->
+          <!--
+          bumps:
+            skills:
+              plot: patch
+          -->
 
 - [#352](https://github.com/plot-pm/plot/pull/352) [`299b4e1`](https://github.com/plot-pm/plot/commit/299b4e19c0b8093418b61053e70de0c6044df2ed) Thanks [@jwloka](https://github.com/jwloka)! - board: a release row's fallback number says it is a PR
 
@@ -2917,11 +3176,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   controls and their shared state on top of wave 1's live registry, and it
   dispatches nothing — the dispatch loop is wave 3.
 
-          <!--
-          bumps:
-            skills:
-              plot: minor
-          -->
+            <!--
+            bumps:
+              skills:
+                plot: minor
+            -->
 
 ### Patch Changes
 
@@ -3119,11 +3378,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   never mounted, and it fails against the pre-fix code for the stated reason:
   the Commission design item is absent without the prop.
 
-          <!--
-          bumps:
-            skills:
-              plot: patch
-          -->
+            <!--
+            bumps:
+              skills:
+                plot: patch
+            -->
 
   ## And a wave said _nobody has taken it_ over finished work
 
@@ -3982,10 +4241,10 @@ has taken it`. The server was right on every field — the row sat in
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-            <!--
-            bumps:
-              skills:
-            -->
+              <!--
+              bumps:
+                skills:
+              -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -4075,10 +4334,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-            <!--
-            bumps:
-              skills:
-            -->
+              <!--
+              bumps:
+                skills:
+              -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -4288,10 +4547,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-            <!--
-            bumps:
-              skills:
-            -->
+              <!--
+              bumps:
+                skills:
+              -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -4690,10 +4949,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-            <!--
-            bumps:
-              skills:
-            -->
+              <!--
+              bumps:
+                skills:
+              -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -5041,11 +5300,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-            <!--
-            bumps:
-              skills:
-                plot: patch
-            -->
+              <!--
+              bumps:
+                skills:
+                  plot: patch
+              -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -5237,10 +5496,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-            <!--
-            bumps:
-              skills:
-            -->
+              <!--
+              bumps:
+                skills:
+              -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -5743,10 +6002,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-            <!--
-            bumps:
-              skills:
-            -->
+              <!--
+              bumps:
+                skills:
+              -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -6376,10 +6635,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-            <!--
-            bumps:
-              skills:
-            -->
+              <!--
+              bumps:
+                skills:
+              -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -6665,12 +6924,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                bumps:
-                  skills:
-                    plot: minor
-                    plot-dispatch: minor
-                    plot-fleet: minor
-                -->
+                  bumps:
+                    skills:
+                      plot: minor
+                      plot-dispatch: minor
+                      plot-fleet: minor
+                  -->
 
   plot: `finished` is not a verdict
 
@@ -6820,10 +7079,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-                <!--
-                bumps:
-                  skills:
-                -->
+                  <!--
+                  bumps:
+                    skills:
+                  -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -7330,11 +7589,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-                    <!--
-                    bumps:
-                      skills:
-                        plot: patch
-                    -->
+                      <!--
+                      bumps:
+                        skills:
+                          plot: patch
+                      -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 

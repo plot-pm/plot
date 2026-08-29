@@ -1,6 +1,6 @@
 {
   "name": "@plot-pm/domain",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Plot's entity graph — the plans, waves and branches the fleet is about, and the rules that read them",
   "type": "module",
   "private": true,
