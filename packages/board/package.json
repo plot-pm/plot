@@ -45,6 +45,7 @@
     "test:integration": "pnpm build && vitest run"
   },
   "devDependencies": {
+    "@plot-pm/domain": "workspace:*",
     "@radix-ui/react-checkbox": "^1.3.0",
     "@radix-ui/react-popover": "^1.1.0",
     "@tailwindcss/vite": "^4.3.0",
