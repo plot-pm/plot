@@ -63,10 +63,22 @@ operator's request. What separates them is not importance but **what can
 start**, and the tier says so:
 
 ```
-the-domain-moves-out-of-the-board          APPROVED   4 slices   MUST    running
+the-domain-speaks-slices                   APPROVED   3 slices   SHOULD  running FIRST
+the-domain-moves-out-of-the-board          APPROVED   4 slices   MUST    paused at slice 2
   └─ the-domain-runs-the-workflows-…       DRAFT      4 slices   SHOULD  blocked on ↑
        └─ production-calls-the-domain-…    DRAFT      5 slices   COULD   blocked on ↑
 ```
+
+**The rename runs ahead of the Must, and that is deliberate.** PR #511 built the
+Must's second slice correctly and was **closed green rather than merged**: it
+carried `allWavesMerged` — a name that says *Wave* and means *Slice*. Merging it
+would have grown the defect while two further slices built on top of it, so the
+vocabulary is fixed first and that slice is rebuilt afterwards.
+
+**A Should ahead of a Must is not a reordering of importance.** The tier still
+says what the release gate does — the Must refuses, the Should prompts. It says
+nothing about sequence, and here the sequence is set by what the Must's
+remaining slices would otherwise inherit.
 
 Each states its dependency in its own header. **Nine of the fourteen slices
 cannot begin on day one**, and two of the three plans are not approved — so
