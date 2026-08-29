@@ -60,7 +60,7 @@ const workerPulse = (): FleetPulse => ({
 
 /** Every branch dated one minute ago — inside the quiet window, by design. */
 const freshAges = (pulse: FleetPulse): Map<string, number | null> =>
-  new Map(pulse.plans.flatMap((p) => p.waves.flatMap((w) => w.branches.map(
+  new Map(pulse.plans.flatMap((p) => p.slices.flatMap((w) => w.branches.map(
     (b) => [b.branch, 1] as [string, number | null],
   ))));
 
