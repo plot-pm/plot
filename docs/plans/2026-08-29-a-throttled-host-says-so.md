@@ -45,6 +45,39 @@ GraphQL: API rate limit already exceeded for user ID 870334.
 
 and the scan swallowed it.
 
+### The reaper says the same thing, and there it is a claim about WORK
+
+**Measured 2026-08-29, minutes after #515 merged.** A dry run offered four
+worktrees:
+
+```
+would   feature/the-domain-package-exists       PR merged (squash)
+would   feature/the-entities-carry-their-states PR merged (squash)
+would   infra/the-domain-names-a-slice          PR merged (squash)
+```
+
+The real run, seconds later, reported instead:
+
+```
+keep    feature/the-domain-package-exists       unlanded work — no merged PR
+keep    feature/the-entities-carry-their-states unlanded work — no merged PR
+keep    infra/the-domain-names-a-slice          unlanded work — no merged PR
+```
+
+**All three were merged**, confirmed by REST in the same minute (#509, #515,
+#513 — `merged_at` non-null). GraphQL had run out between the two calls, so
+`plot-pr-merged.sh` answered *not merged* and the reaper kept the trees.
+
+**The direction is right and the words are wrong.** *"unlanded work"* is a claim
+about the branch's CONTENT; what actually happened is that a question went
+unanswered. A reader chasing that line looks for commits that do not exist.
+
+**And this is the surface where the silence is most dangerous.** The scan's
+version costs a stalled fleet; the reaper's version guards a decision to
+**delete a checkout**. It degraded safely today — but a reader who trusts
+*"unlanded work"* over *"could not ask"* draws the opposite conclusion about
+what is safe to do next.
+
 ### The degradation is right; the silence is not
 
 **The scan's direction is correct and must not change.** `plot-pr-merged.sh`
