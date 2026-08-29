@@ -1,0 +1,13 @@
+classDiagram
+  direction LR
+
+  class Slice
+  class Branch
+  class PR
+  class Agent
+  class Worktree
+
+  Slice "1" --> "1" Branch : owns
+  Branch "1" --> "*" PR : host by head
+  Agent "1" --> "0..1" Branch : takes
+  Worktree "1" --> "1" Branch : checkout

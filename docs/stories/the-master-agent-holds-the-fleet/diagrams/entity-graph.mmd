@@ -1,0 +1,78 @@
+classDiagram
+  direction TB
+
+  class Story {
+    slug
+  }
+  class Plan {
+    file
+    phase
+  }
+  class Sprint {
+    slug
+  }
+  class Release {
+    version
+  }
+  class Issue {
+    id
+  }
+  class Slice {
+    name
+    verdict
+  }
+  class Branch {
+    branch
+    state
+  }
+  class Wave {
+    parallelAgents
+  }
+  class Agent {
+    session
+    state
+  }
+  class Worktree {
+    path
+  }
+  class Machine {
+    headroom
+  }
+  class Person {
+    handle
+  }
+  class PR {
+    number
+    mergedAt
+  }
+  class Build {
+    url
+    state
+  }
+
+  Story "1" --> "*" Plan : spans
+  Story --> "0..1" Person : author
+  Story --> "0..1" Issue : trackerKeyOf
+
+  Sprint "1" --> "*" Plan : commits to
+  Sprint "*" --> "1" Release : targets
+
+  Release "1" --> "*" Plan : versions
+
+  Issue "*" .. "*" Plan : answers / fans out
+
+  Plan "1" --> "*" Slice : ordered
+  Slice "1" --> "1" Branch : by definition
+  Wave "1" --> "*" Slice : fleet cohort
+
+  Branch "1" --> "*" PR : bids to land
+  PR "1" --> "1" Build : rollup
+  Branch "1" --> "*" Build : run history
+
+  Agent "1" --> "1" Worktree : owns desk
+  Agent "1" --> "*" Slice : over time, one at a time
+  Agent "1" --> "0..1" Branch : current
+  Worktree "1" --> "1" Branch : while checked out
+
+  Machine "1" --> "*" Agent : hosts
+  Person ..> Plan : assignee / Approved who

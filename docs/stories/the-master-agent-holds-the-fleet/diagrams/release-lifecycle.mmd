@@ -1,0 +1,11 @@
+stateDiagram-v2
+  [*] --> planned
+  planned --> candidate : RC tag
+  planned --> shipped : cut directly
+  candidate --> shipped : promote
+  shipped --> [*]
+
+  note right of planned
+    Derived: planned is a sprint declaration with no tag.
+    shipped is a git tag. Nothing stores the state.
+  end note

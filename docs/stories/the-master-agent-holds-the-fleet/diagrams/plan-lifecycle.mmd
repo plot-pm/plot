@@ -1,0 +1,15 @@
+stateDiagram-v2
+  [*] --> draft
+  draft --> design : optional
+  draft --> approved : approve
+  design --> approved : approve
+  approved --> delivered : deliver
+  delivered --> released : release
+
+  draft --> rejected : reject
+  design --> rejected : reject
+  approved --> superseded : supersede
+
+  rejected --> [*]
+  superseded --> [*]
+  released --> [*]

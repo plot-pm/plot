@@ -1,0 +1,14 @@
+classDiagram
+  direction LR
+
+  class Sprint
+  class SprintItem
+  class Plan
+  class Release
+  class Issue
+
+  Sprint "1" *-- "*" SprintItem : MoSCoW
+  SprintItem "0..1" --> "1" Plan : names
+  Plan "*" --> "0..1" Sprint : Sprint field
+  Sprint "*" --> "1" Release : Release version
+  Sprint ..> Issue : epic unbuilt

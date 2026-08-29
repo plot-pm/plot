@@ -1,0 +1,15 @@
+stateDiagram-v2
+  [*] --> open : no ref
+  open --> claimed : claim ref, no real commits
+  claimed --> wip : ref holds commits main lacks
+  wip --> merged : work in default branch
+  open --> deferred : plan records deferred
+  claimed --> deferred
+  wip --> deferred
+  merged --> [*]
+
+  note right of claimed
+    claimed on the plan is a reflection; git wins.
+    Slice eligibility reads merged only.
+    deferred comes from the plan, not from git.
+  end note

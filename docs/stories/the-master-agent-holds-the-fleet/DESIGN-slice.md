@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Slice — domain object specification
@@ -406,6 +406,24 @@ Four words, and the contract states what a reader may **do** with each:
 | `blocked` | an earlier slice has not landed | **merging** that work |
 | `unapproved` | the plan is not approved | **a person approving** — no merge helps |
 
+Source: [`diagrams/slice-lifecycle.mmd`](diagrams/slice-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> unapproved : plan not approved
+  unapproved --> blocked : approved, prior slice unlanded
+  unapproved --> eligible : approved, priors landed
+  blocked --> eligible : prior slices complete
+  eligible --> complete : every non-deferred branch merged
+  complete --> [*]
+
+  note right of eligible
+    Derived every pulse; never written.
+    eligible asserts ordering and approval.
+    No verdict for in progress: a claimed slice still reads eligible.
+  end note
+```
+
 ### `blocked` and `unapproved` are kept apart deliberately
 
 *"Kept apart from `blocked` because the reader's next action differs."*
@@ -472,6 +490,25 @@ have a direction, because direction is a statement about crossing that boundary.
 | Slice → Branch | `(Branch: x)` in the heading, or list items | **built** |
 | Slice → prior Slice | document order | **built — implicit** |
 | Slice → Worker | one worker per dispatched branch | via Branch |
+
+Source: [`diagrams/slice-relations.mmd`](diagrams/slice-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class Plan
+  class Slice
+  class Branch
+  class Wave
+  class Agent
+
+  Plan "1" --> "*" Slice : headings, ordered
+  Slice "1" --> "1" Branch : by definition
+  Slice --> Slice : prior, document order
+  Wave "1" --> "*" Slice : fleet cohort
+  Agent "1" --> "*" Slice : over time
+```
 
 **The ordering is positional and unnamed.** A slice knows it comes after the one
 above it because of where it sits in the file — there is no `after:` field. That

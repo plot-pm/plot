@@ -1,0 +1,169 @@
+classDiagram
+  direction TB
+
+  class Story {
+    +string slug
+    +string title
+    +StoryStatus status
+    +string path
+    +string created
+    +string updated
+    +string author
+    +string archived
+  }
+
+  class Sprint {
+    +string slug
+    +string title
+    +SprintState state
+    +string start
+    +string plannedEnd
+    +string actualEnd
+    +string release
+    +string goal
+    +SprintItem items
+  }
+
+  class SprintItem {
+    +MoscowTier tier
+    +boolean checked
+    +string plan
+    +string text
+    +string annotation
+  }
+
+  class Release {
+    +string version
+    +ReleaseState state
+    +string date
+    +string commit
+    +ReleaseChannel channel
+    +string checklist
+  }
+
+  class Issue {
+    +string id
+    +string title
+    +string url
+    +string createdAt
+    +string body
+  }
+
+  class Plan {
+    +string file
+    +string phase
+    +Slice slices
+  }
+
+  class Slice {
+    +string name
+    +SliceVerdict verdict
+    +Branch branches
+  }
+
+  class Branch {
+    +string branch
+    +BranchState state
+    +boolean deferred
+    +string deferred_reason
+    +string claimed
+    +boolean local_dirty
+    +number changed_ago_seconds
+    +number changed_at
+    +boolean local_locked
+    +string local_worktree
+    +boolean held
+    +boolean ref_held
+    +number local_ahead
+    +AgentState worker
+    +string worker_pid
+    +string worker_exit
+    +string[] worker_dirty_paths
+    +AgentActivity worker_activity
+    +string[] conflicts
+    +boolean conflicts_known
+    +string[] changed_paths
+  }
+
+  class Wave {
+    +SliceRef slices
+    +number parallelAgents
+  }
+
+  class Agent {
+    +string session
+    +AgentIdentity identity
+    +string branch
+    +string worktree
+    +string command
+    +string startedAt
+    +string pid
+    +string previousPid
+    +number relaunches
+    +AgentState state
+    +AgentActivity activity
+    +number exitCode
+    +string[] dirtyPaths
+    +Headroom machineAtDeath
+    +string model
+    +number contextTokens
+    +string lastActivity
+  }
+
+  class Worktree {
+    +string path
+    +string branch
+    +boolean isMain
+    +boolean clean
+    +string agentSession
+    +boolean prunable
+  }
+
+  class Machine {
+    +number spawnCostMs
+    +Headroom headroom
+    +number measuredAt
+    +number sampleMs
+    +number[3] loadAverage
+    +number cores
+  }
+
+  class Person {
+    +string handle
+    +string displayName
+  }
+
+  class PR {
+    +number number
+    +string repo
+    +string head
+    +PrState state
+    +string mergedAt
+    +string mergeCommit
+    +boolean draft
+    +Mergeability mergeable
+    +ReviewVerdict review
+    +Checks checks
+    +string[] failingChecks
+    +string url
+  }
+
+  class Build {
+    +string url
+    +string pipeline
+    +string head
+    +BuildState state
+    +string startedAt
+    +number durationMs
+  }
+
+  class BuildPipeline {
+    +string name
+    +string url
+  }
+
+  Sprint *-- SprintItem
+  Plan *-- Slice
+  Slice *-- Branch
+  Wave *-- Slice
+  Build --> BuildPipeline

@@ -1,0 +1,11 @@
+classDiagram
+  direction LR
+
+  class Story
+  class Plan
+  class Issue
+  class Person
+
+  Story "1" --> "*" Plan : plans declare Story
+  Story "0..1" --> "0..1" Issue : slug prefix
+  Story --> "1" Person : author

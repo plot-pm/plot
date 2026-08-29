@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # The fleet's domain entities
@@ -204,6 +204,89 @@ Agent 1 ──── * Branch                  likewise over time (Branch §6)
 Worktree 1 ─ 1 Branch                  while checked out
 Machine 1 ── * everything              one machine, many tenants
 Issue * ──── * Plan                    a plan answers several; a signal fans into n plans
+```
+
+Source: [`diagrams/entity-graph.mmd`](diagrams/entity-graph.mmd)
+
+```mermaid
+classDiagram
+  direction TB
+
+  class Story {
+    slug
+  }
+  class Plan {
+    file
+    phase
+  }
+  class Sprint {
+    slug
+  }
+  class Release {
+    version
+  }
+  class Issue {
+    id
+  }
+  class Slice {
+    name
+    verdict
+  }
+  class Branch {
+    branch
+    state
+  }
+  class Wave {
+    parallelAgents
+  }
+  class Agent {
+    session
+    state
+  }
+  class Worktree {
+    path
+  }
+  class Machine {
+    headroom
+  }
+  class Person {
+    handle
+  }
+  class PR {
+    number
+    mergedAt
+  }
+  class Build {
+    url
+    state
+  }
+
+  Story "1" --> "*" Plan : spans
+  Story --> "0..1" Person : author
+  Story --> "0..1" Issue : trackerKeyOf
+
+  Sprint "1" --> "*" Plan : commits to
+  Sprint "*" --> "1" Release : targets
+
+  Release "1" --> "*" Plan : versions
+
+  Issue "*" .. "*" Plan : answers / fans out
+
+  Plan "1" --> "*" Slice : ordered
+  Slice "1" --> "1" Branch : by definition
+  Wave "1" --> "*" Slice : fleet cohort
+
+  Branch "1" --> "*" PR : bids to land
+  PR "1" --> "1" Build : rollup
+  Branch "1" --> "*" Build : run history
+
+  Agent "1" --> "1" Worktree : owns desk
+  Agent "1" --> "*" Slice : over time, one at a time
+  Agent "1" --> "0..1" Branch : current
+  Worktree "1" --> "1" Branch : while checked out
+
+  Machine "1" --> "*" Agent : hosts
+  Person ..> Plan : assignee / Approved who
 ```
 
 **Three of these are not what they look like**, and the stage-1 review argues
@@ -1050,6 +1133,180 @@ somewhere in the codebase, named as they are named there.
 Whether a property is re-derived each pulse or retained between them is settled
 separately — see [Where the properties live](#where-the-properties-live). What
 follows is the shape, not the storage.
+
+Source: [`diagrams/entity-properties.mmd`](diagrams/entity-properties.mmd)
+
+```mermaid
+classDiagram
+  direction TB
+
+  class Story {
+    +string slug
+    +string title
+    +StoryStatus status
+    +string path
+    +string created
+    +string updated
+    +string author
+    +string archived
+  }
+
+  class Sprint {
+    +string slug
+    +string title
+    +SprintState state
+    +string start
+    +string plannedEnd
+    +string actualEnd
+    +string release
+    +string goal
+    +SprintItem items
+  }
+
+  class SprintItem {
+    +MoscowTier tier
+    +boolean checked
+    +string plan
+    +string text
+    +string annotation
+  }
+
+  class Release {
+    +string version
+    +ReleaseState state
+    +string date
+    +string commit
+    +ReleaseChannel channel
+    +string checklist
+  }
+
+  class Issue {
+    +string id
+    +string title
+    +string url
+    +string createdAt
+    +string body
+  }
+
+  class Plan {
+    +string file
+    +string phase
+    +Slice slices
+  }
+
+  class Slice {
+    +string name
+    +SliceVerdict verdict
+    +Branch branches
+  }
+
+  class Branch {
+    +string branch
+    +BranchState state
+    +boolean deferred
+    +string deferred_reason
+    +string claimed
+    +boolean local_dirty
+    +number changed_ago_seconds
+    +number changed_at
+    +boolean local_locked
+    +string local_worktree
+    +boolean held
+    +boolean ref_held
+    +number local_ahead
+    +AgentState worker
+    +string worker_pid
+    +string worker_exit
+    +string[] worker_dirty_paths
+    +AgentActivity worker_activity
+    +string[] conflicts
+    +boolean conflicts_known
+    +string[] changed_paths
+  }
+
+  class Wave {
+    +SliceRef slices
+    +number parallelAgents
+  }
+
+  class Agent {
+    +string session
+    +AgentIdentity identity
+    +string branch
+    +string worktree
+    +string command
+    +string startedAt
+    +string pid
+    +string previousPid
+    +number relaunches
+    +AgentState state
+    +AgentActivity activity
+    +number exitCode
+    +string[] dirtyPaths
+    +Headroom machineAtDeath
+    +string model
+    +number contextTokens
+    +string lastActivity
+  }
+
+  class Worktree {
+    +string path
+    +string branch
+    +boolean isMain
+    +boolean clean
+    +string agentSession
+    +boolean prunable
+  }
+
+  class Machine {
+    +number spawnCostMs
+    +Headroom headroom
+    +number measuredAt
+    +number sampleMs
+    +number[3] loadAverage
+    +number cores
+  }
+
+  class Person {
+    +string handle
+    +string displayName
+  }
+
+  class PR {
+    +number number
+    +string repo
+    +string head
+    +PrState state
+    +string mergedAt
+    +string mergeCommit
+    +boolean draft
+    +Mergeability mergeable
+    +ReviewVerdict review
+    +Checks checks
+    +string[] failingChecks
+    +string url
+  }
+
+  class Build {
+    +string url
+    +string pipeline
+    +string head
+    +BuildState state
+    +string startedAt
+    +number durationMs
+  }
+
+  class BuildPipeline {
+    +string name
+    +string url
+  }
+
+  Sprint *-- SprintItem
+  Plan *-- Slice
+  Slice *-- Branch
+  Wave *-- Slice
+  Build --> BuildPipeline
+```
 
 ### Agent
 

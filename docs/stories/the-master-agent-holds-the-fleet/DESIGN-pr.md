@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # PR — domain object specification
@@ -132,6 +132,23 @@ read it as clean: absent is not false."*
 | `MERGED` | landed |
 | `CLOSED` | closed unmerged |
 
+Source: [`diagrams/pr-lifecycle.mmd`](diagrams/pr-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> OPEN
+  OPEN --> MERGED : mergedAt set
+  OPEN --> CLOSED : closed without merge
+  MERGED --> [*]
+  CLOSED --> [*]
+
+  note right of OPEN
+    draft is orthogonal: a draft PR is still OPEN.
+    REST reports a merged PR as closed.
+    prHasLanded reads mergedAt, never state.
+  end note
+```
+
 **Measured across all 490 PRs in this repo, 2026-08-28:**
 
 ```
@@ -199,6 +216,24 @@ artefact, the way an issue can become a plan.
 | Plan → PR | `→ #N` / `PR: #N` annotation | **built, and optional** |
 | PR → Build | `checks`, `failing_checks[]` | **built** |
 | PR → Slice | via its branch | derived |
+
+Source: [`diagrams/pr-relations.mmd`](diagrams/pr-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class Branch
+  class PR
+  class Build
+  class Plan
+  class Slice
+
+  Branch "1" --> "*" PR : host by head
+  Plan --> PR : annotation optional
+  PR "1" --> "1" Build : checks rollup
+  PR --> Slice : via branch
+```
 
 **The plan's annotation is a convenience, not a precondition.** The delivery
 gate resolves an unannotated branch *"by matching the branch NAME against the

@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Story — domain object specification
@@ -569,6 +569,27 @@ draft ──► ready ──► active ──► in-review ──► done
               ↘  paused  ↗
 ```
 
+Source: [`diagrams/story-lifecycle.mmd`](diagrams/story-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> draft
+  draft --> ready
+  ready --> active
+  active --> in_review : in-review
+  in_review --> done
+  active --> done
+  ready --> paused
+  active --> paused
+  paused --> active
+  done --> [*] : archived date plus move
+
+  note right of done
+    Written by a person, never derived.
+    A story whose plans have all delivered may still be active.
+  end note
+```
+
 **Measured:** of nine stories, **6 `active`, 3 `draft`**. Four of the six
 declared statuses have never been used in this repo.
 
@@ -642,6 +663,22 @@ created from a ticket and later publish a different one.
 | **Issue → Story** | slug prefix | `{JIRA-ID}-{slug}` directory name | **convention only** |
 | **Story → Sprint** | — | none | **absent** |
 | **Story → Unit** | frontmatter | `unit:` | **declared, unused** |
+
+Source: [`diagrams/story-relations.mmd`](diagrams/story-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class Story
+  class Plan
+  class Issue
+  class Person
+
+  Story "1" --> "*" Plan : plans declare Story
+  Story "0..1" --> "0..1" Issue : slug prefix
+  Story --> "1" Person : author
+```
 
 ### Plan → Story is the only real one
 

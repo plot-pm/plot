@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> created : git worktree add
+  created --> occupied : agent process alive
+  occupied --> finished : worker exited
+  finished --> reapable : every refusal empty
+  reapable --> gone : reap removes checkout
+  created --> finished : hand-made, no claim
+  gone --> [*]
+
+  note right of reapable
+    Refusals: live-worker, uncommitted-changes,
+    blocked-marker, on-default-branch, no-merged-pr.
+    Branch and refs survive gone.
+  end note

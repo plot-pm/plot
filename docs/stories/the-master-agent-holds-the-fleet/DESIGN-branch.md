@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Branch — domain object specification
@@ -244,6 +244,26 @@ that was never attempted.
 | `merged` | `ahead == 0` | its work is in the default branch |
 | `deferred` | from the **plan** | the plan said not to build it |
 
+Source: [`diagrams/branch-lifecycle.mmd`](diagrams/branch-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> open : no ref
+  open --> claimed : claim ref, no real commits
+  claimed --> wip : ref holds commits main lacks
+  wip --> merged : work in default branch
+  open --> deferred : plan records deferred
+  claimed --> deferred
+  wip --> deferred
+  merged --> [*]
+
+  note right of claimed
+    claimed on the plan is a reflection; git wins.
+    Slice eligibility reads merged only.
+    deferred comes from the plan, not from git.
+  end note
+```
+
 #### `wip` is about commits, not about anyone working
 
 **The name misleads, and the rule is precise.** `wip` says *this ref carries
@@ -330,6 +350,24 @@ its PR (§2).
 | Branch → PR | annotation **+** the host, joined by head | **built, but flattened** in the record — see §3 |
 | **Agent → Branch** | the manifest, or the worker in its worktree | **built** — via `worker_*`, see below |
 | Branch → Worktree | `git worktree list` | **built** — `local_worktree` |
+
+Source: [`diagrams/branch-relations.mmd`](diagrams/branch-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class Slice
+  class Branch
+  class PR
+  class Agent
+  class Worktree
+
+  Slice "1" --> "1" Branch : owns
+  Branch "1" --> "*" PR : host by head
+  Agent "1" --> "0..1" Branch : takes
+  Worktree "1" --> "1" Branch : checkout
+```
 
 **The agent→branch arrow points that way because the agent owns the desk.**
 This spec stated it as `Branch → Agent` until the stage-1 review, against the

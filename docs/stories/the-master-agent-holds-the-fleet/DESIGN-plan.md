@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Plan — domain object specification
@@ -666,6 +666,26 @@ draft ──► design ──► approved ──► delivered ──► released
 rejected  rejected   superseded
 ```
 
+Source: [`diagrams/plan-lifecycle.mmd`](diagrams/plan-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> draft
+  draft --> design : optional
+  draft --> approved : approve
+  design --> approved : approve
+  approved --> delivered : deliver
+  delivered --> released : release
+
+  draft --> rejected : reject
+  design --> rejected : reject
+  approved --> superseded : supersede
+
+  rejected --> [*]
+  superseded --> [*]
+  released --> [*]
+```
+
 | state | outgoing transitions | means |
 |---|---|---|
 | `draft` | approve · reject | written, not yet agreed |
@@ -924,6 +944,32 @@ it.
 | Slice → **Branch** | contains | `Branch:` in a heading | **built, 1:1 intended** |
 | Branch → **PR** | annotation | `→ #N` | **built** |
 | Plan → **Release** | record | `Released:` + git tag | **built** |
+
+Source: [`diagrams/plan-relations.mmd`](diagrams/plan-relations.mmd)
+
+```mermaid
+classDiagram
+  direction TB
+
+  class Plan
+  class Story
+  class Issue
+  class Sprint
+  class Slice
+  class Branch
+  class PR
+  class Release
+  class Person
+
+  Plan "0..1" --> "1" Story : Story slug
+  Plan "*" --> "*" Issue : Issue N
+  Plan "0..1" --> "1" Sprint : Sprint slug
+  Plan "1" --> "*" Slice : headings
+  Slice "1" --> "1" Branch : Branch in heading
+  Branch "1" --> "*" PR : annotation
+  Plan "*" --> "1" Release : Released record
+  Plan --> "0..1" Person : assignee / Approved who
+```
 
 **Every one of these is declared by the plan and derived by everyone else.**
 That is the estate's organizing choice: a sprint does not list its plans, a

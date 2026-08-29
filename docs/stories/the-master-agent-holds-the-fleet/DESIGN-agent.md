@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Agent — domain object specification
@@ -324,6 +324,31 @@ all five and destroyed what the `finished` refusal protects.
 | `none` | a worktree exists, no worker ever ran | dispatchable |
 | `elsewhere` | **no worktree on this machine** | not answerable here |
 
+Source: [`diagrams/agent-lifecycle.mmd`](diagrams/agent-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> none : worktree, no pid
+  none --> running : dispatch
+  running --> waiting : exit 0 and PLOT-BLOCKED
+  running --> stalled : exit 0, unlanded work, no PR
+  running --> finished : exit 0, nothing left
+  running --> failed : recorded non-zero exit
+  running --> ended : exited, no exit record
+  waiting --> running : person answers
+  stalled --> running : resume
+  failed --> running : restart after PR check
+  finished --> none : next slice or reap
+
+  [*] --> elsewhere : no worktree on this machine
+
+  note right of running
+    LIVE = running, waiting.
+    waiting occupies a slot and takes nothing.
+    activity working or idle is a cue, not a state.
+  end note
+```
+
 ### Which of the eight belong to the Worker, and which to the Agent
 
 **Stated 2026-08-29, and it follows from the three lifetimes above.** The enum
@@ -484,6 +509,27 @@ waited on it, with **11 of 13** in that last, worst case."*
 | Agent → Branch | the manifest, or the tree's checkout | **built** — and **optional** |
 | Agent → Slice | via its branch | derived |
 | Agent → Person | **none** | — |
+
+Source: [`diagrams/agent-relations.mmd`](diagrams/agent-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class Agent
+  class Worktree
+  class Branch
+  class Slice
+  class Person
+  class Machine
+
+  Agent "1" --> "1" Worktree : owns desk
+  Agent "1" --> "0..1" Branch : current, empty between units
+  Agent "1" --> "*" Slice : over time, one at a time
+  Agent --> Machine : machineAtDeath
+  Machine "1" --> "*" Agent : hosts
+  Agent .. Person : not a Person
+```
 
 **An Agent is not a Person** (entities §1c): a Person is a human a record names;
 an Agent is a process. They meet only in a transition record's `who`, and an

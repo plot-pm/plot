@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Worktree — domain object specification
@@ -174,6 +174,25 @@ created ──► occupied ──► finished ──► reapable ──► gone
    └── hand-made ───────────┘        (no claim, no manifest)
 ```
 
+Source: [`diagrams/worktree-lifecycle.mmd`](diagrams/worktree-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> created : git worktree add
+  created --> occupied : agent process alive
+  occupied --> finished : worker exited
+  finished --> reapable : every refusal empty
+  reapable --> gone : reap removes checkout
+  created --> finished : hand-made, no claim
+  gone --> [*]
+
+  note right of reapable
+    Refusals: live-worker, uncommitted-changes,
+    blocked-marker, on-default-branch, no-merged-pr.
+    Branch and refs survive gone.
+  end note
+```
+
 | state | means |
 |---|---|
 | `created` | `git worktree add` ran; no worker yet |
@@ -201,6 +220,22 @@ with `git worktree add`."*
 | Worktree → Branch | `git worktree list` | **built** — 1:1 while checked out |
 | **Agent → Worktree** | the manifest, and `.plot-worker.pid` | **built** — the agent owns the desk |
 | Worktree → Plan | via its branch's slice | derived |
+
+Source: [`diagrams/worktree-relations.mmd`](diagrams/worktree-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class Worktree
+  class Branch
+  class Agent
+  class Plan
+
+  Worktree "1" --> "1" Branch : while checked out
+  Agent "1" --> "1" Worktree : owns desk
+  Worktree --> Plan : via branch slice
+```
 
 **The manifest goes with the worktree**, and the reason is a measured defect:
 *"`readAgentRegistry` renders one row per manifest, so a reap that removes only

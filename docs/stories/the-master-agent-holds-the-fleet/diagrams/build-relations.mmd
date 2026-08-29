@@ -1,0 +1,11 @@
+classDiagram
+  direction LR
+
+  class PR
+  class Build
+  class Branch
+  class BuildPipeline
+
+  PR "1" --> "1" Build : rollup free
+  Branch "1" --> "*" Build : run history metered
+  Build "*" --> "1" BuildPipeline : pipeline name

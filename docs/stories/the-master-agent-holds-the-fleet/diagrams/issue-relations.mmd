@@ -1,0 +1,13 @@
+classDiagram
+  direction TB
+
+  class Issue
+  class Story
+  class Plan
+  class Release
+
+  Issue "1" --> "0..1" Story : kind story
+  Issue "1" --> "*" Plan : kind bug task or other
+  Issue "1" --> "0..1" Release : kind epic
+  Story --> Plan
+  Release --> Plan

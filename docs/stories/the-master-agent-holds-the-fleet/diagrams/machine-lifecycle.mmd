@@ -1,0 +1,18 @@
+stateDiagram-v2
+  [*] --> unmeasured
+  unmeasured --> clear : spawn under 10 ms
+  unmeasured --> tight : spawn 10 to 50 ms
+  unmeasured --> starved : spawn over 50 ms
+  clear --> tight
+  tight --> starved
+  starved --> tight
+  tight --> clear
+  clear --> unmeasured : reading stale
+  tight --> unmeasured : reading stale
+  starved --> unmeasured : reading stale
+
+  note right of unmeasured
+    A moment, not a transition.
+    unmeasured is not permission to dispatch.
+    measuredAt is required.
+  end note

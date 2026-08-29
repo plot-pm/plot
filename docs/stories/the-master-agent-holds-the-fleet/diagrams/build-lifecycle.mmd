@@ -1,0 +1,19 @@
+stateDiagram-v2
+  [*] --> queued
+  queued --> in_progress
+  in_progress --> success
+  in_progress --> failure
+  in_progress --> cancelled
+  in_progress --> timed_out
+
+  [*] --> none : no rollup
+  [*] --> unknown : host not asked
+  none --> pending
+  pending --> green
+  pending --> failing
+
+  note right of queued
+    Run state is the host word, re-read not written.
+    Rollup none and unknown are different answers.
+    none plus conflicting is not no build ran.
+  end note

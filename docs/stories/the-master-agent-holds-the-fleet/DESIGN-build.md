@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Build — domain object specification
@@ -190,6 +190,30 @@ sitting in this repo right now.
 | `none` | **no rollup at all** | **ask `mergeable` first** (§3) |
 | `unknown` | the host could not be asked | conclude nothing |
 
+Source: [`diagrams/build-lifecycle.mmd`](diagrams/build-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> queued
+  queued --> in_progress
+  in_progress --> success
+  in_progress --> failure
+  in_progress --> cancelled
+  in_progress --> timed_out
+
+  [*] --> none : no rollup
+  [*] --> unknown : host not asked
+  none --> pending
+  pending --> green
+  pending --> failing
+
+  note right of queued
+    Run state is the host word, re-read not written.
+    Rollup none and unknown are different answers.
+    none plus conflicting is not no build ran.
+  end note
+```
+
 **`none` and `unknown` are different**, and collapsing them would report *no
 checks ran* for a host that was never reached.
 
@@ -215,6 +239,22 @@ decides 'transient', or reruns anything. This collects, a human concludes."*
 |---|---|---|
 | PR → Build | the check rollup | **built, free** |
 | Branch → Build history | `runs <branch>` | **built, metered** |
+
+Source: [`diagrams/build-relations.mmd`](diagrams/build-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class PR
+  class Build
+  class Branch
+  class BuildPipeline
+
+  PR "1" --> "1" Build : rollup free
+  Branch "1" --> "*" Build : run history metered
+  Build "*" --> "1" BuildPipeline : pipeline name
+```
 
 **The history is keyed by branch, the verdict by PR** — which is why a branch
 with several PRs (Branch §3, one carries ten) has one history and many verdicts.

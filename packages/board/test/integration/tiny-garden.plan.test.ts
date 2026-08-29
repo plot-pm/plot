@@ -30,7 +30,19 @@ describe('tiny-garden: plan viewer (built artifact renders /plan/<file>)', () =>
     expect(body).toContain('<h1>Plant heirloom tomatoes</h1>');
     expect(body).toContain('<h2>Approach</h2>');
     expect(body).toContain('<li>Brandywine</li>');
-    expect(body).toContain('href="../stories/raised-beds/STORY-raised-beds.md"');
+    // A story link arrives REWRITTEN to its board route, and the relative path
+    // it was written as is gone. Both halves are needed: the route alone would
+    // also pass on a renderer that emitted it for every link, and the absence
+    // alone would pass on one that dropped the link entirely. Together they
+    // only hold if `rewritePlanLinks` ran on this specific href.
+    //
+    // The relative form is what the plan file on disk carries, and it is BROKEN
+    // in a browser at `/plan/<file>` — it resolves against the route rather
+    // than the docs tree. This assertion read the raw path until 2026-08-29,
+    // when the rewrite landed (d23c03a0) and turned it into an assertion that
+    // the bug was still there.
+    expect(body).toContain('href="/story/raised-beds"');
+    expect(body).not.toContain('../stories/raised-beds/STORY-raised-beds.md');
     expect(body).toMatch(/<pre>[\s\S]*20 minutes[\s\S]*<\/pre>/);
   });
 

@@ -1,0 +1,12 @@
+stateDiagram-v2
+  [*] --> inbox : open, no plan cites it
+  inbox --> mapped : a plan cites it
+  mapped --> gone : closed in the tracker
+  mapped --> changed : ticket moved
+  changed --> mapped : plan catches up
+  gone --> [*]
+
+  note right of mapped
+    Mapped and gone both render as absent today.
+    changed is the missing state: a mapped ticket that moved.
+  end note
