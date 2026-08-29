@@ -5,6 +5,7 @@ import path from 'node:path';
 import { marked } from 'marked';
 import {
   PlanMetaSchema,
+  StoryCardSchema,
   toBoardPhase,
   BOARD_PHASES,
   type Board,
@@ -16,6 +17,7 @@ import {
   type SprintCard,
   type SprintMember,
   type StoryCard,
+  type StoryCardInput,
   type FleetPulse,
   type PlanMeta,
   type WaveSummary } from '../contract/schema.js';
@@ -1076,7 +1078,7 @@ export function collectSprints(
 }
 
 /** Story files use story-tracking's YAML front matter (title + status). */
-function parseStoryFile(absPath: string, slug: string, relPath: string): StoryCard | null {
+function parseStoryFile(absPath: string, slug: string, relPath: string): StoryCardInput | null {
   let content: string;
   try {
     content = fs.readFileSync(absPath, 'utf8');
@@ -1124,8 +1126,14 @@ function collectStories(repoRoot: string, storyDir: string): StoryCard[] {
     // Repo-relative, computed once here rather than reassembled by whoever
     // needs it. Same rule as `planFile` on a fleet row: stripping and rebuilding
     // a path is where the mistakes live, so the consumer is handed the answer.
-    const card = parseStoryFile(abs, slug, path.relative(repoRoot, abs));
-    if (card) stories.push(card);
+    const input = parseStoryFile(abs, slug, path.relative(repoRoot, abs));
+    // Parse through Zod to apply defaults for new fields (statusDrift, author,
+    // objective, etc.). The Backend wave will populate these; until then they
+    // get their schema defaults.
+    if (input) {
+      const parsed = StoryCardSchema.safeParse(input);
+      if (parsed.success) stories.push(parsed.data);
+    }
   }
   return stories;
 }
