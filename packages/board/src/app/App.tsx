@@ -1022,8 +1022,16 @@ export function App() {
         {tab === 'stories' ? (
           // Stories tab — the strategic layer above plans. Shows story cards
           // grouped by status (Draft/Active/Done/Archived), with tag cloud.
+          // Placeholder until feature/stories-tab branch lands.
           board ? (
-            <StoriesTab stories={board.stories} onOpenStory={onOpenStory} />
+            <div className="rounded-lg bg-slate-100/70 p-4 dark:bg-slate-900/50">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Stories tab — {board.stories.length} {board.stories.length === 1 ? 'story' : 'stories'} available.
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                (Full Stories tab component coming in feature/stories-tab branch)
+              </p>
+            </div>
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
           )
