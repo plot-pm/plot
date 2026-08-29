@@ -233,7 +233,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    */
   async function openAgentsWithBoard(payload: Fleet = fleet()): Promise<Page> {
     const page = await openAgents(payload);
-    await page.getByRole('button', { name: 'Board' }).click();
+    await page.getByRole('button', { name: 'Plans' }).click();
     await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
     await page.getByRole('button', { name: 'Agents' }).click();
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
@@ -2200,7 +2200,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // stops" is exactly the kind of claim prose makes and code forgets.
     const page = await openAgents();
     try {
-      await page.getByRole('button', { name: 'Board' }).click();
+      await page.getByRole('button', { name: 'Plans' }).click();
       await expect.poll(() => footer(page).count()).toBe(0);
       // Returning brings it back live rather than frozen where it left off.
       await page.getByRole('button', { name: 'Agents' }).click();
