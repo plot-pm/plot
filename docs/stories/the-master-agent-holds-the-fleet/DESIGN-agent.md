@@ -170,6 +170,33 @@ agent or what it left behind; none is about the tree itself.
 desk — which is why removing one without the other *"converts a finished
 agent"* into an unknown row.
 
+**But the worker is a third thing, with a third lifetime.** Stated
+2026-08-29, because "two halves" reads as though the process were one of them:
+
+| | belongs to | lives as long as |
+|---|---|---|
+| **manifest** | the Registry | the agent is declared |
+| **worktree** | the agent — its desk | the slice is unfinished |
+| **worker** | the Machine — the process holding the files open | the run |
+
+**The desk outlives the process, and `--stop` proves it**: it *"end[s] a worker;
+the tree survives"* (§7). A worker is **the process bracket a Machine needs in
+order to edit the files in the desk** — so it starts when work starts, ends when
+work stops, and can end several times over one worktree's life (`--restart`
+exists for exactly that).
+
+**This is why the reap refusals split cleanly in two**, and the split is not a
+coincidence:
+
+- **process questions** — a live pid
+- **desk questions** — uncommitted changes, a `PLOT-BLOCKED` marker, a tree on
+  the default branch, no merged PR
+
+Four of the five are about what is *on the desk*, not about who is *sitting at
+it*, because the desk is what carries unlanded work. **A reaper that only asked
+the process question would delete finished work whose author had simply
+exited** — which is the accident those four exist to prevent.
+
 ---
 
 ## 2. Posture

@@ -66,6 +66,19 @@ a question about **the agent or what it left behind** — a live pid, uncommitte
 changes, a `PLOT-BLOCKED` marker. **None asks anything about the tree itself.**
 A worktree is never refused for being a worktree.
 
+**A desk is not a process, and it outlives one.** Stated 2026-08-29: the agent
+owns the desk, and the **worker** — its process on this machine — is what
+Machine needs in order to *edit* the files here. `--stop` ends the worker and
+*"the tree survives"*; `--restart` hands the same desk to a new one. So one
+worktree can see several workers over its life, and a tree whose worker exited
+is **not** thereby finished.
+
+That is why four of the reaper's five refusals ask about the DESK — uncommitted
+changes, a `PLOT-BLOCKED` marker, a tree on the default branch, no merged PR —
+and only one asks about the process. **The desk is what carries unlanded work**;
+a reaper trusting the process question alone would delete finished work whose
+author had merely exited.
+
 **So a tree with no agent is not an unoccupied desk — it is an orphan**, and
 that is a different thing to report. §10's fifth refusal exists precisely for
 trees Plot did not create and does not own.
