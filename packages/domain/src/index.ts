@@ -11,3 +11,16 @@
  * That is the difference between a gate and a rule.
  */
 export * from './entities/fleet.js';
+export * from './port-result.js';
+export * from './entities/identity.js';
+export * from './entities/person.js';
+export * from './entities/machine.js';
+export * from './entities/worktree.js';
+export * from './entities/pr.js';
+export * from './entities/agent.js';
+export * from './entities/release.js';
+export * from './entities/build.js';
+export * from './entities/story.js';
+export * from './entities/sprint.js';
+export * from './entities/issue.js';
+export * from './entities/wave.js';
