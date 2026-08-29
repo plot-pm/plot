@@ -79,11 +79,26 @@ release; an unfinished Should **prompts** and a person decides. So if the chain
 runs out of time, 2.12.0 ships what landed and asks about the rest — which is
 the behaviour a chain of dependent plans needs.
 
-**And the ordering is real, not advisory.** Measured after slice 1 merged
-(#509): `Moving — complete`, `Deliverable — eligible`, `Entities — blocked`,
-`Transitions — blocked`. The wave gate serialises even the slices *within* one
-plan, so a sprint promising fourteen concurrent pieces would be describing a
-fleet that does not exist.
+**And the ordering is real, not advisory** — but only *within* a plan. Measured
+after slice 1 merged (#509): `Moving — complete`, `Deliverable — eligible`,
+`Entities — blocked`, `Transitions — blocked`. The wave gate serialises even the
+slices inside one plan, so a sprint promising fourteen concurrent pieces would
+describe a fleet that does not exist.
+
+**Between plans, the gate is the PHASE, not the chain.** Measured 2026-08-29:
+all nine slices of the two dependent plans read **`unapproved`**, not `blocked`
+— because both are `Phase: Draft`, and `plot-phase-gate.sh` blocks
+implementation commits against a Draft plan outright. The cross-plan dependency
+is prose; `the-domain-runs-the-workflows-in-a-sandbox` says so about itself:
+
+> **Plot cannot enforce this and will not stop it.** Slice eligibility is
+> computed *per plan* … so no component compares two plans.
+
+**That matters for what approving them would mean.** Approving either plan
+removes the only *enforced* barrier and leaves an unenforced one — with
+auto-dispatch on, its slices become claimable immediately, whether or not the
+plan they depend on has landed. So they stay Draft until their predecessor is
+delivered, and the tier records the intent in the meantime.
 
 ### The four slices, and why they are ordered as they are
 
