@@ -135,7 +135,7 @@ entity is that copy, in the vocabulary rather than the logic.
 
 ## Waves
 
-### Reading (Branch: infra/the-domain-names-a-slice)
+### Reading (Branch: infra/the-domain-names-a-slice, PR: #513)
 
 `@plot-pm/domain` renames `FleetWaveSchema` → `FleetSliceSchema` and
 `WaveVerdictSchema` → `SliceVerdictSchema`, with `FleetPlanSchema.slices`
