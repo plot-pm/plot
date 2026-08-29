@@ -204,18 +204,19 @@ describe('board: contract fields + frontmatter visibility', () => {
       slug: 'kanban-board',
       title: 'Kanban board',
       status: 'active',
-      // New fields from the Stories tab schema — all have defaults until the
-      // Backend wave populates them from story file parsing.
+      // New fields from the Stories tab schema — populated from story file
+      // parsing and plan matching.
       statusDrift: null,
       author: '',
       created: '',
       updated: '',
       objective: '',
       design: '',
-      planCount: 0,
+      // The fixture has a plan referencing this story
+      planCount: 1,
       deliveredCount: 0,
-      plans: [],
-      sprints: [],
+      plans: [{ slug: 'board-sync', title: 'Sync board columns', phase: 'approved', sprint: 'alpha-week' }],
+      sprints: [{ slug: 'alpha-week', planCount: 1 }],
       path: 'docs/stories/kanban-board/STORY-kanban-board.md',
       designDocs: [],
       hasOpenPoints: false,
