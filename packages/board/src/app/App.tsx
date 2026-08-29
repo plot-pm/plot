@@ -836,10 +836,21 @@ export function App() {
             title: sprintSlug.replace(/-/g, ' '),
             phase: 'unknown',
             release: '',
+            // Empty rather than omitted: the type requires them, and a
+            // synthesized sprint has no file to read them from. "" renders as
+            // absent, which is honest — this sprint was inferred from cards
+            // that name it, not read from a sprint file.
+            goal: '',
+            start: '',
+            end: '',
             members: matchingCards.map((c) => ({
               slug: c.slug,
               tier: 'could' as const,
-              checked: c.phase === 'Delivered' || c.phase === 'Released',
+              // `Released` is the only terminal phase the board models —
+              // `Delivered` is a PLAN phase and never appears in a card's
+              // `phase`, whose values are Discovery | Design | Development |
+              // Testing | Released (schema.ts:169).
+              checked: c.phase === 'Released',
               known: true,
             })),
           };
