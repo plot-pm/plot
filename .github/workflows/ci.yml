@@ -91,7 +91,7 @@ jobs:
       # standalone `Wave` entity.
       - name: Domain vocabulary gate
         run: |
-          allowed=12  # 2026-08-29: this branch removed one; the rename plan drives it to 0
+          allowed=10  # 2026-08-29: the entity rename took it 12 -> 10; the target is 0
           found=$(grep -roE "FleetWave|WaveVerdict|\bwaves\b" packages/domain/src/ | wc -l | tr -d ' ')
           if [ "$found" -gt "$allowed" ]; then
             echo "::error::the domain gained $((found - allowed)) misuse(s) of Wave ($found > $allowed)."

@@ -2927,7 +2927,7 @@ function classifyGroup(
   pr?: PrRecord | null,
   /**
    * A local worktree for this branch has uncommitted changes — see
-   * `FleetBranchSchema.local_dirty`. Used for exactly one thing, below: to LIFT
+   * `SourceBranchSchema.local_dirty`. Used for exactly one thing, below: to LIFT
    * a branch out of quiet. It may never downgrade an answer, because it is true
    * only on the machine doing the looking, and false is what every branch
    * elsewhere reports.
@@ -2935,7 +2935,7 @@ function classifyGroup(
   localDirty = false,
   /**
    * Commits the local branch has that the remote does not — see
-   * `FleetBranchSchema.local_ahead`. Same single use as `localDirty`: it LIFTS a
+   * `SourceBranchSchema.local_ahead`. Same single use as `localDirty`: it LIFTS a
    * branch out of quiet and may never downgrade an answer, because it is true
    * only on the machine doing the looking and 0 is what every branch elsewhere
    * reports.
@@ -2943,7 +2943,7 @@ function classifyGroup(
   localAhead = 0,
   /**
    * The PLAN's own lifecycle phase, verbatim from `plot-plan-meta.sh` — see
-   * `FleetPlanSchema.phase`. Used for exactly one thing, below: to stop a
+   * `PlanSchema.phase`. Used for exactly one thing, below: to stop a
    * DRAFT plan's branches reading `eligible`.
    *
    * The pulse has carried this since #140, deliberately as data — *"It is
@@ -2958,7 +2958,7 @@ function classifyGroup(
   planPhase = '',
   /**
    * What the scan found out about a worker on this branch — see
-   * `FleetBranchSchema.worker`. Six values, and each names a different move.
+   * `SourceBranchSchema.worker`. Six values, and each names a different move.
    *
    * Used to answer the two questions a claim alone cannot: *is anything
    * actually running*, and *did whatever ran end well*. A stopped worker is the
@@ -2983,13 +2983,13 @@ function classifyGroup(
   worker: WorkerState = 'elsewhere',
   /**
    * The worker's exit code as the SCAN read it, or "" — see
-   * `FleetBranchSchema.worker_exit`. Shown beside `failed` so the row names how
+   * `SourceBranchSchema.worker_exit`. Shown beside `failed` so the row names how
    * the worker died rather than only that it did.
    */
   workerExit = '',
   /**
    * The worker's pid as the SCAN read it, or "" — see
-   * `FleetBranchSchema.worker_pid`. Shown beside `running` so the reader can go
+   * `SourceBranchSchema.worker_pid`. Shown beside `running` so the reader can go
    * look at the process rather than take the row's word for it.
    *
    * Never re-derived from here. `kill -0 0` signals the whole process group and
@@ -2999,7 +2999,7 @@ function classifyGroup(
   workerPid = '',
   /**
    * A local worktree for this branch is holding `.git/index.lock` — see
-   * `FleetBranchSchema.local_locked`. A write is in progress at this instant,
+   * `SourceBranchSchema.local_locked`. A write is in progress at this instant,
    * which is the most direct evidence of activity any of these signals carries.
    *
    * Same single use and same one-directional rule as `localDirty` and
@@ -3013,7 +3013,7 @@ function classifyGroup(
   localLocked = false,
   /**
    * What a `stalled` worker left uncommitted — see
-   * `FleetBranchSchema.worker_dirty_paths`. Named in the note so the row
+   * `SourceBranchSchema.worker_dirty_paths`. Named in the note so the row
    * supports the decision it exists for: whether this branch is worth resuming.
    *
    * Empty for every other state, and empty is simply nothing to add — no state
@@ -3051,7 +3051,7 @@ function classifyGroup(
   workerQuestion = '',
   /**
    * Whether a local worktree HOLDS this branch — checked out here AND its tip
-   * has not merged. See `FleetBranchSchema.held`.
+   * has not merged. See `SourceBranchSchema.held`.
    *
    * THE ONLY SIGNAL THAT SAYS *HELD* rather than merely *touched*, and the
    * distinction the no-ref arm below needs. A branch can be ahead with no
@@ -3089,7 +3089,7 @@ function classifyGroup(
   held = false,
   /**
    * Where this branch is checked out on THIS machine, or "" — see
-   * `FleetBranchSchema.local_worktree`. Named in the note of a BROKEN worker
+   * `SourceBranchSchema.local_worktree`. Named in the note of a BROKEN worker
    * (`failed`, `ended`, `stalled`) and read for nothing else.
    *
    * THE PATH, HERE, AFTER `held` DELIBERATELY DID NOT TAKE IT. `held` is the

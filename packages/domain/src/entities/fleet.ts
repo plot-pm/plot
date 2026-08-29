@@ -90,7 +90,7 @@ export type WorkerState = z.infer<typeof WorkerStateSchema>;
 export const WorkerActivitySchema = z.enum(['working', 'idle', '']);
 export type WorkerActivity = z.infer<typeof WorkerActivitySchema>;
 
-export const FleetBranchSchema = z.object({
+export const SourceBranchSchema = z.object({
   branch: z.string(),
   state: BranchStateSchema,
   deferred: z.boolean(),
@@ -482,7 +482,7 @@ export const FleetBranchSchema = z.object({
    */
   changed_paths: z.array(z.string()).default([]),
 });
-export type FleetBranch = z.infer<typeof FleetBranchSchema>;
+export type SourceBranch = z.infer<typeof SourceBranchSchema>;
 
 /**
  * One branch's worth of a plan, plus its place in an order.
@@ -494,12 +494,12 @@ export type FleetBranch = z.infer<typeof FleetBranchSchema>;
  * exist in code, and nothing in this package should be read as naming it
  * ([DESIGN-slice.md](../../../../docs/stories/the-master-agent-holds-the-fleet/DESIGN-slice.md)).
  */
-export const FleetSliceSchema = z.object({
+export const PlanSliceSchema = z.object({
   name: z.string(),
   verdict: SliceVerdictSchema,
-  branches: z.array(FleetBranchSchema),
+  branches: z.array(SourceBranchSchema),
 });
-export type FleetSlice = z.infer<typeof FleetSliceSchema>;
+export type PlanSlice = z.infer<typeof PlanSliceSchema>;
 
 /**
  * Rewrites a `waves` key to `slices` on one object, so both wire spellings
@@ -532,7 +532,7 @@ const readEitherSpelling = (value: unknown): unknown => {
  * `waves`, so the inbound tolerance stays, but nothing downstream reads that
  * spelling.
  */
-export const FleetPlanSchema = z.preprocess(readEitherSpelling, z.object({
+export const PlanSchema = z.preprocess(readEitherSpelling, z.object({
   file: z.string(),
   /**
    * The plan's own lifecycle state, as `plot-plan-meta.sh` normalizes it
@@ -550,7 +550,7 @@ export const FleetPlanSchema = z.preprocess(readEitherSpelling, z.object({
    * guessed column.
    */
   phase: z.string().default(''),
-  slices: z.array(FleetSliceSchema),
+  slices: z.array(PlanSliceSchema),
 }));
 
 /** The raw `plot-fleet-scan.sh --json` document, parsed. */
@@ -589,7 +589,7 @@ export const FleetPulseSchema = z.object({
    * because `head` has always carried this value.
    */
   local_head: z.string().optional(),
-  plans: z.array(FleetPlanSchema),
+  plans: z.array(PlanSchema),
   /**
    * The scan's tallies, one counter per thing it counted.
    *

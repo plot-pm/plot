@@ -161,7 +161,7 @@ export interface PlanAutoDeliverInput {
    * The scan has just walked the estate; re-reading 150 plan files to learn what
    * it already reported would put this actor on a different clock from the
    * measurement it acts on, and the two could then disagree about which plans
-   * exist. `FleetPlanSchema.phase` is `plot-plan-meta.sh`'s own normalization,
+   * exist. `PlanSchema.phase` is `plot-plan-meta.sh`'s own normalization,
    * so it is the same parser's answer either way.
    */
   pulse: FleetPulse | null;

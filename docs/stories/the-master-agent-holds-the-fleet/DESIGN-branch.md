@@ -105,7 +105,7 @@ naming one branch is a *collision*, and the scan reports it as
 
 ### Fields
 
-`FleetBranchSchema` carries 21, and they divide by **who answers** — which is
+`SourceBranchSchema` carries 21, and they divide by **who answers** — which is
 the column that matters, because four different sources disagree about how
 fresh their answer is.
 
@@ -152,7 +152,7 @@ ref carries commits `main` lacks by ancestry, while the count says otherwise.
 nothing about whether the work is done (Agent, entities §1).
 
 **The five `worker_*` fields are Agent data on a Branch row** — the duplication
-the entities doc measures (`AgentRow` and `FleetBranch` share four fields). On
+the entities doc measures (`AgentRow` and `SourceBranch` share four fields). On
 the domain object they become `branch.agent`, and the row derives what it
 renders.
 
@@ -162,10 +162,10 @@ renders.
 
 The Plan spec asserts `branch.prs` three times as *"the association the arrays
 lose"*, and the table above does not carry it. The reason is that the table was
-built from **`FleetBranchSchema`** — which describes **the pulse's branch row**,
+built from **`SourceBranchSchema`** — which describes **the pulse's branch row**,
 not this domain object.
 
-**`FleetBranchSchema` has no `prs` field because the pulse never carried one.**
+**`SourceBranchSchema` has no `prs` field because the pulse never carried one.**
 The parser flattens branch→PR into a plan-level `prs[]` before the pulse exists
 (Plan §4), so the row could not have had it to lose.
 

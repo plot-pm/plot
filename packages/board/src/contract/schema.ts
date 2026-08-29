@@ -4,7 +4,7 @@ import {
   BranchStateSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
-  FleetPlanSchema,
+  PlanSchema,
   FleetPulseSchema,
 } from '@plot-pm/domain';
 
@@ -1539,7 +1539,7 @@ export const PR_UNKNOWN_NOTE = 'cannot read the PR — the host could not be ask
 /**
  * The entity graph is `@plot-pm/domain`'s, and is re-exported here unchanged.
  *
- * `FleetBranch`, `FleetSlice`, `FleetPlan` and `FleetPulse` — with the enums
+ * `SourceBranch`, `PlanSlice`, `Plan` and `FleetPulse` — with the enums
  * they are built from — moved out of this file into the domain package. They
  * were never the board's: they are what a branch, a wave and a plan ARE, and
  * they lived here only because the board was the first thing to need a name for
@@ -1554,17 +1554,17 @@ export {
   BranchStateSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
-  FleetPlanSchema,
+  PlanSchema,
   FleetPulseSchema,
 };
 export {
-  FleetBranchSchema,
+  SourceBranchSchema,
 } from "@plot-pm/domain";
 export type {
   BranchState,
   WorkerState,
   WorkerActivity,
-  FleetBranch,
+  SourceBranch,
   FleetPulse,
 } from "@plot-pm/domain";
 
@@ -1580,12 +1580,12 @@ export type {
  * own derived per-`(plan, wave)` render state, not the domain's slice.
  */
 export {
-  FleetSliceSchema,
+  PlanSliceSchema,
   SliceVerdictSchema,
 } from "@plot-pm/domain";
 export type {
   SliceVerdict,
-  FleetSlice,
+  PlanSlice,
 } from "@plot-pm/domain";
 
 /**
@@ -1606,7 +1606,7 @@ export type {
  * parse rather than be interpreted.
  */
 export const FleetScanLineSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('plan'), plan: FleetPlanSchema }),
+  z.object({ kind: z.literal('plan'), plan: PlanSchema }),
   z.object({ kind: z.literal('pulse'), pulse: FleetPulseSchema }),
 ]);
 export type FleetScanLine = z.infer<typeof FleetScanLineSchema>;
@@ -2355,7 +2355,7 @@ export const AgentRowSchema = z.object({
    * A local worktree for this branch has uncommitted changes — *someone is
    * editing*.
    *
-   * The same fact `FleetBranchSchema.local_dirty` carries, forwarded onto the
+   * The same fact `SourceBranchSchema.local_dirty` carries, forwarded onto the
    * row unchanged. **Not new data**: the scan has produced it since #167 and
    * `rowsFromPulse` already reads it, but only to hand to `classify()` — after
    * which it was dropped, so no component could see it. A predicate about
@@ -2392,7 +2392,7 @@ export const AgentRowSchema = z.object({
    * A local worktree for this branch is holding `.git/index.lock` — a write is
    * in progress THIS INSTANT.
    *
-   * `FleetBranchSchema.local_locked`, forwarded the same way and for the same
+   * `SourceBranchSchema.local_locked`, forwarded the same way and for the same
    * reason. It is the sharpest signal the board has, it was fought for in
    * `board-survives-its-agents` on the argument that a locked worktree must
    * become its own signal rather than silence — and it landed in the contract
@@ -2482,7 +2482,7 @@ export const AgentRowSchema = z.object({
    *
    * *Blocked by which one?* is the reader's unavoidable next question, and the
    * server is the only place that can answer it: `verdict` lives on the WAVE
-   * (`FleetSliceSchema`) while the row carries only `wave`, its own name. So a
+   * (`PlanSliceSchema`) while the row carries only `wave`, its own name. So a
    * row cannot see that it is blocked, let alone by what — the fact must travel.
    *
    * Null rather than "" for absence, because a wave can legitimately be unnamed
@@ -2492,7 +2492,7 @@ export const AgentRowSchema = z.object({
   blockedBy: z.string().nullable().default(null),
   /**
    * The verdict of the WAVE this row sits in — `complete`, `eligible`,
-   * `blocked` or `unapproved`, forwarded from `FleetSliceSchema.verdict`.
+   * `blocked` or `unapproved`, forwarded from `PlanSliceSchema.verdict`.
    *
    * THE SAME VALUES AS THE SCAN'S, and reusing `SliceVerdictSchema` is the
    * decision rather than the default. A row does not classify itself here: it
@@ -2601,7 +2601,7 @@ export const AgentRowSchema = z.object({
   repair: RepairSchema.nullable().default(null),
   /**
    * What the scan found out about a worker on this branch —
-   * `FleetBranchSchema.worker`, forwarded onto the row unchanged.
+   * `SourceBranchSchema.worker`, forwarded onto the row unchanged.
    *
    * **Not new data**, and that is the whole justification. The scan has
    * produced these eight states since `plot-worker-state.sh` grew them, and
@@ -2633,7 +2633,7 @@ export const AgentRowSchema = z.object({
    */
   worker: WorkerStateSchema.default('elsewhere'),
   /**
-   * Whether a `running` worker's child is doing work — `FleetBranchSchema.
+   * Whether a `running` worker's child is doing work — `SourceBranchSchema.
    * worker_activity`, forwarded onto the row unchanged.
    *
    * The secondary cue beside `worker`. `workerStatus` reads it to say WHICH kind

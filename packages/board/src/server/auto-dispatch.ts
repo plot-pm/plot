@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import type { FleetControls } from './fleet-controls.js';
-import { LIVE_STATES, type FleetBranch, type FleetPulse } from '../contract/schema.js';
+import { LIVE_STATES, type SourceBranch, type FleetPulse } from '../contract/schema.js';
 import type { AgentEntry } from './registry.js';
 import { dispatchLogPath } from './dispatch.js';
 
@@ -168,7 +168,7 @@ function isStartable(state: string): boolean {
  * one-directional: it can only ADD refusals, never remove one `ref_held` would
  * have made.
  */
-function refBlocksClaim(branch: FleetBranch): boolean {
+function refBlocksClaim(branch: SourceBranch): boolean {
   // Primary: ref_held is the direct answer from the scan.
   // Fallback: state === 'wip' implies a ref (derived from walking it).
   return branch.ref_held || branch.state === 'wip';
@@ -179,7 +179,7 @@ function refBlocksClaim(branch: FleetBranch): boolean {
  * not already blocked by its own ref. This, not {@link isStartable}, is the
  * question auto-dispatch spends budget against — see {@link refBlocksClaim}.
  */
-function dispatchable(branch: FleetBranch): boolean {
+function dispatchable(branch: SourceBranch): boolean {
   return isStartable(branch.state) && !refBlocksClaim(branch);
 }
 

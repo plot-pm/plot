@@ -352,7 +352,7 @@ every pulse**, and what looks like a transition is a branch elsewhere merging.
 
 So it is a **derived state**, and the entities doc's rule places it exactly: a
 value that depends on a pair belongs to the derivation rather than to the
-object's stated fields — the same reason `FleetBranch.state` is a field on a
+object's stated fields — the same reason `SourceBranch.state` is a field on a
 derivation while `Issue` carries none.
 
 ### The four words do not cover the middle

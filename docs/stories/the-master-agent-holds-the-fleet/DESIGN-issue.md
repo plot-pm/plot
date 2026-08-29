@@ -526,7 +526,7 @@ should be derived at the boundary — `toIssueRow(ticket, now)`, with `now` an
 argument precisely because the age depends on it.
 
 This generalizes past Issue, and it is the reason to record it here: **every
-entity in this document is currently defined by its row.** `FleetBranch`,
+entity in this document is currently defined by its row.** `SourceBranch`,
 `AgentEntry`, `Card` and `PrRecord` are all shapes the board renders. Whether
 each is also the right domain shape is a question this design has not yet asked
 of any of them — and asking it is what the remaining entity sections should do.
@@ -634,7 +634,7 @@ condition.
 
 **No — but the reason is not "derived things are not fields."**
 
-`FleetBranch.state` is a schema field, and it is exactly as derived as this: a
+`SourceBranch.state` is a schema field, and it is exactly as derived as this: a
 relation between a ref and the default branch. So a rule forbidding derived
 fields would be wrong, and it would be contradicted by the entity beside this
 one.
@@ -675,8 +675,8 @@ supplied the object has never heard of this repo's plans.
 The same ticket is `inbox` in a repo that has not planned it and `mapped` in one
 that has, and the tracker's answer is byte-identical in both.
 
-That is the test, and it is the one that also explains `FleetBranch`: a branch's
-`state` is a property of the pair (ref, default branch) — and `FleetBranch` **is
+That is the test, and it is the one that also explains `SourceBranch`: a branch's
+`state` is a property of the pair (ref, default branch) — and `SourceBranch` **is
 that pair's derivation**, not a copy of what git said. It is correctly a field
 there for the same reason it would be wrong here.
 
