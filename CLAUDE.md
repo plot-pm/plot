@@ -232,6 +232,19 @@ view of an agent cannot be somewhere the agent is not. `machineAtDeath` closes
 the same circle — a worker dies **on** a machine, and that machine's state at
 the moment is worth recording.
 
+**The eight states split along the same line, and the source decides.** Four are
+Worker facts read from the process (`running`, `failed`, `ended`, `none`); two
+are **Agent** facts read from the desk (`waiting` — a `PLOT-BLOCKED` marker;
+`stalled` — unlanded work); `finished` is a Worker fact the desk refines; and
+`elsewhere` is a Machine answer. `plot-worker-state.sh:46` decides the two
+workflow states from the TREE, never from the process — an exited process is a
+precondition for reading them, not the reason they hold.
+
+**For new code this means:** a state answering *what is the process doing?* goes
+on the worker; one answering *what does this agent owe, or still hold?* goes on
+the agent. They live in one enum today for a historical reason, and that is not
+a licence to add a workflow state to the process side.
+
 **So the vocabulary follows the component doing the observing:**
 
 | | **Machine** | **Registry** |

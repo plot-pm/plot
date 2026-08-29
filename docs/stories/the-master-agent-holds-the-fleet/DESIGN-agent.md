@@ -324,6 +324,42 @@ all five and destroyed what the `finished` refusal protects.
 | `none` | a worktree exists, no worker ever ran | dispatchable |
 | `elsewhere` | **no worktree on this machine** | not answerable here |
 
+### Which of the eight belong to the Worker, and which to the Agent
+
+**Stated 2026-08-29, and it follows from the three lifetimes above.** The enum
+carries two kinds of answer, and the source decides which:
+
+| state | read from | belongs to |
+|---|---|---|
+| `running` | the pid answers | **Worker** — the process |
+| `failed` | a recorded non-zero exit | **Worker** |
+| `ended` | exited, no record of how | **Worker** |
+| `none` | no worker ever ran | **Worker** — its absence |
+| `finished` | exited 0 **and** the desk is clear | Worker, **refined by the desk** |
+| `waiting` | a `PLOT-BLOCKED` marker **in the tree** | **Agent** — it owes an answer |
+| `stalled` | uncommitted or unpushed work **in the tree** | **Agent** — its work is unlanded |
+| `elsewhere` | no worktree **on this machine** | neither — a *Machine* answer |
+
+**`waiting` and `stalled` are workflow states, and the code says so.**
+`plot-worker-state.sh:46` decides both from the TREE — *"a blocked marker in the
+tree → waiting"*, *"uncommitted or unpushed work → stalled"* — never from the
+process. An exited process is a precondition for reading them, not the reason
+they hold.
+
+**That is why they had to be added at all.** Measured across seven worktrees:
+*every* worker exited 0 — the one that opened its PR, the one that stopped
+because it would not claim a test run it had not seen, and the one that stopped
+to ask about retry semantics. **A process-only vocabulary called all three
+`finished`.** Two of the three needed an answer, not a review.
+
+**And it explains why `failed`, `ended` and `none` are deliberately NOT refined
+by the tree**: they are Worker facts, and a desk cannot soften a recorded
+non-zero exit.
+
+**`elsewhere` belongs to neither.** It is the Machine's answer — *this agent's
+worker is not here* — and the reason the earlier "a worker is the agent seen
+through the process table" reading was too weak.
+
 ### Why the exit code cannot answer "is the task done?"
 
 **Measured across seven worktrees during a four-agent run:** *"EVERY worker
