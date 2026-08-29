@@ -133,3 +133,24 @@ baseline against a pristine `main` worktree.
 
 If you find something the plan did not anticipate, report it rather than
 improvising outside scope.
+
+### One conflict you will hit on rebase, and its resolution
+
+**`infra/the-domain-names-a-slice` is renaming `fleet.ts` while you work**, and
+both branches touch one line of `.github/workflows/ci.yml`: the vocabulary
+gate's `allowed=` threshold. That branch lowers it (34 → 14 as of `420e75ba`);
+yours still says 34.
+
+**Take theirs.** Measured 2026-08-29 on your branch: all 34 occurrences live in
+`fleet.ts`, and **your new files add zero** (`identity.ts`, `machine.ts`,
+`person.ts` — 0 each). So their lower number is correct for the merged result,
+and keeping yours would silently re-open the allowance the rename just closed.
+
+**Verify rather than assume** after the rebase:
+
+```bash
+grep -roiE "wave" packages/domain/src/ | wc -l   # must be <= the allowed= value
+```
+
+If your own files ever do need the word — the **real** Wave type is the one
+legitimate case — lower `allowed=` to the new true count rather than raising it.
