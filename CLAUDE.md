@@ -216,9 +216,27 @@ than the actor:
 - the config keys `Worker command` and `Worker bound`, which name what a
   dispatched agent *runs* and how long its loop may take
 
-Anything that describes what the actor *is*, *decides* or *is responsible for*
-is an Agent. When in doubt: if replacing "worker" with "the agent's process"
-still reads true, `Worker` is right; otherwise it is `Agent`.
+**The dividing line is which component is doing the observing** — that is the
+test, not a feel for the word:
+
+| | **Machine** | **Registry** |
+|---|---|---|
+| sees | processes | identities |
+| counts | **workers** | **agents** |
+| answers | *is it running, and what did it cost?* | *who is this, and what may it do?* |
+| when absent | the process is gone | the agent was never declared |
+
+The specs already speak this way. `DESIGN-machine.md` measures *"7 workers died
+`exit 124`"* and *"five workers ran fine at load 10"*; `DESIGN-agent.md` draws
+`registry ──provides──► agents`. **So `Worker` is Machine-side vocabulary and
+`Agent` is Registry-side**, and a field belongs to whichever component produced
+it.
+
+That is why the exceptions are exceptions rather than inconsistencies: the six
+process states, `WorkerActivity`, and `Worker command` / `Worker bound` are all
+things the machine observes or launches. **A specialised agent that never
+becomes a loop-worker still has a registry entry and still has no worker
+fields** — which is precisely the shape this split keeps expressible.
 
 **Arrow functions, not declarations.** `export const f = (…) => …` in the domain
 package. The board's style is not the model here.
