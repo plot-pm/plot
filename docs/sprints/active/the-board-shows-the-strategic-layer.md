@@ -1,0 +1,1 @@
+../2026-W36-the-board-shows-the-strategic-layer.md
