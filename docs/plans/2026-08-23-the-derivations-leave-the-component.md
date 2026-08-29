@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** infra
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Issue:** <!-- optional -->
@@ -16,6 +16,7 @@
 - **Started:** 2026-08-23, Jan Wloka, `infra/the-components-leave-the-shell`
 - **Started:** 2026-08-23, Jan Wloka, `infra/the-derivations-leave-the-component`
 - **Delivered:** 2026-08-24
+- **Released:** 2026-08-24, v2.9.0
 
 ## Approval
 

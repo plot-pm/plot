@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** the-published-board-works
 - **Issue:** <!-- optional -->
@@ -16,6 +16,7 @@
 - **Started:** 2026-08-28, Jan Wloka, `bug/an-empty-estate-still-pulses`
 - **Started:** 2026-08-28, Jan Wloka, `bug/the-package-proves-it-carries-them`
 - **Delivered:** 2026-08-28
+- **Released:** 2026-08-29, v2.11.1
 
 ## Approval
 

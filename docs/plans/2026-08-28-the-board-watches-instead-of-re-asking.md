@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** a-half-landed-workflow-says-so
 - **Issue:** <!-- optional -->
@@ -13,7 +13,7 @@
 - **Started:** 2026-08-29, Jan Wloka, `feature/the-board-knows-what-moved`
 - **Started:** 2026-08-29, Jan Wloka, `feature/the-monitors-answer-from-memory`
 - **Delivered:** 2026-08-29
-- **Released:** <!-- YYYY-MM-DD, version -->
+- **Released:** 2026-08-29, v2.11.1
 
 ## Approval
 

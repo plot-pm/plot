@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** the-published-board-works
 - **Issue:** <!-- optional -->
@@ -14,6 +14,7 @@
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Started:** 2026-08-28, Jan Wloka, `bug/a-board-that-never-scanned-says-so`
 - **Delivered:** 2026-08-28
+- **Released:** 2026-08-29, v2.11.1
 
 ## Approval
 

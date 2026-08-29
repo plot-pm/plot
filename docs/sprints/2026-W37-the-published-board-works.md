@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Active
+- **Phase:** Closed
 - **Start:** 2026-08-28
 - **End:** 2026-08-31
 - **Release:** 2.11.1
