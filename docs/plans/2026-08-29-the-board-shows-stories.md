@@ -4,14 +4,15 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** <!-- optional -->
 - **Story:** the-master-agent-holds-the-fleet
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 6
+- **Approved:** 2026-08-29, Jan Wloka, in-session
 
 ## Changelog
 
