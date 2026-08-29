@@ -15,6 +15,9 @@
 - **Approved:** 2026-08-29, Jan Wloka, in-session
 - **Started:** 2026-08-29, Jan Wloka, `feature/story-card-schema`
 - **Started:** 2026-08-29, Jan Wloka, `feature/story-file-parsing`
+- **Started:** 2026-08-29, Jan Wloka, `feature/stories-tab`
+- **Started:** 2026-08-29, Jan Wloka, `feature/story-modal`
+- **Started:** 2026-08-29, Jan Wloka, `feature/tab-rename-reorder`
 
 ## Changelog
 
