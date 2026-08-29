@@ -70,17 +70,25 @@ function extractTopics(title: string): string[] {
 /**
  * Compute tag cloud entries from stories.
  *
- * Extracts topic keywords from story titles and counts how many stories
- * mention each topic. Sorted by count descending.
+ * Extracts topic keywords from story titles AND their plan titles to get
+ * broader semantic coverage. Counts how many stories mention each topic.
+ * Sorted by count descending.
  */
 function computeTags(stories: StoryCard[]): TagEntry[] {
   const topicCounts = new Map<string, number>();
 
   for (const story of stories) {
-    const title = story.title || story.slug.replace(/-/g, ' ');
-    const topics = extractTopics(title);
-    // Count each topic once per story (not per occurrence in title)
-    const uniqueTopics = new Set(topics);
+    // Extract from story title
+    const storyTitle = story.title || story.slug.replace(/-/g, ' ');
+    const storyTopics = extractTopics(storyTitle);
+
+    // Also extract from plan titles within this story
+    const planTopics = (story.plans || []).flatMap((p) =>
+      extractTopics(p.title || p.slug.replace(/-/g, ' '))
+    );
+
+    // Combine and dedupe — count each topic once per story
+    const uniqueTopics = new Set([...storyTopics, ...planTopics]);
     for (const topic of uniqueTopics) {
       topicCounts.set(topic, (topicCounts.get(topic) || 0) + 1);
     }
@@ -88,9 +96,9 @@ function computeTags(stories: StoryCard[]): TagEntry[] {
 
   return Array.from(topicCounts.entries())
     .map(([topic, count]) => ({ topic, count }))
-    // Only show topics that appear in 2+ stories to reduce noise
-    .filter((t) => t.count >= 2)
-    .sort((a, b) => b.count - a.count);
+    .sort((a, b) => b.count - a.count)
+    // Limit to top 20 to avoid overwhelming the cloud
+    .slice(0, 20);
 }
 
 /**
