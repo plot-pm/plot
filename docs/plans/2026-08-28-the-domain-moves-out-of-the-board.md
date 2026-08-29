@@ -283,7 +283,7 @@ three call sites import it.
 longer defines the function, and coverage of `rules/deliverable.ts` meets the
 threshold — any gap the move exposes is closed here.
 
-### Entities (Branch: feature/the-entities-carry-their-states)
+### Entities (Branch: feature/the-entities-carry-their-states, PR: #515)
 
 The entities the pulse does not carry — PR, Build, Release, Worktree, Agent,
 Machine, Issue, Story, Sprint, Person — each with the identity kind and state
