@@ -103,6 +103,34 @@ jobs:
           fi
           echo "Domain vocabulary gate: $found misuse(s), none added."
 
+      # THE ACTOR IS AN AGENT, and "worker" is only how a process sees it.
+      # `DESIGN-agent.md`: *"A 'worker' is not a separate thing an Agent has —
+      # it is the Agent, observed through the process table."* Specialised
+      # agents that are not loop-workers must stay expressible, so the actor
+      # keeps one name.
+      #
+      # SCOPED TO THE MISUSE, learned from the vocabulary gate above: its first
+      # version counted a whole word, made the SPEC'S OWN name the expensive
+      # one, and taught a worker to invent `Cohort` to get past it. So this
+      # allows the two process-level names the spec keeps — `WorkerState*` (six
+      # process-table observations plus two task states) and `WorkerActivity*`
+      # (a CPU cue) — plus the `Worker command` / `Worker bound` config keys,
+      # and refuses `Worker` as a name for the actor.
+      - name: Domain actor-name gate
+        run: |
+          # Filter on the LINE, not on the matched word: `grep -o` discards the
+          # context that tells `Worker command` apart from a bare `Worker`.
+          hits=$(grep -rnE "\bWorker[A-Za-z]*" packages/domain/src/ \
+                 | grep -vE "WorkerState|WorkerActivity" \
+                 | grep -vE "\`?Worker (command|bound)\`?" || true)
+          if [ -n "$hits" ]; then
+            echo "::error::the actor is an Agent — 'Worker' names the process, never the actor:"
+            echo "$hits"
+            echo "Allowed: WorkerState*, WorkerActivity*, and the Worker command/bound config keys."
+            exit 1
+          fi
+          echo "Domain actor-name gate: clean."
+
       # ARROW FUNCTIONS, per CLAUDE.md > The Domain Package. The board's 507
       # `function` declarations are deliberately not the model — this rule is
       # for new code only, so it is scoped to this package.

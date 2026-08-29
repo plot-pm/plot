@@ -202,6 +202,24 @@ spans plans, and is persisted nowhere ([DESIGN-slice.md](docs/stories/the-master
 The code still says `Wave` where it means `Slice` — that is a known defect with
 its own plan, and **no new code may add to it.**
 
+**An Agent is the actor; "worker" is only how a process sees it.**
+`DESIGN-agent.md` settles this: *"A 'worker' is not a separate thing an Agent
+has — it is the Agent, observed through the process table."* So the actor is
+named **Agent** everywhere it is the subject, and future specialised agents that
+are not loop-workers stay expressible.
+
+`Worker` survives in exactly two places, and both are about the PROCESS rather
+than the actor:
+
+- the six process states (`running`, `finished`, `failed`, `ended`, `none`,
+  `elsewhere`) — literal process-table observations
+- the config keys `Worker command` and `Worker bound`, which name what a
+  dispatched agent *runs* and how long its loop may take
+
+Anything that describes what the actor *is*, *decides* or *is responsible for*
+is an Agent. When in doubt: if replacing "worker" with "the agent's process"
+still reads true, `Worker` is right; otherwise it is `Agent`.
+
 **Arrow functions, not declarations.** `export const f = (…) => …` in the domain
 package. The board's style is not the model here.
 
