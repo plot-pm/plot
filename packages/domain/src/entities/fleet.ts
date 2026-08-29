@@ -500,6 +500,35 @@ export const FleetBranchSchema = z.object({
 });
 export type FleetBranch = z.infer<typeof FleetBranchSchema>;
 
+/**
+ * ONE BRANCH'S WORTH OF A PLAN, PLUS ITS PLACE IN AN ORDER.
+ *
+ * THE NAME IS WRONG, AND KNOWINGLY SO. The design spec renamed this entity
+ * **Slice** on 2026-08-28 (`DESIGN-slice.md`), and by every property below this
+ * object IS a slice, not a wave:
+ *
+ * | | this object | spec's Slice | spec's Wave |
+ * |---|---|---|---|
+ * | holds | `branches[]` | exactly one branch | many slices |
+ * | belongs to | one plan (`plan.waves[]`) | one plan | **no plan** |
+ * | persisted | in the pulse | in the plan file | **nowhere** |
+ *
+ * A Wave, in the spec's vocabulary, is what the FLEET lands together — slices
+ * drawn from several plans, sized by the agents available, assembled at
+ * dispatch and written down nowhere. That entity does not exist in code yet.
+ * This one is its namesake and nothing more.
+ *
+ * WHY IT IS NOT FIXED HERE. This module arrived by a MOVE that is verifiable
+ * byte-for-byte — the property that lets a reviewer confirm no behaviour
+ * changed while 547 lines crossed a package boundary. Renaming inside that move
+ * would forfeit exactly that. And the rename is not a rename: `waves` is a JSON
+ * field `plot-fleet-scan.sh` PRODUCES and 44 board call sites CONSUME, so it is
+ * a schema migration across a process boundary — plus 132 plan files whose
+ * `## Waves` heading the parser reads. Measured 2026-08-29: 6,277 occurrences
+ * across 195 files.
+ *
+ * Tracked as its own plan. Until it lands, read `Wave` here as `Slice`.
+ */
 export const FleetWaveSchema = z.object({
   name: z.string(),
   verdict: WaveVerdictSchema,
