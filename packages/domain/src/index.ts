@@ -11,3 +11,4 @@
  * That is the difference between a gate and a rule.
  */
 export * from './entities/fleet.js';
+export * from './port-result.js';
