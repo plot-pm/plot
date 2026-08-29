@@ -14,6 +14,7 @@
 - **Rounds:** 6
 - **Approved:** 2026-08-29, Jan Wloka, in-session
 - **Started:** 2026-08-29, Jan Wloka, `feature/story-card-schema`
+- **Started:** 2026-08-29, Jan Wloka, `feature/story-file-parsing`
 
 ## Changelog
 
