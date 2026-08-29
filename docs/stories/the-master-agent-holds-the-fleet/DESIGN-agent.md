@@ -134,6 +134,32 @@ liveness; the worktree is its desk; the tree and PR are its progress.
 **A "worker" is not a separate thing an Agent has — it is the Agent, observed
 through the process table.**
 
+**Refined 2026-08-29, without reopening the decision.** *One entity* remains
+right; what was missing is which relation the word names:
+
+```
+Machine  ──hosts──►  workers      (many; the resource they compete for)
+Agent    ──runs───►  one worker   (at a time; its process, while it lives)
+Worker   = an Agent's process on a Machine
+```
+
+**A Worker is the process an Agent runs on a Machine** — so it names a
+*relation*, not a second object, which is why splitting this spec would produce
+two descriptions of one thing plus an invented rule for pairing them.
+
+**`elsewhere` is the evidence** ([§4](#4-lifecycle)): it means *no worktree on
+this machine*, an agent that exists while its process runs elsewhere. A view of
+an agent cannot be somewhere the agent is not; a link can. `machineAtDeath`
+(§3) closes the same circle — a worker dies **on** a machine whose state at that
+moment is worth recording.
+
+**The practical consequence is vocabulary.** `Worker` belongs to the Machine's
+side of the boundary — the six process states, `WorkerActivity`, the
+`Worker command` and `Worker bound` keys — and `Agent` to the Registry's:
+*registry ──provides──► agents*. **A specialised agent that never becomes a
+loop-worker still has a registry entry and simply has no worker**, which is the
+case this distinction exists to keep expressible.
+
 ### It owns its desk
 
 **The Worktree spec settles the direction** (Worktree §1): the dispatcher creates

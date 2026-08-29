@@ -216,8 +216,23 @@ than the actor:
 - the config keys `Worker command` and `Worker bound`, which name what a
   dispatched agent *runs* and how long its loop may take
 
-**The dividing line is which component is doing the observing** — that is the
-test, not a feel for the word:
+**A Worker is the process an Agent runs on a Machine.** It is not a synonym for
+either and not merely a view of one — it is what connects them:
+
+```
+Machine  ──hosts──►  workers          (many; the resource they compete for)
+Agent    ──runs───►  one worker       (at a time; its process, while it lives)
+Worker   = an Agent's process on a Machine
+```
+
+**`elsewhere` is the proof.** It means *"no worktree on this machine"*
+(`DESIGN-agent.md`) — an agent that exists while its worker runs somewhere else.
+That state is only expressible if the worker is the LINK rather than a view: a
+view of an agent cannot be somewhere the agent is not. `machineAtDeath` closes
+the same circle — a worker dies **on** a machine, and that machine's state at
+the moment is worth recording.
+
+**So the vocabulary follows the component doing the observing:**
 
 | | **Machine** | **Registry** |
 |---|---|---|
