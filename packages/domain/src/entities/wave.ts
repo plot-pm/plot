@@ -1,54 +1,33 @@
 import { z } from 'zod';
 
-/**
- * A slice's place in a plan: one branch's worth of a plan's work.
- *
- * Referenced by identity rather than held, so this module stays independent of
- * the entity graph that names slices.
- */
+/** A reference to one slice: the plan it belongs to, its name, its one branch. */
 export interface SliceRef {
-  /** The slug of the plan this slice belongs to. */
   plan: string;
-  /** The name of the slice within that plan. */
   name: string;
-  /** The one branch it holds. */
   branch: string;
 }
 
 /**
- * What the fleet lands together — slices from several plans, assembled at
- * dispatch.
+ * What the fleet lands together — slices drawn from several plans, assembled at
+ * dispatch and persisted nowhere.
  *
- * THIS IS THE FLEET'S CROSS-PLAN WAVE, and the name is the spec's own.
- * `DESIGN-slice.md` renamed the per-plan entity to **Slice** on 2026-08-28 and
- * freed **Wave** for this one. A Slice holds exactly one branch, belongs to
- * exactly one plan, and is authored by a person in a plan file. This belongs to
- * no plan, is assembled by the fleet, and is written nowhere.
+ * Has no constructor: nothing forms one today. `plot-dispatch.sh` requires a
+ * plan slug and orders within that plan, so no component sees eligible slices
+ * across plans. A type with no way to build one is the honest shape for an
+ * entity with no source of truth.
  *
- * It has NO CONSTRUCTOR, deliberately. Nothing forms one today: the dispatcher
- * requires a plan slug and computes ordering within one plan, so no component
- * sees eligible slices across plans. The two halves exist and have never been
- * joined — the fleet scan computes which slices are eligible across all plans,
- * and the merge queue computes which finished branches can land together. This
- * type is the shape they would meet in, bounded by the agent count.
- *
- * A type with no way to build one is the honest form for an entity with no
- * source of truth. It becomes constructible when something forms one.
+ * See `DESIGN-slice.md` for why this name is free: the per-plan entity was
+ * renamed to Slice on 2026-08-28.
  */
 export interface Wave {
-  /** The slices assembled to land together. */
   slices: readonly SliceRef[];
   /** The concurrency ceiling this wave was bounded by. */
   parallelAgents: number;
 }
 
 /**
- * How a wave's size may be bounded.
- *
- * `agents` is the ceiling on how many can run at once; `landable` is how many
- * can merge together without colliding. Which bound wins is an open question:
- * starting five agents whose work cannot land together is precisely the burst
- * the merge queue was written to predict.
+ * How a wave's size may be bounded — `agents` by what can run at once,
+ * `landable` by what can merge without colliding. Which wins is open.
  */
 export const WaveBoundSchema = z.enum(['agents', 'landable']);
 export type WaveBound = z.infer<typeof WaveBoundSchema>;
@@ -56,12 +35,8 @@ export type WaveBound = z.infer<typeof WaveBoundSchema>;
 /**
  * Whether a slice reference names a branch at all.
  *
- * A plan section naming no branch is a plan nobody has sliced rather than a
- * slice holding none — 9 of 11 such sections measured here are prose headings a
- * parser read as slices.
- *
- * @param slice - the slice reference to test.
- * @returns true when it names a plan, a slice and a branch.
+ * @param slice - the reference to test.
+ * @returns true when plan, name and branch are all non-empty.
  */
 export const isSliced = (slice: SliceRef): boolean =>
   slice.plan !== '' && slice.name !== '' && slice.branch !== '';
@@ -69,11 +44,8 @@ export const isSliced = (slice: SliceRef): boolean =>
 /**
  * The plans a set of slices spans.
  *
- * What distinguishes a fleet wave from a plan's own slices: more than one
- * plan means the wave is doing the thing no component does today.
- *
  * @param slices - the slices to read.
- * @returns each plan slug once, in the order first named.
+ * @returns each plan slug once, in the order first named; empty entries dropped.
  */
 export const plansSpanned = (slices: readonly SliceRef[]): string[] => [
   ...new Set(slices.map((slice) => slice.plan).filter((plan) => plan !== '')),
