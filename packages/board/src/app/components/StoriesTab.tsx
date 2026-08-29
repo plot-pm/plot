@@ -32,18 +32,6 @@ export interface StoriesTabProps {
   onOpenSprint?: (sprintSlug: string) => void;
 }
 
-/**
- * Compute font size for a tag based on its count.
- *
- * Moderate scaling (1x to 2x) using logarithmic compression to avoid extremes
- * where a topic in 9 stories would dwarf one in 2.
- */
-function tagFontSize(count: number, maxCount: number): string {
-  if (maxCount <= 1) return '1rem';
-  // Log scale: min 1rem, max 2rem
-  const scale = 1 + Math.log(count + 1) / Math.log(maxCount + 1);
-  return `${scale.toFixed(2)}rem`;
-}
 
 /**
  * Stories tab — the strategic layer above plans.
@@ -97,9 +85,6 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
     return result;
   }, [byStatus, selectedTag, topicToSlugs]);
 
-  // Use server-computed topics
-  const maxCount = topics.length > 0 ? topics[0].count : 1;
-
   // Which columns to show
   const visibleStatuses = showArchived
     ? STORY_STATUSES
@@ -109,33 +94,45 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
     <div className="space-y-4">
       {/* Tag cloud — server-computed topics using TF-IDF */}
       {topics.length > 0 && (
-        <div className="rounded-lg bg-slate-100/70 p-3 dark:bg-slate-900/50">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            {topics.map((t) => (
+        <div className="flex flex-wrap items-center gap-1.5 py-2">
+          {topics.map((t) => {
+            const isSelected = selectedTag === t.topic;
+            return (
               <button
                 key={t.topic}
                 type="button"
-                onClick={() => setSelectedTag(selectedTag === t.topic ? null : t.topic)}
-                className={`text-cyan-700 transition-opacity hover:opacity-80 dark:text-cyan-400 ${
-                  selectedTag && selectedTag !== t.topic ? 'opacity-40' : ''
+                onClick={() => setSelectedTag(isSelected ? null : t.topic)}
+                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-all ${
+                  isSelected
+                    ? 'border-2 border-cyan-500 bg-cyan-100 text-cyan-800 dark:border-cyan-400 dark:bg-cyan-900/50 dark:text-cyan-200'
+                    : selectedTag
+                      ? 'border border-slate-200 bg-slate-100 text-slate-400 hover:border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500 dark:hover:border-slate-600 dark:hover:bg-slate-700'
+                      : 'border border-slate-200 bg-slate-100 text-slate-600 hover:border-cyan-300 hover:bg-cyan-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-cyan-600 dark:hover:bg-cyan-900/30'
                 }`}
-                style={{ fontSize: tagFontSize(t.count, maxCount) }}
-                title={`${t.topic}: ${t.count} stories`}
+                title={`Filter by "${t.topic}"`}
               >
-                {t.topic}
-                <span className="ml-0.5 text-xs opacity-60">({t.count})</span>
+                <span>{t.topic}</span>
+                <span
+                  className={`rounded-full px-1.5 py-px text-[10px] ${
+                    isSelected
+                      ? 'bg-cyan-200 text-cyan-700 dark:bg-cyan-800 dark:text-cyan-200'
+                      : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                  }`}
+                >
+                  {t.count}
+                </span>
               </button>
-            ))}
-            {selectedTag && (
-              <button
-                type="button"
-                onClick={() => setSelectedTag(null)}
-                className="ml-2 rounded bg-slate-200 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
-              >
-                Clear filter
-              </button>
-            )}
-          </div>
+            );
+          })}
+          {selectedTag && (
+            <button
+              type="button"
+              onClick={() => setSelectedTag(null)}
+              className="ml-1 rounded-full border border-slate-300 bg-white px-2 py-0.5 text-xs text-slate-500 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+            >
+              Clear
+            </button>
+          )}
         </div>
       )}
 

@@ -1129,32 +1129,49 @@ function parseStoryFile(absPath: string, slug: string, relPath: string, storyDir
 }
 
 /**
- * Compute status drift: when a story's manual `status:` field conflicts with
- * its plan states. Returns a warning message, or null if no drift.
+ * Derive story status from plan phases.
+ *
+ * - All plans released → 'archived'
+ * - All plans delivered (or released) → 'done'
+ * - Any approved plan (in progress) → 'active'
+ * - Otherwise → 'draft'
+ *
+ * A story with no plans stays at its declared status (or 'draft').
  */
-function computeStatusDrift(status: string, plans: Array<{ phase: string }>): string | null {
-  if (!status || plans.length === 0) return null;
+function deriveStoryStatus(declaredStatus: string, plans: Array<{ phase: string }>): string {
+  if (plans.length === 0) return declaredStatus || 'draft';
 
   const phases = plans.map((p) => p.phase.toLowerCase());
   const allReleased = phases.every((p) => p === 'released');
   const allDelivered = phases.every((p) => p === 'released' || p === 'delivered');
   const hasApproved = phases.some((p) => p === 'approved');
 
-  // Story says active but all plans are released
-  if (status === 'active' && allReleased) {
-    return '⚠️ All plans released';
-  }
-  // Story says active but all plans are delivered/released (none in progress)
-  if (status === 'active' && allDelivered && !hasApproved) {
-    return '⚠️ All plans delivered';
-  }
-  // Story says done but some plans are not delivered/released
-  if (status === 'done' && !allDelivered) {
-    return '⚠️ Some plans not delivered';
-  }
-  // Story says draft but has approved/in-progress plans
-  if (status === 'draft' && hasApproved) {
-    return '⚠️ Has approved plans';
+  if (allReleased) return 'archived';
+  if (allDelivered) return 'done';
+  if (hasApproved) return 'active';
+  return declaredStatus || 'draft';
+}
+
+/**
+ * Compute status drift: when a story's manual `status:` field conflicts with
+ * the derived status from plan phases. Returns a warning message, or null if no drift.
+ */
+function computeStatusDrift(declaredStatus: string, derivedStatus: string): string | null {
+  if (!declaredStatus) return null;
+  if (declaredStatus === derivedStatus) return null;
+
+  // Only warn when the declared status is behind the derived status
+  const statusOrder = ['draft', 'active', 'done', 'archived'];
+  const declaredIdx = statusOrder.indexOf(declaredStatus);
+  const derivedIdx = statusOrder.indexOf(derivedStatus);
+
+  if (derivedIdx > declaredIdx) {
+    const messages: Record<string, string> = {
+      archived: 'All plans released',
+      done: 'All plans delivered',
+      active: 'Has approved plans',
+    };
+    return messages[derivedStatus] || null;
   }
 
   return null;
@@ -1223,17 +1240,19 @@ function collectStories(repoRoot: string, storyDir: string, allPlans: PlanMeta[]
         sprintCounts.set(p.sprint, (sprintCounts.get(p.sprint) || 0) + 1);
       }
     }
-    const sprints = Array.from(sprintCounts.entries()).map(([slug, count]) => ({
-      slug,
+    const sprints = Array.from(sprintCounts.entries()).map(([sprintSlug, count]) => ({
+      slug: sprintSlug,
       planCount: count,
     }));
 
-    // Compute status drift
-    const statusDrift = computeStatusDrift(input.status, storyPlans);
+    // Derive status from plans and compute drift from declared status
+    const derivedStatus = deriveStoryStatus(input.status, storyPlans);
+    const statusDrift = computeStatusDrift(input.status, derivedStatus);
 
-    // Merge computed fields into input
+    // Merge computed fields into input, using derived status
     const fullInput: StoryCardInput = {
       ...input,
+      status: derivedStatus,
       planCount,
       deliveredCount,
       plans,
