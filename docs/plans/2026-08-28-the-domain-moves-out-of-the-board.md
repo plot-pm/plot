@@ -274,7 +274,7 @@ edited** — the client's single-file bundle included,
 `@vitest/coverage-v8` is wired with the 100% threshold failing the build when
 unmet.
 
-### Deliverable (Branch: feature/one-deliver-rule-decides-in-the-domain)
+### Deliverable (Branch: feature/one-deliver-rule-decides-in-the-domain, PR: #511)
 
 `allWavesMerged` moves to `rules/deliverable.ts` with its 25 tests. The board's
 three call sites import it.
