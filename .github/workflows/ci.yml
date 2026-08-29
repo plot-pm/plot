@@ -40,6 +40,39 @@ jobs:
       - name: E2E choreography tests
         run: pnpm run test:e2e
 
+      # ── Domain: the package the board now imports its entities from. Gated
+      #    BEFORE the board, because the board resolves these shapes from here
+      #    and a domain that does not hold cannot produce a meaningful board
+      #    failure — it produces a confusing one. ────────────────────────────────
+
+      # THE BOUNDARY, ENFORCED RATHER THAN DESCRIBED. The domain may import zod
+      # and nothing that reaches the world. Empty output is the gate.
+      #
+      # `contract/schema.ts` passed this unmodified on the day it moved, which
+      # is the evidence the boundary is real rather than aspirational. The
+      # package resolver already refuses `../server/fleet.js`; this catches the
+      # other direction — a module reaching a disk, a process or a network
+      # directly.
+      - name: Domain purity gate
+        run: |
+          hits=$(grep -rlE "from '(node:|fs|child_process|http|https|net)" packages/domain/src/ || true)
+          if [ -n "$hits" ]; then
+            echo "::error::the domain reached the world — it may import zod and nothing else:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "Domain purity gate: clean."
+
+      - name: Domain typecheck
+        run: pnpm --filter @plot-pm/domain typecheck
+
+      # A GATE, NOT A REPORT: `thresholds` makes this exit non-zero below 100%.
+      # Defensible in this package and nowhere else here — the purity boundary
+      # guarantees every line is reachable from a plain function call, so an
+      # uncovered line is a line nobody specified.
+      - name: Domain tests + coverage gate
+        run: pnpm --filter @plot-pm/domain exec vitest run --coverage
+
       # ── Board (first-class): the Definition of Done requires the board to keep
       #    working. Typecheck, tests, and a fresh build are gated here. ──────────
       - name: Board typecheck
