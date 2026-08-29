@@ -66,13 +66,12 @@ jobs:
       # THE SPEC'S VOCABULARY, ENFORCED. `DESIGN-slice.md` renamed this entity
       # Slice on 2026-08-28: a Slice holds one branch and belongs to one plan,
       # while a Wave is the fleet's cross-plan cohort and is persisted nowhere.
-      # The code still says Wave where it means Slice — a known defect with its
-      # own plan. This gate does not fix it; it stops it GROWING, by counting
-      # and refusing an increase.
+      # The entity is renamed: no identifier here is named Wave. What remains is
+      # the wire-compatibility path — `plot-fleet-scan.sh` still emits `waves`,
+      # and the scan is a separate process that ships separately — plus the
+      # comment that reserves the name for the cohort entity when the fleet
+      # learns to form one.
       #
-      # A count rather than a ban, because the existing occurrences are exactly
-      # what the rename plan removes. When it lands, this number goes to 0 and
-      # the gate becomes a ban.
       # THE SPEC'S VOCABULARY, ENFORCED — and scoped to the MISUSE, not the word.
       #
       # `DESIGN-slice.md` renamed the per-plan entity **Slice** on 2026-08-28. It
@@ -92,7 +91,7 @@ jobs:
       # standalone `Wave` entity.
       - name: Domain vocabulary gate
         run: |
-          allowed=13  # measured 2026-08-29 on main; the rename plan drives it to 0
+          allowed=12  # 2026-08-29: this branch removed one; the rename plan drives it to 0
           found=$(grep -roE "FleetWave|WaveVerdict|\bwaves\b" packages/domain/src/ | wc -l | tr -d ' ')
           if [ "$found" -gt "$allowed" ]; then
             echo "::error::the domain gained $((found - allowed)) misuse(s) of Wave ($found > $allowed)."
