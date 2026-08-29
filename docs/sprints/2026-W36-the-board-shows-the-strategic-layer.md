@@ -37,7 +37,7 @@ at the bottom.
 
 ### Should Have
 
-- [ ] [the-domain-moves-out-of-the-board] Extract domain entities to `@plot-pm/domain` package — foundation for testable rules <!-- status: approved -->
+- [x] [the-domain-moves-out-of-the-board] Extract domain entities to `@plot-pm/domain` package — foundation for testable rules <!-- status: delivered -->
 - [x] [the-domain-speaks-slices] Domain objects express slice boundaries for fleet orchestration <!-- status: delivered -->
 
 ### Could Have
