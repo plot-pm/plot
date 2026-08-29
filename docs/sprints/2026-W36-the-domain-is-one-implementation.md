@@ -51,7 +51,7 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 
 ### Could Have
 
-- [ ] [the-board-suite-fits-its-budget] CI's board-integration step finishes inside its budget, so a red build means a failing test again — measured 2026-08-29: 5 of the last 18 main runs failed, every one of them with "timed out after 15 minutes" and **no failing test**
+- [x] ~~[the-board-suite-fits-its-budget]~~ **Rejected 2026-08-29 — the diagnosis was wrong.** The cause was three stale selectors after #516 renamed the Board tab (fixed in #519), not a suite outgrowing its budget: 21 tests were dying at exactly 30001ms each, which is 10.5 of the 15 minutes. ~~CI's board-integration step finishes inside its budget, so a red build means a failing test again — measured 2026-08-29: 5 of the last 18 main runs failed, every one of them with "timed out after 15 minutes" and **no failing test**
 - [ ] [a-throttled-host-says-so] A scan that could not reach the git host says so, instead of reporting every branch unmerged — measured 2026-08-29: minutes after #513 merged, the scan showed its branch `open` and `merge_detect=pr-merge` while `pr-list` was returning a GraphQL rate-limit error it discarded
 - [ ] [production-calls-the-domain-one-rule-at-a-time] Production code calls the domain instead of duplicating its rules, one rule at a time — 5 slices; **Draft, and blocked on both items above**
 - [ ] [a-domain-rule-has-one-owner] Any lifecycle rule found duplicated **while moving** gets its second implementation deleted in the same slice, rather than noted for later — opportunistic, and only where the two provably agree

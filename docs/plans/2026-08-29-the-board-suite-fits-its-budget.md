@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Rejected
 - **Type:** infra
 - **Sprint:** the-domain-is-one-implementation
 - **Issue:** <!-- optional -->
@@ -17,6 +17,32 @@
 ## Approval
 
 - **Assignee:** Jan Wloka
+
+> **REJECTED 2026-08-29, hours after being written — the diagnosis was wrong.**
+>
+> This plan read "the suite has outgrown its 15-minute budget" from the last
+> line of a failed CI log. The failing lines said something else: **21 tests
+> dying at exactly 30001ms**, every passing one at 200–9000ms. That uniformity
+> is not a size problem — an assertion failure takes as long as the assertion,
+> so identical durations mean Playwright waiting for a locator that never
+> resolves.
+>
+> **The cause was three stale selectors.** #516 renamed the Board tab to Plans
+> and changed no test file; `getByRole('button', { name: 'Board' })` then waited
+> out its 30 s timeout, 21 times, which is 10.5 of the 15 minutes. **The job
+> timeout was the consequence.** Fixed in #519: `agents-tab` went 12 failed →
+> 111/111, `unreachable-overlay` 9 failed → 25/25.
+>
+> **Kept rather than deleted, because the mistake is the lesson.** I read a
+> summary line instead of the failure lines and wrote a plan proposing to
+> measure, shard or re-budget a suite that was not slow. The operator's question
+> — *"es ist vermutlich kein Timeout, wir müssen die Selektoren fixen"* — is
+> what turned it around.
+>
+> **What may still be true**, and needs its own measurement rather than this
+> plan's assumptions: whether a healthy suite has comfortable margin inside 15
+> minutes. Measure that on a green main first; do not inherit the numbers below,
+> which were taken while a fifth of the suite was timing out.
 
 ## Changelog
 
