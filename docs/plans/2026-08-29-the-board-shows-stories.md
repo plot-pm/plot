@@ -6,7 +6,7 @@
 
 - **Phase:** Approved
 - **Type:** feature
-- **Sprint:** <!-- optional, filled when plan is added to a sprint -->
+- **Sprint:** 2026-W36-the-board-shows-the-strategic-layer
 - **Issue:** <!-- optional -->
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
