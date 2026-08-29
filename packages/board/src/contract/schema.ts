@@ -595,10 +595,97 @@ export const SprintCardSchema = z.object({
 });
 export type SprintCard = z.infer<typeof SprintCardSchema>;
 
+// ─── Stories tab: strategic layer above plans ─────────────────────────────────
+
+/**
+ * A plan referenced from a story card — the subset of plan metadata needed for
+ * the Stories tab's expandable plan list.
+ */
+export const StoryPlanRefSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  phase: z.string(),
+  /** Empty where the plan names no sprint. */
+  sprint: z.string().default(''),
+});
+export type StoryPlanRef = z.infer<typeof StoryPlanRefSchema>;
+
+/**
+ * A sprint referenced from a story card — which sprints contain this story's
+ * plans, with a count per sprint.
+ */
+export const SprintRefSchema = z.object({
+  slug: z.string(),
+  planCount: z.number(),
+});
+export type SprintRef = z.infer<typeof SprintRefSchema>;
+
+/**
+ * A story card for the Stories tab — the strategic layer above plans.
+ *
+ * Stories are themes that span multiple plans and answer "why are we doing all
+ * this?" Each story directory under `docs/stories/` contains a `STORY-*.md`
+ * file with objectives, decisions, open points and session logs.
+ */
+/**
+ * Input type for StoryCard — the minimal fields the existing `parseStoryFile`
+ * function provides. New fields added by this schema are optional with defaults,
+ * so backward compatibility is preserved until the Backend wave populates them.
+ */
 export const StoryCardSchema = z.object({
   slug: z.string(),
   title: z.string(),
+  /**
+   * Story status from frontmatter: draft, active, done, or archived.
+   *
+   * Unlike plan phases, story statuses are manually maintained by authors.
+   * A story in "active" status may have all plans released — the `statusDrift`
+   * field warns about such conflicts.
+   *
+   * Typed as string rather than enum so the existing `collectStories` function
+   * continues to work — the Backend wave (`feature/story-file-parsing`) will
+   * add validation. Renderers should treat unknown values as 'draft'.
+   */
   status: z.string(),
+  /**
+   * Warning message when the story's manual `status:` field conflicts with its
+   * plan states — e.g., story says `active` but all plans are Released.
+   *
+   * null means no drift detected. The card displays this as a warning badge.
+   * The author corrects manually; the board reports drift but does not
+   * auto-derive status.
+   */
+  statusDrift: z.string().nullable().optional().default(null),
+  /** Story author from frontmatter. */
+  author: z.string().optional().default(''),
+  /** ISO date when the story was created. */
+  created: z.string().optional().default(''),
+  /** ISO date when the story was last updated. */
+  updated: z.string().optional().default(''),
+  /**
+   * First ~200 chars of the `## Objective` section, truncated with ellipsis.
+   * Displayed on the story card as a preview.
+   */
+  objective: z.string().optional().default(''),
+  /**
+   * Full `## Design` section content. Collapsed by default in the modal,
+   * expandable for full context.
+   */
+  design: z.string().optional().default(''),
+  /** Total count of plans referencing this story via `Story:` field. */
+  planCount: z.number().optional().default(0),
+  /** Count of plans in Released phase. */
+  deliveredCount: z.number().optional().default(0),
+  /**
+   * Plans referencing this story, with phase badges for the expandable list.
+   * Defaults to empty so a story with no plans still renders normally.
+   */
+  plans: z.array(StoryPlanRefSchema).optional().default([]),
+  /**
+   * Sprints containing this story's plans, with plan counts per sprint.
+   * Lists all sprints, not just active ones.
+   */
+  sprints: z.array(SprintRefSchema).optional().default([]),
   /**
    * Repo-relative path to the story's own file, e.g.
    * docs/stories/plot-board/STORY-plot-board.md — or "" where the board found
@@ -613,11 +700,51 @@ export const StoryCardSchema = z.object({
    * it renders as no link at all — the rule plan rows already follow for
    * `planFile: ''`. The card keeps its title and status, which are true
    * regardless; hiding it would lose real information to avoid a broken link.
-   * Defaulted so output from an older server still validates.
    */
-  path: z.string().default(''),
+  path: z.string().optional().default(''),
+  /**
+   * DESIGN-*.md filenames in the story directory — design documents that
+   * accompany the story. Displayed as a collapsed list in the modal:
+   * "▸ 14 design documents".
+   */
+  designDocs: z.array(z.string()).optional().default([]),
+  /** Whether the story has an `## Open Points` section. */
+  hasOpenPoints: z.boolean().optional().default(false),
+  /** Whether the story has a `## Session Log` section. */
+  hasSessionLog: z.boolean().optional().default(false),
 });
 export type StoryCard = z.infer<typeof StoryCardSchema>;
+/** Input shape for StoryCard — allows omitting fields that have defaults. */
+export type StoryCardInput = z.input<typeof StoryCardSchema>;
+
+/**
+ * Tag cloud entry for the Stories tab — story slugs with plan counts for
+ * topic navigation.
+ */
+export const TagCountSchema = z.object({
+  /** Story slug — the tag name in the cloud. */
+  slug: z.string(),
+  /** Number of plans referencing this story. */
+  count: z.number(),
+  /**
+   * Story status for coloring the tag — matches the story's own status.
+   * Tags for draft stories render differently from active ones.
+   */
+  status: z.string(),
+});
+export type TagCount = z.infer<typeof TagCountSchema>;
+
+/**
+ * Response shape for GET /api/stories — the Stories tab's data contract.
+ *
+ * Stories grouped by status (columns) with a tag cloud for topic navigation.
+ * Uses a 30-second server-side cache matching the Plans tab cadence.
+ */
+export const StoriesResponseSchema = z.object({
+  stories: z.array(StoryCardSchema),
+  tags: z.array(TagCountSchema),
+});
+export type StoriesResponse = z.infer<typeof StoriesResponseSchema>;
 
 /**
  * Whether the server will act on a Start work click, and why not.

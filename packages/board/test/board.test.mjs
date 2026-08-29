@@ -204,7 +204,22 @@ describe('board: contract fields + frontmatter visibility', () => {
       slug: 'kanban-board',
       title: 'Kanban board',
       status: 'active',
+      // New fields from the Stories tab schema — all have defaults until the
+      // Backend wave populates them from story file parsing.
+      statusDrift: null,
+      author: '',
+      created: '',
+      updated: '',
+      objective: '',
+      design: '',
+      planCount: 0,
+      deliveredCount: 0,
+      plans: [],
+      sprints: [],
       path: 'docs/stories/kanban-board/STORY-kanban-board.md',
+      designDocs: [],
+      hasOpenPoints: false,
+      hasSessionLog: false,
     });
   });
 });
