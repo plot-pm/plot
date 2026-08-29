@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import {
+  SliceVerdictSchema as WaveVerdictSchema,
   BranchStateSchema,
-  WaveVerdictSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
   FleetPlanSchema,
@@ -1514,7 +1514,6 @@ export const PR_UNKNOWN_NOTE = 'cannot read the PR — the host could not be ask
  */
 export {
   BranchStateSchema,
-  WaveVerdictSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
   FleetPlanSchema,
@@ -1522,15 +1521,34 @@ export {
 };
 export {
   FleetBranchSchema,
-  FleetWaveSchema,
 } from "@plot-pm/domain";
 export type {
   BranchState,
-  WaveVerdict,
   WorkerState,
   WorkerActivity,
   FleetBranch,
   FleetPulse,
+} from "@plot-pm/domain";
+
+/**
+ * THE SLICE ENTITY, UNDER THE BOARD'S OLD NAME FOR IT.
+ *
+ * The domain renamed Wave to Slice — a Slice belongs to one plan, a Wave is the
+ * fleet's cohort and is persisted nowhere (`DESIGN-slice.md`). The board's 44
+ * call sites still say `Wave`, and moving them is a separate change so that the
+ * schema rename and the call-site churn can be reviewed as distinct claims.
+ * These aliases are what let the two land apart: every board import keeps
+ * working, unedited, against the renamed domain.
+ *
+ * Temporary by construction — they go when the call sites do.
+ */
+export { WaveVerdictSchema };
+export {
+  FleetSliceSchema as FleetWaveSchema,
+} from "@plot-pm/domain";
+export type {
+  SliceVerdict as WaveVerdict,
+  FleetSlice as FleetWave,
 } from "@plot-pm/domain";
 
 /**

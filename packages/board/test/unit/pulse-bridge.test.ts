@@ -13,38 +13,50 @@ import type { FleetPulse } from '../../src/contract/schema.js';
 // expiry, a clock that moved, a shape from another build, and a file somebody
 // truncated.
 
+/**
+ * The slices of the one plan below, named once and referenced twice.
+ *
+ * `slices` is the entity's name; `waves` is the deprecated alias of the SAME
+ * array, kept while the board's call sites move across in their own change. The
+ * parsed pulse carries both, so a fixture compared whole must carry both — and
+ * sharing one array here is what stops the two drifting in the fixture as they
+ * cannot drift in the schema.
+ */
+const SLICES: FleetPulse['plans'][number]['slices'] = [{
+  name: 'One',
+  verdict: 'eligible',
+  branches: [{
+    branch: 'feature/a', state: 'claimed', deferred: false, deferred_reason: '',
+    claimed: 'claimed: someone',
+    local_dirty: false, local_worktree: '', local_ahead: 0, local_locked: false,
+    // The write clock the scan states per worktree — null where none was
+    // observed, which is this fixture's case.
+    changed_ago_seconds: null,
+    changed_at: null,
+    worker: 'elsewhere', worker_pid: '', worker_exit: '', worker_activity: '',
+    // Written out rather than left to the schema's defaults, because this
+    // fixture is compared WHOLE: `toEqual` against a parsed pulse fails the
+    // moment a field is added, and a fixture that names every field is what
+    // makes the round-trip assertion mean "everything" rather than
+    // "everything I remembered".
+    conflicts: [], conflicts_known: false, changed_paths: [], held: false,
+    // Whether a REF holds the branch — a different question from `held`,
+    // which is about a worktree on this machine. False here beside
+    // `state: 'claimed'` on purpose: the two are independent, and a fixture
+    // that let them agree by accident would not notice them being conflated.
+    ref_held: false,
+    worker_dirty_paths: [],
+  }],
+}];
+
 const PULSE: FleetPulse = {
   main: 'main',
   head: 'abc1234',
   plans: [{
     file: '2026-08-17-a-plan.md',
     phase: 'approved',
-    waves: [{
-      name: 'One',
-      verdict: 'eligible',
-      branches: [{
-        branch: 'feature/a', state: 'claimed', deferred: false, deferred_reason: '',
-        claimed: 'claimed: someone',
-        local_dirty: false, local_worktree: '', local_ahead: 0, local_locked: false,
-        // The write clock the scan states per worktree — null where none was
-        // observed, which is this fixture's case.
-        changed_ago_seconds: null,
-        changed_at: null,
-        worker: 'elsewhere', worker_pid: '', worker_exit: '', worker_activity: '',
-        // Written out rather than left to the schema's defaults, because this
-        // fixture is compared WHOLE: `toEqual` against a parsed pulse fails the
-        // moment a field is added, and a fixture that names every field is what
-        // makes the round-trip assertion mean "everything" rather than
-        // "everything I remembered".
-        conflicts: [], conflicts_known: false, changed_paths: [], held: false,
-        // Whether a REF holds the branch — a different question from `held`,
-        // which is about a worktree on this machine. False here beside
-        // `state: 'claimed'` on purpose: the two are independent, and a fixture
-        // that let them agree by accident would not notice them being conflated.
-        ref_held: false,
-        worker_dirty_paths: [],
-      }],
-    }],
+    slices: SLICES,
+    waves: SLICES,
   }],
   summary: {
     plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0,

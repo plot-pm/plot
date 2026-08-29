@@ -1,14 +1,13 @@
 import { z } from "zod";
 
 /**
- * PLOT'S ENTITY GRAPH — the plans, waves and branches the fleet is about.
+ * PLOT'S ENTITY GRAPH — the plans, slices and branches the fleet is about.
  *
- * Moved here from the board's `contract/schema.ts` unchanged. These shapes
- * were never the board's: they are what a plan, a wave and a branch ARE, and
- * they were only in `contract/` because the board was the first thing to need
- * a name for them. The board now imports them back and re-exports them, so its
- * 53 importers keep their paths and the definitions live where they can be
- * depended on.
+ * Moved here from the board's `contract/schema.ts`. These shapes were never
+ * the board's: they are what a plan, a slice and a branch ARE, and they were
+ * only in `contract/` because the board was the first thing to need a name for
+ * them. The board imports them back and re-exports them, so its 53 importers
+ * keep their paths and the definitions live where they can be depended on.
  *
  * A MOVE, NOT A COPY. There is no second implementation and no window in which
  * two answers exist — the board resolves these from here or not at all.
@@ -29,35 +28,20 @@ export const BranchStateSchema = z.enum(['open', 'wip', 'merged', 'claimed', 'de
 export type BranchState = z.infer<typeof BranchStateSchema>;
 
 /**
- * WHAT THE SCAN SAYS ABOUT A WAVE — four words, one of which is new.
+ * What the scan says about a slice — whether a dispatch could take it.
  *
- * `complete`   every non-deferred branch of this wave has merged
- * `eligible`   a dispatch would take this: prior waves landed AND the plan is approved
- * `blocked`    an earlier wave has not landed yet
+ * `complete`   every non-deferred branch of this slice has merged
+ * `eligible`   a dispatch would take this: prior slices landed AND the plan is approved
+ * `blocked`    an earlier slice has not landed yet
  * `unapproved` the plan is not approved, so nothing here may be dispatched
  *
- * `unapproved` WAS ADDED BY `an-eligible-wave-can-be-started`, and it narrowed
- * what `eligible` means. The word used to answer wave ORDERING alone — *no
- * earlier wave blocks this one* — and readers took it to mean *I can start
- * this*. Measured 2026-08-27: every one-wave plan in `not-started` on the live
- * board read `eligible`, and `plot-dispatch.sh` refused all six as still Draft.
- * Six of six unstartable, wearing the word a reader acts on.
- *
- * THE NOTE ABOVE THIS ONE USED TO SAY THE SCAN KEEPS `eligible` MEANING WAVE
- * ORDERING, and that the ROW would stop rendering it as an instruction. That
- * was the client-side fix, and it was reconsidered rather than forgotten:
- * `--next` and `plot-dispatch.sh` consume this same verdict, so a word meaning
- * one thing to the board and another to the dispatcher relocates the
- * disagreement instead of removing it. The definition is fixed where the
- * verdict is defined.
- *
- * NOT FOLDED INTO `blocked`. That word means *an earlier wave has not landed*
- * — an ordering fact that resolves by merging work. This resolves by a person
- * approving the plan, and `blocked by <wave> — 1 branch` is a sentence a row in
- * this state cannot truthfully complete.
+ * `eligible` asserts BOTH ordering and approval, so a reader may act on it
+ * directly. `blocked` and `unapproved` are kept apart because they resolve
+ * differently: the first by merging work, the second by a person approving the
+ * plan.
  */
-export const WaveVerdictSchema = z.enum(['complete', 'eligible', 'blocked', 'unapproved']);
-export type WaveVerdict = z.infer<typeof WaveVerdictSchema>;
+export const SliceVerdictSchema = z.enum(['complete', 'eligible', 'blocked', 'unapproved']);
+export type SliceVerdict = z.infer<typeof SliceVerdictSchema>;
 
 /**
  * What the scan found out about a worker on a branch — `worker_state()`'s five
@@ -87,7 +71,7 @@ export type WorkerState = z.infer<typeof WorkerStateSchema>;
  * A CUE, NOT A STATE, and that distinction is the whole point. `worker` is the
  * state; this is an attribute of one of its values. `running` is honest and
  * coarse — measured across the fleet 2026-08-25 it covered a worker mid-thought,
- * a worker between waves, and a worker whose child had crashed hours earlier
+ * a worker between tasks, and a worker whose child had crashed hours earlier
  * while the loop waited on it, with 11 of 13 workers in that last, worst case.
  * This tells the first from the last WITHOUT promoting `idle` to a sixth
  * `worker` state and WITHOUT touching `AgentStateSchema`, whose five members are
@@ -227,9 +211,9 @@ export const FleetBranchSchema = z.object({
    * and answers from its claim ref exactly as before. Worktree evidence can only
    * move a branch from free to held, never the reverse.
    *
-   * NEVER AN INPUT TO WAVE ELIGIBILITY. A wave settles on `merged` alone; a held
-   * branch neither completes its own wave nor opens the next. Holding is a fact
-   * the board reports, not a state the arithmetic reads.
+   * NEVER AN INPUT TO SLICE ELIGIBILITY. A slice settles on `merged` alone; a
+   * held branch neither completes its own slice nor opens the next. Holding is a
+   * fact the board reports, not a state the arithmetic reads.
    *
    * Defaults to false so a pulse from an older scan still validates: absent and
    * "nothing here holds it" are the same statement, and both mean "answer from
@@ -268,8 +252,8 @@ export const FleetBranchSchema = z.object({
    * Keeping the interpretation out is what stops this becoming a second copy of
    * the state vocabulary, drifting against the first.
    *
-   * NEVER AN INPUT TO WAVE ELIGIBILITY, like `held`: a wave settles on `merged`
-   * alone.
+   * NEVER AN INPUT TO SLICE ELIGIBILITY, like `held`: a slice settles on
+   * `merged` alone.
    *
    * Defaults to false so a pulse from a scan predating the field still
    * validates. Note the default is the SAFE direction only for readers that
@@ -501,41 +485,57 @@ export const FleetBranchSchema = z.object({
 export type FleetBranch = z.infer<typeof FleetBranchSchema>;
 
 /**
- * ONE BRANCH'S WORTH OF A PLAN, PLUS ITS PLACE IN AN ORDER.
+ * One branch's worth of a plan, plus its place in an order.
  *
- * THE NAME IS WRONG, AND KNOWINGLY SO. The design spec renamed this entity
- * **Slice** on 2026-08-28 (`DESIGN-slice.md`), and by every property below this
- * object IS a slice, not a wave:
- *
- * | | this object | spec's Slice | spec's Wave |
- * |---|---|---|---|
- * | holds | `branches[]` | exactly one branch | many slices |
- * | belongs to | one plan (`plan.waves[]`) | one plan | **no plan** |
- * | persisted | in the pulse | in the plan file | **nowhere** |
- *
- * A Wave, in the spec's vocabulary, is what the FLEET lands together — slices
- * drawn from several plans, sized by the agents available, assembled at
- * dispatch and written down nowhere. That entity does not exist in code yet.
- * This one is its namesake and nothing more.
- *
- * WHY IT IS NOT FIXED HERE. This module arrived by a MOVE that is verifiable
- * byte-for-byte — the property that lets a reviewer confirm no behaviour
- * changed while 547 lines crossed a package boundary. Renaming inside that move
- * would forfeit exactly that. And the rename is not a rename: `waves` is a JSON
- * field `plot-fleet-scan.sh` PRODUCES and 44 board call sites CONSUME, so it is
- * a schema migration across a process boundary — plus 132 plan files whose
- * `## Waves` heading the parser reads. Measured 2026-08-29: 6,277 occurrences
- * across 195 files.
- *
- * Tracked as its own plan. Until it lands, read `Wave` here as `Slice`.
+ * A Slice holds the branches a plan wants landed together and belongs to
+ * exactly one plan, which is what distinguishes it from a Wave: a Wave is the
+ * FLEET's cohort — slices drawn from several plans, sized by the agents
+ * available, assembled at dispatch and persisted nowhere. That entity does not
+ * exist in code, and nothing in this package should be read as naming it
+ * ([DESIGN-slice.md](../../../../docs/stories/the-master-agent-holds-the-fleet/DESIGN-slice.md)).
  */
-export const FleetWaveSchema = z.object({
+export const FleetSliceSchema = z.object({
   name: z.string(),
-  verdict: WaveVerdictSchema,
+  verdict: SliceVerdictSchema,
   branches: z.array(FleetBranchSchema),
 });
+export type FleetSlice = z.infer<typeof FleetSliceSchema>;
 
-export const FleetPlanSchema = z.object({
+/**
+ * Rewrites a `waves` key to `slices` on one object, so both wire spellings
+ * parse to the same shape.
+ *
+ * `plot-fleet-scan.sh` is a separate process that ships separately and still
+ * emits `waves`, so a board built from this package must read either. Used as a
+ * `z.preprocess` step: it runs before validation, leaving Zod to report a
+ * malformed value under whichever key carried it.
+ *
+ * @param value The raw object about to be validated. Anything that is not a
+ *   plain object — including `null` and arrays — is returned untouched, so the
+ *   schema behind it reports the type error rather than this function.
+ * @returns `value` unchanged when it already has `slices` or has neither key;
+ *   otherwise a copy with `waves` renamed to `slices`.
+ */
+const readEitherSpelling = (value: unknown): unknown => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+  const object = value as Record<string, unknown>;
+  if ('slices' in object || !('waves' in object)) return value;
+  const { waves, ...rest } = object;
+  return { ...rest, slices: waves };
+};
+
+/**
+ * A plan and the slices it wants landed, as the scan reports them.
+ *
+ * Reads `slices` or the older `waves` off the wire and resolves to `slices`.
+ * The parsed object also carries `waves` as a deprecated alias of the same
+ * array, so the board's call sites keep compiling while they are moved across
+ * in their own change — the compiler is what will name any site left behind
+ * once the alias goes. The two are the same reference and cannot diverge.
+ *
+ * @deprecated on the result's `waves` property — read `slices`.
+ */
+export const FleetPlanSchema = z.preprocess(readEitherSpelling, z.object({
   file: z.string(),
   /**
    * The plan's own lifecycle state, as `plot-plan-meta.sh` normalizes it
@@ -553,8 +553,8 @@ export const FleetPlanSchema = z.object({
    * guessed column.
    */
   phase: z.string().default(''),
-  waves: z.array(FleetWaveSchema),
-});
+  slices: z.array(FleetSliceSchema),
+})).transform((plan) => ({ ...plan, waves: plan.slices }));
 
 /** The raw `plot-fleet-scan.sh --json` document, parsed. */
 export const FleetPulseSchema = z.object({
@@ -593,6 +593,18 @@ export const FleetPulseSchema = z.object({
    */
   local_head: z.string().optional(),
   plans: z.array(FleetPlanSchema),
+  /**
+   * The scan's tallies, one counter per thing it counted.
+   *
+   * `waves` keeps its wire name here. This plan renames the ENTITY and the
+   * plan's own list of them; the summary is a tally the board both parses and
+   * BUILDS (`partialSummary`, `EMPTY_SUMMARY`), so its counter moves with those
+   * producers rather than ahead of them.
+   *
+   * `FleetPulseSchema` is a plain `z.object` for a reason: the board's Fleet
+   * view reuses this field through `FleetPulseSchema.shape.summary`, and a
+   * preprocessed or transformed schema exposes no `.shape`.
+   */
   summary: z.object({
     plans: z.number(),
     waves: z.number(),

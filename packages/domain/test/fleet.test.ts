@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   BranchStateSchema,
-  WaveVerdictSchema,
+  SliceVerdictSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
   FleetBranchSchema,
-  FleetWaveSchema,
+  FleetSliceSchema,
   FleetPlanSchema,
   FleetPulseSchema,
 } from '../src/index.js';
@@ -40,12 +40,12 @@ describe('the scan vocabularies are closed sets', () => {
     expect(BranchStateSchema.safeParse('abandoned').success).toBe(false);
   });
 
-  it('names the four wave verdicts, `unapproved` among them', () => {
-    expect(WaveVerdictSchema.options).toEqual(['complete', 'eligible', 'blocked', 'unapproved']);
+  it('names the four slice verdicts, `unapproved` among them', () => {
+    expect(SliceVerdictSchema.options).toEqual(['complete', 'eligible', 'blocked', 'unapproved']);
     // `unapproved` is kept apart from `blocked` deliberately: blocked resolves
     // by merging work, this resolves by a person approving the plan.
-    expect(WaveVerdictSchema.safeParse('unapproved').success).toBe(true);
-    expect(WaveVerdictSchema.safeParse('startable').success).toBe(false);
+    expect(SliceVerdictSchema.safeParse('unapproved').success).toBe(true);
+    expect(SliceVerdictSchema.safeParse('startable').success).toBe(false);
   });
 
   it('keeps the six process states and the two task states apart', () => {
@@ -122,33 +122,93 @@ describe('a branch from an older scan still validates', () => {
   });
 });
 
-describe('a wave is a verdict over branches', () => {
-  it('requires a verdict — a wave with no verdict is not a wave', () => {
-    expect(FleetWaveSchema.safeParse({ name: 'Moving', branches: [] }).success).toBe(false);
+describe('a slice is a verdict over branches', () => {
+  it('requires a verdict — a slice with no verdict is not a slice', () => {
+    expect(FleetSliceSchema.safeParse({ name: 'Moving', branches: [] }).success).toBe(false);
   });
 
   it('nests its branches through the branch schema', () => {
-    const w = FleetWaveSchema.parse({ name: 'Moving', verdict: 'eligible', branches: [bareBranch] });
+    const s = FleetSliceSchema.parse({ name: 'Moving', verdict: 'eligible', branches: [bareBranch] });
     // The defaults apply at any depth, which is what makes the graph — rather
     // than the top-level object — the compatibility promise.
-    expect(w.branches[0].worker).toBe('elsewhere');
+    expect(s.branches[0].worker).toBe('elsewhere');
   });
 
-  it('rejects a branch that is invalid inside an otherwise valid wave', () => {
-    expect(FleetWaveSchema.safeParse({
+  it('rejects a branch that is invalid inside an otherwise valid slice', () => {
+    expect(FleetSliceSchema.safeParse({
       name: 'Moving', verdict: 'eligible', branches: [{ ...bareBranch, state: 'bogus' }],
     }).success).toBe(false);
   });
 });
 
-describe('a plan is waves plus its own phase', () => {
+describe('a plan is slices plus its own phase', () => {
   it('defaults the phase to empty, which renders as nothing rather than a guess', () => {
-    const p = FleetPlanSchema.parse({ file: 'docs/plans/x.md', waves: [] });
+    const p = FleetPlanSchema.parse({ file: 'docs/plans/x.md', slices: [] });
     expect(p.phase).toBe('');
   });
 
   it('carries the phase the helper normalized when there is one', () => {
-    expect(FleetPlanSchema.parse({ file: 'x.md', phase: 'approved', waves: [] }).phase).toBe('approved');
+    expect(FleetPlanSchema.parse({ file: 'x.md', phase: 'approved', slices: [] }).phase).toBe('approved');
+  });
+});
+
+/**
+ * THE COMPATIBILITY PROMISE OF THE RENAME, asserted on BOTH inputs.
+ *
+ * `plot-fleet-scan.sh` is a separate process that ships separately and still
+ * emits `waves`, so a board built from this package must read either spelling.
+ * A test that feeds one and asserts about the other is the failure these cover:
+ * each case parses its own input and the two results are compared directly.
+ */
+describe('a plan parses under either spelling', () => {
+  const slice = { name: 'Reading', verdict: 'eligible', branches: [bareBranch] };
+
+  it('reads the new `slices` and the old `waves` to the identical object', () => {
+    const fromNew = FleetPlanSchema.parse({ file: 'x.md', slices: [slice] });
+    const fromOld = FleetPlanSchema.parse({ file: 'x.md', waves: [slice] });
+    expect(fromOld).toEqual(fromNew);
+    // Not vacuous: both really did resolve the slice, rather than both being empty.
+    expect(fromNew.slices).toHaveLength(1);
+    expect(fromOld.slices[0].name).toBe('Reading');
+  });
+
+  it('carries `waves` out as an alias of the same array, under either input', () => {
+    // The board's call sites still read `plan.waves`; they move in their own
+    // change. Same reference, so the two cannot drift.
+    for (const input of [{ file: 'x.md', slices: [slice] }, { file: 'x.md', waves: [slice] }]) {
+      const parsed = FleetPlanSchema.parse(input);
+      expect(parsed.waves).toBe(parsed.slices);
+    }
+  });
+
+  it('prefers `slices` when a pulse somehow carries both', () => {
+    const parsed = FleetPlanSchema.parse({
+      file: 'x.md', slices: [slice], waves: [{ ...slice, name: 'Stale' }],
+    });
+    expect(parsed.slices).toHaveLength(1);
+    expect(parsed.slices[0].name).toBe('Reading');
+  });
+
+  it('still refuses a malformed slice under the legacy key', () => {
+    // The fallback renames a key; it does not soften validation behind it.
+    expect(FleetPlanSchema.safeParse({ file: 'x.md', waves: 'not an array' }).success).toBe(false);
+    expect(FleetPlanSchema.safeParse({ file: 'x.md' }).success).toBe(false);
+  });
+
+  it('leaves a non-object alone for the schema to reject', () => {
+    // The preprocessor must never be the thing that reports a type error.
+    for (const notAPlan of [null, 'plan', 42, [] as unknown]) {
+      expect(FleetPlanSchema.safeParse(notAPlan).success).toBe(false);
+    }
+  });
+
+  it('parses a whole pulse in the legacy spelling, nested', () => {
+    const pulse = FleetPulseSchema.parse({
+      main: 'main', head: 'abc1234',
+      plans: [{ file: 'docs/plans/x.md', waves: [slice] }],
+      summary: bareSummary,
+    });
+    expect(pulse.plans[0].slices[0].branches[0].worker).toBe('elsewhere');
   });
 });
 
