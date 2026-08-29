@@ -1,107 +1,126 @@
 ## Implementation brief — the-domain-moves-out-of-the-board (slice 2: Deliverable)
 
+> **REBUILD.** A first attempt shipped as PR **#511** and was **closed green
+> rather than merged**. Read *Why this is being rebuilt* before anything else —
+> the previous work is a correct reference for the WHAT and wrong for the HOW.
+
 - **Plan (canonical):** `docs/plans/2026-08-28-the-domain-moves-out-of-the-board.md` on `main`
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Branch:** `feature/one-deliver-rule-decides-in-the-domain` (base: `main`)
 - **Ends as:** one PR to `main`
-- **Depends on:** slice 1 (`the-domain-package-exists`, #509) — merged. `@plot-pm/domain` exists.
+- **Waits on:** `the-domain-speaks-slices` slice 1 (`infra/the-domain-names-a-slice`)
+  landing first. Start only once `@plot-pm/domain` exports `FleetSliceSchema`.
 
-Independent of slices 3 (`Entities`) and 4 (`Transitions`). All three became
-eligible together; none imports another.
+### Why this is being rebuilt
+
+#511 was correct work: the definition left `board.ts`, no board test was edited,
+coverage went from slice 1's toothless 100% (8 statements, 0 branches) to **30
+statements / 16-of-16 branches across 36 tests**, and CI was green on the tip.
+
+**It carried the wrong vocabulary.** `DESIGN-slice.md` renamed the entity
+**Slice** on 2026-08-28: a Slice holds exactly one branch and belongs to one
+plan, while a **Wave** is the fleet's cross-plan cohort, formed at dispatch and
+persisted nowhere. `allWavesMerged` asks whether every *slice* of one plan has
+merged — the name says Wave and means Slice. Merging it would have grown the
+defect and left `Entities` and `Transitions` building on top of it.
+
+Two further conventions were settled in the same review, and #511 predates all
+three.
 
 ### What to build
 
-Move `allWavesMerged` from `packages/board/src/server/board.ts:707` into
-`@plot-pm/domain` as `rules/deliverable.ts`, and have the board import it.
+Move the deliverable rule from `packages/board/src/server/board.ts` into
+`@plot-pm/domain` as `src/rules/deliverable.ts`, **in the corrected vocabulary
+and the package's house style**.
 
-```ts
-export function allWavesMerged(
-  meta: PlanMeta, pulse: FleetPulse | null, complete: boolean,
-): Landed        // 'merged' | 'not-merged' | 'unknown'  — board.ts:705
+| #511 called it | build it as |
+|---|---|
+| `allWavesMerged(...)` | `allSlicesMerged(...)` |
+| `export function` | `export const … = (…) => …` |
+| 137 lines / 28 code / 109 comment | factual TSDoc |
+
+**The board keeps compiling** — re-export from `board.ts` under whatever name
+the call sites still use, and say in one line that the alias is temporary.
+
+### The reference implementation, and how to use it
+
+**#511's three commits are still on `feature/one-deliver-rule-decides-in-the-domain`
+at `dcce9d22`.** Its `deliverable.ts` and `deliverable.test.ts` are a verified
+reference for the LOGIC: 14 cases in the dedicated test file, and a `merged > 0`
+guard whose absence once made a plan with no merged slice read as delivered.
+
+**Take the behaviour. Do not take the prose.** That file is 28 lines of code
+under 109 lines of comment — the exact ratio that produced rule 3 below.
+
+```bash
+git show dcce9d22:packages/domain/src/rules/deliverable.ts
+git show dcce9d22:packages/domain/test/deliverable.test.ts
 ```
 
-**Take `Landed` with it.** It is the rule's return type and means nothing
-without it.
+### The three house rules — all CI-gated, all new since #511
 
-### Numbers in the plan that I re-measured, and they differ
+`CLAUDE.md` › **The Domain Package**:
+
+1. **Vocabulary.** No new `Wave` under `packages/domain/src/`. A gate counts
+   occurrences and fails on an increase over `allowed=` in
+   `.github/workflows/ci.yml`. **The rename slice lowers that number before you
+   start; do not raise it.**
+2. **Arrow functions.** `export const f = (…) => …`. A `function` declaration
+   under `packages/domain/src/` fails the build.
+3. **Factual API docs.** TSDoc says what an export does, its parameters, its
+   return, its failure modes — and stops. Reasoning goes in the plan and the
+   commit message, where it is dated and `git log -S` finds it.
+
+**Rule 3 has no gate and is the one to get right by hand.** A measurement worth
+keeping (*"a plan with no merged slice read as delivered, 2026-08-20"*) belongs
+in the commit that introduces the guard, not above it.
+
+### Numbers in the plan that are wrong — re-measured 2026-08-29
 
 The plan says *"with its 25 tests. The board's three call sites import it."*
-**Measured 2026-08-29 — check for yourself rather than trusting either of us:**
 
 | plan says | actually |
 |---|---|
-| 3 call sites | **4** non-test call sites (`deliver.ts` ×2, `auto-deliver.ts`, plus the definition's own module) |
-| 25 tests | the tests are spread over **four** files: `merged-waves-reach-testing.test.ts` (15 in file, the dedicated one), plus `auto-deliver.test.ts`, `deliver-route.test.ts`, `plan-status.test.ts` which exercise it indirectly |
+| 3 call sites | **4** non-test call sites |
+| 25 tests | spread over **four** files; the dedicated one has 14 cases |
 
-**This does not change the work; it changes what "done" looks like.** Do not
-hunt for a file with exactly 25 tests in it. `tsc` names every call site — that
-is the reliable count.
-
-### The decisions the plan settles — do not re-derive them
-
-**A MOVE, not a re-implementation.** Same rule as slice 1: no second
-implementation exists at any point. If you find yourself writing an adapter, or
-leaving a thin wrapper in `board.ts` that re-derives anything, stop — a wrapper
-that only re-exports is fine, a wrapper that decides is the defect.
-
-**The existing tests prove behaviour is preserved; they cannot prove it is
-right.** A rule that was wrong before the move is wrong after it. Do not "fix"
-a surprising case you find — report it.
-
-**Coverage is a gate here, and it will actually bite.** Unlike slice 1 (zod
-declarations: 8 statements, 0 branches), this is a real function with branches.
-The domain package's threshold is 100% and **fails the build** when unmet, so
-*"any gap the move exposes is closed here"* — the plan's words. Expect to write
-tests, not just move them.
+**Trust `tsc`, not either count.** It names every call site that has not moved.
 
 ### Done when
 
-The plan's `## Done when` for this slice:
+- the tests pass from the domain package with **no board test edited**
+- `board.ts` **no longer defines** the rule — a re-export is fine, a wrapper that
+  *decides* is not
+- coverage of `src/rules/` meets the **100% threshold**, which **fails the
+  build** when unmet — expect to write tests, not only move them
+- the three house rules hold, and **the vocabulary gate's `allowed=` is not
+  raised**
 
-- the tests pass **unedited** from the domain package
-- `board.ts` **no longer defines** the function
-- coverage of `rules/deliverable.ts` meets the 100% threshold
-
-**"Unedited" is load-bearing.** A test you had to change is a behaviour you
-changed. Import-path updates are not behaviour; anything else is, and belongs in
-the PR body explicitly.
-
-Plus the repo's gates: Node 24 (`nvm use`; use `corepack pnpm`, homebrew pnpm
-crashes), `pnpm build:board` committed, `pnpm run typecheck`, `pnpm run
-test:board`, a changeset naming `'@plot-pm/board'` and `'@plot-pm/domain'`.
-
-### One thing you will notice and should NOT fix
-
-The domain calls a slice a `Wave` — `FleetWaveSchema`, `WaveVerdict`,
-`plan.waves`. **That is a known, documented defect** with its own plan
-(`docs/plans/2026-08-29-the-domain-speaks-slices.md`) and a comment at the
-schema explaining it. The function you are moving is named `allWavesMerged` for
-the same reason.
-
-**Keep the name.** Renaming it here fuses two changes and breaks the rename
-plan's own sequencing. Read `Wave` as `Slice` and move on.
+Plus the repo's gates: Node 24 (`nvm use`, `corepack pnpm`), `pnpm build:board`
+committed, `pnpm run typecheck`, a changeset naming both packages.
 
 ### Bookkeeping
 
 - Push your first real commit **as soon as it exists**; push again after any rebase.
 - When the PR exists, append `PR: #<number>` inside this slice's `### ` heading
-  in the plan's `## Waves` section **on main** — the form is
-  `### Deliverable (Branch: x, PR: #N)`, not a trailing arrow.
-- Run every test in the FOREGROUND. A `-p` run has no next turn, so a background
+  on main: `### Deliverable (Branch: x, PR: #N)` — not a trailing arrow.
+- Run every test in the FOREGROUND; a `-p` run has no next turn, so a background
   job's completion never reaches you and finished work is stranded uncommitted.
 
 ### Scope guard
 
-**This branch owns:** `packages/domain/src/rules/deliverable.ts` (new), the
-`allWavesMerged` definition in `packages/board/src/server/board.ts`, and the
-import lines at its call sites.
+**This branch owns:** `packages/domain/src/rules/deliverable.ts`, its test, the
+rule's definition in `packages/board/src/server/board.ts`, and the import lines
+at its call sites.
 
-**The sibling slices run one at a time, not beside you** — the wave gate
-serialises them —
-`feature/the-entities-carry-their-states` and `feature/a-transition-is-one-value`.
-Both add NEW files under `packages/domain/src/`; none of you should be editing
-another's. If you need to touch `packages/domain/src/index.ts`, expect a trivial
-conflict there and rebase rather than reverting.
+**Do not rename anything the rename plan owns.** `FleetSlice`, `SliceVerdict`
+and `plan.slices` arrive from `infra/the-domain-names-a-slice`. Your rename is
+the *rule's own name* only.
+
+**The board suite is load-flaky on two files** — `streaming-scan.test.ts` and
+`auto-dispatch-spawn.test.ts` fail under full parallel load on `main` too.
+Neither touches this rule (verified: 0 occurrences). Run them alone before
+believing a failure, and baseline against a pristine `main` worktree.
 
 **A board artifact conflict is mechanical:** take either side of
 `board-server.mjs`, run `pnpm build:board`, commit. Never read its diff.
