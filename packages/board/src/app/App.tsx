@@ -101,14 +101,39 @@ const STARTING_POLL_MS = FLEET_POLL_MS;
  */
 const POLL_TIMEOUT_MS = 3_500;
 
-type Tab = 'board' | 'agents';
+/**
+ * The three tabs, in display order: strategy → artifacts → execution.
+ *
+ * - Stories: the strategic layer above plans — themes that span multiple plans
+ * - Plans: the artifacts (renamed from "Board" for clarity)
+ * - Agents: execution state
+ *
+ * `?tab=board` redirects to `?tab=plans` for backward compatibility.
+ */
+type Tab = 'stories' | 'plans' | 'agents';
+
+/**
+ * Parse the tab from the URL, with backward compatibility for `?tab=board`.
+ */
+function parseTab(): Tab {
+  const param = new URLSearchParams(location.search).get('tab');
+  if (param === 'agents') return 'agents';
+  if (param === 'stories') return 'stories';
+  // Redirect ?tab=board to ?tab=plans silently — existing bookmarks work
+  if (param === 'board') {
+    const url = new URL(location.href);
+    url.searchParams.set('tab', 'plans');
+    history.replaceState(null, '', url);
+    return 'plans';
+  }
+  // Default to plans (was 'board') when no tab specified
+  return 'plans';
+}
 
 export function App() {
   const [board, setBoard] = useState<Board | null>(null);
   const [fleet, setFleet] = useState<Fleet | null>(null);
-  const [tab, setTab] = useState<Tab>(
-    () => (new URLSearchParams(location.search).get('tab') === 'agents' ? 'agents' : 'board'),
-  );
+  const [tab, setTab] = useState<Tab>(parseTab);
   // Swimlanes are a LAYOUT of the same board, not a third tab: the question is
   // still "where does this work stand", only grouped by story as well as phase.
   // Off by default — with one story, rows cost width and add nothing.
@@ -587,8 +612,9 @@ export function App() {
   const onTab = (next: Tab) => {
     setTab(next);
     const url = new URL(location.href);
-    if (next === 'agents') url.searchParams.set('tab', 'agents');
-    else url.searchParams.delete('tab');
+    // Plans is the default, so no param needed; others are explicit
+    if (next === 'plans') url.searchParams.delete('tab');
+    else url.searchParams.set('tab', next);
     history.replaceState(null, '', url);
     // Leaving the Agents tab is the reader moving on, so the branch arrival
     // marker goes — the same reason the plan highlight clears on the next
@@ -714,7 +740,7 @@ export function App() {
    */
   const onShowInBoard = useCallback((card: Card) => {
     setOpenPlan(null);
-    setTab('board');
+    setTab('plans');
     const url = new URL(location.href);
     url.searchParams.delete('tab');
     // A plan with no story filters to nothing — so it does not filter at all.
@@ -770,7 +796,7 @@ export function App() {
   const onShowStoryInBoard = useCallback(
     (story: StoryCard) => {
       setOpenStory(null);
-      setTab('board');
+      setTab('plans');
       const url = new URL(location.href);
       url.searchParams.delete('tab');
       url.searchParams.delete('plan');
@@ -857,7 +883,7 @@ export function App() {
   // scroll — arriving at the card is the point; only the movement is the
   // accessibility concern.
   useEffect(() => {
-    if (!validHighlight || tab !== 'board') return;
+    if (!validHighlight || tab !== 'plans') return;
     const smooth = !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const id = requestAnimationFrame(() => {
       document.getElementById(`plan-${validHighlight}`)?.scrollIntoView({
@@ -888,6 +914,19 @@ export function App() {
     });
     return () => cancelAnimationFrame(id);
   }, [highlightBranch, revealNonce, tab, fleet]);
+
+  // Empty-state redirect: if Stories tab is open but there are no stories,
+  // redirect to Plans automatically. The Stories tab remains accessible but
+  // lands on Plans by default when empty.
+  useEffect(() => {
+    if (tab !== 'stories' || !board) return;
+    if (board.stories.length === 0) {
+      setTab('plans');
+      const url = new URL(location.href);
+      url.searchParams.delete('tab');
+      history.replaceState(null, '', url);
+    }
+  }, [tab, board]);
 
   return (
     <div className="mx-auto min-h-screen max-w-[1600px] px-4 py-4">
@@ -933,9 +972,11 @@ export function App() {
             UnreachableOverlay receives the whole ServerInfo but reads only
             `restartCommand` and `port`, so this deletion adds no new dead code.
         */}
+        {/* Tab order: Stories · Plans · Agents — strategy → artifacts → execution */}
         <nav className="mr-auto flex gap-1" aria-label="Views">
           {([
-            ['board', 'Board'],
+            ['stories', 'Stories'],
+            ['plans', 'Plans'],
             ['agents', 'Agents'],
           ] as const).map(([key, label]) => (
             <button
@@ -955,16 +996,16 @@ export function App() {
         </nav>
         {/* Filters belong to the board; the agent list is grouped by waiting
             reason, which is not something a sprint or story narrows. */}
-        {tab === 'board' && hasSprints && (
+        {tab === 'plans' && hasSprints && (
           <MultiSelect label="All sprints" options={sprintOptions} selected={validSprintSel} onChange={onSprint} />
         )}
-        {tab === 'board' && hasStories && (
+        {tab === 'plans' && hasStories && (
           <MultiSelect label="All stories" options={storyOptions} selected={validStorySel} onChange={onStory} />
         )}
         {/* Only offered where it can show something: with no stories, lanes
             would render one "(no story)" row, which is just the board with a
             wasted column. */}
-        {tab === 'board' && hasStories && (
+        {tab === 'plans' && hasStories && (
           <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <input
               type="checkbox"
@@ -977,7 +1018,23 @@ export function App() {
         )}
       </header>
       <main>
-        {tab === 'agents' ? (
+        {tab === 'stories' ? (
+          // Stories tab — the strategic layer above plans. Shows story cards
+          // grouped by status (Draft/Active/Done/Archived), with tag cloud.
+          // Placeholder until feature/stories-tab branch lands.
+          board ? (
+            <div className="rounded-lg bg-slate-100/70 p-4 dark:bg-slate-900/50">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Stories tab — {board.stories.length} {board.stories.length === 1 ? 'story' : 'stories'} available.
+              </p>
+              <p className="mt-2 text-xs text-slate-500">
+                (Full Stories tab component coming in feature/stories-tab branch)
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">Loading…</p>
+          )
+        ) : tab === 'agents' ? (
           fleet ? (
             // The poll rate is the client's own, and it is passed rather than
             // re-declared so the countdown cannot drift from the interval it
