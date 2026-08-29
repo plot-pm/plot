@@ -136,10 +136,10 @@ describe('Issue * ── * Plan — a plan answers several; a signal fans into n
   });
 });
 
-describe('Slice 1 ── 1 Branch, and a cohort spans plans', () => {
-  it('gives a slice one branch and lets a cohort cross plans', () => {
+describe('Slice 1 ── 1 Branch, and a Wave spans plans', () => {
+  it('gives a slice one branch and lets a Wave cross plans', () => {
     // The distinction the rename drew: a slice belongs to exactly one plan, and
-    // the fleet's cohort belongs to none.
+    // the fleet's Wave belongs to none.
     expect(plansSpanned([
       { plan: 'a', name: 'One', branch: 'feature/x' },
       { plan: 'b', name: 'Two', branch: 'feature/y' },

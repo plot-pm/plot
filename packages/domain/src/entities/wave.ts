@@ -34,23 +34,23 @@ export interface SliceRef {
  * A type with no way to build one is the honest form for an entity with no
  * source of truth. It becomes constructible when something forms one.
  */
-export interface Cohort {
+export interface Wave {
   /** The slices assembled to land together. */
   slices: readonly SliceRef[];
-  /** The concurrency ceiling this cohort was bounded by. */
+  /** The concurrency ceiling this wave was bounded by. */
   parallelAgents: number;
 }
 
 /**
- * How a cohort's size may be bounded.
+ * How a wave's size may be bounded.
  *
  * `agents` is the ceiling on how many can run at once; `landable` is how many
  * can merge together without colliding. Which bound wins is an open question:
  * starting five agents whose work cannot land together is precisely the burst
  * the merge queue was written to predict.
  */
-export const CohortBoundSchema = z.enum(['agents', 'landable']);
-export type CohortBound = z.infer<typeof CohortBoundSchema>;
+export const WaveBoundSchema = z.enum(['agents', 'landable']);
+export type WaveBound = z.infer<typeof WaveBoundSchema>;
 
 /**
  * Whether a slice reference names a branch at all.
@@ -68,8 +68,8 @@ export const isSliced = (slice: SliceRef): boolean =>
 /**
  * The plans a set of slices spans.
  *
- * What distinguishes a fleet cohort from a plan's own slices: more than one
- * plan means the cohort is doing the thing no component does today.
+ * What distinguishes a fleet wave from a plan's own slices: more than one
+ * plan means the wave is doing the thing no component does today.
  *
  * @param slices - the slices to read.
  * @returns each plan slug once, in the order first named.

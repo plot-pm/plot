@@ -489,7 +489,7 @@ export type FleetBranch = z.infer<typeof FleetBranchSchema>;
  *
  * A Slice holds the branches a plan wants landed together and belongs to
  * exactly one plan, which is what distinguishes it from a Wave: a Wave is the
- * FLEET's cohort — slices drawn from several plans, sized by the agents
+ * FLEET's Wave — slices drawn from several plans, sized by the agents
  * available, assembled at dispatch and persisted nowhere. That entity does not
  * exist in code, and nothing in this package should be read as naming it
  * ([DESIGN-slice.md](../../../../docs/stories/the-master-agent-holds-the-fleet/DESIGN-slice.md)).

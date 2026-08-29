@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CohortBoundSchema, isSliced, plansSpanned, type Cohort, type SliceRef } from '../src/index.js';
+import { WaveBoundSchema, isSliced, plansSpanned, type Wave, type SliceRef } from '../src/index.js';
 
 /**
  * What the fleet lands together — the entity with no source of truth.
@@ -11,22 +11,22 @@ import { CohortBoundSchema, isSliced, plansSpanned, type Cohort, type SliceRef }
 
 const slice = (plan: string, name: string, branch: string): SliceRef => ({ plan, name, branch });
 
-describe('a cohort spans plans; a slice belongs to one', () => {
+describe('a wave spans plans; a slice belongs to one', () => {
   it('is a type that can be described without being constructed by Plot', () => {
     // The honest shape for an entity nothing forms yet: a value can be written
     // in a test, and no factory in the domain mints one.
-    const cohort: Cohort = {
+    const wave: Wave = {
       slices: [slice('plan-a', 'Moving', 'feature/x'), slice('plan-b', 'Counted', 'feature/y')],
       parallelAgents: 3,
     };
-    expect(cohort.slices).toHaveLength(2);
-    expect(cohort.parallelAgents).toBe(3);
+    expect(wave.slices).toHaveLength(2);
+    expect(wave.parallelAgents).toBe(3);
   });
 
-  it('names the two bounds a cohort may be sized by', () => {
+  it('names the two bounds a wave may be sized by', () => {
     // Which wins is an open question: starting five agents whose work cannot
     // land together is the burst the merge queue was written to predict.
-    expect(CohortBoundSchema.options).toEqual(['agents', 'landable']);
+    expect(WaveBoundSchema.options).toEqual(['agents', 'landable']);
   });
 
   it('spans several plans, which is what nothing does today', () => {
@@ -34,7 +34,7 @@ describe('a cohort spans plans; a slice belongs to one', () => {
       .toEqual(['plan-a', 'plan-b']);
   });
 
-  it('counts a plan once however many of its slices are in the cohort', () => {
+  it('counts a plan once however many of its slices are in the wave', () => {
     expect(plansSpanned([slice('plan-a', 'One', 'feature/x'), slice('plan-a', 'Two', 'feature/y')]))
       .toEqual(['plan-a']);
   });

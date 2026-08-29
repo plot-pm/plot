@@ -23,4 +23,4 @@ export * from './entities/build.js';
 export * from './entities/story.js';
 export * from './entities/sprint.js';
 export * from './entities/issue.js';
-export * from './entities/cohort.js';
+export * from './entities/wave.js';
