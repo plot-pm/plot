@@ -1077,39 +1077,165 @@ export function collectSprints(
   return sprints;
 }
 
-/** Story files use story-tracking's YAML front matter (title + status). */
-function parseStoryFile(absPath: string, slug: string, relPath: string): StoryCardInput | null {
+/**
+ * Extract a markdown section by heading. Returns the content between the heading
+ * and the next heading of equal or higher level (## or #), or end of document.
+ */
+function extractSection(content: string, heading: string): string {
+  // Match ## Heading (level 2) - escape special regex chars in heading
+  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Use multiline flag for ^ matching line start. The lookahead finds the next
+  // ## heading or end of string (using (?![\s\S]) which never matches anything).
+  const pattern = new RegExp(`^## ${escapedHeading}\\s*\\n([\\s\\S]*?)(?=\\n## |\\n# |$(?![\\s\\S]))`, 'm');
+  const match = content.match(pattern);
+  if (!match) return '';
+  return match[1].trim();
+}
+
+/**
+ * Truncate text to approximately maxLen characters, breaking at word boundary
+ * and adding ellipsis if truncated.
+ */
+function truncateText(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  const truncated = text.slice(0, maxLen);
+  const lastSpace = truncated.lastIndexOf(' ');
+  return (lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated) + '…';
+}
+
+/**
+ * List DESIGN-*.md files in a story directory.
+ */
+function listDesignDocs(storyDir: string): string[] {
+  try {
+    return fs.readdirSync(storyDir)
+      .filter((f) => /^DESIGN-.*\.md$/.test(f))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Parse a story file to extract all metadata and content sections.
+ * Story files use story-tracking's YAML front matter.
+ */
+function parseStoryFile(absPath: string, slug: string, relPath: string, storyDir: string): StoryCardInput | null {
   let content: string;
   try {
     content = fs.readFileSync(absPath, 'utf8');
   } catch {
     return null;
   }
+
+  // Parse YAML frontmatter
   let title = '';
   let status = '';
+  let author = '';
+  let created = '';
+  let updated = '';
+
   const fm = content.match(/^---\n([\s\S]*?)\n---/);
   if (fm) {
-    const t = fm[1].match(/^title:\s*(.+)$/m);
-    if (t) title = t[1].trim();
-    const s = fm[1].match(/^status:\s*(.+)$/m);
-    if (s) status = s[1].trim();
+    const frontmatter = fm[1];
+    const titleMatch = frontmatter.match(/^title:\s*(.+)$/m);
+    if (titleMatch) title = titleMatch[1].trim();
+    const statusMatch = frontmatter.match(/^status:\s*(.+)$/m);
+    if (statusMatch) status = statusMatch[1].trim();
+    const authorMatch = frontmatter.match(/^author:\s*(.+)$/m);
+    if (authorMatch) author = authorMatch[1].trim();
+    const createdMatch = frontmatter.match(/^created:\s*(.+)$/m);
+    if (createdMatch) created = createdMatch[1].trim();
+    const updatedMatch = frontmatter.match(/^updated:\s*(.+)$/m);
+    if (updatedMatch) updated = updatedMatch[1].trim();
   }
+
+  // Fall back to H1 heading for title
   if (!title) {
     const h1 = content.match(/^# (.+)$/m);
     title = h1 ? h1[1].trim() : slug;
   }
-  return { slug, title, status, path: relPath };
+
+  // Extract content sections
+  const objectiveFull = extractSection(content, 'Objective');
+  const objective = truncateText(objectiveFull, 200);
+  const design = extractSection(content, 'Design');
+  const hasOpenPoints = /^## Open Points\s*$/m.test(content);
+  const hasSessionLog = /^## Session Log\s*$/m.test(content);
+
+  // List DESIGN-*.md files in the story directory
+  const designDocs = listDesignDocs(storyDir);
+
+  return {
+    slug,
+    title,
+    status,
+    author,
+    created,
+    updated,
+    objective,
+    design,
+    path: relPath,
+    designDocs,
+    hasOpenPoints,
+    hasSessionLog,
+  };
+}
+
+/**
+ * Compute status drift: when a story's manual `status:` field conflicts with
+ * its plan states. Returns a warning message, or null if no drift.
+ */
+function computeStatusDrift(status: string, plans: Array<{ phase: string }>): string | null {
+  if (!status || plans.length === 0) return null;
+
+  const phases = plans.map((p) => p.phase.toLowerCase());
+  const allReleased = phases.every((p) => p === 'released');
+  const allDelivered = phases.every((p) => p === 'released' || p === 'delivered');
+  const hasApproved = phases.some((p) => p === 'approved');
+
+  // Story says active but all plans are released
+  if (status === 'active' && allReleased) {
+    return '⚠️ All plans released';
+  }
+  // Story says active but all plans are delivered/released (none in progress)
+  if (status === 'active' && allDelivered && !hasApproved) {
+    return '⚠️ All plans delivered';
+  }
+  // Story says done but some plans are not delivered/released
+  if (status === 'done' && !allDelivered) {
+    return '⚠️ Some plans not delivered';
+  }
+  // Story says draft but has approved/in-progress plans
+  if (status === 'draft' && hasApproved) {
+    return '⚠️ Has approved plans';
+  }
+
+  return null;
 }
 
 /**
  * Discover stories under docs/stories/<slug>/STORY-<slug>.md. The glob depth
  * (one directory down) naturally excludes docs/stories/archived/<slug>/…, so
  * archived stories never populate the filter list.
+ *
+ * Also computes plan counts and status drift by querying the provided plans.
  */
-function collectStories(repoRoot: string, storyDir: string): StoryCard[] {
+function collectStories(repoRoot: string, storyDir: string, allPlans: PlanMeta[]): StoryCard[] {
   const root = path.join(repoRoot, storyDir);
   if (!fs.existsSync(root)) return [];
   const stories: StoryCard[] = [];
+
+  // Build a map of story slug -> plans for efficient lookup
+  const plansByStory = new Map<string, PlanMeta[]>();
+  for (const plan of allPlans) {
+    if (plan.story) {
+      const existing = plansByStory.get(plan.story) || [];
+      existing.push(plan);
+      plansByStory.set(plan.story, existing);
+    }
+  }
+
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name === 'archived') continue;
     const dir = path.join(root, entry.name);
@@ -1126,14 +1252,52 @@ function collectStories(repoRoot: string, storyDir: string): StoryCard[] {
     // Repo-relative, computed once here rather than reassembled by whoever
     // needs it. Same rule as `planFile` on a fleet row: stripping and rebuilding
     // a path is where the mistakes live, so the consumer is handed the answer.
-    const input = parseStoryFile(abs, slug, path.relative(repoRoot, abs));
-    // Parse through Zod to apply defaults for new fields (statusDrift, author,
-    // objective, etc.). The Backend wave will populate these; until then they
-    // get their schema defaults.
-    if (input) {
-      const parsed = StoryCardSchema.safeParse(input);
-      if (parsed.success) stories.push(parsed.data);
+    const input = parseStoryFile(abs, slug, path.relative(repoRoot, abs), dir);
+    if (!input) continue;
+
+    // Get plans for this story and compute counts
+    const storyPlans = plansByStory.get(slug) || [];
+    const planCount = storyPlans.length;
+    const deliveredCount = storyPlans.filter(
+      (p) => p.phase === 'released' || p.phase === 'delivered'
+    ).length;
+
+    // Build plan references for the card
+    const plans = storyPlans.map((p) => ({
+      slug: planSlug(p.file),
+      title: p.title,
+      phase: p.phase,
+      sprint: p.sprint,
+    }));
+
+    // Compute sprints with plan counts
+    const sprintCounts = new Map<string, number>();
+    for (const p of storyPlans) {
+      if (p.sprint) {
+        sprintCounts.set(p.sprint, (sprintCounts.get(p.sprint) || 0) + 1);
+      }
     }
+    const sprints = Array.from(sprintCounts.entries()).map(([slug, count]) => ({
+      slug,
+      planCount: count,
+    }));
+
+    // Compute status drift
+    const statusDrift = computeStatusDrift(input.status, storyPlans);
+
+    // Merge computed fields into input
+    const fullInput: StoryCardInput = {
+      ...input,
+      planCount,
+      deliveredCount,
+      plans,
+      sprints,
+      statusDrift,
+    };
+
+    // Parse through Zod to apply defaults and validate
+    const parsed = StoryCardSchema.safeParse(fullInput);
+    if (parsed.success) stories.push(parsed.data);
   }
   return stories;
 }
@@ -1151,7 +1315,8 @@ function resolveStoryFile(opts: BuildBoardOptions, slug: string): string | null 
   if (!slug) return null;
   const repoRoot = resolvedRepoRoot(opts);
   const storyDir = readConfig(opts, 'Story directory', 'docs/stories/');
-  for (const story of collectStories(repoRoot, storyDir)) {
+  // Pass empty plans array - resolveStoryFile only needs the path, not plan counts
+  for (const story of collectStories(repoRoot, storyDir, [])) {
     // `story.slug` came from a real STORY-*.md filename the board walked; a
     // request naming anything else — traversal, an archived story, a typo —
     // matches nothing and 404s.
@@ -1489,7 +1654,7 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     sprints: collectSprints(
       repoRoot, sprintDir, new Set(cards.map((c) => c.slug)), `origin/${defaultBranch}`,
     ),
-    stories: collectStories(repoRoot, storyDir),
+    stories: collectStories(repoRoot, storyDir, metas),
   };
 }
 
