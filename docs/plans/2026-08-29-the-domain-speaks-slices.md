@@ -4,7 +4,7 @@
 
 - **Phase:** Approved
 - **Type:** infra
-- **Sprint:** the-domain-is-one-implementation
+- **Sprint:** the-board-shows-the-strategic-layer
 - **Issue:** <!-- optional -->
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
