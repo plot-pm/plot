@@ -13,6 +13,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, branch -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-29, Jan Wloka, `infra/the-board-reads-a-slice`
 
 ## Approval
 
