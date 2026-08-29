@@ -1,7 +1,7 @@
 {
   "name": "plot",
   "description": "Git-native planning workflow for software development — idea, approve, deliver, release",
-  "version": "2.11.1",
+  "version": "2.12.0",
   "author": {
     "name": "Max Albrecht",
     "email": "1@178.is"
