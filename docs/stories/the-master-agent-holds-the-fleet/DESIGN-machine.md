@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Machine — domain object specification
@@ -145,6 +145,29 @@ second scan would not be.
 | `starved` | **> ~50 ms** | **the operator's board is already suffering** |
 | `unmeasured` | — | not asked, or the measurement failed |
 
+Source: [`diagrams/machine-lifecycle.mmd`](diagrams/machine-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> unmeasured
+  unmeasured --> clear : spawn under 10 ms
+  unmeasured --> tight : spawn 10 to 50 ms
+  unmeasured --> starved : spawn over 50 ms
+  clear --> tight
+  tight --> starved
+  starved --> tight
+  tight --> clear
+  clear --> unmeasured : reading stale
+  tight --> unmeasured : reading stale
+  starved --> unmeasured : reading stale
+
+  note right of unmeasured
+    A moment, not a transition.
+    unmeasured is not permission to dispatch.
+    measuredAt is required.
+  end note
+```
+
 **The thresholds are provisional and must be re-measured.** They come from one
 session — one sample — and this document says so rather than presenting them as
 settled.
@@ -176,6 +199,23 @@ never written.
 | Agent → Machine **at death** | `machineAtDeath` (Agent §3) |
 | Worktree → Machine | disk, and a recursive tool's cost (Worktree §12) |
 | Build → Machine | **no** — CI runs elsewhere |
+
+Source: [`diagrams/machine-relations.mmd`](diagrams/machine-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class Machine
+  class Agent
+  class Worktree
+  class Build
+
+  Machine "1" --> "*" Agent : hosts
+  Agent --> Machine : machineAtDeath
+  Worktree --> Machine : disk cost
+  Build .. Machine : CI runs elsewhere
+```
 
 **`machineAtDeath` is the relation that matters**, and it is why the
 `AgentMonitor` must be attached at creation (Agent §9): *a scan finding a dead

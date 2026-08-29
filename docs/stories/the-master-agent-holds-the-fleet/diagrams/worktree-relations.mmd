@@ -1,0 +1,11 @@
+classDiagram
+  direction LR
+
+  class Worktree
+  class Branch
+  class Agent
+  class Plan
+
+  Worktree "1" --> "1" Branch : while checked out
+  Agent "1" --> "1" Worktree : owns desk
+  Worktree --> Plan : via branch slice

@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Issue — domain object specification
@@ -549,6 +549,23 @@ open in the tracker, a plan cites it    ──►  MAPPED     (invisible)
                                              GONE       (invisible)
 ```
 
+Source: [`diagrams/issue-lifecycle.mmd`](diagrams/issue-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> inbox : open, no plan cites it
+  inbox --> mapped : a plan cites it
+  mapped --> gone : closed in the tracker
+  mapped --> changed : ticket moved
+  changed --> mapped : plan catches up
+  gone --> [*]
+
+  note right of mapped
+    Mapped and gone both render as absent today.
+    changed is the missing state: a mapped ticket that moved.
+  end note
+```
+
 **Both non-inbox states render identically: not at all.** The filter is one
 line —
 
@@ -853,6 +870,24 @@ Issue(kind=story)  ─────►  Story  ──┐
 Issue(kind=bug|task|…) ─────────────┘                                 │
                                                                       ▼
 Issue(kind=epic)  ◄────────────────  Release  ◄─────────────  epic collects
+```
+
+Source: [`diagrams/issue-relations.mmd`](diagrams/issue-relations.mmd)
+
+```mermaid
+classDiagram
+  direction TB
+
+  class Issue
+  class Story
+  class Plan
+  class Release
+
+  Issue "1" --> "0..1" Story : kind story
+  Issue "1" --> "*" Plan : kind bug task or other
+  Issue "1" --> "0..1" Release : kind epic
+  Story --> Plan
+  Release --> Plan
 ```
 
 ##### `story` → Story

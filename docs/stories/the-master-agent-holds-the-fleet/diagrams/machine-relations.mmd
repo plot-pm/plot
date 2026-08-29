@@ -1,0 +1,12 @@
+classDiagram
+  direction LR
+
+  class Machine
+  class Agent
+  class Worktree
+  class Build
+
+  Machine "1" --> "*" Agent : hosts
+  Agent --> Machine : machineAtDeath
+  Worktree --> Machine : disk cost
+  Build .. Machine : CI runs elsewhere

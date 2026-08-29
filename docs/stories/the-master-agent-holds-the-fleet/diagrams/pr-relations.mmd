@@ -1,0 +1,13 @@
+classDiagram
+  direction LR
+
+  class Branch
+  class PR
+  class Build
+  class Plan
+  class Slice
+
+  Branch "1" --> "*" PR : host by head
+  Plan --> PR : annotation optional
+  PR "1" --> "1" Build : checks rollup
+  PR --> Slice : via branch

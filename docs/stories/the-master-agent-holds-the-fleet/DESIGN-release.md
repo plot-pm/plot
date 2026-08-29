@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Release — domain object specification
@@ -157,6 +157,22 @@ planned ──► candidate ──► shipped
    └──────────────────────► shipped        (cut directly — the common path)
 ```
 
+Source: [`diagrams/release-lifecycle.mmd`](diagrams/release-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> planned
+  planned --> candidate : RC tag
+  planned --> shipped : cut directly
+  candidate --> shipped : promote
+  shipped --> [*]
+
+  note right of planned
+    Derived: planned is a sprint declaration with no tag.
+    shipped is a git tag. Nothing stores the state.
+  end note
+```
+
 | state | means | how it is known |
 |---|---|---|
 | `planned` | **a sprint declared it; no tag exists** | `Release:` in a sprint, no matching tag |
@@ -261,6 +277,23 @@ outside creates one. Under publishing it produces an epic (§2), and under
 | Sprint → Release | `Release: <version>` | **built** — the gate's key |
 | Release → Issue | the epic, keyed by version | posture 2, **unbuilt** |
 | Release → Plans | **derived** — `git tag --contains` | **built** |
+
+Source: [`diagrams/release-relations.mmd`](diagrams/release-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class Release
+  class Plan
+  class Sprint
+  class Issue
+
+  Release "1" --> "*" Plan : git tag contains
+  Plan "*" --> "1" Release : Released record
+  Sprint "*" --> "1" Release : targets
+  Release ..> Issue : epic unbuilt
+```
 
 ### A Release has plans, not a sprint
 

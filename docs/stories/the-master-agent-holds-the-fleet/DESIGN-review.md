@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # The Plot domain — review (stage 1: the model)
@@ -88,6 +88,80 @@ entity uses.**
 **This is the spine of the whole design**, and it was never written in one
 place until now.
 
+Source: [`diagrams/identity-and-state.mmd`](diagrams/identity-and-state.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class IdentityKind {
+    <<enumeration>>
+    slug
+    natural-key
+    minted
+  }
+
+  class StateSource {
+    <<enumeration>>
+    stated
+    derived
+    foreign
+    measured
+  }
+
+  class Slug {
+    Plan
+    Story
+    Sprint
+  }
+
+  class NaturalKey {
+    Branch
+    PR
+    Release
+    Issue
+    Build
+    Worktree
+  }
+
+  class Minted {
+    Agent
+    Slice
+  }
+
+  class Stated {
+    Plan
+    Story
+    Sprint
+  }
+
+  class Derived {
+    Slice
+    Branch
+    Release
+    Agent
+    Worktree
+    Issue
+  }
+
+  class Foreign {
+    PR
+    Build
+  }
+
+  class Measured {
+    Machine
+  }
+
+  IdentityKind <|-- Slug : collision
+  IdentityKind <|-- NaturalKey : source lying
+  IdentityKind <|-- Minted : nobody minting
+  StateSource <|-- Stated : being wrong
+  StateSource <|-- Derived : staleness
+  StateSource <|-- Foreign : surface disagreeing
+  StateSource <|-- Measured : decaying instantly
+```
+
 ---
 
 ## 3. Cardinalities, in one place
@@ -109,6 +183,89 @@ Agent 1 ──── * Slice                    over time — one at a time, the
 Worktree 1 ─ 1 Branch                  while checked out
 Machine 1 ── * everything              one machine, many tenants
 Issue * ──── * Plan                    a plan answers several; a signal fans into n plans
+```
+
+Source: [`diagrams/entity-graph.mmd`](diagrams/entity-graph.mmd)
+
+```mermaid
+classDiagram
+  direction TB
+
+  class Story {
+    slug
+  }
+  class Plan {
+    file
+    phase
+  }
+  class Sprint {
+    slug
+  }
+  class Release {
+    version
+  }
+  class Issue {
+    id
+  }
+  class Slice {
+    name
+    verdict
+  }
+  class Branch {
+    branch
+    state
+  }
+  class Wave {
+    parallelAgents
+  }
+  class Agent {
+    session
+    state
+  }
+  class Worktree {
+    path
+  }
+  class Machine {
+    headroom
+  }
+  class Person {
+    handle
+  }
+  class PR {
+    number
+    mergedAt
+  }
+  class Build {
+    url
+    state
+  }
+
+  Story "1" --> "*" Plan : spans
+  Story --> "0..1" Person : author
+  Story --> "0..1" Issue : trackerKeyOf
+
+  Sprint "1" --> "*" Plan : commits to
+  Sprint "*" --> "1" Release : targets
+
+  Release "1" --> "*" Plan : versions
+
+  Issue "*" .. "*" Plan : answers / fans out
+
+  Plan "1" --> "*" Slice : ordered
+  Slice "1" --> "1" Branch : by definition
+  Wave "1" --> "*" Slice : fleet cohort
+
+  Branch "1" --> "*" PR : bids to land
+  PR "1" --> "1" Build : rollup
+  Branch "1" --> "*" Build : run history
+
+  Agent "1" --> "1" Worktree : owns desk
+  Agent "1" --> "*" Slice : over time, one at a time
+  Agent "1" --> "0..1" Branch : current
+  Worktree "1" --> "1" Branch : while checked out
+
+  Machine "1" --> "*" Agent : hosts
+  Person ..> Plan : assignee / Approved who
 ```
 
 ### Three that are not what they look like

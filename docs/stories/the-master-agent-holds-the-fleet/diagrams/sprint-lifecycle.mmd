@@ -1,0 +1,11 @@
+stateDiagram-v2
+  [*] --> Planning
+  Planning --> Committed
+  Committed --> Active
+  Active --> Closed
+  Closed --> [*]
+
+  note right of Planning
+    No gate stands on these states.
+    The file field is Phase; the value is a state.
+  end note

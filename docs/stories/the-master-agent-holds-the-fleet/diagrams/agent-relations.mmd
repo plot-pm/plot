@@ -1,0 +1,16 @@
+classDiagram
+  direction LR
+
+  class Agent
+  class Worktree
+  class Branch
+  class Slice
+  class Person
+  class Machine
+
+  Agent "1" --> "1" Worktree : owns desk
+  Agent "1" --> "0..1" Branch : current, empty between units
+  Agent "1" --> "*" Slice : over time, one at a time
+  Agent --> Machine : machineAtDeath
+  Machine "1" --> "*" Agent : hosts
+  Agent .. Person : not a Person

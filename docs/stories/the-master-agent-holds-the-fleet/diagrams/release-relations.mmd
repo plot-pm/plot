@@ -1,0 +1,12 @@
+classDiagram
+  direction LR
+
+  class Release
+  class Plan
+  class Sprint
+  class Issue
+
+  Release "1" --> "*" Plan : git tag contains
+  Plan "*" --> "1" Release : Released record
+  Sprint "*" --> "1" Release : targets
+  Release ..> Issue : epic unbuilt

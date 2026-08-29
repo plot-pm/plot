@@ -1,0 +1,20 @@
+stateDiagram-v2
+  [*] --> none : worktree, no pid
+  none --> running : dispatch
+  running --> waiting : exit 0 and PLOT-BLOCKED
+  running --> stalled : exit 0, unlanded work, no PR
+  running --> finished : exit 0, nothing left
+  running --> failed : recorded non-zero exit
+  running --> ended : exited, no exit record
+  waiting --> running : person answers
+  stalled --> running : resume
+  failed --> running : restart after PR check
+  finished --> none : next slice or reap
+
+  [*] --> elsewhere : no worktree on this machine
+
+  note right of running
+    LIVE = running, waiting.
+    waiting occupies a slot and takes nothing.
+    activity working or idle is a cue, not a state.
+  end note

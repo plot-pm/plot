@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-29
 ---
 
 # Sprint — domain object specification
@@ -240,6 +240,22 @@ undelivered plan is `disputed`, while an unchecked box over a delivered one is
 Planning ──► Committed ──► Active ──► Closed
 ```
 
+Source: [`diagrams/sprint-lifecycle.mmd`](diagrams/sprint-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> Planning
+  Planning --> Committed
+  Committed --> Active
+  Active --> Closed
+  Closed --> [*]
+
+  note right of Planning
+    No gate stands on these states.
+    The file field is Phase; the value is a state.
+  end note
+```
+
 **These are states, not phases** — the distinction the Plan spec settles (§4
 there), applied here, and Sprint is its cleanest case.
 
@@ -304,6 +320,25 @@ it.**
 | Sprint → Release | `Release: <version>` | **built** — the gate's key |
 | Sprint → Issue | via the epic | unbuilt |
 | Sprint → Person | none | — |
+
+Source: [`diagrams/sprint-relations.mmd`](diagrams/sprint-relations.mmd)
+
+```mermaid
+classDiagram
+  direction LR
+
+  class Sprint
+  class SprintItem
+  class Plan
+  class Release
+  class Issue
+
+  Sprint "1" *-- "*" SprintItem : MoSCoW
+  SprintItem "0..1" --> "1" Plan : names
+  Plan "*" --> "0..1" Sprint : Sprint field
+  Sprint "*" --> "1" Release : Release version
+  Sprint ..> Issue : epic unbuilt
+```
 
 **Sprint is the only entity with a double link to Plan**: plans declare it *and*
 it lists them. That is what makes `disputed` expressible — and it is a

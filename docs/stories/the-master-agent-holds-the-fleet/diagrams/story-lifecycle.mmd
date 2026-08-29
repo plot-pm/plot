@@ -1,0 +1,16 @@
+stateDiagram-v2
+  [*] --> draft
+  draft --> ready
+  ready --> active
+  active --> in_review : in-review
+  in_review --> done
+  active --> done
+  ready --> paused
+  active --> paused
+  paused --> active
+  done --> [*] : archived date plus move
+
+  note right of done
+    Written by a person, never derived.
+    A story whose plans have all delivered may still be active.
+  end note

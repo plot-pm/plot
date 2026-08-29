@@ -1,0 +1,21 @@
+classDiagram
+  direction TB
+
+  class Plan
+  class Story
+  class Issue
+  class Sprint
+  class Slice
+  class Branch
+  class PR
+  class Release
+  class Person
+
+  Plan "0..1" --> "1" Story : Story slug
+  Plan "*" --> "*" Issue : Issue N
+  Plan "0..1" --> "1" Sprint : Sprint slug
+  Plan "1" --> "*" Slice : headings
+  Slice "1" --> "1" Branch : Branch in heading
+  Branch "1" --> "*" PR : annotation
+  Plan "*" --> "1" Release : Released record
+  Plan --> "0..1" Person : assignee / Approved who

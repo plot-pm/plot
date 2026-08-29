@@ -1,0 +1,13 @@
+stateDiagram-v2
+  [*] --> unapproved : plan not approved
+  unapproved --> blocked : approved, prior slice unlanded
+  unapproved --> eligible : approved, priors landed
+  blocked --> eligible : prior slices complete
+  eligible --> complete : every non-deferred branch merged
+  complete --> [*]
+
+  note right of eligible
+    Derived every pulse; never written.
+    eligible asserts ordering and approval.
+    No verdict for in progress: a claimed slice still reads eligible.
+  end note

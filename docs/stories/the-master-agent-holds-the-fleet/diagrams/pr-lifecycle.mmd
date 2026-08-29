@@ -1,0 +1,12 @@
+stateDiagram-v2
+  [*] --> OPEN
+  OPEN --> MERGED : mergedAt set
+  OPEN --> CLOSED : closed without merge
+  MERGED --> [*]
+  CLOSED --> [*]
+
+  note right of OPEN
+    draft is orthogonal: a draft PR is still OPEN.
+    REST reports a merged PR as closed.
+    prHasLanded reads mergedAt, never state.
+  end note

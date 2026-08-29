@@ -1,0 +1,69 @@
+classDiagram
+  direction LR
+
+  class IdentityKind {
+    <<enumeration>>
+    slug
+    natural-key
+    minted
+  }
+
+  class StateSource {
+    <<enumeration>>
+    stated
+    derived
+    foreign
+    measured
+  }
+
+  class Slug {
+    Plan
+    Story
+    Sprint
+  }
+
+  class NaturalKey {
+    Branch
+    PR
+    Release
+    Issue
+    Build
+    Worktree
+  }
+
+  class Minted {
+    Agent
+    Slice
+  }
+
+  class Stated {
+    Plan
+    Story
+    Sprint
+  }
+
+  class Derived {
+    Slice
+    Branch
+    Release
+    Agent
+    Worktree
+    Issue
+  }
+
+  class Foreign {
+    PR
+    Build
+  }
+
+  class Measured {
+    Machine
+  }
+
+  IdentityKind <|-- Slug : collision
+  IdentityKind <|-- NaturalKey : source lying
+  IdentityKind <|-- Minted : nobody minting
+  StateSource <|-- Stated : being wrong
+  StateSource <|-- Derived : staleness
+  StateSource <|-- Foreign : surface disagreeing
+  StateSource <|-- Measured : decaying instantly

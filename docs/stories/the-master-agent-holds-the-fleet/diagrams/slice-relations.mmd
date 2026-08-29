@@ -1,0 +1,14 @@
+classDiagram
+  direction LR
+
+  class Plan
+  class Slice
+  class Branch
+  class Wave
+  class Agent
+
+  Plan "1" --> "*" Slice : headings, ordered
+  Slice "1" --> "1" Branch : by definition
+  Slice --> Slice : prior, document order
+  Wave "1" --> "*" Slice : fleet cohort
+  Agent "1" --> "*" Slice : over time
