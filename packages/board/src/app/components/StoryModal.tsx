@@ -5,10 +5,30 @@ import { planHref, storyHref } from '../lib/plan.js';
 import { DocModal } from './DocModal.js';
 
 /**
+ * Rewrite relative plan/story links to absolute board routes.
+ *
+ * Story content may contain links like `[plan](../../plans/2026-08-16-slug.md)`.
+ * This extracts the slug and rewrites to `/plan/<slug>.md`.
+ */
+function rewritePlanLink(href: string): string {
+  // Match relative paths to plans (with optional date prefix in filename)
+  const planMatch = href.match(/(?:\.\.\/)*plans\/(?:\d{4}-\d{2}-\d{2}-)?([^/]+\.md)$/);
+  if (planMatch) {
+    return `/plan/${planMatch[1]}`;
+  }
+  // Match relative paths to stories
+  const storyMatch = href.match(/(?:\.\.\/)*stories\/([^/]+)\/STORY-[^/]+\.md$/);
+  if (storyMatch) {
+    return `/story/${storyMatch[1]}`;
+  }
+  return href;
+}
+
+/**
  * Convert basic markdown to HTML for display.
  *
- * Handles **bold**, *italic*, and `code` — enough for design sections
- * without pulling in a full markdown parser.
+ * Handles **bold**, *italic*, `code`, and [links](url) — enough for design
+ * sections without pulling in a full markdown parser.
  */
 function renderMarkdown(text: string): string {
   return text
@@ -16,6 +36,11 @@ function renderMarkdown(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+    // Handle markdown links [text](url) — rewrite plan/story links to board routes
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, href) => {
+      const rewrittenHref = rewritePlanLink(href);
+      return `<a href="${rewrittenHref}" class="text-cyan-600 hover:underline dark:text-cyan-400">${linkText}</a>`;
+    })
     // Then apply markdown formatting
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')

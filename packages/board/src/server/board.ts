@@ -227,9 +227,16 @@ function readPlansFromRef(repoRoot: string, ref: string, planDir: string): Map<s
  * exactly that reason. Its removal belongs to the tree listing, which never
  * sees a second copy in the first place.
  */
-function workingTreePlans(repoRoot: string, planDir: string): Map<string, string> {
-  const byRelPath = new Map<string, string>();
-  const seen = new Set<string>();
+interface PlanEntry {
+  /** Absolute path to the resolved file (symlinks followed). */
+  absPath: string;
+  /** All entry names that point to this file (symlink names + real basename). */
+  entryNames: Set<string>;
+}
+
+function workingTreePlans(repoRoot: string, planDir: string): Map<string, PlanEntry> {
+  const byRelPath = new Map<string, PlanEntry>();
+  const seen = new Map<string, string>(); // resolved path → relPath key
   const root = path.join(repoRoot, planDir);
   const dirs = [path.join(root, 'active'), path.join(root, 'delivered'), root];
   for (const dir of dirs) {
@@ -251,9 +258,18 @@ function workingTreePlans(repoRoot: string, planDir: string): Map<string, string
       } catch {
         continue; // broken symlink or unreadable
       }
-      if (seen.has(resolved)) continue;
-      seen.add(resolved);
-      byRelPath.set(path.relative(repoRoot, resolved), resolved);
+      const existingKey = seen.get(resolved);
+      if (existingKey) {
+        // Same file seen via different name (symlink); add the entry name
+        byRelPath.get(existingKey)!.entryNames.add(entry);
+      } else {
+        const relPath = path.relative(repoRoot, resolved);
+        seen.set(resolved, relPath);
+        byRelPath.set(relPath, {
+          absPath: resolved,
+          entryNames: new Set([entry, path.basename(resolved)]),
+        });
+      }
     }
   }
   return byRelPath;
@@ -363,13 +379,13 @@ function collectPlanSources(
     sources.push({ path: relPath, content, local: false });
   }
   let localOnly = 0;
-  for (const [relPath, absPath] of workingTreePlans(repoRoot, planDir)) {
+  for (const [relPath, entry] of workingTreePlans(repoRoot, planDir)) {
     // The ref wins. Row 1: present in both means the ref's bytes, unmarked.
     if (fromRef.has(relPath)) continue;
     localOnly++;
     // No `content`: the file is already on disk, so the parser is pointed at it
     // where it lies, by the path `realpathSync` actually resolved.
-    sources.push({ path: relPath, local: true, file: absPath });
+    sources.push({ path: relPath, local: true, file: entry.absPath });
   }
   return { sources, report: { ref, resolved, localOnly, behind: measureBehind(repoRoot, ref, resolved) } };
 }
@@ -1699,8 +1715,9 @@ function resolvePlanFile(opts: BuildBoardOptions, filename: string): string | nu
   if (!filename || filename !== path.basename(filename) || !filename.endsWith('.md')) return null;
   const planDir = readConfig(opts, 'Plan directory', 'docs/plans/');
   const repoRoot = resolvedRepoRoot(opts);
-  for (const file of workingTreePlans(repoRoot, planDir).values()) {
-    if (path.basename(file) === filename) return file;
+  for (const entry of workingTreePlans(repoRoot, planDir).values()) {
+    // Match against any entry name (symlink names or real basename)
+    if (entry.entryNames.has(filename)) return entry.absPath;
   }
   return null;
 }
@@ -1806,8 +1823,37 @@ export interface RenderPlanOptions {
  * the shell is a second place for the front-matter strip or the titlebar to
  * drift. `fallbackTitle` is used only when the document has no `# ` heading.
  */
+/**
+ * Transform relative plan/story links to absolute board routes.
+ *
+ * Story files contain links like `[plan](../../plans/2026-08-16-slug.md)` —
+ * these break when rendered at `/story/...` because:
+ * 1. The relative path doesn't resolve correctly in the browser
+ * 2. The filename may include a date prefix that doesn't match the actual file
+ *
+ * This extracts the slug from the filename and rewrites to `/plan/<slug>.md`.
+ */
+function rewritePlanLinks(href: string): string {
+  // Match relative paths to plans (with optional date prefix in filename)
+  const planMatch = href.match(/(?:\.\.\/)*plans\/(?:\d{4}-\d{2}-\d{2}-)?([^/]+\.md)$/);
+  if (planMatch) {
+    return `/plan/${planMatch[1]}`;
+  }
+  // Match relative paths to stories
+  const storyMatch = href.match(/(?:\.\.\/)*stories\/([^/]+)\/STORY-[^/]+\.md$/);
+  if (storyMatch) {
+    return `/story/${storyMatch[1]}`;
+  }
+  return href;
+}
+
 function renderMarkdownPage(md: string, fallbackTitle: string, embed: boolean): string {
-  const body = marked.parse(stripFrontMatter(md), { async: false });
+  let body = marked.parse(stripFrontMatter(md), { async: false }) as string;
+  // Post-process HTML to rewrite relative plan/story links to absolute routes
+  body = body.replace(/href="([^"]+)"/g, (match, href) => {
+    const rewritten = rewritePlanLinks(href);
+    return rewritten !== href ? `href="${rewritten}"` : match;
+  });
   const heading = md.match(/^#\s+(.+)$/m);
   const title = heading ? heading[1].trim() : fallbackTitle;
   const titlebar = embed
