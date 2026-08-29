@@ -37,7 +37,7 @@
 # A file with neither is reported as format "none" (pre-plot / legacy plan).
 #
 # The IMPLEMENTATION section (which branches, in which waves, with which PRs)
-# has TWO spellings, and this parser reads both:
+# has THREE spellings, and this parser reads all of them:
 #
 #   ## Branches  (old)   the branch rides the list line, meta mixed with prose:
 #                            ### Removed
@@ -46,6 +46,14 @@
 #   ## Waves     (new)   the `### ` heading carries the meta, the line is prose:
 #                            ### Removed (Branch: bug/foo, PR: #300)
 #                            - loses its half
+#
+#   ## Slices            the design-spec word for the same shape as `## Waves`,
+#                        read by the same handler. A Slice holds one branch and
+#                        belongs to one plan; a Wave is the fleet cohort that
+#                        spans plans. The section here was always the former, so
+#                        `## Slices` is the accurate name and `## Waves` is the
+#                        one 132 delivered plans already carry. No plan is
+#                        rewritten: both are read, forever if need be.
 #
 # Both emit the SAME branches/prs/waves arrays. The new shape is the format Plot
 # writes and documents; the old one is kept readable because a format change owes
@@ -95,8 +103,9 @@
 #   branches       branch names, sorted and unique, read from EITHER spelling:
 #                  the old `## Branches` section (a LIST ITEM whose first token
 #                  is the backtick-quoted name, matching the known prefixes) OR
-#                  the new `## Waves` section (`Branch:` in a `### ` heading —
-#                  see below). A backticked branch name anywhere else under
+#                  the new `## Waves` / `## Slices` section (`Branch:` in a
+#                  `### ` heading — see below). A backticked branch name
+#                  anywhere else under
 #                  `## Branches` — mid-sentence, in a blockquote, in a comment,
 #                  on a wrapped continuation line — is a CITATION and claims
 #                  nothing: plans name each other branches to declare
@@ -658,7 +667,14 @@ in_fence { next }
   # does. A plan carries one or the other — but the parser reads both while the
   # migration moves 85 files, so a file moved one commit early never reads
   # as silently empty.
-  else if ($0 ~ /^## Waves/) { section = waves_seen ? "" : "waves"; waves_seen = 1 }
+  # `## Slices` is the spelling the design spec uses, and `## Waves` is what 132
+  # plans already say. They are ONE section here, sharing waves_seen, because the
+  # shape is identical: the branch and PR ride the `### ` heading either way. A
+  # third arm would be a second implementation of a re-spelling, and the two
+  # would drift. No existing plan is rewritten to say Slices — a delivered plan
+  # describes what was built in the vocabulary of its day, and churning 132
+  # files git blame for a word buys nothing. New plans may use either.
+  else if ($0 ~ /^## Waves/ || $0 ~ /^## Slices/) { section = waves_seen ? "" : "waves"; waves_seen = 1 }
   else if ($0 ~ /^## Approval/) section = "approval"
   # First `## Changelog` wins, for the same reason `## Branches` does: a plan
   # about the plan format quotes the section in prose, and the later heading is
