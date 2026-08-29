@@ -315,7 +315,7 @@ design's cardinality diagram is expressible in the types, and
 `vitest --coverage` reports 100% for `src/entities/` with the threshold
 enforced in config.
 
-### Transitions (Branch: feature/a-transition-is-one-value)
+### Transitions (Branch: feature/a-transition-is-one-value, PR: #524)
 
 `plan.approve()`, `plan.deliver()`, `plan.release()` — returning what should be
 written rather than writing it.
