@@ -224,7 +224,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // The Agents tab needs the board's cards too — that is where Start work
     // and the restart command come from.
     if (tab === 'agents') {
-      await page.getByRole('button', { name: 'Board' }).click();
+      await page.getByRole('button', { name: 'Plans' }).click();
       await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Agents' }).click();
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
