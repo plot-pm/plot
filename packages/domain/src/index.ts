@@ -12,3 +12,4 @@
  */
 export * from './entities/fleet.js';
 export * from './port-result.js';
+export * from './entities/identity.js';
