@@ -19,8 +19,9 @@ export interface SliceRef {
  * What the fleet lands together — slices from several plans, assembled at
  * dispatch.
  *
- * THIS IS THE FLEET'S CROSS-PLAN COHORT, the entity `DESIGN-slice.md` renamed
- * to distinguish it from a Slice. A Slice holds exactly one branch, belongs to
+ * THIS IS THE FLEET'S CROSS-PLAN WAVE, and the name is the spec's own.
+ * `DESIGN-slice.md` renamed the per-plan entity to **Slice** on 2026-08-28 and
+ * freed **Wave** for this one. A Slice holds exactly one branch, belongs to
  * exactly one plan, and is authored by a person in a plan file. This belongs to
  * no plan, is assembled by the fleet, and is written nowhere.
  *
