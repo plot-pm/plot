@@ -360,6 +360,44 @@ non-zero exit.
 worker is not here* — and the reason the earlier "a worker is the agent seen
 through the process table" reading was too weak.
 
+#### `finished` is two answers wearing one word
+
+**Open point, raised 2026-08-29.** The refinement table in
+`plot-worker-state.sh:42` assigns `finished` **twice**, for different reasons:
+
+```
+an open or merged PR      finished   the work reached review
+otherwise                 finished   nothing left behind
+```
+
+The first is a statement about the **task** — it is *done*, the slice reached
+review. The second is a statement about the **process** — it *terminated*
+tidily, having left no work on the floor. **A worker that tidied up and stopped
+without producing anything reads the same as one that opened a PR.** The script
+names the problem in its own comment — *"the `finished`-means-everything
+blur"* — and does not resolve it.
+
+**By the ownership rule above, they are not even on the same side:** *done* is
+an Agent fact (the slice reached review) and *terminated* is a Worker fact (the
+process exited cleanly). One word spanning both is exactly what `waiting` and
+`stalled` were added to stop.
+
+The vocabulary that fits the split:
+
+| today | task side | process side |
+|---|---|---|
+| `finished` (PR exists) | **`completed`** — the slice reached review | |
+| `finished` (nothing left) | | **`terminated`** — the process exited, tidily |
+
+**Not proposed as an immediate rename.** `WorkerState` is a wire enum: the shell
+emits it, the board's schema validates it, and `plot-dispatch.sh --restart`
+branches on it. Splitting it is a producer-and-consumer migration of the shape
+[`the-domain-speaks-slices`](../../plans/2026-08-29-the-domain-speaks-slices.md)
+is already running for `waves`, and it wants its own plan for the same reason.
+
+**What is decided is the reading**: where the two meanings must be told apart,
+say *completed* and *terminated* rather than qualifying `finished`.
+
 ### Why the exit code cannot answer "is the task done?"
 
 **Measured across seven worktrees during a four-agent run:** *"EVERY worker
