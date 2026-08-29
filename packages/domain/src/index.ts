@@ -25,3 +25,4 @@ export * from './entities/sprint.js';
 export * from './entities/issue.js';
 export * from './entities/wave.js';
 export * from './rules/deliverable.js';
+export * from './transitions/plan.js';
