@@ -172,12 +172,16 @@ describe('a plan parses under either spelling', () => {
     expect(fromOld.slices[0].name).toBe('Reading');
   });
 
-  it('carries `waves` out as an alias of the same array, under either input', () => {
-    // The board's call sites still read `plan.waves`; they move in their own
-    // change. Same reference, so the two cannot drift.
+  it('carries NO `waves` out, under either input', () => {
+    // The parsed plan speaks one vocabulary. `waves` was carried out as an
+    // alias while the board's call sites moved across; they have moved, and
+    // two names for one array is the defect this rename removes. The inbound
+    // spelling is still accepted — that is the assertion above, and a
+    // different mechanism.
     for (const input of [{ file: 'x.md', slices: [slice] }, { file: 'x.md', waves: [slice] }]) {
       const parsed = FleetPlanSchema.parse(input);
-      expect(parsed.waves).toBe(parsed.slices);
+      expect(parsed).not.toHaveProperty('waves');
+      expect(parsed.slices).toHaveLength(1);
     }
   });
 
@@ -249,8 +253,8 @@ describe('the pulse is the whole document', () => {
       summary: { ...bareSummary, plans: 1, waves: 1, branches: 1 },
     });
     expect(p.plans[0].phase).toBe('');
-    expect(p.plans[0].waves[0].branches[0].branch).toBe('feature/x');
-    expect(p.plans[0].waves[0].branches[0].deferred_reason).toBe('');
+    expect(p.plans[0].slices[0].branches[0].branch).toBe('feature/x');
+    expect(p.plans[0].slices[0].branches[0].deferred_reason).toBe('');
   });
 
   it('refuses a pulse whose plans are not an array', () => {

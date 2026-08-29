@@ -16,7 +16,7 @@
 // It carries no React, so the unit suite tests it as data — which is the other
 // half of why the collapse was cheap: the hard decisions were testable without
 // a browser, and the browser only had to confirm a layout.
-import type { AgentEntry, AgentRow, IssueRow, RowKind, WaveVerdict } from '../../contract/schema.js';
+import type { AgentEntry, AgentRow, IssueRow, RowKind, SliceVerdict } from '../../contract/schema.js';
 
 /**
  * One linked name in a row — slot 4, of which there may be several.
@@ -1113,14 +1113,14 @@ export interface WaveRowFacts {
    * The scan's verdict — slot 5. `null` where the scan reported none, and then
    * the status is "" rather than a guessed word.
    *
-   * `WaveVerdict` RATHER THAN THE WORDS SPELLED OUT AGAIN. This was a
-   * hand-written union repeating `WaveVerdictSchema`'s three members, and when
+   * `SliceVerdict` RATHER THAN THE WORDS SPELLED OUT AGAIN. This was a
+   * hand-written union repeating `SliceVerdictSchema`'s three members, and when
    * the scan learned a fourth (`unapproved`) the copy is what failed to compile
    * — the one place in the chain that had restated the contract instead of
    * importing it. The verdict is rendered verbatim into slot 5, so this type is
    * the list of words a reader can see.
    */
-  verdict: WaveVerdict | null;
+  verdict: SliceVerdict | null;
   /** The branches this wave holds — slot 4, and there may be five. */
   branches: { branch: string; branchUrl: string }[];
   /**

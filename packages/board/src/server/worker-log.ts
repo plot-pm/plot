@@ -114,7 +114,7 @@ export type WorkerLog =
 export function worktreeForBranch(pulse: FleetPulse | null, branch: string): string | null {
   if (!pulse) return null;
   for (const plan of pulse.plans) {
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       for (const b of wave.branches) {
         if (b.branch === branch && b.local_worktree) return b.local_worktree;
       }

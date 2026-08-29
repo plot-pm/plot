@@ -78,7 +78,7 @@ export function branchFromPulse(
 ): { worktree: string; plan: string; wave: string; worker: string; pid: string } | null {
   if (!pulse) return null;
   for (const plan of pulse.plans) {
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       for (const b of wave.branches) {
         if (b.branch !== branch) continue;
         return {

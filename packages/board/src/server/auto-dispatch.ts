@@ -242,7 +242,7 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
     // contributes nothing: the scan's verdict is the eligibility arithmetic,
     // not re-derived here.
     let startable = 0;
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
         // `dispatchable`, not `isStartable`: a branch whose ref already exists
@@ -288,7 +288,7 @@ export function startableBranches(
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
     if (planSlug(plan.file) !== slug) continue;
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
         // The spawn side must mark exactly what a dispatch will claim, so this
@@ -322,7 +322,7 @@ export function skippedClaimedBranches(pulse: FleetPulse, inFlight: Set<string>)
   const out: string[] = [];
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
         if (refBlocksClaim(b) && !inFlight.has(b.branch)) out.push(b.branch);
@@ -343,7 +343,7 @@ export function dispatchCandidates(pulse: FleetPulse, inFlight: Set<string>): st
   const out: string[] = [];
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
         if (dispatchable(b) && !inFlight.has(b.branch)) out.push(b.branch);
@@ -430,7 +430,7 @@ export function pruneInFlight(
     if (liveBranches.has(branch)) continue; // the registry caught up — confirmed
     let stillStartable = false;
     for (const plan of pulse.plans) {
-      for (const wave of plan.waves) {
+      for (const wave of plan.slices) {
         for (const b of wave.branches) {
           // Still open in the pulse AND not yet claimed: the claim ref this
           // dispatch pushes has not appeared, so the mark still stands.
@@ -531,7 +531,7 @@ export function maybeAutoDispatch(
       // Only log when there IS something to dispatch — a cap hit with no
       // eligible work is routine, not a refusal.
       const hasEligible = pulse.plans.some(
-        (p) => p.phase === 'approved' && p.waves.some((w) => w.verdict === 'eligible'),
+        (p) => p.phase === 'approved' && p.slices.some((w) => w.verdict === 'eligible'),
       );
       if (hasEligible) {
         console.log(

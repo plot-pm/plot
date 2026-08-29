@@ -144,7 +144,7 @@ export function firstMarkerLine(out: string, max = QUESTION_MAX): string {
 export function waitingWorktrees(pulse: FleetPulse): Map<string, string> {
   const found = new Map<string, string>();
   for (const plan of pulse.plans) {
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       for (const b of wave.branches) {
         if (b.worker === 'waiting' && b.local_worktree) found.set(b.branch, b.local_worktree);
       }

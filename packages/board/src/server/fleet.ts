@@ -13,7 +13,7 @@ import {
   PR_UNKNOWN_NOTE,
   toBoardPhase,
   unknownPhaseNote,
-  WaveVerdictSchema,
+  SliceVerdictSchema,
   type AgentRow,
   type BranchState,
   type BriefState,
@@ -31,7 +31,7 @@ import {
   type WaitingGroup,
   type WaitingOn,
   type Wave,
-  type WaveVerdict,
+  type SliceVerdict,
   type WorkerState,
   type SprintCounts,
 } from '../contract/schema.js';
@@ -900,7 +900,7 @@ export function mergePlan(plans: FleetPulse['plans'], plan: FleetPulse['plans'][
 export function partialSummary(plans: FleetPulse['plans']): FleetPulse['summary'] {
   let waves = 0, branches = 0, claimed = 0, eligible = 0, blocked = 0, deferred = 0;
   for (const plan of plans) {
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       waves += 1;
       if (wave.verdict === 'blocked') blocked += 1;
       for (const b of wave.branches) {
@@ -918,7 +918,7 @@ export function partialSummary(plans: FleetPulse['plans']): FleetPulse['summary'
 function branchNames(pulse: FleetPulse): Set<string> {
   const names = new Set<string>();
   for (const plan of pulse.plans) {
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       for (const b of wave.branches) names.add(b.branch);
     }
   }
@@ -1564,7 +1564,7 @@ export function branchIsWatched(
     for (const plan of pulse.plans) {
       const phase = plan.phase.toLowerCase();
       if (phase !== 'delivered' && phase !== 'released') continue;
-      for (const wave of plan.waves) {
+      for (const wave of plan.slices) {
         if (wave.branches.some((b) => b.branch === branch)) return false;
       }
     }
@@ -2012,7 +2012,7 @@ function maybeRepair(
   prs: Map<string, PrRecord> | null,
 ): void {
   for (const plan of pulse.plans) {
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       for (const b of wave.branches) {
         const pr = prs?.get(b.branch) ?? null;
         const stuck = stuckState({
@@ -2799,8 +2799,8 @@ export function startabilityVerdict(
  * reported no verdict licenses no claim about a wave, and a row with null here
  * renders exactly as the board did before the field existed.
  */
-export function waveVerdict(verdict: string): WaveVerdict | null {
-  const parsed = WaveVerdictSchema.safeParse(verdict);
+export function waveVerdict(verdict: string): SliceVerdict | null {
+  const parsed = SliceVerdictSchema.safeParse(verdict);
   return parsed.success ? parsed.data : null;
 }
 
@@ -2832,8 +2832,8 @@ export function deriveWaves(pulse: FleetPulse): Wave[] {
     // THE PLAN'S DECLARED WAVE COUNT — how many `### ` headings it has, not how
     // many remain unfinished. A plan with exactly one wave renders that wave's
     // status on the plan row, suppressing the separate wave row beneath it.
-    const planWaveCount = plan.waves.length;
-    for (const wave of plan.waves) {
+    const planWaveCount = plan.slices.length;
+    for (const wave of plan.slices) {
       // COMPLETE = every NON-DEFERRED branch merged. A deferred branch is exempt
       // — `plot-deliver` skips it in its own completeness gate — so {merged,
       // deferred} is complete and {merged, open} is not. A wave with only
@@ -3923,7 +3923,7 @@ export function machineProcesses(
  */
 export function classify(
   ...args: Parameters<typeof classifyGroup>
-): { group: WaitingGroup; note: string; verdict: WaveVerdict | null } {
+): { group: WaitingGroup; note: string; verdict: SliceVerdict | null } {
   // The verdict is WITHHELD when the PR is unknown and the wave verdict would
   // be `eligible`. `args[16]` is `prUnknown`; `args[1]` is the wave verdict
   // string. See the arm in `classifyGroup` for the group/note side; this is
@@ -4677,7 +4677,7 @@ export function doubleClaimedBranches(pulse: FleetPulse): Map<string, string[]> 
   const byBranch = new Map<string, Set<string>>();
   for (const plan of pulse.plans) {
     const slug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       for (const b of wave.branches) {
         const seen = byBranch.get(b.branch) ?? new Set<string>();
         seen.add(slug);
@@ -4865,8 +4865,8 @@ export function rowsFromPulse(
     // complete (no row is blocked, so nothing reads this) or where the scan
     // reports blocked waves with none eligible — and there the front of the
     // queue is still the most useful thing a reader can be pointed at.
-    const eligibleWave = plan.waves.find((w) => w.verdict === 'eligible');
-    const blocker = eligibleWave ?? plan.waves.find((w) => w.verdict !== 'complete');
+    const eligibleWave = plan.slices.find((w) => w.verdict === 'eligible');
+    const blocker = eligibleWave ?? plan.slices.find((w) => w.verdict !== 'complete');
     const blockerName = blocker?.name?.trim() ? blocker.name.trim() : null;
     // HOW MANY branches are left in the blocking wave — the second half of the
     // sentence *blocked by Fold — 2 outstanding*. The scan already decides this
@@ -4879,7 +4879,7 @@ export function rowsFromPulse(
     const blockerOutstanding = blocker
       ? blocker.branches.filter((w) => !w.deferred && w.state !== 'merged').length
       : 0;
-    for (const wave of plan.waves) {
+    for (const wave of plan.slices) {
       for (const b of wave.branches) {
         const age = ages.get(b.branch) ?? null;
         const pr = prs?.get(b.branch) ?? null;
