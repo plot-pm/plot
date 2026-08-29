@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** infra
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** <!-- optional, tracker issue(s) this plan answers -->
@@ -15,6 +15,7 @@
 - **Approved:** 2026-08-26, eins78, plan reviewed on PR #439
 - **Started:** 2026-08-26, eins78, `infra/release-candidate-publishing`
 - **Delivered:** 2026-08-28
+- **Released:** 2026-08-28, v2.11.0
 
 ## Approval
 

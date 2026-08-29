@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Story:** the-board-is-blank-where-it-matters
@@ -13,10 +13,9 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-08-26, Jan Wloka, in-session
-- **Started:** <!-- YYYY-MM-DD, who, `branch` -->
-- **Delivered:** 2026-08-28
-- **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-26, Jan Wloka, `bug/the-adapter-checks-the-cli-it-got`
+- **Delivered:** 2026-08-28
+- **Released:** 2026-08-29, v2.11.1
 
 ## Changelog
 
