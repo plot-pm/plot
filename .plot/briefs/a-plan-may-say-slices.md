@@ -4,7 +4,12 @@
 - **Approved:** 2026-08-29, Jan Wloka, in-session
 - **Branch:** `infra/a-plan-may-say-slices` (base: `main`)
 - **Ends as:** one PR to `main`
-- **Waits on:** slices 1 and 2 of the same plan.
+- **Pulled ahead of slice 2**, deliberately. The scan reads this `blocked`
+  because `Speaking` precedes it in the plan and the wave gate serialises
+  *within* a plan. That gate asks about ORDER, not dependency — and verified
+  2026-08-29, the two branches share **no file**: `Speaking` touches
+  `packages/board/src/**` and this one touches
+  `skills/plot/scripts/plot-plan-meta.sh` and `test/reconcile/`.
 
 ### What to build
 
