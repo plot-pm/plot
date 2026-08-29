@@ -73,18 +73,35 @@ jobs:
       # A count rather than a ban, because the existing occurrences are exactly
       # what the rename plan removes. When it lands, this number goes to 0 and
       # the gate becomes a ban.
+      # THE SPEC'S VOCABULARY, ENFORCED — and scoped to the MISUSE, not the word.
+      #
+      # `DESIGN-slice.md` renamed the per-plan entity **Slice** on 2026-08-28. It
+      # also kept **Wave** as a real entity: the fleet's cross-plan cohort,
+      # assembled at dispatch and persisted nowhere. So `Wave` is not a banned
+      # word — it is a word with exactly one correct meaning.
+      #
+      # THE FIRST VERSION OF THIS GATE COUNTED EVERY `wave` AND WAS WRONG.
+      # Measured 2026-08-29: a worker building the ten specified entities needed
+      # to add the real `Wave`, which would have taken the count from 34 to 42
+      # and failed the build. It renamed the entity to `Cohort` to get past the
+      # gate — a word that appears NOWHERE in the spec. The gate had made the
+      # correct name the expensive one, which is how a gate teaches evasion.
+      #
+      # So it counts the MISUSE: `Wave` bound to a per-plan shape — the
+      # identifiers the rename plan removes — and ignores prose and the
+      # standalone `Wave` entity.
       - name: Domain vocabulary gate
         run: |
-          allowed=34   # measured on main 2026-08-29; the rename plan drives it to 0
-          found=$(grep -roiE "wave" packages/domain/src/ | wc -l | tr -d ' ')
+          allowed=13  # measured 2026-08-29 on main; the rename plan drives it to 0
+          found=$(grep -roE "FleetWave|WaveVerdict|\bwaves\b" packages/domain/src/ | wc -l | tr -d ' ')
           if [ "$found" -gt "$allowed" ]; then
-            echo "::error::the domain gained $((found - allowed)) new 'Wave' occurrence(s) ($found > $allowed)."
-            echo "A Slice holds one branch and belongs to one plan; a Wave is the fleet's"
-            echo "cohort and is persisted nowhere. See DESIGN-slice.md."
-            grep -roniE "wave" packages/domain/src/ | head -40
+            echo "::error::the domain gained $((found - allowed)) misuse(s) of Wave ($found > $allowed)."
+            echo "A Slice holds one branch and belongs to one plan. A Wave is the fleet's"
+            echo "cross-plan cohort — that entity keeps the name. See DESIGN-slice.md."
+            grep -ronE "FleetWave|WaveVerdict|\bwaves\b" packages/domain/src/ | head -40
             exit 1
           fi
-          echo "Domain vocabulary gate: $found occurrence(s), none added."
+          echo "Domain vocabulary gate: $found misuse(s), none added."
 
       # ARROW FUNCTIONS, per CLAUDE.md > The Domain Package. The board's 507
       # `function` declarations are deliberately not the model — this rule is

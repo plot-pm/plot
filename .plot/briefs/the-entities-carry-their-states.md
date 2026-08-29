@@ -154,3 +154,29 @@ grep -roiE "wave" packages/domain/src/ | wc -l   # must be <= the allowed= value
 
 If your own files ever do need the word — the **real** Wave type is the one
 legitimate case — lower `allowed=` to the new true count rather than raising it.
+
+
+### Correction 2026-08-29 — the real Wave keeps its name
+
+**`cohort.ts` should be `wave.ts`, and `Cohort` should be `Wave`.**
+
+The spec names this entity **Wave** (`DESIGN-slice.md` — *"A Wave is what the
+fleet lands together"*). The word `Cohort` appears in the specs **zero** times.
+Naming it otherwise re-introduces the exact defect this whole sprint removes:
+code and spec using different words for one thing.
+
+**This was my gate's fault, not a judgement error.** The vocabulary gate counted
+every `wave` under `packages/domain/src/`, so adding the real `Wave` would have
+taken it from 34 to 42 and failed the build — making the correct name the
+expensive one. The gate now counts the **misuse** (`FleetWave`, `WaveVerdict`,
+`waves`) and lets the standalone `Wave` entity through. Verified by mutation in
+both directions.
+
+So: rename `cohort.ts` → `wave.ts`, `Cohort` → `Wave`, `CohortBound` →
+`WaveBound`. Keep `SliceRef` as it is — that name is right.
+
+**Re-check after rebasing**, since the allowance changed shape:
+
+```bash
+grep -roE "FleetWave|WaveVerdict|\bwaves\b" packages/domain/src/ | wc -l
+```
