@@ -79,9 +79,27 @@ design failing its first real contact should not have two approved plans behind
 it. If the `Decision | Refusal` shape does not survive contact with
 `plot-approve.sh`'s real refusals, **stop and report** rather than bending it.
 
-> **Note on the name.** The domain currently calls a *slice* a `Wave`. Known
-> defect, own plan (`2026-08-29-the-domain-speaks-slices.md`), comment at the
-> schema. Keep the names as they are.
+### House rules — the terminology one changed since this brief was written
+
+`CLAUDE.md` › **The Domain Package**, all CI-gated:
+
+1. **The spec's vocabulary is binding.** `infra/the-domain-names-a-slice` lands
+   `FleetSliceSchema`, `SliceVerdictSchema` and `plan.slices`. **Write Slice,
+   never Wave.** A gate counts `wave` under `packages/domain/src/` and fails on
+   an increase over `allowed=` in `.github/workflows/ci.yml`; do not raise it.
+
+   The rule this replaces said *"keep the names as they are"* — correct when
+   written, wrong since the review made the terminology binding.
+
+   `allWavesMerged` is being renamed to `allSlicesMerged` by
+   `feature/one-deliver-rule-decides-in-the-domain`. Import whichever name
+   exists when you rebase; do not rename it yourself.
+2. **Arrow functions.** `export const f = (…) => …`. A `function` declaration
+   under `packages/domain/src/` fails the build.
+3. **Factual API docs.** TSDoc says what an export does, its parameters, its
+   return, its failure modes — and stops. Reasoning goes in the plan and the
+   commit message, dated and findable with `git log -S`. The measured problem:
+   **28 lines of code under 109 lines of comment.**
 
 ### Bookkeeping
 
