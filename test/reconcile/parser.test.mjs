@@ -1078,6 +1078,125 @@ The new shape puts the branch in the heading:
   assert.equal(meta.branches.includes('bug/example-not-real'), false);
 });
 
+// ---------------------------------------------------------------------------
+// `## Slices` — the design spec's word for the section `## Waves` already
+// names. A Slice holds one branch and belongs to one plan; a Wave is the
+// fleet's cohort and spans plans (DESIGN-slice.md). This section was always
+// the former, so `## Slices` is the accurate spelling and `## Waves` is the
+// one 132 delivered plans carry.
+//
+// No plan is rewritten to say Slices. Both spellings are read, and the parser
+// stops being the reason a new plan cannot say what the spec says.
+// ---------------------------------------------------------------------------
+
+// One body, two headings. Generating the twin by replacing the heading word is
+// the point: a hand-written pair could drift apart and still pass, and the
+// property under test is precisely that NOTHING but the word differs.
+const SLICE_BODY = `# A plan that says Slices
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+- **Review:** PR
+
+## Waves
+
+### Tracer (Branch: feature/thin-slice, PR: #10)
+- the first cut, citing \`feature/not-a-branch\` in prose
+
+### Implementation (Branch: feature/api)
+- the rest of it
+
+### Deferred one (Branch: feature/dropped) <!-- deferred: covered by feature/api -->
+- given up, not finished
+`;
+
+test('plan-meta: a ## Slices plan parses identically to the same plan saying ## Waves', () => {
+  // THE WHOLE DELIVERABLE, asserted on BOTH inputs rather than on one plus a
+  // claim about the other. Same body, one word changed: every field the parser
+  // emits must be indistinguishable, or `## Slices` means something subtly
+  // different from `## Waves` and the re-spelling is not a re-spelling.
+  const waves = parseSource(SLICE_BODY);
+  const slices = parseSource(SLICE_BODY.replace('## Waves', '## Slices'));
+  // `file` is the temp path, which differs per parseSource call by construction.
+  delete waves.file;
+  delete slices.file;
+  assert.deepEqual(slices, waves, 'every emitted field identical, not just branches');
+  // Spell the expectation out once, so a change that keeps the two equal to
+  // each other but wrong still fails.
+  assert.deepEqual(slices.branches,
+    ['feature/api', 'feature/dropped', 'feature/thin-slice'], 'read from the headings');
+  assert.deepEqual(slices.prs, [10], 'only the heading that carries a PR:');
+  assert.deepEqual(slices.waves, [
+    { name: 'Tracer', branches: [{ branch: 'feature/thin-slice', deferred: false, deferred_reason: '', claimed: '' }] },
+    { name: 'Implementation', branches: [{ branch: 'feature/api', deferred: false, deferred_reason: '', claimed: '' }] },
+    { name: 'Deferred one', branches: [{ branch: 'feature/dropped', deferred: true, deferred_reason: 'covered by feature/api', claimed: '' }] },
+  ], 'names, order and deferred survive the new spelling');
+  // The prose citation stays prose under either word.
+  assert.equal(slices.branches.includes('feature/not-a-branch'), false);
+});
+
+test('plan-meta: a fenced ## Slices example is illustration, not the plan\'s own section', () => {
+  // THE HAZARD INHERITED WITH THE SPELLING. A plan arguing FOR `## Slices`
+  // shows one inside a fence, and its headings look exactly like real ones —
+  // the same trick that fooled both older spellings. Routing Slices through the
+  // Waves handler inherits the fence guard rather than needing its own.
+  const meta = parseSource(`# A plan documenting the slice shape
+
+## Status
+
+- **Phase:** Approved
+- **Type:** infra
+
+## Design
+
+\`\`\`markdown
+## Slices
+
+### Parsing (Branch: infra/example-not-real, PR: #300)
+- work here
+\`\`\`
+
+## Branches
+
+### Parsed
+- \`infra/the-actual-branch\` — the real one → #7
+`);
+  assert.deepEqual(meta.branches, ['infra/the-actual-branch'],
+    'the fenced Slices example contributes nothing');
+  assert.deepEqual(meta.prs, [7], 'and its PR: #300 is not a PR of this plan');
+});
+
+test('plan-meta: a plan carrying BOTH ## Waves and ## Slices reads the first, not both', () => {
+  // WHY THE TWO SHARE waves_seen. First-section-wins is the standing rule for
+  // every spelling, and it has to hold ACROSS them: a plan mid-migration that
+  // grew a `## Slices` section while keeping its old `## Waves` must not report
+  // the union of two implementation sections as one plan's branch list. The
+  // second section is illustration by the same rule a repeated heading is.
+  const meta = parseSource(`# A plan carrying both spellings
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Waves
+
+### First (Branch: feature/from-waves, PR: #1)
+- the section that wins
+
+## Slices
+
+### Second (Branch: feature/from-slices, PR: #2)
+- the later heading is not a second implementation section
+`);
+  assert.deepEqual(meta.branches, ['feature/from-waves'],
+    'the first section wins; the second contributes nothing');
+  assert.deepEqual(meta.prs, [1], 'and neither does its PR');
+  assert.equal(meta.waves.length, 1, 'one implementation section, not two');
+});
+
 test('plan-meta: a fenced ## Branches example is illustration too (latent bug, now closed)', () => {
   // THE SAME TRICK ON THE OLD PATH, which the committed parser got wrong. A
   // fenced `## Branches` example won the first-heading-wins guard, so the parser
