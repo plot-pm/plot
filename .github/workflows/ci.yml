@@ -63,6 +63,42 @@ jobs:
           fi
           echo "Domain purity gate: clean."
 
+      # THE SPEC'S VOCABULARY, ENFORCED. `DESIGN-slice.md` renamed this entity
+      # Slice on 2026-08-28: a Slice holds one branch and belongs to one plan,
+      # while a Wave is the fleet's cross-plan cohort and is persisted nowhere.
+      # The code still says Wave where it means Slice — a known defect with its
+      # own plan. This gate does not fix it; it stops it GROWING, by counting
+      # and refusing an increase.
+      #
+      # A count rather than a ban, because the existing occurrences are exactly
+      # what the rename plan removes. When it lands, this number goes to 0 and
+      # the gate becomes a ban.
+      - name: Domain vocabulary gate
+        run: |
+          allowed=34   # measured on main 2026-08-29; the rename plan drives it to 0
+          found=$(grep -roiE "wave" packages/domain/src/ | wc -l | tr -d ' ')
+          if [ "$found" -gt "$allowed" ]; then
+            echo "::error::the domain gained $((found - allowed)) new 'Wave' occurrence(s) ($found > $allowed)."
+            echo "A Slice holds one branch and belongs to one plan; a Wave is the fleet's"
+            echo "cohort and is persisted nowhere. See DESIGN-slice.md."
+            grep -roniE "wave" packages/domain/src/ | head -40
+            exit 1
+          fi
+          echo "Domain vocabulary gate: $found occurrence(s), none added."
+
+      # ARROW FUNCTIONS, per CLAUDE.md > The Domain Package. The board's 507
+      # `function` declarations are deliberately not the model — this rule is
+      # for new code only, so it is scoped to this package.
+      - name: Domain function-style gate
+        run: |
+          hits=$(grep -rnE "^\s*(export )?function " packages/domain/src/ || true)
+          if [ -n "$hits" ]; then
+            echo "::error::the domain package uses arrow functions — 'export const f = (…) => …':"
+            echo "$hits"
+            exit 1
+          fi
+          echo "Domain function-style gate: clean."
+
       - name: Domain typecheck
         run: pnpm --filter @plot-pm/domain typecheck
 

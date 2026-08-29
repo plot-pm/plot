@@ -185,6 +185,38 @@ Plot contains zero hardcoded project names, paths, or configuration. Adopting pr
 - When skills say "ask the user", use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor)
 - Keep the root README.md skills table in sync
 
+## The Domain Package
+
+`@plot-pm/domain` is new code and holds a stricter style than the board it was
+extracted from. These three rules apply to `packages/domain/**` and **not**
+retroactively to `packages/board/**` — measured 2026-08-29, the board carries
+507 `function` declarations against 6 arrows, and rewriting them would produce a
+repo-wide diff with no behaviour change that destroys `git blame` for every
+touched line.
+
+**The design spec's terminology is binding.** The specs in
+`docs/stories/the-master-agent-holds-the-fleet/` define the vocabulary, and code
+follows them rather than the other way round. In particular a **Slice** holds
+exactly one branch and belongs to one plan; a **Wave** is the fleet's cohort,
+spans plans, and is persisted nowhere ([DESIGN-slice.md](docs/stories/the-master-agent-holds-the-fleet/DESIGN-slice.md)).
+The code still says `Wave` where it means `Slice` — that is a known defect with
+its own plan, and **no new code may add to it.**
+
+**Arrow functions, not declarations.** `export const f = (…) => …` in the domain
+package. The board's style is not the model here.
+
+**Factual API documentation.** A TSDoc block says what an export does, what its
+parameters mean, what it returns, and how it fails. It does not narrate the
+history of the decision. Measured on the first rule moved into the package:
+**28 lines of code carrying 109 lines of comment**, a 4:1 ratio, most of it
+argument rather than interface.
+
+**Where the reasoning goes instead**: the plan, and the commit message. Both are
+dated, both are searchable, and neither is read by someone trying to learn what
+a function returns. A measurement worth keeping — *"a plan with no merged slice
+read as delivered, 2026-08-20"* — belongs in the commit that introduced the
+guard, so `git log -S` finds it.
+
 ## Gates Over Rules
 
 **For important agent behaviors, always implement gates, not rules.** ([Reference](https://blog.fsck.com/2026/04/07/rules-and-gates/))
