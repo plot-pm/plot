@@ -157,7 +157,7 @@ Tests: no alias remains (`grep` for the old names returns nothing outside the
 compatibility shim's own test); the board suite passes with **no test edited**
 beyond the renames themselves.
 
-### Parsing (Branch: infra/a-plan-may-say-slices)
+### Parsing (Branch: infra/a-plan-may-say-slices, PR: #520)
 
 `plot-plan-meta.sh` accepts `## Slices` alongside `## Waves` and `## Branches`,
 from the same place the other two are handled. New plans may use the new
