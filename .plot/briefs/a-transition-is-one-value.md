@@ -4,9 +4,12 @@
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Branch:** `feature/a-transition-is-one-value` (base: `main`)
 - **Ends as:** one PR to `main`
-- **Depends on:** slice 1 (#509) — merged. `@plot-pm/domain` exists.
+- **Depends on:** slice 1 (#509, merged), **slice 2** (`Deliverable`) **and slice 3** (`Entities`).
 
-Independent of slices 2 (`Deliverable`) and 3 (`Entities`).
+**The ordering is a gate, not advice.** A slice becomes eligible only once
+EVERY prior slice has merged, so this is the last of the four — verified in
+the fleet scan 2026-08-29. The slices touch different directories and are
+independent in CONTENT, but they are dispatched strictly in order.
 
 ### What to build
 
@@ -92,7 +95,8 @@ it. If the `Decision | Refusal` shape does not survive contact with
 
 **This branch owns:** new files under `packages/domain/src/transitions/`.
 
-**Two siblings are in flight from the same plan** —
+**The sibling slices run one at a time, not beside you** — the wave gate
+serialises them —
 `feature/one-deliver-rule-decides-in-the-domain` (`src/rules/`) and
 `feature/the-entities-carry-their-states` (`src/entities/`). Expect a trivial
 conflict in `packages/domain/src/index.ts` if all three export from it; rebase,

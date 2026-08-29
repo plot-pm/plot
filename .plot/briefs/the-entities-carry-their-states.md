@@ -4,9 +4,13 @@
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Branch:** `feature/the-entities-carry-their-states` (base: `main`)
 - **Ends as:** one PR to `main`
-- **Depends on:** slice 1 (#509) — merged. `@plot-pm/domain` exists.
+- **Depends on:** slice 1 (#509, merged) **and slice 2** (`Deliverable`).
 
-Independent of slices 2 (`Deliverable`) and 4 (`Transitions`).
+**The ordering is a gate, not advice.** A slice becomes eligible only once
+EVERY prior slice has merged, so this branch is `blocked` until
+`one-deliver-rule-decides-in-the-domain` lands — verified in the fleet scan
+2026-08-29. The three slices touch different directories and are independent
+in CONTENT, but they are dispatched strictly in order.
 
 ### What to build
 
@@ -92,7 +96,8 @@ changeset.
 **This branch owns:** new files under `packages/domain/src/entities/` and the
 `PortResult` type.
 
-**Two siblings are in flight from the same plan** —
+**The sibling slices run one at a time, not beside you** — the wave gate
+serialises them —
 `feature/one-deliver-rule-decides-in-the-domain` (adds `src/rules/`) and
 `feature/a-transition-is-one-value` (adds transitions). Expect a trivial
 conflict in `packages/domain/src/index.ts` if all three export from it; rebase,

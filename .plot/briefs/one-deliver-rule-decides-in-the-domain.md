@@ -96,7 +96,8 @@ plan's own sequencing. Read `Wave` as `Slice` and move on.
 `allWavesMerged` definition in `packages/board/src/server/board.ts`, and the
 import lines at its call sites.
 
-**Two sibling branches are in flight from the same plan** —
+**The sibling slices run one at a time, not beside you** — the wave gate
+serialises them —
 `feature/the-entities-carry-their-states` and `feature/a-transition-is-one-value`.
 Both add NEW files under `packages/domain/src/`; none of you should be editing
 another's. If you need to touch `packages/domain/src/index.ts`, expect a trivial
