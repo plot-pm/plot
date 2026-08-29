@@ -780,12 +780,6 @@ export function App() {
     setOpenStory(story);
   }, []);
 
-  /** The mirror image: a plan opened from the story overlay replaces it. */
-  const onOpenPlanFromStory = useCallback((card: Card) => {
-    setOpenStory(null);
-    setOpenPlan(card);
-  }, []);
-
   /**
    * Close the overlay, switch to the board, and filter to this story — the
    * story's answer to the plan modal's *Show in board*.
@@ -812,6 +806,21 @@ export function App() {
     },
     [lanes, scrollToStoryLane],
   );
+
+  /**
+   * Navigate to a sprint — close the overlay, switch to Agents tab, and filter
+   * to the sprint.
+   */
+  const onOpenSprint = useCallback((sprintSlug: string) => {
+    setOpenStory(null);
+    setOpenPlan(null);
+    setTab('agents');
+    setSprintSel([sprintSlug]);
+    const url = new URL(location.href);
+    url.searchParams.set('tab', 'agents');
+    url.searchParams.set('sprint', sprintSlug);
+    history.replaceState(null, '', url);
+  }, []);
 
   const onSprint = (values: string[]) => {
     setSprintSel(values);
@@ -1023,7 +1032,7 @@ export function App() {
           // Stories tab — the strategic layer above plans. Shows story cards
           // grouped by status (Draft/Active/Done/Archived), with tag cloud.
           board ? (
-            <StoriesTab stories={board.stories} onOpenStory={onOpenStory} />
+            <StoriesTab stories={board.stories} onOpenStory={onOpenStory} onOpenSprint={onOpenSprint} />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
           )
@@ -1181,9 +1190,9 @@ export function App() {
           stops with everything else, because the card behind the scrim can no
           longer be clicked. */}
       {dimmed && <UnreachableOverlay failures={failures} server={board?.server} />}
-      {/* Exactly one overlay at a time — `onOpenStory` clears the plan and
-          `onOpenPlanFromStory` clears the story, so these two conditions are
-          never true together. */}
+      {/* Exactly one overlay at a time — `onOpenStory` clears the plan,
+          so these two conditions are never true together. The StoryModal
+          navigates to plans in-overlay rather than opening a separate one. */}
       {openPlan && (
         <PlanModal
           card={openPlan}
@@ -1199,7 +1208,7 @@ export function App() {
           cards={allCards}
           onClose={() => setOpenStory(null)}
           onShowInBoard={onShowStoryInBoard}
-          onOpenPlan={onOpenPlanFromStory}
+          onOpenSprint={onOpenSprint}
         />
       )}
     </div>

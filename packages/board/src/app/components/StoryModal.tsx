@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Card, Phase, StoryCard } from '../../contract/schema.js';
 import { BOARD_PHASES } from '../../contract/schema.js';
-import { storyHref } from '../lib/plan.js';
+import { planHref, storyHref } from '../lib/plan.js';
 import { DocModal } from './DocModal.js';
 
 export interface StoryModalProps {
@@ -15,8 +15,8 @@ export interface StoryModalProps {
   onClose: () => void;
   /** Switch to the board, filtered to this story. */
   onShowInBoard?: (story: StoryCard) => void;
-  /** Open one of the story's plans, replacing this overlay. */
-  onOpenPlan?: (card: Card) => void;
+  /** Navigate to a sprint in the Agents tab. */
+  onOpenSprint?: (sprintSlug: string) => void;
 }
 
 /**
@@ -44,23 +44,53 @@ export function plansInStory(cards: Card[], slug: string): Card[] {
 }
 
 /**
- * In-board story viewer — the plan modal's twin.
+ * In-board story viewer — the plan modal's twin, with in-overlay plan navigation.
  *
  * Its HEADER is literally the plan modal's, because both render `DocModal`: a
  * reader who has learned one set of controls should not have to learn a second.
  * Its BODY is its own, and has to be — a story has no worktree, and the thing
  * its card cannot say is what it is MADE OF.
  *
+ * When a plan is clicked, the overlay navigates to show that plan's content
+ * with a back button to return to the story view — no new overlay is opened.
+ *
  * Enhanced to show:
  * - Objective (from `## Objective` section, truncated)
  * - Design section (collapsible, from `## Design` section)
  * - Design docs list (DESIGN-*.md files)
  * - Content indicators (open points, session log)
- * - Plans with back-navigation
+ * - Plans with in-overlay navigation
  */
-export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenPlan }: StoryModalProps) {
+export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenSprint }: StoryModalProps) {
   const plans = plansInStory(cards, story.slug);
   const [designExpanded, setDesignExpanded] = useState(false);
+  // In-overlay navigation: null = story view, Card = plan view
+  const [viewingPlan, setViewingPlan] = useState<Card | null>(null);
+
+  // When viewing a plan, show a different DocModal with back navigation
+  if (viewingPlan) {
+    return (
+      <DocModal
+        label="Plan"
+        ariaLabel={`Plan: ${viewingPlan.title}`}
+        href={planHref(viewingPlan)}
+        frameTitle={`Plan: ${viewingPlan.slug}`}
+        onShowInBoard={onShowInBoard && (() => onShowInBoard(story))}
+        onClose={onClose}
+      >
+        {/* Back to story button */}
+        <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setViewingPlan(null)}
+            className="flex items-center gap-1 text-xs text-cyan-600 hover:underline dark:text-cyan-400"
+          >
+            ← Back to {story.title || story.slug}
+          </button>
+        </div>
+      </DocModal>
+    );
+  }
 
   return (
     <DocModal
@@ -72,7 +102,7 @@ export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenPlan }:
       onClose={onClose}
     >
       {/* Status and drift warning */}
-      <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-700">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-700">
         <span className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
           Status
         </span>
@@ -160,7 +190,7 @@ export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenPlan }:
       {/* Dates */}
       {(story.created || story.updated) && (
         <div className="border-b border-slate-200 px-4 py-2 dark:border-slate-700">
-          <div className="flex gap-4 text-xs text-slate-500 dark:text-slate-400">
+          <div className="flex flex-wrap gap-4 text-xs text-slate-500 dark:text-slate-400">
             {story.created && <span>Created: {story.created}</span>}
             {story.updated && <span>Updated: {story.updated}</span>}
             {story.author && <span>Author: {story.author}</span>}
@@ -185,19 +215,13 @@ export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenPlan }:
                 <span className="w-24 shrink-0 text-slate-500 dark:text-slate-400">
                   {card.phase}
                 </span>
-                {onOpenPlan ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenPlan(card)}
-                    className="min-w-0 truncate text-left text-blue-600 hover:underline dark:text-blue-400"
-                  >
-                    {card.title}
-                  </button>
-                ) : (
-                  <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">
-                    {card.title}
-                  </span>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setViewingPlan(card)}
+                  className="min-w-0 truncate text-left text-cyan-600 hover:underline dark:text-cyan-400"
+                >
+                  {card.title}
+                </button>
               </li>
             ))}
           </ul>
@@ -213,7 +237,17 @@ export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenPlan }:
           <ul className="space-y-0.5">
             {story.sprints.map((sprint) => (
               <li key={sprint.slug} className="flex items-baseline gap-2 text-xs">
-                <span className="text-slate-600 dark:text-slate-300">{sprint.slug}</span>
+                {onOpenSprint ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenSprint(sprint.slug)}
+                    className="text-cyan-600 hover:underline dark:text-cyan-400"
+                  >
+                    {sprint.slug}
+                  </button>
+                ) : (
+                  <span className="text-slate-600 dark:text-slate-300">{sprint.slug}</span>
+                )}
                 <span className="text-slate-400 dark:text-slate-500">
                   ({sprint.planCount} {sprint.planCount === 1 ? 'plan' : 'plans'})
                 </span>

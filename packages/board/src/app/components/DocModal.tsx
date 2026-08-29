@@ -126,8 +126,13 @@ export function DocModal({
             Close
           </button>
         </header>
-        {children}
-        <div className="min-h-0 flex-1 bg-white dark:bg-slate-950">
+        {/* Scrollable children area — grows to fill available space */}
+        {children && (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {children}
+          </div>
+        )}
+        <div className="min-h-[30vh] shrink-0 bg-white dark:bg-slate-950">
           {error ? (
             <p className="p-6 text-sm text-red-600 dark:text-red-400">
               Failed to load {label.toLowerCase()}: {error}

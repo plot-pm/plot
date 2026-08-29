@@ -22,26 +22,74 @@ export interface StoriesTabProps {
   stories: StoryCard[];
   /** Open a story in the modal. */
   onOpenStory: (story: StoryCard) => void;
+  /** Open a sprint in the Agents tab. */
+  onOpenSprint?: (sprintSlug: string) => void;
 }
 
 /**
- * Tag cloud entry — a story slug with its plan count.
+ * Tag cloud entry — a topic keyword with its story count.
  */
 interface TagEntry {
-  slug: string;
+  topic: string;
   count: number;
-  status: string;
+}
+
+/**
+ * Stop words to exclude from topic extraction.
+ */
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+  'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare',
+  'ought', 'used', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by',
+  'from', 'as', 'into', 'through', 'during', 'before', 'after', 'above',
+  'below', 'between', 'under', 'again', 'further', 'then', 'once', 'here',
+  'there', 'when', 'where', 'why', 'how', 'all', 'each', 'every', 'both',
+  'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not',
+  'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'just',
+  'don', 'now', 'and', 'but', 'or', 'if', 'because', 'until', 'while',
+  'about', 'against', 'what', 'which', 'who', 'whom', 'this', 'that',
+  'these', 'those', 'am', 'its', 'it', 'they', 'them', 'their', 'we',
+  'our', 'you', 'your', 'he', 'him', 'his', 'she', 'her', 'i', 'me', 'my',
+]);
+
+/**
+ * Extract topic keywords from a story title.
+ *
+ * Splits on word boundaries, filters stop words, and returns meaningful terms.
+ * Single-character words and numbers are excluded.
+ */
+function extractTopics(title: string): string[] {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word.length > 1 && !STOP_WORDS.has(word));
 }
 
 /**
  * Compute tag cloud entries from stories.
  *
- * Each story is a "tag" with count = its planCount.
- * Sorted by count descending so the most active stories appear first.
+ * Extracts topic keywords from story titles and counts how many stories
+ * mention each topic. Sorted by count descending.
  */
 function computeTags(stories: StoryCard[]): TagEntry[] {
-  return stories
-    .map((s) => ({ slug: s.slug, count: s.planCount, status: s.status }))
+  const topicCounts = new Map<string, number>();
+
+  for (const story of stories) {
+    const title = story.title || story.slug.replace(/-/g, ' ');
+    const topics = extractTopics(title);
+    // Count each topic once per story (not per occurrence in title)
+    const uniqueTopics = new Set(topics);
+    for (const topic of uniqueTopics) {
+      topicCounts.set(topic, (topicCounts.get(topic) || 0) + 1);
+    }
+  }
+
+  return Array.from(topicCounts.entries())
+    .map(([topic, count]) => ({ topic, count }))
+    // Only show topics that appear in 2+ stories to reduce noise
+    .filter((t) => t.count >= 2)
     .sort((a, b) => b.count - a.count);
 }
 
@@ -49,7 +97,7 @@ function computeTags(stories: StoryCard[]): TagEntry[] {
  * Compute font size for a tag based on its count.
  *
  * Moderate scaling (1x to 2x) using logarithmic compression to avoid extremes
- * where a story with 71 plans would dwarf one with 2.
+ * where a topic in 9 stories would dwarf one in 2.
  */
 function tagFontSize(count: number, maxCount: number): string {
   if (maxCount <= 1) return '1rem';
@@ -59,28 +107,12 @@ function tagFontSize(count: number, maxCount: number): string {
 }
 
 /**
- * Color for a tag based on story status.
- */
-function tagColor(status: string): string {
-  switch (status) {
-    case 'active':
-      return 'text-emerald-600 dark:text-emerald-400';
-    case 'done':
-      return 'text-blue-600 dark:text-blue-400';
-    case 'archived':
-      return 'text-slate-400 dark:text-slate-500';
-    default: // draft
-      return 'text-amber-600 dark:text-amber-400';
-  }
-}
-
-/**
  * Stories tab — the strategic layer above plans.
  *
  * Shows story cards grouped by status (Draft/Active/Done/Archived), with a tag
  * cloud for topic navigation. Clicking a story opens the StoryModal.
  */
-export function StoriesTab({ stories, onOpenStory }: StoriesTabProps) {
+export function StoriesTab({ stories, onOpenStory, onOpenSprint }: StoriesTabProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
@@ -100,7 +132,7 @@ export function StoriesTab({ stories, onOpenStory }: StoriesTabProps) {
     return groups;
   }, [stories]);
 
-  // Filter by selected tag if any
+  // Filter by selected topic — matches stories whose title contains the topic
   const filteredByStatus = useMemo(() => {
     if (!selectedTag) return byStatus;
     const result: Record<StoryStatus, StoryCard[]> = {
@@ -110,7 +142,11 @@ export function StoriesTab({ stories, onOpenStory }: StoriesTabProps) {
       archived: [],
     };
     for (const status of STORY_STATUSES) {
-      result[status] = byStatus[status].filter((s) => s.slug === selectedTag);
+      result[status] = byStatus[status].filter((s) => {
+        const title = s.title || s.slug.replace(/-/g, ' ');
+        const topics = extractTopics(title);
+        return topics.includes(selectedTag);
+      });
     }
     return result;
   }, [byStatus, selectedTag]);
@@ -132,16 +168,16 @@ export function StoriesTab({ stories, onOpenStory }: StoriesTabProps) {
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             {tags.map((tag) => (
               <button
-                key={tag.slug}
+                key={tag.topic}
                 type="button"
-                onClick={() => setSelectedTag(selectedTag === tag.slug ? null : tag.slug)}
-                className={`transition-opacity hover:opacity-80 ${tagColor(tag.status)} ${
-                  selectedTag && selectedTag !== tag.slug ? 'opacity-40' : ''
+                onClick={() => setSelectedTag(selectedTag === tag.topic ? null : tag.topic)}
+                className={`text-cyan-700 transition-opacity hover:opacity-80 dark:text-cyan-400 ${
+                  selectedTag && selectedTag !== tag.topic ? 'opacity-40' : ''
                 }`}
                 style={{ fontSize: tagFontSize(tag.count, maxCount) }}
-                title={`${tag.slug}: ${tag.count} plans`}
+                title={`${tag.topic}: ${tag.count} stories`}
               >
-                {tag.slug}
+                {tag.topic}
                 <span className="ml-0.5 text-xs opacity-60">({tag.count})</span>
               </button>
             ))}
@@ -202,6 +238,7 @@ export function StoriesTab({ stories, onOpenStory }: StoriesTabProps) {
                       key={story.slug}
                       story={story}
                       onOpen={() => onOpenStory(story)}
+                      onOpenSprint={onOpenSprint}
                     />
                   ))
                 ) : (
@@ -221,67 +258,86 @@ export function StoriesTab({ stories, onOpenStory }: StoriesTabProps) {
 interface StoryCardViewProps {
   story: StoryCard;
   onOpen: () => void;
+  onOpenSprint?: (sprintSlug: string) => void;
 }
 
 /**
  * A story card in the column view.
  */
-function StoryCardView({ story, onOpen }: StoryCardViewProps) {
+function StoryCardView({ story, onOpen, onOpenSprint }: StoryCardViewProps) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="w-full rounded-md border border-slate-200 bg-white p-3 text-left shadow-sm transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-800"
-    >
-      {/* Header: slug + drift warning */}
-      <div className="mb-1 flex items-start justify-between gap-2">
-        <h3 className="min-w-0 truncate text-sm font-medium text-slate-800 dark:text-slate-100">
-          {story.title || story.slug}
-        </h3>
-        {story.statusDrift && (
-          <span
-            className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
-            title={story.statusDrift}
-          >
-            ⚠️
-          </span>
-        )}
-      </div>
-
-      {/* Counts */}
-      <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-        {story.planCount} {story.planCount === 1 ? 'plan' : 'plans'} · {story.deliveredCount} delivered
-      </p>
-
-      {/* Age */}
-      {(story.created || story.updated) && (
-        <p className="mb-2 text-xs text-slate-400 dark:text-slate-500">
-          {story.created && `Created: ${formatDate(story.created)}`}
-          {story.created && story.updated && ' · '}
-          {story.updated && `Updated: ${formatDate(story.updated)}`}
-        </p>
-      )}
-
-      {/* Objective preview */}
-      {story.objective && (
-        <p className="line-clamp-2 text-xs italic text-slate-600 dark:text-slate-300">
-          "{story.objective}"
-        </p>
-      )}
-
-      {/* Sprints */}
-      {story.sprints && story.sprints.length > 0 && (
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-          Sprints:{' '}
-          {story.sprints.map((s, i) => (
-            <span key={s.slug}>
-              {i > 0 && ', '}
-              {s.slug} ({s.planCount})
+    <div className="w-full rounded-md border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+      {/* Clickable header area */}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="w-full text-left transition-opacity hover:opacity-80"
+      >
+        {/* Header: title + drift warning */}
+        <div className="mb-1 flex items-start justify-between gap-2">
+          <h3 className="min-w-0 text-sm font-medium text-slate-800 dark:text-slate-100">
+            {story.title || story.slug}
+          </h3>
+          {story.statusDrift && (
+            <span
+              className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/50 dark:text-amber-300"
+              title={story.statusDrift}
+            >
+              ⚠️
             </span>
-          ))}
+          )}
+        </div>
+
+        {/* Counts */}
+        <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+          {story.planCount} {story.planCount === 1 ? 'plan' : 'plans'} · {story.deliveredCount} delivered
         </p>
+
+        {/* Age */}
+        {(story.created || story.updated) && (
+          <p className="mb-2 text-xs text-slate-400 dark:text-slate-500">
+            {story.created && `Created: ${formatDate(story.created)}`}
+            {story.created && story.updated && ' · '}
+            {story.updated && `Updated: ${formatDate(story.updated)}`}
+          </p>
+        )}
+
+        {/* Objective preview - more lines */}
+        {story.objective && (
+          <p className="line-clamp-4 text-xs italic text-slate-600 dark:text-slate-300">
+            "{story.objective}"
+          </p>
+        )}
+      </button>
+
+      {/* Sprints - vertical list with links */}
+      {story.sprints && story.sprints.length > 0 && (
+        <div className="mt-3 border-t border-slate-200 pt-2 dark:border-slate-700">
+          <p className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+            Sprints
+          </p>
+          <ul className="space-y-1">
+            {story.sprints.map((s) => (
+              <li key={s.slug}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenSprint?.(s.slug);
+                  }}
+                  className="text-xs text-cyan-600 hover:underline dark:text-cyan-400"
+                >
+                  {s.slug}
+                </button>
+                <span className="ml-1 text-xs text-slate-400">
+                  ({s.planCount} {s.planCount === 1 ? 'plan' : 'plans'})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
-    </button>
+    </div>
   );
 }
 
