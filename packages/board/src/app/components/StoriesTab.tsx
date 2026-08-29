@@ -32,6 +32,58 @@ export interface StoriesTabProps {
   onOpenSprint?: (sprintSlug: string) => void;
 }
 
+/**
+ * Get size class for a topic pill based on its count relative to max.
+ * Topics with higher counts get slightly larger pills.
+ */
+function topicSizeClass(count: number, maxCount: number): string {
+  if (maxCount <= 1) return 'text-xs px-2.5 py-0.5';
+  const ratio = count / maxCount;
+  if (ratio >= 0.8) return 'text-sm px-3 py-1'; // Large
+  if (ratio >= 0.4) return 'text-xs px-2.5 py-0.5'; // Medium
+  return 'text-[11px] px-2 py-0.5'; // Small
+}
+
+/**
+ * Render basic markdown (bold, italic) to JSX for inline display.
+ */
+function renderInlineMarkdown(text: string): React.ReactNode {
+  // Split on **bold** and *italic* patterns
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+
+  while (remaining) {
+    // Check for **bold**
+    const boldMatch = remaining.match(/\*\*([^*]+)\*\*/);
+    // Check for *italic*
+    const italicMatch = remaining.match(/\*([^*]+)\*/);
+
+    // Find the earliest match
+    const boldIdx = boldMatch?.index ?? Infinity;
+    const italicIdx = italicMatch?.index ?? Infinity;
+
+    if (boldIdx === Infinity && italicIdx === Infinity) {
+      // No more markdown
+      parts.push(remaining);
+      break;
+    }
+
+    if (boldIdx <= italicIdx && boldMatch) {
+      // Bold comes first
+      if (boldIdx > 0) parts.push(remaining.slice(0, boldIdx));
+      parts.push(<strong key={key++}>{boldMatch[1]}</strong>);
+      remaining = remaining.slice(boldIdx + boldMatch[0].length);
+    } else if (italicMatch) {
+      // Italic comes first
+      if (italicIdx > 0) parts.push(remaining.slice(0, italicIdx));
+      parts.push(<em key={key++}>{italicMatch[1]}</em>);
+      remaining = remaining.slice(italicIdx + italicMatch[0].length);
+    }
+  }
+
+  return parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>;
+}
 
 /**
  * Stories tab — the strategic layer above plans.
@@ -90,26 +142,30 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
     ? STORY_STATUSES
     : STORY_STATUSES.filter((s) => s !== 'archived');
 
+  // Max topic count for sizing
+  const maxTopicCount = topics.length > 0 ? Math.max(...topics.map((t) => t.count)) : 1;
+
   return (
     <div className="space-y-4">
-      {/* Tag cloud — server-computed topics using TF-IDF */}
+      {/* Tag cloud — server-computed topics with variable sizing */}
       {topics.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 py-2">
           {topics.map((t) => {
             const isSelected = selectedTag === t.topic;
+            const sizeClass = topicSizeClass(t.count, maxTopicCount);
             return (
               <button
                 key={t.topic}
                 type="button"
                 onClick={() => setSelectedTag(isSelected ? null : t.topic)}
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-all ${
+                className={`inline-flex items-center gap-1 rounded-full font-medium transition-all ${sizeClass} ${
                   isSelected
                     ? 'border-2 border-cyan-500 bg-cyan-100 text-cyan-800 dark:border-cyan-400 dark:bg-cyan-900/50 dark:text-cyan-200'
                     : selectedTag
                       ? 'border border-slate-200 bg-slate-100 text-slate-400 hover:border-slate-300 hover:bg-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500 dark:hover:border-slate-600 dark:hover:bg-slate-700'
                       : 'border border-slate-200 bg-slate-100 text-slate-600 hover:border-cyan-300 hover:bg-cyan-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-cyan-600 dark:hover:bg-cyan-900/30'
                 }`}
-                title={`Filter by "${t.topic}"`}
+                title={`Filter by "${t.topic}" (${t.count} stories)`}
               >
                 <span>{t.topic}</span>
                 <span
@@ -244,10 +300,10 @@ function StoryCardView({ story, onOpen, onOpenSprint }: StoryCardViewProps) {
           </p>
         )}
 
-        {/* Objective preview - more lines */}
+        {/* Objective preview - more lines, with markdown rendering */}
         {story.objective && (
           <p className="line-clamp-4 text-xs italic text-slate-600 dark:text-slate-300">
-            "{story.objective}"
+            "{renderInlineMarkdown(story.objective)}"
           </p>
         )}
       </button>
