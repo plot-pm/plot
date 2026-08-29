@@ -259,7 +259,7 @@ to attribute.
 
 ## Waves
 
-### Moving (Branch: feature/the-domain-package-exists)
+### Moving (Branch: feature/the-domain-package-exists, PR: #509)
 
 The package, the purity gate, and the entity graph moved out of
 `contract/schema.ts`: `FleetPulse`, `FleetPlan`, `FleetWave`, `FleetBranch` and
