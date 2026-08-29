@@ -31,6 +31,34 @@ deliberately out of scope with its own timing decision. The schema reads both;
 that is what makes this branch safe. **A branch that edits the emitter has
 widened past its plan.**
 
+### What slice 1 actually left you — measured 2026-08-29 on `420e75ba`
+
+Slice 1 went further than its own brief asked, and you need to know where:
+
+**1. `FleetPlanSchema` carries a DOWNWARD alias.** Its last line is
+
+```ts
+})).transform((plan) => ({ ...plan, slices: … , waves: plan.slices }));
+```
+
+so every parsed plan exposes **both** `.slices` and `.waves`, pointing at the
+same array. That is why the board still compiles today without a single call
+site having moved — and it is **the alias this branch removes.** Deleting the
+`waves:` half of that transform is the change that makes `tsc` list your work.
+
+**2. `summary.waves` is a DIFFERENT field and stays.** `FleetPulseSchema.summary`
+carries a `waves: z.number()` counter emitted by `plot-fleet-scan.sh`. It is
+part of the wire format the scan still produces, and renaming it here would
+break parsing against an unchanged scan. **Leave it.** Its rename belongs to the
+producer-side migration step, which is out of scope for this whole plan.
+
+**3. The `waves` → `slices` preprocess step stays too.** A `z.preprocess` rewrites
+the incoming key so both wire spellings parse. That is what lets a new board read
+an old scan, and it is the reason this branch is safe at all.
+
+So: **remove the downward alias, keep the inbound compatibility.** Those are two
+different mechanisms in the same file, and only one of them is yours.
+
 ### Done when
 
 Per the plan:
