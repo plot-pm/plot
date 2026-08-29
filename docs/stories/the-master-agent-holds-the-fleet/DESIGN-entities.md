@@ -465,7 +465,7 @@ relative to now; the object carries the timestamp and the view computes the age,
 with `now` passed in rather than captured.
 
 **So the test is not "is it derived?" but "does this object's own source state
-it?"** — which is why `FleetBranch.state` is correctly a field (its source is
+it?"** — which is why `SourceBranch.state` is correctly a field (its source is
 the pair of refs it derives from) while `Issue.state` is not.
 
 **And re-reading is how it stays true.** The object is rebuilt from the file on
@@ -684,7 +684,7 @@ measurable:
 | view type | fields |
 |---|---|
 | `AgentRowSchema` | **32** |
-| `FleetBranchSchema` | 21 |
+| `SourceBranchSchema` | 21 |
 | `CardSchema` | 18 |
 | `IssueRowSchema` | 5 |
 | `StoryCardSchema` | 4 |
@@ -694,11 +694,11 @@ measurable:
 - **8 of `Card`'s 18 fields are plan domain data** — `phase`, `type`, `title`,
   `sprint`, `story`, `assignee`, `prs`, `rounds`. Each is copied out of the
   plan file onto a row.
-- **`AgentRow` and `FleetBranch` share 4 fields** describing the same branch —
+- **`AgentRow` and `SourceBranch` share 4 fields** describing the same branch —
   `branch`, `state`, `worker`, `worker_activity`.
 
 **Every copy is a place two representations can disagree**, and this repo has
-paid for it: an `AgentRow` field defaulting client-side where a `FleetBranch`
+paid for it: an `AgentRow` field defaulting client-side where a `SourceBranch`
 did not, a `state` refined in one and not the other, a row synthesized with
 fields the domain never had.
 
@@ -1347,7 +1347,7 @@ The one entity whose value is a moment.
 
 ### Branch
 
-Solid today. Listed for completeness; the properties are `FleetBranchSchema`'s.
+Solid today. Listed for completeness; the properties are `SourceBranchSchema`'s.
 
 | property | type | meaning |
 |---|---|---|

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  FleetPulseSchema, FleetSliceSchema, SliceVerdictSchema,
+  FleetPulseSchema, PlanSliceSchema, SliceVerdictSchema,
 } from '../../src/contract/schema.js';
 import { classify, waveVerdict } from '../../src/server/fleet.js';
 import { tupleFromWave, statusTone } from '../../src/app/lib/tuple-row.js';
@@ -17,7 +17,7 @@ describe('the fleet payload accepts the unapproved verdict', () => {
   // and the board falls back to "waiting for its first scan". Shipping the
   // scan's new word without widening this enum would have blanked the board.
   it('parses a wave the scan reports as unapproved', () => {
-    const parsed = FleetSliceSchema.safeParse({
+    const parsed = PlanSliceSchema.safeParse({
       name: 'Worded', verdict: 'unapproved', branches: [],
     });
     expect(parsed.success).toBe(true);

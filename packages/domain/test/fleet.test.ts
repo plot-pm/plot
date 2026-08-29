@@ -4,9 +4,9 @@ import {
   SliceVerdictSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
-  FleetBranchSchema,
-  FleetSliceSchema,
-  FleetPlanSchema,
+  SourceBranchSchema,
+  PlanSliceSchema,
+  PlanSchema,
   FleetPulseSchema,
 } from '../src/index.js';
 
@@ -68,11 +68,11 @@ describe('the scan vocabularies are closed sets', () => {
 
 describe('a branch from an older scan still validates', () => {
   it('accepts a branch carrying only its four required fields', () => {
-    expect(FleetBranchSchema.safeParse(bareBranch).success).toBe(true);
+    expect(SourceBranchSchema.safeParse(bareBranch).success).toBe(true);
   });
 
   it('defaults every field a pre-field scan could not have reported', () => {
-    const b = FleetBranchSchema.parse(bareBranch);
+    const b = SourceBranchSchema.parse(bareBranch);
     // Absent is the same answer these fields gave before they existed.
     expect(b.deferred_reason).toBe('');
     expect(b.local_dirty).toBe(false);
@@ -94,48 +94,48 @@ describe('a branch from an older scan still validates', () => {
     // branch cannot answer the question, which is not the same as answering
     // `none`. Being wrong in the reassuring direction is the worst way to be
     // wrong.
-    expect(FleetBranchSchema.parse(bareBranch).worker).toBe('elsewhere');
-    expect(FleetBranchSchema.parse(bareBranch).worker_activity).toBe('');
+    expect(SourceBranchSchema.parse(bareBranch).worker).toBe('elsewhere');
+    expect(SourceBranchSchema.parse(bareBranch).worker_activity).toBe('');
   });
 
   it('defaults the two timing fields to null rather than to zero', () => {
     // `null` means the scan did not say. `0` would mean "just now", and a
     // freshly-changed branch is precisely what the board acts on.
-    const b = FleetBranchSchema.parse(bareBranch);
+    const b = SourceBranchSchema.parse(bareBranch);
     expect(b.changed_ago_seconds).toBeNull();
     expect(b.changed_at).toBeNull();
   });
 
   it('carries the timing fields through when the scan does report them', () => {
-    const b = FleetBranchSchema.parse({ ...bareBranch, changed_ago_seconds: 42, changed_at: 1700000000 });
+    const b = SourceBranchSchema.parse({ ...bareBranch, changed_ago_seconds: 42, changed_at: 1700000000 });
     expect(b.changed_ago_seconds).toBe(42);
     expect(b.changed_at).toBe(1700000000);
   });
 
   it('refuses a branch whose state is not one of the five', () => {
-    expect(FleetBranchSchema.safeParse({ ...bareBranch, state: 'nearly' }).success).toBe(false);
+    expect(SourceBranchSchema.safeParse({ ...bareBranch, state: 'nearly' }).success).toBe(false);
   });
 
   it('requires the fields that have no honest default', () => {
     // `branch` names the thing; there is no value that could stand in for it.
-    expect(FleetBranchSchema.safeParse({ state: 'open', deferred: false, claimed: '' }).success).toBe(false);
+    expect(SourceBranchSchema.safeParse({ state: 'open', deferred: false, claimed: '' }).success).toBe(false);
   });
 });
 
 describe('a slice is a verdict over branches', () => {
   it('requires a verdict — a slice with no verdict is not a slice', () => {
-    expect(FleetSliceSchema.safeParse({ name: 'Moving', branches: [] }).success).toBe(false);
+    expect(PlanSliceSchema.safeParse({ name: 'Moving', branches: [] }).success).toBe(false);
   });
 
   it('nests its branches through the branch schema', () => {
-    const s = FleetSliceSchema.parse({ name: 'Moving', verdict: 'eligible', branches: [bareBranch] });
+    const s = PlanSliceSchema.parse({ name: 'Moving', verdict: 'eligible', branches: [bareBranch] });
     // The defaults apply at any depth, which is what makes the graph — rather
     // than the top-level object — the compatibility promise.
     expect(s.branches[0].worker).toBe('elsewhere');
   });
 
   it('rejects a branch that is invalid inside an otherwise valid slice', () => {
-    expect(FleetSliceSchema.safeParse({
+    expect(PlanSliceSchema.safeParse({
       name: 'Moving', verdict: 'eligible', branches: [{ ...bareBranch, state: 'bogus' }],
     }).success).toBe(false);
   });
@@ -143,12 +143,12 @@ describe('a slice is a verdict over branches', () => {
 
 describe('a plan is slices plus its own phase', () => {
   it('defaults the phase to empty, which renders as nothing rather than a guess', () => {
-    const p = FleetPlanSchema.parse({ file: 'docs/plans/x.md', slices: [] });
+    const p = PlanSchema.parse({ file: 'docs/plans/x.md', slices: [] });
     expect(p.phase).toBe('');
   });
 
   it('carries the phase the helper normalized when there is one', () => {
-    expect(FleetPlanSchema.parse({ file: 'x.md', phase: 'approved', slices: [] }).phase).toBe('approved');
+    expect(PlanSchema.parse({ file: 'x.md', phase: 'approved', slices: [] }).phase).toBe('approved');
   });
 });
 
@@ -164,8 +164,8 @@ describe('a plan parses under either spelling', () => {
   const slice = { name: 'Reading', verdict: 'eligible', branches: [bareBranch] };
 
   it('reads the new `slices` and the old `waves` to the identical object', () => {
-    const fromNew = FleetPlanSchema.parse({ file: 'x.md', slices: [slice] });
-    const fromOld = FleetPlanSchema.parse({ file: 'x.md', waves: [slice] });
+    const fromNew = PlanSchema.parse({ file: 'x.md', slices: [slice] });
+    const fromOld = PlanSchema.parse({ file: 'x.md', waves: [slice] });
     expect(fromOld).toEqual(fromNew);
     // Not vacuous: both really did resolve the slice, rather than both being empty.
     expect(fromNew.slices).toHaveLength(1);
@@ -179,14 +179,14 @@ describe('a plan parses under either spelling', () => {
     // spelling is still accepted — that is the assertion above, and a
     // different mechanism.
     for (const input of [{ file: 'x.md', slices: [slice] }, { file: 'x.md', waves: [slice] }]) {
-      const parsed = FleetPlanSchema.parse(input);
+      const parsed = PlanSchema.parse(input);
       expect(parsed).not.toHaveProperty('waves');
       expect(parsed.slices).toHaveLength(1);
     }
   });
 
   it('prefers `slices` when a pulse somehow carries both', () => {
-    const parsed = FleetPlanSchema.parse({
+    const parsed = PlanSchema.parse({
       file: 'x.md', slices: [slice], waves: [{ ...slice, name: 'Stale' }],
     });
     expect(parsed.slices).toHaveLength(1);
@@ -195,14 +195,14 @@ describe('a plan parses under either spelling', () => {
 
   it('still refuses a malformed slice under the legacy key', () => {
     // The fallback renames a key; it does not soften validation behind it.
-    expect(FleetPlanSchema.safeParse({ file: 'x.md', waves: 'not an array' }).success).toBe(false);
-    expect(FleetPlanSchema.safeParse({ file: 'x.md' }).success).toBe(false);
+    expect(PlanSchema.safeParse({ file: 'x.md', waves: 'not an array' }).success).toBe(false);
+    expect(PlanSchema.safeParse({ file: 'x.md' }).success).toBe(false);
   });
 
   it('leaves a non-object alone for the schema to reject', () => {
     // The preprocessor must never be the thing that reports a type error.
     for (const notAPlan of [null, 'plan', 42, [] as unknown]) {
-      expect(FleetPlanSchema.safeParse(notAPlan).success).toBe(false);
+      expect(PlanSchema.safeParse(notAPlan).success).toBe(false);
     }
   });
 
