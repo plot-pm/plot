@@ -634,7 +634,7 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetPulse | null): Wa
   if (!plan) return summary;
 
   let claimed = 0, eligible = 0;
-  for (const wave of plan.waves) {
+  for (const wave of plan.slices) {
     for (const b of wave.branches) {
       if (b.state === 'claimed') claimed += 1;
       else if (b.state === 'open' && wave.verdict === 'eligible') eligible += 1;
@@ -722,7 +722,7 @@ export function allWavesMerged(
   // absence, unlike the one above, and the plan stays where it is.
   if (!plan) return 'not-merged';
   let merged = 0;
-  for (const wave of plan.waves) {
+  for (const wave of plan.slices) {
     // A wave of only deferred branches is not outstanding work — the scan's own
     // rule — and it contributes nothing to the `merged > 0` count either.
     const branches = wave.branches.filter((b) => b.state !== 'deferred');
@@ -753,7 +753,7 @@ export function allWavesMerged(
 function anyBranchClaimed(meta: PlanMeta, pulse: FleetPulse | null): boolean {
   const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
   if (!plan) return false;
-  return plan.waves.some((w) => w.branches.some((b) => b.state === 'claimed'));
+  return plan.slices.some((w) => w.branches.some((b) => b.state === 'claimed'));
 }
 
 /**
@@ -837,7 +837,7 @@ export function worktreesFromPulse(
   const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
   if (!plan) return [];
   const found: { branch: string; path: string }[] = [];
-  for (const wave of plan.waves) {
+  for (const wave of plan.slices) {
     for (const b of wave.branches) {
       if (b.local_worktree) found.push({ branch: b.branch, path: b.local_worktree });
     }

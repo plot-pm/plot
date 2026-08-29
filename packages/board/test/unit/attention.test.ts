@@ -32,7 +32,7 @@ const workerPulse = (): FleetPulse => ({
   plans: [{
     file: '2026-08-18-the-board-answers-agents.md',
     phase: 'approved',
-    waves: [{
+    slices: [{
       name: 'Ask',
       verdict: 'eligible',
       branches: [
@@ -60,7 +60,7 @@ const workerPulse = (): FleetPulse => ({
 
 /** Every branch dated one minute ago — inside the quiet window, by design. */
 const freshAges = (pulse: FleetPulse): Map<string, number | null> =>
-  new Map(pulse.plans.flatMap((p) => p.waves.flatMap((w) => w.branches.map(
+  new Map(pulse.plans.flatMap((p) => p.slices.flatMap((w) => w.branches.map(
     (b) => [b.branch, 1] as [string, number | null],
   ))));
 
@@ -282,7 +282,7 @@ describe('claimable is the same predicate the Start button uses', () => {
     plans: [{
       file: '2026-08-18-the-board-answers-agents.md',
       phase: 'approved',
-      waves: [
+      slices: [
         { name: 'Ask', verdict: 'eligible', branches: [
           { branch: 'feature/nobody-took-it', state: 'open', deferred: false, claimed: '' },
         ] },
@@ -332,7 +332,7 @@ describe('unpushed commits are read from the stuck detector, not counted again',
     plans: [{
       file: '2026-08-18-the-board-answers-agents.md',
       phase: 'approved',
-      waves: [{ name: 'Ask', verdict: 'eligible', branches: [
+      slices: [{ name: 'Ask', verdict: 'eligible', branches: [
         { branch: 'feature/never-pushed', state: 'wip', deferred: false, claimed: '',
           worker, local_ahead: 3 },
       ] }],
@@ -367,7 +367,7 @@ describe('finished work is nobody\'s errand', () => {
       plans: [{
         file: '2026-08-18-the-board-answers-agents.md',
         phase: 'approved',
-        waves: [{ name: 'Honesty', verdict: 'complete', branches: [
+        slices: [{ name: 'Honesty', verdict: 'complete', branches: [
           // A stale worker record and local leftovers on a branch that LANDED.
           { branch: 'feature/it-landed', state: 'merged', deferred: false, claimed: '',
             worker: 'failed', local_ahead: 3 },

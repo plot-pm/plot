@@ -73,7 +73,7 @@ describe('resolving a branch against the pulse', () => {
       {
         file: 'docs/plans/2026-08-17-working-shows-the-agent.md',
         phase: 'Approved',
-        waves: [
+        slices: [
           {
             name: 'Panel',
             verdict: 'eligible',

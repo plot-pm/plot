@@ -59,7 +59,7 @@ const mergedPulse = (planBasename: string): FleetPulse => ({
   head: 'abc1234',
   plans: [{
     file: planBasename,
-    waves: [{
+    slices: [{
       name: 'Only',
       verdict: 'complete',
       branches: [{

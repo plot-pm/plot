@@ -35,7 +35,7 @@ const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetPulse =>
   FleetPulseSchema.parse({
     main: 'main',
     head: 'abc1234',
-    plans: [{ file, waves }],
+    plans: [{ file, slices: waves }],
     summary: {
       plans: 1, waves: waves.length, branches: 0, claimed: 0,
       eligible: 0, blocked: 0, deferred: 0,
@@ -97,7 +97,7 @@ describe('deriveWaves — the verdict is the scan\'s, unchanged', () => {
     // defends the day a newer scan emits a verdict this enum predates.
     const raw = {
       main: 'main', head: 'abc1234',
-      plans: [{ file: '2026-08-20-p.md', phase: '', waves: [
+      plans: [{ file: '2026-08-20-p.md', phase: '', slices: [
         { name: 'A', verdict: 'in-flight', branches: [
           { branch: 'feature/a', state: 'open', deferred: false, claimed: '' },
         ] },

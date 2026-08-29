@@ -1,6 +1,6 @@
 import {
   type AgentRow,
-  type WaveVerdict,
+  type SliceVerdict,
   type RowKind,
   UNNAMED_WAVE,
 } from '../../../contract/schema.js';
@@ -146,7 +146,7 @@ export interface WaveGroup {
   /** The wave's name as the plan file gave it, or "" where it named none. */
   wave: string;
   /** The scan's verdict for this wave, or null where no row carried one. */
-  verdict: WaveVerdict | null;
+  verdict: SliceVerdict | null;
   /**
    * The wave holding this one back, by name — from `row.blockedBy`, which the
    * server has populated all along while the board rendered the same fact as

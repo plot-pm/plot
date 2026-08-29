@@ -528,12 +528,9 @@ const readEitherSpelling = (value: unknown): unknown => {
  * A plan and the slices it wants landed, as the scan reports them.
  *
  * Reads `slices` or the older `waves` off the wire and resolves to `slices`.
- * The parsed object also carries `waves` as a deprecated alias of the same
- * array, so the board's call sites keep compiling while they are moved across
- * in their own change — the compiler is what will name any site left behind
- * once the alias goes. The two are the same reference and cannot diverge.
- *
- * @deprecated on the result's `waves` property — read `slices`.
+ * The parsed object exposes `slices` only: `plot-fleet-scan.sh` still emits
+ * `waves`, so the inbound tolerance stays, but nothing downstream reads that
+ * spelling.
  */
 export const FleetPlanSchema = z.preprocess(readEitherSpelling, z.object({
   file: z.string(),
@@ -554,7 +551,7 @@ export const FleetPlanSchema = z.preprocess(readEitherSpelling, z.object({
    */
   phase: z.string().default(''),
   slices: z.array(FleetSliceSchema),
-})).transform((plan) => ({ ...plan, waves: plan.slices }));
+}));
 
 /** The raw `plot-fleet-scan.sh --json` document, parsed. */
 export const FleetPulseSchema = z.object({

@@ -446,7 +446,7 @@ describe('the six failing rules — three still fail, three were fixed a layer a
       main: 'main', head: 'abc1234',
       plans: [{
         file: '2026-08-01-shipped-plan.md', phase: 'released',
-        waves: [{
+        slices: [{
           name: 'W', verdict: 'complete',
           branches: [{ branch: 'feature/shipped', state: 'merged', deferred: false, claimed: '' }],
         }],

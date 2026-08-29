@@ -25,7 +25,7 @@ const pulseOf = (plans: { file: string; branches: string[] }[]): FleetPulse => (
   plans: plans.map((p) => ({
     file: p.file,
     phase: 'approved',
-    waves: [{ name: 'Implementation', verdict: 'eligible' as const, branches: p.branches.map((b) => branch(b)) }],
+    slices: [{ name: 'Implementation', verdict: 'eligible' as const, branches: p.branches.map((b) => branch(b)) }],
   })),
   summary: {
     plans: plans.length,

@@ -75,7 +75,7 @@ function pulseWith(wt: string): FleetPulse {
       {
         file: 'docs/plans/p.md',
         phase: 'Approved',
-        waves: [
+        slices: [
           {
             name: 'Answer',
             verdict: 'eligible',
@@ -360,7 +360,7 @@ function pulseWith2(wt: string, previousPid: string): FleetPulse {
       {
         file: 'docs/plans/p.md',
         phase: 'Approved',
-        waves: [
+        slices: [
           {
             name: 'Answer',
             verdict: 'eligible',

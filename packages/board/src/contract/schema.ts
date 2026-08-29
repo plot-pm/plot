@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  SliceVerdictSchema as WaveVerdictSchema,
+  SliceVerdictSchema,
   BranchStateSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
@@ -1539,7 +1539,7 @@ export const PR_UNKNOWN_NOTE = 'cannot read the PR — the host could not be ask
 /**
  * The entity graph is `@plot-pm/domain`'s, and is re-exported here unchanged.
  *
- * `FleetBranch`, `FleetWave`, `FleetPlan` and `FleetPulse` — with the enums
+ * `FleetBranch`, `FleetSlice`, `FleetPlan` and `FleetPulse` — with the enums
  * they are built from — moved out of this file into the domain package. They
  * were never the board's: they are what a branch, a wave and a plan ARE, and
  * they lived here only because the board was the first thing to need a name for
@@ -1569,24 +1569,23 @@ export type {
 } from "@plot-pm/domain";
 
 /**
- * THE SLICE ENTITY, UNDER THE BOARD'S OLD NAME FOR IT.
+ * THE SLICE ENTITY — a Slice belongs to one plan, a Wave is the fleet's cohort
+ * and is persisted nowhere (`DESIGN-slice.md`).
  *
- * The domain renamed Wave to Slice — a Slice belongs to one plan, a Wave is the
- * fleet's cohort and is persisted nowhere (`DESIGN-slice.md`). The board's 44
- * call sites still say `Wave`, and moving them is a separate change so that the
- * schema rename and the call-site churn can be reviewed as distinct claims.
- * These aliases are what let the two land apart: every board import keeps
- * working, unedited, against the renamed domain.
+ * The board once re-exported these under the name `Wave`, so the domain's
+ * rename and the board's call-site churn could be reviewed as distinct claims.
+ * Both have landed; the aliases are gone and the board says `Slice`.
  *
- * Temporary by construction — they go when the call sites do.
+ * `WaveSchema` below is a DIFFERENT entity that keeps its name — the board's
+ * own derived per-`(plan, wave)` render state, not the domain's slice.
  */
-export { WaveVerdictSchema };
 export {
-  FleetSliceSchema as FleetWaveSchema,
+  FleetSliceSchema,
+  SliceVerdictSchema,
 } from "@plot-pm/domain";
 export type {
-  SliceVerdict as WaveVerdict,
-  FleetSlice as FleetWave,
+  SliceVerdict,
+  FleetSlice,
 } from "@plot-pm/domain";
 
 /**
@@ -1707,7 +1706,7 @@ export const WaveSchema = z.object({
    * keeps. Absent is not a guess; a wave with null here has no verdict a
    * consumer may assert.
    */
-  verdict: WaveVerdictSchema.nullable(),
+  verdict: SliceVerdictSchema.nullable(),
   /**
    * THE ONE SECTION this wave belongs in — derived once, here, so no consumer
    * has to pick a predicate and disagree with the next one.
@@ -2483,7 +2482,7 @@ export const AgentRowSchema = z.object({
    *
    * *Blocked by which one?* is the reader's unavoidable next question, and the
    * server is the only place that can answer it: `verdict` lives on the WAVE
-   * (`FleetWaveSchema`) while the row carries only `wave`, its own name. So a
+   * (`FleetSliceSchema`) while the row carries only `wave`, its own name. So a
    * row cannot see that it is blocked, let alone by what — the fact must travel.
    *
    * Null rather than "" for absence, because a wave can legitimately be unnamed
@@ -2493,9 +2492,9 @@ export const AgentRowSchema = z.object({
   blockedBy: z.string().nullable().default(null),
   /**
    * The verdict of the WAVE this row sits in — `complete`, `eligible`,
-   * `blocked` or `unapproved`, forwarded from `FleetWaveSchema.verdict`.
+   * `blocked` or `unapproved`, forwarded from `FleetSliceSchema.verdict`.
    *
-   * THE SAME VALUES AS THE SCAN'S, and reusing `WaveVerdictSchema` is the
+   * THE SAME VALUES AS THE SCAN'S, and reusing `SliceVerdictSchema` is the
    * decision rather than the default. A row does not classify itself here: it
    * repeats what the scan already decided about its wave, so a value this enum
    * carries is one the scan can say. That was written as "the same THREE
@@ -2534,7 +2533,7 @@ export const AgentRowSchema = z.object({
    * Defaults to null so a client talking to an older server still validates,
    * and null renders as nothing — exactly as the board reads today.
    */
-  verdict: WaveVerdictSchema.nullable().default(null),
+  verdict: SliceVerdictSchema.nullable().default(null),
   /**
    * WHETHER THIS ROW CAN BE STARTED — see `StartabilityVerdictSchema`.
    *

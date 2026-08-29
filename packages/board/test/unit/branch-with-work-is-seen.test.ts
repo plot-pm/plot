@@ -27,7 +27,7 @@ const pulse: FleetPulse = {
   plans: [{
     file: '2026-08-24-example-plan.md',
     phase: 'approved',
-    waves: [{
+    slices: [{
       name: 'Implementation',
       verdict: 'eligible',
       branches: [{ branch: 'feature/planned', state: 'wip', deferred: false, claimed: '' }],
