@@ -1,3 +1,33 @@
 packages:
   - .
   - packages/*
+
+# Native modules (esbuild, rolldown, tailwindcss, lightningcss) ship one
+# OPTIONAL dependency per platform, and pnpm locks only the platforms it is
+# told to resolve. Left to itself it resolves the platform doing the install,
+# so a lockfile written on a Mac records darwin-arm64 and nothing else — and CI
+# on linux-x64 then installs a package whose native binding was never locked.
+#
+# Measured 2026-08-29: commit 363f706d dropped 731 lines from pnpm-lock.yaml,
+# removing all 90 platform entries. Every Linux runner failed with
+#
+#     Cannot find module '@rolldown/binding-linux-x64-gnu'
+#
+# and main, three open PRs and the release job went red together. Nothing in
+# any of them was wrong; the lockfile simply no longer described their runner.
+#
+# Naming the architectures makes the resolution explicit, so an install keeps
+# every platform's binary in the lockfile whatever machine runs it.
+supportedArchitectures:
+  os:
+    - current
+    - linux
+    - darwin
+  cpu:
+    - current
+    - x64
+    - arm64
+  libc:
+    - current
+    - glibc
+    - musl
