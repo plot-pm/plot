@@ -8,8 +8,21 @@
 - **Approved:** 2026-08-28, Jan Wloka, in-session
 - **Branch:** `feature/one-deliver-rule-decides-in-the-domain` (base: `main`)
 - **Ends as:** one PR to `main`
-- **Waits on:** `the-domain-speaks-slices` slice 1 (`infra/the-domain-names-a-slice`)
-  landing first. Start only once `@plot-pm/domain` exports `FleetSliceSchema`.
+- **The rename has landed.** `@plot-pm/domain` exports `FleetSliceSchema` and
+  `SliceVerdictSchema`; the board's compatibility aliases are gone and it reads
+  `plan.slices`. Verified 2026-08-29 — you inherit corrected names, not a
+  migration in flight.
+
+**What is still called `waves`, and must stay that way:**
+
+| still `waves` | why |
+|---|---|
+| `WaveSchema` / `Wave` in the board | a DIFFERENT entity — the board's own derived per-`(plan, wave)` render state, not the domain's Slice. `schema.ts` says so at the re-export. |
+| `PlanMeta.waves` | `plot-plan-meta.sh` emits that key. Slice 3 teaches the parser `## Slices`; the scan's own `"waves"` output is a separate migration step. |
+
+**Counting occurrences will mislead you here.** A `grep` for `.waves` finds ~21
+sites and suggests the rename is unfinished; reading them shows most are prose
+or the two legitimate cases above. **Your rename is the RULE'S OWN NAME only.**
 
 ### Why this is being rebuilt
 
