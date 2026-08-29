@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Board, Card, Fleet, StoryCard } from '../contract/schema.js';
+import type { Board, Card, Fleet, SprintCard, StoryCard } from '../contract/schema.js';
 import { AgentList } from './components/AgentList.js';
 import { BoardView } from './components/Board.js';
 import { Swimlanes } from './components/Swimlanes.js';
 import { PlanModal } from './components/PlanModal.js';
+import { SprintModal } from './components/SprintModal.js';
 import { StoriesTab } from './components/StoriesTab.js';
 import { StoryModal } from './components/StoryModal.js';
 import { BLOCKED_REASON, UnreachableOverlay } from './components/UnreachableOverlay.js';
@@ -150,6 +151,8 @@ export function App() {
   // one closes the other, so an overlay above an overlay (two Close buttons,
   // one ambiguous Escape) cannot happen.
   const [openStory, setOpenStory] = useState<StoryCard | null>(null);
+  // The sprint overlay — shows sprint details with MoSCoW-grouped members.
+  const [openSprint, setOpenSprint] = useState<SprintCard | null>(null);
   // A plan click made before the board's cards landed, held until they do.
   const [pendingPlan, setPendingPlan] = useState('');
   // The card the reader was just sent to, named in the URL so the landing is
@@ -808,19 +811,48 @@ export function App() {
   );
 
   /**
-   * Navigate to a sprint — close the overlay, switch to Agents tab, and filter
-   * to the sprint.
+   * Open a sprint overlay — close other overlays and show the sprint details.
+   *
+   * The sprint is looked up by slug from `board.sprints`. If no matching sprint
+   * is found (stale slug, typo), the click does nothing — same rule as plans
+   * and stories with no backing file.
    */
-  const onOpenSprint = useCallback((sprintSlug: string) => {
-    setOpenStory(null);
-    setOpenPlan(null);
-    setTab('agents');
-    setSprintSel([sprintSlug]);
-    const url = new URL(location.href);
-    url.searchParams.set('tab', 'agents');
-    url.searchParams.set('sprint', sprintSlug);
-    history.replaceState(null, '', url);
-  }, []);
+  const onOpenSprint = useCallback(
+    (sprintSlug: string) => {
+      if (!board) return;
+
+      // First try to find an actual sprint file in board.sprints.
+      let sprint = board.sprints.find((s) => s.slug === sprintSlug);
+
+      // If no sprint file exists, create a minimal SprintCard from the plans
+      // that reference this sprint. This handles the case where a plan's
+      // Sprint: field references a sprint that was renamed or archived.
+      if (!sprint) {
+        const cards = board.columns.flatMap((c) => c.cards);
+        const matchingCards = cards.filter((c) => c.sprint === sprintSlug);
+        if (matchingCards.length > 0) {
+          sprint = {
+            slug: sprintSlug,
+            title: sprintSlug.replace(/-/g, ' '),
+            phase: 'unknown',
+            release: '',
+            members: matchingCards.map((c) => ({
+              slug: c.slug,
+              tier: 'could' as const,
+              checked: c.phase === 'Delivered' || c.phase === 'Released',
+              known: true,
+            })),
+          };
+        }
+      }
+
+      if (!sprint) return;
+      setOpenStory(null);
+      setOpenPlan(null);
+      setOpenSprint(sprint);
+    },
+    [board],
+  );
 
   const onSprint = (values: string[]) => {
     setSprintSel(values);
@@ -1032,7 +1064,7 @@ export function App() {
           // Stories tab — the strategic layer above plans. Shows story cards
           // grouped by status (Draft/Active/Done/Archived), with tag cloud.
           board ? (
-            <StoriesTab stories={board.stories} onOpenStory={onOpenStory} onOpenSprint={onOpenSprint} />
+            <StoriesTab stories={board.stories} topics={board.topics ?? []} onOpenStory={onOpenStory} onOpenSprint={onOpenSprint} />
           ) : (
             <p className="text-sm text-slate-500">Loading…</p>
           )
@@ -1209,6 +1241,20 @@ export function App() {
           onClose={() => setOpenStory(null)}
           onShowInBoard={onShowStoryInBoard}
           onOpenSprint={onOpenSprint}
+        />
+      )}
+      {openSprint && (
+        <SprintModal
+          sprint={openSprint}
+          onClose={() => setOpenSprint(null)}
+          onOpenPlan={(slug) => {
+            // Find the card for this plan slug and open it in the plan modal.
+            const card = allCards.find((c) => c.slug === slug);
+            if (card) {
+              setOpenSprint(null);
+              setOpenPlan(card);
+            }
+          }}
         />
       )}
     </div>

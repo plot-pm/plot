@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { StoryCard } from '../../contract/schema.js';
+import type { StoryCard, Topic } from '../../contract/schema.js';
 
 /**
  * Story status columns in display order.
@@ -20,85 +20,16 @@ const STATUS_META: Record<StoryStatus, { label: string; icon: string }> = {
 
 export interface StoriesTabProps {
   stories: StoryCard[];
+  /**
+   * Semantic topics extracted by the server using TF-IDF.
+   * Each topic includes storySlugs for filtering (including when a topic
+   * was found in a plan title, not just the story title).
+   */
+  topics: Topic[];
   /** Open a story in the modal. */
   onOpenStory: (story: StoryCard) => void;
   /** Open a sprint in the Agents tab. */
   onOpenSprint?: (sprintSlug: string) => void;
-}
-
-/**
- * Tag cloud entry — a topic keyword with its story count.
- */
-interface TagEntry {
-  topic: string;
-  count: number;
-}
-
-/**
- * Stop words to exclude from topic extraction.
- */
-const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-  'should', 'may', 'might', 'must', 'shall', 'can', 'need', 'dare',
-  'ought', 'used', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by',
-  'from', 'as', 'into', 'through', 'during', 'before', 'after', 'above',
-  'below', 'between', 'under', 'again', 'further', 'then', 'once', 'here',
-  'there', 'when', 'where', 'why', 'how', 'all', 'each', 'every', 'both',
-  'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not',
-  'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'just',
-  'don', 'now', 'and', 'but', 'or', 'if', 'because', 'until', 'while',
-  'about', 'against', 'what', 'which', 'who', 'whom', 'this', 'that',
-  'these', 'those', 'am', 'its', 'it', 'they', 'them', 'their', 'we',
-  'our', 'you', 'your', 'he', 'him', 'his', 'she', 'her', 'i', 'me', 'my',
-]);
-
-/**
- * Extract topic keywords from a story title.
- *
- * Splits on word boundaries, filters stop words, and returns meaningful terms.
- * Single-character words and numbers are excluded.
- */
-function extractTopics(title: string): string[] {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter((word) => word.length > 1 && !STOP_WORDS.has(word));
-}
-
-/**
- * Compute tag cloud entries from stories.
- *
- * Extracts topic keywords from story titles AND their plan titles to get
- * broader semantic coverage. Counts how many stories mention each topic.
- * Sorted by count descending.
- */
-function computeTags(stories: StoryCard[]): TagEntry[] {
-  const topicCounts = new Map<string, number>();
-
-  for (const story of stories) {
-    // Extract from story title
-    const storyTitle = story.title || story.slug.replace(/-/g, ' ');
-    const storyTopics = extractTopics(storyTitle);
-
-    // Also extract from plan titles within this story
-    const planTopics = (story.plans || []).flatMap((p) =>
-      extractTopics(p.title || p.slug.replace(/-/g, ' '))
-    );
-
-    // Combine and dedupe — count each topic once per story
-    const uniqueTopics = new Set([...storyTopics, ...planTopics]);
-    for (const topic of uniqueTopics) {
-      topicCounts.set(topic, (topicCounts.get(topic) || 0) + 1);
-    }
-  }
-
-  return Array.from(topicCounts.entries())
-    .map(([topic, count]) => ({ topic, count }))
-    .sort((a, b) => b.count - a.count)
-    // Limit to top 20 to avoid overwhelming the cloud
-    .slice(0, 20);
 }
 
 /**
@@ -120,9 +51,18 @@ function tagFontSize(count: number, maxCount: number): string {
  * Shows story cards grouped by status (Draft/Active/Done/Archived), with a tag
  * cloud for topic navigation. Clicking a story opens the StoryModal.
  */
-export function StoriesTab({ stories, onOpenStory, onOpenSprint }: StoriesTabProps) {
+export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: StoriesTabProps) {
   const [showArchived, setShowArchived] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+
+  // Build a lookup: topic -> set of story slugs that contain it
+  const topicToSlugs = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const t of topics) {
+      map.set(t.topic, new Set(t.storySlugs));
+    }
+    return map;
+  }, [topics]);
 
   // Group stories by status
   const byStatus = useMemo(() => {
@@ -140,9 +80,11 @@ export function StoriesTab({ stories, onOpenStory, onOpenSprint }: StoriesTabPro
     return groups;
   }, [stories]);
 
-  // Filter by selected topic — matches stories whose title contains the topic
+  // Filter by selected topic — uses server's storySlugs to match stories
+  // (includes stories where the topic was found in a plan title)
   const filteredByStatus = useMemo(() => {
     if (!selectedTag) return byStatus;
+    const matchingSlugs = topicToSlugs.get(selectedTag) ?? new Set();
     const result: Record<StoryStatus, StoryCard[]> = {
       draft: [],
       active: [],
@@ -150,18 +92,13 @@ export function StoriesTab({ stories, onOpenStory, onOpenSprint }: StoriesTabPro
       archived: [],
     };
     for (const status of STORY_STATUSES) {
-      result[status] = byStatus[status].filter((s) => {
-        const title = s.title || s.slug.replace(/-/g, ' ');
-        const topics = extractTopics(title);
-        return topics.includes(selectedTag);
-      });
+      result[status] = byStatus[status].filter((s) => matchingSlugs.has(s.slug));
     }
     return result;
-  }, [byStatus, selectedTag]);
+  }, [byStatus, selectedTag, topicToSlugs]);
 
-  // Tag cloud
-  const tags = useMemo(() => computeTags(stories), [stories]);
-  const maxCount = tags.length > 0 ? tags[0].count : 1;
+  // Use server-computed topics
+  const maxCount = topics.length > 0 ? topics[0].count : 1;
 
   // Which columns to show
   const visibleStatuses = showArchived
@@ -170,23 +107,23 @@ export function StoriesTab({ stories, onOpenStory, onOpenSprint }: StoriesTabPro
 
   return (
     <div className="space-y-4">
-      {/* Tag cloud */}
-      {tags.length > 0 && (
+      {/* Tag cloud — server-computed topics using TF-IDF */}
+      {topics.length > 0 && (
         <div className="rounded-lg bg-slate-100/70 p-3 dark:bg-slate-900/50">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            {tags.map((tag) => (
+            {topics.map((t) => (
               <button
-                key={tag.topic}
+                key={t.topic}
                 type="button"
-                onClick={() => setSelectedTag(selectedTag === tag.topic ? null : tag.topic)}
+                onClick={() => setSelectedTag(selectedTag === t.topic ? null : t.topic)}
                 className={`text-cyan-700 transition-opacity hover:opacity-80 dark:text-cyan-400 ${
-                  selectedTag && selectedTag !== tag.topic ? 'opacity-40' : ''
+                  selectedTag && selectedTag !== t.topic ? 'opacity-40' : ''
                 }`}
-                style={{ fontSize: tagFontSize(tag.count, maxCount) }}
-                title={`${tag.topic}: ${tag.count} stories`}
+                style={{ fontSize: tagFontSize(t.count, maxCount) }}
+                title={`${t.topic}: ${t.count} stories`}
               >
-                {tag.topic}
-                <span className="ml-0.5 text-xs opacity-60">({tag.count})</span>
+                {t.topic}
+                <span className="ml-0.5 text-xs opacity-60">({t.count})</span>
               </button>
             ))}
             {selectedTag && (

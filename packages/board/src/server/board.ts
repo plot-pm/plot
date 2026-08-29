@@ -23,6 +23,7 @@ import {
   type WaveSummary } from '../contract/schema.js';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
+import { extractTopics } from './topics.js';
 
 /**
  * Where to look. `repoRoot` is the adopting project (source of plans / sprints
@@ -1007,7 +1008,18 @@ export function parseSprintContent(content: string, name: string): SprintCard | 
   // it as an empty string rather than a guess.
   const releaseMatch = statusBody.match(/^- \*\*Release:\*\* (.+)$/m);
   const release = releaseMatch ? releaseMatch[1].trim() : '';
-  return { slug, title, phase, release, members: parseSprintMembers(content) };
+  // Start and end dates from `## Status`.
+  const startMatch = statusBody.match(/^- \*\*Start:\*\* (.+)$/m);
+  const start = startMatch ? startMatch[1].trim() : '';
+  const endMatch = statusBody.match(/^- \*\*End:\*\* (.+)$/m);
+  const end = endMatch ? endMatch[1].trim() : '';
+  // Sprint goal — the bold statement from `## Sprint Goal`. Extract the first
+  // bold line as the goal headline.
+  const goalSection = content.match(/## Sprint Goal\s*\n([\s\S]*?)(?=\n## |$)/);
+  const goalBody = goalSection ? goalSection[1].trim() : '';
+  const goalMatch = goalBody.match(/^\*\*(.+?)\*\*/m);
+  const goal = goalMatch ? goalMatch[1].trim() : '';
+  return { slug, title, phase, release, goal, start, end, members: parseSprintMembers(content) };
 }
 
 /**
@@ -1582,6 +1594,8 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     cards: cards.filter((c) => c.phase === phase),
   }));
 
+  const stories = collectStories(repoRoot, storyDir, metas);
+
   return {
     generatedAt: new Date().toISOString(),
     columns,
@@ -1654,7 +1668,13 @@ export function buildBoard(opts: BuildBoardOptions): Board {
     sprints: collectSprints(
       repoRoot, sprintDir, new Set(cards.map((c) => c.slug)), `origin/${defaultBranch}`,
     ),
-    stories: collectStories(repoRoot, storyDir, metas),
+    stories,
+    // Semantic topics extracted from story and plan titles using TF-IDF
+    topics: extractTopics(stories.map((s) => ({
+      slug: s.slug,
+      title: s.title || s.slug.replace(/-/g, ' '),
+      planTitles: (s.plans || []).map((p) => p.title || p.slug.replace(/-/g, ' ')),
+    }))),
   };
 }
 
@@ -1928,4 +1948,49 @@ export function renderStoryPage(
     return null;
   }
   return renderMarkdownPage(md, slug, embed);
+}
+
+/**
+ * Render a design doc (DESIGN-*.md) from a story directory — or null if not
+ * found (→ 404).
+ *
+ * The path format is `<story-slug>/<design-doc-name>`, e.g.
+ * `the-master-agent-holds-the-fleet/DESIGN-entities.md`.
+ *
+ * Security: only files matching DESIGN-*.md in collected story directories are
+ * served — no traversal, no arbitrary files.
+ */
+export function renderDesignDocPage(
+  opts: BuildBoardOptions,
+  docPath: string,
+  { embed = false }: RenderPlanOptions = {},
+): string | null {
+  // Parse the path: <story-slug>/<design-doc-name>
+  const parts = docPath.split('/');
+  if (parts.length !== 2) return null;
+  const [storySlug, docName] = parts;
+
+  // Validate docName matches DESIGN-*.md pattern
+  if (!docName || !/^DESIGN-[\w-]+\.md$/.test(docName)) return null;
+
+  // Resolve the story directory
+  const storyDir = readConfig(opts, 'Story directory', 'docs/stories/');
+  const repoRoot = resolvedRepoRoot(opts);
+  const storyPath = path.join(repoRoot, storyDir, storySlug);
+
+  // Check the story directory exists (validates storySlug against allowlist)
+  if (!fs.existsSync(storyPath) || !fs.statSync(storyPath).isDirectory()) {
+    return null;
+  }
+
+  // Read the design doc
+  const docFile = path.join(storyPath, docName);
+  let md: string;
+  try {
+    md = fs.readFileSync(docFile, 'utf8');
+  } catch {
+    return null;
+  }
+
+  return renderMarkdownPage(md, docName, embed);
 }

@@ -83,13 +83,10 @@ export function plansInStory(cards: Card[], slug: string): Card[] {
  */
 /**
  * Build href for a design doc within a story directory.
- * Uses /plan/ route which renders arbitrary markdown files.
+ * Uses /design/ route with format: /design/<story-slug>/<doc-name>
  */
 function designDocHref(story: StoryCard, docName: string): string {
-  // story.path is like "docs/stories/the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md"
-  // We need "docs/stories/the-master-agent-holds-the-fleet/DESIGN-entities.md"
-  const dir = story.path.replace(/\/STORY-[^/]+\.md$/, '');
-  return `/plan/${encodeURIComponent(`${dir}/${docName}`)}`;
+  return `/design/${encodeURIComponent(`${story.slug}/${docName}`)}`;
 }
 
 export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenSprint }: StoryModalProps) {

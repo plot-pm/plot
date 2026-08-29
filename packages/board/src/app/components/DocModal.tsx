@@ -82,6 +82,15 @@ export function DocModal({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Lock body scroll while modal is open.
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
+
   return (
     <div
       role="dialog"

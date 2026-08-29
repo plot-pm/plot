@@ -587,6 +587,20 @@ export const SprintCardSchema = z.object({
    */
   release: z.string().default(''),
   /**
+   * The sprint goal — the bold statement from `## Sprint Goal`, or "" where
+   * the section is absent. This is the one-liner that answers "what are we
+   * trying to achieve?"
+   */
+  goal: z.string().default(''),
+  /**
+   * Sprint start date — `- **Start:** YYYY-MM-DD` from `## Status`, or "".
+   */
+  start: z.string().default(''),
+  /**
+   * Sprint end date — `- **End:** YYYY-MM-DD` from `## Status`, or "".
+   */
+  end: z.string().default(''),
+  /**
    * The plans the sprint names, one per distinct slug. A slug sliced across
    * several waves lists once here (first, highest tier wins). Defaults to `[]`
    * so a sprint file with no member list — or a hand-built SprintCard — is valid.
@@ -733,6 +747,24 @@ export const TagCountSchema = z.object({
   status: z.string(),
 });
 export type TagCount = z.infer<typeof TagCountSchema>;
+
+/**
+ * Semantic topic extracted from story and plan titles using TF-IDF.
+ *
+ * Unlike TagCount (which uses story slugs), this extracts meaningful keywords
+ * that describe what the work is about — domain terms, not implementation terms.
+ */
+export const TopicSchema = z.object({
+  /** The topic keyword (lowercase, stemmed) */
+  topic: z.string(),
+  /** TF-IDF score — higher means more distinctive across the corpus */
+  score: z.number(),
+  /** Number of stories containing this topic */
+  count: z.number(),
+  /** Story slugs that contain this topic (for filtering) */
+  storySlugs: z.array(z.string()),
+});
+export type Topic = z.infer<typeof TopicSchema>;
 
 /**
  * Response shape for GET /api/stories — the Stories tab's data contract.
@@ -1004,6 +1036,12 @@ export const BoardSchema = z.object({
   planSource: PlanSourceSchema.default({ ref: '', resolved: false, localOnly: 0, behind: null }),
   sprints: z.array(SprintCardSchema),
   stories: z.array(StoryCardSchema),
+  /**
+   * Semantic topics extracted from story and plan titles using TF-IDF.
+   * Each topic includes the story slugs it appears in, enabling filtering
+   * that shows a story even when the topic was found in one of its plans.
+   */
+  topics: z.array(TopicSchema).default([]),
 });
 export type Board = z.infer<typeof BoardSchema>;
 

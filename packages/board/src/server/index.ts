@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildBoard, renderPlanPage, renderStoryPage, type BuildBoardOptions } from './board.js';
+import { buildBoard, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
 import { repairEnabledFromEnv } from './resolver.js';
 import { buildFleet } from './fleet.js';
 import { mockFleet, mockRequested, mockCards} from './mock-fleet.js';
@@ -81,6 +81,7 @@ const opts: BuildBoardOptions = {
 const MARKDOWN_ROUTES = [
   { prefix: '/plan/', label: 'Plan', render: renderPlanPage },
   { prefix: '/story/', label: 'Story', render: renderStoryPage },
+  { prefix: '/design/', label: 'Design Doc', render: renderDesignDocPage },
 ] as const;
 
 function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
