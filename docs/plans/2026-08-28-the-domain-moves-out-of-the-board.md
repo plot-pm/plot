@@ -274,14 +274,28 @@ edited** — the client's single-file bundle included,
 `@vitest/coverage-v8` is wired with the 100% threshold failing the build when
 unmet.
 
-### Deliverable (Branch: feature/one-deliver-rule-decides-in-the-domain, PR: #511)
+### Deliverable (Branch: feature/one-deliver-rule-decides-in-the-domain, PR: #523)
 
-`allWavesMerged` moves to `rules/deliverable.ts` with its 25 tests. The board's
-three call sites import it.
+The deliverable rule moves to `rules/deliverable.ts`. Shipped as
+`allSlicesMerged`: `DESIGN-slice.md` renamed the entity on 2026-08-28, and this
+rule walks one plan's slices — the old `allWavesMerged` said Wave and meant
+Slice. `board.ts` re-exports it under the old name for the two external call
+sites, marked temporary.
 
-**Done when** the 25 tests pass unedited from the domain package, `board.ts` no
-longer defines the function, and coverage of `rules/deliverable.ts` meets the
-threshold — any gap the move exposes is closed here.
+**PR #511 was the first attempt, closed green rather than merged** because it
+carried the pre-rename vocabulary; merging it would have grown the defect under
+`Entities` and `Transitions`. Its logic was reused as a verified reference, its
+prose was not.
+
+**Done when** the tests pass from the domain package with no board test edited,
+`board.ts` no longer defines the rule, and coverage of `rules/deliverable.ts`
+meets the threshold — any gap the move exposes is closed here.
+
+Re-measured 2026-08-29: **4** non-test call sites, not three — `tsc` named the
+fourth, `planStatus` inside `board.ts` itself, which a re-export cannot bind.
+The board's 25 tests are spread over four files and stay where they are, passing
+unedited as the proof the move preserved behaviour; the domain gets **14** new
+cases of its own.
 
 ### Entities (Branch: feature/the-entities-carry-their-states, PR: #515)
 
