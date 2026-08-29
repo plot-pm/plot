@@ -4,6 +4,26 @@ import { BOARD_PHASES } from '../../contract/schema.js';
 import { planHref, storyHref } from '../lib/plan.js';
 import { DocModal } from './DocModal.js';
 
+/**
+ * Convert basic markdown to HTML for display.
+ *
+ * Handles **bold**, *italic*, and `code` — enough for design sections
+ * without pulling in a full markdown parser.
+ */
+function renderMarkdown(text: string): string {
+  return text
+    // Escape HTML first to prevent XSS
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    // Then apply markdown formatting
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code class="rounded bg-slate-200 px-1 dark:bg-slate-700">$1</code>')
+    // Convert line breaks
+    .replace(/\n/g, '<br />');
+}
+
 export interface StoryModalProps {
   story: StoryCard;
   /**
@@ -61,11 +81,47 @@ export function plansInStory(cards: Card[], slug: string): Card[] {
  * - Content indicators (open points, session log)
  * - Plans with in-overlay navigation
  */
+/**
+ * Build href for a design doc within a story directory.
+ * Uses /plan/ route which renders arbitrary markdown files.
+ */
+function designDocHref(story: StoryCard, docName: string): string {
+  // story.path is like "docs/stories/the-master-agent-holds-the-fleet/STORY-the-master-agent-holds-the-fleet.md"
+  // We need "docs/stories/the-master-agent-holds-the-fleet/DESIGN-entities.md"
+  const dir = story.path.replace(/\/STORY-[^/]+\.md$/, '');
+  return `/plan/${encodeURIComponent(`${dir}/${docName}`)}`;
+}
+
 export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenSprint }: StoryModalProps) {
   const plans = plansInStory(cards, story.slug);
   const [designExpanded, setDesignExpanded] = useState(false);
-  // In-overlay navigation: null = story view, Card = plan view
+  // In-overlay navigation: null = story view, Card = plan view, string = design doc
   const [viewingPlan, setViewingPlan] = useState<Card | null>(null);
+  const [viewingDesignDoc, setViewingDesignDoc] = useState<string | null>(null);
+
+  // When viewing a design doc, show it in DocModal with back navigation
+  if (viewingDesignDoc) {
+    return (
+      <DocModal
+        label="Design Doc"
+        ariaLabel={`Design: ${viewingDesignDoc}`}
+        href={designDocHref(story, viewingDesignDoc)}
+        frameTitle={`Design: ${viewingDesignDoc}`}
+        onClose={onClose}
+      >
+        {/* Back to story button */}
+        <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2 dark:border-slate-700">
+          <button
+            type="button"
+            onClick={() => setViewingDesignDoc(null)}
+            className="flex items-center gap-1 text-xs text-cyan-600 hover:underline dark:text-cyan-400"
+          >
+            ← Back to {story.title || story.slug}
+          </button>
+        </div>
+      </DocModal>
+    );
+  }
 
   // When viewing a plan, show a different DocModal with back navigation
   if (viewingPlan) {
@@ -142,9 +198,10 @@ export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenSprint 
           <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
             Objective
           </p>
-          <p className="text-sm text-slate-700 dark:text-slate-200">
-            {story.objective}
-          </p>
+          <div
+            className="text-sm text-slate-700 dark:text-slate-200"
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(story.objective) }}
+          />
         </div>
       )}
 
@@ -164,14 +221,15 @@ export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenSprint 
             </span>
           </button>
           {designExpanded && (
-            <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600 dark:text-slate-300">
-              {story.design}
-            </p>
+            <div
+              className="prose prose-sm prose-slate mt-2 max-w-none text-xs dark:prose-invert"
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(story.design) }}
+            />
           )}
         </div>
       )}
 
-      {/* Design docs */}
+      {/* Design docs — clickable links with in-overlay navigation */}
       {story.designDocs && story.designDocs.length > 0 && (
         <div className="border-b border-slate-200 px-4 py-2 dark:border-slate-700">
           <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
@@ -179,8 +237,14 @@ export function StoryModal({ story, cards, onClose, onShowInBoard, onOpenSprint 
           </p>
           <ul className="space-y-0.5">
             {story.designDocs.map((doc) => (
-              <li key={doc} className="text-xs text-slate-600 dark:text-slate-300">
-                📄 {doc}
+              <li key={doc}>
+                <button
+                  type="button"
+                  onClick={() => setViewingDesignDoc(doc)}
+                  className="text-xs text-cyan-600 hover:underline dark:text-cyan-400"
+                >
+                  📄 {doc}
+                </button>
               </li>
             ))}
           </ul>
