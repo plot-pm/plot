@@ -123,6 +123,57 @@ confusion CLAUDE.md's rule exists to prevent.
 applies to its five refusals. *"Owes a review"* is three facts anded together,
 and every one is checkable by a script.
 
+#### An agent outlives its slice, so a finding names the SLICE
+
+**An agent takes one unit at a time and then takes another.**
+[DESIGN-agent.md](../stories/the-master-agent-holds-the-fleet/DESIGN-agent.md)
+says it plainly — *"slice merged ─► agent and desk are FREE for the next unit"* —
+and that is why `branch` is optional on an agent: one between units genuinely
+has none.
+
+**So "this agent owes a review" is the wrong sentence.** By the time the finding
+is read, the agent may be three commits into its next slice, and the debt
+belongs to a branch it has left behind. A report naming the agent would send
+someone to a desk where nothing is wrong.
+
+**Every AgentMonitor finding names the slice it is about**, and the agent only
+as *who was at that desk when it happened*:
+
+```
+owes a review   feature/the-ports-have-adapters   4 commits, no PR
+                (agent 0a3f, which has since moved to feature/…)
+```
+
+**The debt outlives the agent's attention, which is the entire point.** The
+three measured cases are exactly this: work finished on a branch, the agent gone
+or moved on, and nothing pointing at the branch.
+
+#### When the monitor does its job, given an agent that keeps going
+
+**The WorkerMonitor's subject is the process and it never stops** — the pid is
+alive whether the agent is on its first slice or its fifth, and `idle` means the
+same thing throughout. Nothing changes across a unit boundary.
+
+**The AgentMonitor's subject is a desk, and a desk holds one branch at a time.**
+It reads the worktree: which branch is checked out, what is committed, what the
+host says about it. When the agent moves to the next unit, the desk moves with
+it — so the AgentMonitor follows the current branch, and a *previous* branch's
+debt does not vanish because the branch is still there with commits and no PR.
+
+**That is why the finding is keyed by branch rather than by worktree.** A
+worktree that has moved on reports on what it holds now; the branch it left is
+still a branch the fleet scan sees, and its debt is still true. **The monitor
+does not have to catch the moment work finishes** — the debt persists until a PR
+exists, so a finding one interval late is as good as one on time.
+
+**The registry's own question is different and stays separate.** DESIGN-agent.md
+distinguishes `state` (*what is the process doing*) from **availability**
+(*can this agent take a slice*), and says no state answers the second. The
+monitors report the first two rows of that table; whether an idle agent should
+be given work is the registry's call, made from the state plus its slice. **A
+monitor that also decided availability would be answering a question the spec
+gives to something else.**
+
 #### The two measured cases need both
 
 `the-ports-have-adapters` is an **AgentMonitor** finding: the worker exited
@@ -217,6 +268,39 @@ design's `sampled` field was for: the monitor holds its subscription, so losing
 it IS the signal. A subscriber sees the connection drop rather than having to
 notice a timestamp going stale — and that is stronger, because a stale file
 still parses and still answers.
+
+### A subscriber may ask for a fresh reading, but never take one
+
+**The channel carries one message the other way: *measure this now*.**
+
+**It solves a real staleness problem rather than adding a feature.** The
+AgentMonitor samples every five minutes because its findings cost a host round
+trip. But the moments when a finding is most wrong are the moments something
+just happened — a PR merged, a worker exited — and the board or the master agent
+knows that before the next interval comes round. A prompt makes the answer
+current without shortening the interval for everyone.
+
+**The direction of polling does not change, and that is the point.** The monitor
+still owns every measurement; a subscriber asks it to measure sooner, never
+measures for itself. A subscriber that sampled would put the host round trip
+back on the fast loop — the rate problem this design exists to avoid, arriving
+by the back door.
+
+| | |
+|---|---|
+| a subscriber may | ask for a reading **now** |
+| a subscriber may not | read the pid, ask the host, or inspect a worktree |
+| the monitor decides | whether to honour it — a prompt during a sample in flight is a no-op |
+
+**The precedent is in the board already.** `monitors.ts` carries
+`invalidate(refs)` — a cached answer discarded when a cheap signal says it may
+have changed. A prompt is the same idea across a process boundary: *the reason
+your last answer held may have gone*.
+
+**It is rate-limited by the monitor, not by politeness.** A prompt cannot make
+the AgentMonitor exceed its own floor, or a subscriber in a loop reinstates the
+cost the interval was chosen to bound. **The floor is the monitor's to enforce
+because it is the only component that knows what the measurement cost.**
 
 ### What a report contains
 
@@ -417,8 +501,10 @@ Attention derives its entries from what the board received.
 - a WorkerMonitor `idle` finding is distinguishable from an AgentMonitor one
 - **two subscribers each receive every finding**, and neither needs to know the
   other exists
-- **a monitor that dies drops its subscription**, and a subscriber can tell that
+- **a monitor that dies stops its heartbeat**, and a subscriber can tell that
   from a monitor with nothing to say
+- **a subscriber can ask for a reading now**, the monitor honours it, and a
+  subscriber asking in a loop cannot drive the monitor below its own floor
 
 **The last two are the ones a channel has to earn.** One subscriber is a return
 value; two is a channel. And silence-because-healthy versus silence-because-gone

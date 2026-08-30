@@ -87,10 +87,20 @@ recoverable without judgement about what each PR meant, months later.
 already; a reader who reaches a bare marker can follow it. **The fix is forward-only:
 no new entry joins them.**
 
-> An earlier draft of this plan proposed regenerating the changelog from the
-> changeset files in git history. That was rejected on measurement: of the 19,
-> the changeset files for 6 are no longer in any branch — Changesets deletes
-> them on version, and those releases predate the current retention.
+> An earlier draft proposed regenerating the changelog from the changeset files
+> in git history. **Rejected on measurement — and the measurement was taken
+> late.** That draft said "6 of the 19", which was a plausible figure I had not
+> checked; this plan asserts elsewhere that a claim looking like a measurement
+> must be one, so it is corrected here rather than quietly.
+>
+> **Measured 2026-08-30: 14 of the 19 have no recoverable changeset file.** The
+> merge commit for each broken entry was searched for an added `.changeset/*.md`;
+> five have one, fourteen do not — Changesets deletes them on version, and
+> squash-merge leaves nothing of the branch behind.
+>
+> The correction strengthens the argument rather than weakening it: regeneration
+> could restore under a third of the entries, and the rest would still read as a
+> bare marker beside them.
 
 ### Where the rule is written down
 
