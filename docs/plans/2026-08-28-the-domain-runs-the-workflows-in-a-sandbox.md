@@ -14,7 +14,7 @@
 
 ## Changelog
 
-- `@plot-pm/domain` gains adapters for its seven ports and expresses all six lifecycle workflows, verified against the live repository in read-only mode.
+- `@plot-pm/domain` gains adapters for its seven ports and expresses all six lifecycle workflows in read-only mode. The four with a script — approve, dispatch, deliver, reap — are verified against the live repository; `implement` and `release` exist only as skill prose and are verified against fixtures alone.
 
 <!-- Board impact: NONE. The adapters READ what the board reads; nothing here is
      wired into the board or the skills. The one write path (transitions) is
@@ -142,7 +142,8 @@ touches**, and it adds an operation without changing one.
 
 **Each workflow is the domain deciding and the adapter performing**, per
 [stage 2 §3](../stories/the-master-agent-holds-the-fleet/DESIGN-review-workflows.md#3-the-split-per-workflow).
-This plan writes the deciding half for all six and **stops before performing**:
+This plan writes the deciding half for all six — across two slices, since
+`dispatch` alone is half the code — and **stops before performing**:
 
 ```
 workflow(readings) → Decision            // proceed, with what to write
@@ -237,6 +238,27 @@ existing consumer.
 
 ## Slices
 
+**Reading comes first and alone; the three after it are not a queue.**
+Everything needs the ports, so Reading blocks all of them. But Agreeing verifies
+adapters against production while Deciding and Dispatching express workflow
+logic — different files, different questions, and neither reads the other's
+output. Deciding needs the ports to exist, not the corpus comparison to have
+passed.
+
+**Sequencing them anyway would cost the fleet three waves where one would do**,
+and the parallelism is real rather than theoretical: this repository runs
+`parallelAgents: 11`.
+
+**Writing is last, and that one is a genuine dependency** — it applies the
+`Decision` that Deciding and Dispatching produce, so it cannot start before both
+land.
+
+```
+Reading ──┬─→ Agreeing ─────┐
+          ├─→ Deciding ─────┼─→ Writing
+          └─→ Dispatching ──┘
+```
+
 ### Reading (Branch: feature/the-ports-have-adapters)
 
 **The seven ports are declared here, not assumed.** `PlanStore`, `Refs`,
@@ -292,11 +314,56 @@ keeps the untestable code confined to this directory.
 
 ### Deciding (Branch: feature/the-workflows-decide-without-acting)
 
-All six workflows as `readings → Decision | Refusal`, with the refusals named
-individually.
+`approve`, `deliver`, `reap`, `implement` and `release` as
+`readings → Decision | Refusal`, with the refusals named individually.
+**`dispatch` is not here** — it has its own slice below, for reasons of size.
 
-**Done when** each workflow's refusals are assertable without a repository, and
-each `Decision` names every write it would make.
+**Two of the five have no script**, and that changes what can be proven about
+them rather than whether they are expressed. `plot-implement` and
+`plot-release` exist only as skill prose: 312 and 482 lines, six and nine
+numbered steps, five and fifteen refusal statements, and two and four
+`PLOT-UNASKED` shapes between them. **That prose is the specification** — it is
+what every agent running these workflows today actually follows, so a domain
+that disagrees with it disagrees with production.
+
+**What it cannot do is fail mechanically.** Prose has no exit code, so there is
+no corpus comparison for these two and no sandbox byte check: a disagreement
+between the domain and a paragraph is a reading, and readings are how a promise
+that was never implemented survives review. They are therefore proven by unit
+tests against fixtures only, and **the plan states that as weaker evidence
+rather than hiding it behind the same "verified" the other four earn.**
+
+**The numbered steps and named refusals are what make this tractable at all.**
+Had the prose been narrative, expressing it would be interpretation; being a
+numbered procedure with explicit refusals, it is closer to transcription. Where
+a step is genuinely ambiguous, that ambiguity is a finding about the skill and
+gets recorded, not resolved by guessing.
+
+**Done when** each of the five workflows' refusals is assertable without a
+repository, each `Decision` names every write it would make (proven as below),
+and the two prose-derived workflows are marked in the code as fixture-verified
+only.
+
+### Dispatching (Branch: feature/dispatch-decides-without-acting)
+
+`plot-dispatch.sh` alone, as `readings → Decision | Refusal`.
+
+**It is its own slice because it is half the work.** Measured 2026-08-30:
+`plot-dispatch.sh` is **2028 of the 3430 lines** across the four scripted
+workflows and carries **~46 of the ~104 error paths**. Folding it into Deciding
+would make one branch larger than the other three workflows combined — and this
+story exists because agents stall on branches that size, with 324 finished
+lines left uncommitted in one measured case.
+
+**Its refusals are also the ones with teeth**: a live worker pid, a
+`PLOT-BLOCKED` marker, a worktree holding unlanded work, a phase gate read from
+`origin/<main>`. Each is a measurement rather than a judgement, which is
+exactly what makes them expressible as domain predicates — and worth reviewing
+on their own rather than in a diff that also moves five other workflows.
+
+**Done when** every `plot-dispatch.sh` refusal is a named `Refusal` assertable
+without a repository, and the `--dry-run` reasoning is reproducible from the
+domain alone.
 
 ### Writing (Branch: feature/a-decision-writes-what-the-script-writes)
 
@@ -305,9 +372,22 @@ against `plot-approve.sh` and `plot-deliver.sh` through the parser rather than
 byte for byte — both outputs are read by `plot-plan-meta.sh` and every field
 must match.
 
+**The sandbox is also what proves a `Decision` named every write it makes.**
+The Deciding slice asserts that it does; nobody can check it by reading, because
+the failure mode is a write the author forgot — and an author who forgot it
+while writing the code forgets it again while reviewing. So the sandbox runs the
+script in a temp repo, takes `git status --porcelain` plus an untracked-file
+listing before and after, and asserts every path that changed appears in the
+`Decision`. **The filesystem enumerates the writes, not a person.**
+
+An extra path in the `Decision` that the script never writes fails too: over-
+claiming is how a `Decision` stops being a usable description of what will
+happen.
+
 **Done when** approve and deliver parse identically by both paths in the
 sandbox e2e suite — including the transition records, the phase, and the sprint
-annotation — and a deliberately corrupted date (`2026-8-29` for `2026-08-29`)
+annotation — every filesystem change is named by the `Decision` and no unnamed
+path appears, and a deliberately corrupted date (`2026-8-29` for `2026-08-29`)
 makes the comparison fail. Without that mutation the assertion is unproven:
 a comparison of two parses that both silently returned nothing would pass.
 
