@@ -27,6 +27,14 @@ export interface ReapEvidence {
   isDispatchTree: boolean;
   /** The registry manifest naming this tree, or `''` when none does. */
   manifest: string;
+  /**
+   * Whether the branch left agent-log files beside its worktree.
+   *
+   * A reading rather than a judgement, like the rest: whether the files are
+   * there, never whether they may go. Their absence is the desired state, so
+   * `false` produces no write instead of a write that would find nothing.
+   */
+  hasLog: boolean;
 }
 
 /** One worktree and what was measured of it. */
@@ -105,10 +113,12 @@ export interface ReapDetail {
  * `Worktree` entity owns — a second implementation of *may this be removed* is
  * exactly the drift that would delete somebody's work.
  *
- * The two writes per tree are ordered and the order is load-bearing: the
+ * The three writes per tree are ordered and the order is load-bearing: the
  * checkout goes first and the manifest second, because the reverse leaves a
  * live worktree unregistered and the registry answers that by synthesizing an
- * `unknown` row — the same bad row, earned a different way.
+ * `unknown` row — the same bad row, earned a different way. The log goes last
+ * because it is the only one that is pure cleanup, so a failure before it has
+ * cost the least and its own failure costs nothing.
  *
  * @param readings - the trees, their measurements, and the orphaned manifests.
  * @param input - the bound to apply, if any.
@@ -148,6 +158,13 @@ export const reap = (readings: ReapReadings, input: ReapInput = {}): Decision<Re
     writes.push({ kind: 'worktree-remove', path: tree.path });
     if (evidence.manifest !== '') {
       writes.push({ kind: 'manifest-clear', worktree: tree.path });
+    }
+    // And the log LAST, because it is the only one that is pure cleanup: a
+    // missing manifest orphans an agent, while a missing log costs a record of
+    // work the host already merged. Omitted entirely when there is none — a
+    // write that would find nothing is not a write.
+    if (evidence.hasLog) {
+      writes.push({ kind: 'log-clear', branch: tree.branch });
     }
   }
 

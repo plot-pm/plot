@@ -32,6 +32,7 @@ export type Write =
   | BriefWrite
   | WorktreeRemoveWrite
   | ManifestClearWrite
+  | LogClearWrite
   | CommitWrite
   | PushWrite;
 
@@ -160,6 +161,25 @@ export interface ManifestClearWrite {
   readonly kind: 'manifest-clear';
   /** The worktree the manifest named, absolute. */
   readonly worktree: string;
+}
+
+/**
+ * Removes the agent-log files describing one branch's run.
+ *
+ * The branch's own `plot-resolve-<branch>` files — the log, its `.state` and its
+ * `.prompt.md` — which map one-to-one onto the worktree being removed. Never the
+ * per-plan `plot-dispatch-<slug>.log`, which spans a plan's branches and
+ * outlives any one of them.
+ *
+ * Pure cleanup, and ordered last for that reason: a missing manifest orphans an
+ * agent, while a missing log costs a record of work the host already merged.
+ * Absence is the desired state, so removing a file that is not there is not a
+ * failure.
+ */
+export interface LogClearWrite {
+  readonly kind: 'log-clear';
+  /** The branch whose run files go, as the log names them. */
+  readonly branch: string;
 }
 
 /** Commits the staged writes. Paths are staged explicitly, never `add -A`. */
