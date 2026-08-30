@@ -1027,6 +1027,17 @@ from the same field.
 
 ## Session Log
 
+- **2026-08-30** — the 14 legacy `plot-wt-*` worktrees are gone, and clearing
+  them found work that had been lost. `plot-reap.sh` removed 8 on merged PRs and
+  **refused 6**, which is what the refusal is for: two of them held changesets
+  for PRs #491 and #493 that were **written, never committed, and appear nowhere
+  in the CHANGELOG** — a reaper that removed those worktrees would have deleted
+  the only copy. Both are now on `main`, two releases late. Three more held
+  commits whose work had landed by another route (`#387` for the AgentList
+  split, the `## Waves` migration, the `Worktree root` key), and one held
+  `print("test")`. **New dispatches land under `.worktrees/` since the config
+  key landed today**; both conventions coexist, as `plot-dispatch.sh` intends.
+
 - **2026-08-30** — six board defects carry plans, all Draft, all measured rather
   than suspected. `a-changeset-says-what-changed`: 19 of 169 published changelog
   entries print a bare comment marker instead of a description, because a
