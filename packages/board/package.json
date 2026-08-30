@@ -22,6 +22,7 @@
   },
   "files": [
     "dist/board-server.mjs",
+    "plot-agent-monitor.sh",
     "plot-approve.sh",
     "plot-config.sh",
     "plot-deliver.sh",
@@ -32,6 +33,7 @@
     "plot-reap.sh",
     "plot-release-refs.sh",
     "plot-resolve-artifact.sh",
+    "plot-worker-monitor.sh",
     "plot-worker-state.sh"
   ],
   "scripts": {

@@ -54,6 +54,7 @@ fs.chmodSync(shippedArtifact, 0o755);
 // A list nobody is prompted to update is one that falls behind, so a gate
 // derives this from the server sources and fails on any difference.
 const vendoredScripts = [
+  'plot-agent-monitor.sh',
   'plot-approve.sh',
   'plot-config.sh',
   'plot-deliver.sh',
@@ -64,6 +65,14 @@ const vendoredScripts = [
   'plot-reap.sh',
   'plot-release-refs.sh',
   'plot-resolve-artifact.sh',
+  // The two monitors are vendored because plot-dispatch.sh STARTS them, not
+  // because the server spawns them — they resolve as `$script_dir` siblings of
+  // the dispatcher, so in the npm layout they must sit beside it. Missing, they
+  // do not crash: start_worker passes an empty path and the wrapper starts an
+  // UNMONITORED worker, which is the silent degradation the slice attaching
+  // them exists to prevent. A gate derived from the server's own spawns cannot
+  // see this one, so it is listed by hand and this comment says why.
+  'plot-worker-monitor.sh',
   'plot-worker-state.sh',
 ];
 for (const name of vendoredScripts) {

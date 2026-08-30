@@ -3,6 +3,7 @@ dist/
 
 # Vendored by build.mjs from skills/plot/scripts/ so the published npm package
 # is standalone (see build.mjs). Build output — not source; shipped via `files`.
+/plot-agent-monitor.sh
 /plot-approve.sh
 /plot-config.sh
 /plot-deliver.sh
@@ -13,4 +14,5 @@ dist/
 /plot-reap.sh
 /plot-release-refs.sh
 /plot-resolve-artifact.sh
+/plot-worker-monitor.sh
 /plot-worker-state.sh
