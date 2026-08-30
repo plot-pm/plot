@@ -251,11 +251,11 @@ the monitors write it once.
 dispatcher — it inherits no state, no descriptors, no environment beyond what is
 passed. A filesystem path is exactly what such a shell CAN reach.
 
-**Two subscribers today, and they are the reason it is a channel rather than a
-return value:** the board renders it, the master agent acts on it, and neither
-should have to know the other exists. **A return value serves one caller; a
-channel serves whoever asks**, and the second subscriber costs nothing — no
-extra sampling, no second poll, no coordination between them.
+**Two subscribers today, with different purposes, and that is the reason it is a
+channel rather than a return value:** the board subscribes to *everything* and
+renders it; the master agent subscribes *until a condition holds* and acts.
+Neither knows the other exists, and the second costs nothing — no extra
+sampling, no second poll, no coordination.
 
 > **The streaming precedent is already here.** `plot-fleet-scan.sh --stream`
 > emits per-plan lines as it resolves, precisely because 18.3 s against a 5 s
@@ -269,38 +269,99 @@ it IS the signal. A subscriber sees the connection drop rather than having to
 notice a timestamp going stale — and that is stronger, because a stale file
 still parses and still answers.
 
-### A subscriber may ask for a fresh reading, but never take one
+### A subscriber subscribes with a purpose
 
-**The channel carries one message the other way: *measure this now*.**
+**Subscribing is not "send me everything". A subscriber says what it is there
+for, and hears only that.**
 
-**It solves a real staleness problem rather than adding a feature.** The
-AgentMonitor samples every five minutes because its findings cost a host round
-trip. But the moments when a finding is most wrong are the moments something
-just happened — a PR merged, a worker exited — and the board or the master agent
-knows that before the next interval comes round. A prompt makes the answer
-current without shortening the interval for everyone.
+```
+subscribe(purpose: everything)                     the board — it renders the fleet
+subscribe(purpose: until this branch is merged)    an agent sequencing work
+subscribe(purpose: until this worktree is clean)   an agent waiting to reap
+```
 
-**The direction of polling does not change, and that is the point.** The monitor
-still owns every measurement; a subscriber asks it to measure sooner, never
-measures for itself. A subscriber that sampled would put the host round trip
-back on the fast loop — the rate problem this design exists to avoid, arriving
-by the back door.
+**The purpose is the subscription, not a filter on top of one.** A subscriber
+with a narrow purpose is finished when it is served — the subscription ends
+itself, and the monitor stops carrying it. A subscriber whose purpose is
+*everything* stays for as long as it listens.
+
+**That one idea covers both kinds of listener** — which is why it is a purpose
+rather than two mechanisms. The board and a waiting agent differ in what they
+are there for, not in how they connect:
+
+| purpose | ends when | who |
+|---|---|---|
+| everything | the subscriber disconnects | the board |
+| until *&lt;condition&gt;* | the condition holds, once | an agent sequencing work |
+
+**A subscriber stops polling and starts waiting.** It states its purpose once
+and hears about it once; the monitor — already sampling — folds the check into a
+pass it was making anyway.
+
+#### This replaces work that is being done by hand today
+
+**Measured on this session: eight polling loops written by hand**, all the same
+shape:
+
+```bash
+for i in $(seq 1 70); do
+  ... is CI green? has the PR merged? has the head moved? ...
+  sleep 30
+done
+```
+
+Each was a private poller with its own interval, its own timeout and its own
+rate cost — and each asked a question the monitor was about to ask anyway.
+**Every one of them would have been a single request.**
+
+**This is the case FOR a channel rather than a return value**, more than
+publishing was. A return value serves a caller that wants an answer now; a
+purpose serves one that wants an answer *when there is one*. **The board's
+purpose is the degenerate case** — *everything*, forever — and that it falls out
+of the same mechanism rather than needing its own is what says the mechanism is
+the right shape.
+
+#### The conditions are the monitor's existing measurements
+
+**Nothing new is measured**, which is what keeps this from becoming a second
+scan:
+
+| condition | already measured by |
+|---|---|
+| this branch is merged | AgentMonitor's `owes a review` host lookup |
+| this worktree is clean | AgentMonitor's `holds unlanded work` |
+| this process is gone | WorkerMonitor's `gone` |
+
+**CI-is-green is the one exception, and it is stated rather than assumed.** No
+monitor asks the host about a check run today, so *tell me when CI is green*
+either adds a measurement to the AgentMonitor's pass or is refused. **It is
+refused in this plan**: adding a new host question to satisfy a request is how
+the five-minute budget stops meaning anything, and the plan that adds it should
+argue for its cost separately.
+
+#### What a request may not do
 
 | | |
 |---|---|
-| a subscriber may | ask for a reading **now** |
-| a subscriber may not | read the pid, ask the host, or inspect a worktree |
-| the monitor decides | whether to honour it — a prompt during a sample in flight is a no-op |
+| a subscriber may | state a purpose, and be served it |
+| a subscriber may not | name a purpose the monitor does not already measure |
+| a subscriber may not | poll the monitor — the monitor tells it |
+| the monitor may | refuse a purpose it cannot serve, and say which |
 
-**The precedent is in the board already.** `monitors.ts` carries
-`invalidate(refs)` — a cached answer discarded when a cheap signal says it may
-have changed. A prompt is the same idea across a process boundary: *the reason
-your last answer held may have gone*.
+**A refused purpose is answered immediately rather than left pending.** A
+subscriber waiting forever on a condition nobody is checking is the failure this
+replaces, reproduced inside the mechanism meant to end it.
 
-**It is rate-limited by the monitor, not by politeness.** A prompt cannot make
-the AgentMonitor exceed its own floor, or a subscriber in a loop reinstates the
-cost the interval was chosen to bound. **The floor is the monitor's to enforce
-because it is the only component that knows what the measurement cost.**
+**A purpose dies with its subscriber.** One that disconnects is owed nothing,
+and a monitor holding purposes for absent listeners accumulates state it can
+never discharge — which is how a component that exists to notice things stops
+noticing.
+
+**The direction of polling does not change, and that is the point.** The monitor
+still owns every measurement. A subscriber that sampled for itself would put the
+host round trip back on a fast loop — the rate problem this design exists to
+avoid, arriving by the back door — and a subscriber that waits costs nothing at
+all, because the condition rides a pass the monitor was already making.
 
 ### What a report contains
 
@@ -503,8 +564,11 @@ Attention derives its entries from what the board received.
   other exists
 - **a monitor that dies stops its heartbeat**, and a subscriber can tell that
   from a monitor with nothing to say
-- **a subscriber can ask for a reading now**, the monitor honours it, and a
-  subscriber asking in a loop cannot drive the monitor below its own floor
+- **a subscription carries a purpose**: `everything` serves the board until it
+  disconnects, and `until <condition>` serves once and then ends itself
+- **a purpose the monitor does not measure is refused immediately**, naming what
+  it cannot serve, rather than left pending forever
+- **a purpose dies with its subscriber** — no state survives a disconnect
 
 **The last two are the ones a channel has to earn.** One subscriber is a return
 value; two is a channel. And silence-because-healthy versus silence-because-gone
