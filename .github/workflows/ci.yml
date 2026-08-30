@@ -7,6 +7,69 @@ on:
     branches: [main]
 
 jobs:
+  # ── The corpus tier: do the adapters feed the domain the same readings
+  #    production reads, against this repository's real estate? ───────────────
+  #
+  # ITS OWN JOB, PARALLEL TO `validate`, AND THE SEPARATION IS THE POINT.
+  #
+  # Cost is half the argument: this runs `plot-fleet-scan.sh` twice — once as
+  # production, once through the adapter — and `plot-plan-meta.sh` over every
+  # plan in `docs/plans/`. Measured 2026-08-30 on this estate: 42 s for the
+  # suite, of which ~40 s is the two scans. `validate` already carries a
+  # 15-minute browser step inside a 25-minute ceiling and its board integration
+  # suite ran 12.5 minutes on 2026-08-29 and has timed out at 15. Adding work to
+  # a job at its budget makes a suite fail for reasons unrelated to the code
+  # under test.
+  #
+  # THE OTHER HALF IS THAT THE TWO SIGNALS MEAN DIFFERENT THINGS. A red
+  # `validate` means the board. A red `corpus` means the adapters and production
+  # disagree about what this repository says — and that finding is only legible
+  # if it cannot be produced by anything else in the job.
+  #
+  # PER PR RATHER THAN NIGHTLY, because "a disagreement fails CI" is only a gate
+  # if the failure lands on the change that caused it. Found hours later it is a
+  # report, and a report is something someone has to remember to read.
+  #
+  # ON A RED CORPUS JOB, DO NOT ADJUST THE ADAPTER TO MATCH. Which side is wrong
+  # is judgement: the adapter may be wrong, or this may have found a production
+  # bug that gets its own plan. The failure prints the field, the plan and both
+  # readings so a person can decide. Adjusting the adapter is the permissive
+  # failure — it cements a real production bug behind a passing test.
+  corpus:
+    runs-on: ubuntu-latest
+    # Generous against the measured 42 s, and still a bound: a wedged fleet scan
+    # becomes a re-runnable failure rather than a job that sits in `in_progress`
+    # looking like work — the lesson `validate`'s own ceiling records.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # THE SCAN READS REFS, so a depth-1 clone gives it nothing to read.
+          # The Reading slice already met this: two of its `Refs` tests had to
+          # be rewritten to assert shape rather than values, because
+          # `actions/checkout` clones one ref and there is no branch list and no
+          # `origin/HEAD`. This tier compares VALUES over the real estate, so it
+          # needs the history that estate lives in.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The scan derives from `origin/<main>` rather than from the working tree
+      # — an approval nobody else can see is not one — so the ref has to exist
+      # locally. On a PR checkout it does not.
+      - name: Fetch the default branch the scan reads
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+
+      - name: Corpus tier — adapters vs production
+        run: pnpm --filter @plot-pm/domain run test:corpus
+
   validate:
     runs-on: ubuntu-latest
     # A CEILING, not a target. GitHub's default is 360 minutes, which is not a
