@@ -57,6 +57,45 @@ changesets on 2026-08-30**, for PRs #491 and #493 that had merged and whose
 changesets existed nowhere else. A rewrite that changes one refusal by accident
 is a rewrite that deletes something.
 
+**Do not take that baseline from today's script.** Measured 2026-08-30:
+
+```
+plot-reap.sh --dry-run
+  verdict  branch                                               why
+  summary: reapable=0 removed=0 kept=0 cleared=0 dry_run=1
+```
+
+Three merged, clean worktrees with no live worker were sitting there, and the
+reaper looked at none of them. Refusal 5 (`plot-reap.sh:162`) identifies a
+dispatch tree by its path:
+
+```bash
+case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
+```
+
+`plot-wt-` is the LEGACY layout, used only when `Worktree root:` is absent
+(`plot-dispatch.sh:129`). This repo sets `Worktree root: .worktrees`, so every
+tree is `.worktrees/<branch-with-dashes>` and matches nothing. `kept=0` rather
+than `kept=3` is the tell — a refusal counts, a skip does not.
+
+**So the order of work is fixed:** fix refusal 5 first, in its own commit;
+capture the `--dry-run` baseline from the FIXED script; then port the five
+refusals and hold that baseline byte-for-byte. Taken against today's output the
+assertion proves only that the rewrite is faithfully blind.
+
+**The fix is not a second path pattern.** `plot-dispatch.sh:135` states the rule
+refusal 5 breaks: every READ of which worktree holds a branch asks
+`git worktree list`, and path-guessing stays on the creation side — a second
+naming convention is a second way to be wrong. The property is already on disk:
+**`.plot-worker.pid`, written by the dispatcher at creation.** All six dispatch
+trees carry it; a hand-made worktree checked the same day carries none.
+
+Whether that marker alone is the right test is yours to settle. A dispatch tree
+whose pid file was deleted would go unrecognised — which fails by REFUSING,
+the same safe direction the path test fails in, only for one tree instead of
+all of them. Both layouts must keep working: `plot-wt-` is supported
+permanently, not in transition.
+
 ### Done when
 
 The plan's Deciding `Done when`: five named refusals from the rule, each
