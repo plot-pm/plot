@@ -75,8 +75,47 @@ while the rules stay on the other.
 
 **It is not HTTP.** A controller function takes typed arguments and returns a
 typed result. HTTP is one caller; the master agent is another; a test is a
-third. **The route becomes a translation** — parse the request, call the
-controller, serialise the answer — and nothing else.
+third.
+
+### The route translates and enriches; it does not decide
+
+**Measured 2026-08-30, `/api/board` does not just call `buildBoard()`.** It
+spreads six more things onto the payload: five `*Availability(HOST)` flags and
+`serverInfo(opts, boundPort)`.
+
+**`serverInfo` is transport knowledge and stays on the route.** It answers *which
+port did this server bind, and how would you start it again* — facts a
+controller called by the master agent does not have and would not want. So the
+route is parse, call, **enrich**, serialise: the controller returns the core
+answer, and each caller adds what only it knows.
+
+**That is deliberately not a `Transport` port.** A port that exactly one caller
+can ever populate is a parameter wearing a costume, and it would force the
+master agent to pass an empty one forever.
+
+### The availability flags are one question copied four times
+
+**They are not what they look like.** All four distinct implementations —
+`dispatchAvailability`, `continueAvailability`, `ideaAvailability`, and
+`approveAvailability`, which merely calls the first — test the same condition:
+
+```ts
+if (host === 'localhost' || host === '127.0.0.1' || host === '::1')
+```
+
+**So today they answer a TRANSPORT question, not a lifecycle one**: *did this
+request come from this machine?* That is the browser-origin check, four times.
+
+**The question they are NAMED for does belong in the domain.** *May this action
+run?* is a lifecycle rule of the same family as eligibility and the deliver
+rule — and once a controller exists, the master agent will ask it too, where
+`host` means nothing.
+
+**So the slice splits them rather than moving them wholesale**: the domain
+answers *may this action run given the plan's state*, the controller answers
+*may this caller run it*, and the four copies of the origin check become one.
+**Anything else would move a `localhost` comparison into a package whose purity
+gate exists to keep exactly that out.**
 
 ### The mock is a driven adapter, and no controller knows it exists
 
@@ -96,11 +135,23 @@ A controller written against the ports gets fixtures or the real estate
 depending only on which adapters were constructed — and that is the same
 substitution the ports were built for, used for a second purpose.
 
-**This replaces the env-var mock rather than extending it.** `mock-fleet.ts`
-switches the whole server through `PLOT_BOARD_MOCK=1`, which means one global
-state per process: two tests cannot hold different estates at once, and a test
-that forgets to unset it poisons its neighbours. Mock adapters are constructed,
-not signalled, so a caller holds exactly the estate it built.
+**`PLOT_BOARD_MOCK` keeps working, and moves.** Today it is read *inside the
+route* — measured 2026-08-30, `/api/board` carries
+`mockRequested() ? { columns: mockCards() } : {}`, so the mock is a branch in
+the request path. After this slice the variable is read **once, at server
+start**, and decides which adapters get constructed. Everything that sets it
+today keeps working; nothing above the adapters mentions it.
+
+**That is a smaller change than replacing it, and it buys most of the same
+thing.** The variable stays one global per process, so two *servers* still
+cannot differ — but a test that constructs adapters directly bypasses it
+entirely and holds exactly the estate it built. The env var becomes the
+convenience path rather than the only one.
+
+**What it does not fix, stated:** a test that forgets to unset the variable
+still poisons its neighbours in the same process. That is the cost of keeping
+the existing entry point, and it is accepted because breaking every current
+caller to fix it would be a migration this slice is not.
 
 ### The name, and the one it collides with
 
@@ -130,10 +181,19 @@ above it becomes a translation.
 
 ### Naming (Branch: feature/fleet-settings-is-not-fleet-control)
 
-`fleet-controls.ts` → `fleet-settings.ts`, tests and imports with it.
+`fleet-controls.ts` → `fleet-settings.ts`, tests and imports with it. Measured
+2026-08-30: **31 mentions across 13 files** — 7 source, 6 test.
+
+**It is its own slice because a pure rename is the one thing a reviewer can
+check completely.** Nothing but names changes, so the review question is
+"did anything else change?" and the diff answers it at a glance. Folded into
+the Asking slice, the same diff would carry a rename *and* a new layer, and
+neither could be read without the other.
 
 **Done when** no module named `fleet-controls` remains, `pnpm test:board` passes
-unedited, and the name `controllers/` is free for what follows.
+**unedited**, and the name `controllers/` is free for what follows. Tests
+passing unedited is the assertion that carries this slice: a rename that needed
+a test changed is not a rename.
 
 ### Asking (Branch: feature/one-controller-answers-the-board)
 
@@ -141,7 +201,13 @@ The first controller — fleet state, the question `/api/board` and `/api/fleet`
 both serve — with `/api/board` reduced to parse-call-serialise.
 
 **Done when** `/api/board` contains no estate access of its own, the controller
-is callable from a test with no server, and the board payload is unchanged.
+is callable from a test with **no server and no `host` argument**, the origin
+check exists once rather than four times, and the board payload is unchanged
+byte for byte.
+
+**The payload assertion is what makes the rest safe.** Everything in this slice
+is a move, so any difference in what the browser receives is a defect — and the
+board is a surface somebody is watching while it lands.
 
 ### Mocking (Branch: feature/the-mock-is-an-adapter)
 
