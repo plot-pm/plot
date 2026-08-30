@@ -312,7 +312,20 @@ monitor_has_commits() { # → 0 yes | 1 no | 2 unanswerable
   base=$(git -C "$worktree" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
   [ -n "$base" ] || { git -C "$worktree" rev-parse --verify --quiet origin/main >/dev/null 2>&1 && base='origin/main'; }
   [ -n "$base" ] || return 2
-  n=$(git -C "$worktree" rev-list --count "$base..HEAD" 2>/dev/null) || return 2
+  # COUNT THE AGENT'S WORK, NOT THE BRANCH'S COMMITS. `plot-dispatch.sh:2074`
+  # writes `commit --allow-empty -m "plot: claim <branch>"` BEFORE the agent
+  # starts, so `$base..HEAD` is never zero on a dispatched branch and this
+  # condition could never refuse an `idle`. Measured 2026-08-30 (#538 red in CI):
+  # a worker burning CPU in `yes > /dev/null` was reported idle, because the one
+  # condition that could have saved it was satisfied by bookkeeping the agent did
+  # not do.
+  #
+  # The `-- .` pathspec is what does it: `rev-list` with a pathspec keeps only
+  # commits that TOUCHED A FILE, and the claim is empty by construction
+  # (`--allow-empty`). That is a property rather than a message match — a claim
+  # whose wording changes still reads as empty, and an agent committing an empty
+  # marker of its own is correctly not counted as work either.
+  n=$(git -C "$worktree" rev-list --count "$base..HEAD" -- . 2>/dev/null) || return 2
   case "$n" in ''|*[!0-9]*) return 2 ;; esac
   [ "$n" -gt 0 ] && return 0
   return 1

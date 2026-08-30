@@ -23,7 +23,7 @@
 // wrapper publishing a real finding a real subscriber reads.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -489,4 +489,75 @@ test('worker-monitor: commits are counted against a local ref, and absent means 
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+// ── monitor_has_commits against a REAL repository ─────────────────────────────
+// Every test above stubs this function, which is exactly how it shipped broken:
+// the stub makes its CALLERS testable and makes the function itself invisible.
+// 21 assertions were green while it counted the wrong thing.
+//
+// Measured 2026-08-30 (#538 red in CI): it counted `origin/main..HEAD`, and
+// `plot-dispatch.sh:2074` writes `commit --allow-empty -m "plot: claim <branch>"`
+// BEFORE the agent starts. So "the branch already carries commits" was true from
+// second zero on every dispatched branch, and a worker burning CPU in
+// `yes > /dev/null` was reported idle because the only condition that could have
+// refused was satisfied by bookkeeping the agent never did.
+//
+// These run the real function against a real git repo. A stub cannot catch this.
+
+/** A repo with an origin/main and a branch carrying the commits described. */
+const repoWith = (commits) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wmon-repo-'));
+  const git = (...args) => execFileSync('git', ['-C', dir, ...args], { stdio: 'pipe' });
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'Test');
+  fs.writeFileSync(path.join(dir, 'seed'), 'seed\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'seed');
+  // A local ref standing in for origin/main — the function accepts either.
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  git('checkout', '-q', '-b', 'feature/x');
+  for (const c of commits) {
+    if (c === 'claim') {
+      git('commit', '-q', '--allow-empty', '-m', 'plot: claim feature/x');
+    } else {
+      fs.writeFileSync(path.join(dir, c), `${c}\n`);
+      git('add', '-A');
+      git('commit', '-q', '-m', `work: ${c}`);
+    }
+  }
+  return dir;
+};
+
+/** Run the real `monitor_has_commits` in `dir`; returns its exit code. */
+const hasCommits = (dir) => {
+  const script = `
+    PLOT_MONITOR_NO_MAIN=1
+    . ${JSON.stringify(monitor)}
+    worktree=${JSON.stringify(dir)}
+    monitor_has_commits
+  `;
+  const r = spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+  return r.status;
+};
+
+test('the claim commit alone is NOT work — this is the #538 defect', () => {
+  // The exact state of every dispatched branch one second after dispatch.
+  assert.equal(hasCommits(repoWith(['claim'])), 1,
+    'a branch carrying only its empty claim commit reported commits — the condition ' +
+    'is true from second zero on every dispatched branch and can refuse nothing');
+});
+
+test('the claim plus real work IS work', () => {
+  assert.equal(hasCommits(repoWith(['claim', 'a.txt'])), 0,
+    'a branch where the agent committed a file reported no commits — idle can now never fire');
+});
+
+test('work with no claim at all is work (a hand-made worktree)', () => {
+  assert.equal(hasCommits(repoWith(['a.txt'])), 0);
+});
+
+test('a branch with nothing on it is not work', () => {
+  assert.equal(hasCommits(repoWith([])), 1);
 });
