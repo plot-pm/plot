@@ -1242,6 +1242,154 @@ esac
   f.cleanup();
 });
 
+// --- a branch reset to the default branch ------------------------------------
+//
+// The mirror of the squash case above, and the two pull in OPPOSITE directions:
+//
+//   | shape          | ancestry says          | truth          |
+//   |----------------|------------------------|----------------|
+//   | squash-merged  | not an ancestor → open | merged         |
+//   | reset to main  | is an ancestor → merged| holds nothing  |
+//
+// A branch pointing AT the default branch is trivially an ancestor of it, so
+// every ancestry test passes and the scan called it `merged`. But zero commits
+// ahead means it carries no work — and *no work* is not *landed*.
+//
+// Measured 2026-08-29: `feature/one-deliver-rule-decides-in-the-domain` was
+// reset to `origin/main` so a worker could rebuild it, its PR (#511) having
+// been CLOSED, never merged. The scan read it `merged`, completed its wave, and
+// opened `Transitions` on the strength of work that does not exist.
+//
+// The discriminator is the OTHER direction. A genuinely merged branch is
+// BEHIND main — main advanced past it — while a branch reset to main is EQUAL
+// to it: ahead 0 AND behind 0. That is a `rev-list` count, offline, and it must
+// stay that way: `a-throttled-host-says-so` measured plot-pr-merged.sh
+// answering `not merged` for three genuinely merged branches while throttled,
+// and this reading must not inherit that failure mode.
+
+test('fleet: a branch reset to the default branch reads open, not merged', () => {
+  // THE DEFECT. The branch exists, points exactly at main, and holds nothing.
+  // `merged` would settle its wave and open the successor onto a seam that was
+  // never written.
+  const f = makeRepo('plot-fleet-reset-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/wiped` — reset to main, rebuild pending\n\n### Two\n' +
+    '- `feature/next` — waits on wave one\n');
+  // Give main a commit of its own first, so "points at main" is a real
+  // position rather than the empty initial state.
+  git(f.dir, 'checkout', '-q', 'main');
+  fs.writeFileSync(path.join(f.dir, 'main.txt'), 'main moved\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'main moves on');
+  f.push('origin', 'main');
+
+  // The branch as a worker leaves it after `git reset --hard origin/main`:
+  // a ref at main's tip, carrying nothing of its own.
+  git(f.dir, 'branch', 'feature/wiped', 'main');
+  f.push('-u', 'origin', 'feature/wiped');
+
+  const out = f.run();
+  assert.match(branchLine(out, 'feature/wiped'), / — open$/,
+    'zero commits ahead means it carries no work — no work is not landed');
+  assert.match(waveLine(out, 'One'), / — eligible$/,
+    'a wave holding an empty branch has not completed');
+  assert.match(waveLine(out, 'Two'), / — blocked$/,
+    'and the successor must not open on work that does not exist');
+  f.cleanup();
+});
+
+test('fleet: a reset branch reads open without asking the host', () => {
+  // NO NEW HOST CALL, asserted rather than promised. The check is `rev-list`,
+  // offline, and a host that cannot answer at all must leave the reading
+  // unchanged — the failure mode `a-throttled-host-says-so` measured.
+  const f = makeRepo('plot-fleet-resetnohost-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/wiped` — reset to main\n');
+  git(f.dir, 'checkout', '-q', 'main');
+  fs.writeFileSync(path.join(f.dir, 'main.txt'), 'main moved\n');
+  git(f.dir, 'add', '-A');
+  git(f.dir, 'commit', '-qm', 'main moves on');
+  f.push('origin', 'main');
+  git(f.dir, 'branch', 'feature/wiped', 'main');
+  f.push('-u', 'origin', 'feature/wiped');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state|pr-list) echo "plot-host: HTTP 503 (server error)" >&2; exit 1 ;;
+  *) echo "{}" ;;
+esac
+`);
+  // No --offline: the host is reachable in principle and simply fails. The
+  // reading must be identical to the offline run above.
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/wiped'), / — open$/,
+    'the reset check is local; a failing host may not change it');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: a branch behind main still reads merged — the regression that matters', () => {
+  // THE OTHER DIRECTION, and the one this change could plausibly break. The
+  // crude rule "zero commits ahead means open" is correct for the reset case
+  // and WRONG here: a branch merged with a fast-forward or left behind by a
+  // moving main also counts zero ahead, and its work IS on main.
+  //
+  // Testing only the reset case passes with that crude rule and proves nothing.
+  // Both directions, or neither is proven.
+  const f = makeRepo('plot-fleet-behind-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/landed` — merged, ref kept\n\n### Two\n' +
+    '- `feature/next` — waits on wave one\n');
+  f.work('feature/landed', 'landed.txt');
+  f.push('-u', 'origin', 'feature/landed');
+  f.prMerge('feature/landed');
+  f.push('origin', 'main');
+  // The ref survives the merge — so this takes the ref-exists arm, where the
+  // reset check lives, rather than the merge-subject lookup.
+  const out = f.run();
+  assert.match(branchLine(out, 'feature/landed'), / — merged$/,
+    'a branch whose work is on main is merged, however few commits it is ahead');
+  assert.match(waveLine(out, 'One'), / — complete$/);
+  assert.match(waveLine(out, 'Two'), / — eligible$/);
+  f.cleanup();
+});
+
+test('fleet: a squash-merged branch whose ref was restored still reads merged', () => {
+  // The squash path, re-pinned from THIS side. Its mirror plan
+  // (`a-squash-merged-branch-is-not-quiet`) fixes the opposite error, and a fix
+  // for one can break the other. A squash-merged branch is behind main but has
+  // commits main does not contain BY SUBJECT, so it still finds them; a branch
+  // reset to main has neither. This asserts the reset check did not swallow it.
+  const f = makeRepo('plot-fleet-resetsquash-',
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/squashed` — squash-merged, ref pushed back\n');
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state)
+    case "$2" in
+      feature/squashed) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+      *) echo '{"state":"NONE"}' ;;
+    esac ;;
+  pr-list) echo '{"number":42,"title":"feat: the work","state":"MERGED","head":"feature/squashed","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/,
+    'the reset check must not swallow a squash-merged branch');
+  f.cleanup();
+  h.cleanup();
+});
+
 test('fleet: the host is asked once per absent branch, and never for a present ref', () => {
   // COST, which is what decides whether this can live under a 5-second poll.
   // `branch_state` runs inside a command substitution — a subshell — so a

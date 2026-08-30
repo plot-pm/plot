@@ -2836,6 +2836,53 @@ branch_state() {
   fi
   # Nothing of its own. NOT a claim: that shape is indistinguishable from
   # merged work, which is exactly why claims carry a commit.
+  #
+  # ZERO AHEAD CARRIES TWO SHAPES, and only one of them is landed work:
+  #
+  #   | shape          | ancestry says           | truth         |
+  #   |----------------|-------------------------|---------------|
+  #   | behind main    | is an ancestor → merged | merged        |
+  #   | reset to main  | is an ancestor → merged | holds nothing |
+  #
+  # A branch pointing AT the default branch is trivially an ancestor of it, so
+  # every ancestry test passes — right for the case this arm was built for (a
+  # squash merge leaves the branch behind, and its work IS on main), and wrong
+  # for a branch that was reset, where the same shape means it holds NOTHING.
+  #
+  # Measured 2026-08-29: `feature/one-deliver-rule-decides-in-the-domain` was
+  # reset to `origin/main` so a worker could rebuild it, its PR (#511) having
+  # been CLOSED, never merged. Seconds later the scan reported the branch
+  # `merged`, completed its wave, and opened `Transitions` on the strength of
+  # work that does not exist. `merged` is the state that SETTLES a wave, so
+  # this error does not stall the fleet — it advances it onto a seam nobody
+  # wrote, which is the worse direction.
+  #
+  # THE DISCRIMINATOR IS THE OTHER DIRECTION. A branch with zero commits ahead
+  # is either equal to the default branch or a strict ancestor of it, so
+  # "behind = 0" and "tip = main tip" are the same predicate. Compared as OIDs
+  # because BOTH ARE ALREADY IN HAND from the ref batch — a `rev-list --count`
+  # would re-derive it at one spawn per branch, the per-branch tail this scan
+  # has repeatedly been thinned to remove.
+  #
+  # OFFLINE, AND DELIBERATELY SO. No host call is added here:
+  # `a-throttled-host-says-so` measured `plot-pr-merged.sh` answering *not
+  # merged* for three genuinely merged branches while throttled, and this
+  # reading must not inherit that failure mode.
+  #
+  # The squash path is untouched and must stay so — its mirror defect (a
+  # squash-merged branch reading `open`) is a separate plan, and a fix for one
+  # can break the other. A squash-merged branch is BEHIND main and reaches the
+  # `merged` below; a squash-merged branch whose ref was pushed back counts
+  # `ahead > 0` and never arrives here at all.
+  local _bs_tip _bs_main
+  _bs_tip=$(remote_ref_oid "$br")
+  _bs_main=$(remote_ref_oid "$MAIN")
+  if [ -n "$_bs_tip" ] && [ "$_bs_tip" = "$_bs_main" ]; then
+    # It points AT the default branch: no work of its own, and none of its own
+    # landed. `open` is what this scan already says for work not yet done, so
+    # no new state enters the vocabulary and the wave arithmetic is unchanged.
+    echo "open"; return
+  fi
   echo "merged"
 }
 
