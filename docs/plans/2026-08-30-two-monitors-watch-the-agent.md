@@ -1,6 +1,6 @@
-# Two monitors watch the agent
+# Three monitors watch the work
 
-> One watches the process and one watches the desk, on cadences that cannot be shared — so a dead agent, an idle process, and finished work with no PR are all reported instead of discovered.
+> One watches the process, one the desk, one the build — on cadences that cannot be shared — so a dead agent, an idle process, finished work with no PR, and a build nobody is waiting on are reported instead of discovered.
 
 ## Status
 
@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-30, Jan Wloka, in-session
+- **Amended:** 2026-08-30, Jan Wloka, in-session — a third monitor for the Build; 6 slices → 7
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -158,6 +159,52 @@ not, and asking it would turn a five-minute sample into a build.
 **Each is a measurement, not a judgement** — the same discipline `plot-reap.sh`
 applies to its five refusals. *"Owes a review"* is three facts anded together,
 and every one is checkable by a script.
+
+#### A third monitor: the Build
+
+**Two monitors became three, and the reason is the same one that split the first
+two: a different subject on a different cadence.**
+
+| monitor | subject | samples | asks |
+|---|---|---|---|
+| **WorkerMonitor** | the process | ~30 s | is it doing anything? |
+| **AgentMonitor** | the desk | ~5 min | what does this agent owe? |
+| **BuildMonitor** | the run | ~30 s **while a run is live**, never otherwise | did the build change? |
+
+**A Build is already an entity in the spec**, with its own identity and its own
+state:
+[DESIGN-build.md](../stories/the-master-agent-holds-the-fleet/DESIGN-build.md)
+— *"is the thing that RUNS … one RESULT of one run"*, identified by its URL,
+holding a state, a start time and a duration. **A monitor per entity is the
+pattern, not an exception to it.**
+
+**Its findings are transitions, not conditions:**
+
+| finding | measurement |
+|---|---|
+| **build failed** | a run for this branch's head reached a failing conclusion |
+| **build passed** | it reached success |
+| **build needs approval** | it is `action_required` — a real state here, bot branches hit it |
+| **head moved** | a newer sha exists, so the run in flight is answering about the past |
+
+**The last one is why this cannot live in the AgentMonitor.** A build's subject
+is a *sha*, not a branch, and a finding about a superseded run is worse than
+none — it reports green for code nobody will merge. Measured this session: two
+merge waiters had to be stopped and re-armed for exactly that.
+
+**It samples only while a run is live**, which is what keeps a 30-second cadence
+affordable against a host. No run, no polling. **The AgentMonitor's five-minute
+budget exists because it asks on every pass; this one asks nothing when nothing
+is running.**
+
+**This is where *tell me when CI is green* belongs**, and the channel refuses it
+until this monitor exists — the plan says so explicitly, and this is the
+component that lifts the refusal rather than a reason to weaken it.
+
+**Measured need: eleven hand-written polling loops in the session that wrote this
+plan**, most of them waiting on a build. Each re-implemented approval-retry,
+head-movement detection and sha pinning, and each got at least one of them
+wrong at first.
 
 #### An agent outlives its slice, so a finding names the SLICE
 
@@ -617,6 +664,25 @@ and `plot-pr-merged.sh`.
 `owes a review` fires on a branch with commits and no PR and does NOT fire once
 a PR exists, it publishes on change with the same three fields,
 and **it writes nothing at all** — publishing is its only output.
+
+### Watching the build (Branch: feature/the-build-monitor-follows-the-run)
+
+The BuildMonitor: four findings about a run, sampled only while one is live.
+
+**Done when**
+
+- `build failed`, `build passed` and `build needs approval` each fire on a real
+  run and are individually triggerable against a mocked host
+- **`head moved` fires when a newer sha exists**, and a finding about a
+  superseded run is never reported as current
+- **it polls nothing when no run is live** — asserted, because a monitor that
+  keeps asking an idle host is the rate problem this design avoids
+- `plot-host.sh` gains the one operation it needs and no more
+
+**`head moved` is the finding that earns this monitor.** A build's subject is a
+sha; a green result for code nobody will merge is worse than no result.
+Measured this session: two merge waiters reported on superseded runs and had to
+be stopped and re-armed.
 
 ### The channel (Branch: feature/the-channel-carries-the-findings)
 
