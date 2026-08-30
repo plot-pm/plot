@@ -29,12 +29,15 @@ two — identity to the instance, headroom to the hardware.
 > is load-bearing (§8): **if there were two, headroom would be a property of a
 > pair and the whole entity would need a key.***
 
-**Measured 2026-08-30 on this computer:**
+**Measured 2026-08-30 on this computer** — each verified for a `## Plot Config`
+section and a `.plot/` directory, not merely for the name:
 
 ```
-/Users/jwloka/Quatico/Agentic-Tools/plot          Plot + board
-/Users/jwloka/Quatico/Agentic-Tools/agent-skills  Plot + board
-/Users/jwloka/Quatico/EKZ.Webportal/ekzweb        Plot + board
+Agentic-Tools/plot          Plot Config: yes    .plot/: yes
+Agentic-Tools/agent-skills  Plot Config: yes    .plot/: yes
+EKZ.Webportal/ekzweb        Plot Config: yes    .plot/: yes
+
+hostname:  ani              — the same string for all three
 ```
 
 **Three projects, three boards, three fleets, one laptop.** The operator states
@@ -125,10 +128,30 @@ it is getting — not to bargain for more.
 are three tenants reading one meter, and each knows only how much of the flat it
 rented.
 
-**The honest remaining gap is visibility, not arbitration.** An operator setting
-11 in three projects has claimed 33 slices of one computer and nothing says so.
-**That is a reporting question**, and it belongs with `Machine`'s fields rather
-than with a scheduler.
+**The honest remaining gap is visibility, not arbitration.** It is a reporting
+question, and it belongs with `Machine`'s fields rather than with a scheduler.
+
+**Measured 2026-08-30, and the shape is not what the warning assumed:**
+
+```
+Agentic-Tools/plot          {"autoDispatch":true,"parallelAgents":11}
+Agentic-Tools/agent-skills  no fleet-controls.json
+EKZ.Webportal/ekzweb        no fleet-controls.json
+```
+
+**Only one instance has ever claimed a share.** The other two run on
+config-seeded defaults (`fleet-settings.ts:137`), which means **the share is
+currently implicit for two of the three machines**, not merely unreported.
+
+**That sharpens what the document has to say.** Not *"three at 11 is 33"* — a
+sum nobody has actually set — but the prior question: **an unset share is still
+a share.** A machine that never declares one still takes CPU, and the default is
+seeded from config rather than from anything that knows two other projects
+exist.
+
+**So the fields table should record `parallelAgents` as a claim with a default
+that is not a measurement**, and say that a machine which has not chosen has
+still claimed.
 
 ### Not chosen: rename Machine to Instance
 
