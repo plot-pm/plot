@@ -103,6 +103,7 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 - [ ] [the-exclusion-names-what-it-hides] The adapter coverage exclusion shrinks to what a mock cannot simulate, and what stays excluded is named — the goal calls mock coverage "what makes the second condition reachable at all" and no other plan carried it
 - [ ] [the-sprint-proves-its-own-goal] A CI gate counts the domain names production still aliases and fails when the number grows — the goal's "replaced" condition was carried by a sentence in one plan's prose, and CLAUDE.md calls that a rule rather than a gate
 - [ ] [the-board-decides-nothing] Every verdict, phase and pulse derivation becomes a domain function and the board renders and routes — the condition production-calls and the layering gate both leave behind: a rule that exists ONCE, in the wrong layer
+- [ ] [monitoring-is-a-domain-concept] A monitor becomes a pure sample(previous, current) rule with its measuring behind ports — a monitor that owns its own sleep cannot be triggered by a clock, which is the operator's argument for why monitoring is domain
 - [ ] [a-domain-rule-has-one-owner] Any lifecycle rule found duplicated **while moving** gets its second implementation deleted in the same slice, rather than noted for later — opportunistic, and only where the two provably agree
 
 ## Notes
