@@ -71,6 +71,29 @@ describe('checkChangeset — the description Changesets would publish is real pr
     expect(problems[0].detail).toBe(OPEN);
   });
 
+  it('refuses a comment-open line that is long enough to clear the floor', () => {
+    // THE ARMS MUST DISAGREE SOMEWHERE, or one of them is untested. A bare
+    // marker is 4 characters, so the length floor alone refuses it and deleting
+    // the marker check leaves every other test green — measured by mutation
+    // while writing these. A single-line block is 30 characters and prose-
+    // shaped to the floor, so only the marker check can refuse it.
+    const oneLineBlock = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      `${OPEN} bumps: { plot: patch } ${CLOSE}`,
+      '',
+      'The real description, which nobody ever reads.',
+      '',
+    ].join('\n');
+
+    const first = publishedDescription(parseChangeset(oneLineBlock).body);
+    expect(first.length).toBeGreaterThanOrEqual(MIN_DESCRIPTION);
+
+    expect(refusals(checkChangeset(oneLineBlock, WORKSPACE))).toEqual(['no-description']);
+  });
+
   it('refuses a description shorter than the floor, and accepts one at it', () => {
     const withBody = (description: string) =>
       ['---', "'plot': patch", '---', '', description, ''].join('\n');
