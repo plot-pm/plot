@@ -48,6 +48,29 @@ export interface Catalogue {
 const DEFAULT_VIEWPORT = { width: 1400, height: 1200 };
 
 /**
+ * Open every fold on the Agents tab, plans first and then waves.
+ *
+ * A copy of `helpers.mjs`'s helper of the same name, and copied DELIBERATELY:
+ * that module also exports `startServer`, so importing it here would put the
+ * board-spawning helper one auto-import away from every catalogue consumer —
+ * the shortcut this whole slice exists to keep out of reach. Six lines of
+ * duplication buys an import graph in which the mock cannot reach the artifact.
+ *
+ * ORDER MATTERS. A wave's toggle does not exist in the DOM until the plan
+ * holding it is open, so a single pass over both selectors misses every wave
+ * under a folded plan.
+ */
+export const expandAgentFolds = async (page: Page): Promise<void> => {
+  for (const selector of ['[data-wave-toggle]', '[data-wave-branch-toggle]']) {
+    const toggles = page.locator(selector);
+    for (let i = 0; i < (await toggles.count()); i += 1) {
+      const toggle = toggles.nth(i);
+      if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+    }
+  }
+};
+
+/**
  * Launch a browser and a mock board.
  *
  * The mock starts on `an-empty-estate` and every `open()` re-serves the state it
