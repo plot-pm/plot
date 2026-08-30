@@ -741,7 +741,7 @@ that, read as agent failure. `machineAtDeath` (§3) is the proposed fix.
 |---|---|---|
 | `Agent registry` | `.plot/agents` | **where manifests are written and read** |
 | `Worker command` | — | what a dispatched agent runs |
-| `Worker bound` | 3600 | the loop's own timeout |
+| `Worker bound` | 28800 | the loop's FLOOR under the WorkerMonitor's reading |
 
 **`Agent registry` exists because a shared checkout needs one place** — the
 board may be served from a different worktree than the dispatcher writes to.

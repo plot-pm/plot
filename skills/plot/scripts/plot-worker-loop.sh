@@ -36,23 +36,55 @@ repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="."
 
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
-# THE BOUND ON A SINGLE PROMPT RUN, in seconds. A worker whose agent process
-# hangs — the `Error: No messages returned` rejection inside the CLI, which
-# leaves the process alive but never returning — otherwise holds the loop
-# forever: 11 such workers were measured on 2026-08-25, one for 10 hours.
+# THE FLOOR UNDER A SINGLE PROMPT RUN, in seconds — and a FLOOR is all it is
+# as of 2026-08-30. A worker whose agent process hangs — the `Error: No messages
+# returned` rejection inside the CLI, which leaves the process alive but never
+# returning — otherwise holds the loop forever: 11 such workers were measured on
+# 2026-08-25, one for 10 hours.
 #
-# THE DEFAULT IS MEASURED, NOT GUESSED. Honest PR-creation-to-merge runs on this
-# estate were 9–29 min (#414, #417, #419, #416) against hangs of up to 10 hours
-# — two orders of magnitude of separation, so ~1 h never truncates real work. A
-# project whose waves are genuinely longer sets its own value (Principle 5).
+# IT STOPPED BEING THE VERDICT. `a-working-agent-is-not-a-hung-one` measured the
+# cost of asking a clock: on 2026-08-30 seven workers exited 124 and every one
+# had 3-6 commits. Not one was hung. Wall-clock time measures how long, never
+# whether anything happened, so the verdict moved to the WorkerMonitor's `idle`
+# finding (`monitor_watch` below) and this timer became the last resort behind
+# it.
+#
+# THE DEFAULT IS 8 HOURS, AND THE UNIT CHANGED WITH THE JOB. At 3600 it was
+# sized against honest run lengths (9-29 min, #414/#417/#419/#416) because it
+# was deciding every worker's fate. It no longer decides any healthy worker's:
+# the monitor ends a stall in two ~30s intervals, so the floor fires ONLY when
+# the monitor itself has died — which `two-monitors-watch-the-agent` records as
+# real, with one unexplained termination path and a leak that ran 152 orphans on
+# this machine.
+#
+# So the value is sized against THAT failure instead: long enough that no honest
+# agent reaches it (the longest hang ever measured here was 10 h, and honest
+# runs are two orders of magnitude shorter), short enough that a monitor-less
+# hang cannot burn a night unnoticed. A working day is the operator's own review
+# cadence — a worker started in the morning is answered for by evening — and it
+# is the value the plan asks for in as many words.
 #
 # A NON-NUMERIC OR EMPTY VALUE FALLS BACK to the default rather than becoming a
 # `sleep` argument that errors — the same guard `plot-fleet-scan.sh` applies to
 # `Claim stale after`. `0` is preserved as written: a project that sets the
-# bound to 0 has explicitly disabled it, and the run below treats non-positive
-# as "no bound".
-WORKER_BOUND_SECONDS=$(cfg "Worker bound" "3600")
-case "$WORKER_BOUND_SECONDS" in (*[!0-9]*|'') WORKER_BOUND_SECONDS=3600 ;; esac
+# bound to 0 has explicitly disabled the FLOOR, and the run below treats
+# non-positive as "no bound". It does not disable the monitor reading: that
+# escape was for wall-clock kills, and reading a finding is not one.
+WORKER_BOUND_SECONDS=$(cfg "Worker bound" "28800")
+case "$WORKER_BOUND_SECONDS" in (*[!0-9]*|'') WORKER_BOUND_SECONDS=28800 ;; esac
+
+# HOW OFTEN THE LOOP RE-READS THE FINDINGS FILE, in seconds. The monitor's own
+# cadence is `PLOT_MONITOR_INTERVAL` (default 30) and it needs TWO passes to
+# publish `idle`, so the loop reading every 5s adds at most 5s to a ~60s
+# detection — under the plan's "within two monitor intervals" with room to
+# spare, and cheap: one `tail` of a file that is usually empty.
+#
+# ENV, NOT PLOT CONFIG. This is a test seam and an implementation detail of the
+# reading, not a project's declared policy — `Worker bound` is the knob a
+# project sets (Principle 5), and adding a second one for the poll would ask
+# operators to tune something they cannot observe.
+MONITOR_POLL_SECONDS="${PLOT_MONITOR_POLL_SECONDS:-5}"
+case "$MONITOR_POLL_SECONDS" in (*[!0-9]*|''|0) MONITOR_POLL_SECONDS=5 ;; esac
 
 # Update the manifest when the worker hops to a new branch.
 #
@@ -143,7 +175,16 @@ main_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | se
 # be a new leak inside the fix for a leak.
 _prompt_child=""
 _watchdog_pid=""
+_monitor_watcher_pid=""
 _timed_out=0
+
+# WHICH READING ENDED THE WORKER. Both the floor and the monitor watcher end the
+# prompt the same way — a signal into the loop's `wait` — so the flag alone
+# cannot say which fired, and an operator reading `.plot-worker.log` needs to
+# know: a monitor verdict says the agent stopped, the floor says nobody knows.
+# `_ended_by` is set by whichever trap ran, and the message is written from it.
+_ended_by=""
+_ended_detail=""
 
 # Kill a process and any descendants it spawned. The prompt child is
 # `bash -c '. "$f"'`, which itself launches the agent CLI as a grandchild;
@@ -175,14 +216,95 @@ _kill_tree() { # $1 = root pid
   done
 }
 
-# The bound fired: a background watchdog sent SIGALRM. Record it and end the
-# prompt (and the agent CLI it spawned). The flag is what `run_bounded` reads
-# after `wait` returns to tell a fired bound from an honest finish.
+# ---------------------------------------------------------------------------
+# THE MONITOR'S READING — the verdict this loop now ends on
+# ---------------------------------------------------------------------------
+#
+# `plot-worker-monitor.sh` answers the question the bound was guessing at, with
+# four conditions that must hold together: the pid is alive, its subtree burned
+# no CPU across two consecutive passes, the tree did not change between them,
+# and commits already exist on the branch. The loop READS that answer and does
+# not re-derive it — a second implementation of one measurement is the drift
+# this repo has already paid for, in the classification `plot-worker-state.sh`
+# was extracted to hold.
+#
+# WHERE THE FINDINGS ARE. `plot-dispatch.sh` passes the monitor no
+# `PLOT_MONITOR_FILE`, so a dispatched monitor writes to its own derived
+# default. This is the SAME derivation, deliberately duplicated at one line
+# rather than plumbed through: the wrapper starts the monitor, the loop is
+# started BY the wrapper's command, and there is no env var travelling between
+# them today. Reading `PLOT_MONITOR_FILE` first means the day the wrapper does
+# pass one, this follows it without a second change.
+monitor_findings_file() {
+  printf '%s' "${PLOT_MONITOR_FILE:-${PLOT_WORKTREE:+$PLOT_WORKTREE/.plot-worker.monitor.worker.jsonl}}"
+}
+
+# Does the WorkerMonitor's LATEST finding say `idle`?
+#
+# THE LAST LINE, NEVER ANY LINE. The monitor publishes only on a CHANGE, and a
+# cleared finding is a publish too — so a worktree whose agent stalled and then
+# resumed carries `idle` followed by `clear`, both forever, in one file.
+# Grepping the file for the word would end every worker that had ever recovered,
+# which is worse than the bound it replaces: the bound at least waited an hour.
+#
+# THE MONITOR IS CHECKED BY NAME. The AgentMonitor writes beside this file under
+# the same `.plot-worker.monitor.` prefix and its vocabulary is not this one's —
+# it reports what an agent OWES, a Registry-side fact. Taking one of its
+# findings as a verdict on the process is exactly the Machine/Registry confusion
+# CLAUDE.md's split exists to prevent, so the match is anchored to the
+# `"monitor":"WorkerMonitor"` field the monitor stamps into every line.
+#
+# `idle` AND ONLY `idle`. `gone` means the agent pid names no live process — and
+# when that is true the prompt child has already exited, so the loop is past
+# `wait` and asking `--next` on its own. Killing on `gone` would be the loop
+# racing to kill something already dead, and would end a worker whose agent
+# finished cleanly a moment before the monitor's next pass.
+#
+# GREP RATHER THAN A JSON PARSER. The line is written by `printf` in
+# `plot-worker-monitor.sh:publish` with a fixed field order, so the two fields
+# are at known positions in a known shape; a `node -e` per poll would fork an
+# interpreter every few seconds inside a worker whose whole point is to leave
+# the machine alone for the agent.
+monitor_says_idle() { # → 0 idle | 1 not idle (or nothing to read)
+  local f
+  f=$(monitor_findings_file)
+  [ -n "$f" ] && [ -s "$f" ] || return 1
+  local last
+  last=$(grep '"monitor":"WorkerMonitor"' "$f" 2>/dev/null | tail -n 1)
+  [ -n "$last" ] || return 1
+  case "$last" in (*'"finding":"idle"'*) return 0 ;; esac
+  return 1
+}
+
+# A WATCHER FIRED. Either the floor's watchdog (SIGALRM) or the monitor watcher
+# (SIGUSR1) sent a signal; record which, and end the prompt (and the agent CLI
+# it spawned). The flag is what `run_bounded` reads after `wait` returns to tell
+# an ending from an honest finish, and `_ended_by` is what the message reads to
+# name the reading.
+#
+# TWO SIGNALS, NOT ONE SHARED FLAG. Both watchers race the same prompt and
+# either may win — a monitor that publishes `idle` in the same second the floor
+# expires is not a contrived case, it is what a dying monitor's last finding
+# looks like. Separate signals mean the trap that ran is the one that answers,
+# and no watcher has to inspect another's state to know whether it lost.
 _on_alarm() {
   _timed_out=1
+  _ended_by='bound'
+  _ended_detail="exceeded the ${WORKER_BOUND_SECONDS}s bound"
   [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
 }
 trap _on_alarm ALRM
+
+# The WorkerMonitor published `idle`: the agent is alive, has committed, and has
+# burned no CPU and changed nothing across two consecutive passes. That is the
+# reading the bound was guessing at, and it is a verdict rather than an alarm.
+_on_monitor() {
+  _timed_out=1
+  _ended_by='monitor'
+  _ended_detail='the WorkerMonitor reported idle'
+  [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
+}
+trap _on_monitor USR1
 
 # THE MANIFEST IS REMOVED ON EVERY EXIT PATH. A worker that ends stops
 # appearing in the registry the moment it exits — the board's next pulse
@@ -199,46 +321,90 @@ _cleanup_on_exit() {
   # Remove the manifest first — it is the externally visible registration.
   [ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ] && rm -f "$PLOT_MANIFEST_FILE"
 
-  # Then clean up the watchdog and prompt child (if any are still running).
+  # Then clean up the watchdog, the monitor watcher and the prompt child (if any
+  # are still running). THE WATCHER IS REAPED ON EVERY PATH the watchdog is, and
+  # for the same reason recorded there: a watcher that outlived its worker would
+  # be a new leak inside the fix for a leak.
   [ -n "$_watchdog_pid" ] && _kill_tree "$_watchdog_pid"
+  [ -n "$_monitor_watcher_pid" ] && _kill_tree "$_monitor_watcher_pid"
   [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
   _watchdog_pid=""
+  _monitor_watcher_pid=""
   _prompt_child=""
 }
 trap _cleanup_on_exit EXIT
 
-# Run the prompt under the bound. Returns 0 if it finished on its own (whatever
-# its own exit status), or 124 — timeout(1)'s convention — if the bound fired.
-# A bound of 0 (explicitly disabled) runs the prompt with no watchdog at all.
+# Run the prompt under BOTH readings. Returns 0 if it finished on its own
+# (whatever its own exit status), or 124 — timeout(1)'s convention — if either
+# watcher ended it. `_ended_by` says which, and the caller writes the message
+# from that.
+#
+# TWO WATCHERS, ONE MECHANISM. Both are background subshells that signal the
+# loop's own PID, both are answered by a trap that sets the flag and kills the
+# prompt tree, and the loop merely `wait`s. That shape was chosen for the bound
+# after a `wait -n` version was measured returning instantly on macOS's stock
+# bash 3.2 — reading every prompt as an honest finish and never firing — and the
+# system that lacks `wait -n` is the same one that lacks `timeout(1)`, so the
+# monitor watcher reuses it rather than inventing a second answer.
+#
+# THE MONITOR WATCHER IS ARMED EVEN WHEN THE FLOOR IS NOT. `Worker bound: 0`
+# disables the wall-clock kill, which is what a project asked for when it set
+# it; it never asked for an unwatchable worker, and a finding is not a clock.
 run_bounded() {
   _timed_out=0
-
-  if [ "$WORKER_BOUND_SECONDS" -le 0 ]; then
-    # shellcheck source=/dev/null
-    bash -c '. "$1"' _ "$prompt_file"
-    return 0
-  fi
+  _ended_by=""
+  _ended_detail=""
 
   # shellcheck source=/dev/null
   bash -c '. "$1"' _ "$prompt_file" &
   _prompt_child=$!
 
-  # The watchdog: after the bound, signal the loop's own PID. A compound
+  # The floor's watchdog: after the bound, signal the loop's own PID. A compound
   # subshell (`sleep; kill`) rather than `sleep && kill` so a killed sleep still
   # cannot fire, and so `$$` inside it is the loop, not the subshell.
-  ( sleep "$WORKER_BOUND_SECONDS"; kill -ALRM "$$" 2>/dev/null ) &
-  _watchdog_pid=$!
+  #
+  # SKIPPED ENTIRELY at a non-positive bound, rather than armed with a huge
+  # number: an explicitly disabled floor should leave no sleeping process behind
+  # to reason about.
+  if [ "$WORKER_BOUND_SECONDS" -gt 0 ]; then
+    ( sleep "$WORKER_BOUND_SECONDS"; kill -ALRM "$$" 2>/dev/null ) &
+    _watchdog_pid=$!
+  fi
 
-  # Block on the prompt. If the bound fires first, _on_alarm kills the prompt
+  # The monitor watcher: poll the findings file and signal on `idle`. It re-reads
+  # rather than tailing because a `tail -f` down a pipe is a process to manage on
+  # every exit path, and the file it watches is empty in the healthy case — the
+  # monitor publishes only on a change.
+  #
+  # IT EXITS AFTER SIGNALLING. One verdict is all there is to deliver; a watcher
+  # that kept polling would re-signal a loop already past its `wait` and into the
+  # next slice, killing a prompt on the strength of the PREVIOUS branch's
+  # finding. `_watch_loop_pid` is captured before the subshell so `$$` inside it
+  # names the loop rather than the subshell, exactly as the watchdog does.
+  local _watch_loop_pid=$$
+  (
+    while :; do
+      sleep "$MONITOR_POLL_SECONDS" || exit 0
+      if monitor_says_idle; then
+        kill -USR1 "$_watch_loop_pid" 2>/dev/null
+        exit 0
+      fi
+    done
+  ) &
+  _monitor_watcher_pid=$!
+
+  # Block on the prompt. If either watcher fires first, its trap kills the prompt
   # and this `wait` returns (interrupted); if the prompt finishes first, `wait`
-  # returns normally and the watchdog is still counting down. Either way, read
-  # the flag — set only by the alarm trap — to tell which happened.
+  # returns normally and both watchers are still going. Either way, read the flag
+  # — set only by a trap — to tell which happened.
   wait "$_prompt_child" 2>/dev/null
 
-  # Stop the watchdog (a no-op if it already fired) and reap its sleep.
-  _kill_tree "$_watchdog_pid"
-  wait "$_watchdog_pid" 2>/dev/null || true
+  # Stop both watchers (a no-op for one that already fired) and reap their sleeps.
+  [ -n "$_watchdog_pid" ] && { _kill_tree "$_watchdog_pid"; wait "$_watchdog_pid" 2>/dev/null || true; }
+  _kill_tree "$_monitor_watcher_pid"
+  wait "$_monitor_watcher_pid" 2>/dev/null || true
   _watchdog_pid=""
+  _monitor_watcher_pid=""
   _prompt_child=""
 
   [ "$_timed_out" = 1 ] && return 124
@@ -246,13 +412,30 @@ run_bounded() {
 }
 
 while true; do
-  # Run the worker prompt in the current worktree, under the bound.
+  # Run the worker prompt in the current worktree, watched by both readings.
   # The prompt file is sourced (inside a child) so $PLOT_BRANCH etc. expand at
-  # runtime. If the bound fires the worker EXITS rather than hopping: a hung
-  # agent has left the worktree in a state nobody measured, and starting a
-  # second branch on top of that guess is worse than stopping.
+  # runtime. If either watcher fires the worker EXITS rather than hopping: an
+  # agent that stopped has left the worktree in a state nobody measured, and
+  # starting a second branch on top of that guess is worse than stopping. That
+  # is `a-hung-child-does-not-hold-the-loop`'s 2026-08-25 property, and this
+  # slice changed the READING rather than the protection.
   if ! run_bounded; then
-    echo "plot-worker-loop: prompt exceeded the ${WORKER_BOUND_SECONDS}s bound on ${PLOT_BRANCH:-?} — ending worker without hopping" >&2
+    # THE MESSAGE NAMES WHICH READING ENDED IT, because the two mean opposite
+    # things about the work in the worktree. A monitor verdict says the agent
+    # measurably stopped — alive, committed, no CPU, tree unchanged across two
+    # passes — so the worktree holds finished-looking work worth rescuing. The
+    # floor says only that time passed, and fires ONLY when the monitor itself
+    # went silent, so nobody knows what state the desk is in. An operator
+    # reading `.plot-worker.log` triages those differently, and before this
+    # slice both printed the same sentence.
+    case "$_ended_by" in
+      monitor)
+        echo "plot-worker-loop: the WorkerMonitor reported idle on ${PLOT_BRANCH:-?} — the agent is alive and has committed but burned no CPU and changed nothing across two passes; ending worker without hopping" >&2
+        ;;
+      *)
+        echo "plot-worker-loop: prompt exceeded the ${WORKER_BOUND_SECONDS}s bound on ${PLOT_BRANCH:-?} — no monitor finding said why; ending worker without hopping" >&2
+        ;;
+    esac
     exit 124
   fi
 
