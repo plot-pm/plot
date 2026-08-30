@@ -7,12 +7,16 @@
  * is why a production caller repointed at one of these is pointed at something
  * that has already answered the same question about the same estate.
  *
- * `dispatch` is deliberately absent: it is half the work by line count and has
- * its own slice.
+ * `dispatch` is half the work by line count and arrived in its own slice. Its
+ * fan-out lives in `dispatch.ts`; the three verbs that run BEFORE the phase
+ * gate — stop, restart, migrate — live beside it in `dispatch-verbs.ts`,
+ * because each reads one worktree where a fan-out reads a plan and a fleet.
  */
 export * from './decision.js';
 export * from './approve.js';
 export * from './deliver.js';
+export * from './dispatch.js';
+export * from './dispatch-verbs.js';
 export * from './reap.js';
 export * from './implement.js';
 export * from './release.js';
