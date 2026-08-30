@@ -230,6 +230,19 @@ still refuses; `liveAgentCount`'s arithmetic is **unchanged**, asserted by its
 existing tests staying green untouched; and the refusal names which of the two
 it is.
 
+**Half of `isFree` is currently unreachable, and that is not this slice's to
+fix.** Its first condition is `agent.branch === ''` — an agent between units.
+Measured 2026-08-30: no worker in this repo has ever hopped, because the 3600s
+`Worker bound` kills every agent mid-run (seven that day, all with commits), and
+`update_manifest_on_hop` sets `manifest.branch` to the next branch rather than
+clearing it, so even a hop would not pass through the empty state.
+
+**So wire both conditions and assert `sliceHasMerged` against reality**; assert
+`branch === ''` against a fixture and say in the PR that no live estate produces
+it yet. [`a-working-agent-is-not-a-hung-one`](2026-08-30-a-working-agent-is-not-a-hung-one.md)
+is what makes it reachable. **Neither plan blocks the other** — this one gives
+the state a reader, that one gives the reader a state.
+
 **The regression to lock:** an agent whose branch merged still counts toward the
 cap. That is `bug/a-landed-branch-still-holds-a-slot`, measured 2026-08-25, and
 a test must fail if this slice re-inverts it.
