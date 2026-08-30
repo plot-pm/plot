@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { agentLogPath } from './agent-log.js';
+import { agentLogPath, migrateAgentLogs } from './agent-log.js';
 import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import { readConfig } from './board.js';
@@ -404,6 +404,16 @@ export async function handleDispatch(
   // ──────────────────────────────────────────────────────────────────────────
   // The implement succeeded — the brief exists. Now spawn the dispatch.
   // ──────────────────────────────────────────────────────────────────────────
+  // Move any pre-2026-08-30 logs out of the parent directory, once, before the
+  // first log is written to the new one. HERE rather than at startup because a
+  // dispatch is the act that creates the destination anyway — and because a
+  // board that is only ever read should not rearrange an operator's files.
+  //
+  // The return value is deliberately unused: the migration is convenience, the
+  // dispatch is the job, and `migrateAgentLogs` swallows every failure for that
+  // reason. A dispatch must not fail for want of tidying an old log.
+  migrateAgentLogs(opts.repoRoot);
+
   const log = dispatchLogPath(opts.repoRoot, slug);
   let out: number;
   try {

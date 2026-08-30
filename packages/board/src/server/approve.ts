@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { agentLogPath } from './agent-log.js';
+import { agentLogDir, agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import {
@@ -105,9 +105,12 @@ export function approveCommand(opts: BuildBoardOptions): string {
 }
 
 /**
- * Where the command's own words go, keyed by slug and beside the repo — the
- * same shape and the same neighbourhood as `dispatchLogPath`, so a human
+ * Where the command's own words go, keyed by slug and in {@link agentLogDir} —
+ * the same shape and the same neighbourhood as `dispatchLogPath`, so a human
  * looking for "what happened when I clicked" finds both in one directory.
+ *
+ * The directory is named in one place, not here: prose that spells a path out
+ * goes stale silently, and this comment did between 2026-08-30's two slices.
  *
  * Named for the ACT, not the tool: `plot-approve-<slug>.log` beside
  * `plot-dispatch-<slug>.log`, and neither can be mistaken for the other.

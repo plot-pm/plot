@@ -1,4 +1,7 @@
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * Where the board's agent logs live — the ONE place that decides it.
@@ -22,19 +25,123 @@ import path from 'node:path';
  * is an untracked file every `git status` reports and every worktree inherits,
  * so a repair that dirties its own worktree cannot be verified by the suite it
  * then runs.
+ *
+ * `.worktrees/` satisfies both and is a directory Plot owns: it is ignored by
+ * git, so it is not untracked-noise, and it is not watched into a restart.
  */
+
+/**
+ * The `## Plot Config` key naming the directory fleet worktrees are created in.
+ *
+ * The same key `plot-config.sh` documents and `plot-dispatch.sh`'s
+ * `resolve_wt_root()` reads, so a project that pointed its worktrees somewhere
+ * else gets its logs there too. One key, one answer — a second key naming
+ * "where logs go" would let the two drift into a log that describes a worktree
+ * it does not sit beside.
+ */
+export const WORKTREE_ROOT_KEY = 'Worktree root';
+
+/**
+ * Where `plot-config.sh` is, when nobody said.
+ *
+ * The board artifact ships at `skills/plot/scripts/board/board-server.mjs`, so
+ * the scripts directory is its parent — the SAME anchor `index.ts` computes for
+ * `BuildBoardOptions.scriptsDir`, and the same `PLOT_SCRIPTS_DIR` override,
+ * which is what the `.mjs` suites already stub.
+ *
+ * Derived here rather than threaded through {@link agentLogDir}'s callers on
+ * purpose. Slice 1 moved 27 call sites onto `agentLogPath(repoRoot, …)` so that
+ * moving the location would be one edit; growing that signature to carry a
+ * scripts directory would spend those 27 edits after all, to hand every caller
+ * a value that is a per-process constant rather than a per-call one.
+ */
+const scriptsDir = (): string =>
+  process.env.PLOT_SCRIPTS_DIR ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/**
+ * The configured `Worktree root` per repository, read ONCE per process.
+ *
+ * `buildBoard` asks {@link agentLogPath} once per card — `dispatchLogExists` is
+ * one `stat` per plan on every 4 s pulse — so an unmemoised shell-out would put
+ * one `bash` spawn per plan per pulse on a single-threaded server. That is a
+ * cost the pulse was explicitly designed not to pay: the scan carries locations
+ * and existence, never contents.
+ *
+ * A record, so it is worth saying what makes it one that cannot go stale in a
+ * way that matters. The value read is a line of `CLAUDE.md`, and changing it
+ * relocates every future log; a board that honoured the change mid-process
+ * would write half a run's three files either side of the move. Reading it once
+ * per process is the same answer `repairEnabled` gives for the same reason —
+ * the honest cost is a restart, and a restart is what makes the answer whole.
+ */
+const worktreeRootCache = new Map<string, string>();
+
+/**
+ * The configured `Worktree root`, verbatim, or `''` when there is none.
+ *
+ * Shelled out through `plot-config.sh` — the one thing that knows where Plot
+ * configuration lives — rather than parsing `CLAUDE.md` here. Any failure reads
+ * as *no key*: a board whose scripts are missing must still resolve a log path,
+ * and the fallback that answer produces is today's location, which is correct
+ * rather than merely safe.
+ */
+const readWorktreeRoot = (repoRoot: string): string => {
+  const cached = worktreeRootCache.get(repoRoot);
+  if (cached !== undefined) return cached;
+  let value = '';
+  try {
+    value = execFileSync(
+      'bash',
+      [path.join(scriptsDir(), 'plot-config.sh'), 'get', WORKTREE_ROOT_KEY, ''],
+      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+  } catch {
+    value = '';
+  }
+  worktreeRootCache.set(repoRoot, value);
+  return value;
+};
+
+/**
+ * Forget the cached `Worktree root` readings.
+ *
+ * For tests, which change the configuration of a fixture repo between cases
+ * inside one process — the only caller for whom the per-process read is a
+ * limitation rather than the point.
+ */
+export const forgetWorktreeRoot = (): void => worktreeRootCache.clear();
 
 /**
  * The directory the board's agent logs, prompts and state files live in.
  *
- * The parent of the repository: "not in the repo" was implemented as "in the
- * directory beside it", which is a directory Plot does not own. That is a known
- * defect with its own slice — this module exists so that fixing it is one edit
- * rather than 22, and it deliberately does not fix it yet. Changing who decides
- * and what they decide in one diff means a reviewer cannot tell a missed call
- * site from an intended path change.
+ * Under the configured {@link WORKTREE_ROOT_KEY}: a log belongs beside the
+ * checkout it describes, and `.worktrees/` is Plot's own directory holding
+ * exactly the things a dispatch creates. Before 2026-08-30 there was nowhere
+ * of the sort, so "not in the repo" was implemented as "the directory beside
+ * it" — which Plot does not own, and where 190 logs totalling 2.6 MB had
+ * accumulated since 2026-08-17 with nothing that would ever remove one.
+ *
+ * THE FALLBACK IS TODAY'S LOCATION, NOT AN ERROR. A repository with no
+ * `Worktree root` key has no `.worktrees/`, and creating one because a log
+ * needs somewhere to go invents a directory nobody asked for. That is the same
+ * precedence `resolve_wt_root()` applies, and it is read from the same key so
+ * the two cannot disagree.
+ *
+ * Relative values resolve against `repoRoot`, absolute ones are taken as given
+ * — again `resolve_wt_root()`'s rule. The result is pure string work: the
+ * directory need not exist, because a first dispatch is entitled to create it.
+ *
+ * @param repoRoot absolute path to the repository this board serves
+ * @returns an absolute directory path; it need not exist
  */
-export const agentLogDir = (repoRoot: string): string => path.resolve(repoRoot, '..');
+export const agentLogDir = (repoRoot: string): string => {
+  const configured = readWorktreeRoot(repoRoot);
+  if (configured === '') return path.resolve(repoRoot, '..');
+  const root = path.isAbsolute(configured) ? configured : path.resolve(repoRoot, configured);
+  // Normalise a trailing slash away so composed paths never double it —
+  // `resolve` does this, and does it without touching the filesystem.
+  return path.resolve(root);
+};
 
 /**
  * What kind of agent run a file belongs to — the `plot-<kind>-…` name segment.
@@ -44,16 +151,28 @@ export const agentLogDir = (repoRoot: string): string => path.resolve(repoRoot, 
  * cleanup does not know to remove, which is the failure this plan exists to
  * stop recurring.
  */
-export type AgentLogKind =
-  | 'approve'
-  | 'commission'
-  | 'deliver'
-  | 'dispatch'
-  | 'idea-issue'
-  | 'implement'
-  | 'reslice'
-  | 'resolve'
-  | 'story-issue';
+export const KINDS = [
+  'approve',
+  'commission',
+  'deliver',
+  'dispatch',
+  'idea-issue',
+  'implement',
+  'reslice',
+  'resolve',
+  'story-issue',
+] as const;
+
+/**
+ * The kinds as a type, DERIVED from {@link KINDS} rather than declared beside
+ * it.
+ *
+ * The union has to exist at runtime because the migration globs for these
+ * names, and a hand-written union beside a hand-written array is two lists that
+ * drift — which would produce exactly the failure the closed set prevents: a
+ * kind the compiler accepts and the sweep does not know to move.
+ */
+export type AgentLogKind = (typeof KINDS)[number];
 
 /**
  * Which of a run's three files is wanted.
@@ -92,3 +211,135 @@ export const agentLogPath = (
   id: string | number,
   file: AgentLogFile,
 ): string => path.join(agentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
+
+/**
+ * Whether a resolved path sits inside {@link agentLogDir} for this repository.
+ *
+ * THE INVARIANT THE RESOLVER OWNS, ASKED BY THE ROUTE THAT SERVES THESE FILES
+ * TO A BROWSER. `/api/dispatch-log` validates its SLUG, and that guard is
+ * directory-independent — it excludes `../` wherever the logs live. This is the
+ * second question: not *is the caller's input a filename* but *did the address
+ * we computed land where logs are allowed to be*. A future caller could violate
+ * that without touching the slug at all.
+ *
+ * Compared with a trailing separator so `/tmp/logs-elsewhere` is not read as
+ * being under `/tmp/logs`; the directory itself is not "inside" itself, and a
+ * log is always a file within it. Both sides go through `path.resolve`, so
+ * `..` segments are collapsed before the comparison rather than matched as
+ * text.
+ *
+ * @param repoRoot absolute path to the repository this board serves
+ * @param candidate the resolved path to check; need not exist
+ */
+export const isUnderAgentLogDir = (repoRoot: string, candidate: string): boolean => {
+  const dir = agentLogDir(repoRoot);
+  const resolved = path.resolve(candidate);
+  return resolved.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
+};
+
+/**
+ * The marker recording that this repository's old logs have been moved.
+ *
+ * It lives in the NEW directory rather than the old one, so the record sits
+ * with the thing it describes: a migration that ran is a `.worktrees/` holding
+ * logs, and the marker beside them says so. A marker in the parent directory
+ * would be one more file Plot left in a directory it does not own — the exact
+ * shape this slice exists to stop.
+ */
+export const MIGRATION_MARKER = '.plot-logs-moved';
+
+/**
+ * The files a run leaves behind, as a matcher — `plot-<kind>-<id>.<ext>`.
+ *
+ * Built from {@link AgentLogKind} and {@link EXTENSIONS} rather than written
+ * out, so a tenth kind is swept by the migration the day it is added. The
+ * alternative is a second list of names that drifts from the first, which is
+ * the failure the kind union was made a closed set to prevent.
+ *
+ * DELIBERATELY NARROW. A dispatch that touches files in the parent directory
+ * does more than it says, so the boundary is the point: exactly what Plot
+ * wrote, and nothing that merely looks like it.
+ */
+const MIGRATABLE = new RegExp(
+  `^plot-(?:${KINDS.join('|')})-.+(?:${Object.values(EXTENSIONS)
+    .map((e) => e.replace(/\./g, '\\.'))
+    .join('|')})$`,
+);
+
+/**
+ * Move this repository's pre-2026-08-30 agent logs into {@link agentLogDir},
+ * once.
+ *
+ * THE MIGRATION IS CONVENIENCE; THE DISPATCH IS THE JOB. Every failure mode
+ * here — an unreadable source directory, a file that will not move, a marker
+ * that cannot be written — returns rather than throws, because a dispatch that
+ * fails for want of tidying an old log has traded the job for the convenience.
+ *
+ * Bounded four ways, and the bounds are the design:
+ *
+ * - **moves only {@link MIGRATABLE} names** — `plot-<kind>-*` with one of the
+ *   three extensions. A file Plot did not write is not Plot's to touch.
+ * - **moves, never deletes.** A name collision in the destination leaves the
+ *   source where it is; the destination is authoritative because it is the one
+ *   the running board writes to.
+ * - **runs once**, recorded by {@link MIGRATION_MARKER} in the destination.
+ * - **cannot fail a dispatch** — see above.
+ *
+ * A no-op when the destination equals the source: a repository with no
+ * `Worktree root` key never moved, so there is nothing to move and no marker to
+ * write.
+ *
+ * @param repoRoot absolute path to the repository this board serves
+ * @returns how many files were moved; `0` covers "already run" and "nothing to do"
+ */
+export const migrateAgentLogs = (repoRoot: string): number => {
+  const dest = agentLogDir(repoRoot);
+  const src = path.resolve(repoRoot, '..');
+  if (dest === src) return 0;
+
+  const marker = path.join(dest, MIGRATION_MARKER);
+  try {
+    if (fs.existsSync(marker)) return 0;
+  } catch {
+    return 0;
+  }
+
+  let names: string[];
+  try {
+    names = fs.readdirSync(src).filter((n) => MIGRATABLE.test(n));
+  } catch {
+    return 0;
+  }
+
+  try {
+    fs.mkdirSync(dest, { recursive: true });
+  } catch {
+    return 0;
+  }
+
+  let moved = 0;
+  for (const name of names) {
+    const to = path.join(dest, name);
+    try {
+      // `existsSync` then rename is a race in principle, and the race is benign:
+      // both branches leave the destination file intact, which is the property
+      // that matters. The check is what makes "never deletes" true for the
+      // ordinary case of a migration run twice against a half-moved directory.
+      if (fs.existsSync(to)) continue;
+      fs.renameSync(path.join(src, name), to);
+      moved += 1;
+    } catch {
+      // One file that will not move — a cross-device rename, a permission, a
+      // file deleted between the listing and the move — must not stop the
+      // others, and must not stop the dispatch.
+    }
+  }
+
+  try {
+    fs.writeFileSync(marker, `${new Date().toISOString()} moved=${moved}\n`);
+  } catch {
+    // An unwritten marker costs a re-run of an idempotent sweep, which is the
+    // cheapest failure available here.
+  }
+  return moved;
+};

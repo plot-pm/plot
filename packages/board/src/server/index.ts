@@ -7,7 +7,8 @@ import { repairEnabledFromEnv } from './resolver.js';
 import { buildFleet } from './fleet.js';
 import { mockFleet, mockRequested, mockCards} from './mock-fleet.js';
 import { buildAttention } from './attention.js';
-import { dispatchAvailability, dispatchLog, handleDispatch, SLUG_RE } from './dispatch.js';
+import { dispatchAvailability, dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatch.js';
+import { isUnderAgentLogDir } from './agent-log.js';
 import { continueAvailability, handleContinue } from './continue.js';
 import { handleClaim } from './claim.js';
 import { handleFleetControls } from './fleet-controls.js';
@@ -491,15 +492,24 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   //
   // The sibling of /api/worker-log, one file over: that reads the AGENT's
   // console (`.plot-worker.log` in the worktree), this reads the dispatcher's
-  // own record (`plot-dispatch-<slug>.log` beside the repo). The button used to
-  // hand this path back as a transient string in a *no change — see log*
-  // message that expired the moment the row moved; the durable home for it is
-  // the `Status` entry in the row's menu, which fetches here.
+  // own record (`plot-dispatch-<slug>.log` under the configured worktree root —
+  // `agentLogDir` decides where, and this route asserts the answer rather than
+  // naming it). The button used to hand this path back as a transient string in
+  // a *no change — see log* message that expired the moment the row moved; the
+  // durable home for it is the `Status` entry in the row's menu, which fetches
+  // here.
   //
   // A SLUG, not a branch — the dispatcher log belongs to a plan, and its path is
   // knowable from the slug alone (`dispatchLogPath`), with no worktree to
   // resolve. Validated by the same `SLUG_RE` the POST uses, because the slug is
   // a filename component and `../` must reach no log but the one it names.
+  //
+  // TWO GUARDS, AND THEY ANSWER DIFFERENT QUESTIONS. The slug guard is
+  // unchanged and directory-independent — it already excludes `../`, so moving
+  // the logs did not weaken it. The path guard added beside it asserts the
+  // RESOLVED path sits under `agentLogDir`, which is the invariant the resolver
+  // now owns: a future caller could put a log outside that directory without
+  // touching the slug at all, and this route serves these files to a browser.
   //
   // Always 200 for a well-formed slug: unlike /api/worker-log there is no
   // `no-worktree` answer here — the path exists to be read whether or not any
@@ -510,6 +520,11 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     if (!slug || !SLUG_RE.test(slug)) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'slug must be a plan slug' }));
+      return;
+    }
+    if (!isUnderAgentLogDir(opts.repoRoot, dispatchLogPath(opts.repoRoot, slug))) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'resolved log path is outside the agent log directory' }));
       return;
     }
     try {
