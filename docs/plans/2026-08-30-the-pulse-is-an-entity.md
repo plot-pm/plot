@@ -95,17 +95,25 @@ function cacheKey(opts) {                            fleet.ts:648
 **A timer pair per repository**, created by `ensureCache`. Two boards serving
 two repos on one laptop are two clocks, and nothing makes them agree.
 
-`DESIGN-machine.md` makes the *machine* singular and calls that load-bearing —
-but a pulse keyed by repo root is not a machine-level thing. **So this plan has
-to choose, and the Naming slice is where:**
+**Settled by the operator 2026-08-30: we cannot have several on one machine.**
+So the target is one pulse per machine, and the per-repo key is a defect to
+remove rather than a design to honour.
 
-- **one pulse per machine** — subscribers across repos share a beat, which is
-  what "master clock" implies, and needs a home outside a per-repo cache
-- **one pulse per repo** — today's shape, honest about the fact that two repos
-  have independent estates and nothing to synchronise
+**The key is an artefact, not a feature.** `repoRoot` is read **once per
+process**, at `index.ts:64` — `PLOT_REPO_ROOT ?? process.cwd()` — and never
+changes after. Within one board the `Map` holds exactly one entry. **Nothing in
+a running server ever varies the key.**
 
-**The second is the smaller change and may well be right.** What is not right is
-the plan asserting the first while the code does the second.
+**The multiplicity comes from starting a second board**, not from the cache. The
+default port 7777 makes that fail in ordinary use, and `PORT=0` — what the test
+suite passes — makes it succeed. So today's shape is *"one pulse per process,
+and don't start two"*, enforced by a port collision rather than by anything that
+knows what a pulse is.
+
+**What this plan must therefore do:** make the singularity explicit rather than
+accidental. A second pulse on one machine has to be refused **by something that
+understands why**, and the refusal has to say so — a port collision reports
+`EADDRINUSE`, which tells an operator nothing about clocks.
 
 ### Subscribers name a divisor, not a frequency
 
@@ -183,6 +191,16 @@ model — written the way the other entity specs are.
 has one pulse; the three current divisors with their measurements; and
 **explicitly what the pulse does not tick, with the reason** — the watchdog and
 the client are the cases a later reader will otherwise try to add.
+
+**And it states how a second pulse is refused.** The singularity is settled
+(operator, 2026-08-30) but unenforced: today it rests on port 7777 colliding,
+which `PORT=0` bypasses. The document has to say what the guard is and what it
+says when it fires — **`EADDRINUSE` is a symptom, not an answer.**
+
+**The test suite is the case that makes this hard**, and it has to be named:
+suites start boards with `PORT=0` deliberately, in parallel. A guard that
+refuses them breaks the suite; one that exempts them exempts the only place
+where two pulses actually run today.
 
 ### Ticking (Branch: feature/a-subscriber-names-its-divisor)
 
