@@ -106,6 +106,19 @@ interval="${PLOT_MONITOR_INTERVAL:-300}"
 
 findings="${PLOT_MONITOR_FILE:-${worktree:+$worktree/.plot-worker.monitor.agent.jsonl}}"
 
+# THE SUBJECT, read the same way the WorkerMonitor reads it: `.plot-worker.pid`
+# names the AGENT, and the wrapper passes its path in `PLOT_PID_FILE`.
+pid_file="${PLOT_PID_FILE:-${worktree:+$worktree/.plot-worker.pid}}"
+
+# ONE ANSWER TO "IS MY SUBJECT STILL THERE?", shared with the WorkerMonitor.
+# The 300 s cadence is exactly why this monitor must not decide separately: an
+# AgentMonitor that checked only after a full sleep would outlive an agent that
+# finished in ten seconds by nearly five minutes, on every dispatch. The helper
+# splits the WAIT and leaves the PASS alone, so the host is still asked at 300 s
+# and the two cadences stay apart.
+# shellcheck source=./plot-monitor-subject.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-monitor-subject.sh"
+
 json_escape() { # $1 = raw → prints a JSON-safe string body
   printf '%s' "$1" | python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.stdin.read())[1:-1])' 2>/dev/null \
     || printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
@@ -135,7 +148,17 @@ noop_pass() {
 noop_pass
 [ "$once" = 1 ] && exit 0
 
-while :; do
-  sleep "$interval" || exit 0
+# IT ENDS WITH ITS AGENT, for the reason and by the mechanism the WorkerMonitor
+# does — `docs/research/2026-08-30-what-ends-a-monitor.md` has the measurement.
+# Nothing ended either monitor before 2026-08-30: the wrapper `wait`s on the
+# agent alone, so both children were re-parented to `init` and looped forever.
+#
+# PUBLISH FIRST, THEN LEAVE. The final pass below runs with the agent already
+# gone, which is the lower bound the Attaching slice owns expressed as sequence:
+# a monitor that dies WITH its agent never reported on it.
+while plot_monitor_wait "$interval" "$pid_file"; do
   noop_pass
 done
+
+noop_pass
+exit 0

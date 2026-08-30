@@ -165,6 +165,18 @@ worktree="${PLOT_WORKTREE:-}"
 interval="${PLOT_MONITOR_INTERVAL:-30}"
 pid_file="${PLOT_PID_FILE:-${worktree:+$worktree/.plot-worker.pid}}"
 
+# ONE ANSWER TO "IS MY SUBJECT STILL THERE?", shared with the AgentMonitor
+# rather than written twice. `plot-worker-state.sh` carried five of six states
+# in duplicate until the copies drifted on the sixth; two monitors deciding
+# independently when to stop would drift the same way, and half a fix for a leak
+# looks exactly like a fix.
+#
+# Sourced from THIS script's directory, so a monitor started from a worktree's
+# own copy of the scripts finds that copy's helper — which is how every
+# dispatched worker runs.
+# shellcheck source=./plot-monitor-subject.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-monitor-subject.sh"
+
 # THE DEFAULT PATH IS DERIVED, NOT REQUIRED. The wrapper passes
 # PLOT_MONITOR_FILE explicitly (one env var per path, so no quoting level inside
 # the single-quoted `sh -c` can mangle a path with spaces — the convention the
@@ -454,7 +466,42 @@ monitor_pass
 # it. Telling a healthy silence from a dead monitor is the channel's job —
 # `feature/the-channel-carries-the-findings`, whose heartbeat is exactly that
 # distinction.
-while :; do
-  sleep "$interval" || exit 0
+#
+# AND IT ENDS WITH ITS AGENT. Until 2026-08-30 it did not, and the estate showed
+# it: 34 of 40 monitors on this machine were `ppid=1`, and the orphans cost half
+# the machine's spawn cost (23.3 ms per 100 forks against 4.8 ms quiet). The
+# wrapper `wait`s on the agent alone — correctly, since waiting on two infinite
+# loops would hang and `.plot-worker.exit` would never be written — so when the
+# wrapper exits, its monitors are re-parented to `init` and loop forever.
+# `docs/research/2026-08-30-what-ends-a-monitor.md` has the measurement and the
+# commands that show it, on both the ordinary path and the `Worker bound` one.
+#
+# PUBLISH FIRST, THEN ASK — the order is the lower bound, and this monitor is
+# exactly where it matters. `gone` is one of its two findings, so a monitor that
+# checked the subject BEFORE its pass would exit on a dead agent without ever
+# reporting the death — the loudest finding it has, lost to the mechanism meant
+# to bound it. `plot_monitor_wait` returns only after `monitor_pass` has run.
+#
+# IT IS A MEASUREMENT, NOT A TIMER, which the plan requires in as many words: a
+# monitor exiting after N seconds regardless would pass every visible assertion
+# and destroy the property the design rests on. This reads the process table —
+# the same source the `gone` finding above reads, asked for a different purpose.
+while plot_monitor_wait "$interval" "$pid_file"; do
   monitor_pass
 done
+
+# THE FINAL PASS, and for this monitor it is not a courtesy — it is the `gone`
+# finding itself.
+#
+# `plot_monitor_wait` returns non-zero the moment the agent's pid names no live
+# process, so control arrives here with the subject already dead and NOTHING yet
+# published about it. One more pass runs, `monitor_pass` measures the same dead
+# pid the wait just saw, and `gone` is published on the way out.
+#
+# Without this line the monitor would exit silently on exactly the event it
+# exists to report — the upper bound eating the finding rather than the lower
+# bound. It would still pass "no monitor remains", which is why the suite
+# asserts the last finding's `measuredAt` against the exit file rather than
+# asserting the exit alone.
+monitor_pass
+exit 0
