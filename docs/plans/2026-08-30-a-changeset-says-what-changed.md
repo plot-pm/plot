@@ -155,7 +155,7 @@ at when it fires.
 
 ## Slices
 
-### Gating (Branch: bug/a-changeset-says-what-changed)
+### Gating (Branch: bug/a-changeset-says-what-changed, PR: #535)
 
 `changeset.ts` in the domain, the script reduced to an adapter, the CLAUDE.md
 line, and a note at the head of the CHANGELOG.
