@@ -183,7 +183,7 @@ board's log links still open the right file.
 one gets missed, and the missed one keeps writing to the old location where
 nothing will ever clean it.
 
-### Moving (Branch: infra/a-log-lives-under-worktrees)
+### Moving (Branch: infra/a-log-lives-under-worktrees, PR: #539)
 
 The resolver returns a path under the configured worktree root; the fallback
 stays the parent directory.
