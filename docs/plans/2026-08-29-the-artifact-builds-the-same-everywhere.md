@@ -36,7 +36,57 @@ size    1,097,615 bytes — identical
 lines   263 — identical
 ```
 
-The only differences are **esbuild's generated short names**. Within one
+### Measured 2026-08-30: the path hypothesis does not survive a control
+
+The plan above was written from a trace, not from an experiment. Run as an
+experiment, it fails to reproduce.
+
+```
+two checkouts of da770281, differing only in path length, full build:
+  …/artifact-ab/a                    d8ca6bf755743c5a   1,105,070 bytes
+  …/artifact-ab/bbbbbbbbbbbbbbbbbbbb d8ca6bf755743c5a   1,105,070 bytes
+
+a real worktree — its OWN node_modules, a DIFFERENT commit (5efc508c),
+built through the official `pnpm run build`:
+                                     d8ca6bf755743c5a
+```
+
+**The control is what makes this a measurement.** Two earlier attempts at this
+same A/B came back "identical" and meant nothing:
+
+1. The first suppressed `node build.mjs`'s output, so a build that never ran
+   read as a build that produced the same bytes.
+2. The second used `const x = "probe"; void x;` as its mutant — which is
+   precisely what a minifier deletes. `grep` found it in the source and not in
+   the artifact.
+
+The third used `console.log("AB_PROBE_CANNOT_BE_ELIDED")`, which reached the
+artifact and moved the hash to `97926ad4b025bdfe`; removing it returned
+`d8ca6bf7`. **Only then does "the long path also gives d8ca6bf7" carry
+information.**
+
+### What this leaves
+
+The `Measured 2026-08-29` block above reports two artifact hashes under the
+heading *the same commit*, and does not record the commit. `7f54add7` and
+`d68e4c42` are not objects in this repository — they are outputs, so the
+table shows two results and no inputs. The claim the entire diagnosis rests on
+is the one thing in it that was not measured.
+
+That does not mean the drift was imagined: something rejected a green slice on
+2026-08-29, and the artifact was hand-rebuilt to get past it. It means the
+cause is still unknown, and **`build.mjs` is no longer the leading suspect.**
+The Measuring slice below is therefore the whole plan for now — with a
+different first question:
+
+> Both build stages are path-independent under control. So what differed
+> between the two directories on 2026-08-29 — the source they were built from,
+> the client input, or the moment they were built?
+
+The Fixing slice stays unwritten until that is answered. A remedy chosen now
+would be a fix for a mechanism this experiment could not find.
+
+The 2026-08-29 trace's only differences are **esbuild's generated short names**. Within one
 directory the build is byte-stable: two consecutive runs give the same hash. So
 the build is deterministic **per path** and not **across paths**.
 
@@ -74,20 +124,32 @@ is that the build cannot satisfy it.**
 
 ## Design
 
-### Make the build path-independent
+### Find what actually varies
 
-The likely cause is a minifier assigning short names in module-resolution order,
-which varies with absolute paths. Two candidates, in order of preference:
+The path hypothesis was the plan's whole design until 2026-08-30, when it was
+run as an experiment and did not reproduce. Both build stages — `vite build`
+for the client, `node build.mjs` for the server — return identical bytes across
+directories, across `node_modules` trees, and across two commits.
 
-1. **Pin the resolution order.** If esbuild's `absWorkingDir` or an explicit
-   entry ordering removes the variance, the build becomes byte-deterministic
-   with no loss.
-2. **Disable name mangling** (`minifyIdentifiers: false`). Larger artifact,
-   fully deterministic. Measure the size cost before choosing: the artifact is
-   1.1 MB and ships in the npm package.
+So the remaining candidates are the ones a hash comparison cannot separate on
+its own, and each is answerable:
 
-**Measure first.** The trace above says *what* differs, not *why*; a fix chosen
-before the cause is known is a guess that happens to work.
+1. **The two directories were not on the same source.** The cheapest to check
+   and the likeliest: the 2026-08-29 trace records no commit, and a worktree
+   one commit behind is indistinguishable from a non-deterministic build if you
+   only compare outputs.
+2. **The client input differed.** `build.mjs` does not build the client — it
+   embeds an existing `dist/client/index.html`, 582 KB of the artifact's 1.1 MB.
+   A stale `dist/client/` produces a new server around an old client, and
+   `pnpm run build:server` alone does exactly that. The full `pnpm run build`
+   runs both stages, so this only bites someone invoking the inner script.
+3. **Something time- or environment-dependent reaches the bundle.** A date, a
+   version string, a path baked in at build time. Falsifiable by building the
+   same tree twice with a delay between the runs.
+
+**Do not choose a remedy before one of these is confirmed.** The previous
+version of this section chose two, and the measurement it was waiting for
+refuted the premise both shared.
 
 ### Not chosen: compare semantically instead of by bytes
 
@@ -106,28 +168,42 @@ rebuild before it costs a CI round trip.
 
 ### Measuring (Branch: infra/the-artifact-drift-has-a-cause)
 
-Establish *why* the names differ: build the same commit in two directories with
-`--metafile`, diff the module order, and confirm or refute the path hypothesis.
+Work the three candidates above in order, cheapest first, and stop at the one
+that reproduces. The 2026-08-30 run already closes the path question; what
+remains is to find the variable it did not vary.
 
-Tests: a written finding naming the cause, reproducible by the commands in it.
+**Every negative result is a finding and gets written down.** The reason this
+plan spent a day pointing at `build.mjs` is that the 2026-08-29 trace recorded
+what differed and not what was held constant.
 
-### Fixing (Branch: infra/the-artifact-is-path-independent)
+Tests: a written finding that either names the varying input — with the two
+values it took — or states that no reproduction was found and the drift is not
+currently observable. **Both are valid outcomes.** A slice that cannot find the
+bug has finished honestly; one that invents a cause to have something to fix
+has not.
 
-Apply whichever remedy the measurement selects, and record in `build.mjs` which
-one and why.
+Every command in the finding must carry its control: a mutation that moves the
+hash, so a reader can tell a real comparison from two builds that never ran.
 
-Tests: the same commit built in the main checkout and in a worktree produces
-**identical bytes**; the artifact's size change, if any, is stated.
+### Fixing — not yet cut
+
+There is no branch here on purpose. A remedy needs a mechanism, and the
+Measuring slice may well conclude there is nothing to fix. Cutting the branch
+now would be the same mistake in a second iteration: work sized against a
+hypothesis instead of a measurement.
 
 ## Done when
 
-1. **Two directories, one commit, identical bytes.** Asserted by building in
-   both and comparing hashes — the exact procedure that produced this plan.
-2. **The gate is unchanged.** This fixes the build, not the check.
-3. **Any size increase is stated with its number**, since the artifact ships in
-   the npm package.
-4. **`build.mjs` records the cause and the remedy**, so the next reader does not
-   re-derive it.
+1. **The finding names what varied, or states that nothing did.** Both close
+   this plan; only an unmeasured cause leaves it open.
+2. **Every comparison in the finding carries a control** — a named mutation and
+   the hash it produced. Three A/B runs on 2026-08-30 returned "identical" and
+   two of them were measuring nothing; the control is the difference.
+3. **The gate is unchanged.** Whatever this turns out to be, it is not the
+   check's fault.
+4. **If a remedy is found and applied:** `build.mjs` records the cause and the
+   remedy, and any size change is stated with its number, since the artifact
+   ships in the npm package.
 5. `pnpm test`, `pnpm run test:board` green.
 
 ## Notes
