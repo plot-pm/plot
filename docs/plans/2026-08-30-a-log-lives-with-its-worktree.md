@@ -16,6 +16,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `infra/one-place-decides-where-a-log-lives`
+- **Started:** 2026-08-30, Jan Wloka, `infra/a-log-lives-under-worktrees`
 
 ## Approval
 
