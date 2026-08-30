@@ -10,7 +10,7 @@
 - **Phase:** Active
 - **Start:** 2026-08-29
 - **End:** 2026-09-12
-- **Release:** 2.12.0
+- **Release:** 2.13.0 — **held until the domain has replaced the production functions**, see *No release until the domain is real* below
 
 ## Sprint Goal
 
@@ -62,6 +62,60 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 - [ ] [a-domain-rule-has-one-owner] Any lifecycle rule found duplicated **while moving** gets its second implementation deleted in the same slice, rather than noted for later — opportunistic, and only where the two provably agree
 
 ## Notes
+
+### No release until the domain is real — 2026-08-30
+
+**The next release waits until the domain has replaced the production
+functions.** Not until a plan is delivered, not until a sprint closes — until
+production calls the domain instead of holding its own copy.
+
+**This was decided after looking at what 2.12.0 actually shipped.** Four
+entries, and not one of them is a change a user notices:
+
+| | |
+|---|---|
+| `Plot's domain leaves the board and becomes @plot-pm/domain` | internal restructuring |
+| *(no description — the `<!--` defect)* | broken |
+| `The domain's entities lose the Fleet prefix` | internal renaming |
+| `Restore the native platform bindings to pnpm-lock.yaml` | repairing a break from the same period |
+
+**It shipped as a minor**, because the bump was raised by hand to make the
+sprint's declared target and the changesets' arithmetic agree. The changesets
+were right: seven patches. The honest question was not *which number* but
+*whether a release was due at all*, and it was not asked.
+
+**Measured: seven plugin releases in eight days, four on one of them.** The
+release workflow triggers on every push to `main`, so the bot offers a release
+PR after every merge — the cadence follows the merge rate rather than any
+decision about value.
+
+#### The condition, and how it is checked
+
+**Done when `production-calls-the-domain-one-rule-at-a-time` is delivered.**
+That plan is the one that repoints production; the two before it build what it
+adopts. Its own gates are the check, and they are already written:
+
+```
+grep -rnE "(execFileSync|execFile|spawnSync|spawn)\(" packages/board/src/
+```
+
+returns nothing — measured 2026-08-30 it returns **51**. Plus: `plot-deliver.sh`
+no longer parses a plan, the scan's output is byte-identical against a frozen
+clone, and `grep` finds no second implementation of any adopted rule.
+
+**Fifteen slices across three plans stand between here and there**: sandbox (5,
+Approved, one merged), controller (4, Draft), production-calls (6, Draft).
+
+#### What happens to the release PR meanwhile
+
+**It stays open and grows.** Changesets accumulate in it and it regenerates on
+every merge; nothing is lost by leaving it for days. A release cut when the
+condition is met says *the domain replaced production's rules* — a sentence
+worth a version number, unlike *the code was rearranged*.
+
+**Merging is not slowed by this.** Slices land as they finish; only the tag
+waits.
+
 
 ### One Must, and two tiers below it — the chain decides which
 
