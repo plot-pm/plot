@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reapProblems } from '../rules/reapable.js';
 
 /**
  * Where a worktree sits in its life.
@@ -76,14 +77,17 @@ export const isOrphan = (tree: Worktree): boolean => tree.agentSession === null;
 /**
  * Every reason this worktree may not be reaped, given what was measured of it.
  *
- * Reports all of them rather than the first, so an operator sees the whole
- * picture. A tree is reapable when this is empty.
+ * A thin adapter over {@link reapProblems}, which owns the decision. This
+ * shape reads the evidence off a {@link Worktree} and drops the details the
+ * rule attaches; the rule itself is where a refusal is added or reordered,
+ * because two implementations of *may this be removed* is the drift that
+ * deletes somebody's work.
  *
  * @param tree - the worktree to judge.
  * @param evidence - what was measured: whether a worker process is alive,
  *   whether a `PLOT-BLOCKED` marker is present, whether any PR for the branch
  *   merged, and the repository's default branch.
- * @returns the refusals that apply, in a stable order; empty means reapable.
+ * @returns the refusals that apply, most urgent first; empty means reapable.
  */
 export const reapRefusals = (
   tree: Worktree,
@@ -93,19 +97,19 @@ export const reapRefusals = (
     hasMergedPr: boolean;
     defaultBranch: string;
   },
-): ReapRefusal[] => {
-  const refusals: ReapRefusal[] = [];
-  if (evidence.workerAlive) refusals.push('live-worker');
-  if (holdsUnlandedWork(tree)) refusals.push('uncommitted-changes');
-  if (evidence.blockedMarker) refusals.push('blocked-marker');
-  // A tree sitting on the default branch never had its dispatched branch
-  // checked out, so its state was never measured.
-  if (tree.isMain || tree.branch === evidence.defaultBranch) refusals.push('on-default-branch');
-  // Read from whether a PR merged, never from ancestry: a squash-merge leaves
-  // the branch permanently ahead of the default branch.
-  if (!evidence.hasMergedPr) refusals.push('no-merged-pr');
-  return refusals;
-};
+): ReapRefusal[] =>
+  reapProblems({
+    branch: tree.branch,
+    defaultBranch: evidence.defaultBranch,
+    isMain: tree.isMain,
+    // The entity knows only that a worker is alive, not which pid; the rule
+    // takes the pid so a caller can name it, and a placeholder is the honest
+    // way to say "alive, identity not read here".
+    workerPid: evidence.workerAlive ? 'alive' : null,
+    dirtyPath: holdsUnlandedWork(tree) ? 'unlanded' : '',
+    blockedMarker: evidence.blockedMarker,
+    merge: evidence.hasMergedPr ? 'merged' : 'not-merged',
+  }).map((p) => p.refusal);
 
 /**
  * Whether a worktree may be removed.

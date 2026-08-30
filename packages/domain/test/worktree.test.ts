@@ -105,8 +105,11 @@ describe('a reap refuses on measurements, never on judgement', () => {
       { ...desk, clean: false, branch: 'main' },
       { workerAlive: true, blockedMarker: true, hasMergedPr: false, defaultBranch: 'main' },
     );
+    // The order is `plot-reap.sh`'s test order, which `reapProblems` now owns:
+    // a marker is asked before the tree is read for dirt. Both were correct
+    // when each function had its own order; one question may only have one.
     expect(refusals).toEqual([
-      'live-worker', 'uncommitted-changes', 'blocked-marker', 'on-default-branch', 'no-merged-pr',
+      'live-worker', 'blocked-marker', 'uncommitted-changes', 'on-default-branch', 'no-merged-pr',
     ]);
   });
 });
