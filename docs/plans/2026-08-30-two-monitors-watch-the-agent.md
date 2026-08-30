@@ -597,7 +597,7 @@ measures nothing yet**, and that string disappears in the slice that gives it
 its first measurement. A monitor that reports its own emptiness cannot be
 mistaken for one that has nothing to report.
 
-### Attaching (Branch: feature/every-worker-is-born-monitored)
+### Attaching (Branch: feature/every-worker-is-born-monitored, PR: #536)
 
 `start_worker()` starts both monitors inside the wrapper, before the agent.
 
