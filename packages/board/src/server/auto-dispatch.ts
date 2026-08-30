@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import type { FleetSettings } from './fleet-settings.js';
 import { LIVE_STATES, type SourceBranch, type FleetPulse } from '../contract/schema.js';
+import { isFree } from '@plot-pm/domain';
 import type { AgentEntry } from './registry.js';
 import { dispatchLogPath } from './dispatch.js';
 
@@ -127,6 +128,84 @@ export function liveAgentBranches(agents: AgentEntry[], _pulse?: FleetPulse): st
 }
 
 /**
+ * The branches this pulse reports as landed — the source for `isFree`'s
+ * `sliceHasMerged` argument.
+ *
+ * READ FROM THE PULSE, NEVER ASKED OF THE HOST. The scan already pays the host
+ * round trip once and publishes `state: 'merged'` per branch; asking again per
+ * agent would spend a request per pulse per agent to re-learn a fact already in
+ * hand. `isFree` takes the answer as an argument precisely so the caller can
+ * source it from whatever it already knows.
+ *
+ * A branch the pulse does not mention is absent from the set, so `isFree` sees
+ * `false` for it — an agent on a branch nothing reports as merged is treated as
+ * still holding it. Silence is never taken as landed.
+ */
+export function mergedBranches(pulse: FleetPulse): Set<string> {
+  const merged = new Set<string>();
+  for (const plan of pulse.plans) {
+    for (const wave of plan.slices) {
+      for (const b of wave.branches) {
+        if (b.state === 'merged') merged.add(b.branch);
+      }
+    }
+  }
+  return merged;
+}
+
+/**
+ * How many live agents could take a slice right now — {@link isFree} counted
+ * over the registry, with `sliceHasMerged` sourced from the pulse.
+ *
+ * THE SECOND QUESTION, NOT A REPLACEMENT FOR THE FIRST. {@link liveAgentCount}
+ * answers *does this agent consume a machine?* and protects the cap;  this
+ * answers *can this agent take a slice?* and protects against waiting for a slot
+ * that is already free. A landed-branch agent is **occupied and free at once**,
+ * so both answers are true of it and neither is redundant.
+ *
+ * Merging the two reintroduces a measured defect. Measured 2026-08-25: eleven
+ * workers whose branches had merged sat at zero CPU for up to ten hours, none
+ * counted against the cap (bug/a-landed-branch-still-holds-a-slot) — the
+ * "liveness takes two facts" rule excluded landed agents and let the fleet grow
+ * unbounded. This function adds a READER and changes no arithmetic.
+ *
+ * `waiting` is not free: it is live and blocked on a person, so it holds a slot
+ * and can take nothing. That rule lives in `isFree` and is not restated here.
+ */
+export function freeAgentCount(agents: AgentEntry[], pulse: FleetPulse): number {
+  return freeAgents(agents, pulse).length;
+}
+
+/**
+ * The branches behind {@link freeAgentCount}'s number — what a dispatch names
+ * when it proceeds against a free agent rather than an empty slot.
+ *
+ * MUST stay consistent with {@link freeAgentCount}, for the same reason
+ * {@link liveAgentBranches} must stay consistent with {@link liveAgentCount}:
+ * the count is the decision and the names are the explanation, so a divergence
+ * makes the message describe a different fleet than the one that was counted.
+ *
+ * An agent between slices holds no branch, so it contributes `(between slices)`
+ * rather than an empty string — the reason a slot is reusable is worth reading.
+ */
+export function freeAgentLabels(agents: AgentEntry[], pulse: FleetPulse): string[] {
+  return freeAgents(agents, pulse).map((a) => a.branch || '(between slices)');
+}
+
+/**
+ * The live agents that can take a slice — the one place `isFree` is asked, so
+ * the count and the names cannot answer differently.
+ */
+function freeAgents(agents: AgentEntry[], pulse: FleetPulse): AgentEntry[] {
+  const merged = mergedBranches(pulse);
+  // `isFree` reads `state` and `branch` only, and an `AgentEntry` carries both
+  // with the same meanings — so the registry entry answers the domain's
+  // question directly, with no cast between two state vocabularies that are
+  // not in fact the same set.
+  return agents.filter((a) => isFree(a, merged.has(a.branch)));
+}
+
+/**
  * A branch the pulse shows as still startable — open or wip, not yet claimed,
  * merged or deferred. The claim ref is the one mechanism that makes a taken
  * branch safe, and the pulse reflects it as `state: 'claimed'`; a startable
@@ -189,6 +268,18 @@ export interface PlanAutoDispatchInput {
   /** Live registry entries this pulse — see {@link liveAgentCount}. */
   liveCount: number;
   /**
+   * The registry this pulse, for the SECOND question a dispatch asks: not *how
+   * many slots are taken* but *can any agent take a slice?* — see
+   * {@link freeAgentCount}.
+   *
+   * Optional, and absent means no free agent rather than an error: a caller
+   * that does not pass it gets exactly the cap-only behaviour that predates
+   * this field. `liveCount` stays a separate input and is NOT re-derived from
+   * this list — the two counts answer different questions and the caller has
+   * already computed the first.
+   */
+  agents?: AgentEntry[];
+  /**
    * Branches this board has dispatched whose claim/manifest the pulse cannot yet
    * confirm. `plot-dispatch.sh` is spawned detached, so a branch dispatched last
    * pulse may show neither a manifest nor a claim ref on the next one; counting
@@ -211,9 +302,16 @@ export interface PlanAutoDispatchInput {
 /**
  * Decide which plans to fan out this pulse, and with what per-plan `--max`.
  *
- * PURE — no spawn, no disk, no clock. Every output is a function of the four
- * inputs, which is what lets the cross-pulse cap be asserted over repeated calls
- * in a unit test rather than through a live fleet.
+ * PURE — no spawn, no disk, no clock. Every output is a function of its inputs,
+ * which is what lets the cross-pulse cap be asserted over repeated calls in a
+ * unit test rather than through a live fleet.
+ *
+ * A dispatch asks TWO questions, and a refusal names which one failed: *is
+ * there a slot?* (`parallelAgents` against the live count) and *is there a free
+ * agent?* ({@link freeAgentCount}). A spent budget falls through to the second,
+ * because an agent between slices or holding a landed branch can take work now
+ * on a slot already paid for. The cap is never raised by it — see the fall-
+ * through comment in the body.
  *
  * The budget is `parallelAgents − (liveCount + inFlight.size)`, clamped at zero.
  * It is spent across approved plans' eligible waves in document order, each plan
@@ -223,11 +321,27 @@ export interface PlanAutoDispatchInput {
  * pulse, is the property the whole wave exists to guarantee.
  */
 export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan[] {
-  const { controls, pulse, liveCount, inFlight, missingBriefs } = input;
+  const { controls, agents = [], pulse, liveCount, inFlight, missingBriefs } = input;
   if (!controls.autoDispatch) return [];
 
   let budget = controls.parallelAgents - (liveCount + inFlight.size);
-  if (budget <= 0) return [];
+
+  // AT THE CAP IS NOT THE SAME ANSWER AS NO FREE AGENT, and this is where the
+  // two part. The slot budget being spent says every machine is held; it does
+  // NOT say every agent is busy. An agent between slices, or one whose branch
+  // has landed, is running and can take the next unit of work right now — its
+  // slot is already paid for.
+  //
+  // So a spent budget falls through to the free agents rather than refusing:
+  // the fleet reuses a slot it already holds instead of waiting for one to be
+  // released. `parallelAgents` is still the ceiling — a free agent is an
+  // EXISTING slot, never an extra one — which is why the budget becomes the
+  // free count and is not added to it. Adding them would raise the cap and
+  // re-invert bug/a-landed-branch-still-holds-a-slot (2026-08-25).
+  if (budget <= 0) {
+    budget = freeAgentCount(agents, pulse);
+    if (budget <= 0) return [];
+  }
 
   const plans: AutoDispatchPlan[] = [];
   for (const plan of pulse.plans) {
@@ -526,20 +640,38 @@ export function maybeAutoDispatch(
   if (controls.autoDispatch) {
     const budget = controls.parallelAgents - (liveCount + pruned.size);
     if (budget <= 0) {
-      const liveBranches = liveAgentBranches(agents, pulse);
-      const inFlightList = [...pruned];
-      // Only log when there IS something to dispatch — a cap hit with no
-      // eligible work is routine, not a refusal.
-      const hasEligible = pulse.plans.some(
-        (p) => p.phase === 'approved' && p.slices.some((w) => w.verdict === 'eligible'),
-      );
-      if (hasEligible) {
-        console.log(
-          `auto-dispatch: at cap (${controls.parallelAgents}), refusing new dispatch. ` +
-          `Slots held by: ${[...liveBranches, ...inFlightList].join(', ') || '(in-flight only)'}`,
+      // THE SAME ARITHMETIC AND THE SAME SECOND QUESTION as `planAutoDispatch`.
+      // These two must not diverge: this branch decides whether to log a
+      // refusal, and the planner decides whether to dispatch. If this refused
+      // where the planner dispatches, the board would print "refusing" on the
+      // pulse it started a worker.
+      const free = freeAgentCount(agents, pulse);
+      if (free <= 0) {
+        const liveBranches = liveAgentBranches(agents, pulse);
+        const inFlightList = [...pruned];
+        // Only log when there IS something to dispatch — a cap hit with no
+        // eligible work is routine, not a refusal.
+        const hasEligible = pulse.plans.some(
+          (p) => p.phase === 'approved' && p.slices.some((w) => w.verdict === 'eligible'),
         );
+        if (hasEligible) {
+          // NAMES WHICH OF THE TWO IT IS. "At the cap" alone was ambiguous
+          // between *every machine is held* and *nobody can take work*; the
+          // second clause is what tells a reader whether waiting will help.
+          console.log(
+            `auto-dispatch: at cap (${controls.parallelAgents}) and no free agent, ` +
+            `refusing new dispatch. Slots held by: ` +
+            `${[...liveBranches, ...inFlightList].join(', ') || '(in-flight only)'}`,
+          );
+        }
+        return pruned;
       }
-      return pruned;
+      // At the cap, but an agent can take a slice — the slot is already paid
+      // for, so this is not a refusal and the planner proceeds below.
+      console.log(
+        `auto-dispatch: at cap (${controls.parallelAgents}) but ${free} free ` +
+        `agent(s) can take a slice: ${freeAgentLabels(agents, pulse).join(', ')}`,
+      );
     }
   }
 
@@ -591,6 +723,9 @@ export function maybeAutoDispatch(
     controls,
     pulse,
     liveCount,
+    // The registry the cap was measured against, so the planner's free-agent
+    // question is asked of the same fleet this function just logged about.
+    agents,
     inFlight: pruned,
     missingBriefs,
   });

@@ -4,6 +4,9 @@ import {
   startableBranches,
   liveAgentCount,
   liveAgentBranches,
+  freeAgentCount,
+  freeAgentLabels,
+  mergedBranches,
   planSlug,
   briefPath,
   dispatchCandidates,
@@ -671,5 +674,296 @@ describe('dispatchCandidates — ref_held filter', () => {
       ]),
     ]]]);
     expect(dispatchCandidates(p, new Set())).toEqual(['feature/fresh']);
+  });
+});
+
+// --- A dispatch asks for a free agent ---------------------------------------
+//
+// The Asking slice of the-registry-owns-what-it-started. `isFree` existed,
+// was tested, and had zero production callers; these assertions are what make
+// it a reader. The load-bearing property is that it joins `liveAgentCount`
+// rather than replacing it: the two answer different questions, and collapsing
+// them re-inverts a defect measured on 2026-08-25.
+
+describe('mergedBranches — sliceHasMerged, sourced from the pulse', () => {
+  it('collects the branches the pulse reports as merged', () => {
+    // The pulse already carries this; asking the host again per agent is what
+    // the slice's scope guard forbids.
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
+      wave('X', 'complete', [['feature/older', 'merged']]),
+    ]]]);
+    expect(mergedBranches(p)).toEqual(new Set(['feature/done', 'feature/older']));
+  });
+
+  it('omits a branch the pulse never mentions, so silence is not "landed"', () => {
+    const p = pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
+    expect(mergedBranches(p).has('feature/unseen')).toBe(false);
+  });
+});
+
+describe('freeAgentCount — can any agent take a slice?', () => {
+  it('counts a running agent whose branch has landed', () => {
+    // Occupied AND free at once: it still holds a machine, and it can still
+    // take the next slice.
+    const agents = [agent('feature/done', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/done', 'merged']]),
+    ]]]);
+    expect(freeAgentCount(agents, p)).toBe(1);
+  });
+
+  it('counts a running agent between slices, holding no branch', () => {
+    // Asserted against a FIXTURE, and deliberately so: no live estate produces
+    // this state yet. The 3600s `Worker bound` kills every agent mid-run, and
+    // `update_manifest_on_hop` sets the next branch rather than clearing it, so
+    // nothing has ever passed through the empty state. `isFree`'s first
+    // condition is unreachable in production today —
+    // `a-working-agent-is-not-a-hung-one` is what makes it reachable.
+    const agents = [agent('', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
+    expect(freeAgentCount(agents, p)).toBe(1);
+  });
+
+  it('refuses a running agent still holding an unlanded branch', () => {
+    const agents = [agent('feature/a', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open']]),
+    ]]]);
+    expect(freeAgentCount(agents, p)).toBe(0);
+  });
+
+  it('refuses a WAITING agent, which is live but blocked on a person', () => {
+    // It holds a slot and can take nothing. `waiting` is not free even when its
+    // branch has merged — the block is the person, not the branch.
+    const agents = [agent('feature/done', 'waiting')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/done', 'merged']]),
+    ]]]);
+    expect(freeAgentCount(agents, p)).toBe(0);
+  });
+
+  it('names the branches behind the number, and says why a slot is reusable', () => {
+    const agents = [agent('feature/done', 'running'), agent('', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/done', 'merged']]),
+    ]]]);
+    // The count and the names must not diverge — the count is the decision and
+    // the names are the explanation.
+    expect(freeAgentCount(agents, p)).toBe(2);
+    expect(freeAgentLabels(agents, p)).toEqual(['feature/done', '(between slices)']);
+  });
+});
+
+describe('planAutoDispatch — at the cap, but an agent is free', () => {
+  it('DISPATCHES when every slot is taken and all agents are between units', () => {
+    // The whole user-visible win. An agent asking for its next slice is
+    // `running` with no branch and is available NOW; the fleet used to wait for
+    // a slot instead of using the one it already held.
+    const agents = [agent('', 'running'), agent('', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+    ]]]);
+    const plans = planAutoDispatch({
+      controls: controls(true, 2),
+      pulse: p,
+      liveCount: 2, // at the cap
+      agents,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(total(plans)).toBe(2);
+  });
+
+  it('DISPATCHES when every slot is taken and the agents hold landed branches', () => {
+    const agents = [agent('feature/done', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/done', 'merged'], ['feature/next', 'open']]),
+    ]]]);
+    const plans = planAutoDispatch({
+      controls: controls(true, 1),
+      pulse: p,
+      liveCount: 1, // at the cap
+      agents,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(total(plans)).toBe(1);
+  });
+
+  it('STILL REFUSES when every slot is taken and every branch is unlanded', () => {
+    // The other half of the pair. Working agents are neither free nor about to
+    // be, so the cap is a real refusal and waiting is the right answer.
+    const agents = [agent('feature/a', 'running'), agent('feature/b', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [
+        ['feature/a', 'open'], ['feature/b', 'open'], ['feature/c', 'open'],
+      ]),
+    ]]]);
+    const plans = planAutoDispatch({
+      controls: controls(true, 2),
+      pulse: p,
+      liveCount: 2,
+      agents,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(plans).toEqual([]);
+  });
+
+  it('STILL REFUSES when the agents holding the slots are merely WAITING', () => {
+    const agents = [agent('feature/done', 'waiting'), agent('feature/b', 'waiting')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/done', 'merged'], ['feature/c', 'open']]),
+    ]]]);
+    const plans = planAutoDispatch({
+      controls: controls(true, 2),
+      pulse: p,
+      liveCount: 2,
+      agents,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(plans).toEqual([]);
+  });
+
+  it('bounds the fall-through by the number of FREE agents, not by adding them', () => {
+    // THE CAP IS NEVER RAISED. A free agent is an EXISTING slot, so the budget
+    // BECOMES the free count rather than growing by it. One free agent among
+    // three at a cap of three dispatches exactly one — `3 - 3 + 1` would also
+    // be one here, so the discriminating case is the assertion below it.
+    const agents = [
+      agent('feature/done', 'running'), // free: landed
+      agent('feature/a', 'running'),    // busy
+      agent('feature/b', 'running'),    // busy
+    ];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [
+        ['feature/done', 'merged'],
+        ['feature/c', 'open'], ['feature/d', 'open'], ['feature/e', 'open'],
+      ]),
+    ]]]);
+    const plans = planAutoDispatch({
+      controls: controls(true, 3),
+      pulse: p,
+      liveCount: 3,
+      agents,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(total(plans)).toBe(1);
+  });
+
+  it('does not let free agents lift the fleet OVER the cap', () => {
+    // The discriminating case. Two free agents while the cap is exceeded (a
+    // lowered cap, or in-flight overshoot) must dispatch at most the two free
+    // slots — never `parallelAgents − liveCount + free`, which is negative-
+    // clamped arithmetic that would let the fleet grow.
+    const agents = [
+      agent('feature/d1', 'running'), agent('feature/d2', 'running'), // both landed
+      agent('feature/a', 'running'), agent('feature/b', 'running'),
+    ];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [
+        ['feature/d1', 'merged'], ['feature/d2', 'merged'],
+        ['feature/x', 'open'], ['feature/y', 'open'], ['feature/z', 'open'],
+      ]),
+    ]]]);
+    const plans = planAutoDispatch({
+      controls: controls(true, 2), // cap LOWERED below the live count
+      pulse: p,
+      liveCount: 4,
+      agents,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    // Exactly the two free agents' slots — not 3, and not unbounded.
+    expect(total(plans)).toBe(2);
+  });
+
+  it('refuses with no agents passed at all, exactly as it did before the field', () => {
+    // `agents` is optional and absent means NO FREE AGENT rather than an error,
+    // so a caller predating the field keeps the cap-only behaviour.
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open']]),
+    ]]]);
+    const plans = planAutoDispatch({
+      controls: controls(true, 1),
+      pulse: p,
+      liveCount: 1,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(plans).toEqual([]);
+  });
+
+  it('leaves the switch-off answer alone — a free agent is not a reason to start', () => {
+    const agents = [agent('', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/a', 'open']]),
+    ]]]);
+    const plans = planAutoDispatch({
+      controls: controls(false, 2),
+      pulse: p,
+      liveCount: 2,
+      agents,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(plans).toEqual([]);
+  });
+});
+
+describe('the two counts stay distinct — the 2026-08-25 regression lock', () => {
+  it('an agent whose branch merged STILL COUNTS toward the cap', () => {
+    // THE DEFECT THIS SLICE COULD PLAUSIBLY REINTRODUCE.
+    // bug/a-landed-branch-still-holds-a-slot, measured 2026-08-25: eleven
+    // workers whose branches had merged sat at zero CPU for up to ten hours,
+    // none counted against the cap, and the fleet grew to 13 against a cap of 3.
+    //
+    // The tempting simplification of this slice is to make `liveAgentCount`
+    // skip landed agents because `isFree` says they are available. That inverts
+    // the defect again. A landed-branch agent is OCCUPIED (it holds CPU, memory
+    // and a worktree) and FREE (it can take the next slice) AT ONCE — this test
+    // fails if the two questions are ever collapsed into one.
+    const agents = [agent('feature/done', 'running'), agent('feature/a', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [['feature/done', 'merged'], ['feature/a', 'open']]),
+    ]]]);
+
+    // Occupied: both hold a machine, so both count against the cap.
+    expect(liveAgentCount(agents, p)).toBe(2);
+    expect(liveAgentBranches(agents, p)).toEqual(['feature/done', 'feature/a']);
+
+    // Free: only the landed one can take a slice.
+    expect(freeAgentCount(agents, p)).toBe(1);
+    expect(freeAgentLabels(agents, p)).toEqual(['feature/done']);
+
+    // And the two numbers are NOT the same number.
+    expect(freeAgentCount(agents, p)).not.toBe(liveAgentCount(agents, p));
+  });
+
+  it('keeps the cap the ceiling: a landed agent adds no slot of its own', () => {
+    // The count that protects the cap is unchanged by this slice, so a fleet
+    // whose agents have all landed is still at its cap — it may REUSE those
+    // slots, never exceed them.
+    const agents = [agent('feature/d1', 'running'), agent('feature/d2', 'running')];
+    const p = pulse([['2026-08-22-p.md', 'approved', [
+      wave('W', 'eligible', [
+        ['feature/d1', 'merged'], ['feature/d2', 'merged'],
+        ['feature/x', 'open'], ['feature/y', 'open'], ['feature/z', 'open'],
+      ]),
+    ]]]);
+    expect(liveAgentCount(agents, p)).toBe(2);
+    const plans = planAutoDispatch({
+      controls: controls(true, 2),
+      pulse: p,
+      liveCount: 2,
+      agents,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    // Two free agents, two slots reused — never a third.
+    expect(total(plans)).toBe(2);
   });
 });
