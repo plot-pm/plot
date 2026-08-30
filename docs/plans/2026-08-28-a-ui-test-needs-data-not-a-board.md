@@ -204,7 +204,7 @@ down a tier would trade real assertions for approximations of them.
 
 ### Catalogued
 
-- `infra/the-mock-board-serves-named-states` — a mock server exporting one `row()`/`fleet()`/`board()` builder and a catalogue of named scenarios, serving `dist/client/index.html` on `/` and the catalogue on `/api/*`. Tests: a named state renders; an override changes only the named field; a schema field missing from the builder fails the build rather than rendering `undefined`
+- `infra/the-mock-board-serves-named-states` — a mock server exporting one `row()`/`fleet()`/`board()` builder and a catalogue of named scenarios, serving `dist/client/index.html` on `/` and the catalogue on `/api/*`. Tests: a named state renders; an override changes only the named field; a schema field missing from the builder fails the build rather than rendering `undefined` → #547
 
 ### Moved
 
