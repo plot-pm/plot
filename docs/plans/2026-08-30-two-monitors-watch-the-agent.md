@@ -132,6 +132,61 @@ said running — and becomes an AgentMonitor finding the moment that process is
 ended. **A single monitor would have had to sample the host every few seconds to
 catch the first, or wait minutes to catch the second.**
 
+### How a monitor reports: a file, read by the scan. No channel.
+
+**There is no subscription, and adding one would be a second transport beside a
+working first.** Everything a worktree tells the fleet today travels the same
+way: the monitor writes a file in the worktree, and the scan reads it on the
+next pulse. `plot-worker-state.sh` already reads exactly four —
+`.plot-worker.pid`, `.plot-worker.exit`, `.plot-worker.log`,
+`.plot-worker.wrapper` — and the board polls every 5 s with no SSE, no
+WebSocket, and nothing subscribing to anything.
+
+**Two files, one per monitor**, following the naming already in use:
+
+```
+.plot-worker.activity   what the process is doing   written by the WorkerMonitor
+.plot-agent.debt        what the agent owes         written by the AgentMonitor
+```
+
+**Each write is a whole-file replace of the current answer, not an append.**
+The file holds *what is true now*, so a reader never parses a history and a
+crashed monitor leaves the last honest answer rather than a truncated line.
+The log is the place for history and already exists.
+
+**This is Manifesto Principle 1 rather than a convenience.** The fleet is
+stateless and re-derived — the scan asks git every pass and discards a cached
+entry the moment it disagrees. A subscription would make the board hold state
+the monitor pushed, which is a record; a file the scan re-reads every pulse is a
+derivation, and a monitor that dies stops updating a file rather than silently
+failing to deliver.
+
+**Nothing new is invented for delivery.** `worker_activity` already travels this
+route: `plot_worker_activity()` measures it, the scan carries it on the branch
+row, and `schema.ts` documents it as *"forwarded onto the row unchanged"*. The
+monitors' findings ride the same rails.
+
+### What a report contains
+
+**A finding, a measurement, and when it was taken** — the third being what makes
+a stale report detectable rather than misleading.
+
+| field | why |
+|---|---|
+| `finding` | one of the named states, or empty for nothing to say |
+| `since` | when this finding first held, so age is readable |
+| `sampled` | when it was last confirmed — a monitor that stopped is visible |
+| `evidence` | the measurement behind it: the CPU delta, the missing PR, the marker path |
+
+**`evidence` is not decoration.** Every finding here is an anded set of facts,
+and a reader deciding whether to act needs to know which one fired. *"Owes a
+review"* with `evidence: 4 commits ahead, no PR` is actionable; the word alone
+is a claim someone has to re-derive.
+
+**An empty finding is written too.** A file saying *"sampled at T, nothing to
+report"* is different from a file nobody has written since T-40min, and the
+difference is the whole point of monitoring — see the timing table below.
+
 ### The cadence, and why it is not the pulse
 
 **The board pulses every 5 s; the monitor samples far slower.** A stall is only
@@ -142,6 +197,32 @@ process is busy *now*, which is noise on its own. What identifies a stall is
 **So the monitor keeps the previous answer.** That is the one piece of state
 here, and it is derived rather than recorded: lose it and the next sample
 rebuilds it, at the cost of one interval's delay.
+
+#### When each report appears, end to end
+
+| | WorkerMonitor | AgentMonitor |
+|---|---|---|
+| samples every | ~30 s | ~5 min |
+| a finding needs | 2 consecutive samples | 1 sample |
+| written to | `.plot-worker.activity` | `.plot-agent.debt` |
+| reaches the board after | the next pulse (≤ 5 s) | the next pulse (≤ 5 s) |
+| **worst case, event to screen** | **~65 s** | **~5 min** |
+
+**The AgentMonitor's five minutes is a host budget, not caution.** Its findings
+need a PR lookup, and this repository already measured what happens when host
+questions ride a fast loop. Five minutes against a stall that lasted 50 makes it
+visible 45 minutes earlier than a person asking — the saving is in the order of
+magnitude, not the seconds.
+
+**The WorkerMonitor's two-sample rule is what stops it crying wolf.** A single
+idle reading is a process between syscalls. Two, a minute apart, over a tree
+that did not change, is a process that has stopped.
+
+**Both write on every sample, finding or not.** That is what makes `sampled`
+meaningful: a consumer can tell *"nothing wrong 20 s ago"* from *"nobody has
+looked in 40 minutes"*, and the second is itself a finding — the monitor that
+was supposed to be unable to die first has stopped writing, and something is
+wrong with the assumption rather than the agent.
 
 ### Attaching, and why it cannot be optional
 
@@ -219,8 +300,9 @@ one. Built on `plot_worker_activity()` rather than beside it.
 
 **Done when** a single idle sample reports nothing, two consecutive idle samples
 over an unchanged tree report `idle`, a tree that changed between samples resets
-the comparison, a dead pid reports `gone`, and the monitor makes no host call at
-all.
+the comparison, a dead pid reports `gone`, the monitor makes no host call at all,
+and **every sample rewrites `.plot-worker.activity` whole — including the ones
+with nothing to report**, carrying `finding`, `since`, `sampled` and `evidence`.
 
 **That last clause is the one that keeps the cadences apart.** A WorkerMonitor
 that asks the host has become an AgentMonitor with a fast loop, and the rate
@@ -234,16 +316,24 @@ and `plot-pr-merged.sh`.
 
 **Done when** each of the three findings is individually triggerable in a test,
 `owes a review` fires on a branch with commits and no PR and does NOT fire once
-a PR exists, and nothing in it writes.
+a PR exists, every sample rewrites `.plot-agent.debt` whole with the four fields,
+and **nothing in it writes outside that one file**.
 
 ### Reporting (Branch: feature/the-monitor-reaches-attention)
 
-The findings become attention entries.
+The scan reads the two files and carries their findings on the branch row, the
+way it already carries `worker_activity`; attention derives its entries from
+there.
 
 **Done when** an `owes a review` branch appears on the attention surface, the
-entry names the branch and what to do, it clears when the PR is opened, and a
+entry names the branch and what to do, it clears when the PR is opened, a
 WorkerMonitor `idle` finding is distinguishable from an AgentMonitor one in the
-entry itself.
+entry itself, and **a file whose `sampled` is older than three of its own
+intervals reads as a stopped monitor rather than as its last finding**.
+
+**That last one is the assertion that keeps a dead monitor from looking
+healthy.** A stale file still parses; without an age check its last answer would
+be served forever as though it were current.
 
 ### Attaching (Branch: feature/every-worker-is-born-monitored)
 
