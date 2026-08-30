@@ -147,6 +147,37 @@ Worker   = an Agent's process on a Machine
 *relation*, not a second object, which is why splitting this spec would produce
 two descriptions of one thing plus an invented rule for pairing them.
 
+**Reopened 2026-08-30 by an operator decision, and NOT yet re-settled.** The
+proposed shape has the machine start N idle workers on request, which agents
+then claim:
+
+```
+machine starts N workers  →  idle, no branch, no desk
+registry assigns an agent →  the agent claims a free worker
+dispatch goes to an agent →  that already has one
+```
+
+**An idle worker cannot exist in the model above.** A relation missing one of
+its poles is not an unpaired relation, it is no relation — so this makes the
+worker an object that exists **before** any agent and is claimed by one.
+
+**What it buys is precise, and it is not a preference.** It removes the need for
+the machine to refuse or defer a dispatch: with a pool, *"no free agent"* is a
+**count**, the same kind of fact as *this branch is claimed* — and Plot already
+rests on exactly that (*"the push is the claim, and it is the whole locking
+mechanism"*, `DESIGN-branch.md`). Capacity stops being a prediction argued about
+at dispatch time and becomes a number the operator chose in advance.
+`DESIGN-machine.md` §10 carries the fuller argument.
+
+**What it costs:** an idle worker holds memory and a process slot for nothing,
+so N is a commitment rather than a ceiling. And the objection that produced *one
+entity* still stands unanswered — two objects need a pairing rule, and that rule
+is the thing this section was written to avoid inventing.
+
+**Recorded as open.** The 2026-08-28 decision is not overturned by a note in the
+section it contradicts; it needs the argument made here, against the case above,
+before either shape can be called settled.
+
 **`elsewhere` is the evidence** ([§4](#4-lifecycle)): it means *no worktree on
 this machine*, an agent that exists while its process runs elsewhere. A view of
 an agent cannot be somewhere the agent is not; a link can. `machineAtDeath`
