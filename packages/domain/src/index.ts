@@ -26,3 +26,30 @@ export * from './entities/issue.js';
 export * from './entities/wave.js';
 export * from './rules/deliverable.js';
 export * from './transitions/plan.js';
+
+/**
+ * The ports — the interfaces the domain owns, and the only shapes through
+ * which anything outside it may answer.
+ *
+ * The adapters are deliberately NOT re-exported here. This barrel is what a
+ * pure consumer imports, and an `export *` from `adapters/` would put
+ * `node:child_process` on the import graph of every module that reads an
+ * entity — making the package's own purity boundary depend on tree-shaking
+ * rather than on the module graph. An adapter is imported by its path, by the
+ * one composition root that chooses it.
+ *
+ * `Machine` is exported as `MachinePort`, and only here. The entity and the
+ * port genuinely share the name: DESIGN-ports.md §2b says a port is a noun
+ * named for what it is asked ABOUT, and the thing being asked about is the
+ * Machine entity. Renaming either file would break one of the two specs, so
+ * the disambiguation sits at the barrel — the one place both names are in
+ * scope — and each module keeps the name its own spec gives it.
+ */
+export type * from './ports/plan-store.js';
+export type * from './ports/refs.js';
+export type * from './ports/host.js';
+export type * from './ports/processes.js';
+export type * from './ports/trees.js';
+export type * from './ports/clock.js';
+export type { MachineReading } from './ports/machine.js';
+export type { Machine as MachinePort } from './ports/machine.js';
