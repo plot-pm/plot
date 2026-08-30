@@ -46,7 +46,7 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 
 ### Should Have
 
-- [ ] [the-domain-runs-the-workflows-in-a-sandbox] The domain's ports get adapters and the workflows decide without acting, proven against the real estate — **Draft, 5 slices, no branch — its blocker is MET: the Must shipped in 2.12.0**
+- [ ] [the-domain-runs-the-workflows-in-a-sandbox] The domain's ports get adapters and the workflows decide without acting, proven against the real estate — **Approved 2026-08-30, 5 slices**
 - [x] [the-domain-speaks-slices] The code calls a slice a slice, and `Wave` is freed for the cohort the fleet lands together — measured 2026-08-29: `FleetWaveSchema` holds `branches[]`, belongs to one plan and is persisted in the pulse, which is a **Slice** by every property `DESIGN-slice.md` defines, while the real Wave (cross-plan, formed at dispatch, persisted nowhere) does not exist in code at all
 
 ### Could Have

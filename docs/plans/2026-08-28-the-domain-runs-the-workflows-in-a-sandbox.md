@@ -4,13 +4,21 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Issue:** <!-- optional -->
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-08-30, Jan Wloka, in-session
+- **Started:** <!-- YYYY-MM-DD, who, `branch` -->
+- **Delivered:** <!-- YYYY-MM-DD -->
+- **Released:** <!-- YYYY-MM-DD, version -->
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
