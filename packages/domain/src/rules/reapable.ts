@@ -12,13 +12,18 @@ import type { ReapRefusal } from '../entities/worktree.js';
 export type MergeReading = 'merged' | 'not-merged' | 'unreachable';
 
 /**
- * What was measured of one worktree, from the four sources that can answer.
+ * What was measured of ONE worktree, from the four sources that can answer.
+ *
+ * Named for the tree rather than for the reap because `workflows/reap.ts`
+ * already calls the whole estate's readings `ReapReadings`. The two are
+ * different nouns — one tree against every tree — and the narrower one takes
+ * the narrower name.
  *
  * Every field is a reading rather than a judgement. Who fetched them is the
  * caller's business, which is what keeps this rule pure and callable from a
  * plain function with no adapter in scope.
  */
-export interface ReapReadings {
+export interface TreeReadings {
   /** The branch checked out, or `''` when the head is detached. */
   branch: string;
   /** The repository's default branch, as the host or the fallback named it. */
@@ -78,7 +83,7 @@ export interface ReapProblem {
  * @param readings What was measured of the tree.
  * @returns The refusals that apply, most urgent first; empty means reapable.
  */
-export const reapProblems = (readings: ReapReadings): ReapProblem[] => {
+export const reapProblems = (readings: TreeReadings): ReapProblem[] => {
   const problems: ReapProblem[] = [];
   if (readings.workerPid !== null && readings.workerPid !== '') {
     problems.push({ refusal: 'live-worker', detail: readings.workerPid });
@@ -104,7 +109,7 @@ export const reapProblems = (readings: ReapReadings): ReapProblem[] => {
  * @param readings What was measured of the tree.
  * @returns True when no refusal applies.
  */
-export const isReapableTree = (readings: ReapReadings): boolean =>
+export const isReapableTree = (readings: TreeReadings): boolean =>
   reapProblems(readings).length === 0;
 
 /**
@@ -113,5 +118,5 @@ export const isReapableTree = (readings: ReapReadings): boolean =>
  * @param readings What was measured of the tree.
  * @returns The most urgent refusal, or `null` when the tree is reapable.
  */
-export const firstReapRefusal = (readings: ReapReadings): ReapProblem | null =>
+export const firstReapRefusal = (readings: TreeReadings): ReapProblem | null =>
   reapProblems(readings)[0] ?? null;

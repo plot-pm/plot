@@ -3,7 +3,7 @@ import {
   reapProblems,
   isReapableTree,
   firstReapRefusal,
-  type ReapReadings,
+  type TreeReadings,
 } from '../src/rules/reapable.js';
 
 /**
@@ -13,7 +13,7 @@ import {
  * reading it changes, so what triggers a refusal is visible in the test rather
  * than buried in a fixture.
  */
-const landed = (over: Partial<ReapReadings> = {}): ReapReadings => ({
+const landed = (over: Partial<TreeReadings> = {}): TreeReadings => ({
   branch: 'feature/one',
   defaultBranch: 'main',
   isMain: false,
@@ -24,7 +24,7 @@ const landed = (over: Partial<ReapReadings> = {}): ReapReadings => ({
   ...over,
 });
 
-const refusalsOf = (readings: ReapReadings) => reapProblems(readings).map((p) => p.refusal);
+const refusalsOf = (readings: TreeReadings) => reapProblems(readings).map((p) => p.refusal);
 
 describe('reapProblems — a finished desk whose work landed', () => {
   it('refuses nothing when every reading passes', () => {

@@ -115,6 +115,13 @@ git fetch origin "$DEFAULT" --quiet 2>/dev/null || true
 # the default on a checkout whose exec bits did not survive — and a reaper
 # reading the wrong directory reports success over a manifest the board still
 # renders, which is exactly the failure #420 fixed on the board's own side.
+# The rule that decides whether a worktree may go. Resolved from THIS script's
+# location rather than the cwd, and to a `file://` URL because `import()` needs
+# one for an absolute path. Missing or unreadable, the decision below reports
+# "could not be asked" and keeps every tree.
+RULE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd)/packages/domain/src/rules/reapable.ts"
+RULE="file://$RULE_PATH"
+
 CONFIG="$(dirname "${BASH_SOURCE[0]}")/plot-config.sh"
 MANIFEST_DIR=".plot/agents"
 if [ -r "$CONFIG" ]; then
@@ -273,8 +280,17 @@ while IFS=$'\t' read -r wt br; do
   # the tree and says why. Silence is never permission, on this path either.
   verdict=$(PLOT_BRANCH="$short" PLOT_DEFAULT="$DEFAULT" PLOT_PID="$pid" \
             PLOT_DIRTY="$dirty" PLOT_MARKER="$marker" PLOT_MERGE="$merge" \
+            PLOT_RULE="$RULE" \
             node --input-type=module - <<'NODE_EOF' 2>/dev/null
-import { firstReapRefusal } from "./packages/domain/src/rules/reapable.ts";
+// Imported from an ABSOLUTE path derived from this script, never from the
+// cwd. The reaper runs with its cwd wherever the operator invoked it and the
+// reconcile suite runs it against sandbox repos in the temp directory, so a
+// relative specifier resolves to a `packages/` that is not there — which the
+// fail-safe turns into "rule could not be asked" and every tree kept. Correct
+// direction, useless reaper. Same discipline as `plot-host.sh`,
+// `plot-config.sh` and `plot-pr-merged.sh`, which are all found via
+// `BASH_SOURCE`.
+const { firstReapRefusal } = await import(process.env.PLOT_RULE);
 
 const problem = firstReapRefusal({
   branch: process.env.PLOT_BRANCH,
