@@ -195,3 +195,42 @@ capability rather than adoption, and it belongs after the domain is the only
 implementation. Adding it during a migration would mean the corpus tests could
 no longer compare against production, because production would have nothing to
 compare.
+
+### Interrogated 2026-08-30 — the premise holds, the counts moved
+
+Re-measured against `main` at `v2.12.0`.
+
+**The Delivering wave's premise is confirmed.** `plot-deliver.sh` still parses
+the plan itself: three blocks at lines 127-148 reading both `## Branches` and
+`## Waves`, in a 488-line script that calls no domain code. The wave's claim
+that *"the code that had the bug stops existing"* is still available to make.
+
+**The board half is genuinely done.** `allSlicesMerged` lives in
+`@plot-pm/domain` (`rules/deliverable.ts`) and the board imports it, re-exported
+under a temporary `allWavesMerged` alias so call sites need not change in the
+same commit. This plan's statement that plan 1 relocated rather than copied it
+is accurate.
+
+| the plan says | measured 2026-08-30 | effect |
+|---|---|---|
+| 158 plans | **170** | Eligible's byte-identical scan comparison covers 12 more |
+| 46 direct process calls | **51** | Spawning is 5 sites larger |
+| 10 invoke `plot-*.sh` | **15 distinct scripts referenced** | more adapter surface than stated |
+
+**The Spawning wave's Done-when is now wrong as written.** It asserts
+
+```
+grep -rnE "(execFileSync|execFile|spawn|spawnSync)\(" packages/board/src/server/
+```
+
+returns only the adapter layer — but the adapters live in
+`packages/domain/src/adapters/`, so once they exist that grep over
+`packages/board/src/server/` must return **nothing at all**. As written it can
+only pass if adapters were placed in the board, which is the layering this plan
+exists to remove. The assertion should be emptiness, not "only the adapter
+layer".
+
+**The dependency is unchanged and still binds.** This plan needs
+`the-domain-runs-the-workflows-in-a-sandbox` delivered — the adapters and
+`runScript()` are built there and consumed here. That plan is Draft with no
+branch, so nothing here is startable yet.

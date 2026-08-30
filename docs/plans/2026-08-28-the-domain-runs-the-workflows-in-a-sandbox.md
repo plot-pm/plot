@@ -246,3 +246,40 @@ day.
 **Run the e2e tier with `env -u PLOT_UNATTENDED`.** The sandbox tier inherits the
 worker environment when run from inside a dispatched worktree, and
 `PLOT_UNATTENDED` in the ambient environment trips the control tests.
+
+### Interrogated 2026-08-30 — the plan holds, three numbers moved
+
+Re-measured against `main` at `v2.12.0`. **No design decision is overturned**;
+what follows is drift in the figures the plan quotes, and one figure that is
+larger than stated in a way that matters.
+
+| the plan says | measured 2026-08-30 | effect |
+|---|---|---|
+| 158 plans in the corpus | **170** | the Agreeing wave's corpus test is 12 plans wider |
+| 46 spawn call sites | **51** | Spawning (plan 3) is 5 sites larger |
+| 10 of them invoke `plot-*.sh` | **15 distinct scripts referenced** | the adapter surface is wider than stated |
+| `ports/*.ts` are declared | **no `ports/` directory exists** | see below |
+| `plot-host.sh` lacks a merged-check | **confirmed** — `mergedAt` appears once, in a comment | unchanged |
+
+**The ports do not exist yet, and the plan assumes they do.** `packages/domain/src`
+holds `entities/`, `rules/` and `transitions/` — there is no `ports/`. The
+Reading wave says *"adapters for `PlanStore`, `Refs`, `Host`, `Processes`,
+`Trees`, `Clock`, `Machine`"*, and the completeness gate asserts *"every
+`ports/*.ts` has a directory under `adapters/`"*. Against zero ports that gate
+passes vacuously.
+
+**This is a scope question, not a defect.** Either the Reading wave declares the
+seven ports as well as their adapters — which is the honest reading of
+[DESIGN-ports.md](../stories/the-master-agent-holds-the-fleet/DESIGN-ports.md)
+§2, since a port is an interface the domain owns — or a slice ahead of it does.
+It should be settled before the wave is dispatched, because the gate as written
+cannot detect its own omission.
+
+**What HAS landed, and the plan can rely on:** `allSlicesMerged` is in
+`@plot-pm/domain` (`rules/deliverable.ts`), re-exported from the board as a
+temporary `allWavesMerged` alias. The domain package is real and the board
+imports from it.
+
+**What has NOT:** `plot-deliver.sh` still parses the plan itself — three
+parsing blocks at lines 127-148, reading both `## Branches` and `## Waves` — and
+calls no domain code. That is plan 3's Delivering wave, correctly still open.
