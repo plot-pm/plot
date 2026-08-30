@@ -56,9 +56,47 @@ every estate — by:
 `${opts.repoRoot}\0${opts.scriptsDir}`
 ```
 
-**That is the instance's identity**, and `hostname()` cannot serve as one:
-three instances on this laptop return the same string. The port declares
-`hostname()` today (`ports/machine.ts:44`) as though it identified something.
+**That is the instance's identity**, and `hostname()` cannot serve as one alone:
+three instances on this laptop all return `ani`. The port declares `hostname()`
+today (`ports/machine.ts:44`) as though it identified something.
+
+### The id: `hostname` + a short id
+
+**Proposed by the operator 2026-08-30**, and it keeps `hostname()` useful
+instead of discarding it:
+
+```
+ani/0a2719e3      Agentic-Tools/plot
+ani/e820212f      Agentic-Tools/agent-skills
+ani/6652451c      EKZ.Webportal/ekzweb
+```
+
+**The hostname is what makes it unique beyond this computer** — three instances
+here, but a fleet spanning laptops needs to say *which* `ani`. The short id is
+what separates instances on one.
+
+**What the short id is derived from is the decision, and the candidates split
+on one case:**
+
+| candidate | three projects | a board in a worktree |
+|---|---|---|
+| `basename(repoRoot)` | `plot`, `agent-skills`, `ekzweb` — readable | **`bug-the-loop-reads-the-monitor`** — an id that dies with the branch |
+| hash of `repoRoot + scriptsDir` | `0a2719e3`, `e820212f`, `6652451c` — opaque | stable, meaningless, correct |
+
+**The worktree case is not hypothetical here** — this repo runs boards from
+worktrees in its own test suite. A basename-derived id would rename itself when
+a branch is renamed, and vanish when the branch is reaped.
+
+**And the id must cover both axes the cache key already covers.** `repoRoot` is
+`PLOT_REPO_ROOT ?? process.cwd()`; `scriptsDir` is `PLOT_SCRIPTS_DIR ??` the
+artifact's own directory (`index.ts:64-65`). **They vary independently** — one
+follows the working directory, the other follows where the board was installed
+from — so an id derived from the repo alone would merge two machines that the
+cache already keeps apart.
+
+**The slice decides; the plan records both options and the constraint.** A
+readable id is worth something to an operator reading a log, and a hash is worth
+something to a machine that must stay itself across a rename.
 
 ### The split the spec almost makes
 
@@ -78,7 +116,7 @@ projects' work were running, `4.8 ms` once they were cleaned up.
 
 | | **Machine** (instance) | **Computer** (hardware) |
 |---|---|---|
-| identified by | `repoRoot + scriptsDir` | `hostname()` |
+| identified by | `hostname` + short id, from `repoRoot + scriptsDir` | `hostname()` |
 | how many | one per Plot project | one |
 | owns | its pulse, its fleet, its estate, its divisors | `spawnCostMs`, `loadAverage`, `cores` |
 | answers | *whose clock is this?* | *can anything fork cheaply right now?* |
@@ -167,8 +205,9 @@ the meaning was never wrong — only the count.
 `DESIGN-machine.md`'s Identity and §8 sections say a Machine is a Plot instance,
 keyed by `repoRoot + scriptsDir`, and that several run per computer.
 
-**Done when** the Identity section states the key and why `hostname()` is not
-one; §8's *"if there were two"* argument is rewritten against the measured
+**Done when** the Identity section states the id as `hostname` + short id, what
+the short id derives from, and why `hostname()` alone is not one — including the
+worktree case that rules out a basename; §8's *"if there were two"* argument is rewritten against the measured
 three; **the per-computer readings are listed separately from the per-instance
 ones**; and **`parallelAgents` is described as a claimed share of the computer
 rather than a count of wanted agents** — the same number, the question it
