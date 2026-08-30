@@ -63,18 +63,58 @@ published both.
 
 ## Design
 
-### The gate goes where the existing one is
+### The rule is a domain rule, not another shell script
 
-`scripts/check-changeset-packages.sh` already runs in CI (`ci.yml:217`) and
-already parses every changeset for its package name. **It gains one assertion**:
-the first non-empty line after the frontmatter does not open an HTML comment.
+**`scripts/check-changeset-packages.sh` decides whether a changeset is valid,
+and deciding is what the domain is for.** Adding a second decision to it would
+be the shape this sprint exists to remove — a lifecycle rule living in shell,
+where nothing can test it.
 
-**One script rather than a second** — it already opens each file, and a second
-walker over the same directory is a second place for the parse to drift.
+**Measured 2026-08-30: `scripts/` has no tests at all**, while
+`packages/domain/src/rules/` already holds `deliverable.ts` under a 100%
+threshold. The same rule expressed there is unit-testable against fixtures,
+including the cases a real repository will not produce on demand.
 
-Renaming it is deliberate scope creep and is not done: the file is referenced
-by name in CI, in CLAUDE.md and in this repo's history, and a rename to
-`check-changesets.sh` buys a better name at the cost of every one of those.
+**So the rule moves and the script becomes an adapter:**
+
+```
+packages/domain/src/rules/changeset.ts     is this changeset valid, and why not
+scripts/check-changeset-packages.sh        reads the files, calls the rule, exits
+```
+
+**That is the same split the scripts are getting everywhere else** — the script
+adapts the world into readings (which files, what they contain), the domain
+decides (valid or a named refusal), and the exit code is the adapter's
+translation of the answer.
+
+**The script keeps its name.** It is referenced by `ci.yml:333` and by CLAUDE.md,
+and once it stops holding the decision the name describes what it still does:
+run the changeset check. **Renaming it would be churn for a file whose content
+is about to shrink.**
+
+**The rule reaches the domain through `node`**, which is settled precedent
+rather than proposed here: seven scripts already invoke it, and
+`plot-sprint-candidates.sh` argues for it in its own comment — *"node is already
+required to run the board and every test suite."*
+
+### What makes a changeset valid
+
+Two conditions, and each is a named refusal rather than a boolean:
+
+| refusal | measurement |
+|---|---|
+| `unknown-package` | the frontmatter names a package the workspace does not have |
+| `no-description` | the first non-empty line after the frontmatter opens an HTML comment, **or the description is shorter than 20 characters** |
+
+**The length floor is deliberately low.** It exists to catch `.`, `wip` and
+`TODO` — not to police wording. `Fix typo` is 8 characters and legitimate, so
+the floor sits below anything a person would actually write and above what an
+agent produces when it has nothing to say. **Twenty characters is a guess and is
+labelled one**; it should be revisited if it ever refuses a real description.
+
+**It checks syntax and size, never meaning.** A gate that judges whether a
+description is *good* is one people route around, and this repository has
+already measured what a rule nobody follows costs.
 
 ### The fix for the 19 is not a rewrite
 
@@ -112,15 +152,51 @@ at when it fires.
 
 ### Gating (Branch: bug/a-changeset-says-what-changed)
 
-The assertion in `check-changeset-packages.sh`, the CLAUDE.md line, and a test.
+`changeset.ts` in the domain, the script reduced to an adapter, the CLAUDE.md
+line, and a note at the head of the CHANGELOG.
 
-**Done when** a changeset whose first line after the frontmatter opens a comment
-fails the script; one with the comment last passes; the existing package-name
-assertion still fires on an unknown package; and CLAUDE.md says where the block
-goes.
+**Done when**
 
-**The test is a mutation, not an example.** Removing the new assertion must
-turn it red — a gate whose test passes without it is a comment.
+- a changeset whose first non-empty line opens a comment is refused
+  `no-description`; one with the block last passes
+- a description under 20 characters is refused the same way
+- an unknown package is still refused `unknown-package`
+- **the decision lives in `packages/domain/src/rules/changeset.ts` at 100%
+  coverage**, and the script contains no `if` about validity
+- CLAUDE.md says where the `bumps:` block goes
+- **the CHANGELOG carries one line at its head** saying that entries before
+  2026-08-30 may show a bare comment marker instead of a description, and why
+
+**The test is a mutation, not an example.** Removing the description assertion
+must turn it red — a gate whose test passes without it is a comment.
+
+> **The CHANGELOG line is the one write to a machine-generated file**, and it
+> earns it: 14 of the 19 broken entries have no recoverable changeset, so a
+> reader meeting a bare marker has no way to learn what it was. The line says
+> the entries are broken, when it stopped happening, and that the PR link still
+> works. **It is at the head, not beside each entry** — nineteen annotations
+> would be nineteen edits to a file Changesets rewrites.
+
+### Parsing (Branch: bug/a-plan-may-mention-a-comment-marker)
+
+`plot-plan-meta.sh` stops treating a comment-open marker as a comment when it
+appears inside a fenced block or inline code.
+
+**Same family as the first slice, one layer up**: something that looks like data
+is read as syntax. **Measured on this plan**: writing the marker in its one-line
+summary made the whole file parse as `format: none` — no phase, no type, no
+slices. A plan about a mishandled comment, defeated by a mishandled comment.
+
+**Done when** a plan whose summary contains a backticked comment marker parses
+with its phase, type and slices intact; a plan with a genuine HTML comment still
+has it skipped; **every plan in `docs/plans/` parses identically before and
+after**, which is the assertion that keeps this from breaking the format
+contract for everything else.
+
+**It is a separate slice because the risk is different.** The first slice adds a
+rule nobody depends on yet. This one changes the parser **every component reads
+plans through** — `plot-fleet-scan.sh`, `plot-deliver.sh`, the board. A mistake
+there is not a bad changeset; it is a fleet that cannot see its plans.
 
 ## Notes
 
@@ -144,10 +220,9 @@ marker instead of printing it.
 **It is the same shape as the changeset defect and a different implementation.**
 Changesets publishes the first line whatever it is; the plan parser treats the
 marker as a comment wherever it is. Both hand a reader something that looks like
-data and is really syntax. **The Gating slice covers the changeset side only** —
-the parser side is a separate finding, and fixing it means teaching an awk
-program about fenced blocks and inline code, which is a different plan with a
-different risk.
+data and is really syntax. **The Parsing slice now covers it** — it was recorded
+here as a finding first, and became a slice once it was clear that leaving it
+would cost the next plan the same way it cost this one.
 
 **The 19 are not evenly spread.** They cluster in releases from the period when
 skill-bump changesets became routine, which is consistent with the cause: the
