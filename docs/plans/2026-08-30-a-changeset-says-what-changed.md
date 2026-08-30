@@ -8,7 +8,7 @@
 - **Type:** bug
 - **Sprint:** the-domain-is-one-implementation
 - **Issue:** <!-- optional -->
-- **Story:** <!-- optional -->
+- **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** <!-- YYYY-MM-DD, who, channel -->

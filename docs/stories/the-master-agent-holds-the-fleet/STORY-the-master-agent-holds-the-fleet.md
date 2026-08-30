@@ -312,6 +312,19 @@ would make it a gate.
 
 ## Session Log
 
+- **2026-08-30** — two plans written from failures this story predicted.
+  `the-controller-answers-every-asker` answers the driving side the ports left
+  unbuilt: the seven ports are all *world → domain*, nothing answers *who asks
+  the domain*, and today the answer is everyone separately — 19 board routes
+  composing inline, 6 skills invoking the scan from 12 call sites at 18.3 s
+  each. `two-monitors-watch-the-agent` is the harness this story exists for:
+  twice in one day an agent left finished work on a branch with no PR — one
+  exited cleanly, one stalled at 50 minutes elapsed against 0.01s CPU — and
+  both were found only because the operator asked. A WorkerMonitor and an
+  AgentMonitor, split because CLAUDE.md splits process facts from agent facts,
+  publishing to a channel rather than files: 24 worktrees × 2 files would have
+  polled the same fact twice and scattered 48 things to age-check.
+
 - **2026-08-28** — story opened. Prompted by the operator after a session in
   which the supervisor's own tooling was the largest single source of
   disruption: *"lets design a strong but informative harness with powerful

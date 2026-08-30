@@ -1027,6 +1027,21 @@ from the same field.
 
 ## Session Log
 
+- **2026-08-30** — six board defects carry plans, all Draft, all measured rather
+  than suspected. `a-changeset-says-what-changed`: 19 of 169 published changelog
+  entries print a bare comment marker instead of a description, because a
+  `bumps:` block placed first becomes the first line and Changesets publishes
+  the first line. `a-squash-merged-branch-is-not-quiet`: squash-merge leaves a
+  branch permanently ahead of the default branch, so ancestry alone reads a
+  merged branch as open. `a-reset-branch-is-not-a-merged-one`: a branch reset to
+  the default branch is trivially its ancestor and reads as complete.
+  `a-throttled-host-says-so`: a scan that could not reach the host reports every
+  branch unmerged instead of saying it could not ask.
+  `the-artifact-builds-the-same-everywhere`: the same commit builds to two
+  hashes depending on the directory, so the freshness gate rejects work that
+  changed no board source. `a-ui-test-needs-data-not-a-board`: a browser test
+  that boots a server is testing the server.
+
 ### 2026-08-15 — Consolidating four plans into one story
 
 Written after delivering the two board plans that had been sitting in

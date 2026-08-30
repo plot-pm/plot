@@ -14,8 +14,45 @@
 
 ## Sprint Goal
 
-**One implementation of every lifecycle rule, in a package that reaches
-nothing.**
+**Every existing function replaced by a domain concept, with full unit and mock
+coverage, and production calling it.**
+
+**Three conditions, and all three must hold.** Any one of them alone is the
+state the plans call the worst of the three: a domain nobody calls, or one that
+is called but unproven, or a set of functions moved without becoming anything.
+
+| condition | what it rules out |
+|---|---|
+| **replaced** | production still holds its own copy — the duplication this sprint exists to end |
+| **fully covered, unit AND mock** | a rule that is called but was never exercised in the paths that matter |
+| **expressed as domain concepts** | functions relocated into a package without becoming the vocabulary the spec defines |
+
+**The third is the one that is easy to fake.** Moving `allWavesMerged` into
+`packages/domain/` and importing it back is relocation; making it
+`allSlicesMerged`, a rule about a **Slice**, is the domain concept. The first
+looks finished in a diff and leaves the vocabulary defect behind — which is
+exactly the alias sitting in `board.ts` today, marked `TEMPORARY ALIAS`.
+
+**Mock coverage is what makes the second condition reachable at all.** The
+domain package holds 100% thresholds today, but `src/adapters/**` is excluded,
+on the argument that its uncovered branches need a host to fail or a disk to be
+full. **A mocked host can fail on demand**, so that exclusion shrinks to
+whatever genuinely cannot be simulated — and what remains excluded has to be
+named rather than assumed.
+
+> **Widened 2026-08-30, and the release moves with it.** The goal read only
+> *"one implementation … in a package that reaches nothing"*, and that was
+> satisfied the moment the domain existed. It said nothing about production
+> CALLING it — so an extraction with no caller counted as the goal met, and
+> 2.12.0 shipped on that reading: four changelog entries, not one of them a
+> change a user notices.
+>
+> **A second implementation nobody calls is not one implementation.** It is
+> three copies where there were two, which the plans themselves say is the
+> worst of the available states. The goal now ends where the duplication does.
+>
+> **Release: 2.13.0, held until that is true** — see *No release until the
+> domain is real*.
 
 Measured on `main` 2026-08-28:
 
@@ -43,10 +80,12 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 ### Must Have
 
 - [x] [the-domain-moves-out-of-the-board] A `@plot-pm/domain` package carries Plot's entities, states, rules and transitions; the board imports them rather than defining them — measured: `contract/schema.ts` is 4,052 lines with one import and no world access, i.e. a pure domain layer that no other component can depend on because it lives inside the board
+- [ ] [the-domain-runs-the-workflows-in-a-sandbox] The domain's ports get adapters and the workflows decide without acting, proven against the real estate — **Approved 2026-08-30, 5 slices**
+- [ ] [the-controller-answers-every-asker] A controller layer between the callers and the domain — the board's routes and the master agent ask it, and mock adapters on the driven side let a mock board serve every controller — measured 2026-08-30: the seven ports are all driven (world → domain), nothing answers *who asks*, and 10 skills each pay the scan's 18.3 s for facts the board already holds; 4 slices, **Draft**
+- [ ] [production-calls-the-domain-one-rule-at-a-time] Production code calls the domain instead of duplicating its rules, one rule at a time — **Draft, 6 slices, no branch — still blocked on the Should above**
 
 ### Should Have
 
-- [ ] [the-domain-runs-the-workflows-in-a-sandbox] The domain's ports get adapters and the workflows decide without acting, proven against the real estate — **Approved 2026-08-30, 5 slices**
 - [x] [the-domain-speaks-slices] The code calls a slice a slice, and `Wave` is freed for the cohort the fleet lands together — measured 2026-08-29: `FleetWaveSchema` holds `branches[]`, belongs to one plan and is persisted in the pulse, which is a **Slice** by every property `DESIGN-slice.md` defines, while the real Wave (cross-plan, formed at dispatch, persisted nowhere) does not exist in code at all
 
 ### Could Have
@@ -55,8 +94,8 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 - [ ] [the-artifact-builds-the-same-everywhere] `pnpm build:board` produces the same bytes whatever directory it runs in — measured 2026-08-29: the same commit builds to two different hashes in the main checkout and in a worktree, differing only in esbuild's generated short names, so the freshness gate rejects work that changed no board source. Circular: each PR flips the artifact to its own variant. 22 worktrees here
 - [ ] [a-reset-branch-is-not-a-merged-one] A slice whose branch was reset to the default branch reads `open`, not `complete` — measured 2026-08-29: resetting a branch for a rebuild made its slice read `merged` and opened the next one, because a branch pointing AT main is trivially an ancestor of it
 - [ ] [a-throttled-host-says-so] A scan that could not reach the git host says so, instead of reporting every branch unmerged — measured 2026-08-29: minutes after #513 merged, the scan showed its branch `open` and `merge_detect=pr-merge` while `pr-list` was returning a GraphQL rate-limit error it discarded
-- [ ] [production-calls-the-domain-one-rule-at-a-time] Production code calls the domain instead of duplicating its rules, one rule at a time — **Draft, 6 slices, no branch — still blocked on the Should above**
-- [ ] [the-controller-answers-every-asker] A controller layer between the callers and the domain — the board's routes and the master agent ask it, and mock adapters on the driven side let a mock board serve every controller — measured 2026-08-30: the seven ports are all driven (world → domain), nothing answers *who asks*, and 10 skills each pay the scan's 18.3 s for facts the board already holds; 4 slices, **Draft**
+- [ ] [a-squash-merged-branch-is-not-quiet] A branch is merged when its remote ref is an ancestor of the default branch **or** the host says a PR for it merged — squash-merge leaves a branch permanently ahead, so ancestry alone reads it as still open; 1 slice, **Draft**
+- [ ] [a-ui-test-needs-data-not-a-board] A browser test is handed the payload it needs instead of a live board — a UI assertion that boots a server is testing the server; 2 slices, **Draft**
 - [ ] [a-changeset-says-what-changed] The release notes describe the change instead of printing a bare comment marker — measured 2026-08-30: **19 of 169** published changelog entries, 11%, because a `bumps:` block placed first becomes the first line and Changesets publishes the first line; 1 slice, **Draft**
 - [ ] [two-monitors-watch-the-agent] Two monitors watch a dispatched agent — finished work with no PR, a stalled process and a dead agent are reported instead of discovered — measured 2026-08-30: two agents left complete work on branches with no PR, one exited cleanly and one stalled at **50 minutes elapsed against 0.01s CPU**, and both were found only because a person asked; 4 slices, **Draft**
 - [ ] [a-domain-rule-has-one-owner] Any lifecycle rule found duplicated **while moving** gets its second implementation deleted in the same slice, rather than noted for later — opportunistic, and only where the two provably agree
@@ -91,9 +130,22 @@ decision about value.
 
 #### The condition, and how it is checked
 
-**Done when `production-calls-the-domain-one-rule-at-a-time` is delivered.**
-That plan is the one that repoints production; the two before it build what it
-adopts. Its own gates are the check, and they are already written:
+**Done when all three of the goal's conditions hold**, not merely when
+production calls the domain. `production-calls-the-domain-one-rule-at-a-time`
+being delivered is the first of them; the other two are checked alongside it:
+
+| condition | check |
+|---|---|
+| **replaced** | the plan's own gates, below |
+| **covered** | `pnpm --filter @plot-pm/domain test --coverage` at 100%, and what `src/adapters/**` still excludes is NAMED rather than assumed |
+| **expressed** | no `TEMPORARY ALIAS` remains — `board.ts` carries one today, `allWavesMerged` → `allSlicesMerged` |
+
+**The third condition has a grep, and that is deliberate.** *"Functions became
+domain concepts"* is otherwise a judgement nobody can settle at release time,
+and the aliases are the measurable residue of the relocation-instead-of-renaming
+shortcut.
+
+The replacement condition's own gates are already written:
 
 ```
 grep -rnE "(execFileSync|execFile|spawnSync|spawn)\(" packages/board/src/
