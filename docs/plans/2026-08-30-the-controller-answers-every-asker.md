@@ -237,19 +237,60 @@ claim would have shipped a done-when that fails on its own design.
 The master agent reaches the same controller — one entry point, callable
 without HTTP, returning the same typed answer the route serialises.
 
-**Done when** a skill that reads fleet state twice in one run measures the
-estate **once**, and the answer is identical to the board's.
+**Done when** `plot-deliver`'s delivery-landed gate — which re-runs the scan
+after applying a fix and repeats until its grep is empty — measures the estate
+**once per unchanged estate**, and the answer is identical to the board's.
+
+**Named rather than left general, because the recount above left one witness.**
+"A skill that reads fleet state twice in one run" was written when the plan
+believed five skills did; four of those turned out to be prose or a help block.
+An assertion aimed at a population that does not exist passes vacuously — the
+defect this repo has now found three times.
 
 **The earlier wording — "without spawning `plot-fleet-scan.sh`" — was
 unachievable as written.** The scan IS the adapter: it reads git, and a
 controller beneath the skill still calls it. What changes is who calls it and
 how often.
 
-**Measured 2026-08-30, the repetition is inside single skills, not across
-them:** `plot-reconcile` reaches for the scan at three places, and
-`plot-deliver`, `plot-implement`, `plot-dispatch` and `plot-reslice` at two
-each — 12 call sites across 6 skills. At 18.3 s per scan, a skill that asks
-twice pays 36.6 s for one estate that did not change in between.
+**Recounted 2026-08-30, and the 12 does not survive — the same counting error
+one level down.** The plan already corrected *"10 skills"* to 12 call sites
+because `grep -l` caught prose. The recount catches prose again: it moved from
+counting FILES that name the script to counting LINES that name it, and neither
+is *invokes*.
+
+```
+raw grep across skills/            25
+lines in a SKILL.md                14
+lines with a path prefix            5   ← plot-reconcile 3, plot-deliver 1, plot-release 1
+```
+
+`plot-deliver` had two of its three "call sites" in prose (lines 130 and 141
+describe what the scan does; only 311 runs it). And **`plot-reconcile`'s three
+are one invocation shown three ways** — a help block listing the full sweep,
+`--no-fetch` and `--offline`, not three scans in a run:
+
+```
+../plot/scripts/plot-reconcile-scan.sh            # full sweep
+../plot/scripts/plot-reconcile-scan.sh --no-fetch # skip the fetch
+../plot/scripts/plot-reconcile-scan.sh --offline  # no network at all
+```
+
+**So "a skill that asks twice in one run" has exactly one witness**, and it is
+not in the list: `plot-deliver`'s delivery-landed gate, which re-runs the scan
+after applying a fix and repeats until the grep is empty. That is a real second
+18.3 s, and it is conditional on drift rather than a property of every run.
+
+**What this changes, and what it does not.** The Asking-again slice's assertion
+must be restated against a case that exists — *the gate's second scan reads a
+cached estate* — rather than against a per-run repetition that turned out to be
+a documentation artefact. The plan's other motivation stands untouched: 19
+routes each composing their own reading, two askers deriving the same fact,
+26 of 51 spawn call sites sitting in the handlers this plan rebuilds. Those were
+counted from source, not from prose.
+
+**Worth stating as a rule, since this plan has now made the same mistake
+twice:** a count of *how often something is invoked* cannot be taken with
+`grep` over documentation. Three greps gave 25, 14 and 5 for one question.
 
 **That is the assertion, because it is reproducible.** "Several skills in the
 same window" depends on what an operator happens to run; "this skill asks twice
