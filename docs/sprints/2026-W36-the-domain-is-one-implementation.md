@@ -55,7 +55,7 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 - [ ] [the-artifact-builds-the-same-everywhere] `pnpm build:board` produces the same bytes whatever directory it runs in — measured 2026-08-29: the same commit builds to two different hashes in the main checkout and in a worktree, differing only in esbuild's generated short names, so the freshness gate rejects work that changed no board source. Circular: each PR flips the artifact to its own variant. 22 worktrees here
 - [ ] [a-reset-branch-is-not-a-merged-one] A slice whose branch was reset to the default branch reads `open`, not `complete` — measured 2026-08-29: resetting a branch for a rebuild made its slice read `merged` and opened the next one, because a branch pointing AT main is trivially an ancestor of it
 - [ ] [a-throttled-host-says-so] A scan that could not reach the git host says so, instead of reporting every branch unmerged — measured 2026-08-29: minutes after #513 merged, the scan showed its branch `open` and `merge_detect=pr-merge` while `pr-list` was returning a GraphQL rate-limit error it discarded
-- [ ] [production-calls-the-domain-one-rule-at-a-time] Production code calls the domain instead of duplicating its rules, one rule at a time — **Draft, 5 slices, no branch — still blocked on the Should above**
+- [ ] [production-calls-the-domain-one-rule-at-a-time] Production code calls the domain instead of duplicating its rules, one rule at a time — **Draft, 6 slices, no branch — still blocked on the Should above**
 - [ ] [a-domain-rule-has-one-owner] Any lifecycle rule found duplicated **while moving** gets its second implementation deleted in the same slice, rather than noted for later — opportunistic, and only where the two provably agree
 
 ## Notes

@@ -82,11 +82,16 @@ the prose still makes sense, not just whether the code compiles.
 **Step 2 is the discipline.** An adoption that leaves the old code behind
 "until we're sure" produces a third copy and no forcing function. The corpus
 tests from plan 2 are what makes deleting safe: agreement was proven against
-158 real plans before this plan starts.
+every plan in this repository before this plan starts (170, measured 2026-08-30).
 
-**Step 3 matters more than new tests.** The board's 25 existing tests for
+**Step 4 matters more than new tests.** The board's existing tests for
 `allWavesMerged` are written against its *behaviour*, and behaviour is exactly
-what must not change. **A test that needs editing to pass is a signal the
+what must not change. **Measured 2026-08-30 there are 74 of them across four
+files** — `deliver-route.test.ts` 15, `auto-deliver.test.ts` 22,
+`plan-status.test.ts` 22, `merged-waves-reach-testing.test.ts` 15 — not the 25
+this plan first claimed. The regression lock is three times stronger than it
+was written to be, and naming the four files means an adoption that quietly
+skips one is visible. **A test that needs editing to pass is a signal the
 adoption changed something** — and the edit needs an argument, not a fix.
 
 ### Board first, shell second — and why that order
@@ -112,12 +117,32 @@ already required to run the board and every test suite."*
 | | check |
 |---|---|
 | **behaviour** | the existing tests pass **unedited** |
-| **agreement** | the corpus test still reports 158 of 158 |
+| **agreement** | the corpus test still reports every plan agreeing |
 | **absence** | `grep` finds no second implementation of the adopted rule |
 | **the board** | `pnpm build:board` and `pnpm run test:board` are green |
+| **the prose** | the skill describing the removed code is corrected |
 
 **The absence check is a gate, not a review note.** *"Did I delete the old
 one?"* is answerable without looking; *"does this grep return one hit?"* is not.
+
+**The existing tests are the regression detector for the live board, and they
+are enough.** Measured 2026-08-30: 54 test files touch spawning, and the four
+suites covering the deliver rule alone carry 74 tests — `deliver-route` 15,
+`auto-deliver` 22, `plan-status` 22, `merged-waves-reach-testing` 15. The plan's
+earlier figure of 25 undercounted by two thirds.
+
+**No pulse snapshot is taken before and after.** It was considered: capture
+`/api/board` either side of an adoption and require the payload to match. It is
+rejected because the payload legitimately moves between two runs on a live
+estate — a worker commits, a PR merges, a scan re-derives — so the comparison
+would fail for reasons that have nothing to do with the adoption, and a check
+that cries wolf gets switched off. The suites assert the same values against
+fixtures that do not move underneath them.
+
+**What that leaves uncovered, stated:** a value no test asserts and no fixture
+exercises can change unnoticed until someone looks at the board. The
+mitigation is the one already in this plan — one rule per branch, so the
+surface that could have moved is small enough to inspect by hand.
 
 ### The order, and why it is this order
 
@@ -156,8 +181,8 @@ unedited, and the delivery refusal still names every unmerged branch.
 `plot-fleet-scan.sh`'s slice verdicts computed by the domain. **The scan's
 output must not change** — same words, same footer counts, on the same estate.
 
-**Done when** the scan's output is byte-identical against this repo's 158 plans
-before and after, and `test/reconcile/` passes unedited.
+**Done when** the scan's output is byte-identical against every plan in this
+repository before and after, and `test/reconcile/` passes unedited.
 
 ### Refusing (Branch: feature/the-refusals-are-domain-rules)
 
@@ -168,29 +193,66 @@ messages** — a refusal that reports differently breaks whoever reads it.
 **Done when** each refusal is still individually triggerable in the e2e suite,
 `--dry-run` output is unchanged, and no refusal logic remains in either script.
 
-### Spawning (Branch: feature/one-place-reaches-a-process)
+### Spawning the scripts (Branch: feature/one-place-reaches-a-script)
 
-The board's 46 direct process calls give way to the adapter layer's single
-`runScript()`. **10 of them invoke a `plot-*.sh` and are the point**; the `git`,
-`ps` and `tailscale` calls move behind the `Refs`, `Processes` and `Machine`
-adapters respectively.
+The board's calls to `plot-*.sh` give way to the adapter layer's single
+`runScript()`. **These are the point** — they are the ones with the exit-code
+contract, and the ones where a second reading of 3-vs-4 would collapse a
+permanent configuration fact into a transient incident.
+
+**Done when** no `plot-*.sh` is invoked from `packages/board/src/`, the board
+suite and browser suite pass unedited, and no exit code is interpreted outside
+`runScript()`.
+
+### Spawning the tools (Branch: feature/one-place-reaches-a-process)
+
+The remaining direct calls — `git`, `ps`, one `tailscale` — move behind the
+`Refs`, `Processes` and `Machine` adapters respectively.
+
+**Split from the slice above because of size, measured 2026-08-30: 51 call
+sites across 22 files, with 54 test files touching spawning.** That is larger
+than the Deciding slice the sandbox plan split for the same reason, and this
+story exists because agents stall on branches that size. The two halves also
+adopt *different* adapters through *different* contracts — `runScript()` maps
+exit codes for scripts Plot owns, while `Refs` and `Processes` wrap tools that
+answer in their own idiom — so reviewing them together would mean reviewing two
+arguments in one diff.
 
 **This is where the board stops being a process-spawning application** and
-becomes one that asks ports. Until it lands, the adapters exist and the board
+becomes one that asks ports. Until both land, the adapters exist and the board
 routes around them — the same shape as `plot-reap.sh` reaching past
 `plot-host.sh`, one layer up.
 
-**Done when** `grep -rnE "(execFileSync|execFile|spawn|spawnSync)\(" packages/board/src/server/`
-returns only the adapter layer, the browser suite passes unedited, and no exit
-code is interpreted outside `runScript()`.
+**Done when**
+
+```bash
+grep -rnE "(execFileSync|execFile|spawnSync|spawn)\(" packages/board/src/
+```
+
+returns **nothing at all**, and the browser suite passes unedited.
+
+**Emptiness, not "only the adapter layer".** The adapters live in
+`packages/domain/src/adapters/`, so once they exist there is nothing left in
+the board to match — the earlier wording could only have passed if adapters had
+been placed inside the board, which is precisely the layering this plan exists
+to remove.
 
 ### Transitions (Branch: feature/a-transition-writes-one-value)
 
 `plot-approve.sh` and `plot-deliver.sh` take their writes from
 `plan.approve()` / `plan.deliver()` rather than composing them inline.
 
-**Done when** the sandbox e2e suite produces byte-identical plan files by both
-paths, and a phase can no longer be written without its record.
+**Done when** the sandbox e2e suite produces plan files that **parse
+identically** by both paths — every field from `plot-plan-meta.sh` matching —
+and a phase can no longer be written without its record.
+
+**Parser equivalence rather than byte equality, following the sandbox plan**
+([slice 5](2026-08-28-the-domain-runs-the-workflows-in-a-sandbox.md)), which
+settled this with its reasoning: the parser is the consumer, the bytes are an
+encoding, and the failure that matters — a date written `2026-8-29` — is caught
+by comparing parses because the parser is what it would break. Restating it
+differently here would put two rules on one file and leave the two test suites
+contradicting each other, which is the duplication this plan exists to remove.
 
 ## Notes
 
@@ -227,8 +289,8 @@ is accurate.
 
 | the plan says | measured 2026-08-30 | effect |
 |---|---|---|
-| 158 plans | **170** | Eligible's byte-identical scan comparison covers 12 more |
-| 46 direct process calls | **51** | Spawning is 5 sites larger |
+| 158 plans | **170** | corrected in the text above; the scan comparison is phrased against "every plan" so it cannot go stale again |
+| 46 direct process calls | **51** across 22 files | Spawning was split in two; see the two slices |
 | 10 invoke `plot-*.sh` | **15 distinct scripts referenced** | more adapter surface than stated |
 
 **The Spawning slice's Done-when is now wrong as written.** It asserts
