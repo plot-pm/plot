@@ -65,6 +65,37 @@ artifact and moved the hash to `97926ad4b025bdfe`; removing it returned
 `d8ca6bf7`. **Only then does "the long path also gives d8ca6bf7" carry
 information.**
 
+### Measured 2026-08-30: the gate fired twice, on two branches, tiny
+
+83 CI runs on 2026-08-29, 21 failures. Two of them — and only two — are this
+gate:
+
+```
+15:57  534d97a8  feature/a-transition-is-one-value
+       board-server.mjs | 4 ++--    1 file changed, 2 insertions(+), 2 deletions(-)
+
+13:21  f5682a28  bug/main-typechecks-again
+       board-server.mjs | 2 +-      1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+**Two lines, and one line.** Not the whole-file churn the plan's opening
+section describes, and both on feature branches rather than on `main`.
+
+**A methodological note, because it nearly became a finding.** A first pass
+reported *six* runs, by grepping `--log-failed` for `is stale`. GitHub echoes
+the entire `run:` block of the failing step before executing it, so that string
+appears in every failure of this step regardless of what actually broke — four
+of the six failed at other gates entirely (`Wave` misuse, arrow functions, the
+Agent/Worker rule). Real output is separable: the echo carries the `36;1m`
+colour code and the executed line does not. Grepping the log for a gate's
+message finds the gate's *source*, not its verdict.
+
+**What the platform hypothesis costs.** It was worth asking — this repo's
+artifacts are all built on macOS and verified on Linux — and 40 runs on
+2026-08-30 answered it: not one staleness failure. A systematic macOS/Linux
+divergence would fail *every* PR, since every committed artifact came from a
+Mac. It fails almost none.
+
 ### What this leaves
 
 The `Measured 2026-08-29` block above reports two artifact hashes under the
@@ -137,7 +168,9 @@ its own, and each is answerable:
 1. **The two directories were not on the same source.** The cheapest to check
    and the likeliest: the 2026-08-29 trace records no commit, and a worktree
    one commit behind is indistinguishable from a non-deterministic build if you
-   only compare outputs.
+   only compare outputs. **The two real failures support this**: a 1-line and a
+   2-line diff is what a near-identical input produces, not what an unstable
+   minifier does.
 2. **The client input differed.** `build.mjs` does not build the client — it
    embeds an existing `dist/client/index.html`, 582 KB of the artifact's 1.1 MB.
    A stale `dist/client/` produces a new server around an old client, and
