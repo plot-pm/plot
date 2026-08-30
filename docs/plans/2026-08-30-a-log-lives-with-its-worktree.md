@@ -15,6 +15,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-30, Jan Wloka, `infra/one-place-decides-where-a-log-lives`
 
 ## Approval
 
