@@ -15,11 +15,16 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 - **Sprint directory:** docs/sprints/
 - **Plan template:** .plot/templates/plan.md
 - **Claim stale after:** 24
-- **Worker bound:** 3600
-<!-- Seconds a single prompt run may take before the worker loop ends it and
-     exits (without hopping to the next wave). Default 3600 (~1h): honest runs
-     on this estate were 9–29 min against hangs of up to 10 hours, so ~1h never
-     truncates real work. `0` disables the bound. See
+- **Worker bound:** 28800
+<!-- Seconds a single prompt run may take before the worker loop ends it — the
+     FLOOR under the reading, not the reading itself. Since 2026-08-30 a worker
+     ends when the WorkerMonitor reports `idle` (alive, no CPU across two
+     passes, tree unchanged, commits on the branch), so this timer fires only
+     when the monitor ITSELF has died. It was 3600 while it decided every
+     worker's fate, and 3600 is what killed seven working agents on this estate
+     that day — each with 3-6 commits, five losing a different last step. At
+     28800 (a working day) no honest run reaches it and a monitor-less hang
+     still cannot burn a night. `0` disables the floor, not the reading. See
      skills/plot/scripts/plot-worker-loop.sh. -->
 - **Agent registry:** /Users/jwloka/Quatico/Agentic-Tools/plot/.plot/agents
 - **Board command:** pnpm board
