@@ -11,6 +11,22 @@ Needs `infra/one-place-decides-where-a-log-lives`.
 The resolver returns a path under the configured worktree root. A path guard on
 `/api/dispatch-log`. A one-time move of existing logs.
 
+**The resolver is `agentLogDir` in `packages/board/src/server/agent-log.ts`**,
+landed by slice 1 (#537, merged 2026-08-30). It is currently one line:
+
+```ts
+export const agentLogDir = (repoRoot: string): string => path.resolve(repoRoot, '..');
+```
+
+**That line is the whole location change.** Slice 1 moved 27 call sites across
+10 files onto `agentLogPath`, which delegates here, precisely so this slice
+edits one place instead of 27. If you find yourself changing a second file to
+move the location, something is wrong — check whether that caller went through
+`agentLogPath` and route it if not.
+
+The other two pieces (the `/api/dispatch-log` path guard, the one-time move) are
+genuinely elsewhere, and are described below.
+
 ### The decisions the plan settles — do not re-derive them
 
 **The old location was half right, not wrong.** `dispatch.ts:145` put logs
