@@ -71,3 +71,32 @@ Repo gates: `pnpm test`, `pnpm run typecheck`, changeset. Node 24, `corepack pnp
 
 Owns the WorkerMonitor's sampling. Not the channel protocol (slice 4), not the
 AgentMonitor (slice 3), and it writes nothing anywhere.
+
+**The file is `skills/plot/scripts/plot-worker-monitor.sh`**, landed by slice 1
+(#536) as a no-op. Its `noop_pass` becomes a real sample; the argument parsing,
+the publish path and the main loop stay as they are.
+
+**Do NOT fix the monitor lifetime here, even though you will see it.** Measured
+2026-08-30, right after #536 merged: 112 monitor processes running, 56 pairs,
+all `ppid=1`. The wrapper starts three children and waits for one
+(`plot-dispatch.sh:600`) —
+
+```sh
+"$PLOT_WORKER_MONITOR" & "$PLOT_AGENT_MONITOR" &
+( <cmd> ) & agent=$!
+wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"
+```
+
+— then exits, and init adopts the two loops. `wait "$agent"` is correct and must
+stay: waiting on all three would hang forever on two infinite loops and the exit
+record would never be written. The fix is `kill` of both monitor pids on the
+line that writes the exit code, and it lives in **`plot-dispatch.sh`**, in the
+wrapper — a different file, a different owner, and the plan records it under
+*Where the leak is, and where the fix belongs*.
+
+Mentioned here only so you recognise the orphans rather than diagnosing them
+again. **If your own test runs leave monitors behind, that is this defect and
+not yours** — `makeSandbox().cleanup` is `fs.rmSync(root)`, which removes a
+directory and signals nothing. Clean them up by hand
+(`pkill -f plot-worker-monitor`) and carry on; the sandbox helper is correctly
+scoped and is not yours to change either.
