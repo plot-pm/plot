@@ -92,15 +92,43 @@ fields are hardware-level rather than instance-level.
 means the same thing; what moves is which entity owns it. **This is a docs plan
 and it should stay one.**
 
-### The consequence nobody has priced
+### Each machine claims a share, and that is why no scheduler is needed
 
-**If three instances each dispatch against the same hardware, the cap is
-per-instance and the exhaustion is shared.** `parallelAgents: 11` is this
-project's dial; two other projects have their own. **Nothing reads the sum.**
+**Settled by the operator 2026-08-30:**
 
-That is a real defect and it is **not** this plan's to fix — a docs plan that
-quietly grew a scheduler would be the wrong shape. **But it must be named**, or
-the next reader will assume the spec's silence means it was considered.
+> *Jede Maschine schneidet sich ein Teil der Hardware-Ressourcen ab.*
+
+**A machine does not negotiate its share; it declares one.** Three instances on
+one computer each take a slice of it, and none of them has to know what the
+others took.
+
+**The dial for this already exists and is being read wrongly.**
+`.plot/state/fleet-controls.json` holds `parallelAgents: 11`, and today that
+means *"how many agents do I want"*. Under this model it means *"what share of
+the computer do I claim"* — the same number, a different question, and the
+second one is answerable by an operator who knows three projects are running.
+
+**So the shared-exhaustion problem dissolves rather than needing a solver.**
+It looked like a scheduling problem: three caps, one CPU, nothing reading the
+sum. It is not. **The sum is the operator's to keep sensible**, exactly as it is
+for any three programs sharing a laptop, and the machine's job is to report what
+it is getting — not to bargain for more.
+
+**What the entity split then says:**
+
+| | reads | declares |
+|---|---|---|
+| **Computer** | `spawnCostMs`, `loadAverage`, `cores` — one measurement, read by all | — |
+| **Machine** | that same measurement | **its share**: `parallelAgents` |
+
+**Three instances measuring one spawn cost is correct, not duplication.** They
+are three tenants reading one meter, and each knows only how much of the flat it
+rented.
+
+**The honest remaining gap is visibility, not arbitration.** An operator setting
+11 in three projects has claimed 33 slices of one computer and nothing says so.
+**That is a reporting question**, and it belongs with `Machine`'s fields rather
+than with a scheduler.
 
 ### Not chosen: rename Machine to Instance
 
@@ -119,8 +147,13 @@ keyed by `repoRoot + scriptsDir`, and that several run per computer.
 **Done when** the Identity section states the key and why `hostname()` is not
 one; §8's *"if there were two"* argument is rewritten against the measured
 three; **the per-computer readings are listed separately from the per-instance
-ones**; and the unpriced cap-versus-hardware consequence is recorded as an open
-question with the numbers that make it real.
+ones**; and **`parallelAgents` is described as a claimed share of the computer
+rather than a count of wanted agents** — the same number, the question it
+answers restated.
+
+**The visibility gap is recorded, not solved:** three instances at 11 have
+claimed 33 slices of one computer and nothing reports the sum. Say so in the
+fields table as a known blind spot.
 
 **Nothing in `packages/domain` changes in this slice.** If the correction implies
 a code change, that is a finding for the PR — the spec is what was wrong.
