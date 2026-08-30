@@ -566,6 +566,37 @@ reads.
 test: *can you answer "did I complete this?" without doing the work?* For "did I
 attach a monitor", inside `start_worker()` you cannot: no monitor, no worker.
 
+**Measured 2026-08-30, after the Attaching slice merged (#536): the second gate
+does not hold.** 112 monitor processes were found running, in 56 pairs, all in
+the Attaching slice's own test worktree, the oldest 1h00m old. Every one of
+them reported `ppid=1`:
+
+```
+ps -eo pid,ppid,command | grep plot-.*-monitor | awk '{print $2}' | sort -u
+  ppid=1   /sbin/launchd
+```
+
+Their wrappers are gone. Being a child did not make them mortal — it made them
+**orphans**, adopted by init and running on. The main loop is `while :; do sleep
+"$interval"; noop_pass; done`, and `plot-dispatch.sh` sets no `trap`, no `kill`
+and no `wait` for them.
+
+**The claim was about dying too EARLY, and only that.** "The monitor cannot
+outlive its usefulness or die early without the wrapper dying" states a lower
+bound on a monitor's life and never an upper one — and the slice's `Done when`
+asks the same question in the same direction: *killing the agent leaves both
+monitors alive long enough to record the finding*. Nothing anywhere asks when
+they stop. The test asserting survival is green, and correctly so.
+
+**This is not a test artefact.** `start_worker()` starts them the same way in
+production; these 112 came from e2e runs only because e2e runs are what
+happened today.
+
+**A monitor that never dies is the failure it exists to detect**, one level up:
+a process that outlives its subject, holds a pid, and reports nothing anybody
+reads. The Attaching slice's own no-op monitors are now the largest population
+of exactly that on this machine.
+
 **What it does NOT guarantee, stated:** if the whole wrapper is `kill -9`-ed, the
 agent, both monitors and the exit record go together. That is not a monitoring
 gap — a process tree that vanishes at once leaves a worktree the fleet scan
