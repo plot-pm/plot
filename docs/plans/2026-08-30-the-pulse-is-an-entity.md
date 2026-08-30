@@ -95,25 +95,41 @@ function cacheKey(opts) {                            fleet.ts:648
 **A timer pair per repository**, created by `ensureCache`. Two boards serving
 two repos on one laptop are two clocks, and nothing makes them agree.
 
-**Settled by the operator 2026-08-30: we cannot have several on one machine.**
-So the target is one pulse per machine, and the per-repo key is a defect to
-remove rather than a design to honour.
+**Settled by the operator 2026-08-30, in two statements that only look
+contradictory:**
 
-**The key is an artefact, not a feature.** `repoRoot` is read **once per
-process**, at `index.ts:64` — `PLOT_REPO_ROOT ?? process.cwd()` — and never
-changes after. Within one board the `Map` holds exactly one entry. **Nothing in
-a running server ever varies the key.**
+> *We cannot have several on one machine.*
+> *But we can start three machines on one computer.*
 
-**The multiplicity comes from starting a second board**, not from the cache. The
-default port 7777 makes that fail in ordinary use, and `PORT=0` — what the test
-suite passes — makes it succeed. So today's shape is *"one pulse per process,
-and don't start two"*, enforced by a port collision rather than by anything that
-knows what a pulse is.
+**So a Machine is a Plot instance, not the hardware.** One pulse per machine;
+several machines per computer; the computer is shared and belongs to nobody.
 
-**What this plan must therefore do:** make the singularity explicit rather than
-accidental. A second pulse on one machine has to be refused **by something that
-understands why**, and the refusal has to say so — a port collision reports
-`EADDRINUSE`, which tells an operator nothing about clocks.
+**That makes the cache key correct rather than a defect.** `repoRoot +
+scriptsDir` (`fleet.ts:648`) is exactly what distinguishes one instance from
+another — `hostname()` cannot, because three instances on a laptop return the
+same string. **A first draft of this section called the key an artefact to
+remove; it is the machine's identity and it stays.**
+
+**And `DESIGN-machine.md` needs a correction this plan should not make alone.**
+It reads:
+
+> *A Machine has no identity, because there is exactly one… That singularity is
+> load-bearing: if there were two, headroom would be a property of a pair and
+> the whole entity would need a key.*
+
+**Three instances on one computer is exactly that case.** The spec already
+carries the resolution without naming it:
+
+> *headroom is not **this fleet's** headroom, it is **the machine's**, and the
+> fleet is one tenant among several.*
+
+**Read against three instances, "the machine" there means the hardware.** Three
+Plot instances share one spawn cost; each measuring it separately measures the
+same number and calls it its own. **So headroom belongs to the computer and
+identity belongs to the instance** — and `Machine.hostname()`, which the port
+already declares, cannot tell them apart.
+
+**The Naming slice records this; changing `DESIGN-machine.md` is its own plan.**
 
 ### Subscribers name a divisor, not a frequency
 
@@ -192,15 +208,16 @@ has one pulse; the three current divisors with their measurements; and
 **explicitly what the pulse does not tick, with the reason** — the watchdog and
 the client are the cases a later reader will otherwise try to add.
 
-**And it states how a second pulse is refused.** The singularity is settled
-(operator, 2026-08-30) but unenforced: today it rests on port 7777 colliding,
-which `PORT=0` bypasses. The document has to say what the guard is and what it
-says when it fires — **`EADDRINUSE` is a symptom, not an answer.**
+**And it distinguishes the instance from the computer.** One pulse per Machine,
+where a Machine is keyed by `repoRoot + scriptsDir`; several Machines per
+computer, sharing hardware and therefore sharing headroom. **The document must
+say which measurements belong to which** — `spawnCostMs` is the computer's,
+`hostname()` cannot separate instances, and the divisors are the instance's.
 
-**The test suite is the case that makes this hard**, and it has to be named:
-suites start boards with `PORT=0` deliberately, in parallel. A guard that
-refuses them breaks the suite; one that exempts them exempts the only place
-where two pulses actually run today.
+**The test suite is the proof that several are legitimate**, not a case to
+exempt: suites start boards with `PORT=0` in parallel, and each is its own
+Machine with its own pulse over its own fixture estate. **A guard refusing them
+would be enforcing a rule that was never the rule.**
 
 ### Ticking (Branch: feature/a-subscriber-names-its-divisor)
 
