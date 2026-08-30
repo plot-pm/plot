@@ -120,8 +120,24 @@ references across six domain gates, and **zero** for `packages/board`.
 | count | what it catches | today |
 |---|---|---|
 | **domain names production still aliases** | a rule moved, its old name kept alive | `allWavesMerged` in `board.ts`, 3 call sites |
-| **spawn/execFile outside `adapters/`** | the layering rule broken — a caller reaching past the port | **65 lines, 23 files** |
+| **reaching the world outside `adapters/`** | the layering rule broken — a caller past the port, by any door | **65 spawn, 63 fs writes, 0 fetch** |
 | **board files reaching the domain** | the other direction: how far adoption has got | 2 of 36 server files |
+
+**Extended 2026-08-30: three doors, not one.** The operator's rule is about
+reaching the world, and processes, the disk and services are the same breach in
+three disguises — a gate catching only one invites moving to the others.
+
+```
+                          domain outside adapters/   board
+spawn / execFile                 0                     65
+fs writes                        0                     63
+fetch / HTTP (server)            0                      0
+```
+
+**`fetch` is counted at zero on purpose**: a gate at zero is what stops the
+first violation arriving unnoticed. **`packages/board/src/app/` is excluded** —
+its 21 `fetch` calls are the browser client talking to its own server, where the
+route IS the seam.
 
 **The second is the operator's rule made countable.** It does not ask whether a
 call is "domain logic" — a judgement no grep can make — but whether anything

@@ -17,13 +17,41 @@ sites. A gate that lands after it counts zero and proves nothing — a ratchet
 with no rungs left. **Landed now, it records the migration while it happens and
 stops the number rising in the meantime.**
 
-### The measurement, taken 2026-08-30
+### Three doors, not one — the gate counts all of them
+
+**Extended 2026-08-30 by the operator: the rule is not about scripts, it is
+about reaching the world at all.** Processes, services and the disk are the same
+breach in three disguises, and a gate that catches one invites moving to the
+others.
 
 ```
-packages/domain/src outside adapters/, spawn or execFile     0   ← purity gate holds this
-packages/board/src, spawn or execFile                       65   across 23 files
-packages/board/src, naming a plot-*.sh                      36
+                                   domain outside adapters/   board
+spawn / execFile                          0                     65
+fs writes (writeFile, mkdirSync, …)       0                     63
+fs reads  (readFile, existsSync, …)       0                     —
+fetch / HTTP                              0                      0   ← server
 ```
+
+**The inner boundary is dense everywhere**, and not by discipline: the purity
+gate forbids `from 'fs'` and `from 'node:…'` outside `adapters/`, so a file
+access cannot be written there. **This slice's job is the outer boundary**,
+where nothing holds.
+
+**Count `fetch` even though it is zero today.** A gate at zero is what stops the
+first violation arriving unnoticed, and it costs nothing while the number holds.
+
+**`packages/board/src/app/` is NOT a violation and must be excluded, with the
+reason written down.** Its 21 `fetch` calls are the browser client talking to
+its own server over `/api/…`. The client is the caller and that route is the
+seam itself — an adapter between them would be a layer with no boundary. **The
+server side (`packages/board/src/server/`) reads 0 and must stay there.**
+
+**Two more the count already sees, and one it does not:**
+
+- `packages/board/src` names a `plot-*.sh` on **36** lines — a subset of the 65
+- **one `tailscale` call** at `server/index.ts:800`, a foreign process invoked
+  straight from a route handler. `production-calls`' `one-place-reaches-a-process`
+  slice names it explicitly, and the `execFile` count catches it for free
 
 **Re-derive it before setting `allowed`.** Two workers are in flight touching
 these files, and a number you did not take yourself is one you cannot defend.
@@ -65,6 +93,8 @@ outer boundary.
 - the failure names the files
 - it covers **both packages** — `packages/board/src` and
   `packages/domain/src` outside `adapters/`
+- it counts **all three doors**: process spawning, filesystem writes, and
+  `fetch`/HTTP — with `packages/board/src/app/` excluded and the reason stated
 
 **The trap:** counting matches in test files. Decide explicitly whether tests are
 in scope and say why in the PR — 54 test files touch spawning, so including them
