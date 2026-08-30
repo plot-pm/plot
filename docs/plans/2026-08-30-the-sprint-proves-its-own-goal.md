@@ -123,6 +123,23 @@ call is "domain logic" — a judgement no grep can make — but whether anything
 outside `adapters/` spawns at all. **That is the same shape as the purity gate**,
 which succeeds precisely because it greps imports rather than intent.
 
+**A fourth rule, and it is the one with a number already attached.** Settled the
+same day:
+
+> **All workflows and all view states rendered in HTML can be tested through
+> state properties or behaviour on domain objects.**
+
+Measured 2026-08-30 in `packages/board/test/integration/`: **43 browser tests,
+42 of which start a full board server**, because the state they assert is only
+reachable by rendering. `tuple-row.browser.test.ts` is the single exception — it
+bundles the component and renders it in isolation.
+
+**That count is the rule's ratchet**, and it belongs to
+`a-ui-test-needs-data-not-a-board`, which is approved and briefed. This plan does
+not duplicate it; it records that the two measure the same boundary from
+opposite sides — one counts callers reaching past the port, the other counts
+assertions that cannot be made without a browser.
+
 **What it cannot catch, stated:** domain-specific *behaviour* implemented in the
 board without spawning anything — a rule written in TypeScript in a route
 handler. The third condition of the operator's statement covers that, and it is

@@ -327,6 +327,26 @@ references to it.
 `the-sprint-proves-its-own-goal` adds that gate as a ratchet; `production-calls`
 does the migration it counts.
 
+**Every rendered state is a domain property.** Settled 2026-08-30, and it is the
+testability half of the rule above:
+
+> **All existing workflows, and all view states that are rendered in HTML, can be
+> tested through state properties or behaviour on domain objects.** That makes
+> every important thing we can *show* or *manipulate* unit-testable.
+
+**What this rules out** is a decision made in a component. If a row's section, a
+button's disabled state, or a badge's wording is computed in `.tsx`, the only way
+to test it is to render it — and rendering is how 42 of this repo's 43 browser
+tests came to start a full board server.
+
+**What it does not rule out** is browser tests. It changes their subject: they
+stop being where behaviour is *decided* and become where it is *seen*. A
+`verdict` computed in the domain and asserted in a unit test still needs one
+test proving the badge shows it.
+
+**The measurable form:** a view state that cannot be asserted without a browser
+is a domain property that has not been extracted yet.
+
 **A note on shape.** The domain here takes **readings as values**, not ports —
 `reap(readings, input)` rather than `reap(ports)`. No rule or workflow imports a
 port or awaits anything. That keeps the core synchronous and testable without
