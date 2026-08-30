@@ -18,6 +18,7 @@
 - **Started:** 2026-08-30, Jan Wloka, `feature/the-ports-have-adapters`
 - **Started:** 2026-08-30, Jan Wloka, `feature/the-domain-agrees-with-production`
 - **Started:** 2026-08-30, Jan Wloka, `feature/the-workflows-decide-without-acting`
+- **Started:** 2026-08-31, Jan Wloka, `feature/dispatch-decides-without-acting`
 
 ## Approval
 
