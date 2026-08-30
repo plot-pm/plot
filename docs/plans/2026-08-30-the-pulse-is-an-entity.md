@@ -82,9 +82,30 @@ runs on a Machine."* A pulse is the same kind of thing — **something that exis
 on a machine and can be observed there.** That is why it is an entity and not a
 setting.
 
-**One machine, one pulse.** `DESIGN-machine.md` makes the machine singular and
-calls that load-bearing; a second clock on one machine would make *"when is it"*
-a property of a pair.
+**One machine, one pulse** is the *target*, and it is **not** what runs today.
+Measured 2026-08-30:
+
+```
+const caches = new Map<string, CacheEntry>();        fleet.ts:646
+function cacheKey(opts) {                            fleet.ts:648
+  return `${opts.repoRoot}\0${opts.scriptsDir}`;
+}
+```
+
+**A timer pair per repository**, created by `ensureCache`. Two boards serving
+two repos on one laptop are two clocks, and nothing makes them agree.
+
+`DESIGN-machine.md` makes the *machine* singular and calls that load-bearing —
+but a pulse keyed by repo root is not a machine-level thing. **So this plan has
+to choose, and the Naming slice is where:**
+
+- **one pulse per machine** — subscribers across repos share a beat, which is
+  what "master clock" implies, and needs a home outside a per-repo cache
+- **one pulse per repo** — today's shape, honest about the fact that two repos
+  have independent estates and nothing to synchronise
+
+**The second is the smaller change and may well be right.** What is not right is
+the plan asserting the first while the code does the second.
 
 ### Subscribers name a divisor, not a frequency
 
@@ -123,7 +144,23 @@ multiple of 5 s**, deliberately faster than the server so it never misses an
 update. It runs in another process, often on another machine. Ticking it means
 sending beats over the wire, which makes the pulse an API rather than a clock.
 
-**So the scope is: active pollers in the pulse's own process tree.**
+**And the process-tree framing does not survive measurement either.** A monitor
+runs inside its worker's wrapper; the pulse runs inside the board. **They have
+never shared a parent.** Measured 2026-08-30: 32 monitor processes alive, every
+one `ppid=1`, and **no board process running at all**.
+
+**So "the pulse's own process tree" is the wrong boundary.** The right one is
+narrower and has to be said outright: **the pulse ticks subscribers that can
+receive a tick.** In-process today; across processes only once the channel
+exists, which is `two-monitors-watch-the-agent`'s subject and not this plan's.
+
+**That makes the Ticking slice's scope the scan and the PR reader** — both
+already in the board's process — and monitors a follow-on that waits for the
+channel. Naming that now prevents the slice from discovering it as a blocker.
+
+**What stays excluded regardless:** watchdogs (`exitWithParent` must outlive the
+pulse) and the browser client (another process, often another machine, and
+`FLEET_POLL_MS = 4_000` is deliberately not a multiple of 5 s).
 
 ### Not chosen: make the pulse a service others call
 
@@ -154,6 +191,13 @@ The pulse gains subscribers; the scan and PR reader become two of them.
 **Done when** both run at their current effective cadence through divisors 1 and
 12; **a subscriber that throws or hangs does not delay another's beat**,
 asserted directly; and the payload is unchanged.
+
+**Scope: in-process subscribers only.** Monitors run in a different process tree
+and cannot be ticked until a channel exists — see the correction above.
+
+**And the divisor for the PR reader is 12 only if the pulse is 5 s.** If Naming
+settles on a per-machine clock with a different base, the divisors move with it;
+they are derived, not configured.
 
 **That middle assertion is the slice.** Everything else is a move.
 
