@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Remove worktrees whose work has landed, their dead worker files, and the
-# registry manifests that named them.
+# Remove worktrees whose work has landed, their dead worker files, the registry
+# manifests that named them, and the agent logs that described them.
 #
 # The gap this fills was named by a comment before it existed:
 # `plot-reconcile-scan.sh:323` says "with a deferred: annotation the reaper
@@ -57,11 +57,36 @@
 # Nothing further needs deciding to remove it: an entry whose worktree the five
 # tests above just cleared is covered by exactly those measurements.
 #
-# ORDER: worktree FIRST, manifest second. The reverse leaves a live worktree
-# with no registration, which `readAgentRegistry` answers by SYNTHESIZING an
-# `unknown` entry — the same bad row, earned a different way. A failure between
-# the two steps this way round leaves an orphaned manifest, which the sweep
-# below clears on the next run.
+# AND THE LOG GOES WITH THE WORKTREE TOO. Measured 2026-08-30: 190 log files,
+# 2.6 MB beside the repository, the oldest from 2026-08-17, and NOT ONE
+# belonging to live work. This script took the worktree and the manifest every
+# time and left the log forever, so a finished agent's last act was to leave a
+# file nobody would ever open again.
+#
+# It is the branch's own `plot-resolve-<branch>` run — log, `.state` and
+# `.prompt.md` together, since a sweep that took the log alone would leave half
+# a run behind. NOT the per-plan `plot-dispatch-<slug>.log`, which is appended
+# to by every dispatch of a plan and outlives any one of its branches.
+#
+# ORDER: worktree FIRST, manifest second, log LAST. The first two are ordered
+# because the reverse leaves a live worktree with no registration, which
+# `readAgentRegistry` answers by SYNTHESIZING an `unknown` entry — the same bad
+# row, earned a different way. A failure between them this way round leaves an
+# orphaned manifest, which the sweep below clears on the next run.
+#
+# The log is last because it is the only one that is PURE CLEANUP: a missing
+# manifest orphans an agent, a missing worktree loses a desk, and a missing log
+# costs a record of work the host already merged. So a failure before it has
+# cost the least, and its own failure costs nothing.
+#
+# A MISSING LOG IS NOT A REFUSAL. The five refusals above are about work that
+# might be lost; a log describes work that has already landed. `rm -f`
+# semantics — if it is not there, that is the desired state.
+#
+# AND IT IS NOT THE TRANSCRIPT. `<worktree>/.plot-worker.log` is the agent's own
+# words and lives INSIDE the tree, so it goes when the tree does and is not
+# swept here. This is the dispatcher's record of what it started. Two files,
+# two lifetimes, and CLAUDE.md already distinguishes them.
 set -u
 
 DRY=1; MAX=0
@@ -128,6 +153,75 @@ if [ -r "$CONFIG" ]; then
   d=$(bash "$CONFIG" get "Agent registry" ".plot/agents" 2>/dev/null) && [ -n "$d" ] && MANIFEST_DIR="$d"
 fi
 case "$MANIFEST_DIR" in /*) ;; *) MANIFEST_DIR="$ROOT/$MANIFEST_DIR" ;; esac
+
+# Where the agent logs live, resolved through `plot-config.sh` from the SAME
+# `Worktree root` key `resolve_wt_root()` and `agentLogDir` read. Three readers
+# of one key, and none of them may invent a second: a reaper sweeping a
+# directory the board never writes to reports success over a file that is still
+# there, which is the failure this slice exists to stop.
+#
+# THE FALLBACK IS THE PARENT DIRECTORY, NOT AN ERROR — `agentLogDir`'s rule,
+# stated the same way here. A repository with no key has no `.worktrees/`, and
+# the logs it wrote are beside it; a reaper that refused to look there would
+# clean nothing on exactly the repositories that never migrated.
+#
+# The case split is `resolve_wt_root()`'s: absolute taken as given, relative
+# joined onto the repo root, trailing slash trimmed as pure string work because
+# the directory need not exist. A second convention for resolving a configured
+# directory is a second way to be wrong.
+LOG_DIR="$(cd "$ROOT/.." && pwd)"
+if [ -r "$CONFIG" ]; then
+  d=$(bash "$CONFIG" get "Worktree root" "" 2>/dev/null) || d=""
+  if [ -n "$d" ]; then
+    case "$d" in
+      /*) LOG_DIR="$d" ;;
+      *)  LOG_DIR="$ROOT/$d" ;;
+    esac
+    LOG_DIR="${LOG_DIR%/}"
+  fi
+fi
+
+# The files ONE branch's agent run leaves beside its worktree, removed with it.
+#
+# WHICH LOG THIS IS, since the plan says "the dispatcher log" and the estate
+# holds two shapes of one. `plot-resolve-<branch>` is keyed by BRANCH with its
+# slashes flattened (`repairLogPath`), so it maps one-to-one onto the worktree
+# this loop is removing. `plot-dispatch-<slug>` is keyed by PLAN and opened for
+# APPEND across every dispatch of that plan — `dispatch.ts:150` states it: "a
+# dispatcher log belongs to a plan, a worker log to a branch". Reaping one
+# branch of a five-branch plan must not delete the record the other four are
+# still writing to, so the per-plan log is deliberately NOT swept here. It dies
+# with its plan, which is a different lifetime and so a different question.
+#
+# All three extensions go together. `agent-log.ts` puts the `.state` and
+# `.prompt.md` beside the log precisely so a sweep takes the whole run: one
+# that knew about the log alone would leave half of it behind, which is the
+# accumulation this plan measured rather than a smaller version of it.
+#
+# `rm -f` semantics, and A MISSING LOG IS NOT A REFUSAL. The five refusals
+# guard work that might be lost; a log describes work the host already merged.
+# Not being there is the desired state, so it is reported as nothing at all.
+branch_log_files() { # $1=branch → the paths this branch's run may have left
+  local flat=${1//\//-}
+  printf '%s\n' \
+    "$LOG_DIR/plot-resolve-$flat.log" \
+    "$LOG_DIR/plot-resolve-$flat.state" \
+    "$LOG_DIR/plot-resolve-$flat.prompt.md"
+}
+
+# The ones that are actually there, as a comma-separated list of basenames for
+# the report, or empty. Reading is separated from removing so `--dry-run` can
+# NAME what a real run would take — the plan asks for that by name, and a
+# preview that said "and its log" without checking would promise a file that is
+# not there.
+present_logs() { # $1=branch → "plot-resolve-x.log, plot-resolve-x.state" or ""
+  local f out=""
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    out="${out:+$out, }$(basename "$f")"
+  done < <(branch_log_files "$1")
+  printf '%s' "$out"
+}
 
 # The manifest naming a given worktree, or nothing.
 #
@@ -337,9 +431,15 @@ NODE_EOF
   # follow, and the manifest's spelling would never converge with git's.
   wt_real=$(canonical "$wt")
 
+  # Read BEFORE the removal for the same reason `wt_real` is: the report names
+  # what was there when the run decided, and a dry run must name exactly what a
+  # real run would take. Empty when the branch left no log, which is silent —
+  # a missing log is the desired state, not an event.
+  logs=$(present_logs "$short")
+
   reap=$((reap+1))
   if [ "$DRY" -eq 1 ]; then
-    printf '%-8s %-52s %s\n' "would" "$short" "$why"
+    printf '%-8s %-52s %s\n' "would" "$short" "$why${logs:+, log $logs}"
   else
     if git worktree remove --force "$wt" 2>/dev/null; then
       # The worktree is gone; NOW the manifest may go. Inside the success arm
@@ -349,6 +449,23 @@ NODE_EOF
       # manifest instead, which the sweep below clears.
       if m=$(manifest_for "$wt_real"); then
         rm -f "$m" && why="$why, manifest cleared"
+      fi
+      # AND THE LOG LAST, because it is the only one that is pure cleanup. A
+      # missing manifest orphans an agent and a missing worktree loses a desk;
+      # a missing log costs a record of work the host already merged. So it
+      # goes where a failure before it has cost the least, and its own failure
+      # costs nothing at all.
+      #
+      # Inside the success arm with the manifest: a log describes the worktree,
+      # so a removal that refused must keep it — an operator sent to look at a
+      # tree that survived needs the words explaining why it is there.
+      #
+      # `rm -f` and the result ignored. Not being there is the desired state,
+      # and a log that cannot be unlinked is not a reason to report a reap that
+      # happened as one that did not.
+      if [ -n "$logs" ]; then
+        while IFS= read -r f; do rm -f "$f" 2>/dev/null; done < <(branch_log_files "$short")
+        why="$why, log removed"
       fi
       printf '%-8s %-52s %s\n' "reaped" "$short" "$why"; removed=$((removed+1))
     else
