@@ -96,6 +96,42 @@ artifacts are all built on macOS and verified on Linux — and 40 runs on
 divergence would fail *every* PR, since every committed artifact came from a
 Mac. It fails almost none.
 
+### Measured 2026-08-30, evening: two identifiers, one path, and a live gate failure
+
+CI's freshness gate rejected #540. Rebuilding in that worktree changed the
+artifact by **two minifier identifiers and nothing else**, across 265 identical
+lines:
+
+```
+line 125, col 47015   …"unmeasured"]);var oj=d.enum(["created",…
+                      …"unmeasured"]);var lj=d.enum(["created",…
+line 239, col  8650   …xh.parse(n)}var Q4=td.options;function Qg…
+                      …xh.parse(n)}var tN=td.options;function Qg…
+```
+
+**This is a THIRD candidate the plan does not list**, and it narrows the other
+two. The committed bytes came from a worker in **that same worktree**, and
+rebuilding there three times gave one hash every time:
+
+```
+90301d9ea079   90301d9ea079   90301d9ea079
+```
+
+So the build is stable at this path — which rules out *the same tree building
+differently on successive runs*, and leaves the question of what the worker's
+build had that this one does not. **A different `node_modules` state is the
+obvious suspect** and is untested: the morning's A/B symlinked one tree's
+modules into both, deliberately removing that variable.
+
+**What it costs, concretely:** the gate rejected an otherwise-green PR, and the
+fix was a rebuild committed by hand. That is the second time in two days the
+same two-identifier shape has cost a round trip.
+
+**Candidate 1 gains a rival, and candidate 2 is now unlikely.** The client is
+rebuilt by `pnpm build:board` in both cases, so a stale `dist/client/` cannot
+explain a diff this small — 582 KB of embedded HTML would not survive as two
+short names.
+
 ### What this leaves
 
 The `Measured 2026-08-29` block above reports two artifact hashes under the
