@@ -629,6 +629,32 @@ without cleanup:  survivors 2
 with    cleanup:  survivors 0     # kill "$m1" "$m2" after wait
 ```
 
+**Corrected 2026-08-30, later the same day: `wait` alone is not enough.**
+Watching a real timeout separated two cases that the first reading merged:
+
+| the wrapper ends... | the monitors |
+|---|---|
+| normally, the agent having finished | **die with it** |
+| killed at the `Worker bound` (`Killed: 9`) | **are orphaned** |
+
+Six monitors were observed dying between two samples, as the log worker's
+wrapper exited normally; the 204 orphans alive at the same moment all came from
+runs that were killed. So the leak is not the ordinary path at all — it is the
+`kill -9` path, and **that is exactly the path a line after `wait` never
+reaches**.
+
+**So it needs both**, and the earlier ranking of them was backwards:
+
+- a `trap` on EXIT/TERM, which is the only thing that runs when the wrapper is
+  killed — the case that actually leaks
+- the `kill` after `wait`, which covers the ordinary path deterministically
+  rather than relying on a signal handler firing during normal exit
+
+The earlier text called the trap "the weaker candidate" on the grounds that it
+fires where no exit record was written. That is true and is not a drawback: a
+wrapper being killed is precisely when its monitors must not survive, because
+nothing will ever come back to reap them.
+
 **So the monitors must end where the exit code is written** — the one point
 that already runs exactly once, after the agent and before the wrapper goes.
 Capture both pids at launch and kill them there. A `trap` on EXIT would be the
