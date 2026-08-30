@@ -161,7 +161,7 @@ holding this behind it would be waiting for a pattern rather than a dependency.
 log removal each land on their own, and only Moving needs Resolving first.
 
 
-### Resolving (Branch: infra/one-place-decides-where-a-log-lives)
+### Resolving (Branch: infra/one-place-decides-where-a-log-lives, PR: #537)
 
 `agent-log.ts`, and the nine modules asking it instead of resolving themselves.
 
