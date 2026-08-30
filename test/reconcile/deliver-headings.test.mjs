@@ -33,7 +33,7 @@ const sedRange = (() => {
   return m[1];
 })();
 
-function branchesFrom(planBody) {
+const branchesFrom = (planBody) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-deliver-headings-'));
   try {
     const plan = path.join(dir, 'plan.md');
@@ -45,7 +45,7 @@ function branchesFrom(planBody) {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-}
+};
 
 const body = (heading) => `# A plan
 
