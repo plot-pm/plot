@@ -153,6 +153,36 @@ They do not collide. That plan repoints callers at rules that already exist in
 two places; this one creates rules that exist in one place — the wrong one.
 **The overlap is `deliver`, and it is already moved.**
 
+### What this also buys: the suite stops being slow
+
+**Measured 2026-08-30, while diagnosing a CI timeout:**
+
+```
+validate on main            12:10   against a 15-minute ceiling
+dispatch.test.mjs           >120 s  one file, 10 real repos/processes
+reapable.test.ts (domain)      1 s  the same kind of rule, over values
+```
+
+**`validate` is under three minutes from its ceiling on a green run**, and one
+shell integration file sets the floor for the whole reconcile suite — `node
+--test` already parallelises over 16 cores, so the suite cannot finish faster
+than its slowest file.
+
+**The reason that file is slow is the reason this plan exists.** It creates real
+git repositories and spawns real processes to exercise rules that could be asked
+directly. A rule in the domain is tested against values: **1 second**.
+
+**So the suite's cost is a symptom, not a separate problem.** Every verdict this
+plan moves is one fewer thing that needs a repository to test — and the same is
+true of `the-exclusion-names-what-it-hides` (mock adapters make the untestable
+testable) and `a-ui-test-needs-data-not-a-board` (42 of 43 browser tests start a
+board server).
+
+**Recorded here rather than acted on.** Speeding up a test file is not this
+plan's subject; noting that its slices remove the reason for the slowness is,
+because otherwise someone will open a separate plan to optimise a test that
+should stop existing.
+
 ## Slices
 
 ### Verdicts (Branch: feature/a-verdict-is-a-domain-rule)
