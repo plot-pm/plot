@@ -363,15 +363,29 @@ adherence to prose, message clarity, real detached workers).
 Every skill MUST have a `metadata.version` field in its SKILL.md frontmatter.
 
 **Do not edit versions by hand.** Declare the bump in your changeset and let the
-release process apply it:
+release process apply it — **with the description FIRST and the `bumps:` block
+LAST:**
 
 ```markdown
+---
+'plot': patch
+---
+
+The description, which is what the changelog publishes.
+
 <!--
 bumps:
   skills:
     plot-dispatch: minor
 -->
 ```
+
+**The order is not cosmetic.** Changesets publishes the first line after the
+frontmatter, whatever it is, so a `bumps:` block written first becomes the
+release note and the description behind it never ships. Measured 2026-08-30:
+19 of 169 published entries — 11% — printed a bare comment-open marker as
+their whole description. `./scripts/check-changeset-packages.sh` now refuses
+that, and a description shorter than 20 characters.
 
 Choose the level the way semver asks:
 

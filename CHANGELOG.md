@@ -1,4 +1,4 @@
-# plot
+# plot — entries before 2026-08-30 may show a bare comment marker instead of a description ([why](#a-note-on-entries-before-2026-08-30))
 
 ## 2.12.0
 
@@ -5713,3 +5713,19 @@ it`, passing on rerun with the identical commit), a `pnpm board` that refused to
 - Split plot skills into standalone repo from eins78/skills
 - Rewrite CLAUDE.md as Plot-specific contributor guide
 - Standardize tooling discovery format, third-person voice, and sync comments
+
+---
+
+## A note on entries before 2026-08-30
+
+**Some entries above show a bare comment-open marker instead of a
+description.** Changesets publishes the first line after a changeset's
+frontmatter, and a `bumps:` comment written first became that line — so the
+description behind it was never published. It affected 19 of the 169 entries
+in this file, and stopped on 2026-08-30, when
+`scripts/check-changeset-packages.sh` began refusing such a changeset.
+
+**The PR link on each affected entry still works, and is what that entry
+changed.** They are left exactly as they shipped: this file records past
+releases, and 14 of the 19 have no recoverable changeset file to restore the
+wording from.
