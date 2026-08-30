@@ -56,6 +56,18 @@
 #                                 cannot answer reports (absent is not false)
 #                                 --limit raises the host CLI's default page of
 #                                 30, which --state all exhausts immediately
+#                                 THREE OUTCOMES, KEPT APART — the same rule
+#                                 issue-list states below, which this path
+#                                 collapsed until 2026-08-30. An empty list
+#                                 means the host answered and there are none
+#                                 (exit 0, no rows); a failed question exits
+#                                 non-zero with EMPTY stdout, never a silent
+#                                 empty list. EXIT 5 is a rate limit — primary
+#                                 or secondary — and exit 3 is any other
+#                                 failure. The two are separate because they
+#                                 ask for different responses: 5 says wait, 3
+#                                 says look. An unrecognised error is never
+#                                 given the more specific name.
 #   runs <branch> [--limit N]     a branch's own recent CI runs, newest first,
 #                                 as JSON lines: {"workflow":"CI",
 #                                 "conclusion":"success|failure|…",
@@ -159,6 +171,98 @@ die() { echo "plot-host: $*" >&2; exit 1; }
 # generic 1. A Jenkins overlay with no instance to ask is such a case: a config
 # error a person must fix, not a transient the board should retry past.
 die3() { echo "plot-host: $*" >&2; exit 3; }
+
+# Exit 5 — the host refused to answer FOR NOW. A rate limit, primary or
+# secondary: nothing is broken, nothing needs fixing, and the same question
+# asked later will be answered.
+#
+# ITS OWN CODE BECAUSE IT ASKS FOR A DIFFERENT RESPONSE. Exit 3 says *something
+# is wrong and a person must look*; this says *wait*. A caller that folded them
+# would counsel one when it meant the other, and the fleet scan's summary word
+# is exactly that choice made visible.
+#
+# NOT A RETRY, HERE OR ANYWHERE IN THIS ADAPTER. Whether to wait is the
+# caller's decision — a board on a 5 s cadence, a scan inside a 90 s budget and
+# a person at a terminal want three different answers — and a retry inside the
+# adapter would hide the very state this code exists to surface, turning a
+# reportable fact into an unexplained four-minute call.
+die5() { echo "plot-host: $*" >&2; exit 5; }
+
+# WHICH FAILURE, read off the wording — the same shape `bb_issue_exit_code`
+# uses, and for the same reason: the exit code cannot split these cases. `gh`
+# exits 1 for a rate limit and for a 503 alike, and puts the whole difference
+# in its stderr.
+#
+# THE SPLIT FALLS ONE WAY ONLY. An unrecognised error is never given the more
+# specific name. `throttled` counsels patience, and patience does not fix an
+# outage — so anything this does not recognise stays `failed`, which counsels
+# looking. That is the same direction `bb_issue_exit_code` refuses to guess in,
+# where an unrecognised error must be 3 rather than 4.
+#
+# BOTH LIMITS, because only one of them says "rate limit". The primary limit
+# announces itself (`API rate limit already exceeded`); the SECONDARY limit —
+# concurrent-request throttling, which is the outage this repo actually had on
+# 2026-08-27 with eight workers against a cap of seven — reports a 403 naming
+# abuse detection, while `gh api rate_limit` reads 5000/5000 on both buckets.
+# Matching only the first would miss the one that bit.
+host_failure_kind() { # $1=stderr text → throttled|failed
+  if LC_ALL=C grep -qiE 'rate limit|ratelimit|too many requests|\b429\b|secondary rate|abuse detection|exceeded a secondary' <<<"$1"; then
+    echo throttled
+  else
+    echo failed
+  fi
+}
+
+# A failed `pr-list`, reported and never swallowed.
+#
+# THREE OUTCOMES, KEPT APART — the rule `issue-list` states in full and this
+# path collapsed until 2026-08-30. An empty list means the host answered and
+# there are none; a non-zero exit with empty stdout means the question failed.
+# Printing nothing while exiting non-zero is what says which.
+#
+# NO EMPTY-LIST FALLBACK, for the reason `issue-list` gives: `host_miss_or_fail`
+# exists for a lookup whose subject is absent — one PR that does not exist. A
+# LIST has no absent subject, so if the call failed, the answer is unknown.
+pr_list_failed() { # $1=stderr text
+  local err="$1"
+  if [ "$(host_failure_kind "$err")" = throttled ]; then
+    die5 "pr-list: host throttled — ${err:-the host refused the request and said nothing}"
+  fi
+  die3 "pr-list: ${err:-the host failed the request and said nothing}"
+}
+
+# Run one `pr-list` host call, or die reporting which failure it was.
+#
+# SIX CALL SITES SHARE THIS, and that is the point rather than a tidy-up.
+# `pr-list` branches on backend × rich × Jenkins into six separate invocations,
+# each of which had its own unchecked assignment; a fix applied by hand six
+# times is a fix that drifts, and the arm that drifts is the one nobody's repo
+# exercises. `plot-pr-merged.sh` makes the same argument for being sourced
+# rather than copied: two implementations of one gate fail toward permissive,
+# and permissive here means the silent empty list this exists to remove.
+#
+# The output goes to STDOUT for the caller to capture; only the error text is
+# spooled, because it is needed twice — once to classify and once to report.
+#
+# EVERY CALL SITE MUST WRITE `|| exit $?`, AND IT IS NOT OPTIONAL. This is
+# invoked as `_raw="$(pr_list_call …)"` — a COMMAND SUBSTITUTION, which is a
+# subshell — so the `exit` inside `die5`/`die3` leaves that subshell only. The
+# outer script would carry on with `_raw` empty and `jq` would emit nothing:
+# the silent empty list this whole helper exists to remove, rebuilt one layer
+# further in and harder to see. The same trap `bb_states_for` documents a few
+# hundred lines below, where a `die` in a subshell turned an unknown state into
+# "no PRs matched".
+pr_list_call() { # "$@"=the host command → payload on stdout, or dies
+  local out rc err tmp="/tmp/plot-host-prlist-err.$$"
+  out="$("$@" 2>"$tmp")"; rc=$?
+  err="$(cat "$tmp" 2>/dev/null)"; rm -f "$tmp"
+  [ "$rc" -eq 0 ] || pr_list_failed "$err"
+  # A non-empty stderr on a SUCCESSFUL call is a warning, not a verdict — `gh`
+  # writes deprecation notices there. Passed through so it is not lost, while
+  # the payload is still returned.
+  [ -n "$err" ] && echo "$err" >&2
+  printf '%s' "$out"
+}
 
 # --- Jenkins CI integration ------------------------------------------------
 # A repo may declare `CI: jenkins` independently of `Git host`. When it does,
@@ -1288,8 +1392,8 @@ case "$op" in
           #   $jstatus != "ok"  → Jenkins could not answer; every row `unknown`.
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
-          _gh_raw="$(gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url)"
+          _gh_raw="$(pr_list_call gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+            --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
@@ -1317,8 +1421,8 @@ case "$op" in
               }'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
-          _gh_raw="$(gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url)"
+          _gh_raw="$(pr_list_call gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+            --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_gh_raw" \
@@ -1348,8 +1452,8 @@ case "$op" in
               }'
         fi
       else
-        _gh_raw="$(gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
-          --json number,title,state,headRefName)"
+        _gh_raw="$(pr_list_call gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          --json number,title,state,headRefName)" || exit $?
         pr_list_report_truncation github "$limit" "$state" \
           "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
         printf '%s' "$_gh_raw" \
@@ -1388,7 +1492,7 @@ case "$op" in
           # the GitHub arm uses, which is why it lives above the backend branch.
           # `bb`'s standing `unknown` becomes a real value where Jenkins answers.
           for _s in $bb_states; do
-            _bb_raw="$(bb pr list --state "$_s" --json)"
+            _bb_raw="$(pr_list_call bb pr list --state "$_s" --json)" || exit $?
             pr_list_report_truncation bitbucket "$limit" "$_s" \
               "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
             printf '%s' "$_bb_raw" \
@@ -1417,7 +1521,7 @@ case "$op" in
         else
           # Bitbucket without Jenkins: checks remain unknown
           for _s in $bb_states; do
-            _bb_raw="$(bb pr list --state "$_s" --json)"
+            _bb_raw="$(pr_list_call bb pr list --state "$_s" --json)" || exit $?
             pr_list_report_truncation bitbucket "$limit" "$_s" \
               "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
             printf '%s' "$_bb_raw" \
@@ -1426,7 +1530,7 @@ case "$op" in
         fi
       else
         for _s in $bb_states; do
-          _bb_raw="$(bb pr list --state "$_s" --json)"
+          _bb_raw="$(pr_list_call bb pr list --state "$_s" --json)" || exit $?
           pr_list_report_truncation bitbucket "$limit" "$_s" \
             "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_bb_raw" \

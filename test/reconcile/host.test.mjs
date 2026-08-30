@@ -2281,3 +2281,112 @@ test('host: pr-state bitbucket is unaffected — no budget query, no REST', () =
   assert.deepEqual(out, { number: 7, state: 'MERGED', draft: false, url: 'https://bb.test/pr/7' });
   assert.equal(argvOf(stubs.ghArgv), null, 'the GitHub CLI is not touched on a Bitbucket repo');
 });
+
+// --- pr-list: THREE OUTCOMES, KEPT APART -----------------------------------
+//
+// `issue-list` states the rule in full and has held it since it was written:
+// an empty list means the host answered and there are none; a non-zero exit
+// with empty stdout means the question failed; exit 4 means this host cannot
+// be asked at all.
+//
+// `pr-list` collapsed the first two until 2026-08-30. The call was unchecked —
+// `_gh_raw="$(gh pr list …)"` under `set -uo pipefail` with NO `-e` — so a
+// failed `gh` continued with `_gh_raw` empty, `jq` emitted nothing, and the
+// caller received an empty list. Reproduced against a nonexistent repo:
+// `exit=1`, stdout empty, indistinguishable from *there are no PRs*.
+//
+// WHAT IT COST, measured 2026-08-30: `#513` was merged, and minutes later the
+// fleet scan reported its branch `open` and counted it among the unfinished,
+// with `merge_detect=pr-merge` in the summary — which reads as *the host was
+// asked and answered*. What had actually happened was
+// `GraphQL: API rate limit already exceeded for user ID 870334`, and nothing
+// in the output was a warning.
+//
+// `pr-list` is ONE GraphQL call in place of ~186 REST calls, a deliberate and
+// good trade whose consequence is that throttling takes out EVERY PR answer at
+// once rather than degrading row by row. So the whole fleet read unmerged,
+// every wave stayed blocked, and the board showed a busy estate with nothing
+// eligible — indistinguishable from work genuinely in flight.
+
+test('host: a failed pr-list exits non-zero and prints nothing on stdout', () => {
+  const stubs = makeStubs({ ghFail: 'GraphQL: API rate limit already exceeded for user ID 870334.' });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0, 'a failed list must not exit 0 — the scan checks the code');
+  assert.equal(res.stdout.trim(), '',
+    'stdout must be empty: an empty list is a parseable answer, and this is not one');
+  assert.match(res.stderr, /rate limit/i, "the host's own words reach the caller");
+});
+
+// THE ASSERTION THAT CARRIES THE SLICE. Without it the fix could be "treat
+// empty as throttled", which trades a silent wrong answer for a noisy one and
+// breaks every repo that genuinely has no open PRs.
+test('host: an EMPTY pr-list is an answer — exit 0, no rows', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0, 'a host that answered "none" answered');
+  assert.equal(res.stdout.trim(), '', 'no rows, because there are none');
+  assert.equal(res.stderr.trim(), '', 'and nothing to warn about');
+});
+
+// The same rule on the --rich path, which is the one the fleet scan uses. The
+// two arms build different GraphQL queries and each had its own unchecked
+// call, so one fixed arm proves nothing about the other.
+test('host: a failed pr-list --rich fails too', () => {
+  const stubs = makeStubs({ ghFail: 'GraphQL: API rate limit already exceeded for user ID 870334.' });
+  const res = runAllowFail(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.notEqual(res.code, 0, '--rich is the path the fleet scan takes');
+  assert.equal(res.stdout.trim(), '', 'and it must be as silent as the plain one');
+});
+
+test('host: an empty pr-list --rich is still an answer', () => {
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['pr-list', '--rich'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 0, 'a repo with no PRs is not a broken host');
+  assert.equal(res.stdout.trim(), '', 'zero rows');
+});
+
+// BITBUCKET TOO. `bb pr list` is called once PER STATE for `--state all`, and
+// a failure in any of them leaves that state's rows missing from a list the
+// caller reads as whole — the same collapse, spread across several calls.
+test('host: a failed bitbucket pr-list exits non-zero and prints nothing', () => {
+  const stubs = makeStubs({ bbFail: 'An error occurred: connection refused' });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.notEqual(res.code, 0, 'bitbucket collapses the same two outcomes');
+  assert.equal(res.stdout.trim(), '', 'and must be as silent about it');
+});
+
+// --- the WORD, because throttled and failed need different responses --------
+//
+// `bb_issue_exit_code` is the model: the exit code cannot split the cases, so
+// the WORDING does, and the split falls one way only — an unrecognised error
+// is never given the more specific name. Here `throttled` is the specific one:
+// it says *ask again later*, where `failed` says *something is broken*. A
+// scan reporting `throttled` tells an operator to wait; one reporting `failed`
+// tells them to look. Guessing `throttled` from an unrecognised message would
+// counsel patience for an outage that patience will not fix.
+test('host: pr-list names a rate limit as THROTTLED, not merely failed', () => {
+  const stubs = makeStubs({ ghFail: 'GraphQL: API rate limit already exceeded for user ID 870334.' });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 5, 'exit 5 is "the host refused to answer for now"');
+  assert.match(res.stderr, /throttled/i, 'and the word is in the message a human reads');
+});
+
+test('host: pr-list names any OTHER failure plainly, never as throttled', () => {
+  const stubs = makeStubs({ ghFail: 'error connecting to api.github.com: 503 Service Unavailable' });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 3, 'an unrecognised failure keeps the generic code');
+  assert.doesNotMatch(res.stderr, /throttled/i,
+    'guessing "throttled" would counsel waiting out an outage that waiting will not fix');
+});
+
+// A SECONDARY LIMIT IS STILL A LIMIT, and it does not say "rate limit". The
+// outage measured on 2026-08-27 was GitHub's concurrent-request throttling —
+// eight workers against a cap of seven — and both budgets read 5000/5000 while
+// every call was refused. It reports itself as a 403 naming abuse detection.
+test('host: pr-list reads a secondary-limit 403 as throttled too', () => {
+  const stubs = makeStubs({
+    ghFail: 'HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.',
+  });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 5, 'the secondary limit is the one that actually bit this repo');
+});
