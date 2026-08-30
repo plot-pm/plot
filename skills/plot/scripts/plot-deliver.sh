@@ -124,11 +124,23 @@ esac
 # deferred is a refusal.
 
 # Parse branches from the plan file, respecting deferred annotations.
-# Read the plan's branches section (from EITHER spelling — ## Branches or ## Waves).
+# Read the plan's branches section (from ANY of the three spellings —
+# ## Branches, ## Waves or ## Slices).
 plan_content=$(cat "$plan_file")
 
-# Extract branch lines from ## Branches or ## Waves section
-branches_section=$(printf '%s' "$plan_content" | sed -n '/^## *[Bb]ranches\|^## *[Ww]aves/,/^## /p')
+# Extract branch lines from the branches section, whichever heading names it.
+#
+# `## Slices` is the spelling DESIGN-slice.md settles on, and `plot-plan-meta.sh`
+# has read it since the migration began — this script had not, so a plan written
+# in the current vocabulary parsed to ZERO branches here. That is the worst
+# possible shape for the failure: no error, an empty list, and a delivery gate
+# that passes because it found nothing to check. Measured 2026-08-30, two
+# approved plans were in exactly that state.
+#
+# All three arms share one range for the same reason plot-plan-meta.sh shares
+# one: the section's SHAPE is identical whichever word heads it, and a second
+# range would be a second implementation of a re-spelling, free to drift.
+branches_section=$(printf '%s' "$plan_content" | sed -n '/^## *[Bb]ranches\|^## *[Ww]aves\|^## *[Ss]lices/,/^## /p')
 
 # A BRANCH LINE CARRIES A BRANCH PREFIX, and without that test a changelog
 # bullet is read as a branch. The section range above closes at the next `## `,
@@ -151,7 +163,7 @@ old_style_branches=$(printf '%s' "$branches_section" \
   | sed 's/^- `//; s/`$//' \
   | sort -u || true)
 
-# Parse branches from new-style ## Waves section (Branch: in ### headings)
+# Parse branches from a new-style ## Waves / ## Slices section (Branch: in ### headings)
 new_style_branches=$(printf '%s' "$branches_section" \
   | grep -oE "### .*\(Branch: ($prefix_re)/[A-Za-z0-9_./-]+" 2>/dev/null \
   | sed 's/.*Branch: //' \

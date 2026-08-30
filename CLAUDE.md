@@ -270,6 +270,25 @@ fields** — which is precisely the shape this split keeps expressible.
 **Arrow functions, not declarations.** `export const f = (…) => …` in the domain
 package. The board's style is not the model here.
 
+**And anywhere else, a function you write or rewrite is an arrow.** The scope
+above is about what gets CONVERTED, not about what gets written: the board is
+not migrated wholesale, but a new helper in a board file or a test is an arrow
+like everything else. The rule follows the diff.
+
+**The unit is the function, not the file.** Renaming a type inside an existing
+signature does not make its 60 neighbours yours to rewrite — that produces a
+diff with no behaviour change and destroys `git blame` for every touched line,
+which is the same measurement that scoped the conversion in the first place.
+If you are writing the body, it is an arrow; if you are passing through, leave
+it.
+
+**No gate enforces this outside `packages/domain/src/`**, and the CI check
+greps only there. Measured 2026-08-30: a new test helper in `test/reconcile/`
+was written as a declaration, sitting between two arrows in the same file, and
+what caught it was a person reading the diff. That is the difference this repo
+draws between a rule and a gate — so this one is a rule, and it needs reviewers
+who know it.
+
 **Factual API documentation.** A TSDoc block says what an export does, what its
 parameters mean, what it returns, and how it fails. It does not narrate the
 history of the decision. Measured on the first rule moved into the package:
