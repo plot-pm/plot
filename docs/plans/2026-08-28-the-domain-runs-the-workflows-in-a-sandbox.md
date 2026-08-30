@@ -268,7 +268,7 @@ Reading ──┬─→ Agreeing ─────┐
           └─→ Dispatching ──┘
 ```
 
-### Reading (Branch: feature/the-ports-have-adapters)
+### Reading (Branch: feature/the-ports-have-adapters, PR: #530)
 
 **The seven ports are declared here, not assumed.** `PlanStore`, `Refs`,
 `Host`, `Processes`, `Trees`, `Clock` and `Machine` become `ports/*.ts` in this
