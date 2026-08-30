@@ -11,7 +11,7 @@ import {
 } from '../../src/server/auto-dispatch.js';
 import { FleetPulseSchema, type FleetPulse } from '../../src/contract/schema.js';
 import type { AgentEntry } from '../../src/server/registry.js';
-import type { FleetControls } from '../../src/server/fleet-controls.js';
+import type { FleetSettings } from '../../src/server/fleet-settings.js';
 
 // Wave 3 of approval-hands-the-work-to-agents. The planner is the DECISION half
 // of auto-dispatch: given the controls, the pulse, and how many workers are
@@ -60,7 +60,7 @@ const pulse = (
     },
   });
 
-const controls = (autoDispatch: boolean, parallelAgents: number): FleetControls => ({
+const controls = (autoDispatch: boolean, parallelAgents: number): FleetSettings => ({
   autoDispatch,
   parallelAgents,
 });

@@ -39,7 +39,7 @@ import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
 import { collectSprints, planStatusBySlug, readConfig, type BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
-import { readFleetControls } from './fleet-controls.js';
+import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
 import { maybeAutoDeliver } from './auto-deliver.js';
 import { readAgentRegistryWithInfo, bashCleanliness } from './registry.js';
@@ -2308,7 +2308,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     entry.autoInFlight = maybeAutoDispatch(
       opts,
       complete,
-      readFleetControls(opts),
+      readFleetSettings(opts),
       entry.agents,
       entry.autoInFlight,
     );
@@ -5921,7 +5921,7 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // from disk on every refresh, and absence means no dispatch has run — a
     // fact, not an unreachable host.
     fleetControls: {
-      ...readFleetControls(opts),
+      ...readFleetSettings(opts),
       working: entry.agents.filter((a) => isLiveState(a.state)).length,
     },
     // The Active sprints, each with release and four `status` counts, aggregated

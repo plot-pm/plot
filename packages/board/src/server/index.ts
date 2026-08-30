@@ -11,7 +11,7 @@ import { dispatchAvailability, dispatchLog, dispatchLogPath, handleDispatch, SLU
 import { isUnderAgentLogDir } from './agent-log.js';
 import { continueAvailability, handleContinue } from './continue.js';
 import { handleClaim } from './claim.js';
-import { handleFleetControls } from './fleet-controls.js';
+import { handleFleetSettings } from './fleet-settings.js';
 import { handleTransition } from './transition.js';
 import { refuseIfGated } from './write-gate.js';
 import { agentPanel } from './agent-panel.js';
@@ -259,7 +259,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // is the resulting controls — never a bare acknowledgement, the /api/claim
     // contract. This wave dispatches NOTHING: the switch records an intention
     // wave 3 reads, and turning it on here starts no agent.
-    { path: '/api/fleet-controls', verb: 'setting fleet controls', handle: handleFleetControls },
+    { path: '/api/fleet-controls', verb: 'setting fleet controls', handle: handleFleetSettings },
     // POST /api/registry/drop — remove a registry entry that is no longer running.
     //
     // The board's manual reconciliation: an agent whose manifest outlives its

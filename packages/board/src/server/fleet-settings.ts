@@ -5,7 +5,12 @@ import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 
 /**
- * THE TWO FLEET CONTROLS AND THEIR SHARED STATE.
+ * THE TWO FLEET SETTINGS AND THEIR SHARED STATE.
+ *
+ * Named `fleet-settings` rather than `fleet-controls`: this module holds the
+ * settings, while the surface an operator clicks is `FleetControls.tsx`. Two
+ * modules whose names differ by one letter — one holding config, one answering
+ * every question about the estate — is a confusion that costs somebody an hour.
  *
  * A switch — *is the queue being served?* — and a cap — *how many agents at
  * once?* Two numbers behind the two section headers they describe, and the one
@@ -66,7 +71,7 @@ const PARALLEL_AGENTS_DEFAULT = 3;
 export const MIN_PARALLEL_AGENTS = 1;
 
 /** The current settings, as every reader sees them. */
-export interface FleetControls {
+export interface FleetSettings {
   /** Whether the queue is being served. This wave records it; wave 3 acts on it. */
   autoDispatch: boolean;
   /** How many agents may run at once — never below {@link MIN_PARALLEL_AGENTS}. */
@@ -80,7 +85,7 @@ export interface FleetControls {
  * `bridgePath`. A checked-in copy would be one machine telling another whether
  * its fleet is running.
  */
-export function fleetControlsPath(repoRoot: string): string {
+export function fleetSettingsPath(repoRoot: string): string {
   return path.join(repoRoot, '.plot', 'state', 'fleet-controls.json');
 }
 
@@ -95,7 +100,7 @@ export function fleetControlsPath(repoRoot: string): string {
  * truthy coercion. The cap is parsed and floored: a non-numeric or sub-floor
  * config value falls back to the default rather than seeding an illegal state.
  */
-export function defaultFleetControls(opts: BuildBoardOptions): FleetControls {
+export function defaultFleetSettings(opts: BuildBoardOptions): FleetSettings {
   const rawSwitch = readConfig(opts, AUTO_DISPATCH_KEY, String(AUTO_DISPATCH_DEFAULT)).trim();
   const rawCap = readConfig(opts, PARALLEL_AGENTS_KEY, String(PARALLEL_AGENTS_DEFAULT)).trim();
   const parsedCap = Number.parseInt(rawCap, 10);
@@ -116,7 +121,7 @@ export function defaultFleetControls(opts: BuildBoardOptions): FleetControls {
  * the floor — the same clamp the write applies, so a file hand-edited to 0 does
  * not read back as a stopped fleet the switch did not ask for.
  */
-function coerce(raw: unknown, fallback: FleetControls): FleetControls {
+function coerce(raw: unknown, fallback: FleetSettings): FleetSettings {
   if (typeof raw !== 'object' || raw === null) return fallback;
   const obj = raw as Record<string, unknown>;
   const autoDispatch =
@@ -129,7 +134,7 @@ function coerce(raw: unknown, fallback: FleetControls): FleetControls {
 }
 
 /**
- * The current controls: the file if it holds a well-shaped answer, else the
+ * The current settings: the file if it holds a well-shaped answer, else the
  * config-seeded defaults.
  *
  * Read fresh on every call — this is on `buildFleet`'s render clock, not
@@ -138,11 +143,11 @@ function coerce(raw: unknown, fallback: FleetControls): FleetControls {
  * reads the same values* true: neither process holds authoritative state in
  * memory; both read this file, and the file is the shared answer.
  */
-export function readFleetControls(opts: BuildBoardOptions): FleetControls {
-  const fallback = defaultFleetControls(opts);
+export function readFleetSettings(opts: BuildBoardOptions): FleetSettings {
+  const fallback = defaultFleetSettings(opts);
   let raw: string;
   try {
-    raw = fs.readFileSync(fleetControlsPath(opts.repoRoot), 'utf8');
+    raw = fs.readFileSync(fleetSettingsPath(opts.repoRoot), 'utf8');
   } catch {
     // No file is the ordinary first state, not an error: the machine has never
     // touched a control, so the config defaults ARE the answer.
@@ -159,7 +164,7 @@ export function readFleetControls(opts: BuildBoardOptions): FleetControls {
 }
 
 /**
- * Write the controls, atomically, so two board processes on one repo cannot
+ * Write the settings, atomically, so two board processes on one repo cannot
  * hand each other a torn file.
  *
  * Temp file plus `rename`, the discipline `writeBridge` documents: `rename` is
@@ -175,9 +180,9 @@ export function readFleetControls(opts: BuildBoardOptions): FleetControls {
  * it would leave the board rendering the old answer with no sign the write was
  * lost. The endpoint turns a throw here into a 500 the operator can see.
  */
-export function writeFleetControls(repoRoot: string, controls: FleetControls): void {
-  const file = fleetControlsPath(repoRoot);
-  const clamped: FleetControls = {
+export function writeFleetSettings(repoRoot: string, controls: FleetSettings): void {
+  const file = fleetSettingsPath(repoRoot);
+  const clamped: FleetSettings = {
     autoDispatch: controls.autoDispatch,
     parallelAgents: Math.max(MIN_PARALLEL_AGENTS, Math.trunc(controls.parallelAgents)),
   };
@@ -187,7 +192,7 @@ export function writeFleetControls(repoRoot: string, controls: FleetControls): v
   fs.renameSync(tmp, file);
 }
 
-export interface FleetControlsOptions extends BuildBoardOptions {
+export interface FleetSettingsOptions extends BuildBoardOptions {
   host: string;
   port: number;
 }
@@ -214,7 +219,7 @@ const isInteger = (v: unknown): v is number => typeof v === 'number' && Number.i
 
 /**
  * Handle `POST /api/fleet-controls`. Merges a partial write into the current
- * state and answers with the RESULTING controls, so a caller never asks a second
+ * state and answers with the RESULTING settings, so a caller never asks a second
  * endpoint whether its write landed — the `/api/claim` contract, for the same
  * reason: this route returns state, not an acknowledgement.
  *
@@ -226,14 +231,14 @@ const isInteger = (v: unknown): v is number => typeof v === 'number' && Number.i
  *
  * A partial merge, not a replace: the switch and the stepper post independently,
  * each naming only the field it changes, and the field this body omits keeps the
- * value already on disk. The floor on the cap is applied by `writeFleetControls`,
+ * value already on disk. The floor on the cap is applied by `writeFleetSettings`,
  * so a body naming `parallelAgents: 0` lands as 1 and the response says so — the
  * one truth about the state, returned rather than assumed.
  */
-export async function handleFleetControls(
+export async function handleFleetSettings(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  opts: FleetControlsOptions,
+  opts: FleetSettingsOptions,
 ): Promise<void> {
   const json = (status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -260,7 +265,7 @@ export async function handleFleetControls(
   // Merge onto the CURRENT state, read fresh, so a partial write leaves the
   // other control untouched — and so two near-simultaneous writes each see the
   // most recently persisted value rather than a stale in-memory snapshot.
-  const current = readFleetControls(opts);
+  const current = readFleetSettings(opts);
   let autoDispatch: boolean | undefined;
   let parallelAgents: number | undefined;
   try {
@@ -271,13 +276,13 @@ export async function handleFleetControls(
     return;
   }
 
-  const next: FleetControls = {
+  const next: FleetSettings = {
     autoDispatch: autoDispatch ?? current.autoDispatch,
     parallelAgents: parallelAgents ?? current.parallelAgents,
   };
 
   try {
-    writeFleetControls(opts.repoRoot, next);
+    writeFleetSettings(opts.repoRoot, next);
   } catch (err) {
     // A control write is a person's explicit act on the fleet — a swallowed
     // failure would leave the board showing the old answer with no sign the
@@ -288,5 +293,5 @@ export async function handleFleetControls(
 
   // The resulting state, re-read so the response reflects exactly what a reader
   // will get on the next poll — the floor already applied, no field guessed.
-  json(200, readFleetControls(opts));
+  json(200, readFleetSettings(opts));
 }
