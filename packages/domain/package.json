@@ -13,7 +13,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:corpus": "vitest run --config vitest.corpus.config.ts"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "4.1.11",
