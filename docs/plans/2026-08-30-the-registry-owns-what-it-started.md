@@ -52,6 +52,37 @@ the answer is written down and nobody asks it — which is why
 `DESIGN-machine.md` spent two revisions arguing about predicting capacity while
 `DESIGN-agent.md` was already counting it.
 
+### The machine measures itself, and nothing asks it either
+
+The same shape, one entity over. `packages/domain/src/entities/machine.ts` is
+complete: `headroomFor`, `measureMachine`, `hasRoomToDispatch`,
+`HEADROOM_THRESHOLDS` (`clear < 10 ms`, `starved > 50 ms`), a `MachineReading`
+port that returns the reading and refuses to return the verdict, a
+`machine-system.ts` adapter that times real forks with `git rev-parse --git-dir`,
+and `machine.test.ts` beside it.
+
+**Measured 2026-08-30: zero consumers of any of the three, and the adapter is
+constructed nowhere.**
+
+```
+grep hasRoomToDispatch | measureMachine | headroomFor   →   0 outside machine.ts
+grep machine-system                                     →   0 outside adapters/
+```
+
+**And it was needed the same day.** Deciding whether to dispatch, the spawn cost
+was measured **by hand** — `for i in $(seq 1 100); do git rev-parse; done` — and
+read against thresholds transcribed from the docstring:
+
+```
+23.3 ms   tight     (154 monitor processes, 152 of them orphaned)
+76.5 ms   tight     (eight orphaned load loops from a merged branch, 100% CPU each)
+ 4.8 ms   clear     (after both were cleaned up)
+```
+
+Load average read 13.0 across all three, unchanged — which is exactly the
+argument `headroomFor`'s own docstring makes for ignoring it. **The domain had
+that answer and the operator retyped it.**
+
 ### The manifest records one pid of three
 
 Measured on a live dispatch, 2026-08-30:
@@ -147,6 +178,33 @@ it is.
 cap. That is `bug/a-landed-branch-still-holds-a-slot`, measured 2026-08-25, and
 a test must fail if this slice re-inverts it.
 
+### Asking the machine (Branch: feature/a-dispatch-asks-the-machine)
+
+`planAutoDispatch` asks `hasRoomToDispatch` before starting, through the
+existing `machine-system` adapter.
+
+**Where it goes is decided:** `auto-dispatch.ts:229` and `:527` compute
+`budget = parallelAgents - (liveCount + inFlight)`. The machine question sits
+beside that, in the same function the Asking slice gives `isFree` — a dispatch
+asks two things, *is an agent free* and *has the machine room*, and both belong
+where the budget is already computed.
+
+**Done when** a `starved` reading defers a dispatch and **names its number**;
+a `clear` or `tight` reading dispatches; an `unmeasured` reading dispatches
+(**silence is never a refusal** — `measuredAt` is required, and a reading nobody
+can date is `unmeasured`); the deferral is **overridable**, because
+`DESIGN-machine.md` §10 makes this a deferral and not a veto; and the sampling
+cost is bounded so the observer does not become the load it measures.
+
+**The message must carry the measurement.** *"not yet: spawn cost 287 ms against
+a clear reading of 4.8 ms"* is answerable; *"too much load"* is not, and load
+average is explicitly not the verdict.
+
+**The regression to lock:** `headroomFor` must keep ignoring load average. A
+test that feeds a high load average with a low spawn cost and expects `clear`
+fails if someone later "improves" the verdict by consulting it — the failure
+this repo already measured twice.
+
 ### Recording (Branch: feature/a-manifest-names-every-process)
 
 The manifest records the processes the registry spawned, not one of them.
@@ -160,6 +218,8 @@ killing the agent and finding the group still recorded.
 ## Done when
 
 1. `isFree` has a production caller, and the two counts stay distinct.
+1b. `hasRoomToDispatch` has a production caller, and a starved machine defers
+   with its number rather than refusing silently.
 2. The 2026-08-25 cap defect has a regression test that fails if it returns.
 3. A live manifest names every process the registry started for that agent.
 4. An old manifest without the field still parses.
