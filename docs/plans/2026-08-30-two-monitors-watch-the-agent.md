@@ -132,39 +132,62 @@ said running — and becomes an AgentMonitor finding the moment that process is
 ended. **A single monitor would have had to sample the host every few seconds to
 catch the first, or wait minutes to catch the second.**
 
-### How a monitor reports: a file, read by the scan. No channel.
+### How a monitor reports: it publishes to a channel
 
-**There is no subscription, and adding one would be a second transport beside a
-working first.** Everything a worktree tells the fleet today travels the same
-way: the monitor writes a file in the worktree, and the scan reads it on the
-next pulse. `plot-worker-state.sh` already reads exactly four —
-`.plot-worker.pid`, `.plot-worker.exit`, `.plot-worker.log`,
-`.plot-worker.wrapper` — and the board polls every 5 s with no SSE, no
-WebSocket, and nothing subscribing to anything.
+**The monitor polls so that nobody else has to.** That is the whole trade, in
+one sentence: polling a process for its CPU clock and a host for a PR is
+unavoidable — those facts have to be gone and fetched — so exactly one component
+does it, and everyone else subscribes.
 
-**Two files, one per monitor**, following the naming already in use:
+**Any number of interested parties subscribe; none of them poll anything.** The
+board renders the findings, the master agent acts on them, and a third consumer
+tomorrow needs no change to either the monitor or the other subscribers. **The
+polling cost stays at one, whatever the number of subscribers** — which is the
+property a file, read once per reader per pulse, cannot have.
 
-```
-.plot-worker.activity   what the process is doing   written by the WorkerMonitor
-.plot-agent.debt        what the agent owes         written by the AgentMonitor
-```
+**An earlier draft had them writing files the scan would read, and that was
+wrong on the numbers.** Measured 2026-08-30:
 
-**Each write is a whole-file replace of the current answer, not an append.**
-The file holds *what is true now*, so a reader never parses a history and a
-crashed monitor leaves the last honest answer rather than a truncated line.
-The log is the place for history and already exists.
+| | |
+|---|---|
+| worktrees on this machine | **24** |
+| files the scan already reads per worktree | 4 |
+| files the file design would have added | **2 per worktree — 48 more** |
+| scan duration against the board's 5 s cadence | **18.3 s** |
 
-**This is Manifesto Principle 1 rather than a convenience.** The fleet is
-stateless and re-derived — the scan asks git every pass and discards a cached
-entry the moment it disagrees. A subscription would make the board hold state
-the monitor pushed, which is a record; a file the scan re-reads every pulse is a
-derivation, and a monitor that dies stops updating a file rather than silently
-failing to deliver.
+**It would have polled the same fact twice.** The WorkerMonitor already samples
+every ~30 s — that IS the poll. Having the scan then read the file it wrote is a
+second poll for an answer already computed, on a scan that does not fit its
+cadence today. **The monitor exists to remove the need to go looking, and a file
+that must be looked at reinstates it.**
 
-**Nothing new is invented for delivery.** `worker_activity` already travels this
-route: `plot_worker_activity()` measures it, the scan carries it on the branch
-row, and `schema.ts` documents it as *"forwarded onto the row unchanged"*. The
-monitors' findings ride the same rails.
+**And it would have scattered the state.** 48 files across 24 worktrees is 48
+things to find, age-check and reconcile — and a master agent wanting fleet
+health would have had to walk every worktree. A channel is one thing to
+subscribe to, and it knows its own subscribers.
+
+**Channel, not queue.** Findings are current state, not events to replay: a
+subscriber joining late wants what is true now, not the history of what was.
+So a subscriber receives the current findings on connect and updates thereafter
+— the same shape the board's pulse already has, pushed instead of polled.
+
+**Two subscribers today, and they are the reason it is a channel rather than a
+return value:** the board renders it, the master agent acts on it, and neither
+should have to know the other exists. **A return value serves one caller; a
+channel serves whoever asks**, and the second subscriber costs nothing — no
+extra sampling, no second poll, no coordination between them.
+
+> **The streaming precedent is already here.** `plot-fleet-scan.sh --stream`
+> emits per-plan lines as it resolves, precisely because 18.3 s against a 5 s
+> cadence makes waiting structural. The monitors are that argument taken one
+> step further: do not make anyone wait for a sweep to learn something the
+> monitor already knew.
+
+**What a dead monitor looks like on a channel**, since this is what the file
+design's `sampled` field was for: the monitor holds its subscription, so losing
+it IS the signal. A subscriber sees the connection drop rather than having to
+notice a timestamp going stale — and that is stronger, because a stale file
+still parses and still answers.
 
 ### What a report contains
 
@@ -175,7 +198,6 @@ a stale report detectable rather than misleading.
 |---|---|
 | `finding` | one of the named states, or empty for nothing to say |
 | `since` | when this finding first held, so age is readable |
-| `sampled` | when it was last confirmed — a monitor that stopped is visible |
 | `evidence` | the measurement behind it: the CPU delta, the missing PR, the marker path |
 
 **`evidence` is not decoration.** Every finding here is an anded set of facts,
@@ -183,9 +205,10 @@ and a reader deciding whether to act needs to know which one fired. *"Owes a
 review"* with `evidence: 4 commits ahead, no PR` is actionable; the word alone
 is a claim someone has to re-derive.
 
-**An empty finding is written too.** A file saying *"sampled at T, nothing to
-report"* is different from a file nobody has written since T-40min, and the
-difference is the whole point of monitoring — see the timing table below.
+**Three fields, not four.** A file design needed a `sampled` timestamp so a
+reader could tell a current answer from an abandoned one. A channel does not:
+the monitor holds the subscription, so a monitor that stops is a connection that
+drops, and no consumer has to age-check anything.
 
 ### The cadence, and why it is not the pulse
 
@@ -204,9 +227,19 @@ rebuilds it, at the cost of one interval's delay.
 |---|---|---|
 | samples every | ~30 s | ~5 min |
 | a finding needs | 2 consecutive samples | 1 sample |
-| written to | `.plot-worker.activity` | `.plot-agent.debt` |
-| reaches the board after | the next pulse (≤ 5 s) | the next pulse (≤ 5 s) |
-| **worst case, event to screen** | **~65 s** | **~5 min** |
+| publishes | on change, immediately | on change, immediately |
+| **worst case, event to screen** | **~60 s** | **~5 min** |
+
+**Publishing on change rather than on a tick is what the channel buys.** The
+file design added the board's 5 s pulse on top of every sample interval; here a
+finding leaves the monitor the moment it holds. The remaining latency is the
+sampling itself, which is a property of the measurement rather than of the
+transport.
+
+**Nothing is published when nothing changed.** A subscriber that hears nothing
+is looking at a fleet where nothing changed — and if the monitor itself has
+gone, the subscription drops, which is a different silence and a distinguishable
+one.
 
 **The AgentMonitor's five minutes is a host budget, not caution.** Its findings
 need a PR lookup, and this repository already measured what happens when host
@@ -218,11 +251,10 @@ magnitude, not the seconds.
 idle reading is a process between syscalls. Two, a minute apart, over a tree
 that did not change, is a process that has stopped.
 
-**Both write on every sample, finding or not.** That is what makes `sampled`
-meaningful: a consumer can tell *"nothing wrong 20 s ago"* from *"nobody has
-looked in 40 minutes"*, and the second is itself a finding — the monitor that
-was supposed to be unable to die first has stopped writing, and something is
-wrong with the assumption rather than the agent.
+**A monitor that stops is visible without a heartbeat**, because it holds the
+subscription: the connection drops. That is the file design's `sampled` field
+made structural — a stale file still parses and still answers, while a dropped
+subscription cannot be mistaken for a healthy one.
 
 ### Attaching, and why it cannot be optional
 
@@ -301,8 +333,8 @@ one. Built on `plot_worker_activity()` rather than beside it.
 **Done when** a single idle sample reports nothing, two consecutive idle samples
 over an unchanged tree report `idle`, a tree that changed between samples resets
 the comparison, a dead pid reports `gone`, the monitor makes no host call at all,
-and **every sample rewrites `.plot-worker.activity` whole — including the ones
-with nothing to report**, carrying `finding`, `since`, `sampled` and `evidence`.
+and **it publishes the moment a finding holds and publishes nothing when
+nothing changed**, carrying `finding`, `since` and `evidence`.
 
 **That last clause is the one that keeps the cadences apart.** A WorkerMonitor
 that asks the host has become an AgentMonitor with a fast loop, and the rate
@@ -316,24 +348,29 @@ and `plot-pr-merged.sh`.
 
 **Done when** each of the three findings is individually triggerable in a test,
 `owes a review` fires on a branch with commits and no PR and does NOT fire once
-a PR exists, every sample rewrites `.plot-agent.debt` whole with the four fields,
-and **nothing in it writes outside that one file**.
+a PR exists, it publishes on change with the same three fields,
+and **it writes nothing at all** — publishing is its only output.
 
-### Reporting (Branch: feature/the-monitor-reaches-attention)
+### Reporting (Branch: feature/the-channel-carries-the-findings)
 
-The scan reads the two files and carries their findings on the branch row, the
-way it already carries `worker_activity`; attention derives its entries from
-there.
+The channel itself: monitors publish, the board and the master agent subscribe.
+Attention derives its entries from what the board received.
 
-**Done when** an `owes a review` branch appears on the attention surface, the
-entry names the branch and what to do, it clears when the PR is opened, a
-WorkerMonitor `idle` finding is distinguishable from an AgentMonitor one in the
-entry itself, and **a file whose `sampled` is older than three of its own
-intervals reads as a stopped monitor rather than as its last finding**.
+**Done when**
 
-**That last one is the assertion that keeps a dead monitor from looking
-healthy.** A stale file still parses; without an age check its last answer would
-be served forever as though it were current.
+- a subscriber joining late receives the current findings, not a replay
+- an `owes a review` branch appears on the attention surface, the entry names
+  the branch and what to do, and it clears when the PR is opened
+- a WorkerMonitor `idle` finding is distinguishable from an AgentMonitor one
+- **two subscribers each receive every finding**, and neither needs to know the
+  other exists
+- **a monitor that dies drops its subscription**, and a subscriber can tell that
+  from a monitor with nothing to say
+
+**The last two are the ones a channel has to earn.** One subscriber is a return
+value; two is a channel. And silence-because-healthy versus silence-because-gone
+is the distinction the whole design rests on — if a subscriber cannot tell them
+apart, the monitor has the same blind spot as the agent it watches.
 
 ### Attaching (Branch: feature/every-worker-is-born-monitored)
 
