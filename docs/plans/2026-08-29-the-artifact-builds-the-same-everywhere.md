@@ -236,7 +236,7 @@ rebuild before it costs a CI round trip.
 
 ## Waves
 
-### Measuring (Branch: infra/the-artifact-drift-has-a-cause)
+### Measuring (Branch: infra/the-artifact-drift-has-a-cause, PR: #548)
 
 Work the three candidates above in order, cheapest first, and stop at the one
 that reproduces. The 2026-08-30 run already closes the path question; what
