@@ -58,12 +58,26 @@ The unit is deliberately small. A branch that adopts three rules cannot be
 reverted for one of them, and the board is a surface somebody is watching while
 this lands.
 
-**Each branch does exactly four things:**
+**Each branch does exactly five things:**
 
 1. Point one production call site at the domain
 2. **Delete the old implementation in the same commit**
-3. Keep the existing tests, unchanged, as the regression lock
-4. Rebuild the board artifact
+3. **Correct the skill prose that described it**, in the same commit
+4. Keep the existing tests, unchanged, as the regression lock
+5. Rebuild the board artifact
+
+**Step 3 exists because a script and its skill are one thing described twice.**
+`skills/plot-deliver/SKILL.md` describes the branch-parsing mechanic in three
+places; the moment `plot-deliver.sh` stops parsing, that prose describes code
+that does not exist. It is the same duplication this plan removes from the
+code, one layer up — and prose that has drifted is worse than prose that is
+missing, because an agent follows it.
+
+**It goes in the same commit for the same reason step 2 does.** A documentation
+slice at the end would leave several skills describing removed code for the
+length of the plan, which is exactly the interim state the design forbids for
+implementations. Reviewing them together also means the reviewer sees whether
+the prose still makes sense, not just whether the code compiles.
 
 **Step 2 is the discipline.** An adoption that leaves the old code behind
 "until we're sure" produces a third copy and no forcing function. The corpus
