@@ -319,7 +319,7 @@ domain can be handed this repository's real state through them, and both gates
 pass — the purity grep excluding `adapters/`, and the two-sided completeness
 check above.
 
-### Agreeing (Branch: feature/the-domain-agrees-with-production)
+### Agreeing (Branch: feature/the-domain-agrees-with-production, PR: #532)
 
 The corpus tests, comparing **readings** rather than verdicts: the `PlanStore`
 adapter against `plot-plan-meta.sh` over all 158 plans, and the `Refs` adapter
