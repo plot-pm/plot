@@ -142,6 +142,41 @@ That is a smoke test, and smoke tests earn their cost by being few. Once
 rendering is covered against the catalogue, an end-to-end failure means the
 seam moved, which is exactly the signal a small set of slow tests should carry.
 
+**Challenged 2026-08-30: the eleven are ten, and two of the list's claims do not
+hold.** Each was checked for a server and for `page.route`:
+
+```
+tiny-garden.data/.plan/.story   server=yes
+approve, story-overlay,
+wave-leaves-the-kind-alone      server=yes
+dead-fetch, spinner,
+double-click,
+start-work-refusal              server=yes   AND page.route
+tuple-row                       server=NO
+```
+
+**`tuple-row` starts no server at all.** It bundles the component with `esbuild`
+and renders it in isolation — so it cannot be the end-to-end check this section
+files it as. It is the **opposite**, and it is the only test in the suite that
+already does what this plan proposes.
+
+**That makes it the precedent, not a survivor.** The plan mentions it once, in
+this list, and mentions `esbuild` zero times. A migration with a working example
+in the same directory should start from that example and say why it departs from
+it — the mock-server design may well be right, but it is currently chosen
+without the comparison being made.
+
+**And four of the eleven do stub `/api/*`**, which the sentence above says they
+do not: `dead-fetch`, `spinner`, `double-click`, `start-work-refusal`. Their
+subject is a client behaviour under a controlled response — a stub is the point,
+and none of them is an end-to-end check either. **The honest smoke set is six.**
+
+**Nothing here refutes the plan.** The census that motivates it survives
+re-measurement: 43 browser tests, 43 asserting rendered UI, 39 stubbing, **0**
+importing a shared fixture, and 42 of 43 starting a server. What moved is which
+tests belong in which tier, and the plan's own tiering is the thing that got it
+wrong.
+
 **This is what keeps the split honest in both directions.** A catalogue can
 drift from what the server actually emits — a fixture is only a claim about the
 payload. The eleven are what tests that claim, so the mock never becomes a
