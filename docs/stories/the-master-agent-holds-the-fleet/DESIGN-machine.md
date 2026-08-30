@@ -328,7 +328,8 @@ needed.**
 
 ```
 the operator asks the REGISTRY for N agents
-    → N agents exist; each runs a worker, its process on this machine
+    → the registry SPAWNS each agent; spawning it IS starting its process
+    → that process is the worker. Nothing can start a worker on its own
 the agents work, and the machine comes under pressure from what they DO
     → not from a request arriving at it
 a dispatch goes to a FREE agent — running, between units, holding no slice

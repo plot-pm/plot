@@ -153,12 +153,20 @@ contradiction and is now **withdrawn by the operator who raised it**: a worker
 is a relation, and an idle worker with no agent is not an unpaired relation but
 an absent one. *One entity* stands.
 
+**Stated as a rule, because it decides implementations: nothing starts a
+worker.** There is no call that produces one, and no state in which one is
+waiting. The registry spawns an **agent**, and spawning an agent *is* starting
+its process — the worker is what that process is called when the machine is
+asked about it. A worker therefore cannot predate its agent, cannot outlive it
+as a worker, and cannot be pooled, queued or handed over.
+
 **What the proposal was actually reaching for survives it, and it needs no new
 object:**
 
 ```
 the operator asks the registry for N agents
-    → N agents exist; each runs a worker, which is its process on the machine
+    → the registry SPAWNS each agent, and spawning it IS starting its process
+    → that process is the worker; it cannot predate the agent, or exist without one
 an agent between units is FREE — running, no branch, no slice
     → §"The process states do not say whether an agent is free"
 a dispatch goes to a free agent
