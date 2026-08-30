@@ -104,6 +104,7 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 - [ ] [the-sprint-proves-its-own-goal] A CI gate counts the domain names production still aliases and fails when the number grows — the goal's "replaced" condition was carried by a sentence in one plan's prose, and CLAUDE.md calls that a rule rather than a gate
 - [ ] [the-board-decides-nothing] Every verdict, phase and pulse derivation becomes a domain function and the board renders and routes — the condition production-calls and the layering gate both leave behind: a rule that exists ONCE, in the wrong layer
 - [ ] [monitoring-is-a-domain-concept] A monitor becomes a pure sample(previous, current) rule with its measuring behind ports — a monitor that owns its own sleep cannot be triggered by a clock, which is the operator's argument for why monitoring is domain
+- [ ] [the-pulse-is-an-entity] The pulse gets a DESIGN document and becomes one clock on a machine that every active poller subscribes to by divisor — measured 5/30/60 s with every remainder zero, a ladder nobody wrote down
 - [ ] [a-domain-rule-has-one-owner] Any lifecycle rule found duplicated **while moving** gets its second implementation deleted in the same slice, rather than noted for later — opportunistic, and only where the two provably agree
 
 ## Notes
