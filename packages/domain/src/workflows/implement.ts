@@ -202,11 +202,14 @@ export const implement = (
     writes.push({ kind: 'plan-record', file: readings.file, field: 'Started', value: started });
   }
 
+  // Staged from the writes themselves rather than re-derived: a path list built
+  // a second way is one that can name a file no write touched.
   if (writes.length > 0) {
+    const paths = writes.flatMap((w) => (w.kind === 'brief' ? [w.file] : []));
     writes.push({
       kind: 'commit',
       message: `plot: start ${readings.slug}`,
-      paths: briefAndPlanPaths(readings, branch),
+      paths: [readings.file, ...paths],
     });
   }
 
@@ -217,17 +220,4 @@ export const implement = (
   }
 
   return decide('implement', writes, { slug: readings.slug, branch, resume, unasked });
-};
-
-/**
- * The paths a start stages.
- *
- * @param readings - the plan being started.
- * @param branch - the branch claimed, or `''`.
- * @returns the plan file, and the brief where one was written.
- */
-const briefAndPlanPaths = (readings: ImplementReadings, branch: string): string[] => {
-  const paths = [readings.file];
-  if (branch !== '') paths.push(`.plot/briefs/${branch.replace(/\//g, '-')}.md`);
-  return paths;
 };

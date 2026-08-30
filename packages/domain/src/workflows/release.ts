@@ -1,6 +1,14 @@
 import type { ItemStatus, MoscowTier } from '../entities/sprint.js';
 import { normalizeVersion } from '../entities/release.js';
-import { type Outcome, type Write, decide, refuse } from './decision.js';
+import {
+  type Outcome,
+  type PlanPhaseWrite,
+  type PlanRecordWrite,
+  type SprintNoteWrite,
+  type Write,
+  decide,
+  refuse,
+} from './decision.js';
 
 /**
  * Why `release` refused.
@@ -214,7 +222,11 @@ export const release = (
     );
   }
 
-  const writes: Write[] = [];
+  // Typed to the three writes this workflow makes before its commit, all of
+  // which land in a file. The commit stages them by reading `file` off each,
+  // and this type is what makes that total rather than guarded — a write with
+  // no file cannot be pushed here without a type error.
+  const writes: (PlanPhaseWrite | PlanRecordWrite | SprintNoteWrite)[] = [];
   const marked: string[] = [];
   const notMarked: ReleaseSkip[] = [];
 
@@ -262,20 +274,19 @@ export const release = (
     }
   }
 
+  const tail: Write[] = [];
   if (writes.length > 0) {
-    writes.push({
+    tail.push({
       kind: 'commit',
       message: `plot: record ${version}`,
-      paths: writes.flatMap((w) =>
-        w.kind === 'plan-phase' || w.kind === 'plan-record' || w.kind === 'sprint-note'
-          ? [w.file]
-          : [],
-      ),
+      // Read off the writes rather than re-derived: a path list built a second
+      // way is one that can name a file no write touched.
+      paths: writes.map((w) => w.file),
     });
-    writes.push({ kind: 'push', branch: `plot/release-${version}`, onto: 'default' });
+    tail.push({ kind: 'push', branch: `plot/release-${version}`, onto: 'default' });
   }
 
-  return decide('release', writes, {
+  return decide('release', [...writes, ...tail], {
     version,
     marked,
     notMarked,
