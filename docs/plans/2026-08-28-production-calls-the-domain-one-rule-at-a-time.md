@@ -316,16 +316,38 @@ branch ends with one fewer duplicated rule, and nothing depends on the next one
 starting. **That is deliberate** — a migration that must complete to be
 coherent is one that blocks a release.
 
+**The sprint is what tells stopping apart from stalling.** The plan's stated
+risk is never finishing, and six slices here plus five in the plan above it is
+eleven branches — long enough that "paused" and "stuck" look identical from
+inside. This plan belongs to a sprint with an end date, and a sprint that closes
+with it unfinished puts the question where it can be answered: the retrospective
+asks what the timebox changed, and an adoption that stopped halfway is exactly
+what that question is for. **No counter is added to this file** — a progress
+number kept by hand is one that stops being updated precisely when the plan
+starts stalling, which is the moment it would have been worth reading.
+
 **What it must not do is stop and leave a branch half-adopted.** A production
 call site pointing at the domain while the old implementation still exists is
 the third-copy state this whole design forbids, and the absence gate is what
 prevents a branch from merging in it.
 
-**The story's job 3 — the delta — is deliberately not here.** It is new
-capability rather than adoption, and it belongs after the domain is the only
-implementation. Adding it during a migration would mean the corpus tests could
-no longer compare against production, because production would have nothing to
-compare.
+**The story's job 3 — the delta — is deliberately not here, and it needs its
+own plan.** It is new capability rather than adoption. Adding it during a
+migration would leave the corpus tests with nothing to compare against:
+production would have no implementation of the new rule, so "does the domain
+agree with production?" would have no answer, and the tier that earns this whole
+sequence would go quiet exactly where the risk is highest.
+
+**That argument does not depend on where the delta ends up living.** The story
+asks whether it belongs in the scan, the board, or a third thing — an open
+question — but new capability during a migration destroys the comparison
+whichever component holds it. So the exclusion stands regardless of how that
+question resolves.
+
+**"Later" is not a place, so name the plan.** A capability deferred without a
+successor is one nobody schedules: write `the-fleet-says-what-changed` (or
+whatever the delta is called when it is specified) as a Draft plan referencing
+this one, so the deferral has an address instead of a promise.
 
 ### Interrogated 2026-08-30 — the premise holds, the counts moved
 
@@ -348,20 +370,24 @@ is accurate.
 | 46 direct process calls | **51** across 22 files | Spawning was split in two; see the two slices |
 | 10 invoke `plot-*.sh` | **15 distinct scripts referenced** | more adapter surface than stated |
 
-**The Spawning slice's Done-when is now wrong as written.** It asserts
+**~~The Spawning slice's Done-when is wrong as written.~~ Corrected in round 3.**
+It asserted that a grep over `packages/board/src/server/` returns "only the
+adapter layer" — but the adapters live in `packages/domain/src/adapters/`, so it
+could only have passed if adapters had been placed inside the board, which is
+the layering this plan removes. **It now asserts emptiness**, and the slice was
+split in two at the same time.
 
-```
-grep -rnE "(execFileSync|execFile|spawn|spawnSync)\(" packages/board/src/server/
-```
-
-returns only the adapter layer — but the adapters live in
-`packages/domain/src/adapters/`, so once they exist that grep over
-`packages/board/src/server/` must return **nothing at all**. As written it can
-only pass if adapters were placed in the board, which is the layering this plan
-exists to remove. The assertion should be emptiness, not "only the adapter
-layer".
-
-**The dependency is unchanged and still binds.** This plan needs
+**The dependency still binds, and its state has moved.** This plan needs
 `the-domain-runs-the-workflows-in-a-sandbox` delivered — the adapters and
-`runScript()` are built there and consumed here. That plan is Draft with no
-branch, so nothing here is startable yet.
+`runScript()` are built there and consumed here. **As of 2026-08-30 that plan is
+Approved and dispatched**, with `feature/the-ports-have-adapters` in flight;
+it was Draft with no branch when this was first written. Nothing here is
+startable until its five slices land, but the wait is now measured in slices
+rather than in a decision nobody had taken.
+
+> **Findings above are struck through when the plan itself has been corrected,
+> and their measurements are kept.** A finding that reads as open after it has
+> been fixed is worse than no record: the next reader trusts it and re-derives
+> a decision that was already made. The measurement is the part that stays
+> useful — it is the evidence, and evidence does not expire the way a verdict
+> does.

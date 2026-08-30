@@ -3,7 +3,7 @@ title: The master agent holds the fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # The master agent holds the fleet
@@ -282,10 +282,33 @@ would make it a gate.
   separated every good and bad state this session, but one session is one
   sample.
 - Does the delta (job 3) belong in the scan, the board, or a third thing? The
-  scan is stateless by design and a delta needs a previous state.
-- Where does the harness live — more shell helpers, a board API, or a skill? The
-  answer probably differs per job, and pretending otherwise would force one
-  shape onto six questions.
+  scan is stateless by design and a delta needs a previous state. **Still open,
+  and deliberately deferred**: `production-calls-the-domain-one-rule-at-a-time`
+  excludes it because new capability during a migration leaves the corpus tests
+  with nothing to compare against — production would hold no implementation of
+  the new rule. It needs its own plan once the domain is the only
+  implementation.
+- ~~Where does the harness live — more shell helpers, a board API, or a skill?~~
+  **Answered 2026-08-30: it lives in `@plot-pm/domain`, and the shell scripts
+  are its adapters.** None of the three options was right, because the question
+  assumed the harness would be a new component beside the existing ones. It is
+  a layer instead: the scripts already adapt the world into readings
+  ([DESIGN-ports.md §4](DESIGN-ports.md#4-the-adapters-already-exist) — *"every
+  driven port already has a working adapter, and it is a shell script"*), and
+  what was missing was somewhere for the decisions to live once the readings
+  arrive.
+
+  **The answer is a placement, not a completion.** The seven ports and their
+  adapters exist as of `feature/the-ports-have-adapters`; the driving side —
+  who ASKS the domain — is still being built across the remaining slices of
+  `the-domain-runs-the-workflows-in-a-sandbox`. That is construction, not an
+  open question: where it goes is settled.
+
+  **The worry that one shape would be forced onto six questions did not
+  survive contact.** The six workflows differ in what they read and what they
+  decide, not in whether they are readings-then-decision — and expressing them
+  showed two (`implement`, `release`) have no script at all, which the "more
+  shell helpers" option would have hidden rather than surfaced.
 
 ## Session Log
 
