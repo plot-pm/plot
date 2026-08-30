@@ -15,6 +15,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `bug/the-loop-reads-the-monitor`
+- **Started:** 2026-08-31, Jan Wloka, `bug/a-long-agent-reaches-its-second-slice`
 
 ## Approval
 
