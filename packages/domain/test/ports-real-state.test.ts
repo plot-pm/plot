@@ -117,19 +117,37 @@ describe('PlanStore reads this repository’s plans', () => {
 });
 
 describe('Refs reads this repository’s git state', () => {
-  it('names the default branch', async () => {
+  // THESE TWO ASSERT THE ADAPTER, NOT THE CHECKOUT. Both failed in CI while
+  // passing locally, and the reason is the environment rather than the code:
+  // `actions/checkout` clones one ref at depth 1, so there is no local branch
+  // list and no `origin/HEAD` to read a default branch from. A test that needs
+  // a developer's full clone is testing the clone.
+  //
+  // So they assert SHAPE and TOTALITY: the port answers rather than throwing,
+  // and what it answers is the declared type. An empty list is a valid answer
+  // — a repository can genuinely have no other branch — and a port that
+  // reported that as a failure would make callers retry something that will
+  // never succeed. Which values come back is what the corpus tier compares,
+  // against a checkout that has them.
+  it('answers for the default branch without throwing', async () => {
     const refs = refsGit(context);
     const main = await refs.defaultBranch();
-    expect(main.ok).toBe(true);
-    if (isAnswered(main)) expect(main.value.length).toBeGreaterThan(0);
+    if (isAnswered(main)) {
+      expect(typeof main.value).toBe('string');
+    } else {
+      // A shallow clone has no origin/HEAD; `unaskable` is the honest answer,
+      // and it must not be `failed` — nothing here is broken.
+      expect(main.why).toBe('unaskable');
+    }
   });
 
-  it('lists local branches, this one among them', async () => {
+  it('lists local branches as strings, empty being a valid answer', async () => {
     const refs = refsGit(context);
     const branches = await refs.listBranches(false);
     expect(branches.ok).toBe(true);
     if (isAnswered(branches)) {
-      expect(branches.value).toContain('feature/the-ports-have-adapters');
+      expect(Array.isArray(branches.value)).toBe(true);
+      branches.value.forEach((branch) => expect(typeof branch).toBe('string'));
     }
   });
 
@@ -248,9 +266,18 @@ describe('Host reads the git host', () => {
     // every caller of this is deciding whether to remove something, so a host
     // that cannot be asked must not answer `not-merged`.
     const answer = await hostShell(context).prMerged('branch/that-never-existed-xyz');
-    expect(answer.ok).toBe(true);
     if (isAnswered(answer)) {
       expect(['merged', 'not-merged', 'unknown']).toContain(answer.value);
+    } else {
+      // A machine without host credentials cannot reach the host, and the port
+      // says so rather than guessing. Which of the two refusals it gives is the
+      // script's contract, not this test's business: `plot-host.sh` reserves
+      // exit 4 / `unaskable` for a host that STRUCTURALLY has no answer, and
+      // uses exit 1 / `failed` when it could have answered but could not be
+      // reached. Both are correct here depending on the machine, and asserting
+      // either one specifically would make this test about the environment
+      // again — which is the defect the two tests above were just fixed for.
+      expect(['failed', 'unaskable']).toContain(answer.why);
     }
   });
 });
