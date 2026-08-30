@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { agentLogPath } from './agent-log.js';
 import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import { readConfig } from './board.js';
@@ -136,13 +137,13 @@ export const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
  * Where the script's own words go. Chosen BEFORE spawning and keyed by SLUG,
  * because the server cannot know the branch: `--max 1` asks `--next` at runtime
  * which branch is eligible, and the worktree path derives from that answer.
- * `<repo>/../plot-dispatch-<slug>.log` is knowable at 202 time;
+ * The dispatcher's own log is knowable at 202 time (see {@link agentLogPath});
  * `<worktree>/.plot-worker.log` is not. Both exist and neither replaces the
  * other — the first records what the dispatcher did, the second what the agent
  * is doing.
  */
 export function dispatchLogPath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-dispatch-${slug}.log`);
+  return agentLogPath(repoRoot, 'dispatch', slug, 'log');
 }
 
 /**

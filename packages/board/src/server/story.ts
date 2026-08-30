@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
@@ -106,16 +107,14 @@ export const STORY_DIRECTORY_DEFAULT = 'docs/stories/';
  * the brief to a file and naming that file in the ENVIRONMENT means no part of
  * an issue ever becomes a shell word, whatever it contains.
  *
- * OUTSIDE THE REPO, beside the log and the state — the placement `idea.ts`
- * measured into existence. `pnpm board` runs under `node --watch`, which
- * watches the whole tree and does not read .gitignore, so a prompt written
- * INSIDE the repo restarts the very server that just spawned the agent.
+ * OUTSIDE THE REPO, beside the log and the state — see {@link agentLogDir}
+ * for the measurement that put them there.
  *
  * Keyed by issue number so two clicks on two rows cannot overwrite each other's
  * brief, and so the file left behind says which issue it was for.
  */
 export function storyPromptPath(repoRoot: string, number: number): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-story-issue-${number}.prompt.md`);
+  return agentLogPath(repoRoot, 'story-issue', number, 'prompt');
 }
 
 /** The environment variable naming that file, beside `PLOT_IDEA_PROMPT`. */
@@ -123,12 +122,12 @@ export const STORY_PROMPT_ENV = 'PLOT_STORY_PROMPT';
 
 /** Where the command's own words go — the neighbourhood `idea` established. */
 export function storyLogPath(repoRoot: string, number: number): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-story-issue-${number}.log`);
+  return agentLogPath(repoRoot, 'story-issue', number, 'log');
 }
 
 /** Where the outcome is recorded, so a later GET can read it back. */
 function storyStatePath(repoRoot: string, number: number): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-story-issue-${number}.state`);
+  return agentLogPath(repoRoot, 'story-issue', number, 'state');
 }
 
 /** Why creating a story was refused — each sends the reader somewhere different. */

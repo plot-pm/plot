@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { agentLogPath } from './agent-log.js';
 import { execFileSync, spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
@@ -87,17 +88,17 @@ export function resliceAvailability(host: string): { available: boolean; reason:
   // state outside. The log's placement was already right; the prompt simply
   // never followed it.
 export function reslicePromptPath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-reslice-${slug}.prompt.md`);
+  return agentLogPath(repoRoot, 'reslice', slug, 'prompt');
 }
 
 /** Where the command's own words go — the neighbourhood `idea` established. */
 export function resliceLogPath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-reslice-${slug}.log`);
+  return agentLogPath(repoRoot, 'reslice', slug, 'log');
 }
 
 /** Where the outcome is recorded, so a later GET can read it back. */
 function resliceStatePath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-reslice-${slug}.state`);
+  return agentLogPath(repoRoot, 'reslice', slug, 'state');
 }
 
 /** Why reslicing a plan was refused — each sends the reader somewhere different. */
