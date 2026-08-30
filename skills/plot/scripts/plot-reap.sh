@@ -159,7 +159,26 @@ while IFS=$'\t' read -r wt br; do
 
   # 5. Only dispatch trees. A hand-made worktree and the main checkout are not
   #    this script's to remove, whatever state they are in.
-  case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
+  #
+  #    ASKED OF THE DISK, NOT OF THE PATH. `.plot-worker.pid` is written by the
+  #    dispatcher at creation, so it is a marker Plot itself left rather than a
+  #    name Plot hopes was used. The path test alone recognised only the LEGACY
+  #    `plot-wt-` layout, which `plot-dispatch.sh:129` uses when `Worktree root`
+  #    is absent — so on this repo, which sets `Worktree root: .worktrees`,
+  #    every tree is `.worktrees/<branch-with-dashes>` and matched nothing.
+  #    Measured 2026-08-30: nine dispatch trees, `kept=0` rather than `kept=9`.
+  #    A refusal counts and a skip does not, so `reapable=0` read as *nothing to
+  #    clean* and meant *nothing was looked at*.
+  #
+  #    Both signals are accepted and neither is in transition: `plot-wt-` is
+  #    supported permanently, and a legacy tree predating the marker keeps
+  #    being recognised by its name. A dispatch tree whose pid file was deleted
+  #    and whose path does not match goes unrecognised — which fails by
+  #    REFUSING, the same safe direction the path test failed in, and for one
+  #    tree instead of all of them.
+  if [ ! -f "$wt/.plot-worker.pid" ]; then
+    case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
+  fi
   [ "$wt" = "$ROOT" ] && continue
 
   # 1. A live worker outranks every other signal. Checked FIRST because it is
