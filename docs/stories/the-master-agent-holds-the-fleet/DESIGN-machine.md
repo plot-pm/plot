@@ -232,9 +232,16 @@ hardware, which is why a red build says nothing about local headroom.
 
 | not | why |
 |---|---|
-| refuse a dispatch | it reports; a person decides (§10) |
 | kill an agent | never Plot's call |
 | throttle the fleet | the operator's dial, not the controller's |
+
+**Amended 2026-08-30: it also provides, and at `starved` it defers.** *"Refuse a
+dispatch"* stood here until a distinction was drawn that this row had collapsed:
+**refusing ends the dispatch, deferring postpones it.** The machine now provides
+the worker and says *not yet* while it is starved, with the number it measured;
+the operator may proceed anyway. See §10 for the argument and the exact
+boundary. The other two rows are unchanged and are not weakened by it — a
+deferral spends nothing the operator owns, while a kill and a throttle both do.
 
 **The controller may throttle *itself*** — its own cadences, its own metered
 fetches, its own test runs — because that spends nothing the operator owns
@@ -303,13 +310,45 @@ machine's range ends.
 | slots taken | `liveAgentCount` — **exists** |
 | **what the machine can take** | **Machine — does not exist** |
 
-**It bounds; it never refuses.** Elastic means *the operator scales within a
-range the machine can take* — the controller reports the range, a person chooses
-inside it, and `starved` warns before doing what it was asked.
+**It bounds, and at `starved` it says *not yet*.** Elastic means *the operator
+scales within a range the machine can take* — the controller reports the range
+and a person chooses inside it.
 
-**That line matters because Plot's gates refuse on measurements of harm already
-done** — a live pid, an unmerged branch. **Headroom is a prediction about
-capacity**, which is a different kind of claim and does not earn a refusal.
+**Revised 2026-08-30.** This section read *"it bounds; it never refuses"* and
+grounded that on a real distinction: **Plot's gates refuse on measurements of
+harm already done** — a live pid, an unmerged branch — whereas **headroom was
+called a prediction about capacity**, which does not earn a refusal.
+
+**Two things break that reading.**
+
+**First, `starved` is not a prediction.** §5 chose spawn cost over load average
+precisely because it *measures the thing Plot does*: fork a process. The reading
+is `3.6 ms` clear against `286 ms` starved — a 79× swing on the same hardware,
+taken now, not extrapolated. A machine that cannot fork cheaply **is** harmed,
+in the same sense a live pid is a fact rather than a forecast.
+
+**Second, deferring is not refusing.** The three forbidden actions in §7 share
+one shape: each takes something away from the operator permanently — a dispatch
+that will not happen, an agent that is dead, a fleet held below what was asked.
+**"Not yet" takes nothing away.** The dispatch stands, the dial keeps its value,
+and the work starts when the reading clears. The operator can always say *now
+anyway* — and that is what keeps this a deferral rather than a veto.
+
+**What the machine may therefore do**, and only this:
+
+| at | the machine |
+|---|---|
+| `clear` / `tight` | provides the worker |
+| `starved` | **says *not yet*, and says what it measured** |
+| any reading | never kills an agent, never moves the dial |
+
+**The refusal must name its number.** *"Not yet: spawn cost 286 ms against a
+clear reading of 3.6 ms"* is answerable; *"too much load"* is not, and load
+average is explicitly not the verdict (§5).
+
+**This does not license refusing on a stale reading.** `measuredAt` is required
+for exactly this reason: a `starved` reading nobody can date is `unmeasured`,
+and `unmeasured` provides the worker. Silence is never a refusal.
 
 ---
 
@@ -355,7 +394,9 @@ correctly.
    verdict.
 2. **A reading has a timestamp**, and goes stale faster than any other entity's.
 3. **The observer prices itself** — 374 ms against an 18.3 s scan.
-4. **It never refuses** — it bounds a dial the operator moves.
+4. **It defers, and never refuses** — at `starved` it says *not yet* with the
+   number it measured; the operator may proceed anyway. It bounds a dial only
+   the operator moves, and it never takes a dispatch away (§7, §10).
 5. **There is exactly one**, and the fleet is one tenant on it.
 6. **The controller may throttle itself; only the operator resizes the fleet.**
 

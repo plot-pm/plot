@@ -1106,7 +1106,12 @@ apart from *what it said*.
 3. **The measurement must not be the load.** ~0.4 s of trivial forks on a 5 s
    pulse is affordable; anything heavier makes the observer the problem — which
    is the story's own central complaint.
-4. **It never refuses.** It reports; a person or a gate decides.
+4. **It defers, and never refuses.** It reports, and a person or a gate decides.
+   **Amended 2026-08-30:** at `starved` it may answer *not yet* to a request for
+   a worker, naming the spawn cost it measured — a deferral the operator can
+   override, not a veto. `DESIGN-machine.md` §10 carries the argument: `starved`
+   is a measurement rather than a prediction, and postponing a dispatch takes
+   nothing away where killing or throttling would.
 
 ### Open
 
