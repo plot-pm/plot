@@ -1582,3 +1582,136 @@ test('parser: an unreadable or empty tracker never fails a parse (item 7)', () =
   assert.deepEqual(meta.issues, [228], 'empty tracker is GitHub, the safe default');
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('plan-meta: a comment marker in a fenced block is illustration, not a comment', () => {
+  // MEASURED on the plan that carries this fix: a plan documenting the changeset
+  // format shows a `bumps:` block inside a ``` fence, and that block opens with
+  // a bare comment marker. The parser read the marker as a real comment-open,
+  // swallowed everything after it, and the whole file came back `format: none` —
+  // no phase, no type, no branches. A plan about a mishandled comment, defeated
+  // by a mishandled comment.
+  //
+  // A fence is illustration, never contract — the standing rule the parser
+  // already applies to `## Waves` and `## Branches` headings. The comment rules
+  // must follow it too, which means the fence toggle has to be tested BEFORE
+  // the comment-open rule rather than after it.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-fence-comment-'));
+  const f = path.join(dir, '2026-08-30-fenced-marker.md');
+  writeFileSync(f, `# A plan that documents the changeset format
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+
+## Detail
+
+The block a changeset carries, printed rather than described. The opener is
+shown WITHOUT its closing marker, which is the shape that bites: a fenced block
+whose \`-->\` is present merely loses the fence interior and recovers, while an
+unterminated opener runs to EOF and takes every later section with it.
+
+\`\`\`markdown
+<!--
+bumps:
+  skills:
+    plot: patch
+\`\`\`
+
+## Branches
+
+- \`bug/a-plan-may-mention-a-comment-marker\`
+
+Prose after the fence, which must still be read as content.
+`);
+  try {
+    const actual = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }));
+    assert.equal(actual.format, 'canonical', 'the plan parsed as a plan');
+    assert.equal(actual.phase, 'approved', 'phase survived the fenced marker');
+    assert.equal(actual.type, 'bug', 'type survived the fenced marker');
+    assert.deepEqual(actual.branches, ['bug/a-plan-may-mention-a-comment-marker'],
+      'the branch survived the fenced marker');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('plan-meta: a comment marker in inline code is illustration, not a comment', () => {
+  // The subtler half, and the one that cost this repo a plan. A marker written
+  // between backticks — where Markdown renders it as a literal — sits on a line
+  // with no closing `-->`, so it matched the comment-open rule and swallowed the
+  // REST OF THE FILE. One backticked marker in a summary line costs a plan its
+  // phase, its type and every branch it names.
+  //
+  // The workaround was to describe the marker rather than print it. That is a
+  // concession, not a fix: a plan must be able to say what it is about.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-inline-comment-'));
+  const f = path.join(dir, '2026-08-30-inline-marker.md');
+  writeFileSync(f, `# A changeset whose \`<!--\` marker becomes its description
+
+## Status
+
+- **Phase:** Approved
+- **Type:** bug
+- **Review:** pr
+
+## Branches
+
+- \`bug/a-changeset-says-what-changed\` — a bare \`<!--\` opener is not a summary.
+`);
+  try {
+    const actual = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }));
+    assert.equal(actual.format, 'canonical', 'the plan parsed as a plan');
+    assert.equal(actual.phase, 'approved', 'phase survived the inline marker');
+    assert.equal(actual.type, 'bug', 'type survived the inline marker');
+    assert.equal(actual.review, 'pr', 'the field after the marker was still read');
+    assert.deepEqual(actual.branches, ['bug/a-changeset-says-what-changed'],
+      'the branch survived the inline marker');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('plan-meta: a genuine multi-line comment is still skipped', () => {
+  // The opposite direction, and the one that would break EVERY plan rather than
+  // one. The Status block is full of genuine comments — template guidance blocks
+  // and `<!-- optional -->` placeholders — and a parser that stopped honouring
+  // those trades a rare defect for a universal one.
+  //
+  // canonical-comment-block.md already covers the placeholder case. This covers
+  // the interaction the fix introduces: a fence marker INSIDE a genuine comment
+  // must not toggle fence state, or the comment's closing `-->` gets read as
+  // content and everything after it is swallowed instead.
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-parser-real-comment-'));
+  const f = path.join(dir, '2026-08-30-real-comment.md');
+  writeFileSync(f, `# A plan with genuine comments
+
+## Status
+
+- **Phase:** Approved
+- **Type:** docs
+- **Review:** <!-- pr | in-session | ballot -->
+<!-- Transition records — written by the workflow commands, not by hand:
+- **Approved:** <date>, <who>, <channel>
+\`\`\`
+- **Started:** <date>, <who>, <branch>
+\`\`\`
+-->
+
+## Branches
+
+- \`docs/after-the-comment\`
+`);
+  try {
+    const actual = JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }));
+    assert.equal(actual.format, 'canonical', 'the plan parsed as a plan');
+    assert.equal(actual.phase, 'approved', 'phase read from before the comment');
+    assert.equal(actual.review, 'NONE', 'the placeholder still counts as absent');
+    assert.equal(actual.approved_raw, '', 'the comment interior contributed nothing');
+    assert.deepEqual(actual.started_raw, [], 'a fenced line inside a comment is still comment');
+    assert.deepEqual(actual.branches, ['docs/after-the-comment'],
+      'the comment closed, so content after it was read');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -291,6 +291,34 @@ function val_after_colon(s) {
 }
 # Template placeholders like "<!-- optional -->" mean "field absent".
 function strip_placeholder(s) { return (s ~ /^<!--/) ? "" : s }
+# Blank out backtick-delimited inline code, so a marker PRINTED as a literal is
+# not read as syntax. Markdown renders `<!--` between backticks as the four
+# characters; this parser used to read it as a comment-open, and because such a
+# line carries no closing marker it swallowed the rest of the file — one
+# backticked marker in a summary line cost a plan its phase, type and branches.
+#
+# Only the comment rules consult this. The line itself is untouched everywhere
+# else, because branch names live in backticks too and stripping them for real
+# would empty every `## Branches` entry.
+#
+# Runs of backticks are matched longest-first so a ``code`` span closes against
+# its own delimiter. An UNPAIRED backtick leaves its tail as-is: that is prose
+# with a stray tick, and prose is exactly where a real comment may open.
+# NOTE: the closing-run index is named `shut` because `close` is an awk builtin
+# and cannot be a parameter name — it fails as a syntax error on the function
+# signature, pointing nowhere near the cause.
+function mask_code(s,   out, n, tick, shut) {
+  out = ""
+  while ((n = index(s, "`")) > 0) {
+    out = out substr(s, 1, n - 1)
+    s = substr(s, n)
+    tick = ""
+    while (substr(s, 1, 1) == "`") { tick = tick "`"; s = substr(s, 2) }
+    if ((shut = index(s, tick)) == 0) return out tick s
+    s = substr(s, shut + length(tick))
+  }
+  return out s
+}
 # First known phase token wins; NONE if empty; UNKNOWN otherwise.
 function norm_phase(raw,   lower, toks, n, i, t) {
   if (raw == "") return "NONE"
@@ -612,6 +640,10 @@ in_fm {
   else if (lower ~ /^rounds:/ && fm_rounds == "") fm_rounds = val_after_colon($0)
   next
 }
+# A fence marker is a line whose first non-space run is ``` or ~~~ (an info
+# string like ```markdown may follow). The marker line itself is never content.
+/^[ \t]*(```|~~~)/ { in_fence = !in_fence; next }
+in_fence { next }
 # Interior of multi-line HTML comments is non-content (template guidance
 # blocks); single-line "<!-- ... -->" placeholders are unaffected.
 #
@@ -631,13 +663,25 @@ in_comment {
   if ($0 ~ /-->/) { in_comment = 0; in_challenge = 0 }
   next
 }
-/<!--/ && $0 !~ /-->/ {
-  in_comment = 1
-  # A truncated block never closes; it simply runs to EOF as a comment, and the
-  # round stays whatever was read before the truncation — absent if the "round"
-  # line was itself lost. Nothing else in the record is affected either way.
-  in_challenge = ($0 ~ /CHALLENGE-THE-PLAN-METADATA/) ? 1 : 0
-  next
+# A comment opens only where the marker is SYNTAX. Inside inline code it is a
+# literal being quoted, and the fence rules above have already consumed code
+# blocks — so what reaches here is prose, minus its backticked spans.
+#
+# The cheap test guards the expensive one: /<!--/ on the raw line rejects the
+# overwhelming majority, so mask_code runs once per line that actually carries a
+# marker rather than twice per line of every plan. The masked verdict is decided
+# INSIDE the rule so a line that turns out to be inline code simply falls
+# through to the ordinary content rules below, carrying no state with it.
+/<!--/ {
+  _masked = mask_code($0)
+  if (_masked ~ /<!--/ && _masked !~ /-->/) {
+    in_comment = 1
+    # A truncated block never closes; it simply runs to EOF as a comment, and
+    # the round stays whatever was read before the truncation — absent if the
+    # "round" line was itself lost. Nothing else in the record is affected.
+    in_challenge = ($0 ~ /CHALLENGE-THE-PLAN-METADATA/) ? 1 : 0
+    next
+  }
 }
 # A fenced code block is illustration, never contract — the same standing rule
 # comment interiors and repeated headings already follow. A plan that documents
@@ -651,10 +695,6 @@ in_comment {
 # example won its first-heading-wins guard and hid the real section). Toggling on
 # a fence fence-marker line closes both.
 #
-# A fence marker is a line whose first non-space run is ``` or ~~~ (an info
-# string like ```markdown may follow). The marker line itself is never content.
-/^[ \t]*(```|~~~)/ { in_fence = !in_fence; next }
-in_fence { next }
 # First H1 is the title fallback (front matter title: still wins in emit).
 /^#[ \t]/ && h1_title == "" { h1_title = trim(substr($0, 2)) }
 /^## / {
