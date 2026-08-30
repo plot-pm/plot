@@ -18,6 +18,7 @@
 - **Started:** 2026-08-30, Jan Wloka, `infra/one-place-decides-where-a-log-lives`
 - **Started:** 2026-08-30, Jan Wloka, `infra/a-log-lives-under-worktrees`
 - **Started:** 2026-08-30, Jan Wloka, `infra/one-rule-decides-what-is-reapable`
+- **Started:** 2026-08-31, Jan Wloka, `bug/a-reaped-worktree-takes-its-log`
 
 ## Approval
 
