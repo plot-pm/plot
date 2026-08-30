@@ -851,6 +851,29 @@ nobody understands is how the same processes come back under a different parent.
   seconds regardless would pass the two assertions above and lose the property
   the plan is built on.
 
+**A second cost, found 2026-08-30 by the repaired reaper.** The monitors write
+`.plot-worker.monitor.agent.jsonl` and `.plot-worker.monitor.worker.jsonl` into
+the worktree, and **neither is gitignored**. They are present in 10 worktrees,
+and the reaper's uncommitted-work refusal reads them as work:
+
+```
+keep  feature/the-worker-monitor-samples-the-process  uncommitted: ?? .plot-worker.monitor.agent.jsonl
+keep  infra/a-log-lives-under-worktrees               uncommitted: ?? .plot-worker.monitor.agent.jsonl
+```
+
+**Two of four refusals in that run are the monitors refusing their own cleanup.**
+The refusal itself is correct — uncommitted work is exactly what must stop a
+reap — so the defect is that monitor output is not marked as what it is.
+
+**Fix it here, with the lifetime**, since both are about what a monitor leaves
+behind: add the two patterns to `.gitignore`. Do it as its own commit —
+it changes what `git status` reports in every worktree, and a reviewer should
+see that on its own.
+
+**Done when**, additionally: a worktree holding only monitor output reads clean,
+and the reaper offers it. Assert against the real filenames rather than a glob
+that would also hide an agent's own `.jsonl`.
+
 **Depends on nothing in this plan**, and the earlier slices do not depend on it —
 it can run whenever a slot is free. It is filed as `bug` because the behaviour
 is already shipped: #536 is merged, and every dispatch since has leaked.
