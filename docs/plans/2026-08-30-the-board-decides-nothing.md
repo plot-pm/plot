@@ -193,6 +193,43 @@ and which machine does it run on?* Those are entity questions with no DESIGN
 document — the story defines `Machine`, `Agent`, `Slice` and `Worktree`, and
 says nothing about the clock they all live under.
 
+### The three cadences are already one clock, and nobody wrote that down
+
+**Measured 2026-08-30**, and the operator named the ratios before they were
+checked:
+
+```
+pulse          5 s    1x
+monitor       30 s    6x pulse
+PR refresh    60 s   12x pulse   (2x monitor)
+
+remainders:  30 % 5 = 0    60 % 5 = 0    60 % 30 = 0
+```
+
+**Every remainder is zero.** Three cadences chosen independently — two in
+`fleet.ts:67,83`, one in `plot-worker-monitor.sh:165` — and they form an exact
+divisor ladder.
+
+**That resolves the objection this section would otherwise have had to answer.**
+A master clock driving monitors looked like it would force one frequency on
+subscribers whose questions need different ones: the monitor plan argues 30 s
+because *"a CPU delta over two samples 0.4 s apart says whether a process is
+busy now, which is noise on its own"*. But a clock does not have to offer many
+frequencies — **it beats once and each subscriber names its divisor.** Every
+current consumer already has an integer one.
+
+**And half the mechanism exists.** `plot-worker-monitor.sh --once` takes a
+single sample and exits, built for tests and used by nothing else. A
+pulse-driven monitor is that flag plus a subscription.
+
+**The one real obstacle, stated so the plan does not discover it late:** the
+monitor is **stateful**. Its own help says *"a single pass can never publish
+`idle` — that needs two"*, because `idle` compares this pass against the
+previous one. A `--once` process started fresh each beat has no memory. So a
+pulse-driven monitor either keeps its state outside the process, or stays a
+process and swaps its `sleep` for a subscription. **Both are workable; the
+choice is the plan's.**
+
 **That plan should be cut before the derivations land**, so this one knows
 whether it is moving rules out of a view or out of a clock.
 
