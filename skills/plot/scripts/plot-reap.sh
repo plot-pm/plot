@@ -15,6 +15,21 @@
 # delete?" can talk itself past any of the three. A script cannot, and
 # judgement's absence is exactly what licenses the delete.
 #
+# AND THE DECIDING IS NOT HERE. This script GATHERS the readings, asks
+# `packages/domain/src/rules/reapable.ts`, and ACTS on the answer; it holds no
+# `if` about whether a worktree may go. The five refusals are named values the
+# rule returns, so each is triggerable against a fixture — including the
+# combinations this estate will not produce on demand, a marker and a live pid
+# at once and a host that cannot be asked at all. In shell they were five
+# `if`s nothing could test.
+#
+# SO THIS SCRIPT NEEDS NODE, where its first version deliberately did not.
+# That constraint is retired rather than quietly broken: the alternative is a
+# second implementation of the five refusals, in shell, where nothing can test
+# it — and a copy drifting toward permissive fails in the direction that
+# deletes work. A rule that cannot be asked REFUSES, so a missing `node` keeps
+# every tree and says so per tree rather than skipping them silently.
+#
 # DEFAULT IS --dry-run. Removal happens only under --yes.
 #
 #   plot-reap.sh                # report what WOULD be reaped
@@ -27,6 +42,13 @@
 #   3. a worktree carrying a PLOT-BLOCKED* marker    (a worker waiting on a person)
 #   4. a branch NO PR of which merged                (the host is the authority)
 #   5. the main checkout, and any non-dispatch tree  (not ours to remove)
+#
+# A dispatch tree is recognised by `.plot-worker.pid`, which the dispatcher
+# writes at creation, OR by the legacy `plot-wt-` path. Both are supported
+# permanently. Identifying one by its path ALONE was the defect fixed on
+# 2026-08-30: `plot-wt-` is only used when `Worktree root` is absent, so on a
+# repo that configures one the reaper matched nothing and reported
+# `reapable=0 kept=0` over nine trees.
 #
 # THE MANIFEST GOES WITH THE WORKTREE. `readAgentRegistry` renders one row per
 # manifest, so a reap that removes only the checkout converts a finished agent
@@ -48,7 +70,10 @@ while [ $# -gt 0 ]; do
     --yes) DRY=0 ;;
     --dry-run) DRY=1 ;;
     --max) MAX="${2:-0}"; shift ;;
-    -h|--help) sed -n '2,42p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # The header, however long it has become. A hardcoded last line silently
+    # truncates help mid-sentence the first time the header grows — measured
+    # here, when it grew past 42.
+    -h|--help) sed -n '2,/^[^#]/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "plot-reap: unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -90,6 +115,13 @@ git fetch origin "$DEFAULT" --quiet 2>/dev/null || true
 # the default on a checkout whose exec bits did not survive — and a reaper
 # reading the wrong directory reports success over a manifest the board still
 # renders, which is exactly the failure #420 fixed on the board's own side.
+# The rule that decides whether a worktree may go. Resolved from THIS script's
+# location rather than the cwd, and to a `file://` URL because `import()` needs
+# one for an absolute path. Missing or unreadable, the decision below reports
+# "could not be asked" and keeps every tree.
+RULE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd)/packages/domain/src/rules/reapable.ts"
+RULE="file://$RULE_PATH"
+
 CONFIG="$(dirname "${BASH_SOURCE[0]}")/plot-config.sh"
 MANIFEST_DIR=".plot/agents"
 if [ -r "$CONFIG" ]; then
@@ -159,60 +191,141 @@ while IFS=$'\t' read -r wt br; do
 
   # 5. Only dispatch trees. A hand-made worktree and the main checkout are not
   #    this script's to remove, whatever state they are in.
-  case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
+  #
+  #    ASKED OF THE DISK, NOT OF THE PATH. `.plot-worker.pid` is written by the
+  #    dispatcher at creation, so it is a marker Plot itself left rather than a
+  #    name Plot hopes was used. The path test alone recognised only the LEGACY
+  #    `plot-wt-` layout, which `plot-dispatch.sh:129` uses when `Worktree root`
+  #    is absent — so on this repo, which sets `Worktree root: .worktrees`,
+  #    every tree is `.worktrees/<branch-with-dashes>` and matched nothing.
+  #    Measured 2026-08-30: nine dispatch trees, `kept=0` rather than `kept=9`.
+  #    A refusal counts and a skip does not, so `reapable=0` read as *nothing to
+  #    clean* and meant *nothing was looked at*.
+  #
+  #    Both signals are accepted and neither is in transition: `plot-wt-` is
+  #    supported permanently, and a legacy tree predating the marker keeps
+  #    being recognised by its name. A dispatch tree whose pid file was deleted
+  #    and whose path does not match goes unrecognised — which fails by
+  #    REFUSING, the same safe direction the path test failed in, and for one
+  #    tree instead of all of them.
+  if [ ! -f "$wt/.plot-worker.pid" ]; then
+    case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
+  fi
   [ "$wt" = "$ROOT" ] && continue
 
-  # 1. A live worker outranks every other signal. Checked FIRST because it is
-  #    the only one describing a person or process acting right now.
+  # THE READINGS. Everything from here to the rule call MEASURES; nothing
+  # decides. Each of the four sources that can answer is read once, into a
+  # variable named for what it holds rather than for the verdict it implies.
+
+  # The process table: the live worker's pid, or empty. Read but not judged —
+  # an empty pid file is not a live process, and which of those two it is is
+  # the rule's to say.
+  pid=""
   if [ -f "$wt/.plot-worker.pid" ]; then
-    pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null)
-    if [ -n "$pid" ] && ps -p "$pid" >/dev/null 2>&1; then
-      printf '%-8s %-52s %s\n' "keep" "$short" "worker alive (pid $pid)"; kept=$((kept+1)); continue
-    fi
+    p=$(cat "$wt/.plot-worker.pid" 2>/dev/null)
+    if [ -n "$p" ] && ps -p "$p" >/dev/null 2>&1; then pid="$p"; fi
   fi
 
-  # 3. A marker means a worker stopped to ask a person something. Reaping it
-  #    discards the question along with the tree.
-  if ls "$wt"/PLOT-BLOCKED* >/dev/null 2>&1; then
-    printf '%-8s %-52s %s\n' "keep" "$short" "PLOT-BLOCKED marker — needs a person"; kept=$((kept+1)); continue
-  fi
-
-  # 2. Uncommitted work exists in exactly one place. The tiny-garden pulse is
-  #    excused because every board suite rewrites it — a worker that did
-  #    nothing but run the tests would otherwise never be reapable. Any OTHER
-  #    dirty path still keeps the tree, which is what keeps this an exception
-  #    rather than a hole.
+  # The tree: a PLOT-BLOCKED marker, and the first uncommitted path.
+  #
+  # The tiny-garden pulse is excused because every board suite rewrites it — a
+  # worker that did nothing but run the tests would otherwise never be
+  # reapable. Any OTHER dirty path is still reported, which keeps this an
+  # exception rather than a hole. It is filtered HERE, in the reading, because
+  # it is a fact about this repository's fixtures and not about whether a
+  # worktree may go.
+  marker=false
+  ls "$wt"/PLOT-BLOCKED* >/dev/null 2>&1 && marker=true
   dirty=$(git -C "$wt" status --porcelain 2>/dev/null \
             | grep -v 'tiny-garden/\.plot/state' | head -1)
-  if [ -n "$dirty" ]; then
-    printf '%-8s %-52s %s\n' "keep" "$short" "uncommitted: ${dirty:0:40}"; kept=$((kept+1)); continue
-  fi
 
-  # 4a. A tree sitting ON the default branch answers the ancestry test
-  #     trivially — `origin/main..main` is empty — and would be reaped with the
-  #     reason "merged into main", which says nothing about the work it was
-  #     dispatched for. Measured here 2026-08-25: one dispatch tree had been
-  #     left on `main` by its worker, and the first draft of this script
-  #     offered to reap it for a reason that was true and irrelevant.
+  # The host: whether ANY PR for this branch merged.
   #
-  #     It is KEPT and named. Deleting a tree whose dispatched branch is no
-  #     longer checked out means deleting something whose state was never
-  #     measured — and "probably fine" is the judgement this script exists to
-  #     not make.
-  if [ "$short" = "$DEFAULT" ]; then
-    printf '%-8s %-52s %s\n' "keep" "$short" "on $DEFAULT — dispatched branch not checked out"
-    kept=$((kept+1)); continue
+  # `merged` never `state` — a merged PR reports CLOSED — and ANY PR never the
+  # newest, both of which `plot-pr-merged.sh` carries. Ancestry is consulted
+  # FIRST only because it needs no network; it can only ever ADD a merged
+  # answer, never withhold one, since a squash-merge leaves the branch
+  # permanently ahead and falls through to the host.
+  #
+  # `unreachable` is not distinguished from `not-merged` here: `pr_merged`
+  # returns one exit code for both, deliberately, since both must keep the
+  # tree. The rule accepts the distinction so a fixture can trigger it; this
+  # reading simply cannot supply it, and reporting the stronger claim would be
+  # a lie about what was measured.
+  merge=not-merged; why=""
+  if [ -n "$short" ] && [ "$(git -C "$wt" rev-list --count "origin/$DEFAULT..$short" 2>/dev/null || echo 1)" = "0" ]; then
+    merge=merged; why="merged into $DEFAULT"
+  elif [ -n "$short" ] && pr_merged "$short"; then
+    merge=merged; why="PR merged (squash)"
   fi
 
-  # 4b. Landed, by either route: ancestry for a merge commit, the host for a
-  #     squash. Ancestry is tried first because it needs no network.
-  why=""
-  if [ -n "$short" ] && [ "$(git -C "$wt" rev-list --count "origin/$DEFAULT..$short" 2>/dev/null || echo 1)" = "0" ]; then
-    why="merged into $DEFAULT"
-  elif [ -n "$short" ] && pr_merged "$short"; then
-    why="PR merged (squash)"
-  else
-    printf '%-8s %-52s %s\n' "keep" "$short" "unlanded work — no merged PR"; kept=$((kept+1)); continue
+  # THE DECISION. One call, and the script holds no `if` about whether a
+  # worktree may go — only about what to do with the answer.
+  #
+  # The rule is `packages/domain/src/rules/reapable.ts`, imported directly:
+  # node 24 strips the types, so there is no build step between this script and
+  # the decision it asks for. The same shape, and the same reason, as
+  # `scripts/check-changeset-packages.sh` — the JS arrives on STDIN from a
+  # QUOTED heredoc so the shell expands none of it.
+  #
+  # THIS SCRIPT NOW NEEDS NODE, and its header said it must run where node does
+  # not. That constraint is retired rather than quietly broken: the alternative
+  # is a second implementation of the five refusals living in shell where
+  # nothing can test it, and a copy that drifted toward permissive would delete
+  # work. `manifest_for` keeps its `sed` parser, which is a different question
+  # — reading one flat string out of a file Plot wrote, not deciding anything.
+  #
+  # A rule that cannot be asked REFUSES: `node` missing, the import failing,
+  # the module throwing all leave `verdict` empty, and an empty verdict keeps
+  # the tree and says why. Silence is never permission, on this path either.
+  verdict=$(PLOT_BRANCH="$short" PLOT_DEFAULT="$DEFAULT" PLOT_PID="$pid" \
+            PLOT_DIRTY="$dirty" PLOT_MARKER="$marker" PLOT_MERGE="$merge" \
+            PLOT_RULE="$RULE" \
+            node --input-type=module - <<'NODE_EOF' 2>/dev/null
+// Imported from an ABSOLUTE path derived from this script, never from the
+// cwd. The reaper runs with its cwd wherever the operator invoked it and the
+// reconcile suite runs it against sandbox repos in the temp directory, so a
+// relative specifier resolves to a `packages/` that is not there — which the
+// fail-safe turns into "rule could not be asked" and every tree kept. Correct
+// direction, useless reaper. Same discipline as `plot-host.sh`,
+// `plot-config.sh` and `plot-pr-merged.sh`, which are all found via
+// `BASH_SOURCE`.
+const { firstReapRefusal } = await import(process.env.PLOT_RULE);
+
+const problem = firstReapRefusal({
+  branch: process.env.PLOT_BRANCH,
+  defaultBranch: process.env.PLOT_DEFAULT,
+  // The main checkout is excluded before the loop reaches here, so the only
+  // way this reading is true is the branch test the rule makes anyway.
+  isMain: false,
+  workerPid: process.env.PLOT_PID === "" ? null : process.env.PLOT_PID,
+  dirtyPath: process.env.PLOT_DIRTY,
+  blockedMarker: process.env.PLOT_MARKER === "true",
+  merge: process.env.PLOT_MERGE,
+});
+
+// `reap` when nothing refused; otherwise the refusal and its reading, which
+// the shell renders into the prose an operator reads.
+process.stdout.write(problem === null ? "reap\t" : `${problem.refusal}\t${problem.detail}`);
+NODE_EOF
+  )
+
+  refusal=${verdict%%$'\t'*}
+  detail=${verdict#*$'\t'}
+
+  # RENDERING, not deciding. The rule named the measurement; this names what it
+  # means to someone reading the report, which is the caller's half because
+  # only the caller knows it is printing a table.
+  if [ "$refusal" != "reap" ]; then
+    case "$refusal" in
+      live-worker)         reason="worker alive (pid $detail)" ;;
+      blocked-marker)      reason="PLOT-BLOCKED marker — needs a person" ;;
+      uncommitted-changes) reason="uncommitted: ${detail:0:40}" ;;
+      on-default-branch)   reason="on $DEFAULT — dispatched branch not checked out" ;;
+      no-merged-pr)        reason="unlanded work — no merged PR" ;;
+      *)                   reason="rule could not be asked — keeping" ;;
+    esac
+    printf '%-8s %-52s %s\n' "keep" "$short" "$reason"; kept=$((kept+1)); continue
   fi
 
   if [ "$MAX" -gt 0 ] && [ "$reap" -ge "$MAX" ]; then
