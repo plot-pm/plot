@@ -230,6 +230,56 @@ and its refusals are the only thing standing between a cleanup and losing work �
 two of them saved changesets on 2026-08-30. A rewrite that changes one refusal
 by accident is a rewrite that deletes something.
 
+**But refusal 5 is broken, and that changes what the assertion may be measured
+against.** Measured 2026-08-30:
+
+```
+plot-reap.sh --dry-run
+  verdict  branch                                               why
+  summary: reapable=0 removed=0 kept=0 cleared=0 dry_run=1
+```
+
+Three merged, clean worktrees with no live worker were present, and the reaper
+looked at none of them. `plot-reap.sh:162` identifies a dispatch tree by its
+path:
+
+```bash
+case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
+```
+
+`plot-wt-` is the **legacy** layout, used only when `Worktree root:` is absent
+(`plot-dispatch.sh:129`). This repo configures `Worktree root: .worktrees`, so
+every tree here is `.worktrees/<branch-with-dashes>` and matches nothing.
+
+**`kept=0` rather than `kept=3` is the tell.** A refusal counts; a skip does
+not. So `reapable=0` reads as *nothing to clean* and means *nothing was looked
+at* — which is why 26 worktrees were removed by hand earlier the same day.
+
+**Two consequences for this slice:**
+
+1. **The byte-identical `--dry-run` assertion cannot be taken against today's
+   output.** Today's output is empty because the candidate selection is broken; freezing
+   it would prove the rewrite is faithfully blind. Fix refusal 5 FIRST, in its
+   own commit, capture the baseline from the *fixed* script, and only then
+   port the five refusals. The assertion keeps its full force — it just needs a
+   reference that looks at something.
+2. **The fix is not a second path pattern.** `plot-dispatch.sh:135` states the
+   rule this violates: *"Every read of 'which worktree holds this branch' asks
+   `git worktree list` instead — a second naming convention gives path-guessing
+   a second way to be wrong, so path-guessing is confined to creation alone."*
+   Refusal 5 is a READ that guesses a path.
+
+   The property is already on disk: **`.plot-worker.pid`, written by the
+   dispatcher at creation.** All six dispatch trees carry it; a hand-made
+   worktree checked the same day carries none. It is a marker Plot itself
+   wrote, not a name Plot hopes was used.
+
+   Whether that marker alone is the right test is the slice's to settle — a
+   dispatch tree whose pid file was deleted would go unrecognised, which fails
+   in the SAFE direction (it refuses) where the path test fails in the same
+   safe direction for everything at once. Both conventions must keep working:
+   the legacy `plot-wt-` layout is supported permanently, not in transition.
+
 ### Reaping (Branch: bug/a-reaped-worktree-takes-its-log)
 
 The script removes the log after the manifest.
