@@ -14,6 +14,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-30, Jan Wloka, `bug/the-loop-reads-the-monitor`
 
 ## Approval
 
