@@ -56,13 +56,45 @@ that has to be a domain rule.
 |---|---|---|
 | pid alive | `Processes.isAlive(pid)` | **exists** |
 | worker state | `Processes.workerState(worktree, hasPr)` | **exists** |
+| **CPU activity** | `ProcessReading.activity` | **exists** — see below |
 | tree clean / markers | `Trees.isClean`, `Trees.markers` | **exists** |
-| **CPU activity** | — | **missing** |
-| **tree fingerprint** | — | **missing** |
+| **tree fingerprint** | — | **missing, and it is a composition** |
 
-**So this is two port operations and a rule**, not a rewrite. `DESIGN-ports.md`
-already frames widening this way: *"the specification for widening it is the
-list of things people went around it for."*
+**Corrected 2026-08-30 while challenging this plan.** A first draft listed CPU
+activity as missing. It is not: `ProcessReading` already carries
+`activity: WorkerActivity` — *"whether a running worker's descendants are
+burning CPU"* — which is exactly what `monitor_activity` computes.
+
+**So this is ONE port operation and a rule**, not two and a rule. The plan was
+overstating its own size.
+
+**And the one that is missing is a composition, not a reading.**
+`monitor_tree_fingerprint` is `rev-parse HEAD` plus a filtered
+`status --porcelain`:
+
+```sh
+head=$(git -C "$worktree" rev-parse HEAD)
+status=$(git -C "$worktree" status --porcelain)   # then dirty-filtered
+printf '%s\n%s' "$head" "$status"
+```
+
+**Both halves are reachable through existing ports** — `Refs` for the head,
+`Trees` for the status — but the *combination* is not, and neither is the dirty
+filter that decides which changes count. **So the question is where the
+composition lives**, and it has a clean answer: **the rule composes it.** A
+domain function taking a head and a status can produce the fingerprint itself,
+and then no new port is needed at all.
+
+**That is worth settling in the slice rather than assuming**, because it decides
+whether this plan touches `ports/` at all.
+
+### One signature to look at while moving
+
+`workerState(worktree, hasPr)` takes **`hasPr`** — a host fact, passed into a
+process port. It is documented (*"refines `finished`"*) and it works, but a
+monitor calling it has to know a PR exists before it can ask what a process is
+doing. **Not this plan's to change**; named because a slice that meets it will
+otherwise wonder whether it is a defect.
 
 ### And one monitor is on the wrong side of the layering rule today
 
@@ -133,14 +165,22 @@ languages.
 
 ### Measuring (Branch: feature/the-ports-read-activity-and-trees)
 
-`Processes` gains a CPU-activity reading; `Trees` gains a fingerprint. Both are
-what the shell already computes.
+**Settle whether any port changes at all.** CPU activity already exists as
+`ProcessReading.activity`; the fingerprint is a composition of a head and a
+status, both already reachable.
 
-**Done when** both operations exist with adapters, tested against the real
-estate; the shell functions are their implementations rather than a second copy;
-and **a `PortResult` distinguishes *cannot answer* from *no*** — `monitor_activity`
-already returns `""` for unknown, and collapsing that into `idle` is how a
-monitor invents a stall.
+**The likely answer is that the rule composes it** and `ports/` is untouched —
+in which case this slice is a paragraph in the first slice's PR rather than a
+branch, and **saying so is a finished slice.**
+
+**Done when** the composition question is answered in writing: either the rule
+composes the fingerprint from existing ports — and this slice closes with no
+code — or a port gains one operation, with the reason it could not be composed.
+
+**If a port does change:** the shell function is its implementation rather than a
+second copy, and **a `PortResult` distinguishes *cannot answer* from *no*** —
+`monitor_activity` already returns `""` for unknown, and collapsing that into
+`idle` is how a monitor invents a stall.
 
 ### Asking (Branch: feature/the-pr-monitor-asks-through-a-port)
 
