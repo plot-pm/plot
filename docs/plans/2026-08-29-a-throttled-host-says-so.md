@@ -137,6 +137,38 @@ would kill it mid-answer.
 
 ## Waves
 
+**Challenged 2026-08-30, and the plan gets smaller: the convention already
+exists, on the wrong path.**
+
+`plot-host.sh:1484` states it in full — for `issue-list`:
+
+> **THREE OUTCOMES, KEPT APART.** An empty list means the host answered and there
+> are none; a non-zero exit with empty stdout means the question failed; exit 4
+> means this host cannot be asked at all. Collapsing any two of them reproduces
+> `an-outage-is-not-an-answer` — a board that says "no issues" because it could
+> not reach the tracker is stating a fact it does not have.
+
+**`pr-list` collapses exactly those two.** The call is unchecked:
+
+```sh
+_gh_raw="$(gh pr list --state "$state" … --json number,title,…)"
+pr_list_report_truncation github "$limit" "$state" …
+printf '%s' "$_gh_raw" | jq -c …
+```
+
+The script runs under `set -uo pipefail` — **no `-e`** — so a failed `gh`
+continues with `_gh_raw` empty, `jq` emits nothing, and the caller receives an
+empty list. Reproduced 2026-08-30 against a nonexistent repo: `exit=1`, stdout
+empty. Indistinguishable from *there are no PRs*.
+
+**And the scan already has the vocabulary too.** `plot-fleet-scan.sh:1701`
+carries `_pr_ready_degraded` with named reasons (`no-host`, `no-cache`), so the
+degraded state is a concept the scan reports rather than one this plan invents.
+
+**So the work is narrower than the slice describes**: extend an existing
+three-outcome rule to `pr-list`, and give the scan one more named reason. Not a
+new mechanism — the same one, on the path that was missed.
+
 ### Reporting (Branch: bug/the-scan-says-it-could-not-ask)
 
 `plot-host.sh` distinguishes *asked and answered* from *could not ask* on the
@@ -146,6 +178,16 @@ its rows.
 Tests: a stubbed host that exits with a rate-limit error produces
 `host=throttled` in the summary and leaves no row claiming `open`; a healthy
 host still produces `host=ok` and byte-identical rows to today.
+
+**One more, and it is the one that discriminates:** a host that answers with an
+**empty list** must still read `host=ok` with zero PRs. Without it the fix could
+be "treat empty as throttled", which trades a silent wrong answer for a noisy
+one and breaks a repo that genuinely has no open PRs.
+
+**Mutation to run before calling it done:** make the stub exit 0 with empty
+stdout. The suite must stay green. Then make it exit 1 with empty stdout — the
+suite must go red. If both pass or both fail, the test is reading the emptiness
+rather than the exit code.
 
 ### Rendering (Branch: bug/the-board-shows-a-throttled-host)
 
