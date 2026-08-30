@@ -142,13 +142,36 @@ argument for putting its content somewhere durable, not for keeping the file.**
 
 ## Slices
 
+**The Deciding slice depends on nothing that is not already merged.** Two of the
+five refusals read the world — a live pid from the process table, a merged PR
+from the host — and those are `Processes` and `Host`, **on `main` since #530**.
+`reapable.ts` takes readings and returns a refusal; who fetches them is the
+caller's business, which is what makes the rule pure.
+
+**So it does not wait on the sandbox plan.** That plan expresses workflows
+against the same ports; this one expresses a rule. Neither needs the other, and
+holding this behind it would be waiting for a pattern rather than a dependency.
+
+**The four are otherwise independent**: the resolver, the move, the rule and the
+log removal each land on their own, and only Moving needs Resolving first.
+
+
 ### Resolving (Branch: infra/one-place-decides-where-a-log-lives)
 
 `agent-log.ts`, and the nine modules asking it instead of resolving themselves.
 
+**Readers count too, and the plan first missed them.** The 22 call sites are
+writers; `auto-deliver.ts` and `auto-dispatch.ts` **read** these logs and were
+not in that list. **A missed reader is worse than a missed writer**: the writer
+puts a file somewhere unswept, while the reader looks in an empty directory and
+reports nothing wrong.
+
+**One grep covers both**, which is why they are not counted separately — two
+lists drift, one expression does not.
+
 **Done when** `grep -rn "resolve(repoRoot, '\.\.')" packages/board/src/` returns
-**nothing**, every log path comes from the resolver, and the board's log links
-still open the right file.
+**nothing**, every log path — read or written — comes from the resolver, and the
+board's log links still open the right file.
 
 **The grep is the assertion.** 22 call sites is exactly the kind of change where
 one gets missed, and the missed one keeps writing to the old location where
@@ -159,9 +182,33 @@ nothing will ever clean it.
 The resolver returns a path under the configured worktree root; the fallback
 stays the parent directory.
 
-**Done when** a dispatch in this repository writes its log under `.worktrees/`,
-a repository with no `Worktree root` key still writes beside the repo, and
-`pnpm run test:board` passes unedited.
+**A path guard joins the slug guard on `/api/dispatch-log`.** That route serves
+these files to a browser, and its existing guard validates the SLUG against
+`SLUG_RE` — it is directory-independent and already excludes `../`, so the move
+does not break it. **The second check asserts the resolved path sits under the
+configured root**, which is the invariant the resolver now owns and the one a
+future caller could violate without touching the slug. Two lines, and the slug
+guard is unchanged.
+
+**The route's comments describe the old location and are corrected**, because
+prose that names a path is prose that goes stale silently.
+
+**Old logs are moved once, on the first dispatch after this lands.** The 190
+found on 2026-08-30 were trashed by hand, but any other checkout has its own,
+and leaving them means a directory that is never cleaned by anything.
+
+**The risk is stated: a dispatch that touches files in the parent directory does
+more than it says.** So it is bounded to exactly what Plot wrote — files
+matching `plot-<kind>-*.log`, `.state` and `.prompt.md`, and nothing else — it
+moves rather than deletes, it runs once (a marker in `.worktrees/` records that
+it has), and **a failure to move is not a failure to dispatch**. The migration
+is convenience; the dispatch is the job.
+
+**Done when** a dispatch in this repository writes its log under `.worktrees/`;
+a repository with no `Worktree root` key still writes beside the repo; existing
+`plot-*` logs are moved once and the second dispatch moves nothing; a move that
+fails leaves the dispatch working; the path guard rejects a resolved path
+outside the root; and `pnpm run test:board` passes unedited.
 
 ### Deciding (Branch: infra/one-rule-decides-what-is-reapable)
 
