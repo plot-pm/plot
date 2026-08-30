@@ -5,6 +5,7 @@ import { agentLogDir, agentLogPath } from './agent-log.js';
 import { execFile, execFileSync, spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
+import { localCapability } from './controllers/caller.js';
 
 /**
  * Turning an issue into a plan — the row's one action, and the board's FOURTH
@@ -140,13 +141,7 @@ export interface IdeaOptions extends BuildBoardOptions {
  * board does not plan from it.
  */
 export function ideaAvailability(host: string): { available: boolean; reason: string } {
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
-    return { available: true, reason: '' };
-  }
-  return {
-    available: false,
-    reason: `the board is bound to ${host}, not localhost — turning an issue into a plan is available only on the machine that owns the repo`,
-  };
+  return localCapability(host, 'turning an issue into a plan', 'the repo');
 }
 
 /**

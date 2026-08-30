@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { lastLines, usableCommand, type IdeaState } from './idea.js';
+import { localCapability } from './controllers/caller.js';
 
 /**
  * Preparing an approved plan for implementation — the route behind the board's
@@ -93,13 +94,7 @@ export interface ImplementOptions extends BuildBoardOptions {
  * precondition than creating one, there is already a seam to put it in.
  */
 export function implementAvailability(host: string): { available: boolean; reason: string } {
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
-    return { available: true, reason: '' };
-  }
-  return {
-    available: false,
-    reason: `the board is bound to ${host}, not localhost — preparing a plan for implementation is available only on the machine that owns the repo`,
-  };
+  return localCapability(host, 'preparing a plan for implementation', 'the repo');
 }
 
 /** Read the configured command, or "" — the one place that key is looked up. */

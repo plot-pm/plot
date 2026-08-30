@@ -2,10 +2,9 @@ import http from 'node:http';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildBoard, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
+import { renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
 import { repairEnabledFromEnv } from './resolver.js';
-import { buildFleet } from './fleet.js';
-import { mockFleet, mockRequested, mockCards} from './mock-fleet.js';
+import { boardState, fleetState } from './controllers/fleet-state.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatch.js';
 import { isUnderAgentLogDir } from './agent-log.js';
@@ -307,80 +306,34 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       // the same reason and needs the same fact: how to start this board again
       // and where it listens, carried on the last successful poll so the page
       // still holds it once nothing is answering.
+      // PARSE, CALL, ENRICH, SERIALISE — and the estate reading is all in the
+      // call. `boardState` is the controller: it answers *what is on the
+      // board*, and it does so with no `host`, no port and no request, which
+      // is what lets the master agent ask the same question.
+      //
+      // WHAT STAYS HERE IS WHAT ONLY THIS CALLER KNOWS. `server` is transport
+      // knowledge — which port did this process bind, and how would you start
+      // it again — and the capability flags below are the same kind of fact
+      // wearing a lifecycle name: every one of them answers *did this request
+      // come from this machine?*, which is meaningless to a caller that never
+      // made a request. A controller returning them would have to invent a
+      // binding for the master agent, so they enrich rather than descend.
+      //
+      // They stay TEN separate fields rather than one. Today every flag gives
+      // the same answer; one flag serving several capabilities is precisely
+      // how they diverge when a later change makes only one of them local.
       const board = {
-        ...buildBoard(opts),
-        // THE MOCK REPLACES THE COLUMNS, for the reason `mockCards` records:
-        // half this board's controls are gated on a card, and a mock serving
-        // rows without cards renders none of them — which looks exactly like
-        // the code failing to render them. Measured: `[data-plan-actions]` 0.
-        //
-        // The capability flags BELOW are deliberately left real. They answer
-        // *will this server act*, which is a fact about the binding and not
-        // about any plan — a mock must not claim a capability this process does
-        // not have, or the control it shows would be one that cannot work.
-        ...(mockRequested() ? { columns: mockCards() } : {}),
+        ...boardState({ opts }),
         dispatch: dispatchAvailability(HOST),
         server: serverInfo(opts, boundPort),
-        // Its own field, and now the SAME answer as dispatch: both scripts ship
-        // with Plot, so both controls ask one question — is this a local,
-        // same-origin request. It stays a separate field rather than collapsing
-        // into `dispatch` because it is a separate capability, and the client
-        // asking one flag about two of them is how they diverged before.
         approve: approveAvailability(HOST),
-        // A THIRD capability flag rather than a reuse of `dispatch`. Today all
-        // three answer the same binding question; the reason they stay separate
-        // is the one `approve` records — one flag for two capabilities is how
-        // they diverge without anyone noticing.
         continue: continueAvailability(HOST),
-        // A FOURTH flag, for the reason the third one records: today all four
-        // answer the same binding question, and collapsing them is how they
-        // diverge without anyone noticing. Read together with `fleet`'s
-        // `issueAnswer` by the row — the binding says whether this BOARD can
-        // act, and the answer says whether the TRACKER can be asked at all.
         idea: ideaAvailability(HOST),
-        // A FIFTH flag, and the SAME binding as `idea` today — commissioning
-        // design spawns the same plot agent that turns an issue into a plan. It
-        // stays a field of its own for the reason every flag above it does: one
-        // flag for two capabilities is how they diverge when a later change
-        // makes only one of them local.
         commission: commissionAvailability(HOST),
-        // A SIXTH flag, and the SAME binding as `idea` and `commission` today —
-        // reslicing spawns the same plot agent that turns an issue into a plan.
-        // It stays a field of its own for the reason every flag above it does:
-        // one flag for two capabilities is how they diverge when a later change
-        // makes only one of them local. The `unsliced-wave` row reads it to
-        // decide whether *Slice this wave* acts or names its refusal.
         reslice: resliceAvailability(HOST),
-        // A SEVENTH flag, and the SAME binding as `idea`, `commission` and
-        // `reslice` today — delivering spawns the same plot agent that turns an
-        // issue into a plan. It stays a field of its own for the reason every
-        // flag above it does: one flag for two capabilities is how they diverge
-        // when a later change makes only one of them local. Read together with a
-        // card's `deliverable` bit by the row — the binding says whether this
-        // BOARD can act, the card says whether the PLAN is complete enough to.
         deliver: deliverAvailability(HOST),
-        // An EIGHTH flag, and the SAME binding as `idea`, `commission`,
-        // `reslice` and `deliver` today — implementing spawns the same class of
-        // plot agent. It stays a field of its own for the reason every flag
-        // above it does: one flag for two capabilities is how they diverge when
-        // a later change makes only one of them local. Read together with a
-        // card's `hasEligibleWork` by the row — the binding says whether this
-        // BOARD can act, the card says whether the plan has work to start.
         implement: implementAvailability(HOST),
-        // A NINTH flag, and the SAME binding as the eight above today —
-        // dropping removes a manifest from this disk. It stays a field of its
-        // own for the reason every flag above it does: one flag for two
-        // capabilities is how they diverge when a later change makes only one
-        // of them local. The row reads it to decide whether *Drop this agent*
-        // acts or names its refusal.
         drop: dropAvailability(HOST),
-        // A TENTH flag, and the SAME binding as the nine above today — creating
-        // a story spawns the same class of plot agent. It stays a field of its
-        // own for the reason every flag above it does: one flag for two
-        // capabilities is how they diverge when a later change makes only one of
-        // them local. It replaces a CONSTANT the client carried — the refusal
-        // that said no route could exist — and that is the point of it being a
-        // flag at all: the capability is repo-dependent, exactly as `idea` is.
         story: storyAvailability(HOST),
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -406,7 +359,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       // REPLACES the payload rather than adding to it — a mock beside real rows
       // is indistinguishable from a real estate behaving oddly, and the first
       // confused reading would cost more than the aid saves.
-      res.end(JSON.stringify(mockRequested() ? mockFleet() : buildFleet(opts)));
+      res.end(JSON.stringify(fleetState({ opts })));
     } catch (err) {
       console.error('Error building fleet:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
