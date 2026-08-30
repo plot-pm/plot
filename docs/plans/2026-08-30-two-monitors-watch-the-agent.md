@@ -99,8 +99,24 @@ other wants occasional sampling of an expensive one.
 
 | finding | measurement |
 |---|---|
-| **idle** | pid alive, CPU delta zero across consecutive samples |
+| **idle** | pid alive, CPU delta zero across consecutive samples, **tree unchanged, and commits already present** |
 | **gone** | pid dead |
+
+**`idle` carries three conditions, not one, because a thinking agent looks like
+a dead one.** A worker waiting on a long model response has the same zero CPU
+delta as a worker whose agent has vanished. What separates them, measured across
+the three stalls this session, is that each had **already committed** and then
+gone quiet — work delivered, then silence.
+
+| | idle fires |
+|---|---|
+| no CPU, tree unchanged, **commits present** | yes — it produced work and stopped |
+| no CPU, tree unchanged, no commits yet | no — it may be thinking about the first one |
+| no CPU, **tree changed** between samples | no — something is happening |
+
+**The middle row is where the false positives would have been.** An agent given
+a hard first slice is quiet for a long time and has nothing to show yet; calling
+that a stall teaches an operator to ignore the finding.
 
 **`idle` is deliberately not called `stalled`.** The spec already uses that word
 for an **Agent** fact — *"exited 0, unlanded work, no PR"*
@@ -116,8 +132,24 @@ confusion CLAUDE.md's rule exists to prevent.
 | finding | measurement |
 |---|---|
 | **owes a review** | tree clean, commits ahead of the default branch, no PR |
+| **owes a gate** | commits ahead, and a repo gate the branch does not satisfy |
 | **owes an answer** | a `PLOT-BLOCKED*` marker in the tree |
 | **holds unlanded work** | uncommitted or unpushed changes in the tree |
+
+**`owes a gate` exists because the third stall fell through the other three.**
+Measured 2026-08-30: `feature/the-workflows-decide-without-acting` had commits,
+a clean tree and no marker — and **no changeset**, so it would have landed red.
+Every finding above said nothing.
+
+**It starts with the changeset, because that is the gate that was missed** and
+the one a script can check without running CI: a branch with commits and no new
+`.changeset/*.md`. CI has ten more, and the monitor does not run them — running
+CI to predict CI is a second CI.
+
+**What it must not become is a CI reimplementation.** The rule: a gate belongs
+here only if it can be answered from the worktree alone, in the time the
+AgentMonitor already spends. The changeset qualifies; *"do the tests pass"* does
+not, and asking it would turn a five-minute sample into a build.
 
 **Each is a measurement, not a judgement** — the same discipline `plot-reap.sh`
 applies to its five refusals. *"Owes a review"* is three facts anded together,
@@ -522,6 +554,64 @@ so there is nothing for a monitor to be a child of.
 
 ## Slices
 
+**Attaching comes FIRST, and the monitors it attaches start as no-ops.**
+
+An earlier order put it last, on the reasoning that `plot-dispatch.sh` is the
+script whose failure stops the whole fleet. That is true and it is why the
+protections below are not optional — but it left the first three slices built
+and unused: no monitor runs until dispatch starts one, so nothing would have
+been observed while the very failures they exist to catch kept happening.
+**Three occurred during the writing of this plan.**
+
+**The risk this accepts, stated: a no-op monitor looks exactly like a working
+one.** An operator seeing a monitor attached could reasonably assume it is
+watching. So the no-op does not stay silent — **it publishes a finding saying it
+measures nothing yet**, and that string disappears in the slice that gives it
+its first measurement. A monitor that reports its own emptiness cannot be
+mistaken for one that has nothing to report.
+
+### Attaching (Branch: feature/every-worker-is-born-monitored)
+
+`start_worker()` starts both monitors inside the wrapper, before the agent.
+
+**Done when**
+
+- a dispatched agent gets both monitors without the operator asking
+- **each no-op monitor publishes that it measures nothing yet**, so an attached
+  monitor is never mistaken for a watching one
+- **there is no code path that creates a worker without them** — asserted by the
+  test below, not by review
+- killing the agent leaves both monitors alive long enough to record the finding,
+  and the wrapper still writes `.plot-worker.exit`
+- a hand-made worktree gets neither
+- `--dry-run` names which monitors it would attach to which worktree
+
+**`plot-dispatch.sh` is 2028 lines and the largest script here, and
+`start_worker()` is where every worker comes into existence — a mistake there
+starts no workers at all.** Two protections, and both are needed:
+
+- **This slice goes FIRST and attaches no-ops**, so the change to dispatch is
+  the smallest it will ever be: start two processes that publish "nothing
+  measured yet". No sampling logic, no host call, no channel semantics — those
+  arrive in later slices, behind a dispatch change already proven.
+- **`test/e2e/` passes unedited, and `--dry-run` output is byte-identical before
+  and after on the same estate.** That is the protection
+  `production-calls-the-domain-one-rule-at-a-time` uses for reap and dispatch,
+  applied here for the same reason: the dry run exercises every refusal against
+  real worktrees and real pids without starting or removing anything.
+
+**The test is a mutation and an ordering assertion, because a review cannot see
+either.** Removing the monitor start from `start_worker()` must turn a test red —
+that is the "no other path" claim. And `--stop`, which kills the agent, must
+leave the monitors and the exit file intact — that is the "never dies first"
+claim, checked against the thing that would break it.
+
+**Watch the startup window.** `plot-dispatch.sh:478` records a sub-millisecond
+gap where the wrapper has started and `.plot-worker.pid` is not yet written, and
+a scan landing there reads `none` — honest. The monitors start inside the same
+wrapper, so they inherit that window rather than widening it: a monitor must not
+report `gone` from a pid file that has not been written yet.
+
 ### Watching the worker (Branch: feature/the-worker-monitor-samples-the-process)
 
 The WorkerMonitor: `idle` and `gone`, sampled from the process table on a tight
@@ -575,54 +665,21 @@ value; two is a channel. And silence-because-healthy versus silence-because-gone
 is the distinction the whole design rests on — if a subscriber cannot tell them
 apart, the monitor has the same blind spot as the agent it watches.
 
-### Attaching (Branch: feature/every-worker-is-born-monitored)
-
-`start_worker()` starts both monitors inside the wrapper, before the agent.
-
-**Done when**
-
-- a dispatched agent gets both monitors without the operator asking
-- **there is no code path that creates a worker without them** — asserted by the
-  test below, not by review
-- killing the agent leaves both monitors alive long enough to record the finding,
-  and the wrapper still writes `.plot-worker.exit`
-- a hand-made worktree gets neither
-- `--dry-run` names which monitors it would attach to which worktree
-
-**`plot-dispatch.sh` is 2028 lines and the largest script here, and
-`start_worker()` is where every worker comes into existence — a mistake there
-starts no workers at all.** Two protections, and both are needed:
-
-- **This slice goes last**, after the monitors and the channel are proven. It is
-  already the order; the reason is that dispatch is the one script whose failure
-  stops the whole fleet rather than one branch.
-- **`test/e2e/` passes unedited, and `--dry-run` output is byte-identical before
-  and after on the same estate.** That is the protection
-  `production-calls-the-domain-one-rule-at-a-time` uses for reap and dispatch,
-  applied here for the same reason: the dry run exercises every refusal against
-  real worktrees and real pids without starting or removing anything.
-
-**The test is a mutation and an ordering assertion, because a review cannot see
-either.** Removing the monitor start from `start_worker()` must turn a test red —
-that is the "no other path" claim. And `--stop`, which kills the agent, must
-leave the monitors and the exit file intact — that is the "never dies first"
-claim, checked against the thing that would break it.
-
-**Watch the startup window.** `plot-dispatch.sh:478` records a sub-millisecond
-gap where the wrapper has started and `.plot-worker.pid` is not yet written, and
-a scan landing there reads `none` — honest. The monitors start inside the same
-wrapper, so they inherit that window rather than widening it: a monitor must not
-report `gone` from a pid file that has not been written yet.
-
 ### Acting (Branch: feature/a-report-can-open-the-pr)
 
 The master agent opens a PR on `owes a review`, through the controller. Nothing
 else acts on anything.
 
-**This slice waits on
-[`the-controller-answers-every-asker`](2026-08-30-the-controller-answers-every-asker.md)** —
-it is the entry point the agent asks through, and building a second one here
+**This slice — and ONLY this slice — waits on
+[`the-controller-answers-every-asker`](2026-08-30-the-controller-answers-every-asker.md)**.
+It is the entry point the agent acts through, and building a second one here
 would be the duplication that plan exists to remove.
+
+**The other four do not wait on anything.** They measure and report; nothing in
+them needs a controller. That matters because the controller sits behind a
+four-slice plan of its own, and the failures these monitors catch happen daily —
+three during the writing of this one. **Holding the whole plan behind the chain
+would trade weeks of blindness for one slice's tidiness.**
 
 **Done when** an `owes a review` finding results in a PR without a person
 asking; the PR body names the finding and its evidence; **a second finding for
