@@ -19,7 +19,7 @@ import {
 } from '../../src/server/auto-dispatch.js';
 import { FleetPulseSchema, type FleetPulse } from '../../src/contract/schema.js';
 import type { AgentEntry } from '../../src/server/registry.js';
-import type { FleetControls } from '../../src/server/fleet-controls.js';
+import type { FleetSettings } from '../../src/server/fleet-settings.js';
 
 const made: string[] = [];
 afterEach(() => {
@@ -113,8 +113,8 @@ const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): Fleet
     summary: { plans: plans.length, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
   });
 
-const on = (parallelAgents: number): FleetControls => ({ autoDispatch: true, parallelAgents });
-const off = (parallelAgents: number): FleetControls => ({ autoDispatch: false, parallelAgents });
+const on = (parallelAgents: number): FleetSettings => ({ autoDispatch: true, parallelAgents });
+const off = (parallelAgents: number): FleetSettings => ({ autoDispatch: false, parallelAgents });
 
 const running = (branch: string): AgentEntry => ({
   session: `s-${branch}`, branch, worktree: `/wt/${branch}`, command: '',

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
-import type { FleetControls } from './fleet-controls.js';
+import type { FleetSettings } from './fleet-settings.js';
 import { LIVE_STATES, type SourceBranch, type FleetPulse } from '../contract/schema.js';
 import type { AgentEntry } from './registry.js';
 import { dispatchLogPath } from './dispatch.js';
@@ -184,7 +184,7 @@ function dispatchable(branch: SourceBranch): boolean {
 }
 
 export interface PlanAutoDispatchInput {
-  controls: FleetControls;
+  controls: FleetSettings;
   pulse: FleetPulse;
   /** Live registry entries this pulse — see {@link liveAgentCount}. */
   liveCount: number;
@@ -513,7 +513,7 @@ export function runAutoDispatch(
 export function maybeAutoDispatch(
   opts: BuildBoardOptions,
   pulse: FleetPulse,
-  controls: FleetControls,
+  controls: FleetSettings,
   agents: AgentEntry[],
   inFlight: Set<string>,
 ): Set<string> {
