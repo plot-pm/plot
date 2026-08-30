@@ -61,22 +61,31 @@ describe('PlanStore reads this repository’s plans', () => {
     // report rather than a malformed plan; `UNKNOWN` is a plan whose phase
     // nobody recognises. Collapsing them here would hide the second behind the
     // first, which is the failure this whole layer is shaped against.
-    const phases = plans.value.map((plan) => plan.phase);
-    for (const phase of phases) {
-      expect([
-        'draft',
-        'approved',
-        'delivered',
-        'released',
-        'rejected',
-        'superseded',
-        'NONE',
-        'UNKNOWN',
-      ]).toContain(phase);
-    }
+    const KNOWN = [
+      'draft',
+      'approved',
+      'delivered',
+      'released',
+      'rejected',
+      'superseded',
+      'NONE',
+      'UNKNOWN',
+    ];
+    // Asserted as ONE empty-array comparison rather than a loop of `toContain`.
+    // `it.each` cannot serve here — the cases only exist after `readPlans`
+    // resolves, and it needs them at collection time. What the loop cost was
+    // diagnosis: over 170 plans it reported "expected [...8 values] to contain
+    // 'weird'" and named neither the plan nor how many were wrong. The offenders
+    // carry their file, so a failure prints what to open.
+    const unknown = plans.value
+      .filter((plan) => !KNOWN.includes(plan.phase))
+      .map((plan) => `${plan.file}: ${plan.phase}`);
+    expect(unknown).toEqual([]);
     // And the estate really does hold both kinds: a lifecycle phase somewhere,
     // so this is not vacuous.
-    expect(phases.some((phase) => phase === 'delivered' || phase === 'approved')).toBe(true);
+    expect(
+      plans.value.some((plan) => plan.phase === 'delivered' || plan.phase === 'approved'),
+    ).toBe(true);
   });
 
   it('finds this plan and the slice that produced this branch', async () => {
