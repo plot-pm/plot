@@ -30,7 +30,14 @@
 > **Measured 2026-08-30: 26 of the 51 spawn call sites sit in the very route
 > handlers the controller plan rebuilds** — `board.ts` 4, `fleet.ts` 4,
 > `idea.ts` 8, `deliver.ts` 2, `approve.ts` 2, `dispatch.ts` 2, `reslice.ts` 2,
-> `implement.ts` 1, `commission.ts` 1. If the Spawning slices land first they
+> `implement.ts` 1, `commission.ts` 1.
+>
+> **Re-counted the same evening: 25, and eight of the nine files match exactly.**
+> Only `dispatch.ts` moved, 2 to 1 — a line a slice landing that day presumably
+> took with it. **This is the first of six plans checked that day whose
+> motivating measurement held**; the other five had drifted far enough to change
+> what their slices should assert. The per-file breakdown is why it could be
+> re-derived at all: a bare total could not have been. If the Spawning slices land first they
 > wire those sites straight to the adapters, and the controller plan then moves
 > the same lines again.
 >
@@ -54,6 +61,14 @@
 > on (measured 2026-08-28: `autoDispatch: true`, `parallelAgents: 11`) approving
 > this plan claims its first branch within about a minute, against a package
 > that does not exist yet.
+>
+> **Both settings verified unchanged on 2026-08-30**: `.plot/state/fleet-controls.json`
+> still reads `{"autoDispatch":true,"parallelAgents":11}`. The warning stands as
+> written, and the cap deserves saying out loud — **eleven**, not the three a
+> reader might assume. `plot-config.sh get 'Parallel agents'` returns whatever
+> default the caller passes, because no such key exists in `CLAUDE.md`; the board
+> owns this setting. Asked that way it reported *3 of 3 slots busy* repeatedly on
+> 2026-08-30 while eight were free.
 >
 > **So this plan stays Draft until the first is Delivered.** That is the gate,
 > and it is a human one because Plot has no other.
