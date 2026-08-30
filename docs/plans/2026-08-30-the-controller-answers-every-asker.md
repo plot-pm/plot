@@ -29,6 +29,17 @@
 > **Depends on [`2026-08-28-the-domain-runs-the-workflows-in-a-sandbox.md`](2026-08-28-the-domain-runs-the-workflows-in-a-sandbox.md)**
 > for its driven ports and adapters. Those seven exist as of
 > `feature/the-ports-have-adapters`; the rest of that plan is in flight.
+>
+> **This plan runs SECOND of three, before
+> [`production-calls-the-domain-one-rule-at-a-time`](2026-08-28-production-calls-the-domain-one-rule-at-a-time.md).**
+> Measured 2026-08-30: **26 of that plan's 51 spawn call sites are in the route
+> handlers this plan rebuilds** — `board.ts` 4, `fleet.ts` 4, `idea.ts` 8, and
+> six more. Repointing them at adapters before the controller exists means
+> moving the same lines twice. **The layer comes before the callers are
+> repointed**, so every call site is touched once.
+>
+> One plan at a time: fifteen slices across three plans sharing files cannot run
+> concurrently without colliding.
 
 **The driven side is built and the driving side is missing.** The seven ports
 are all *world → domain*: `PlanStore`, `Refs`, `Host`, `Processes`, `Trees`,

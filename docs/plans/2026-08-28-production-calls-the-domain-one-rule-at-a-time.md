@@ -22,6 +22,27 @@
 
 ## Motivation
 
+> **This plan runs THIRD, after
+> [`the-domain-runs-the-workflows-in-a-sandbox`](2026-08-28-the-domain-runs-the-workflows-in-a-sandbox.md)
+> and [`the-controller-answers-every-asker`](2026-08-30-the-controller-answers-every-asker.md).**
+> One plan at a time, and the order is not arbitrary.
+>
+> **Measured 2026-08-30: 26 of the 51 spawn call sites sit in the very route
+> handlers the controller plan rebuilds** — `board.ts` 4, `fleet.ts` 4,
+> `idea.ts` 8, `deliver.ts` 2, `approve.ts` 2, `dispatch.ts` 2, `reslice.ts` 2,
+> `implement.ts` 1, `commission.ts` 1. If the Spawning slices land first they
+> wire those sites straight to the adapters, and the controller plan then moves
+> the same lines again.
+>
+> **So the layer is built before the callers are repointed**, and every call
+> site is touched once. That is the same discipline this plan already applies
+> to rules: the third-copy state is avoided by ordering, not by cleanup.
+>
+> **The chain is fifteen slices across three plans**, and running them
+> concurrently would have them colliding in shared files. Sequential is slower
+> and it is what keeps each file owned by one branch at a time.
+
+
 > **Depends on [`2026-08-28-the-domain-runs-the-workflows-in-a-sandbox.md`](2026-08-28-the-domain-runs-the-workflows-in-a-sandbox.md)
 > being fully delivered** (and through it, on the domain package). Every branch
 > here repoints a production caller at an adapter that plan builds.
@@ -37,6 +58,16 @@
 > **So this plan stays Draft until the first is Delivered.** That is the gate,
 > and it is a human one because Plot has no other.
 
+
+**"Production calls the domain" is shorthand, and worth stating precisely.**
+Production does not reach into the domain directly. Adapters turn the world
+into readings, controllers ask, and the domain decides — three layers, settled
+across
+[Ports §4](../stories/the-master-agent-holds-the-fleet/DESIGN-ports.md#4-the-adapters-already-exist)
+and the controller plan. What this plan does is make production **stop holding
+its own copy of the rules** and start getting its answers through that stack.
+The title is kept because the slug is in the sprint, the story and three
+commits, and renaming it would cost more than the sentence above clarifies.
 
 **The duplication was licensed by this plan existing.**
 [Plan 1](2026-08-28-the-domain-moves-out-of-the-board.md) builds a
@@ -294,8 +325,18 @@ to remove.
 
 ### Transitions (Branch: feature/a-transition-writes-one-value)
 
-`plot-approve.sh` and `plot-deliver.sh` take their writes from
-`plan.approve()` / `plan.deliver()` rather than composing them inline.
+`plot-approve.sh` and `plot-deliver.sh` stop composing their writes inline. What
+they write comes from `plan.approve()` / `plan.deliver()`; **what performs the
+write is still the script**, because a script is an adapter and an adapter does
+not call inward.
+
+**The route is the controller.** The domain returns a `Decision` naming every
+write; a controller asks for it; the script is handed what to write and does it.
+The script keeps its exit codes, its messages and its idempotence — it loses
+only the part that was deciding.
+
+> **This slice waits on the controller plan**, which is the mechanism that
+> carries a `Decision` to a script without the script reaching into the domain.
 
 **Done when** the sandbox e2e suite produces plan files that **parse
 identically** by both paths — every field from `plot-plan-meta.sh` matching —
@@ -310,6 +351,44 @@ differently here would put two rules on one file and leave the two test suites
 contradicting each other, which is the duplication this plan exists to remove.
 
 ## Notes
+
+### How much of each script is domain, and how much is adaptation
+
+**This is the open question the sequence has to answer, and it is per-script
+rather than per-file.** The choice is not *which scripts do we replace* but
+*where inside each one does deciding stop and adapting begin*. Counted
+2026-08-30, by lines against markers of decision (`refus`, `eligible`,
+`blocked`, `verdict`, `gate`, `cannot`, `exit 1`):
+
+| script | lines | decision markers | reading |
+|---|---:|---:|---|
+| `plot-config.sh` | 154 | 5 | **adaptation** — reads a key, prints a value |
+| `plot-plan-meta.sh` | 930 | 21 | **adaptation** — the plan-format parser, and the contract |
+| `plot-host.sh` | 1686 | 60 | **adaptation** — one place that talks to the host CLI |
+| `plot-deliver.sh` | 488 | 18 | mixed — parsing adapts, deliverability decides |
+| `plot-approve.sh` | 628 | 43 | mixed — the same shape |
+| `plot-worker-state.sh` | 725 | 39 | mixed — six process facts adapt, two workflow states decide |
+| `plot-reap.sh` | 286 | 12 | mixed — five refusals decide, the measurements adapt |
+| `plot-fleet-scan.sh` | 3496 | 151 | **mostly decision** — slice verdicts are the domain |
+| `plot-dispatch.sh` | 2028 | 220 | **mostly decision** — eligibility and nine refusals |
+
+**The pure adapters are not rewritten at all.** `plot-plan-meta.sh` is the
+plan-format contract and `plot-host.sh` is the single place that speaks to a
+host CLI — reimplementing either in TypeScript would be the duplication this
+design forbids, and both already answer in exit codes `runScript()` maps.
+
+**The mixed ones give up their deciding half and keep the rest.** That is what
+each slice above does, one rule at a time.
+
+**The two mostly-decision scripts are the open question.** `plot-fleet-scan.sh`
+and `plot-dispatch.sh` are 5524 lines carrying 371 decision markers between
+them, and after their rules move, what is left may be too thin to be worth
+keeping as shell — or may still be the right adapter for the git and process
+access underneath. **That is a measurement nobody has taken**, and it should be
+taken after the Eligible and Refusing slices land, when the remainder is
+visible rather than predicted. Deciding it now would be guessing at the size of
+something these slices are about to change.
+
 
 **This plan can stop between branches and leave a coherent estate.** Each
 branch ends with one fewer duplicated rule, and nothing depends on the next one
