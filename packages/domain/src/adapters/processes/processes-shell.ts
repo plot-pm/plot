@@ -1,6 +1,6 @@
 import type { WorkerActivity, WorkerState } from '../../entities/fleet.js';
 import { answered, type PortResult } from '../../port-result.js';
-import type { Processes, WorkerReading } from '../../ports/processes.js';
+import type { Processes, ProcessReading } from '../../ports/processes.js';
 import { asText, runProcess, runScript, resultOf } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -28,7 +28,7 @@ const ACTIVITIES: readonly string[] = ['working', 'idle', ''];
  * @param stdout - the function's output: state, pid, exit code, activity.
  * @returns the reading.
  */
-const readingOf = (stdout: string): WorkerReading => {
+const readingOf = (stdout: string): ProcessReading => {
   const [state = '', pid = '', exitCode = '', activity = ''] = asText(stdout).split('\t');
   if (!WORKER_STATES.includes(state)) {
     throw new Error(`plot-worker-state: unrecognised state ${state}`);
@@ -63,7 +63,7 @@ export const processesShell = (context: ShellContext): Processes => {
       return answered(run.code === 0);
     },
 
-    workerState: async (worktree, hasPr): Promise<PortResult<WorkerReading>> => {
+    workerState: async (worktree, hasPr): Promise<PortResult<ProcessReading>> => {
       const run = await runProcess(
         'bash',
         [

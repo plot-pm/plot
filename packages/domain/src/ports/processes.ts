@@ -2,13 +2,20 @@ import type { PortResult } from '../port-result.js';
 import type { WorkerState, WorkerActivity } from '../entities/fleet.js';
 
 /**
- * What the process table says about one agent's worker.
+ * One reading of an agent's desk and the process on it.
+ *
+ * Named for the reading rather than for the worker because it is not purely a
+ * worker's: four of the eight states are process-table observations, two
+ * (`waiting`, `stalled`) are facts about what the AGENT still owes, `finished`
+ * is a process fact the desk refines, and `elsewhere` is the machine's answer.
+ * A caller reads all eight from here and the source of each is what decides
+ * which entity it belongs to.
  *
  * The state, the pid and the exit code are facts and nothing here renders
  * them: two callers need different shapes of one computation, so this carries
  * the computation's result and neither of their formats.
  */
-export interface WorkerReading {
+export interface ProcessReading {
   /** The state, across the six process observations and two task states. */
   state: WorkerState;
   /** The pid, or `''` where no record named one. */
@@ -43,7 +50,7 @@ export interface Processes {
    * @param hasPr - whether the branch already has a PR; refines `finished`.
    * @returns what the process table and the desk together report.
    */
-  workerState(worktree: string, hasPr: boolean): Promise<PortResult<WorkerReading>>;
+  workerState(worktree: string, hasPr: boolean): Promise<PortResult<ProcessReading>>;
 
   /**
    * When a process started, as epoch milliseconds.

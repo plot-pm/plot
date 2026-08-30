@@ -245,3 +245,35 @@ describe('Host reads the git host', () => {
     }
   });
 });
+
+describe('the package exposes the ports and hides the adapters', () => {
+  it('exports every port as a type, the Machine port disambiguated', async () => {
+    // A type-only assertion: these compile or they do not, and `tsc --noEmit`
+    // in CI is what runs it. The entity and the port share the name `Machine`
+    // because DESIGN-ports.md names a port for what it is asked ABOUT — so the
+    // barrel renames one and each file keeps the name its own spec gives it.
+    const index: typeof import('../src/index.js') = await import('../src/index.js');
+    type Ports = [
+      import('../src/index.js').PlanStore,
+      import('../src/index.js').Refs,
+      import('../src/index.js').Host,
+      import('../src/index.js').Processes,
+      import('../src/index.js').Trees,
+      import('../src/index.js').Clock,
+      import('../src/index.js').MachinePort,
+    ];
+    const declared: Ports[number] extends never ? never : true = true;
+    expect(declared).toBe(true);
+    // The entity keeps its own name alongside the port.
+    expect(index.headroomFor(1)).toBe('clear');
+  });
+
+  it('keeps the adapters off the barrel', async () => {
+    // An `export *` from adapters/ would put node:child_process on the import
+    // graph of every module that reads an entity, making the purity boundary
+    // depend on tree-shaking rather than on the module graph.
+    const index = await import('../src/index.js');
+    expect(Object.keys(index)).not.toContain('runScript');
+    expect(Object.keys(index)).not.toContain('hostShell');
+  });
+});

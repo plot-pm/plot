@@ -21,7 +21,6 @@ interface RawPlan {
   assignee?: string;
   branches?: string[];
   prs?: number[];
-  waves?: RawSlice[];
   slices?: RawSlice[];
   review?: string;
   impl?: string;
@@ -57,10 +56,37 @@ const sliceOf = (raw: RawSlice): PlanRecordSlice => ({
 });
 
 /**
+ * The parser's older spelling of a plan's slice list.
+ *
+ * `plot-plan-meta.sh` ships separately from this package and still emits this
+ * key for every plan written before the rename, so the inbound tolerance has
+ * to stay. It is named once, here, and nothing downstream of this file reads
+ * that spelling — the same split `readEitherSpelling` makes for the pulse.
+ */
+const LEGACY_SLICES_KEY = 'waves';
+
+/**
+ * Reads a plan's slice list under either of the parser's two spellings.
+ *
+ * A reader that took only the current spelling would report a plan with
+ * branches and no slices, since the parser still emits the older key for every
+ * plan written before the rename.
+ *
+ * @param raw - one JSON line from the parser.
+ * @returns the slice list, empty when the line carries neither key.
+ */
+const slicesOf = (raw: RawPlan): RawSlice[] => {
+  if (raw.slices !== undefined) return raw.slices;
+  const legacy = (raw as Record<string, unknown>)[LEGACY_SLICES_KEY];
+  return Array.isArray(legacy) ? (legacy as RawSlice[]) : [];
+};
+
+/**
  * Renames one parser line into the port's shape.
  *
- * Reads `slices` or the older `waves`, since the parser still emits the latter
- * and a reader that took only one spelling would silently see no branches.
+ * Reads either of the parser's two spellings for a plan's slice list, since it
+ * still emits the older one and a reader that took only the new spelling would
+ * report a plan with branches and no slices.
  *
  * @param raw - one JSON line from the parser.
  * @returns the record, with every absent field at its empty value.
@@ -77,7 +103,7 @@ const planOf = (raw: RawPlan): PlanRecord => ({
   assignee: raw.assignee ?? '',
   branches: raw.branches ?? [],
   prs: raw.prs ?? [],
-  slices: (raw.slices ?? raw.waves ?? []).map(sliceOf),
+  slices: slicesOf(raw).map(sliceOf),
   review: raw.review ?? '',
   impl: raw.impl ?? '',
   approvedRaw: raw.approved_raw ?? '',
