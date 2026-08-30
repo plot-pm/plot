@@ -25,7 +25,51 @@ export * from './entities/sprint.js';
 export * from './entities/issue.js';
 export * from './entities/wave.js';
 export * from './rules/deliverable.js';
-export * from './transitions/plan.js';
+/**
+ * The phase transitions — `plan -> phase + record`, the NARROW question of
+ * which `## Status` line a lifecycle step writes.
+ *
+ * Six names are shared with `workflows/` and disambiguated here, the way
+ * `MachinePort` is: a transition answers *what phase does this plan become?*
+ * while a workflow answers *what would the whole operation write?*, and the
+ * workflow uses the transition to answer its phase half. Both spellings are
+ * right in their own module, so neither file is renamed and the barrel — the
+ * one place both are in scope — carries the disambiguation.
+ *
+ * The workflow keeps the plain name because it is what `/plot-approve` means
+ * to a caller. An alias in the other direction is what this repo already has
+ * one of, and one is enough.
+ */
+export {
+  approve as approveTransition,
+  deliver as deliverTransition,
+  release as releaseTransition,
+  approvable,
+  deliverable,
+  releasable,
+  isDecision,
+  isRefusal,
+} from './transitions/plan.js';
+export type {
+  Phase,
+  ReviewChannel,
+  TransitionPlan,
+  Precondition,
+  RefusalReason,
+  TransitionResult,
+  Decision as PhaseDecision,
+  Refusal as PhaseRefusal,
+  ApproveInput as ApproveTransitionInput,
+  DeliverInput as DeliverTransitionInput,
+  ReleaseInput as ReleaseTransitionInput,
+} from './transitions/plan.js';
+
+/**
+ * The lifecycle workflows — `readings -> Decision | Refusal`, deciding and
+ * performing nothing. Exported from the pure barrel because they are pure:
+ * every rule is reachable from a plain call with no adapter in scope.
+ */
+export * from './workflows/index.js';
 
 /**
  * The ports — the interfaces the domain owns, and the only shapes through
