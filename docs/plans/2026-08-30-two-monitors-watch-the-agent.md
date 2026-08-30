@@ -804,6 +804,56 @@ a scan landing there reads `none` — honest. The monitors start inside the same
 wrapper, so they inherit that window rather than widening it: a monitor must not
 report `gone` from a pid file that has not been written yet.
 
+### Ending (Branch: bug/a-monitor-ends-with-its-agent)
+
+**No slice ended a monitor, and the estate shows it.** Every done-when in this
+plan asks whether monitors live **long enough**; none asks when they stop. The
+Attaching slice's `--stop` assertion is explicitly about survival.
+
+**Measured 2026-08-30, and it is not cosmetic.** With 154 monitor processes
+alive, 152 of them `ppid=1`:
+
+```
+spawn cost, 100 forks    23.3 ms      ← "tight" by DESIGN-machine.md section 5
+after killing the 152    11.6 ms
+later, estate quiet       4.8 ms      ← "clear"
+```
+
+**The orphans cost half the machine's spawn cost.** Load average did not move
+(13.0 before and after), which is exactly why that spec chose spawn cost as the
+verdict and calls load average context.
+
+**What is known, and what is not.** The wrapper starts three children and waits
+for one (`plot-dispatch.sh:600`); `wait "$agent"` is correct and must stay,
+since waiting on two infinite loops would hang and the exit record would never
+be written. Beyond that the picture is incomplete: **one timed-out run's
+monitors were terminated by something nobody could identify** — three
+explanations were tested and all failed (`sh` does not signal background jobs at
+exit, measured directly and again with `nohup` + `wait`; `plot-dispatch.sh`
+contains no `kill`; neither pid was in either orphan list killed by hand that
+day).
+
+**So this slice measures before it fixes.** A cleanup added to a mechanism
+nobody understands is how the same processes come back under a different parent.
+
+**Done when**
+
+- **the exit path is established first**, in writing: which process ends the
+  monitors today, on the ordinary path and on the `Worker bound` path, with the
+  commands that show it. A negative result is a finding.
+- after a worker finishes normally, **no monitor of that worker remains** —
+  asserted by pid, not by counting
+- after a worker is killed at its bound, the same holds
+- a monitor still outlives the **agent** long enough to record the finding: the
+  Attaching slice's `--stop` assertion stays green, **unedited**
+- **the mechanism is a measurement, not a timer.** A monitor that exits after N
+  seconds regardless would pass the two assertions above and lose the property
+  the plan is built on.
+
+**Depends on nothing in this plan**, and the earlier slices do not depend on it —
+it can run whenever a slot is free. It is filed as `bug` because the behaviour
+is already shipped: #536 is merged, and every dispatch since has leaked.
+
 ### Watching the worker (Branch: feature/the-worker-monitor-samples-the-process)
 
 The WorkerMonitor: `idle` and `gone`, sampled from the process table on a tight
