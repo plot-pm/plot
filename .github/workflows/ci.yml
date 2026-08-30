@@ -53,15 +53,54 @@ jobs:
       # package resolver already refuses `../server/fleet.js`; this catches the
       # other direction — a module reaching a disk, a process or a network
       # directly.
+      # `adapters/` IS EXCLUDED, and that exclusion is the layer boundary made
+      # mechanical rather than a hole in the gate. An adapter's whole job is to
+      # reach the world; what the gate now asserts is that every module which
+      # does so lives in exactly ONE directory. Empty output still means the
+      # domain is pure — the completeness gate below is what stops that
+      # directory from being a place to put anything.
       - name: Domain purity gate
         run: |
-          hits=$(grep -rlE "from '(node:|fs|child_process|http|https|net)" packages/domain/src/ || true)
+          hits=$(grep -rlE "from '(node:|fs|child_process|http|https|net)" packages/domain/src/ \
+                 | grep -v '^packages/domain/src/adapters/' || true)
           if [ -n "$hits" ]; then
-            echo "::error::the domain reached the world — it may import zod and nothing else:"
+            echo "::error::the domain reached the world — outside adapters/ it may import zod and nothing else:"
             echo "$hits"
             exit 1
           fi
           echo "Domain purity gate: clean."
+
+      # TWO-SIDED, BECAUSE ONE SIDE PASSES ON NOTHING.
+      #
+      # "Every ports/*.ts has a directory under adapters/" is a universal claim,
+      # and a universal claim over an empty set is true. Measured 2026-08-30:
+      # there was no ports/ directory at all, so that assertion alone would have
+      # reported success before a line was written — a check you can answer
+      # "yes" to without doing the work is a rule, not a gate.
+      #
+      # So it also asserts a FLOOR. Seven is the port count DESIGN-ports.md §2
+      # derives from the four sources of state; a port removed is a design
+      # change that should have to edit this number.
+      - name: Domain port completeness gate
+        run: |
+          ports=$(ls packages/domain/src/ports/*.ts 2>/dev/null | wc -l | tr -d ' ')
+          if [ "$ports" -lt 7 ]; then
+            echo "::error::expected at least 7 ports, found $ports."
+            echo "The seven are PlanStore, Refs, Host, Processes, Trees, Clock, Machine —"
+            echo "one per source of truth the domain may not look at. See DESIGN-ports.md."
+            exit 1
+          fi
+          missing=""
+          for port in packages/domain/src/ports/*.ts; do
+            name=$(basename "$port" .ts)
+            [ -d "packages/domain/src/adapters/$name" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::a port was declared and never implemented:$missing"
+            echo "Every ports/<name>.ts needs a directory adapters/<name>/."
+            exit 1
+          fi
+          echo "Domain port completeness gate: $ports ports, each with an adapter."
 
       # THE SPEC'S VOCABULARY, ENFORCED. `DESIGN-slice.md` renamed this entity
       # Slice on 2026-08-28: a Slice holds one branch and belongs to one plan,

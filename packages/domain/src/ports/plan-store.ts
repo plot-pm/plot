@@ -12,7 +12,16 @@ export interface PlanRecord {
   file: string;
   /** `canonical`, `frontmatter`, or `none` for a file that is not a plan. */
   format: string;
-  /** The phase, normalized to lower case; `''` when the file states none. */
+  /**
+   * The phase, normalized: `draft`, `approved`, `delivered`, `released`,
+   * `rejected`, `superseded`, or one of two absences.
+   *
+   * `NONE` means the file stated no phase and `UNKNOWN` means it stated one
+   * this parser does not recognise. They are kept apart for the reason every
+   * three-valued answer in Plot is: a file with no phase is not a plan —
+   * `docs/plans/` also holds decision logs and worker reports — while an
+   * unrecognised phase is a plan somebody mis-spelled.
+   */
   phase: string;
   /** The phase as written in the file. */
   phaseRaw: string;
