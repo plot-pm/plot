@@ -107,10 +107,41 @@ of branch-parsing become a call, because the pulse already did the parsing
 read as a branch, which made four fully-merged plans undeliverable — because
 the code that had the bug stops existing.
 
-**The shell reaches the domain through `node`**, which is settled by precedent
-rather than proposed here: six scripts already invoke it, and
-`plot-sprint-candidates.sh` argues for it in its own comment — *"node is
-already required to run the board and every test suite."*
+### The scripts ARE the adapter layer, so they do not "reach" the domain
+
+**This plan said the shell would call the domain through `node`, and that had
+the layering backwards.** A shell script is not a caller sitting above the
+domain; it is the adapter — the thing that turns the world into readings.
+[Ports §4](../stories/the-master-agent-holds-the-fleet/DESIGN-ports.md#4-the-adapters-already-exist)
+states it directly: *"Every driven port above already has a working adapter, and
+it is a shell script the board already spawns."*
+
+**If a script called into the domain, the outer ring would be calling inward and
+still deciding for itself** — which is the shape this whole design removes, not
+a step toward it. There would be no harness layer, only a second place where
+decisions live.
+
+**So a script with decisions in it has two futures, and each branch picks one:**
+
+| the script is… | what the branch does |
+|---|---|
+| **pure adaptation** — reads the world, emits facts | it stays, unchanged, and an adapter wraps it (`runScript()` maps its exit codes) |
+| **decision dressed as adaptation** | the decision moves to the domain; what remains is either a thin reading the adapter keeps, or nothing, and the script's caller asks the domain instead |
+
+**`plot-deliver.sh`'s branch parsing is the second kind.** Parsing a plan to
+decide which branches must be merged is a domain rule wearing shell clothing.
+The parsing itself is adaptation — `plot-plan-meta.sh` already does it and stays
+— but *"these branches make the plan deliverable"* is a decision, and it belongs
+inside.
+
+**The test that separates them:** does this code answer *what is true of the
+world?* or *what should happen given what is true?* The first is an adapter and
+survives. The second is the domain and moves.
+
+**Where a decision cannot move without rewriting the script in TypeScript, it
+stays and the plan says so.** Replacing a working 2000-line script with new
+TypeScript is a different plan with a different risk, and this one is built on
+adoption rather than rewriting.
 
 ### What each branch must prove before it merges
 
@@ -181,8 +212,16 @@ unedited, and the delivery refusal still names every unmerged branch.
 `plot-fleet-scan.sh`'s slice verdicts computed by the domain. **The scan's
 output must not change** — same words, same footer counts, on the same estate.
 
-**Done when** the scan's output is byte-identical against every plan in this
-repository before and after, and `test/reconcile/` passes unedited.
+**Done when** the scan's output is byte-identical before and after **against a
+frozen clone**, and `test/reconcile/` passes unedited.
+
+**The clone is what makes the comparison mean anything.** The scan reads the
+live estate, and this repository runs `parallelAgents: 11` — between two runs a
+PR merges, a worker commits, a ref moves, and the diff would be full of changes
+the adoption did not cause. A check that cries wolf is a check somebody turns
+off. So: clone the estate once, run both scans against that clone with
+`--offline` (the flag already exists), and any difference is necessarily the
+adoption.
 
 ### Refusing (Branch: feature/the-refusals-are-domain-rules)
 
@@ -191,7 +230,23 @@ returning a named `Refusal`. **The scripts keep their exit codes and their
 messages** — a refusal that reports differently breaks whoever reads it.
 
 **Done when** each refusal is still individually triggerable in the e2e suite,
-`--dry-run` output is unchanged, and no refusal logic remains in either script.
+no refusal logic remains in either script, and **both scripts' `--dry-run`
+output is byte-identical before and after, on the same estate**.
+
+**The dry-run comparison covers `plot-reap.sh` too, and that is the change.**
+The plan named it for dispatch and left reap to the e2e suite — but reap is the
+one that removes worktrees, and there are 22 on this machine right now with
+agents sitting in several of them. A wrong refusal there deletes a desk somebody
+is working at.
+
+**Both scripts default to `--dry-run` precisely so this is cheap.** Running each
+before and after the adoption, on the same estate, exercises every refusal
+against real worktrees, real pids and real markers — the population fixtures
+cannot reproduce — and it does so without removing anything or starting
+anything. A difference is a refusal that changed its mind.
+
+**This runs before the slice's PR is opened, not after it merges.** The point is
+to find a wrong refusal while it is still inert.
 
 ### Spawning the scripts (Branch: feature/one-place-reaches-a-script)
 
