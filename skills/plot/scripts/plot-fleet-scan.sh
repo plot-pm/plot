@@ -48,11 +48,22 @@
 #               verdict is read.
 # Output: per-plan wave report on stdout, terminated by a machine-countable
 #         summary line:
-#             summary: plans=1 waves=3 branches=5 claimed=1 eligible=2 blocked=1 deferred=1 merge_detect=pr-merge main=main
+#             summary: plans=1 waves=3 branches=5 claimed=1 eligible=2 blocked=1 deferred=1 merge_detect=pr-merge host=ok main=main
 #         merge_detect names how merged-and-deleted branches were detected:
 #         pr-merge (exhaustive), truncated (capped walk), none (no conforming
 #         merge commits — a squash/rebase repo, where `open` says nothing about
 #         merging).
+#         host says whether the git host ANSWERED, and is what says whether
+#         merge_detect can be believed: ok (the list arrived — an EMPTY list is
+#         ok, the host answered and there are none), throttled (a rate limit;
+#         the same question later will be answered), failed (any other failure),
+#         unasked (no host, or --offline — the question was never put, which is
+#         not the same as one that went unanswered).
+#         Measured 2026-08-30: a merged branch read `open` and was counted
+#         among the unfinished under `merge_detect=pr-merge`, which reads as
+#         *asked and answered*, while the host had refused every call. Where
+#         host is throttled or failed, a no-ref branch reads `unknown` rather
+#         than `open` and is not offered to --next.
 #         Consumers that only need counts (the /plot-fleet pulse log, the
 #         board) read that one line and never re-count the body.
 #         --json additionally carries, per PLAN, `phase` — the plan's own
@@ -482,10 +493,30 @@ cache_key() { # $1=branch → a filename that is injective in the branch name
 # already performs on Bitbucket, so the join and the per-branch lookup cannot
 # disagree about the same branch.
 PR_LIST_LIMIT="${PLOT_PR_LIST_LIMIT:-1000}"
+
+# WHETHER THE HOST ANSWERED, as a fact of its own — the thing this scan
+# computed and threw away until 2026-08-30.
+#
+#   ok         — the list arrived. An EMPTY list is `ok`: the host answered and
+#                there are none. Collapsing that into a failure would trade a
+#                silent wrong answer for a noisy one and break every repo that
+#                genuinely has no PRs.
+#   throttled  — a rate limit, primary or secondary (`plot-host.sh` exit 5).
+#                Nothing is broken; the same question later will be answered.
+#   failed     — any other failure (exit 3, or anything unclassified).
+#   unasked    — no host to ask, or --offline. Not a degradation: the scan was
+#                never going to ask, and saying `failed` would report a fault
+#                where there is a configuration.
+#
+# TWO WORDS FOR THE TWO FAILURES BECAUSE THEY ASK FOR DIFFERENT RESPONSES.
+# `throttled` says wait; `failed` says look. An operator told to wait out an
+# outage loses exactly the time waiting was meant to save.
+HOST_VERDICT=unasked
+
 prefill_pr_states() {
   [ "$HOST_LOOKUP_OK" = 1 ] || return 0
   [ -n "$HOST_STATE_CACHE" ] || return 0
-  local js br st key
+  local js br st key rc
   # Exit code first: non-zero is a transport failure and its stdout is not an
   # answer. A failed list leaves the cache EMPTY, so every branch falls through
   # to the unanswerable `-` rather than to a fabricated "no PR".
@@ -497,8 +528,21 @@ prefill_pr_states() {
   # configured), and the parsing below already skips fields the response does
   # not contain. The BEHAVIOUR change is in `pr_ready`, which now reads the
   # check rollup from the cache rather than making a per-branch host call.
+  #
+  # THE CODE IS KEPT, not just tested. This guard was always correct — a failed
+  # list prefills nothing — and until 2026-08-30 it never fired, because
+  # `pr-list` swallowed its own failure and exited 0 with empty stdout. Now
+  # that it can fail, WHICH failure it was is a fact worth carrying: exit 5 is
+  # a rate limit and exit 3 is anything else, and the summary reports the
+  # difference rather than degrading silently.
   js=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" --rich \
-         </dev/null 2>/dev/null) || return 0
+         </dev/null 2>/dev/null); rc=$?
+  if [ "$rc" -ne 0 ]; then
+    [ "$rc" -eq 5 ] && HOST_VERDICT=throttled || HOST_VERDICT=failed
+    return 0
+  fi
+  # The list arrived. An empty one arrived too — that is the whole distinction.
+  HOST_VERDICT=ok
   # `pr-list` emits one compact JSON object per line. PARSED IN ONE PASS, and
   # that is a correctness-of-cost property rather than a style preference:
   # measured 2026-08-18 on this repo's 221 PRs, a `sed` per field per row —
@@ -2766,6 +2810,32 @@ branch_state() {
     # a miss, a CLOSED PR, or a host that cannot answer all fall through to the
     # `open` below, exactly as before this call existed.
     merged_by_host "$br" && { echo "merged"; return; }
+    # `open` IS A CLAIM ABOUT A PR: that one was looked for and none was found.
+    # With no ref, the host is the only remaining source, so when it could not
+    # be asked that claim was never earned — and the branch measured on
+    # 2026-08-30 was merged while reading `open`, counted among the unfinished
+    # under `merge_detect=pr-merge`, which reads as *asked and answered*.
+    #
+    # `unknown` IS OUTSTANDING, exactly as `open` is — the `*)` arm of the wave
+    # arithmetic counts both, so no wave verdict moves and the degradation
+    # direction is untouched: an unreachable host still answers *not merged*,
+    # and silence is still never permission.
+    #
+    # WHAT IT DOES CHANGE IS CLAIMABILITY, and that is the fix rather than a
+    # side effect. `--next` offers branches whose state is `open`, so an
+    # `unknown` branch is not handed out — which is right, because "nobody has
+    # started this" is precisely the claim that went unverified. Handing out a
+    # merged branch is what actually happened.
+    #
+    # GATED ON THE TWO FAILURES ONLY, never on "not ok". `unasked` — no host
+    # configured, or --offline — must keep reading `open`: the scan was never
+    # going to ask, so nothing was lost, and flipping every unstarted branch to
+    # `unknown` on every offline scan would be a far larger change than the
+    # defect. A question that was not put is not a question that went
+    # unanswered.
+    case "$HOST_VERDICT" in
+      throttled|failed) echo "unknown"; return ;;
+    esac
     echo "open"; return
   fi
   # A CLAIM is a branch whose only commits beyond main are claim commits —
@@ -3185,6 +3255,12 @@ for plan in "${plans[@]}"; do
         claimed)  n_claimed=$((n_claimed + 1));   note="claimed${claim:+ ($claim)}" ;;
         merged)   note="merged" ;;
         wip)      note="in progress" ;;
+        # THE HOST COULD NOT BE ASKED, so nothing is claimed about the PR. The
+        # sentence says which question went unanswered rather than naming a
+        # state, because a reader chasing `open` looks for work that was never
+        # started — the reaper's `unlanded work` made exactly that mistake about
+        # a merged branch, in a claim about CONTENT.
+        unknown)  note="unknown — PR could not be read ($HOST_VERDICT host)" ;;
         *)        note="open" ;;
       esac
       if [ "$verdict" = "eligible" ] && [ "$st" = "open" ]; then
@@ -3491,8 +3567,12 @@ if [ "$as_json" = 1 ]; then
     "$(json_str "$FETCH_ERROR")" "$(json_str "$PLAN_SOURCE")" "$json_plans"
   printf '"summary":{"plans":%d,"waves":%d,"branches":%d,"claimed":%d,' \
     "$n_plans" "$n_waves" "$n_branches" "$n_claimed"
-  printf '"eligible":%d,"blocked":%d,"deferred":%d,"merge_detect":"%s"}}' \
-    "$n_eligible" "$n_blocked" "$n_deferred" "$MERGE_DETECT"
+  # `host` is the EVIDENCE field beside merge_detect, and it is the one that
+  # says whether merge_detect can be believed. Rendered for the machine here
+  # and in the footer for a human; the board reads this rather than parsing
+  # the prose, the rule every other field follows.
+  printf '"eligible":%d,"blocked":%d,"deferred":%d,"merge_detect":"%s","host":"%s"}}' \
+    "$n_eligible" "$n_blocked" "$n_deferred" "$MERGE_DETECT" "$HOST_VERDICT"
   [ "$stream" = 1 ] && printf '}'
   printf '\n'
   exit 0
@@ -3505,6 +3585,27 @@ fi
 if [ "$MERGE_SCAN_TRUNCATED" = 1 ]; then
   echo "  note: merge scan hit its limit of $MERGE_SCAN_LIMIT — older merges were not"
   echo "        examined; a branch merged before that point may still read as open."
+fi
+# A HOST THAT COULD NOT BE ASKED SAYS SO, and says what to do about it.
+#
+# `pr-list` is ONE GraphQL call in place of ~186 REST calls — a deliberate and
+# good trade whose consequence is that throttling takes out EVERY PR answer at
+# once rather than degrading row by row. So the whole fleet reads unmerged,
+# every wave stays blocked, and the board shows a busy estate with nothing
+# eligible: indistinguishable from work genuinely in flight, which is why this
+# has to be stated rather than left for a reader to infer from a quiet report.
+#
+# THE TWO WORDS GET DIFFERENT ADVICE because they need different responses.
+if [ "$HOST_VERDICT" = throttled ]; then
+  echo "  note: the git host was throttled, so no PR could be read. Every branch"
+  echo "        below reads from local evidence alone — a merged branch whose ref"
+  echo "        was deleted reads 'unknown', never 'open', and none was offered"
+  echo "        to --next. The budget refills on a clock; re-run in a few minutes."
+elif [ "$HOST_VERDICT" = failed ]; then
+  echo "  note: the git host could not be reached, so no PR could be read. Every"
+  echo "        branch below reads from local evidence alone, and a branch whose"
+  echo "        PR is unknown reads 'unknown' rather than 'open'. This is not a"
+  echo "        rate limit — waiting will not clear it; check the host and auth."
 fi
 # A STALE PULSE SAYS SO. The fetch used to fail silently, which made a scan of
 # hour-old refs read exactly like a scan of current ones — the same
@@ -3540,4 +3641,4 @@ if [ "$PLAN_SOURCE" != "ref" ]; then
   echo "        checkout instead, so the list is only as current as your last pull."
 fi
 echo "Pulse complete. This report is derived — nothing was changed."
-echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred merge_detect=$MERGE_DETECT main=$MAIN"
+echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred merge_detect=$MERGE_DETECT host=$HOST_VERDICT main=$MAIN"
