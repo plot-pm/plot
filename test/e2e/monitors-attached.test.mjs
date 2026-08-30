@@ -105,10 +105,20 @@ function findings(file) {
 }
 
 test('a dispatched worker gets both monitors without the operator asking', () => {
-  const run = dispatchOne('monitors-born');
+  // THE WORKER COMMAND IS CHOSEN TO PROVOKE A FINDING, and it has to be as of
+  // this slice. The WorkerMonitor now publishes only when a finding HOLDS —
+  // silence means healthy — so a worker that sleeps quietly and exits is
+  // correctly monitored and correctly silent, and waiting for it to write
+  // something would fail against a working implementation.
+  //
+  // `true` exits at once, so the agent pid is dead by the monitor's first pass:
+  // `gone`, which is the one finding a single sample can make. That gives the
+  // attachment claim something observable to stand on without waiting for two
+  // intervals.
+  const run = dispatchOne('monitors-born', { workerCommand: "sh -c 'true'" });
   try {
     assert.ok(waitForFile(run.workerFindings),
-      'the WorkerMonitor published nothing — a dispatched worker was born unmonitored');
+      'the WorkerMonitor published nothing about a worker whose agent is already gone — a dispatched worker was born unmonitored');
     assert.ok(waitForFile(run.agentFindings),
       'the AgentMonitor published nothing — a dispatched worker was born half-monitored');
 
@@ -129,29 +139,44 @@ test('a dispatched worker gets both monitors without the operator asking', () =>
   }
 });
 
-test('each no-op monitor publishes that it measures nothing yet', () => {
-  // The risk this slice accepts, stated in the plan: a no-op monitor looks
-  // exactly like a working one. An operator seeing a monitor attached could
-  // reasonably assume it is watching. The announcement is what stops that, so
-  // it is asserted rather than left to the implementation's good intentions.
+test('a monitor that still measures nothing says so; one that measures does not', () => {
+  // THIS TEST HAS FLIPPED FOR THE WORKER HALF, and the flip is the deliverable.
   //
-  // This test is EXPECTED TO CHANGE in the slice that gives each monitor its
-  // first real measurement — that is the point of pinning the string.
+  // The no-op slice pinned `nothing measured yet` on BOTH monitors and said in
+  // as many words that the string "disappears in the slice that gives it its
+  // first real measurement". `feature/the-worker-monitor-samples-the-process`
+  // is that slice for the WorkerMonitor. So the assertion inverts on the
+  // WorkerMonitor and stands unchanged on the AgentMonitor, which is still a
+  // no-op until `feature/the-agent-monitor-reads-the-desk`.
+  //
+  // THE ASYMMETRY IS THE INFORMATION. It says exactly which monitors have been
+  // given behaviour and which have not, and it goes red in both directions: if
+  // the WorkerMonitor regresses to announcing its emptiness, or if the
+  // AgentMonitor quietly stops announcing its own while still measuring
+  // nothing. The second is the dangerous one — a silent blind monitor is
+  // indistinguishable from a watching one with nothing to report, which is the
+  // risk the announcement exists to remove.
   const run = dispatchOne('monitors-announce');
   try {
-    assert.ok(waitForFile(run.workerFindings) && waitForFile(run.agentFindings));
+    assert.ok(waitForFile(run.agentFindings), 'the AgentMonitor published nothing');
 
-    for (const [label, file] of [['WorkerMonitor', run.workerFindings], ['AgentMonitor', run.agentFindings]]) {
-      const [first] = findings(file);
-      assert.equal(first.finding, 'nothing measured yet',
-        `the ${label} is attached but does not say it measures nothing — indistinguishable from one that is watching and has nothing to report`);
+    // The AgentMonitor is STILL a no-op, and must still say so.
+    const [agentFirst] = findings(run.agentFindings);
+    assert.equal(agentFirst.finding, 'nothing measured yet',
+      'the AgentMonitor is attached but no longer says it measures nothing — a blind monitor that is silent is indistinguishable from a watching one');
+    assert.match(agentFirst.measuredAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+      'the AgentMonitor published a finding with no usable measuredAt');
+    assert.ok(agentFirst.evidence && agentFirst.evidence.length > 0,
+      'the AgentMonitor published a finding with no evidence — the word alone is a claim someone has to re-derive');
 
-      // `measuredAt` is REQUIRED by the plan, for a reason that outlives the
-      // no-op: a reading without one cannot be judged stale.
-      assert.match(first.measuredAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
-        `the ${label} published a finding with no usable measuredAt`);
-      assert.ok(first.evidence && first.evidence.length > 0,
-        `the ${label} published a finding with no evidence — the word alone is a claim someone has to re-derive`);
+    // The WorkerMonitor MEASURES now, so it must not announce emptiness. And it
+    // is silent about a healthy worker, which is why this is asserted over
+    // whatever it published rather than over a required first line.
+    if (fs.existsSync(run.workerFindings)) {
+      for (const record of findings(run.workerFindings)) {
+        assert.notEqual(record.finding, 'nothing measured yet',
+          'the WorkerMonitor still announces that it measures nothing, in the slice that gave it its measurements');
+      }
     }
   } finally {
     run.sb.cleanup();
@@ -203,7 +228,13 @@ test('--stop kills the agent, and the monitors and the exit record survive it', 
   // leave both intact. A sibling monitor would die here with nothing noticing.
   const run = dispatchOne('monitors-survive-stop', { workerCommand: "sh -c 'sleep 30'" });
   try {
-    assert.ok(waitForFile(run.workerFindings), 'no monitor was attached, so this proves nothing about survival');
+    // THE ATTACHMENT PROOF NOW COMES FROM THE AGENTMONITOR, and the swap is
+    // this slice's doing rather than a weakening. While the agent sleeps
+    // healthily the WorkerMonitor has nothing to report and correctly says
+    // nothing — so waiting on its file here would fail against a working
+    // implementation. The AgentMonitor is still a no-op that publishes every
+    // pass, so it is the one that can stand for "a monitor is attached".
+    assert.ok(waitForFile(run.agentFindings), 'no monitor was attached, so this proves nothing about survival');
 
     const pidFile = path.join(run.worktree, '.plot-worker.pid');
     assert.ok(waitForFile(pidFile), 'the wrapper never recorded the agent pid');
@@ -217,8 +248,8 @@ test('--stop kills the agent, and the monitors and the exit record survive it', 
       '--stop killed the agent and no exit code was recorded — the wrapper did not survive it');
 
     // And the findings the monitors had already published are still there.
-    assert.ok(fs.existsSync(run.workerFindings) && findings(run.workerFindings).length > 0,
-      'the WorkerMonitor findings vanished when the agent was stopped');
+    assert.ok(fs.existsSync(run.agentFindings) && findings(run.agentFindings).length > 0,
+      'the monitor findings vanished when the agent was stopped');
   } finally {
     run.sb.cleanup();
   }
