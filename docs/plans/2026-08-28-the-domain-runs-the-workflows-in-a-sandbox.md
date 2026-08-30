@@ -235,21 +235,21 @@ the parser later starts reading it. That is a real gap and it is accepted,
 because the alternative fails on differences that are invisible to every
 existing consumer.
 
-## Waves
+## Slices
 
 ### Reading (Branch: feature/the-ports-have-adapters)
 
 **The seven ports are declared here, not assumed.** `PlanStore`, `Refs`,
 `Host`, `Processes`, `Trees`, `Clock` and `Machine` become `ports/*.ts` in this
-wave, each a pure interface the domain owns, and each gains its directory under
-`adapters/`. The wave is named for the adapters because they are the work; the
+slice, each a pure interface the domain owns, and each gains its directory under
+`adapters/`. The slice is named for the adapters because they are the work; the
 ports are the contract they satisfy, and neither half is meaningful alone.
 
 `plot-host.sh` gains its one missing operation.
 
 **The completeness gate is two-sided, because one-sided it passes on nothing.**
 Asserting only *"every `ports/*.ts` has a directory under `adapters/`"* is
-vacuously true against an empty `ports/` — which is exactly the state this wave
+vacuously true against an empty `ports/` — which is exactly the state this slice
 starts from, so the gate would report success before a line was written. It
 therefore also asserts a floor:
 
@@ -333,7 +333,7 @@ larger than stated in a way that matters.
 
 | the plan says | measured 2026-08-30 | effect |
 |---|---|---|
-| 158 plans in the corpus | **170** | the Agreeing wave's corpus test is 12 plans wider |
+| 158 plans in the corpus | **170** | the Agreeing slice's corpus test is 12 plans wider |
 | 46 spawn call sites | **51** | Spawning (plan 3) is 5 sites larger |
 | 10 of them invoke `plot-*.sh` | **15 distinct scripts referenced** | the adapter surface is wider than stated |
 | `ports/*.ts` are declared | **no `ports/` directory exists** | see below |
@@ -341,16 +341,16 @@ larger than stated in a way that matters.
 
 **The ports do not exist yet, and the plan assumes they do.** `packages/domain/src`
 holds `entities/`, `rules/` and `transitions/` — there is no `ports/`. The
-Reading wave says *"adapters for `PlanStore`, `Refs`, `Host`, `Processes`,
+Reading slice says *"adapters for `PlanStore`, `Refs`, `Host`, `Processes`,
 `Trees`, `Clock`, `Machine`"*, and the completeness gate asserts *"every
 `ports/*.ts` has a directory under `adapters/`"*. Against zero ports that gate
 passes vacuously.
 
-**This is a scope question, not a defect.** Either the Reading wave declares the
+**This is a scope question, not a defect.** Either the Reading slice declares the
 seven ports as well as their adapters — which is the honest reading of
 [DESIGN-ports.md](../stories/the-master-agent-holds-the-fleet/DESIGN-ports.md)
 §2, since a port is an interface the domain owns — or a slice ahead of it does.
-It should be settled before the wave is dispatched, because the gate as written
+It should be settled before the slice is dispatched, because the gate as written
 cannot detect its own omission.
 
 **What HAS landed, and the plan can rely on:** `allSlicesMerged` is in
@@ -360,4 +360,4 @@ imports from it.
 
 **What has NOT:** `plot-deliver.sh` still parses the plan itself — three
 parsing blocks at lines 127-148, reading both `## Branches` and `## Waves` — and
-calls no domain code. That is plan 3's Delivering wave, correctly still open.
+calls no domain code. That is plan 3's Delivering slice, correctly still open.

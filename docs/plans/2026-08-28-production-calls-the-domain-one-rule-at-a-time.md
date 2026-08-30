@@ -121,7 +121,7 @@ wrong refusal removes a worktree somebody is working in. **They go last because
 by then the pattern has been exercised twice** and the corpus tests have been
 running against the live estate for two branches' worth of time.
 
-## Waves
+## Slices
 
 ### Delivering (Branch: feature/the-shell-stops-parsing-plans)
 
@@ -200,9 +200,9 @@ compare.
 
 Re-measured against `main` at `v2.12.0`.
 
-**The Delivering wave's premise is confirmed.** `plot-deliver.sh` still parses
+**The Delivering slice's premise is confirmed.** `plot-deliver.sh` still parses
 the plan itself: three blocks at lines 127-148 reading both `## Branches` and
-`## Waves`, in a 488-line script that calls no domain code. The wave's claim
+`## Waves`, in a 488-line script that calls no domain code. The slice's claim
 that *"the code that had the bug stops existing"* is still available to make.
 
 **The board half is genuinely done.** `allSlicesMerged` lives in
@@ -217,7 +217,7 @@ is accurate.
 | 46 direct process calls | **51** | Spawning is 5 sites larger |
 | 10 invoke `plot-*.sh` | **15 distinct scripts referenced** | more adapter surface than stated |
 
-**The Spawning wave's Done-when is now wrong as written.** It asserts
+**The Spawning slice's Done-when is now wrong as written.** It asserts
 
 ```
 grep -rnE "(execFileSync|execFile|spawn|spawnSync)\(" packages/board/src/server/
