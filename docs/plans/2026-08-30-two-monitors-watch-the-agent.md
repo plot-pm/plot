@@ -171,6 +171,35 @@ subscriber joining late wants what is true now, not the history of what was.
 So a subscriber receives the current findings on connect and updates thereafter
 — the same shape the board's pulse already has, pushed instead of polled.
 
+#### It lives on the Machine, which is why this is local and not networked
+
+**Everything runs on one machine, and the spec says so as a property rather
+than an assumption**:
+[DESIGN-machine.md](../stories/the-master-agent-holds-the-fleet/DESIGN-machine.md)
+— *"There is exactly one Machine, and that singularity is…"*, and *"One machine,
+and the supervisor is on it."* The Machine has no identity **because there is
+only one**.
+
+**So the three processes — monitor, board, master agent — are neighbours, not
+peers across a network.** The channel is a socket under `.plot/`, and that
+choice follows from the Machine rather than from preference:
+
+| | why not |
+|---|---|
+| HTTP to the board | requires a board to be running. Measured 2026-08-30: none was. Seven skills would gain a dependency on a service that has always been optional |
+| a port | a port is how you reach another machine; there is only one |
+| a queue broker | infrastructure for a problem that does not cross a host boundary |
+
+**A local socket needs no board, no port and no configuration.** It is present
+whenever the repository is, which is the same availability the worktree files
+have today — without their cost, because one socket serves every subscriber and
+the monitors write it once.
+
+**The wrapper can reach it, and that is the constraint that decided it.**
+`plot-dispatch.sh:275` calls the wrapper *"a fresh shell that cannot reach"* the
+dispatcher — it inherits no state, no descriptors, no environment beyond what is
+passed. A filesystem path is exactly what such a shell CAN reach.
+
 **Two subscribers today, and they are the reason it is a channel rather than a
 return value:** the board renders it, the master agent acts on it, and neither
 should have to know the other exists. **A return value serves one caller; a
@@ -199,16 +228,18 @@ a stale report detectable rather than misleading.
 | `finding` | one of the named states, or empty for nothing to say |
 | `since` | when this finding first held, so age is readable |
 | `evidence` | the measurement behind it: the CPU delta, the missing PR, the marker path |
+| `measuredAt` | ISO-8601, **required** — a reading without one cannot be judged stale |
 
 **`evidence` is not decoration.** Every finding here is an anded set of facts,
 and a reader deciding whether to act needs to know which one fired. *"Owes a
 review"* with `evidence: 4 commits ahead, no PR` is actionable; the word alone
 is a claim someone has to re-derive.
 
-**Three fields, not four.** A file design needed a `sampled` timestamp so a
-reader could tell a current answer from an abandoned one. A channel does not:
-the monitor holds the subscription, so a monitor that stops is a connection that
-drops, and no consumer has to age-check anything.
+**Four fields.** An earlier draft dropped the timestamp, on the reasoning that a
+channel makes a dead monitor visible through its connection. It does not — the
+monitor publishes rather than subscribes, so nothing watches it. The timestamp
+is how a consumer tells a current finding from an abandoned one, and it is
+required on a Machine reading for the same reason.
 
 ### The cadence, and why it is not the pulse
 
@@ -251,10 +282,32 @@ magnitude, not the seconds.
 idle reading is a process between syscalls. Two, a minute apart, over a tree
 that did not change, is a process that has stopped.
 
-**A monitor that stops is visible without a heartbeat**, because it holds the
-subscription: the connection drops. That is the file design's `sampled` field
-made structural — a stale file still parses and still answers, while a dropped
-subscription cannot be mistaken for a healthy one.
+**A monitor that stops is visible because it stops sending its heartbeat.**
+Every sample publishes, finding or not, so silence past one interval is itself
+the signal.
+
+**An earlier draft claimed the dropped subscription would do this, and that was
+wrong.** The monitor is the PUBLISHER, not a subscriber — nothing is watching
+its connection, and a publisher that dies quietly looks exactly like one with
+nothing to say. The distinction the whole design rests on would have been
+invisible.
+
+**So `measuredAt` comes back, and it is the repo's existing pattern rather than
+a new one.**
+[DESIGN-machine.md](../stories/the-master-agent-holds-the-fleet/DESIGN-machine.md)
+makes it **required** on a Machine reading, for exactly this reason: *"a reading
+without one cannot be judged stale."* A monitor finding is a reading and gets
+the same field.
+
+| | |
+|---|---|
+| a finding with a recent `measuredAt` | current |
+| the same finding, `measuredAt` older than three intervals | **the monitor stopped**, not the finding persisting |
+| no finding at all, heartbeat current | genuinely nothing wrong |
+
+**That third row is what the heartbeat buys.** Without it, *"healthy"* and
+*"gone"* are the same silence — which is the blind spot the monitors exist to
+close, reproduced one level up in the monitors themselves.
 
 ### Attaching, and why it cannot be optional
 
@@ -386,6 +439,19 @@ apart, the monitor has the same blind spot as the agent it watches.
 - a hand-made worktree gets neither
 - `--dry-run` names which monitors it would attach to which worktree
 
+**`plot-dispatch.sh` is 2028 lines and the largest script here, and
+`start_worker()` is where every worker comes into existence — a mistake there
+starts no workers at all.** Two protections, and both are needed:
+
+- **This slice goes last**, after the monitors and the channel are proven. It is
+  already the order; the reason is that dispatch is the one script whose failure
+  stops the whole fleet rather than one branch.
+- **`test/e2e/` passes unedited, and `--dry-run` output is byte-identical before
+  and after on the same estate.** That is the protection
+  `production-calls-the-domain-one-rule-at-a-time` uses for reap and dispatch,
+  applied here for the same reason: the dry run exercises every refusal against
+  real worktrees and real pids without starting or removing anything.
+
 **The test is a mutation and an ordering assertion, because a review cannot see
 either.** Removing the monitor start from `start_worker()` must turn a test red —
 that is the "no other path" claim. And `--stop`, which kills the agent, must
@@ -397,6 +463,25 @@ gap where the wrapper has started and `.plot-worker.pid` is not yet written, and
 a scan landing there reads `none` — honest. The monitors start inside the same
 wrapper, so they inherit that window rather than widening it: a monitor must not
 report `gone` from a pid file that has not been written yet.
+
+### Acting (Branch: feature/a-report-can-open-the-pr)
+
+The master agent opens a PR on `owes a review`, through the controller. Nothing
+else acts on anything.
+
+**This slice waits on
+[`the-controller-answers-every-asker`](2026-08-30-the-controller-answers-every-asker.md)** —
+it is the entry point the agent asks through, and building a second one here
+would be the duplication that plan exists to remove.
+
+**Done when** an `owes a review` finding results in a PR without a person
+asking; the PR body names the finding and its evidence; **a second finding for
+the same branch opens nothing** because a PR now exists; and the monitors
+themselves still write and start nothing.
+
+**The idempotence clause is the one that bites.** The finding holds until the PR
+appears, and the channel republishes on every interval — an action that fires per
+message rather than per state opens a PR a minute until someone notices.
 
 ## Notes
 
@@ -410,9 +495,32 @@ one interval of the worker exiting, and `the-domain-agrees-with-production`
 would have reported `idle` after two samples — and, once that process was
 ended, `owes a review` from the other monitor. Neither needed a person to ask.
 
-**Open: what the master agent does with a report.** Reporting to the board is
-this plan; an agent that acts on the report — restarting, reaping, opening the
-PR — is the next question, and it needs the controller
-([`the-controller-answers-every-asker`](2026-08-30-the-controller-answers-every-asker.md))
-to ask through. Deliberately not here: a watcher that acts is a different risk
-from one that reports.
+### One action, and only one: opening the PR
+
+**The monitors report. The master agent may open a PR on `owes a review`, and
+nothing else.**
+
+**That case is the one that actually happened**, three times in a day: finished
+work on a branch, tests green, no PR, found only because the operator asked. A
+report alone leaves the same gap one step narrower — someone still has to read
+it and act.
+
+**Opening a PR is the one action safe to take without judgement**, and the
+reason is reversibility rather than convenience:
+
+| act | if wrong |
+|---|---|
+| **open a PR** | close it — the branch, the worktree and the work are untouched |
+| restart an agent | the running one's uncommitted work is at risk |
+| reap a worktree | a checkout disappears; re-creatable, but the timing is a judgement |
+| kill a worker | whatever it was mid-way through is lost |
+
+**Only the first can be undone by the person who disagrees with it.** The rest
+stay with `plot-reap.sh` and `plot-dispatch.sh`, behind the refusals they
+already own.
+
+**It needs the controller to ask through**
+([`the-controller-answers-every-asker`](2026-08-30-the-controller-answers-every-asker.md)),
+so this arrives after that plan lands. **The monitors themselves still act on
+nothing** — the action belongs to the agent reading the channel, and keeping the
+watcher inert is what lets it run unsupervised.
