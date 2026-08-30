@@ -268,6 +268,27 @@ Reading ──┬─→ Agreeing ─────┐
           └─→ Dispatching ──┘
 ```
 
+> **Plot cannot express this, and will run them one at a time.** Measured
+> 2026-08-30, with Reading merged: `plot-fleet-scan.sh` reported Agreeing
+> `eligible` and Deciding, Dispatching and Writing `blocked`. Slice eligibility
+> is strictly sequential — a slice opens when every slice BEFORE it is complete,
+> not when its own dependencies are met.
+>
+> **The graph above is still the truth about the work**, and it is what an
+> operator needs to know: three of these could run at once, and the ordering
+> that will actually happen is an artefact of the tool rather than of the
+> design. Left unwritten, someone waits for a fan-out that is never coming.
+>
+> **It costs two waves here.** Agreeing, Deciding and Dispatching will run in
+> series where they could have run together — with `parallelAgents: 11`, the
+> capacity was there.
+>
+> **The workaround, if the wait matters, is to dispatch by branch** rather than
+> by slug: `plot-dispatch.sh --restart <branch>` hands a named branch to a
+> worker regardless of its slice verdict. That is an explicit, per-branch
+> decision by a person, which is the right shape for stepping around a gate —
+> but it means the operator, not the scan, is asserting the dependency is met.
+
 ### Reading (Branch: feature/the-ports-have-adapters, PR: #530)
 
 **The seven ports are declared here, not assumed.** `PlanStore`, `Refs`,
