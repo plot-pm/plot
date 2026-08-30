@@ -5,6 +5,7 @@ import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { parseManifest, resolveManifestDir, type AgentEntry, type LivenessResolver } from './registry.js';
 import { LIVE_STATES } from '../contract/schema.js';
+import { localCapability } from './controllers/caller.js';
 
 /**
  * `POST /api/registry/drop` — remove a registry entry that is no longer running.
@@ -77,13 +78,7 @@ export interface DropResult {
  * the permission.
  */
 export function dropAvailability(host: string): { available: boolean; reason: string } {
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
-    return { available: true, reason: '' };
-  }
-  return {
-    available: false,
-    reason: `the board is bound to ${host}, not localhost — dropping an agent is available only on the machine that owns the worktrees`,
-  };
+  return localCapability(host, 'dropping an agent', 'the worktrees');
 }
 
 /**

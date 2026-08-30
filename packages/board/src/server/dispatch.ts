@@ -12,6 +12,7 @@ import {
   composeImplementPrompt,
 } from './implement.js';
 import { usableCommand } from './idea.js';
+import { localCapability } from './controllers/caller.js';
 
 /**
  * The board's ONE state-changing route.
@@ -66,13 +67,7 @@ export interface DispatchAvailability {
  * plan with an auth design in it — not a flag.
  */
 export function dispatchAvailability(host: string): DispatchAvailability {
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
-    return { available: true, reason: '' };
-  }
-  return {
-    available: false,
-    reason: `the board is bound to ${host}, not localhost — starting work is available only on the machine that owns the worktrees`,
-  };
+  return localCapability(host, 'starting work', 'the worktrees');
 }
 
 /**

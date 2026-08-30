@@ -9,6 +9,7 @@ import type { FleetPulse } from '../contract/schema.js';
 import { branchFromPulse } from './agent-panel.js';
 import { markerIn } from './worker-question.js';
 import { manifestForWorktree, writeManifestStamp } from './manifest-stamp.js';
+import { localCapability } from './controllers/caller.js';
 
 /**
  * Continuing an answered agent — the board's SECOND state-changing route, and
@@ -587,11 +588,5 @@ export async function handleContinue(
  * grows a condition the other lacks, only this function changes.
  */
 export function continueAvailability(host: string): { available: boolean; reason: string } {
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
-    return { available: true, reason: '' };
-  }
-  return {
-    available: false,
-    reason: `the board is bound to ${host}, not localhost — continuing an agent is available only on the machine that owns the worktrees`,
-  };
+  return localCapability(host, 'continuing an agent', 'the worktrees');
 }

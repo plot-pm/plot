@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { usableCommand, readIssue, lastLines, BODY_MAX, type IssueDetail } from './idea.js';
+import { localCapability } from './controllers/caller.js';
 
 /**
  * Turning a ticket into a story — the issue row's SECOND action, and the twin
@@ -162,13 +163,7 @@ export interface StoryOptions extends BuildBoardOptions {
  * board does not write stories from it.
  */
 export function storyAvailability(host: string): { available: boolean; reason: string } {
-  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') {
-    return { available: true, reason: '' };
-  }
-  return {
-    available: false,
-    reason: `the board is bound to ${host}, not localhost — turning a ticket into a story is available only on the machine that owns the repo`,
-  };
+  return localCapability(host, 'turning a ticket into a story', 'the repo');
 }
 
 /** Read the configured command, or "" — the one place that key is looked up. */
