@@ -16,6 +16,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `feature/the-ports-have-adapters`
+- **Started:** 2026-08-30, Jan Wloka, `feature/the-domain-agrees-with-production`
 
 ## Approval
 
