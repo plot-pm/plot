@@ -4,15 +4,17 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-<!-- Transition records — written by the workflow commands, not by hand:
-- **Approved:** <date>, <who>, <channel>
--->
+- **Approved:** 2026-08-30, Jan Wloka, in-session
+
+## Approval
+
+- **Assignee:** Jan Wloka
 
 ## Changelog
 
