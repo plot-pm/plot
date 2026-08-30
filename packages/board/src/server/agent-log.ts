@@ -34,9 +34,7 @@ import path from 'node:path';
  * and what they decide in one diff means a reviewer cannot tell a missed call
  * site from an intended path change.
  */
-export function agentLogDir(repoRoot: string): string {
-  return path.resolve(repoRoot, '..');
-}
+export const agentLogDir = (repoRoot: string): string => path.resolve(repoRoot, '..');
 
 /**
  * What kind of agent run a file belongs to — the `plot-<kind>-…` name segment.
@@ -88,11 +86,9 @@ const EXTENSIONS: Record<AgentLogFile, string> = {
  * @param file which of the run's three files is wanted
  * @returns an absolute path; the file need not exist
  */
-export function agentLogPath(
+export const agentLogPath = (
   repoRoot: string,
   kind: AgentLogKind,
   id: string | number,
   file: AgentLogFile,
-): string {
-  return path.join(agentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
-}
+): string => path.join(agentLogDir(repoRoot), `plot-${kind}-${id}${EXTENSIONS[file]}`);
