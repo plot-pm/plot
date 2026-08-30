@@ -68,7 +68,15 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # were refused delivery with a message naming branches whose PRs had landed the
 # day before. Absent read as false, in a gate.
 BRANCHES_SECTION=$(echo "$PLAN_CONTENT" | sed -n '/^## Branches/,/^## /p')
-WAVES_SECTION=$(echo "$PLAN_CONTENT" | sed -n '/^## Waves/,/^## [A-Z]/p')
+# `## Slices` is the spelling DESIGN-slice.md settles on, and the shape is
+# identical to `## Waves` — the branch and PR ride the `### ` heading either way.
+# One range for both, for the reason plot-plan-meta.sh gives: a second range is a
+# second implementation of a re-spelling, free to drift.
+#
+# Without it a Slices plan yielded NO branches here, and the caller reported
+# {"error": "No branches found in plan"} for a plan with five — measured
+# 2026-08-30 against the-domain-runs-the-workflows-in-a-sandbox.
+WAVES_SECTION=$(echo "$PLAN_CONTENT" | sed -n '/^## Waves\|^## Slices/,/^## [A-Z]/p')
 
 # Branch lines: the backticked name at the head of a `- ` bullet. A backticked
 # name elsewhere in prose is not a branch line — the same distinction the parser
