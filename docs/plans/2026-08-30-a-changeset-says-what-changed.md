@@ -16,6 +16,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `bug/a-changeset-says-what-changed`
+- **Started:** 2026-08-30, Jan Wloka, `bug/a-plan-may-mention-a-comment-marker`
 
 ## Approval
 
