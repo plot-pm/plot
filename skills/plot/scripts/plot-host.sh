@@ -14,6 +14,27 @@
 #                                    "draft":true|false,"url":"..."}
 #                                 NONE = no PR found (exit 0 — callers branch on
 #                                 state, not exit codes)
+#   pr-merged <branch>            has ANY PR for this branch merged? prints one
+#                                 word: merged|not-merged|unknown
+#                                 READS `mergedAt`, NEVER `state`: a merged PR
+#                                 reports CLOSED, so `state` would refuse every
+#                                 squash-merged branch — the whole population
+#                                 the callers of this question exist for. And
+#                                 never ancestry: squash-merge rewrites the
+#                                 commits, so the branch stays "ahead of main"
+#                                 forever and `merge-base --is-ancestor` can
+#                                 never clear it.
+#                                 ASKS ABOUT ANY PR, NOT THE NEWEST. Measured
+#                                 2026-08-27: three branches whose work was on
+#                                 main reported unlanded, each masked by a newer
+#                                 unmerged PR the fleet had opened itself on the
+#                                 already-merged branch.
+#                                 `unknown` IS ITS OWN ANSWER and exits 0 — a
+#                                 host that cannot be asked must not answer
+#                                 not-merged, because every caller of this is
+#                                 deciding whether to REMOVE something and
+#                                 silence is never permission. A call that
+#                                 failed outright still exits 3.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch]
@@ -990,6 +1011,77 @@ case "$op" in
         else
           err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
           host_miss_or_fail "$err" '{"number":0,"state":"NONE","draft":false,"url":""}' || exit $?
+        fi
+      fi
+    fi
+    ;;
+
+  # HAS ANY PR FOR THIS BRANCH MERGED?
+  #
+  # The one operation `plot-reap.sh` and `plot-release-refs.sh` reached past
+  # this adapter for. `pr-state` returns `mergeCommit` and not `mergedAt`, and
+  # `mergeCommit` is empty for a branch whose merge this port never saw — so
+  # the gate that decides whether work has landed had to source its own
+  # implementation rather than ask here.
+  #
+  # THREE ANSWERS, ON EXIT 0. `unknown` is a payload, not a failure: a host
+  # that cannot be asked must not answer `not-merged`, because every caller is
+  # deciding whether to remove something. Exit 3 is still reserved for the call
+  # itself failing in a way this adapter does not recognise as a miss.
+  pr-merged)
+    ref="${1:?pr-merged needs a branch}"; shift || true
+    repo_args=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        *) die "pr-merged: unknown arg $1" ;;
+      esac
+    done
+    if [ "$be" = "github" ]; then
+      # --state all, because a merged PR reports CLOSED and the default `open`
+      # would hide every one of them. --limit 100 rather than 1: the newest PR
+      # is not the merge, exactly as the state is not the merge.
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        if jq -e 'any(.[]; .mergedAt != null)' >/dev/null 2>&1 <<<"$out"; then
+          echo "merged"
+        else
+          echo "not-merged"
+        fi
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        # A LOOKUP MISS IS AN ANSWER — the branch has no PR, so nothing merged.
+        # Anything else is the host failing to be asked, and that is `unknown`
+        # rather than exit 3: the caller asked a question with a third value
+        # for exactly this case, and the answer fails safe toward keeping.
+        if [ -z "$err" ] || is_lookup_miss "$err"; then
+          echo "not-merged"
+        else
+          echo "plot-host: $err" >&2
+          echo "unknown"
+        fi
+      fi
+    else
+      bb_require_json
+      # Bitbucket has no `--head` filter, so the branch is matched locally.
+      # MERGED is bb's own state word here rather than a timestamp: the API
+      # exposes no `mergedAt`, so this is the closest fact the backend holds,
+      # and it is a positive statement about the merge rather than an inference
+      # from CLOSED — `DECLINED` is bb's closed-unmerged word and is distinct.
+      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        if jq -e --arg b "$ref" 'any(.[]; .source.branch.name==$b)' >/dev/null 2>&1 <<<"$out"; then
+          echo "merged"
+        else
+          echo "not-merged"
+        fi
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        if [ -z "$err" ] || is_lookup_miss "$err"; then
+          echo "not-merged"
+        else
+          echo "plot-host: $err" >&2
+          echo "unknown"
         fi
       fi
     fi
