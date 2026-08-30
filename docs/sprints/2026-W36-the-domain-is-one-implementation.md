@@ -101,6 +101,7 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 - [ ] [a-log-lives-with-its-worktree] **Approved 2026-08-30.** Agent logs move into `.worktrees/` with one resolver instead of 22 hard-coded paths, and the reap rule becomes a domain concept — measured 2026-08-30: **190 log files, 2.6 MB** beside the repo, none belonging to live work, and nothing has ever removed one; 4 slices, **Draft**
 - [ ] [the-registry-owns-what-it-started] **Approved 2026-08-30.** A dispatch asks whether an agent is free and whether the machine has room, and the manifest records every process the registry spawned instead of one of three — `isFree` and the whole machine measurement exist, are tested, and have zero production callers between them
 - [ ] [the-exclusion-names-what-it-hides] The adapter coverage exclusion shrinks to what a mock cannot simulate, and what stays excluded is named — the goal calls mock coverage "what makes the second condition reachable at all" and no other plan carried it
+- [ ] [the-sprint-proves-its-own-goal] A CI gate counts the domain names production still aliases and fails when the number grows — the goal's "replaced" condition was carried by a sentence in one plan's prose, and CLAUDE.md calls that a rule rather than a gate
 - [ ] [a-domain-rule-has-one-owner] Any lifecycle rule found duplicated **while moving** gets its second implementation deleted in the same slice, rather than noted for later — opportunistic, and only where the two provably agree
 
 ## Notes
