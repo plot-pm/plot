@@ -53,7 +53,20 @@ function git(cwd, ...args) {
  * exits non-zero and the loop ends cleanly — exactly one pass.
  */
 function fixture(label, boundSeconds, bodySh) {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-wloop-${label}-`));
+  // Each fixture gets its OWN parent directory, and the worktree sits inside it.
+  //
+  // The hop check at the bottom of this file counts `plot-wt-*` entries beside
+  // the fixture. Under `os.tmpdir()` directly, "beside" meant the machine's
+  // shared tmp root, so ANY `plot-wt-*` there counted as a hop this loop made —
+  // including one left by an aborted run of `agent-panel.test.mjs`, which names
+  // its own fixture `plot-wt-dead-`. Measured 2026-08-30: one empty leftover
+  // directory failed `a timed-out worker exits without hopping` on a clean main.
+  //
+  // CI never saw it (a fresh tmp per job), so it reproduced only where both
+  // suites run — a developer machine, where it reads as "my branch broke it".
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), `plot-wloop-${label}-`));
+  const t = path.join(parent, 'wt');
+  fs.mkdirSync(t);
   git(t, 'init', '-q', '-b', 'main', '.');
   git(t, 'config', 'user.email', 'test@example.invalid');
   git(t, 'config', 'user.name', 'Plot Test');
@@ -69,6 +82,17 @@ function fixture(label, boundSeconds, bodySh) {
   git(t, 'add', '-A');
   git(t, 'commit', '-qm', 'init');
   return t;
+}
+
+/**
+ * Remove a fixture and the private parent `fixture()` created for it.
+ *
+ * Every teardown goes through this, so the parent cannot outlive its worktree
+ * — a leaked `plot-wloop-*` in the shared tmp root is what this file's hop
+ * check reads as a hop.
+ */
+function discard(dir) {
+  fs.rmSync(path.dirname(dir), { recursive: true, force: true });
 }
 
 /**
@@ -137,7 +161,7 @@ test('worker-loop: a hung prompt is ended by the bound and logged', serial, asyn
     assert.ok(elapsed < 10000, `bound fired promptly, took ${elapsed}ms`);
   } finally {
     reap(secs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -157,7 +181,7 @@ test('worker-loop: an honest prompt under the bound is not truncated', serial, a
     assert.match(r.stdout, /done/, 'the prompt printed its final line');
     assert.equal(r.code, 0, 'an honest pass exits 0 once --next has nothing');
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -181,7 +205,7 @@ test('worker-loop: a timed-out worker exits without hopping', serial, async () =
     assert.equal(worktrees.trim().split('\n').length, 1, 'only the original worktree exists');
   } finally {
     reap(secs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -223,7 +247,7 @@ test('worker-loop: the bound fires with timeout(1)/gtimeout absent from PATH', s
     assert.match(r.stderr, /exceeded/, 'the log names the bound');
   } finally {
     reap(secs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
     fs.rmSync(shim, { recursive: true, force: true });
   }
 });
@@ -245,7 +269,7 @@ test('worker-loop: no stray sleep after a normal finish', serial, async () => {
     assert.equal(sleepCount(secs), 0, 'the watchdog sleep was reaped on finish');
   } finally {
     reap(secs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -260,7 +284,7 @@ test('worker-loop: no stray sleep after a timeout', serial, async () => {
     assert.equal(sleepCount(promptSecs), 0, 'the prompt sleep was killed on timeout');
   } finally {
     reap(promptSecs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -280,7 +304,7 @@ test('worker-loop: no stray sleep after the loop itself is killed', serial, asyn
   } finally {
     reap(promptSecs);
     reap(boundSecs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -372,7 +396,7 @@ test('worker-loop: a working agent is not ended at the default floor', serial, a
     assert.equal(r.code, 0, 'an honest pass exits 0 once --next has nothing');
     assert.ok(elapsed > 4000, `the prompt really ran a while, took ${elapsed}ms`);
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -395,7 +419,7 @@ test('worker-loop: an idle finding ends the prompt', serial, async () => {
     assert.ok(elapsed < 20000, `ended on the finding, not the 900s bound (${elapsed}ms)`);
   } finally {
     reap(secs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -418,7 +442,7 @@ test('worker-loop: the message names the reading that ended the worker', serial,
       'a monitor ending must not be reported as the wall-clock bound');
   } finally {
     reap(secs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -448,7 +472,7 @@ test('worker-loop: a quiet agent with no idle finding is not ended', serial, asy
     assert.equal(r.code, 0, 'silence is not a verdict');
     assert.doesNotMatch(r.stderr, /WorkerMonitor/, 'nothing was read as a finding');
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -471,7 +495,7 @@ test('worker-loop: an idle finding superseded by clear does not end the worker',
     assert.ok(fs.existsSync(path.join(dir, marker)), 'the recovered prompt ran to completion');
     assert.equal(r.code, 0, 'a superseded finding is not a verdict');
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -494,7 +518,7 @@ test('worker-loop: an AgentMonitor finding is not a WorkerMonitor verdict', seri
       'the prompt ran to completion despite an AgentMonitor idle');
     assert.equal(r.code, 0, 'only the WorkerMonitor ends a worker');
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -514,7 +538,7 @@ test('worker-loop: a gone finding does not end the worker', serial, async () => 
     assert.ok(fs.existsSync(path.join(dir, marker)), 'the prompt ran to completion');
     assert.equal(r.code, 0, 'gone is the monitor reporting, not the loop killing');
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -542,7 +566,7 @@ test('worker-loop: a hung agent still ends when its monitor says nothing', seria
     assert.ok(elapsed < 10000, `the floor fired promptly, took ${elapsed}ms`);
   } finally {
     reap(secs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -564,7 +588,7 @@ test('worker-loop: a zero bound keeps the monitor reading', serial, async () => 
     assert.ok(elapsed < 20000, `ended on the finding (${elapsed}ms)`);
   } finally {
     reap(secs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
 
@@ -602,6 +626,6 @@ test('worker-loop: no stray sleeps after an idle ending', serial, async () => {
   } finally {
     reap(promptSecs);
     reap(boundSecs);
-    fs.rmSync(dir, { recursive: true, force: true });
+    discard(dir);
   }
 });
