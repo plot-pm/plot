@@ -147,36 +147,41 @@ Worker   = an Agent's process on a Machine
 *relation*, not a second object, which is why splitting this spec would produce
 two descriptions of one thing plus an invented rule for pairing them.
 
-**Reopened 2026-08-30 by an operator decision, and NOT yet re-settled.** The
-proposed shape has the machine start N idle workers on request, which agents
-then claim:
+**Raised and withdrawn 2026-08-30.** A shape was proposed in which the machine
+starts idle workers that agents then claim. It was recorded here as a
+contradiction and is now **withdrawn by the operator who raised it**: a worker
+is a relation, and an idle worker with no agent is not an unpaired relation but
+an absent one. *One entity* stands.
+
+**What the proposal was actually reaching for survives it, and it needs no new
+object:**
 
 ```
-machine starts N workers  →  idle, no branch, no desk
-registry assigns an agent →  the agent claims a free worker
-dispatch goes to an agent →  that already has one
+the operator asks the registry for N agents
+    → N agents exist; each runs a worker, which is its process on the machine
+an agent between units is FREE — running, no branch, no slice
+    → §"The process states do not say whether an agent is free"
+a dispatch goes to a free agent
+    → so a dispatch never asks the machine for capacity
 ```
 
-**An idle worker cannot exist in the model above.** A relation missing one of
-its poles is not an unpaired relation, it is no relation — so this makes the
-worker an object that exists **before** any agent and is claimed by one.
+**The machine comes under pressure from what the agents DO**, not from a request
+arriving at it. It measures that pressure and reports it; the operator reads it
+when choosing N. Nothing in that path refuses or defers, which is what §7 of
+`DESIGN-machine.md` always wanted.
 
-**What it buys is precise, and it is not a preference.** It removes the need for
-the machine to refuse or defer a dispatch: with a pool, *"no free agent"* is a
-**count**, the same kind of fact as *this branch is claimed* — and Plot already
-rests on exactly that (*"the push is the claim, and it is the whole locking
-mechanism"*, `DESIGN-branch.md`). Capacity stops being a prediction argued about
-at dispatch time and becomes a number the operator chose in advance.
-`DESIGN-machine.md` §10 carries the fuller argument.
+**"No free agent" is a count, and that is the whole point.** The objection that
+`DESIGN-machine.md` §10 spent two revisions on — *headroom is a prediction, and
+a prediction does not earn a refusal* — does not apply to counting. `0 free` is
+the same kind of fact as *this branch is claimed*, which Plot already rests on
+entirely (*"the push is the claim, and it is the whole locking mechanism"*,
+`DESIGN-branch.md`).
 
-**What it costs:** an idle worker holds memory and a process slot for nothing,
-so N is a commitment rather than a ceiling. And the objection that produced *one
-entity* still stands unanswered — two objects need a pairing rule, and that rule
-is the thing this section was written to avoid inventing.
-
-**Recorded as open.** The 2026-08-28 decision is not overturned by a note in the
-section it contradicts; it needs the argument made here, against the case above,
-before either shape can be called settled.
+**This section already had the answer and did not connect it.** Availability is
+defined below, distinguished from the eight process states, and derived rather
+than stored. What was missing is the sentence saying **that is what a dispatch
+looks at** — so the machine spec argued about predicting capacity while this one
+was already counting it.
 
 **`elsewhere` is the evidence** ([§4](#4-lifecycle)): it means *no worktree on
 this machine*, an agent that exists while its process runs elsewhere. A view of

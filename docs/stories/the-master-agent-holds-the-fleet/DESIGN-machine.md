@@ -317,51 +317,43 @@ and a person chooses inside it.
 #### Superseded the same day: there is nothing to refuse
 
 **Operator decision, 2026-08-30, and it dissolves the question above rather than
-answering it.** The deferral was designed because a dispatch arrives while the
-machine is starved. In the shape below, that request never arrives.
+answering it.** The deferral below was designed for a dispatch arriving while the
+machine is starved. In the shape settled that day, that request never arrives.
 
-**Workers are started by the machine and claimed by agents.**
+**A first version of this had the machine start idle workers for agents to
+claim. It was withdrawn** — a worker is a *relation*, the process an agent runs
+on a machine, so an idle worker with no agent is not unpaired but absent
+(`DESIGN-agent.md` §*Agent and Worker are one entity*). **No new object is
+needed.**
 
 ```
-the operator asks the machine for N workers
-    → N processes start, idle, holding no branch and no desk
-the registry assigns an agent to a free worker
-    → the agent claims it; the pair is now what today's spec calls a Worker
-a dispatch goes to an agent that HAS a worker
-    → so a dispatch is never a request for capacity
+the operator asks the REGISTRY for N agents
+    → N agents exist; each runs a worker, its process on this machine
+the agents work, and the machine comes under pressure from what they DO
+    → not from a request arriving at it
+a dispatch goes to a FREE agent — running, between units, holding no slice
+    → so a dispatch never asks the machine for capacity
 ```
 
-**"No free agent" is a count, not a prediction.** That is the whole point: the
-objection this section spent two revisions on — *headroom is a forecast and a
-forecast does not earn a refusal* — does not apply to counting. `0 free` is the
-same kind of fact as *this branch is claimed*, which Plot already builds
-everything on:
+**"No free agent" is a count, not a prediction.** That is what dissolves the
+argument below: *headroom is a forecast and a forecast does not earn a refusal*
+is true, and irrelevant to counting. `0 free` is the same kind of fact as *this
+branch is claimed* — already the whole of Plot's locking:
 
 > *"The push is the claim, and it is the whole locking mechanism"*
 > — `DESIGN-branch.md` §the claim
 
-**So the machine still never refuses, and now it never even defers.** It starts
-what it was asked to start; a starved reading is what the operator consults when
-choosing N. The pressure moves to a moment where a person is already deciding,
-which is where §7 always wanted it.
+**So the machine neither refuses nor defers.** It measures the pressure the
+agents create and reports it; the operator reads that when choosing N. The
+decision moves to a moment where a person is already deciding, which is where §7
+always wanted it — and `starved` becomes what it was designed to be in §5: a
+reading, shown to whoever sets the dial.
 
-**What this costs, stated plainly:** an idle worker holds memory and a process
-slot while doing nothing, so N is a real commitment rather than a ceiling. That
-is the trade — capacity is paid for up front instead of discovered at dispatch
-time.
-
-**And it contradicts a settled decision.** `DESIGN-agent.md` §*Agent and Worker
-are one entity* holds that *"a Worker is the process an Agent runs on a
-Machine"* — a **relation**, not a second object. An idle worker with no agent
-cannot exist in that model: a relation is not missing one of its poles, it is
-absent. This shape makes the worker an object that exists **before** the agent
-and is claimed by it. That is a genuine reopening of a decision recorded as
-settled on 2026-08-28, and it needs its own argument in that spec rather than a
-footnote here.
-
-**Kept below, not deleted:** the deferral argument stands as the reasoning for
-why a starved machine must be visible at all. Which mechanism carries it — a
-deferred dispatch, or a pool the operator sized in advance — is what changed.
+**`DESIGN-agent.md` already had the missing half.** Availability is defined
+there, separated from the eight process states, and derived rather than stored.
+What neither spec said is that **a dispatch looks at it** — which is why this
+one spent two revisions arguing about predicting capacity while the other was
+already counting it.
 
 **Revised 2026-08-30.** This section read *"it bounds; it never refuses"* and
 grounded that on a real distinction: **Plot's gates refuse on measurements of
