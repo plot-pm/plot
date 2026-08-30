@@ -629,31 +629,69 @@ without cleanup:  survivors 2
 with    cleanup:  survivors 0     # kill "$m1" "$m2" after wait
 ```
 
-**Corrected 2026-08-30, later the same day: `wait` alone is not enough.**
-Watching a real timeout separated two cases that the first reading merged:
+**Corrected twice on 2026-08-30, and the second correction withdraws the
+first.** An afternoon entry here claimed the leak was the `kill -9` path and
+that a `trap` was therefore the load-bearing half. That is wrong: the bound's
+SIGKILL goes to the AGENT (`plot-worker-loop.sh:172`), and the wrapper survives
+it — it writes `.plot-worker.exit` afterwards, which a killed wrapper could not.
 
-| the wrapper ends... | the monitors |
-|---|---|
-| normally, the agent having finished | **die with it** |
-| killed at the `Worker bound` (`Killed: 9`) | **are orphaned** |
+**What killed the monitors of the timed-out run is unexplained.** Its log ends:
 
-Six monitors were observed dying between two samples, as the log worker's
-wrapper exited normally; the 204 orphans alive at the same moment all came from
-runs that were killed. So the leak is not the ordinary path at all — it is the
-`kill -9` path, and **that is exactly the path a line after `wait` never
-reaches**.
+```
+plot-worker-loop.sh: line 172: 21919 Killed: 9    bash -c '. "$1"' _ "$prompt_file"
+plot-worker-loop: prompt exceeded the 3600s bound ...
+sh: line 25: 21499 Terminated: 15    "$PLOT_WORKER_MONITOR"
+sh: line 25: 21501 Terminated: 15    "$PLOT_AGENT_MONITOR"
+```
 
-**So it needs both**, and the earlier ranking of them was backwards:
+Three candidate explanations were tested and all three failed: `sh` does not
+signal its background jobs at exit (measured directly, and again with
+`nohup` + `wait` in the wrapper's exact shape); `plot-dispatch.sh` contains no
+`kill`; and neither pid appears in either of the two orphan lists killed by hand
+that day. **So this is recorded as unexplained rather than as a third guess** —
+a monitor lifetime nobody can account for is exactly the kind of thing this plan
+exists to make legible.
 
-- a `trap` on EXIT/TERM, which is the only thing that runs when the wrapper is
-  killed — the case that actually leaks
-- the `kill` after `wait`, which covers the ordinary path deterministically
-  rather than relying on a signal handler firing during normal exit
+#### The proposal that survives it: the registry owns the process group
 
-The earlier text called the trap "the weaker candidate" on the grounds that it
-fires where no exit record was written. That is true and is not a drawback: a
-wrapper being killed is precisely when its monitors must not survive, because
-nothing will ever come back to reap them.
+**Raised 2026-08-30.** The wrapper cannot guarantee anything that outlives its
+own death — it is a process. The registry is a **directory**, it outlives every
+agent it records, and `DESIGN-agent.md` already assigns it the matching
+invariant for desks:
+
+> every agent has a worktree, and no worktree is left behind
+> — removed **by the registry, when the agent ends**
+
+*Every agent has its monitors, and no monitor is left behind* is the same
+sentence about processes, and it wants the same owner.
+
+**What blocks it today is that the manifest records one pid of three.** Measured
+on the running Slice-2 worker:
+
+```
+plot-dispatch.sh  (99020)
+  └── wrapper     (99021)
+        ├── WorkerMonitor       (99044)   ← in no manifest
+        ├── AgentMonitor        (99046)   ← in no manifest
+        └── plot-worker-loop.sh (99048)   ← "pid": "99048"
+```
+
+At that moment: **1 manifest, 76 monitor processes, 0 of them nameable from the
+registry.** Nothing that reads the registry can find a monitor, so nothing that
+reads the registry can reap one — the reconciliation sweep `plot-worker-loop.sh`
+points at for the SIGKILL case included.
+
+**The smallest form that makes it possible** is the manifest carrying the pids
+it does not carry today — the wrapper's, and each monitor's beside the agent's.
+Then a sweep can ask the one question that decides everything: *this manifest's
+agent is gone; are its monitors?* Whether the group is then ended by pid, by
+process group, or by the registry refusing to drop a manifest while any of its
+pids live is a design question this plan has not answered.
+
+**It is not this slice's, and probably not this plan's.** `two-monitors` is
+about what the monitors measure; who owns their lifetime is the registry's
+subject, and the registry has its own story. Recorded here because the
+measurement that raises it was taken here.
 
 **So the monitors must end where the exit code is written** — the one point
 that already runs exactly once, after the agent and before the wrapper goes.
