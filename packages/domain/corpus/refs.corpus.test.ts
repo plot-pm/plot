@@ -270,9 +270,27 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
     });
 
     expect(offenders).toEqual([]);
-    // And it really was exercised: an estate where nothing carries the field
-    // would pass the loop above without comparing anything.
-    expect(compared).toBeGreaterThan(0);
+
+    // WHETHER THIS WAS EXERCISED IS A PROPERTY OF THE ESTATE, NOT OF THE CODE.
+    // `changed_ago_seconds` is only carried by a branch the scan could inspect a
+    // worktree for. Measured 2026-08-30: 9 of 42 branches here, and ZERO on a CI
+    // runner, which clones one ref and has no worktrees at all — so an
+    // unconditional `toBeGreaterThan(0)` failed there while passing locally.
+    //
+    // The assertion is still worth making, because a comparison that silently
+    // compares nothing is the vacuous pass this corpus tier exists to prevent.
+    // So it is made where it can hold: if the estate carries the field at all,
+    // at least one pair must have been compared. If the estate carries none,
+    // there was nothing to compare and saying so is the honest answer.
+    const carriesTheField = pulse.plans.some((plan) =>
+      plan.slices.some((slice) =>
+        slice.branches.some(
+          (branch) =>
+            typeof (branch as unknown as Record<string, unknown>)[ELAPSED_FIELD] === 'number',
+        ),
+      ),
+    );
+    if (carriesTheField) expect(compared).toBeGreaterThan(0);
   });
 
   it('names every wire field, so a new one arrives as a question', () => {
