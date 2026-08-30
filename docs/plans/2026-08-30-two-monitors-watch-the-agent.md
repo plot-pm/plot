@@ -597,6 +597,50 @@ a process that outlives its subject, holds a pid, and reports nothing anybody
 reads. The Attaching slice's own no-op monitors are now the largest population
 of exactly that on this machine.
 
+#### Where the leak is, and where the fix belongs
+
+**Not in the test.** `makeSandbox().cleanup` is
+`fs.rmSync(root, {recursive:true, force:true})` — it deletes the DIRECTORY and
+signals nothing. A running process survives the removal of its working
+directory, so the monitors slept on. And that is the correct scope for a test
+helper: it removes what the test CREATED. The monitors were created by
+`plot-dispatch.sh`, and nobody owns ending them.
+
+**The wrapper waits for one child of three.** `plot-dispatch.sh:600`:
+
+```sh
+"$PLOT_WORKER_MONITOR" & "$PLOT_AGENT_MONITOR" &
+( <cmd> ) & agent=$!
+...
+wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"
+```
+
+`wait "$agent"` is deliberate and must stay — waiting on all three would hang
+forever on two infinite loops, and the exit record would never be written. But
+after it, the wrapper exits with both monitors still running, and they are
+reparented to init.
+
+Reproduced and fixed in isolation, 2026-08-30, on a six-line model of this
+wrapper:
+
+```
+without cleanup:  survivors 2
+with    cleanup:  survivors 0     # kill "$m1" "$m2" after wait
+```
+
+**So the monitors must end where the exit code is written** — the one point
+that already runs exactly once, after the agent and before the wrapper goes.
+Capture both pids at launch and kill them there. A `trap` on EXIT would be the
+other candidate and is weaker here: the wrapper's normal path already reaches
+this line, and a trap fires on paths where the exit record was never written,
+which is where a monitor is still the most useful thing running.
+
+**This is a lifetime question, and it belongs to the wrapper, so it belongs to
+the Attaching slice's code** — added by whichever slice next touches
+`start_worker()`, with the assertion the merged slice could not have: after a
+worker finishes, **no monitor process remains**. The green `--stop` test asserts
+the lower bound (they survive the agent); this is the upper one.
+
 **What it does NOT guarantee, stated:** if the whole wrapper is `kill -9`-ed, the
 agent, both monitors and the exit record go together. That is not a monitoring
 gap — a process tree that vanishes at once leaves a worktree the fleet scan
