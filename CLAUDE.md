@@ -301,6 +301,38 @@ a function returns. A measurement worth keeping — *"a plan with no merged slic
 read as delivered, 2026-08-20"* — belongs in the commit that introduced the
 guard, so `git log -S` finds it.
 
+## The Layering Rule
+
+**Settled 2026-08-30.** One direction, no shortcuts:
+
+```
+controller  →  domain  →  port  ←  adapter  →  script / git / process
+```
+
+- **A controller calls the domain.** It never spawns.
+- **The domain owns the port** — an `interface`, no runtime code. It defines what
+  it needs; it does not import an adapter.
+- **An adapter implements the port** and is the only place that may reach the
+  world. `machine-system.ts` imports `ports/machine.js`; `ports/machine.ts`
+  names `adapters/` zero times. **The dependency points inward.**
+- **Scripts can only be called from an adapter implementation.**
+- **No domain-specific code or behaviour lives outside the domain.**
+
+**Half of this is enforced.** The purity gate holds the inner boundary: outside
+`packages/domain/src/adapters/`, the domain may import `zod` and nothing else —
+measured 0 violations. The outer boundary is not enforced: `packages/board/src`
+holds **65** `spawn`/`execFile` lines across 23 files, and CI has zero path
+references to it.
+
+`the-sprint-proves-its-own-goal` adds that gate as a ratchet; `production-calls`
+does the migration it counts.
+
+**A note on shape.** The domain here takes **readings as values**, not ports —
+`reap(readings, input)` rather than `reap(ports)`. No rule or workflow imports a
+port or awaits anything. That keeps the core synchronous and testable without
+mocks; the cost is that the caller decides what to read. It is a deliberate
+variant of ports-and-adapters, not a deviation from the rule above.
+
 ## Gates Over Rules
 
 **For important agent behaviors, always implement gates, not rules.** ([Reference](https://blog.fsck.com/2026/04/07/rules-and-gates/))

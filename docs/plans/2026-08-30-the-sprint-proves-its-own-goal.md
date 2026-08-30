@@ -83,12 +83,52 @@ not bodies.
 
 ## Design
 
+### The layering rule, stated by the operator and settled 2026-08-30
+
+> **Controllers call the domain. The domain owns a port. The port is implemented
+> by an adapter. The adapter calls the script.**
+>
+> **Scripts can only be called from an adapter implementation.**
+>
+> **There is no domain-specific code or behaviour that is not implemented by the
+> domain.**
+
+**The import direction is what makes this checkable**, and it was verified while
+settling it: `machine-system.ts` imports `ports/machine.js`; `ports/machine.ts`
+references `adapters/` **zero** times. A port is an `interface` — no runtime
+code, nothing to call. The domain *defines* it, the adapter *implements* it, and
+the dependency points inward.
+
+**Measured 2026-08-30, and only one half holds:**
+
+```
+domain outside adapters/, spawn or execFile      0   ← the purity gate holds it
+packages/board/src, spawn or execFile           65   across 23 files
+packages/board/src, naming a plot-*.sh          36
+```
+
+**So the inner boundary is enforced and the outer one is not.** CI has nine path
+references across six domain gates, and **zero** for `packages/board`.
+
 ### Two counts, because there are two ways to fail
 
 | count | what it catches | today |
 |---|---|---|
 | **domain names production still aliases** | a rule moved, its old name kept alive | `allWavesMerged` in `board.ts`, 3 call sites |
+| **spawn/execFile outside `adapters/`** | the layering rule broken — a caller reaching past the port | **65 lines, 23 files** |
 | **board files reaching the domain** | the other direction: how far adoption has got | 2 of 36 server files |
+
+**The second is the operator's rule made countable.** It does not ask whether a
+call is "domain logic" — a judgement no grep can make — but whether anything
+outside `adapters/` spawns at all. **That is the same shape as the purity gate**,
+which succeeds precisely because it greps imports rather than intent.
+
+**What it cannot catch, stated:** domain-specific *behaviour* implemented in the
+board without spawning anything — a rule written in TypeScript in a route
+handler. The third condition of the operator's statement covers that, and it is
+**not** greppable. It stays a review question, and the alias count is its
+closest measurable proxy: a rule that moved leaves a name behind, and a rule
+that never moved leaves no trace a gate can see.
 
 **The first is the gate.** It ratchets down and fails on growth, exactly like
 the vocabulary gate.
@@ -118,6 +158,23 @@ That is the current plan, and it is why the question was asked. A check nobody
 has scheduled is a check that happens once, in the release, under time pressure.
 
 ## Slices
+
+### Layering (Branch: infra/only-an-adapter-reaches-a-script)
+
+A CI gate counting `spawn`/`execFile` outside `packages/domain/src/adapters/`,
+with `allowed` at today's 65 and the target stated as zero.
+
+**Done when** the gate fails if a new direct spawn is added anywhere outside
+`adapters/`; it passes on today's estate with the count in its output; and the
+failure message names the files, so a reader sees where the layer was crossed.
+
+**It covers both packages deliberately.** The purity gate already stops the
+domain from importing `node:child_process`; this one stops the *board* from
+reaching past the port — the half that was never enforced.
+
+**Its `allowed` will fall as `production-calls` lands**, and each of that plan's
+Spawning slices should take it down. That is the ratchet working as intended:
+the gate does not do the migration, it records it.
 
 ### Counting (Branch: infra/the-gate-counts-what-production-keeps)
 
