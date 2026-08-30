@@ -50,6 +50,14 @@ the answer.**
   `working` / `idle` — the exact signal that would have caught the stall
 - `attention.ts` is already the surface for *this needs you*
 
+**And a monitor that can be forgotten is one that will be.** Both measured
+failures happened on dispatched agents — the path Plot fully controls. If
+monitoring is something a dispatcher may or may not set up, the next stalled
+agent will be one nobody attached a monitor to, and the finding will be that the
+monitor was missing rather than that the agent was. **So every worker is born
+monitored, and the monitor is structurally unable to die first** — see
+*Attaching* below.
+
 **What is missing is the middle: something that asks regularly, compares this
 answer with the last, and speaks when the comparison is bad.** A single reading
 cannot distinguish a worker thinking from a worker gone; two readings, minutes
@@ -135,16 +143,71 @@ process is busy *now*, which is noise on its own. What identifies a stall is
 here, and it is derived rather than recorded: lose it and the next sample
 rebuilds it, at the cost of one interval's delay.
 
-### Attaching, and why it is explicit
+### Attaching, and why it cannot be optional
 
-**`plot-dispatch.sh` attaches both monitors when it starts a worker.** The agent
-already has a manifest and a worktree; the monitors are the third thing the
-dispatcher sets up, and they die with the agent.
+**Every worker gets a monitor at creation, and every agent gets one too. The
+monitor must not die before its subject.**
 
-**A hand-made worktree gets none**, and that is deliberate. Attaching to
-everything would mean watching worktrees nobody dispatched — the population
-`plot-dispatch.sh` already refuses to reason about, because they carry no claim
-and follow no naming.
+**`start_worker()` is the single place a worker comes into existence**, and
+CLAUDE.md already names it as such: *"it starts through `start_worker`, so the
+manifest is written by one writer and the fleet can see what it started."* A
+monitor attached anywhere else is one that can be skipped; attached there, a
+worker without a monitor is unreachable rather than discouraged.
+
+#### The monitor lives INSIDE the wrapper, not beside it
+
+**This is the part that makes "never dies first" enforceable rather than
+hoped-for**, and the mechanism already exists and is already proven.
+
+`plot-dispatch.sh` does not spawn the agent directly. It spawns a `sh -c`
+**wrapper**, which backgrounds the agent, records its pid, `wait`s for it, and
+writes `.plot-worker.exit` when it exits — with both pids kept separately
+(`.plot-worker.pid` for the agent, `.plot-worker.wrapper.pid` for the wrapper).
+The comment at `plot-dispatch.sh:469` states the property outright: *"`--stop`
+kills the agent, the wrapper survives to record the code."*
+
+**So the wrapper ALREADY outlives its agent, by construction, because otherwise
+there would be no exit code.** The monitors run in that wrapper:
+
+```
+wrapper  ── backgrounds ──► agent          (the work)
+         ── runs        ──► WorkerMonitor  (samples the agent's pid)
+         ── runs        ──► AgentMonitor   (samples the desk)
+         ── waits for   ──► agent, then records the exit
+```
+
+**A sibling process would have been the wrong shape.** Two processes started
+side by side are independently mortal: the monitor can be killed, OOM-ed or
+crash, and nothing notices — which is precisely the failure being fixed, one
+level up. Inside the wrapper the monitor cannot outlive its usefulness or die
+early without the wrapper dying, and a dead wrapper is already a state the fleet
+reads.
+
+#### What "enforced" means here, precisely
+
+**Two gates, because there are two claims:**
+
+| claim | gate |
+|---|---|
+| a worker is never created without monitors | `start_worker()` starts them; there is no other path to a worker |
+| a monitor never dies before its subject | the monitor is the wrapper's child, and the wrapper must outlive the agent to write the exit file |
+
+**The second is not a rule anyone follows — it is structural.** Ask CLAUDE.md's
+test: *can you answer "did I complete this?" without doing the work?* For "did I
+attach a monitor", inside `start_worker()` you cannot: no monitor, no worker.
+
+**What it does NOT guarantee, stated:** if the whole wrapper is `kill -9`-ed, the
+agent, both monitors and the exit record go together. That is not a monitoring
+gap — a process tree that vanishes at once leaves a worktree the fleet scan
+already reads as `ended` with no exit file. The monitors exist for the case where
+the subject misbehaves, not for the case where the machine takes everything.
+
+#### A hand-made worktree gets none
+
+Deliberate. Attaching to everything would mean watching worktrees nobody
+dispatched — the population `plot-dispatch.sh` already refuses to reason about,
+because they carry no claim and follow no naming. **They also have no wrapper**,
+so there is nothing for a monitor to be a child of.
 
 ## Slices
 
@@ -182,13 +245,31 @@ entry names the branch and what to do, it clears when the PR is opened, and a
 WorkerMonitor `idle` finding is distinguishable from an AgentMonitor one in the
 entry itself.
 
-### Attaching (Branch: feature/dispatch-attaches-a-monitor)
+### Attaching (Branch: feature/every-worker-is-born-monitored)
 
-`plot-dispatch.sh` starts a monitor alongside each worker.
+`start_worker()` starts both monitors inside the wrapper, before the agent.
 
-**Done when** a dispatched agent gets both monitors without the operator asking,
-a hand-made worktree gets neither, and `--dry-run` names which monitors it would
-attach to which worktree.
+**Done when**
+
+- a dispatched agent gets both monitors without the operator asking
+- **there is no code path that creates a worker without them** — asserted by the
+  test below, not by review
+- killing the agent leaves both monitors alive long enough to record the finding,
+  and the wrapper still writes `.plot-worker.exit`
+- a hand-made worktree gets neither
+- `--dry-run` names which monitors it would attach to which worktree
+
+**The test is a mutation and an ordering assertion, because a review cannot see
+either.** Removing the monitor start from `start_worker()` must turn a test red —
+that is the "no other path" claim. And `--stop`, which kills the agent, must
+leave the monitors and the exit file intact — that is the "never dies first"
+claim, checked against the thing that would break it.
+
+**Watch the startup window.** `plot-dispatch.sh:478` records a sub-millisecond
+gap where the wrapper has started and `.plot-worker.pid` is not yet written, and
+a scan landing there reads `none` — honest. The monitors start inside the same
+wrapper, so they inherit that window rather than widening it: a monitor must not
+report `gone` from a pid file that has not been written yet.
 
 ## Notes
 
