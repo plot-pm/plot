@@ -50,6 +50,43 @@ exists to surface — and among them is real abandonment (`worktree-plot-skills-
 at 119-120 days, seven `opus5-hardening-*` branches whose PRs were closed
 unmerged 33 days ago). **The signal is buried under the noise.**
 
+### Re-measured 2026-08-30: the noise is gone, the signal is not
+
+Every remote branch that is not an ancestor of `origin/main`, counted in full
+rather than sampled:
+
+```
+              2026-08-28      2026-08-30
+total                 34              23
+merged PR             12               1     ← the defect's population
+open PR                2               1
+neither               20              21     ← what QUIET is for
+```
+
+**The squash-merge artefacts have drained away** — from 12 to 1 — while the
+branches QUIET exists to surface are untouched at 21, `opus5-hardening-*` and
+`worktree-plot-skills-*` among them.
+
+**Why they drained is not `plot-release-refs.sh` on its own**: `git log` on main
+shows no ref-deletion commits in the last three days, so this is the ordinary
+lifecycle catching up rather than a sweep. Either way the population that
+motivated the plan is now a single branch.
+
+**What this changes.** The mislabelling is still real — a squash-merged PR
+reports `CLOSED`, and one row shows it today. But *"a third of the section is
+finished work"* was the case for fixing it, and that case is currently
+**1 in 23**. Two readings are available and the plan should say which it takes:
+
+- **the defect is rare now**, so the fix buys little and can wait behind work
+  with a live cost
+- **the population is volatile** — it was 12 two days ago and will be 12 again
+  after the next batch of deliveries, so a fix that only pays off periodically
+  still pays off
+
+**The second reading is the stronger one, but it needs stating rather than
+assuming.** A plan justified by a measurement that has since collapsed must
+either re-argue itself or wait; it must not keep quoting the old number.
+
 ### Where it goes wrong, and it is not the classifier
 
 `fleet.ts:3693` already answers correctly:
