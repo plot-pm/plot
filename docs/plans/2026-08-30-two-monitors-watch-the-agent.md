@@ -115,6 +115,31 @@ delta as a worker whose agent has vanished. What separates them, measured across
 the three stalls this session, is that each had **already committed** and then
 gone quiet — work delivered, then silence.
 
+**Measured 2026-08-30, and it breaks the condition as implemented (#538 red):**
+`monitor_has_commits` counts `origin/main..HEAD`, and **the dispatcher writes a
+claim commit before the agent starts**:
+
+```
+infra/a-log-lives-under-worktrees      first commit: "plot: claim infra/a-log-lives-..."
+feature/the-worker-monitor-samples-...  first commit: "plot: claim feature/the-worker-..."
+```
+
+So *commits present* is true from second zero on **every** dispatched branch,
+and the condition distinguishes nothing. The CI failure is the proof: a worker
+burning CPU in `yes > /dev/null` was reported `idle`, because the only condition
+that could have saved it was already satisfied by the claim.
+
+**What the plan means is the agent's work, not the dispatcher's bookkeeping** —
+*"it produced work and stopped"*. The fix is to count commits **after the
+claim**, not after `origin/main`. The claim is the branch's first commit and is
+written by `plot-dispatch.sh`, so it is identifiable rather than guessed at.
+
+**It passed locally and failed in CI for a reason worth keeping:** locally `yes`
+started fast enough to break the CPU condition before the two-sample rule
+completed, so the broken fourth condition never got to decide. A slower runner
+let it. The test was measuring the CPU condition and believed it was measuring
+all four.
+
 | | idle fires |
 |---|---|
 | no CPU, tree unchanged, **commits present** | yes — it produced work and stopped |
