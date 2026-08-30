@@ -143,6 +143,30 @@ Ancestry stays as the first test — it is free, correct for merge-commit
 workflows, and answers before any host data is needed. The host answer is the
 fallback that catches what squash-merge erased.
 
+### What this plan does not price: a host that cannot be asked
+
+**Challenged 2026-08-30.** This plan's fix is *ask the host where it is already
+being asked* — and it mentions a throttled host **zero** times. Its two siblings
+were checked the same day: `a-reset-branch-is-not-a-merged-one` cites the risk
+four times and states its guard (*"No host call is added. The check is
+`rev-list`, offline"*), and `a-throttled-host-says-so` exists because the defect
+was reproduced.
+
+**The failure mode is concrete.** `plot-host.sh`'s `pr-list` does not check
+`gh`'s exit code and the script runs under `set -uo pipefail` with **no `-e`**,
+so a throttled `gh` yields an empty list — indistinguishable from *there are no
+merged PRs*. A rule that reads *"a branch appearing among merged PRs is merged,
+whatever ancestry says"* then reads every branch as unmerged during a rate
+limit, and QUIET fills with work that landed. **That is this plan's own defect,
+inverted.**
+
+**So it depends on `a-throttled-host-says-so`, and should say so** — or state
+what it does when the list comes back empty for a reason that is not emptiness.
+
+**It also never mentions reset**, which its mirror plan handles explicitly:
+a branch reset to the default branch is an ancestor holding nothing, and a fix
+aimed only at squash artefacts can make that case worse.
+
 ### `mergedAt`, never `state`
 
 A merged PR reports `state: CLOSED`, and this is the third place in this repo

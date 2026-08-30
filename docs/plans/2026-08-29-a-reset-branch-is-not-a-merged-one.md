@@ -87,6 +87,31 @@ exists for: a squash-merged branch is *behind* main but has commits main does
 not contain by subject, so `merged_by_subject` still finds them. A branch at
 zero-ahead has nothing to find.
 
+### Challenged 2026-08-30: three plans, one question, and this is the careful one
+
+**`a-squash-merged-branch-is-not-quiet` is this plan's mirror**, and the pair is
+worth seeing together:
+
+| | ancestry says | truth | the error |
+|---|---|---|---|
+| **squash-merged** | not an ancestor → *open* | merged | work shown as unfinished |
+| **reset to main** | is an ancestor → *merged* | holds nothing | nothing shown as finished |
+
+**A fix for one can break the other**, because both live in the gap between
+ancestry and the host's answer. This plan handles that explicitly — it reasons
+about `merged_by_subject` and says why a squash-merged branch keeps working
+under its rule. **The squash plan does not mention reset at all** (`grep`:
+6 mentions here, 0 there), which is a gap on that side rather than this one.
+
+**And this plan is the only one of the three that priced the throttled host.**
+It cites `a-throttled-host-says-so` and states the guard: *"No host call is
+added. The check is `rev-list`, offline."* The squash plan adds host calls and
+mentions throttling **zero** times — measured the same day the throttle plan's
+own defect was reproduced.
+
+**Nothing here needs changing.** Recorded because the three form a set, and
+whichever lands first should be read against the other two.
+
 ### Where the host already knows
 
 `plot-pr-merged.sh` answers *did the host merge ANY PR for this branch?* and
