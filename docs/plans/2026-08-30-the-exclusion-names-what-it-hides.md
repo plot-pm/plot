@@ -14,6 +14,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-31, Jan Wloka, `infra/the-adapters-are-measured`
 
 ## Approval
 
