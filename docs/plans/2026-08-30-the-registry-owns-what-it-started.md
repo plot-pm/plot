@@ -47,10 +47,10 @@ export const isFree = (agent: Agent, sliceHasMerged: boolean): boolean => {
 ```
 
 Six assertions in `agent.test.ts` cover it. **Zero production call sites**
-(measured 2026-08-30, `grep` across `packages/board/src` and
-`packages/domain/src`). So the answer is written down and nobody asks it —
-which is exactly why `DESIGN-machine.md` spent two revisions arguing about
-predicting capacity while `DESIGN-agent.md` was already counting it.
+(measured 2026-08-30, across `packages/board/src` and `packages/domain/src`). So
+the answer is written down and nobody asks it — which is why
+`DESIGN-machine.md` spent two revisions arguing about predicting capacity while
+`DESIGN-agent.md` was already counting it.
 
 ### The manifest records one pid of three
 
@@ -65,10 +65,10 @@ plot-dispatch.sh  (99020)
 ```
 
 At that moment the estate held **1 manifest, 76 monitor processes, 0 of them
-nameable from the registry**. `DESIGN-agent.md` gives the registry the
-invariant *every agent has a worktree, and no worktree is left behind* — the
-same sentence is owed for processes, and today nothing that reads the registry
-can even find one to reap.
+nameable from the registry**. `DESIGN-agent.md` gives the registry the invariant
+*every agent has a worktree, and no worktree is left behind* — the same sentence
+is owed for processes, and today nothing that reads the registry can find one to
+reap.
 
 ## Design
 
@@ -95,24 +95,21 @@ a measured defect, so this plan adds a reader and changes no arithmetic.
 
 ### What a dispatch then says when it cannot proceed
 
-Today the refusal names the cap. With `isFree` read, it can distinguish two
-situations that are not the same:
-
 | | today | after |
 |---|---|---|
 | every slot taken, all working | *at the cap* | *at the cap* |
 | every slot taken, all idle-between-units | *at the cap* | **a free agent exists — dispatch to it** |
 
-**That is the whole user-visible win**, and it is why this is worth doing before
-anything larger: an agent asking `--next` is `running` with no branch and is
-available *now*, and the fleet currently waits for a slot instead of using it.
+**That is the whole user-visible win.** An agent asking `--next` is `running`
+with no branch and is available *now*, and the fleet currently waits for a slot
+instead of using it.
 
 ### The manifest carries a process group
 
 `pid` becomes the agent's process plus the processes the registry started
 alongside it. **The shape is deliberately not decided here** — a list, a
-process-group id, or named fields are all workable, and which one survives
-depends on what the reap rule needs. What is decided:
+process-group id, or named fields are all workable, and which survives depends
+on what a reap rule needs. What is decided:
 
 - **the registry writes it**, because the registry is what spawned them
 - **it is written at spawn**, not discovered later by scanning `ps` for a
@@ -122,11 +119,10 @@ depends on what the reap rule needs. What is decided:
 
 ### Not chosen: reap the monitors in this plan
 
-Naming the processes is what makes reaping *possible*; deciding when a monitor
-must die is a lifetime question that `two-monitors-watch-the-agent` owns and has
-already recorded as unexplained on one path. Shipping the field without the
-sweep is a complete, useful step: the registry stops lying about what it
-started.
+Naming the processes makes reaping *possible*; deciding when a monitor must die
+is a lifetime question `two-monitors-watch-the-agent` owns and has already
+recorded as unexplained on one path. Shipping the field without the sweep is a
+complete step: the registry stops lying about what it started.
 
 ### Not chosen: a worker pool
 
@@ -144,8 +140,8 @@ distinguishes *no slot* from *no free agent*.
 **Done when** a fleet at the cap whose agents are all between units dispatches
 rather than refusing; a fleet at the cap whose agents all hold unmerged branches
 still refuses; `liveAgentCount`'s arithmetic is **unchanged**, asserted by its
-existing tests staying green untouched; and the refusal message names which of
-the two it is.
+existing tests staying green untouched; and the refusal names which of the two
+it is.
 
 **The regression to lock:** an agent whose branch merged still counts toward the
 cap. That is `bug/a-landed-branch-still-holds-a-slot`, measured 2026-08-25, and
@@ -175,6 +171,6 @@ Cut from four spec revisions on 2026-08-30 (`DESIGN-machine.md` §7/§10,
 `DESIGN-agent.md` §*Agent and Worker are one entity*). The specs settled the
 model; this is the smallest pair of changes that makes the code agree with it.
 
-The measurements behind it were taken while three workers hit the 3600s bound in
-one afternoon — the fleet was busy, which is exactly when a free agent going
-unused costs something.
+The measurements were taken while three workers hit the 3600s bound in one
+afternoon — the fleet was busy, which is exactly when a free agent going unused
+costs something.
