@@ -1,0 +1,172 @@
+import {
+  AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema, WaveSchema,
+  type AgentRow, type Board, type Card, type Column, type Fleet, type Wave,
+} from '../../src/contract/schema.js';
+import type { z } from 'zod';
+
+/**
+ * THE ONE BUILDER. Every named state in the catalogue is assembled from these
+ * six functions, and nothing else builds a payload.
+ *
+ * ## Why these PARSE rather than cast
+ *
+ * The client CASTS its payload — `App.tsx` reads `(await res.json()) as Board`
+ * and `as Fleet`, so Zod defaults never run in the browser and a field a fixture
+ * omits reaches the renderer as `undefined` rather than as an error. That is the
+ * shape behind two defects already recorded in this repo's memory, and it is why
+ * thirty-nine hand-built fixtures could each be wrong in a different way without
+ * anything saying so.
+ *
+ * Parsing here moves the failure to the earliest place that can see it:
+ *
+ *   - a REQUIRED field the builder forgets throws when the fixture is built,
+ *     naming the field, instead of rendering blank three components deep;
+ *   - a required field the schema GAINS fails `tsc` on the defaults below,
+ *     because they are typed as `z.input<…>` — which makes exactly the defaulted
+ *     fields optional and exactly the required ones required.
+ *
+ * That second half is `Done when` item 4 of the plan, and it is a property of
+ * the types rather than a promise: `pnpm run typecheck` is the gate, and
+ * `tsconfig.json` includes this directory so the gate can reach it.
+ *
+ * ## Why `z.input` and not the inferred type
+ *
+ * `AgentRow` (the OUTPUT type) has every defaulted field present and non-
+ * optional, so a literal typed as `Partial<AgentRow>` accepts an omission of a
+ * field that has NO default — the exact case that must fail. `z.input` is the
+ * type of what `parse` accepts, so it carries the distinction the schema makes.
+ *
+ * ## Why each builder's defaults are a SEPARATELY NAMED const
+ *
+ * Inside `Schema.parse({ …defaults, ...over })` TypeScript widens the literal —
+ * `phase: 'Development'` infers as `string` — so the spread checks the CALLER's
+ * override and not the builder's own defaults. Measured while writing this file:
+ * `phase: 'Approved'` (a PLAN phase, and not one of the five BOARD phases) was
+ * flagged at the two call sites and silently accepted at three defaults, where
+ * it would instead have thrown at `parse` time.
+ *
+ * Naming the defaults with their input type checks them where they are written.
+ * Every scenario inherits them, so this is the half that matters most.
+ */
+type RowInput = z.input<typeof AgentRowSchema>;
+type WaveInput = z.input<typeof WaveSchema>;
+type CardInput = z.input<typeof CardSchema>;
+type ColumnInput = z.input<typeof ColumnSchema>;
+type FleetInput = z.input<typeof FleetSchema>;
+type BoardInput = z.input<typeof BoardSchema>;
+
+/** A stable clock. A catalogue whose ages move is a catalogue that flakes. */
+const EPOCH = Date.parse('2026-08-30T12:00:00.000Z');
+export const generatedAt = new Date(EPOCH).toISOString();
+
+/**
+ * The least interesting row that is still a valid one — a branch somebody is
+ * working, on a plan with one wave — so a scenario states only what it is ABOUT.
+ */
+const ROW_DEFAULTS: RowInput = {
+  repo: 'garden',
+  kind: 'branch',
+  branch: 'feature/a-branch',
+  plan: 'a-plan',
+  planFile: '2026-08-24-a-plan.md',
+  wave: 'Wave',
+  state: 'wip',
+  phase: 'Development',
+  group: 'working',
+  ageMinutes: 30,
+  note: '',
+  pr: null,
+  branchUrl: 'https://github.com/tiny/garden/tree/feature/a-branch',
+};
+
+/** One branch row. */
+export const row = (over: Partial<RowInput> = {}): AgentRow =>
+  AgentRowSchema.parse({ ...ROW_DEFAULTS, ...over });
+
+/** One wave — the cohort a plan's branches sit in. */
+const WAVE_DEFAULTS: WaveInput = {
+  plan: 'a-plan',
+  name: 'Wave',
+  branches: ['feature/a-branch'],
+  verdict: 'eligible',
+  section: 'not-started',
+  complete: false,
+};
+
+export const wave = (over: Partial<WaveInput> = {}): Wave =>
+  WaveSchema.parse({ ...WAVE_DEFAULTS, ...over });
+
+/** One plan card, as `/api/board` carries it. */
+const CARD_DEFAULTS: CardInput = {
+  slug: 'a-plan',
+  title: 'A plan',
+  type: 'feature',
+  phase: 'Development',
+  path: 'docs/plans/2026-08-24-a-plan.md',
+};
+
+export const card = (over: Partial<CardInput> = {}): Card =>
+  CardSchema.parse({ ...CARD_DEFAULTS, ...over });
+
+/** One board column — a phase and the cards in it. */
+const COLUMN_DEFAULTS: ColumnInput = { phase: 'Development', cards: [] };
+
+export const column = (over: Partial<ColumnInput> = {}): Column =>
+  ColumnSchema.parse({ ...COLUMN_DEFAULTS, ...over });
+
+/**
+ * A whole fleet pulse.
+ *
+ * `summary` is DERIVED from the rows and waves unless a scenario states
+ * otherwise, because a summary that contradicts its own rows is a fixture bug
+ * rather than a state worth naming — and hand-maintained counts are the first
+ * thing to rot when a scenario gains a row.
+ */
+const FLEET_DEFAULTS: FleetInput = {
+  generatedAt,
+  ageSeconds: 1,
+  ready: true,
+  error: null,
+  rows: [],
+  waves: [],
+  summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+  stuck: { stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 },
+  prAgeSeconds: 1,
+  prNextInSeconds: 59,
+  scanNextInSeconds: 4,
+  prError: null,
+};
+
+export const fleet = (over: Partial<FleetInput> = {}): Fleet => {
+  const rows = (over.rows ?? []) as RowInput[];
+  const waves = (over.waves ?? []) as WaveInput[];
+  return FleetSchema.parse({
+    ...FLEET_DEFAULTS,
+    summary: {
+      plans: new Set(rows.map((r) => r.plan)).size,
+      waves: waves.length,
+      branches: rows.length,
+      claimed: rows.filter((r) => r.state === 'wip').length,
+      eligible: rows.filter((r) => r.verdict === 'eligible').length,
+      blocked: rows.filter((r) => r.verdict === 'blocked').length,
+      deferred: rows.filter((r) => r.state === 'deferred').length,
+    },
+    ...over,
+  });
+};
+
+/**
+ * A whole board payload. Defaults to a board that can do NOTHING — every act
+ * left at the schema's `available: false` — so a scenario that wants a button
+ * says which one, and none silently inherits a capability it did not ask for.
+ */
+const BOARD_DEFAULTS: BoardInput = {
+  generatedAt,
+  columns: [],
+  sprints: [],
+  stories: [],
+  checklist: null,
+};
+
+export const board = (over: Partial<BoardInput> = {}): Board =>
+  BoardSchema.parse({ ...BOARD_DEFAULTS, ...over });
