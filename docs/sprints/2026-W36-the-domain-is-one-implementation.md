@@ -57,6 +57,7 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 - [ ] [a-throttled-host-says-so] A scan that could not reach the git host says so, instead of reporting every branch unmerged — measured 2026-08-29: minutes after #513 merged, the scan showed its branch `open` and `merge_detect=pr-merge` while `pr-list` was returning a GraphQL rate-limit error it discarded
 - [ ] [production-calls-the-domain-one-rule-at-a-time] Production code calls the domain instead of duplicating its rules, one rule at a time — **Draft, 6 slices, no branch — still blocked on the Should above**
 - [ ] [the-controller-answers-every-asker] A controller layer between the callers and the domain — the board's routes and the master agent ask it, and mock adapters on the driven side let a mock board serve every controller — measured 2026-08-30: the seven ports are all driven (world → domain), nothing answers *who asks*, and 10 skills each pay the scan's 18.3 s for facts the board already holds; 4 slices, **Draft**
+- [ ] [a-changeset-says-what-changed] The release notes describe the change instead of printing a bare comment marker — measured 2026-08-30: **19 of 169** published changelog entries, 11%, because a `bumps:` block placed first becomes the first line and Changesets publishes the first line; 1 slice, **Draft**
 - [ ] [a-domain-rule-has-one-owner] Any lifecycle rule found duplicated **while moving** gets its second implementation deleted in the same slice, rather than noted for later — opportunistic, and only where the two provably agree
 
 ## Notes
