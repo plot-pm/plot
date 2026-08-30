@@ -228,26 +228,11 @@ tomorrow needs no change to either the monitor or the other subscribers. **The
 polling cost stays at one, whatever the number of subscribers** — which is the
 property a file, read once per reader per pulse, cannot have.
 
-**An earlier draft had them writing files the scan would read, and that was
-wrong on the numbers.** Measured 2026-08-30:
-
-| | |
-|---|---|
-| worktrees on this machine | **24** |
-| files the scan already reads per worktree | 4 |
-| files the file design would have added | **2 per worktree — 48 more** |
-| scan duration against the board's 5 s cadence | **18.3 s** |
-
-**It would have polled the same fact twice.** The WorkerMonitor already samples
-every ~30 s — that IS the poll. Having the scan then read the file it wrote is a
-second poll for an answer already computed, on a scan that does not fit its
-cadence today. **The monitor exists to remove the need to go looking, and a file
-that must be looked at reinstates it.**
-
-**And it would have scattered the state.** 48 files across 24 worktrees is 48
-things to find, age-check and reconcile — and a master agent wanting fleet
-health would have had to walk every worktree. A channel is one thing to
-subscribe to, and it knows its own subscribers.
+**An earlier draft had them writing files the scan would read.** Rejected on the
+numbers: 24 worktrees × 2 files is 48 more things to age-check, the scan already
+takes 18.3 s against a 5 s cadence, and the WorkerMonitor's own 30 s sample IS
+the poll — having the scan read the file it wrote polls the same fact twice.
+The reasoning is in the commit that made the change.
 
 **Channel, not queue.** Findings are current state, not events to replay: a
 subscriber joining late wants what is true now, not the history of what was.
@@ -412,12 +397,6 @@ and a reader deciding whether to act needs to know which one fired. *"Owes a
 review"* with `evidence: 4 commits ahead, no PR` is actionable; the word alone
 is a claim someone has to re-derive.
 
-**Four fields.** An earlier draft dropped the timestamp, on the reasoning that a
-channel makes a dead monitor visible through its connection. It does not — the
-monitor publishes rather than subscribes, so nothing watches it. The timestamp
-is how a consumer tells a current finding from an abandoned one, and it is
-required on a Machine reading for the same reason.
-
 ### The cadence, and why it is not the pulse
 
 **The board pulses every 5 s; the monitor samples far slower.** A stall is only
@@ -463,11 +442,7 @@ that did not change, is a process that has stopped.
 Every sample publishes, finding or not, so silence past one interval is itself
 the signal.
 
-**An earlier draft claimed the dropped subscription would do this, and that was
-wrong.** The monitor is the PUBLISHER, not a subscriber — nothing is watching
-its connection, and a publisher that dies quietly looks exactly like one with
-nothing to say. The distinction the whole design rests on would have been
-invisible.
+**An earlier draft claimed a dropped subscription would show this. It would not — the monitor publishes rather than subscribes, so nothing watches its connection, and a publisher that dies quietly looks exactly like one with nothing to say.**
 
 **So `measuredAt` comes back, and it is the repo's existing pattern rather than
 a new one.**
@@ -639,31 +614,42 @@ and `plot-pr-merged.sh`.
 a PR exists, it publishes on change with the same three fields,
 and **it writes nothing at all** — publishing is its only output.
 
-### Reporting (Branch: feature/the-channel-carries-the-findings)
+### The channel (Branch: feature/the-channel-carries-the-findings)
 
-The channel itself: monitors publish, the board and the master agent subscribe.
-Attention derives its entries from what the board received.
+The channel itself: monitors publish, subscribers connect with a purpose.
 
 **Done when**
 
 - a subscriber joining late receives the current findings, not a replay
-- an `owes a review` branch appears on the attention surface, the entry names
-  the branch and what to do, and it clears when the PR is opened
-- a WorkerMonitor `idle` finding is distinguishable from an AgentMonitor one
+- **a subscription carries a purpose**: `everything` serves until the subscriber
+  disconnects, `until <condition>` serves once and then ends itself
+- **a purpose the monitor does not measure is refused immediately**, naming what
+  it cannot serve, rather than left pending forever
+- **a purpose dies with its subscriber** — no state survives a disconnect
 - **two subscribers each receive every finding**, and neither needs to know the
   other exists
 - **a monitor that dies stops its heartbeat**, and a subscriber can tell that
   from a monitor with nothing to say
-- **a subscription carries a purpose**: `everything` serves the board until it
-  disconnects, and `until <condition>` serves once and then ends itself
-- **a purpose the monitor does not measure is refused immediately**, naming what
-  it cannot serve, rather than left pending forever
-- **a purpose dies with its subscriber** — no state survives a disconnect
 
-**The last two are the ones a channel has to earn.** One subscriber is a return
+**The last two are what a channel has to earn.** One subscriber is a return
 value; two is a channel. And silence-because-healthy versus silence-because-gone
 is the distinction the whole design rests on — if a subscriber cannot tell them
 apart, the monitor has the same blind spot as the agent it watches.
+
+### Attention (Branch: feature/the-findings-reach-attention)
+
+The findings travel to the board and become attention entries.
+
+**Split from the channel because they are different work with different
+proofs.** Measured 2026-08-30: `attention.ts` derives from `AgentRow` — it needs
+the findings ON THE ROW, not the channel. The channel is a protocol between
+processes; this is a payload field and a render. Proving one says nothing about
+the other.
+
+**Done when** an `owes a review` branch appears on the attention surface, the
+entry names the branch and what to do, it clears when the PR is opened, and a
+WorkerMonitor `idle` finding is distinguishable from an AgentMonitor one in the
+entry itself.
 
 ### Acting (Branch: feature/a-report-can-open-the-pr)
 
@@ -681,14 +667,53 @@ four-slice plan of its own, and the failures these monitors catch happen daily �
 three during the writing of this one. **Holding the whole plan behind the chain
 would trade weeks of blindness for one slice's tidiness.**
 
+**A branch that also `owes a gate` still gets its PR, and the body says which
+gate is missing.** Opening it anyway is the right call: the work becomes
+visible, CI reports the same failure the finding predicted, and the reader knows
+why it is red before opening a log. **Withholding the PR would leave finished
+work invisible until someone happens to write the changeset** — which is the
+failure this plan exists to end, one step later in the process.
+
+**It does not write the missing changeset.** A changeset says what changed and
+why it matters; that is a judgement about the work, not a mechanical step, and
+an agent guessing at it produces the `<!--` class of entry this repo is already
+fixing elsewhere.
+
 **Done when** an `owes a review` finding results in a PR without a person
-asking; the PR body names the finding and its evidence; **a second finding for
-the same branch opens nothing** because a PR now exists; and the monitors
-themselves still write and start nothing.
+asking; the PR body names the finding and its evidence, **and any open gate**;
+**a second finding for the same branch opens nothing** because a PR now exists;
+and the monitors themselves still write and start nothing.
 
 **The idempotence clause is the one that bites.** The finding holds until the PR
 appears, and the channel republishes on every interval — an action that fires per
 message rather than per state opens a PR a minute until someone notices.
+
+### How all of this is tested
+
+**Unit against mocked ports, plus one end-to-end run per monitor.**
+
+**The sampling logic is testable in isolation and most of it is not about
+processes at all.** *Two idle samples with an unchanged tree and commits
+present* is a decision over four readings — mock the process port and the host
+port and every branch is reachable, including the ones a real machine will not
+produce on demand: a host that refuses, a pid that dies mid-sample, a tree that
+changes between readings. That is the same technique the domain slices use, and
+the reason the sprint's goal says unit AND mock.
+
+**But a mocked monitor proves only its own arithmetic.** The claims that matter
+here cross a process boundary — the wrapper outlives the agent, the monitor
+reaches the socket from a shell that inherits nothing, a purpose ends with its
+subscriber. **Each monitor gets one e2e test** that starts a real wrapper, lets
+it publish, and asserts what a subscriber received.
+
+| level | proves | cost |
+|---|---|---|
+| unit + mocked ports | every finding and refusal, including the unproducible ones | fast, runs per PR |
+| one e2e per monitor | the process boundary holds | slow, and the only place it can be checked |
+
+**The e2e tests belong in `test/e2e/`**, beside the dispatch choreography they
+extend — a monitor attached by `start_worker()` is part of that choreography,
+not a separate subject.
 
 ## Notes
 
