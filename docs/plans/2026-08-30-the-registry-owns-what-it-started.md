@@ -189,7 +189,10 @@ beside that, in the same function the Asking slice gives `isFree` — a dispatch
 asks two things, *is an agent free* and *has the machine room*, and both belong
 where the budget is already computed.
 
-**Done when** a `starved` reading defers a dispatch and **names its number**;
+**Done when** the sampling is **time-bounded**, asserted against a stubbed slow
+process port — a measurement over a 287 ms/fork machine must return within its
+budget rather than after `samples x 287 ms`; a `starved` reading defers a
+dispatch and **names its number**;
 a `clear` or `tight` reading dispatches; an `unmeasured` reading dispatches
 (**silence is never a refusal** — `measuredAt` is required, and a reading nobody
 can date is `unmeasured`); the deferral is **overridable**, because
@@ -199,6 +202,39 @@ cost is bounded so the observer does not become the load it measures.
 **The message must carry the measurement.** *"not yet: spawn cost 287 ms against
 a clear reading of 4.8 ms"* is answerable; *"too much load"* is not, and load
 average is explicitly not the verdict.
+
+**The sampling bound is the hard part, and the adapter has none.** `machineSystem`
+takes `samples` and loops **sequentially**, with no maximum and no abort:
+
+```ts
+for (let taken = 0; taken < samples; taken += 1) {
+  const run = await runProcess('git', PROBE, { cwd: context.repoRoot });
+```
+
+So the measurement's cost scales with the very thing it measures:
+
+```
+                clear (4.8 ms)   tight (21 ms)   starved (287 ms)
+samples=5           0.02 s          0.10 s           1.44 s
+samples=20          0.10 s          0.42 s           5.74 s
+samples=100         0.48 s          2.10 s          28.70 s
+```
+
+**`DESIGN-machine.md` §*The observer must price itself* costs this at 374 ms for
+100 spawns — but that figure was taken on a clear machine.** On a starved one
+the same call is **77× more expensive**, and it is spent precisely when the
+machine has nothing to spare. That is the story's own complaint reproduced by
+its fix.
+
+**So the sampling is bounded by time, not by count.** Sample until either
+`samples` readings are taken **or** a millisecond budget is spent, and report
+what was actually taken — a reading from three forks is still a reading, and
+`sampleMs` already exists to say what it cost. A count-bounded loop on a starved
+machine is the one case where measuring makes the answer worse.
+
+**This is the slice's real work.** Wiring an existing function to an existing
+call site is small; the bound is what makes it safe, and no test in
+`machine.test.ts` covers it today.
 
 **The regression to lock:** `headroomFor` must keep ignoring load average. A
 test that feeds a high load average with a low spawn cost and expects `clear`
