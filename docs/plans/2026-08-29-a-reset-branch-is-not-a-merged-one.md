@@ -13,6 +13,7 @@
 - **Started:** <!-- YYYY-MM-DD, who, branch -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
+- **Started:** 2026-08-30, Jan Wloka, `bug/an-empty-branch-reads-open`
 
 ## Approval
 
