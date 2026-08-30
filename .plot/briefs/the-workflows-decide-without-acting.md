@@ -59,6 +59,31 @@ TSDoc; the reasoning goes in the commit. A **Slice** holds one branch and
 belongs to one plan; a **Wave** is the fleet's cross-plan cohort. Do not add to
 the existing `Wave`-where-`Slice`-is-meant defect.
 
+### The sprint's goal changed on 2026-08-30 — three conditions, not one
+
+The sprint no longer asks only that the domain exist and be called. It asks
+that **every existing function be replaced by a domain CONCEPT, with full unit
+and mock coverage, and production calling it.** Two of those bear on this slice.
+
+**Coverage is 100%, and mock tests are how the hard branches get reached.**
+`packages/domain/vitest.config.ts` sets `lines/branches/functions/statements`
+to 100 and excludes `src/adapters/**`. Your workflows are NOT adapters — they
+are pure `readings → Decision | Refusal`, so every branch is reachable from a
+plain call and the threshold applies in full. A refusal you cannot trigger in a
+test is a refusal you have not expressed.
+
+**Where a workflow needs a port to fail, mock the port.** That is what makes a
+refusal like *"the host could not be asked"* testable without a broken host,
+and it is why the goal says unit AND mock.
+
+**Express concepts, do not relocate functions.** The measurable form of this
+rule: `board.ts` still carries a `TEMPORARY ALIAS` exporting
+`allSlicesMerged as allWavesMerged`. That is what relocation looks like when
+the vocabulary did not follow — it compiles, it passes, and the defect survives.
+Name what you write for what the spec calls it: a **Slice** holds one branch and
+belongs to one plan; a **Wave** is the fleet's cross-plan cohort. Do not add a
+second alias.
+
 ### Scope guard
 
 Owns the five workflows' deciding half in `packages/domain/`. Does NOT touch

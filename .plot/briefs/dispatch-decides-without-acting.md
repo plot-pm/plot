@@ -56,6 +56,24 @@ reproducible from the domain alone.
 Repo gates: `pnpm test`, `pnpm run typecheck`, changeset. Node 24, `corepack pnpm`.
 Domain style per CLAUDE.md § The Domain Package.
 
+### The sprint's goal changed on 2026-08-30 — three conditions, not one
+
+**Every existing function replaced by a domain CONCEPT, with full unit and mock
+coverage, and production calling it.** Two bear on this slice.
+
+**Coverage is 100% and the threshold applies to you.**
+`packages/domain/vitest.config.ts` excludes `src/adapters/**` only; pure
+`readings → Decision | Refusal` code is not an adapter, so every branch is
+reachable from a plain call. **A refusal you cannot trigger in a test is a
+refusal you have not expressed.** Where one needs a port to fail, mock the port
+— that is what unit AND mock means here.
+
+**Express concepts, do not relocate functions.** `board.ts` still carries a
+`TEMPORARY ALIAS` exporting `allSlicesMerged as allWavesMerged` — that is what
+relocation looks like when the vocabulary did not follow: it compiles, it
+passes, and the defect survives. A **Slice** holds one branch and belongs to one
+plan; a **Wave** is the fleet's cross-plan cohort. Do not add a second alias.
+
 ### Scope guard
 
 Owns dispatch's deciding half. `plot-dispatch.sh` itself is NOT repointed here —
