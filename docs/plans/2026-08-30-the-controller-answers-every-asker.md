@@ -48,10 +48,17 @@ are all *world → domain*: `PlanStore`, `Refs`, `Host`, `Processes`, `Trees`,
 calls it *who asks the domain*.
 
 **Today the answer is: everyone, separately.** The board's 19 HTTP routes each
-compose their own reading-plus-decision inline, and **10 skills invoke a scan
-script directly**. That scan costs **18.3 s** — measured, with 12.7 s of it in
-git alone — and every asker pays it in full, while the board is already holding
-the same answer in memory from its last pulse.
+compose their own reading-plus-decision inline, and **6 skills invoke the scan
+script directly, from 12 call sites** — `plot-reconcile` at three, four others
+at two each. That scan costs **18.3 s**, 12.7 s of it in git alone, so a skill
+that asks twice in one run pays 36.6 s for an estate that did not change in
+between. Meanwhile the board holds the same answer in memory from its last
+pulse.
+
+> Corrected 2026-08-30 from "10 skills". The count came from `grep -l` across
+> every skill file, which caught prose mentions as well as invocations. The
+> figure that matters is not how many skills know the script's name — it is how
+> often one run asks the same question, and that is 12.
 
 **The master agent is a first-class asker, not an afterthought.** When it wants
 to know what the fleet is doing, which slices are eligible, what a plan says or
@@ -215,15 +222,38 @@ Mock adapters for `PlanStore` and `Refs`; the mock board constructs them.
 `PLOT_BOARD_MOCK` keeps working and is implemented through them.
 
 **Done when** a mock board serves the first controller with no controller code
-mentioning the mock, and two tests can hold different estates simultaneously.
+mentioning the mock, and **a test that constructs adapters directly is
+unaffected by `PLOT_BOARD_MOCK`** whatever its value.
+
+**That is deliberately weaker than "two tests hold different estates at once",
+which an earlier draft asserted and this plan cannot deliver.** The env var
+stays one global per process, so two tests *relying on it* still cannot differ —
+the Design section says so. What the slice does buy is an escape from it:
+construct the adapters and the variable stops mattering. Asserting the stronger
+claim would have shipped a done-when that fails on its own design.
 
 ### Asking again (Branch: feature/the-master-agent-asks-the-controller)
 
 The master agent reaches the same controller — one entry point, callable
 without HTTP, returning the same typed answer the route serialises.
 
-**Done when** a skill can obtain fleet state without spawning
-`plot-fleet-scan.sh`, and the answer is identical to the board's.
+**Done when** a skill that reads fleet state twice in one run measures the
+estate **once**, and the answer is identical to the board's.
+
+**The earlier wording — "without spawning `plot-fleet-scan.sh`" — was
+unachievable as written.** The scan IS the adapter: it reads git, and a
+controller beneath the skill still calls it. What changes is who calls it and
+how often.
+
+**Measured 2026-08-30, the repetition is inside single skills, not across
+them:** `plot-reconcile` reaches for the scan at three places, and
+`plot-deliver`, `plot-implement`, `plot-dispatch` and `plot-reslice` at two
+each — 12 call sites across 6 skills. At 18.3 s per scan, a skill that asks
+twice pays 36.6 s for one estate that did not change in between.
+
+**That is the assertion, because it is reproducible.** "Several skills in the
+same window" depends on what an operator happens to run; "this skill asks twice
+in one run" is a property of the skill and holds every time.
 
 ## Notes
 
@@ -235,10 +265,46 @@ change. **It gets its own plan**, and this one states the risk of deferring it:
 a controller layer whose tests still go through HTTP has paid for the seam
 without collecting on it.
 
-**Open: how the master agent reaches the controller.** In-process is not
-available to a skill written in shell. The candidates are a small `node` entry
-point (the precedent exists — seven scripts already invoke node) or an HTTP call
-to a board that is already running. **The second has a hidden dependency** — it
-answers only while a board is up — and the first re-derives what the board
-already computed. This is the plan's one genuinely open question and it should
-be settled before the Asking-again slice starts.
+### How the master agent reaches the controller: a `node` entry point
+
+**Settled 2026-08-30.** A skill runs `node` and gets its answer; no board need
+be running.
+
+**The alternative was an HTTP call to a live board**, which is faster when one
+exists — the answer is already in memory from the last pulse — and answers
+nothing when one does not. **Measured while deciding this: no board was
+running.** Seven skills would have gained a dependency on a service that has
+always been optional, and the failure would arrive as a skill that works on the
+operator's machine and not in a worker's.
+
+**The cost is stated: the `node` path re-derives what a running board already
+computed.** It does not make anything slower than today — a skill pays the same
+18.3 s it pays now — but it forgoes a saving that was available. **An HTTP fast
+path can be added later without changing any caller**, because the entry point
+is the seam: it can consult a board first and fall back. Adding it now would
+mean two paths to the same answer before either is proven.
+
+**The precedent is settled rather than proposed**: seven scripts already invoke
+`node`, and `plot-sprint-candidates.sh` argues for it in its own comment —
+*"node is already required to run the board and every test suite."*
+
+### Why the slices run in this order
+
+**Naming → Asking → Mocking → Asking again**, and only the middle pair could
+plausibly swap.
+
+- **Naming first** because it frees the word `controllers/` and touches nothing
+  else; running it later would mean renaming files the other slices had just
+  created.
+- **Asking second** because it is the slice that proves the shape. Everything
+  after it either serves a controller or calls one.
+- **Mocking third** because a mock adapter needs a controller to serve. Written
+  first it would be verified against nothing.
+- **Asking again last** because its entry point returns whatever the controller
+  returns, so the controller must be settled — including the enrichment split,
+  which is what makes an answer meaningful without a `server`.
+
+**They are not parallelisable in practice**, even though Mocking and Asking
+again touch different files. Both consume the first controller's shape, and that
+shape is what the Asking slice is discovering; running them alongside it would
+have two branches building against a contract still being written.
