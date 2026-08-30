@@ -112,12 +112,20 @@ export const isLive = (agent: Agent): boolean => LIVE_STATES.includes(agent.stat
  * running with no branch and is available. `waiting` is not free — it is live
  * and blocked on a person, so it occupies a slot and can take nothing.
  *
- * @param agent - the agent to test.
+ * Takes the two fields it reads rather than a whole {@link Agent}, so a caller
+ * holding a narrower record of the same facts can ask without inventing the
+ * rest. The board's registry entry is exactly that: it carries `state` and
+ * `branch` with these meanings and its own state vocabulary, which overlaps
+ * this one on `running` — the only value this rule tests — but is not equal to
+ * it. Widening the parameter lets that caller ask honestly; a cast would have
+ * asserted an equality between the two vocabularies that does not hold.
+ *
+ * @param agent - the agent to test; its state and the branch it holds.
  * @param sliceHasMerged - whether the branch it holds has landed; ignored when
  *   it holds none.
  * @returns true when the agent can be given a slice.
  */
-export const isFree = (agent: Agent, sliceHasMerged: boolean): boolean => {
+export const isFree = (agent: Pick<Agent, 'branch'> & { state: string }, sliceHasMerged: boolean): boolean => {
   if (agent.state !== 'running') return false;
   return agent.branch === '' || sliceHasMerged;
 };
