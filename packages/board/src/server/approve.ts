@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import {
@@ -112,12 +113,12 @@ export function approveCommand(opts: BuildBoardOptions): string {
  * `plot-dispatch-<slug>.log`, and neither can be mistaken for the other.
  */
 export function approveLogPath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-approve-${slug}.log`);
+  return agentLogPath(repoRoot, 'approve', slug, 'log');
 }
 
 /** Where the outcome is recorded, so a later GET can read it back. */
 function approveStatePath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-approve-${slug}.state`);
+  return agentLogPath(repoRoot, 'approve', slug, 'state');
 }
 
 /**

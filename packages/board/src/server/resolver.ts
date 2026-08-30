@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
 import { BOARD_ARTIFACT_PATH, type Repair, type Stuck } from '../contract/schema.js';
 import type { BuildBoardOptions } from './board.js';
@@ -88,16 +89,18 @@ export function mayResolve(stuck: Stuck | null | undefined): stuck is Stuck {
 }
 
 /**
- * Where a repair's own words go — one log per branch, beside the worktrees.
+ * Where a repair's own words go — one log per branch.
  *
- * The same neighbourhood `dispatchLogPath` chose and for the same reason: a log
- * inside the repo would show up in the status of the very branch it is
+ * Keyed by BRANCH with its slashes flattened, because a repair is per-branch
+ * where the other commands are per-plan. The directory is {@link agentLogDir}'s
+ * to choose; the reason a repair in particular must not write inside the repo is
+ * its own: a log there would show up in the status of the very branch it is
  * describing, and a repair that dirties its own worktree cannot be verified by
  * the suite it then runs.
  */
 export function repairLogPath(repoRoot: string, branch: string): string {
   const flat = branch.replace(/\//g, '-');
-  return path.join(path.resolve(repoRoot, '..'), `plot-resolve-${flat}.log`);
+  return agentLogPath(repoRoot, 'resolve', flat, 'log');
 }
 
 /**

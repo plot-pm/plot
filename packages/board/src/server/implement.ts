@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import http from 'node:http';
-import path from 'node:path';
+import { agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
@@ -61,12 +61,12 @@ export const IMPLEMENT_COMMAND_KEY = 'Implement command';
 
 /** Where the command's own words go — the neighbourhood `idea` established. */
 export function implementLogPath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-implement-${slug}.log`);
+  return agentLogPath(repoRoot, 'implement', slug, 'log');
 }
 
 /** Where the outcome is recorded, so a later GET can read it back. */
 function implementStatePath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-implement-${slug}.state`);
+  return agentLogPath(repoRoot, 'implement', slug, 'state');
 }
 
 /** Why implementing a plan was refused — each sends the reader somewhere different. */

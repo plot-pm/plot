@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
@@ -71,32 +72,19 @@ export function commissionAvailability(host: string): { available: boolean; reas
  * behind says which plan it was for.
  */
   // OUTSIDE THE REPO, beside the log and the state this command already keeps
-  // there. `pnpm board` runs under `node --watch`, which watches the whole tree
-  // and does not read .gitignore — so a prompt written INSIDE the repo restarts
-  // the very server that just spawned the agent, and the restart can take the
-  // agent with it.
-  //
-  // Measured 2026-08-25 walking the v2.9.0 endgame: clicking *Create plan* on
-  // issue #333 wrote `.plot/idea-issue-333.md`, the board log recorded
-  // `Restarting 'board-server.mjs'` in the same second, and the agent's log sat
-  // at 0 bytes. It recovered on a later attempt, which is worse than a clean
-  // failure: the defect is a race, so it disappears when looked at.
-  //
-  // All four spawning commands had the same split — prompt inside, log and
-  // state outside. The log's placement was already right; the prompt simply
-  // never followed it.
+  // there — see {@link agentLogDir} for the measurement that put them there.
 export function commissionPromptPath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-commission-${slug}.prompt.md`);
+  return agentLogPath(repoRoot, 'commission', slug, 'prompt');
 }
 
 /** Where the command's own words go — the neighbourhood `idea` established. */
 export function commissionLogPath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-commission-${slug}.log`);
+  return agentLogPath(repoRoot, 'commission', slug, 'log');
 }
 
 /** Where the outcome is recorded, so a later GET can read it back. */
 function commissionStatePath(repoRoot: string, slug: string): string {
-  return path.join(path.resolve(repoRoot, '..'), `plot-commission-${slug}.state`);
+  return agentLogPath(repoRoot, 'commission', slug, 'state');
 }
 
 /** Why commissioning a plan was refused — each sends the reader somewhere different. */
