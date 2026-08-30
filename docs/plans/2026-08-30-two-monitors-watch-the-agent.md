@@ -919,6 +919,31 @@ The BuildMonitor: four findings about a run, sampled only while one is live.
   keeps asking an idle host is the rate problem this design avoids
 - `plot-host.sh` gains the one operation it needs and no more
 
+**A monitor is a domain object that calls an adapter, not a script that
+measures.** Settled by the operator 2026-08-30, and it changes what this slice
+builds. Its two siblings are shell scripts because their subjects are a process
+and a desk — both readable with `ps` and `git`. **This one's subject is a
+service**, and the layering rule applies to it like any other:
+
+```
+monitor (domain)  →  port  ←  adapter  →  plot-host.sh  →  gh  →  GitHub
+```
+
+**The PR refresh already exists and is on the wrong side of that line.**
+Measured 2026-08-30: `fleet.ts:2452` polls every 60 s — **12x the pulse** — and
+`fleet.ts` calls `plot-host.sh` **11 times directly**, reaching past the adapter
+the domain already has.
+
+**So this slice does not add a poller; it moves one.** The cadence, the
+back-off, the gate on whether to ask at all — `prGateOpen`, `prNextDueAt`,
+`rateLimitBackoffMs` — are already written. What changes is who owns them, and
+that the asking goes through a port.
+
+**Whether the rate policy moves with it is a real question and is left open
+here.** *May I ask the host yet?* is a statement about a service, not about a
+PR; `the-board-decides-nothing` draws that line and this slice should follow
+whatever it settles rather than deciding alone.
+
 **`head moved` is the finding that earns this monitor.** A build's subject is a
 sha; a green result for code nobody will merge is worse than no result.
 Measured this session: two merge waiters reported on superseded runs and had to

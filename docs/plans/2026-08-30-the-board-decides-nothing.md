@@ -116,7 +116,11 @@ this story exists to avoid. **Each slice takes one named verdict**, moves it to
   the cadence stays with the board here only because moving a clock is its own
   plan (see above), not because the board owns it
 - **caching and rate limiting** — `prGateOpen`, `prNextDueAt`,
-  `rateLimitBackoffMs` are policies about a *service*, not about a Slice
+  `rateLimitBackoffMs` are policies about a *service*, not about a Slice.
+  **Provisional too:** if the PR poller becomes a domain monitor calling an
+  adapter (`two-monitors-watch-the-agent` § *Watching the build*), the policy
+  may follow it. This plan draws the line; that slice should not redraw it
+  alone
 - **rendering** — every `.tsx`, and the payload assembly that feeds it
 
 ### How to tell a verdict from a policy
