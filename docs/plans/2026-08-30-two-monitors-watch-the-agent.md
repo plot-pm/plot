@@ -17,6 +17,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `feature/every-worker-is-born-monitored`
+- **Started:** 2026-08-30, Jan Wloka, `feature/the-worker-monitor-samples-the-process`
 
 ## Approval
 
