@@ -12,7 +12,13 @@ const tree = (over: Partial<Worktree> = {}): Worktree => ({
   ...over,
 });
 
-/** A finished desk whose work landed — every refusal passes. */
+/**
+ * A finished desk whose work landed — every refusal passes.
+ *
+ * `hasLog` is false by default because a run that left no log is the case with
+ * fewer writes: a fixture that opted INTO the extra write would make every
+ * assertion about ordering carry a file the test was not about.
+ */
 const finished = (over: Partial<ReapCandidate> = {}): ReapCandidate => ({
   tree: tree(),
   evidence: {
@@ -21,6 +27,7 @@ const finished = (over: Partial<ReapCandidate> = {}): ReapCandidate => ({
     hasMergedPr: true,
     isDispatchTree: true,
     manifest: '.plot/agents/sess-1.json',
+    hasLog: false,
   },
   ...over,
 });
@@ -105,6 +112,52 @@ describe('reap — a decision names every removal', () => {
       { kind: 'worktree-remove', path: '/repo/.worktrees/plot-wt-one' },
       { kind: 'manifest-clear', worktree: '/repo/.worktrees/plot-wt-one' },
     ]);
+  });
+
+  it('removes the log LAST, after the checkout and the manifest', () => {
+    // The order is the argument. The first two are ordered because the reverse
+    // leaves a live worktree unregistered; the log is last because it is the
+    // only one that is pure cleanup, so a failure before it has cost the least.
+    const out = reap(
+      estate({ candidates: [finished({ evidence: { ...finished().evidence, hasLog: true } })] }),
+    );
+    expect(out.writes).toEqual([
+      { kind: 'worktree-remove', path: '/repo/.worktrees/plot-wt-one' },
+      { kind: 'manifest-clear', worktree: '/repo/.worktrees/plot-wt-one' },
+      { kind: 'log-clear', branch: 'feature/one' },
+    ]);
+  });
+
+  it('still removes the log where no manifest named the tree', () => {
+    // The log does not depend on the manifest: a tree registered by neither is
+    // still a tree whose words are worth taking.
+    const out = reap(
+      estate({
+        candidates: [finished({ evidence: { ...finished().evidence, manifest: '', hasLog: true } })],
+      }),
+    );
+    expect(out.writes.map((w) => w.kind)).toEqual(['worktree-remove', 'log-clear']);
+  });
+
+  it('writes nothing for a log that is not there — absence is the desired state', () => {
+    // A MISSING LOG IS NOT A REFUSAL, and it is not a write either. The reap
+    // proceeds; there is simply nothing to remove.
+    const out = reap(estate());
+    expect(out.writes.some((w) => w.kind === 'log-clear')).toBe(false);
+    expect(out.detail.reaping).toEqual(['/repo/.worktrees/plot-wt-one']);
+  });
+
+  it('takes no log from a tree it refused', () => {
+    // A log describes the worktree, so a tree that stays keeps the words
+    // explaining why it is there.
+    const out = reap(
+      estate({
+        candidates: [
+          finished({ evidence: { ...finished().evidence, hasMergedPr: false, hasLog: true } }),
+        ],
+      }),
+    );
+    expect(out.writes).toEqual([]);
   });
 
   it('removes the checkout alone where no manifest named it', () => {
