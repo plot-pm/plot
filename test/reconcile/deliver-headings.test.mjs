@@ -66,12 +66,15 @@ Prose about the second.
 ## Notes
 `;
 
-for (const heading of ['Slices', 'Waves', 'Branches']) {
+// One named test per spelling. `node:test` has no `.each`, so the cases are
+// spread by iteration either way — `forEach` keeps the file's arrow style, and
+// the runner already names each case, so nothing is lost in diagnosis.
+['Slices', 'Waves', 'Branches'].forEach((heading) => {
   test(`reads branches from a ## ${heading} heading`, () => {
     assert.deepEqual(branchesFrom(body(heading)),
       ['feature/another-thing', 'feature/one-thing']);
   });
-}
+});
 
 test('a Slices plan does not parse to an empty list', () => {
   // The regression in its own words: empty is the dangerous answer, because the
