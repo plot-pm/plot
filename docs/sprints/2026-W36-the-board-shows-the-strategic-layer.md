@@ -7,10 +7,10 @@
 
 ## Status
 
-- **Phase:** Active
+- **Phase:** Closed
 - **Start:** 2026-09-01
 - **End:** 2026-09-05
-- **Release:** <!-- filled when sprint closes -->
+- **Release:** 2.12.0
 
 ## Sprint Goal
 
@@ -46,6 +46,36 @@ at the bottom.
 - [ ] [the-domain-runs-the-workflows-in-a-sandbox] Sandbox testing for domain workflows <!-- status: draft -->
 
 ## Notes
+
+### Closed 2026-08-30 against 2.12.0 -- ahead of its own dates
+
+**Phase: Closed, Release: 2.12.0.** The Must Have and both Should Haves are
+delivered and shipped; the sprint is finished by its contents rather than by its
+clock.
+
+| tier | item | state |
+|---|---|---|
+| MUST | `the-board-shows-stories` | Released 2.12.0 |
+| SHOULD | `the-domain-moves-out-of-the-board` | Released 2.12.0 |
+| SHOULD | `the-domain-speaks-slices` | Delivered -- `infra`, live on merge |
+
+`the-domain-speaks-slices` stays Delivered rather than Released on purpose:
+/plot-release skips docs/infra plans, because /plot-deliver already tells their
+authors they are live when merged. The release gate reads it as done regardless.
+
+**The dates say 2026-09-01..09-05 and were never reached.** They are kept as
+written rather than rewritten to today: the plan was to run this window, and
+the work landing early is the fact worth recording, not a date to tidy away.
+
+**The two open Could Haves are not dropped.** Both are also members of
+`the-domain-is-one-implementation`, which stays Active until 2026-09-12:
+
+- `the-domain-runs-the-workflows-in-a-sandbox` -- Draft, 4 slices, no branch
+  exists; its blocker is met, so it is startable
+- `production-calls-the-domain-one-rule-at-a-time` -- Draft, 5 slices, no branch
+  exists; still blocked on the former
+
+Neither was started, so nothing is left half-done by closing here.
 
 ### Three of its items shipped in 2.12.0 before this sprint opened — 2026-08-29
 
