@@ -182,23 +182,89 @@ otherwise surface as a domain that is correct about the wrong facts.
 **A disagreement fails CI and is a finding either way** — either the adapter is
 wrong, or it found a production bug.
 
+**It runs as its own CI job, parallel to the board suite.** The comparison is
+one `plot-plan-meta.sh` process per plan against the adapter's reading, so at
+170 plans it is roughly 340 spawns — and the board's integration suite already
+ran 12.5 minutes on 2026-08-29 and has timed out at 15. Adding this to that job
+would make a suite that is already at its budget fail for a reason unrelated to
+the code under test. A separate job costs a runner slot and keeps both signals
+readable: a red board suite means the board, a red corpus job means the
+adapters and production disagree.
+
+**Running it per PR rather than nightly is what makes the claim above true.**
+"A disagreement fails CI" is only a gate if the failure lands on the change that
+caused it; found hours later it is a report, and a report is something someone
+has to remember to read.
+
+**Which side is wrong is a person's call, and the worker stops for it.** The
+rule that an adapter may not be adjusted to match says what must not happen; it
+does not say what the agent should do instead, and an agent facing red CI with
+no instruction will find a way to make it green. So on a disagreement the worker
+writes `PLOT-BLOCKED` naming the field, the plan, and both readings, and stops.
+Deciding whether production or the adapter is wrong needs someone who knows why
+the field exists — and getting that backwards in the permissive direction
+cements a real production bug behind a passing test.
+
 **The sandbox tier compares transitions.** `plot-approve.sh` and
-`plot-deliver.sh` are idempotent and already have e2e coverage in sandbox
-repos; the same sandboxes run the domain's `Decision` and assert the resulting
-files are byte-identical to what the scripts produce. **Byte-identical is the
-bar** — a transition that writes a different date format is a transition that
-breaks the parser.
+`plot-deliver.sh` are idempotent and already have e2e coverage in sandbox repos
+(`test/e2e/lifecycle.test.mjs`); the same sandboxes run the domain's `Decision`
+and compare the resulting files against what the scripts produce.
+
+**The bar is parser equivalence, not byte equality.** Both outputs go through
+`plot-plan-meta.sh` and the resulting JSON must match field for field. The
+concern that motivates the check is real and unchanged — a transition writing
+`2026-8-29` where production writes `2026-08-29` is a transition that breaks
+the parser — and parser equivalence catches exactly that, because the parser is
+what the difference would break.
+
+**What it deliberately tolerates is formatting**: a trailing newline, a blank
+line between records, the order of two independent Status fields. Those are
+differences no reader of the plan format can observe, and gating on them buys
+nothing while guaranteeing a class of failures whose fix is to re-align
+whitespace with a shell script — work that teaches an implementer the test is
+noise.
+
+**The parser is the right oracle because it is the consumer.** Every component
+that reads a plan reads it through `plot-plan-meta.sh`; the file's bytes are an
+encoding, and its parsed fields are its meaning. Asserting on bytes asserts on
+the encoding of a format both sides are allowed to write — asserting on the
+parse asserts on what any reader will actually see.
+
+**The cost, stated:** a difference the parser ignores today becomes visible if
+the parser later starts reading it. That is a real gap and it is accepted,
+because the alternative fails on differences that are invisible to every
+existing consumer.
 
 ## Waves
 
 ### Reading (Branch: feature/the-ports-have-adapters)
 
-Adapters for `PlanStore`, `Refs`, `Host`, `Processes`, `Trees`, `Clock`,
-`Machine`. The two gates: purity-except-adapters, and every-port-implemented.
+**The seven ports are declared here, not assumed.** `PlanStore`, `Refs`,
+`Host`, `Processes`, `Trees`, `Clock` and `Machine` become `ports/*.ts` in this
+wave, each a pure interface the domain owns, and each gains its directory under
+`adapters/`. The wave is named for the adapters because they are the work; the
+ports are the contract they satisfy, and neither half is meaningful alone.
+
 `plot-host.sh` gains its one missing operation.
 
-**Done when** the domain can be handed this repository's real state through
-ports only, and the completeness gate passes.
+**The completeness gate is two-sided, because one-sided it passes on nothing.**
+Asserting only *"every `ports/*.ts` has a directory under `adapters/`"* is
+vacuously true against an empty `ports/` — which is exactly the state this wave
+starts from, so the gate would report success before a line was written. It
+therefore also asserts a floor:
+
+```bash
+test "$(ls packages/domain/src/ports/*.ts | wc -l)" -ge 7
+```
+
+An empty set satisfying a universal claim is the failure mode this repository
+already names elsewhere: a check you can answer "yes" to without doing the work
+is a rule, not a gate.
+
+**Done when** the seven ports exist as interfaces, each has an adapter, the
+domain can be handed this repository's real state through them, and both gates
+pass — the purity grep excluding `adapters/`, and the two-sided completeness
+check above.
 
 ### Agreeing (Branch: feature/the-domain-agrees-with-production)
 
@@ -209,6 +275,13 @@ against `plot-fleet-scan.sh`'s pulse.
 **Done when** every disagreement is either fixed or filed as a production bug
 with its plan — **a disagreement may not be silenced by adjusting the adapter
 to match.** If production is wrong, that is a finding and it gets a plan.
+
+**An agent that hits a disagreement writes `PLOT-BLOCKED` and stops**, naming
+the field, the plan, and both readings. Which side is wrong is judgement, and
+the failure that matters here is the permissive one: an agent left to choose,
+facing red CI, adjusts the adapter and cements a production bug behind a
+passing test. The comparison runs as its own CI job, so that stop blocks this
+branch and nothing else.
 
 **Adapters are written test-first like everything else, but their coverage
 threshold is not 100%.** An adapter's uncovered branches are the ones that need
@@ -227,11 +300,16 @@ each `Decision` names every write it would make.
 
 ### Writing (Branch: feature/a-decision-writes-what-the-script-writes)
 
-The sandbox tier: the domain's `Decision` applied in a temp repo, asserted
-byte-identical against `plot-approve.sh` and `plot-deliver.sh`.
+The sandbox tier: the domain's `Decision` applied in a temp repo, compared
+against `plot-approve.sh` and `plot-deliver.sh` through the parser rather than
+byte for byte — both outputs are read by `plot-plan-meta.sh` and every field
+must match.
 
-**Done when** approve and deliver produce identical files by both paths, in the
-sandbox e2e suite, including the transition records and the sprint annotation.
+**Done when** approve and deliver parse identically by both paths in the
+sandbox e2e suite — including the transition records, the phase, and the sprint
+annotation — and a deliberately corrupted date (`2026-8-29` for `2026-08-29`)
+makes the comparison fail. Without that mutation the assertion is unproven:
+a comparison of two parses that both silently returned nothing would pass.
 
 ## Notes
 
