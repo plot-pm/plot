@@ -22,6 +22,10 @@
 #               config — without one there is no destination. --dry-run by
 #               default; --yes to actually move.
 #   --dry-run   print what would happen; create nothing, push nothing
+#   --monitors  with --dry-run, also name which monitors would be attached to
+#               which worktree. Opt-in so the default --dry-run output stays
+#               byte-identical, which is what lets it be diffed against a run
+#               from before a change to this script.
 #   --yes       with --migrate, actually move the worktrees (default is dry-run)
 #   --no-start  create worktrees and claim refs, but start no workers
 #   --no-brief  start a worker even when its branch has no brief. The named
@@ -155,6 +159,7 @@ resolve_wt_root() { # $1=repo_root → sets globals wt_root, wt_prefix
 }
 
 dry_run=0
+show_monitors=0
 no_start=0
 no_brief=0
 mode=dispatch
@@ -168,6 +173,16 @@ migrate_yes=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)  dry_run=1 ;;
+    # --monitors NAMES what would be attached, and it is OPT-IN for a reason
+    # that is a protection rather than a preference. `plot-dispatch.sh` is the
+    # largest script here and a mistake in start_worker starts no workers at
+    # all, so this slice pins `--dry-run` output as BYTE-IDENTICAL before and
+    # after on the same estate — the dry run exercises every refusal against
+    # real worktrees and real pids without starting or removing anything, which
+    # is the same protection the reap and dispatch domain work used. A line
+    # added to the default output would forfeit exactly that check. So the
+    # naming lives behind its own flag: `--dry-run --monitors`.
+    --monitors) show_monitors=1 ;;
     --status)   mode=status ;;
     --migrate)  mode=migrate ;;
     --yes)      migrate_yes=1 ;;
@@ -522,6 +537,56 @@ start_worker() {
   # after it, then any stale copies of those lines are dropped and `startedAt` is
   # rewritten to the current run. This is exactly `stampManifest`, line for line,
   # which the parity test pins byte for byte.
+  #
+  # EVERY WORKER IS BORN MONITORED, AND THAT IS ENFORCED HERE OR NOWHERE.
+  #
+  # Two monitors start INSIDE the wrapper, as its children, immediately before
+  # the agent: one watches the process (`plot-worker-monitor.sh`), one watches
+  # the desk (`plot-agent-monitor.sh`). In THIS slice both are no-ops that
+  # publish "nothing measured yet" and sample nothing — the attachment is the
+  # deliverable, and the measurements land in their own branches behind a
+  # dispatch change already proven.
+  #
+  # WHY INSIDE THE WRAPPER RATHER THAN BESIDE IT. The wrapper already outlives
+  # its agent by construction — it must, or there would be no exit code to
+  # write — so a child of it inherits that survival for free. Two processes
+  # started SIDE BY SIDE are independently mortal: the monitor could be killed
+  # or crash with nothing noticing, which is the failure being fixed one level
+  # up. `--stop` kills the agent; the monitors and the exit record survive it.
+  #
+  # WHY HERE RATHER THAN ANYWHERE ELSE. `start_worker` is the single path to a
+  # worker, which is what makes "every worker is born monitored" a gate rather
+  # than a rule: there is no other place to forget. Ask CLAUDE.md's test — *can
+  # you answer "did I attach a monitor?" without doing the work?* Here you
+  # cannot: no monitor start, no monitored worker, and a mutation test says so.
+  #
+  # ORDER, AND WHY IT IS THIS WAY ROUND. The monitors are backgrounded FIRST so
+  # they exist before their subject does; the agent is backgrounded next and
+  # `$!` is captured on the VERY NEXT command, because `$!` names the most
+  # recent background job and the pid file must name the AGENT. Starting a
+  # monitor between the agent and its `$!` would record a monitor's pid as the
+  # worker's — the panel bug the two-pid split already exists to prevent.
+  #
+  # THEY INHERIT THE STARTUP WINDOW RATHER THAN WIDENING IT. There is a
+  # sub-millisecond gap after the wrapper starts and before `.plot-worker.pid`
+  # is written, and a scan landing in it reads `none` — honest. The monitors
+  # start inside that same window; they must never turn an unwritten pid file
+  # into a `gone` finding, which is why the no-op reads no pid at all and the
+  # next slice treats an absent pid file as *not yet*.
+  #
+  # THE PATHS TRAVEL AS ENV VARS, like every other path the wrapper needs. The
+  # `sh -c` body is single-quoted and a path with spaces would not survive
+  # interpolation into it — the same reason the exit, pid and manifest paths are
+  # passed this way. An EMPTY value means "not attached", which is what keeps a
+  # missing script from turning into `command not found` in a detached shell
+  # nobody is reading.
+  #
+  # A HAND-MADE WORKTREE GETS NEITHER, and that falls out rather than being
+  # enforced: this is the only code that starts a wrapper, and a worktree with
+  # no wrapper has nothing for a monitor to be a child of.
+  local worker_monitor='' agent_monitor=''
+  [ -x "$script_dir/plot-worker-monitor.sh" ] && worker_monitor="$script_dir/plot-worker-monitor.sh"
+  [ -x "$script_dir/plot-agent-monitor.sh" ] && agent_monitor="$script_dir/plot-agent-monitor.sh"
   local stamp_now
   stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
@@ -529,8 +594,10 @@ start_worker() {
       PLOT_SESSION_ID="$session" \
       PLOT_MANIFEST_FILE="$manifest_dir/$session.json" \
       PLOT_STAMP_STARTED="$stamp_now" \
+      PLOT_WORKER_MONITOR="$worker_monitor" \
+      PLOT_AGENT_MONITOR="$agent_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
-      nohup sh -c '( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '"'"'
+      nohup sh -c 'if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -1839,6 +1906,37 @@ work_in_flight() { # $1=branch to exclude (the candidate)
 IN_FLIGHT_MAX_FILES=6
 IN_FLIGHT_MAX_BRANCHES=8
 
+# What a real run would attach, named per worktree — behind `--monitors`.
+#
+# SILENT UNLESS ASKED, which is what keeps the default `--dry-run` output
+# byte-identical to a run from before the monitors existed. That diff is this
+# slice's protection against the one failure that matters here: a mistake in
+# `start_worker` starts no workers at all, and the dry run exercises every
+# refusal against real worktrees and real pids without starting anything.
+#
+# IT NAMES THE SCRIPT PATH, not just the monitor. The question a reader has at
+# a dry run is *which code would run against my worktree* — a bare "2 monitors"
+# would send them into this script to find out, and a path they can `cat` is
+# the same courtesy the manifest refusal above pays by naming its directory.
+#
+# IT REPORTS ABSENCE TOO. A monitor script that is missing or non-executable
+# means an unmonitored worker, and the empty env var that produces is invisible
+# at launch by design (a detached `sh -c` nobody reads must not spew `command
+# not found`). The dry run is the one place that silence can be made audible
+# before it matters.
+report_monitors() { # $1=worktree
+  [ "$show_monitors" = 1 ] || return 0
+  local wt="$1" m
+  for m in worker agent; do
+    local script="$script_dir/plot-$m-monitor.sh"
+    if [ -x "$script" ]; then
+      echo "  would attach: $script → $wt"
+    else
+      echo "  would attach NOTHING for the $m monitor — $script is missing or not executable"
+    fi
+  done
+}
+
 report_in_flight() { # $1=candidate branch
   local br files shown extra n=0 total
   total=$(work_in_flight "$1" | wc -l | tr -d ' ')
@@ -1882,6 +1980,7 @@ if [ "$dry_run" = 1 ]; then
       continue
     fi
     echo "would dispatch $br → $(worktree_for "$br")"
+    report_monitors "$(worktree_for "$br")"
     report_in_flight "$br"
     n_dispatched=$((n_dispatched + 1))
   done < <("$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null)
@@ -1916,6 +2015,7 @@ while :; do
 
   if [ "$dry_run" = 1 ]; then
     echo "would dispatch $branch → $wt"
+    report_monitors "$wt"
     report_in_flight "$branch"
     n_dispatched=$((n_dispatched + 1))
     continue
