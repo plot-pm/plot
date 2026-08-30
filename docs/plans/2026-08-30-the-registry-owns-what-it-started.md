@@ -135,6 +135,60 @@ a measured defect, so this plan adds a reader and changes no arithmetic.
 with no branch and is available *now*, and the fleet currently waits for a slot
 instead of using it.
 
+### `.plot-worker.wrapper.pid` names the dispatcher, not the wrapper
+
+**Measured 2026-08-30 on all three live workers.** The file the Recording slice
+would build on records the wrong process:
+
+```
+worktree                                      wrapper.pid   agent's real ppid
+bug-a-monitor-ends-with-its-agent                    7357              7358
+feature-fleet-settings-is-not-fleet-control         71953             71954
+infra-one-rule-decides-what-is-reapable             92947             92949
+```
+
+`7357` is `plot-dispatch.sh` itself. The wrapper is `7358`, and it is the one
+holding all three children:
+
+```
+7357  plot-dispatch.sh            ← what the file records
+  └── 7358  sh -c "…monitors…"    ← the actual wrapper
+        ├── 7364  WorkerMonitor
+        ├── 7365  AgentMonitor
+        └── 7366  plot-worker-loop.sh
+```
+
+**The cause is one pair of parentheses** (`plot-dispatch.sh:626`):
+
+```sh
+… >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.wrapper.pid" )
+```
+
+`echo $!` runs **inside** the enclosing `( … ) &`, so it reports that subshell's
+last background pid rather than the `nohup sh -c` within. Reproduced minimally:
+
+```
+( sleep 30 & echo "innen: $!" ) & echo "aussen: $!"
+  aussen: 85674
+  innen:  85675
+```
+
+**The intent is documented and unambiguous** — `plot-dispatch.sh:484` says *"The
+wrapper's own pid is KEPT … because the wrapper is what writes
+`.plot-worker.exit`."* The comment describes what the file is for; the line
+below writes something else.
+
+**Why this belongs to the Recording slice.** That slice records the processes
+the registry started, and the only existing record of the wrapper points at the
+wrong one. Extending a wrong field is worse than adding a right one: a reap
+built on it would signal `plot-dispatch.sh` while the wrapper and its monitors
+carry on.
+
+**It is a one-line fix and it must not be folded in silently.** Correcting it
+changes what an existing file means, so it needs its own assertion —
+`.plot-worker.wrapper.pid` names the process that is the agent's parent — and
+that assertion is checkable against a live dispatch.
+
 ### The manifest carries a process group
 
 `pid` becomes the agent's process plus the processes the registry started
@@ -245,8 +299,10 @@ this repo already measured twice.
 
 The manifest records the processes the registry spawned, not one of them.
 
-**Done when** a dispatched agent's manifest names its wrapper and both monitors
-as well as its own pid; a manifest written before this change still parses and
+**Done when** `.plot-worker.wrapper.pid` names the agent's actual parent —
+asserted against a live dispatch, since three of three were wrong on
+2026-08-30 — and a dispatched agent's manifest names its wrapper and both
+monitors as well as its own pid; a manifest written before this change still parses and
 reports the group as unknown rather than empty (**absent is not none**); the
 board renders unchanged; and the field is written **at spawn**, asserted by
 killing the agent and finding the group still recorded.
