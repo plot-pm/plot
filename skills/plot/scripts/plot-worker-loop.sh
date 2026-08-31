@@ -402,6 +402,38 @@ run_bounded() {
   # Stop both watchers (a no-op for one that already fired) and reap their sleeps.
   [ -n "$_watchdog_pid" ] && { _kill_tree "$_watchdog_pid"; wait "$_watchdog_pid" 2>/dev/null || true; }
   _kill_tree "$_monitor_watcher_pid"
+
+  # A PROBE, NOT A FIX — and it answers the one question two process snapshots
+  # could not.
+  #
+  # `test/reconcile/workerloop.test.mjs` hangs intermittently on CI, only ever
+  # on a fixture with `bound: 1`, in about one run of three. The backstop added
+  # in #561 caught the state twice, on two different tests, identically:
+  #
+  #     plot-worker-loop.sh: line 213: <pid> Killed  bash -c '. "$1"' _ ...
+  #      148938  145331 Ss   plot-worker-loop.sh    <- the loop, ALIVE
+  #      148970  148938 S    plot-worker-loop.sh    <- the monitor watcher
+  #      168275  148970 S    sleep 5                <- its poll, NEWER than the kill
+  #
+  # So the prompt is killed correctly, and the loop is parked on the `wait`
+  # below. What no snapshot can say is WHICH of two things is true:
+  #
+  #   the kill never landed   -> `kill -0` still succeeds, and the watcher is
+  #                              simply still running
+  #   the wait is stuck       -> `kill -0` fails, the watcher is dead, and
+  #                              `wait` is blocked on a pid bash has already
+  #                              reaped
+  #
+  # They need opposite fixes, and neither reproduces on macOS after ~50
+  # attempts, so the answer has to come from a Linux runner. One line to stderr
+  # on the next hang settles it.
+  #
+  # SILENT ON A HEALTHY RUN, and behaviour-free either way: `kill -0` sends no
+  # signal, and this prints only when the watcher outlived its own kill.
+  if [ -n "$_monitor_watcher_pid" ] && kill -0 "$_monitor_watcher_pid" 2>/dev/null; then
+    echo "plot-worker-loop: the monitor watcher ($_monitor_watcher_pid) survived _kill_tree; about to wait on it" >&2
+  fi
+
   wait "$_monitor_watcher_pid" 2>/dev/null || true
   _watchdog_pid=""
   _monitor_watcher_pid=""
