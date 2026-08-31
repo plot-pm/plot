@@ -6,7 +6,8 @@
   "private": true,
   "license": "MIT",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./adapters": "./src/adapters/index.ts"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
