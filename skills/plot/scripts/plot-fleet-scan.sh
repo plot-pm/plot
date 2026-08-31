@@ -569,7 +569,22 @@ prefill_pr_states() {
       5) HOST_VERDICT=throttled ;;
       4) HOST_VERDICT=unasked ;;
       *) case "$host_err" in
-           *auth*|*Auth*|*AUTH*|*login*|*Login*|*credential*|*Credential*|*"not logged"*)
+           # THE WORDING IS MEASURED, NOT GUESSED. An earlier version of this
+           # list matched auth/login/credential and MISSED the message CI
+           # actually emits:
+           #
+           #   "gh: To use GitHub CLI in a GitHub Actions workflow, set the
+           #    GH_TOKEN environment variable."
+           #
+           # which contains none of those words. The fix passed locally — where
+           # `gh` is authenticated and this branch never runs — and failed on
+           # every CI run. Measured 2026-08-31 against a stubbed `gh`.
+           #
+           # So the patterns name what the CLIs SAY when they have no identity:
+           # a token, a login, a credential, or authentication. Anything else is
+           # a real failure and stays `failed`, because widening this to a
+           # catch-all would turn every host outage into "nobody asked".
+           *TOKEN*|*token*|*auth*|*Auth*|*AUTH*|*login*|*Login*|*credential*|*Credential*|*"not logged"*)
              HOST_VERDICT=unasked ;;
            *) HOST_VERDICT=failed ;;
          esac ;;
