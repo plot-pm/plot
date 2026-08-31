@@ -32,8 +32,8 @@ export type Write =
   | BriefWrite
   | WorktreeRemoveWrite
   | WorktreeMoveWrite
-  | WorkerStartWrite
-  | WorkerSignalWrite
+  | AgentStartWrite
+  | AgentSignalWrite
   | ManifestClearWrite
   | LogClearWrite
   | CommitWrite
@@ -183,7 +183,7 @@ export interface WorktreeMoveWrite {
  * here — Plot hardcodes no agent tooling, so naming one in a decision would
  * put a project's answer inside the domain.
  */
-export interface WorkerStartWrite {
+export interface AgentStartWrite {
   readonly kind: 'worker-start';
   /** The branch the worker is for. */
   readonly branch: string;
@@ -197,7 +197,7 @@ export interface WorkerStartWrite {
  * The worktree and its claim survive it: the branch is still taken, and
  * removing either would be a write this design avoids.
  */
-export interface WorkerSignalWrite {
+export interface AgentSignalWrite {
   readonly kind: 'worker-signal';
   /** The pid to signal. */
   readonly pid: string;

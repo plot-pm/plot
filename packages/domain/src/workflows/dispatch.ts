@@ -58,7 +58,7 @@ export type BranchRefusal =
  * a deliberate absence, distinct from `unconfigured` precisely so the skill
  * stops asking. `none` is never run as a command.
  */
-export type WorkerConfig = 'unconfigured' | 'declined' | 'configured' | 'suppressed';
+export type AgentCommandConfig = 'unconfigured' | 'declined' | 'configured' | 'suppressed';
 
 /** What the plan gate read, and where it read it. */
 export interface PlanGateReadings {
@@ -218,7 +218,7 @@ export interface DispatchDetail {
   /** How many workers it would start. */
   started: number;
   /** How the summary's `worker=` field would read. */
-  worker: WorkerConfig;
+  worker: AgentCommandConfig;
   /** Whether this run writes nothing by construction. */
   dryRun: boolean;
 }
@@ -435,7 +435,7 @@ const canClaim = (candidate: DispatchCandidate): boolean => candidate.claimWins 
 const workerConfig = (
   configured: DispatchReadings['workerCommand'],
   noStart: boolean,
-): WorkerConfig => (noStart ? 'suppressed' : configured);
+): AgentCommandConfig => (noStart ? 'suppressed' : configured);
 
 /**
  * Why a prepared branch would not get a worker, or `''` where it would.
@@ -452,7 +452,7 @@ const workerConfig = (
  */
 const launchable = (
   candidate: DispatchCandidate,
-  worker: WorkerConfig,
+  worker: AgentCommandConfig,
   noBrief: boolean,
 ): DispatchPrepared['notStartedBecause'] => {
   if (worker === 'suppressed') return 'no-start';
