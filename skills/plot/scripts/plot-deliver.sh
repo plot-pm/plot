@@ -140,7 +140,7 @@ plan_content=$(cat "$plan_file")
 # All three arms share one range for the same reason plot-plan-meta.sh shares
 # one: the section's SHAPE is identical whichever word heads it, and a second
 # range would be a second implementation of a re-spelling, free to drift.
-branches_section=$(printf '%s' "$plan_content" | sed -n '/^## *[Bb]ranches\|^## *[Ww]aves\|^## *[Ss]lices/,/^## /p')
+branches_section=$(printf '%s' "$plan_content" | sed -nE '/^## *([Bb]ranches|[Ww]aves|[Ss]lices)/,/^## /p')
 
 # A BRANCH LINE CARRIES A BRANCH PREFIX, and without that test a changelog
 # bullet is read as a branch. The section range above closes at the next `## `,

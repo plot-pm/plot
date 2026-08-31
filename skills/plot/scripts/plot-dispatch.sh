@@ -1419,7 +1419,7 @@ update_parallel_agents_cap() { # $1 = new cap
   if [ -f "$FLEET_CONTROLS_FILE" ]; then
     # Preserve the existing autoDispatch setting
     local existing
-    existing=$(sed -n 's/.*"autoDispatch"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' "$FLEET_CONTROLS_FILE" | head -1)
+    existing=$(sed -nE 's/.*"autoDispatch"[[:space:]]*:[[:space:]]*(true|false).*/\1/p' "$FLEET_CONTROLS_FILE" | head -1)
     [ -n "$existing" ] && auto_dispatch="$existing"
   fi
 

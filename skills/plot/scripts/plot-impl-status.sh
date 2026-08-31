@@ -76,7 +76,7 @@ BRANCHES_SECTION=$(echo "$PLAN_CONTENT" | sed -n '/^## Branches/,/^## /p')
 # Without it a Slices plan yielded NO branches here, and the caller reported
 # {"error": "No branches found in plan"} for a plan with five — measured
 # 2026-08-30 against the-domain-runs-the-workflows-in-a-sandbox.
-WAVES_SECTION=$(echo "$PLAN_CONTENT" | sed -n '/^## Waves\|^## Slices/,/^## [A-Z]/p')
+WAVES_SECTION=$(echo "$PLAN_CONTENT" | sed -nE '/^## (Waves|Slices)/,/^## [A-Z]/p')
 
 # Branch lines: the backticked name at the head of a `- ` bullet. A backticked
 # name elsewhere in prose is not a branch line — the same distinction the parser

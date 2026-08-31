@@ -26,11 +26,18 @@ const script = path.resolve(here, '../../skills/plot/scripts/plot-deliver.sh');
 
 // The one line of plot-deliver.sh under test, read FROM the script so the test
 // cannot drift away from it: if someone edits the range, this reads the edit.
-const sedRange = (() => {
+//
+// THE FLAGS ARE CAPTURED WITH THE RANGE, not assumed. The range moved from BRE
+// to ERE on 2026-08-31 — `\|` alternation is a GNU extension that BSD sed reads
+// as a literal pipe, so the macOS range matched nothing and returned an empty
+// branch list, the exact silent failure this file exists to catch. A test that
+// hardcoded `sed -n` while the script ran `sed -nE` would re-invoke the wrong
+// dialect and report a fault in whichever one it was not using.
+const [sedFlags, sedRange] = (() => {
   const src = fs.readFileSync(script, 'utf8');
-  const m = src.match(/branches_section=\$\(printf '%s' "\$plan_content" \| sed -n '([^']+)'/);
+  const m = src.match(/branches_section=\$\(printf '%s' "\$plan_content" \| sed (-[nE]+) '([^']+)'/);
   assert.ok(m, 'could not find the branches_section sed range in plot-deliver.sh');
-  return m[1];
+  return [m[1], m[2]];
 })();
 
 const branchesFrom = (planBody) => {
@@ -39,7 +46,7 @@ const branchesFrom = (planBody) => {
     const plan = path.join(dir, 'plan.md');
     fs.writeFileSync(plan, planBody);
     const out = execFileSync('sh', ['-c',
-      `sed -n '${sedRange}' "$1" | grep -oE '### .*\\(Branch: (feature|bug|docs|infra|idea)/[A-Za-z0-9_./-]+' | sed 's/.*Branch: //' | sort -u || true`,
+      `sed ${sedFlags} '${sedRange}' "$1" | grep -oE '### .*\\(Branch: (feature|bug|docs|infra|idea)/[A-Za-z0-9_./-]+' | sed 's/.*Branch: //' | sort -u || true`,
       'sh', plan], { encoding: 'utf8' });
     return out.split('\n').filter(Boolean);
   } finally {
