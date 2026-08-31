@@ -99,10 +99,33 @@ function discard(dir) {
  * Run the loop to completion (or until `killAfterMs`, when set, sends `signal`
  * to the loop process). Resolves with { code, signal, stdout, stderr, pid }.
  */
+/**
+ * Signal a whole process group, by the negative pid its leader owns.
+ *
+ * `process.kill(-pid)` reaches the leader AND every descendant in one call;
+ * `child.kill()` reaches only the leader. Tolerant of an already-dead group,
+ * because both the timeout path and the exit path call it.
+ */
+function killGroup(pid, signal) {
+  if (!pid) return;
+  try { process.kill(-pid, signal); } catch { /* already gone */ }
+}
+
 function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
   return new Promise((resolve) => {
+    // `detached` MAKES THE LOOP A PROCESS-GROUP LEADER, so it can be killed as
+    // a GROUP. Without it the loop shares the runner's group, `child.kill()`
+    // signals one pid, and the loop's descendants — the prompt, the watchdog,
+    // and the `sleep` each respawns — survive, reparent to PPID 1, and hold
+    // node's event loop open.
+    //
+    // Measured on CI 2026-08-31: 13 orphaned `plot-worker-loop.sh` at PPID 1,
+    // aged 10-12 minutes, holding 14 `sleep`s — after every test had PASSED.
+    // The runner reported `ok 877` (this file's last test) and then hung until
+    // the job ceiling killed it. That is the whole of the reconcile-suite hang.
     const child = spawn('bash', [loop], {
       cwd,
+      detached: true,
       env: {
         ...process.env,
         PLOT_BRANCH: 'bug/x',
@@ -118,10 +141,54 @@ function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
     child.stderr.on('data', (d) => { stderr += d; });
     let timer;
     if (killAfterMs > 0) {
-      timer = setTimeout(() => child.kill(signal), killAfterMs);
+      timer = setTimeout(() => killGroup(child.pid, signal), killAfterMs);
     }
+
+    // A BACKSTOP, because `exit` is the ONLY thing that resolves this promise —
+    // so a loop that never exits hangs the test for the full `--test-timeout`,
+    // and node's timeout kills the TEST without reaping the loop's group.
+    //
+    // Measured on CI 2026-08-31, across two runs of this file: `a timed-out
+    // worker exits without hopping` (862) and `the bound fires with
+    // timeout(1)/gtimeout absent from PATH` (863) each hung 300 002 ms in one
+    // run and passed in ~1.1 s in the other. They are near-identical — bound 1s,
+    // prompt 48/49s, same helper — so the flake is in `run_bounded`'s reaping,
+    // not in either test, and it MOVES between adjacent tests.
+    //
+    // The witness caught what survives: one `plot-worker-loop.sh` holding a
+    // `sleep 5` (the monitor watcher), parented to a dead test process, still
+    // there ten minutes later.
+    //
+    // 60s is ~50x the honest duration of every test in this file and well under
+    // the 300s test timeout, so it converts a five-minute wedge into a named
+    // failure while never firing on a healthy run. It resolves rather than
+    // rejects: the assertions then report what the loop actually did, which is
+    // more useful than a timeout message.
+    const HANG_BACKSTOP_MS = 60_000;
+    const backstop = setTimeout(() => {
+      // WHAT THE LOOP WAS DOING, captured BEFORE the kill — the one question
+      // every previous occurrence left unanswered. `ps` output is the only
+      // evidence available here: whether the watchdog subshell, the prompt
+      // child, or neither still exists says which half of `run_bounded` is
+      // stuck, and the CI witness runs 5+ minutes later when they are gone.
+      let snapshot = '';
+      try {
+        snapshot = execFileSync('ps', ['-eo', 'pid,ppid,stat,args'], { encoding: 'utf8' })
+          .split('\n')
+          .filter((l) => /plot-worker-loop|sleep |worker-prompt/.test(l))
+          .join('\n');
+      } catch { snapshot = '(ps unavailable)'; }
+      killGroup(child.pid, 'SIGKILL');
+      stderr += `\nrunLoop: the loop did not exit within ${HANG_BACKSTOP_MS}ms;`
+        + ` killed its process group. Live at that moment:\n${snapshot}`;
+    }, HANG_BACKSTOP_MS);
+
     child.on('exit', (code, sig) => {
       if (timer) clearTimeout(timer);
+      clearTimeout(backstop);
+      // The loop has exited; its group may not have. Sweep it before resolving,
+      // so no test can leave a descendant behind for the runner to wait on.
+      killGroup(child.pid, 'SIGKILL');
       resolve({ code, signal: sig, stdout, stderr, pid: child.pid });
     });
   });
@@ -156,7 +223,8 @@ test('worker-loop: a hung prompt is ended by the bound and logged', serial, asyn
     const r = await runLoop(dir);
     const elapsed = Date.now() - started;
     assert.notEqual(r.code, 0, 'loop must exit non-zero on timeout');
-    assert.equal(r.code, 124, 'timeout uses the timeout(1) convention, exit 124');
+    assert.equal(r.code, 124,
+      `timeout uses the timeout(1) convention, exit 124\n--- loop stderr ---\n${r.stderr}`);
     assert.match(r.stderr, /exceeded the 1s bound/, 'the log names the bound');
     assert.ok(elapsed < 10000, `bound fired promptly, took ${elapsed}ms`);
   } finally {
@@ -195,7 +263,7 @@ test('worker-loop: a timed-out worker exits without hopping', serial, async () =
   const dir = fixture('nohop', 1, `sleep ${secs}\n`);
   try {
     const r = await runLoop(dir);
-    assert.equal(r.code, 124, 'timed out');
+    assert.equal(r.code, 124, `timed out\n--- loop stderr ---\n${r.stderr}`);
     // A hop creates a sibling `plot-wt-*` worktree beside PLOT_WORKTREE. The
     // fixture dir IS PLOT_WORKTREE; a hop would add one under its parent.
     const parent = path.dirname(dir);
@@ -243,7 +311,8 @@ test('worker-loop: the bound fires with timeout(1)/gtimeout absent from PATH', s
   assert.equal(usable('gtimeout'), false, 'gtimeout unusable on the sanitized PATH');
   try {
     const r = await runLoop(dir, { env: { PATH: sanitized } });
-    assert.equal(r.code, 124, 'the bound fired without coreutils timeout(1)');
+    assert.equal(r.code, 124,
+      `the bound fired without coreutils timeout(1)\n--- loop stderr ---\n${r.stderr}`);
     assert.match(r.stderr, /exceeded/, 'the log names the bound');
   } finally {
     reap(secs);
@@ -279,7 +348,7 @@ test('worker-loop: no stray sleep after a timeout', serial, async () => {
   const dir = fixture('leak-timeout', 1, `sleep ${promptSecs}\n`);
   try {
     const r = await runLoop(dir);
-    assert.equal(r.code, 124, 'timed out');
+    assert.equal(r.code, 124, `timed out\n--- loop stderr ---\n${r.stderr}`);
     await wait(300);
     assert.equal(sleepCount(promptSecs), 0, 'the prompt sleep was killed on timeout');
   } finally {
