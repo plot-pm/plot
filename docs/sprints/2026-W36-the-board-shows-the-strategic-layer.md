@@ -43,7 +43,7 @@ at the bottom.
 ### Could Have
 
 - [ ] [production-calls-the-domain-one-rule-at-a-time] Production code migrates to domain layer incrementally <!-- status: draft -->
-- [ ] [the-domain-runs-the-workflows-in-a-sandbox] Sandbox testing for domain workflows <!-- status: draft -->
+- [x] [the-domain-runs-the-workflows-in-a-sandbox] Sandbox testing for domain workflows <!-- status: delivered -->
 
 ## Notes
 
