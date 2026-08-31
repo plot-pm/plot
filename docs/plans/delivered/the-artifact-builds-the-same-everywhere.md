@@ -1,0 +1,1 @@
+../2026-08-29-the-artifact-builds-the-same-everywhere.md
