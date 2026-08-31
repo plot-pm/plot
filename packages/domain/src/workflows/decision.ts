@@ -31,6 +31,9 @@ export type Write =
   | BranchCreateWrite
   | BriefWrite
   | WorktreeRemoveWrite
+  | WorktreeMoveWrite
+  | AgentStartWrite
+  | AgentSignalWrite
   | ManifestClearWrite
   | LogClearWrite
   | CommitWrite
@@ -156,6 +159,52 @@ export interface WorktreeRemoveWrite {
   readonly path: string;
 }
 
+/**
+ * Moves a worktree checkout to a new path.
+ *
+ * Distinct from remove-then-add: `git worktree move` keeps the branch, the
+ * index and every uncommitted file, which is the whole reason a migration is
+ * expressible at all. A recreate would discard exactly the work the migration
+ * refuses to move when it finds it.
+ */
+export interface WorktreeMoveWrite {
+  readonly kind: 'worktree-move';
+  /** Its current absolute path. */
+  readonly from: string;
+  /** Where it goes, absolute. */
+  readonly to: string;
+}
+
+/**
+ * Starts one detached worker in a worktree.
+ *
+ * Detached is the point: the fleet must outlive the dispatching session. The
+ * command itself is the repo's `Worker command` and is deliberately absent
+ * here — Plot hardcodes no agent tooling, so naming one in a decision would
+ * put a project's answer inside the domain.
+ */
+export interface AgentStartWrite {
+  readonly kind: 'worker-start';
+  /** The branch the worker is for. */
+  readonly branch: string;
+  /** The worktree it runs in, absolute. */
+  readonly worktree: string;
+}
+
+/**
+ * Signals a running worker to stop.
+ *
+ * The worktree and its claim survive it: the branch is still taken, and
+ * removing either would be a write this design avoids.
+ */
+export interface AgentSignalWrite {
+  readonly kind: 'worker-signal';
+  /** The pid to signal. */
+  readonly pid: string;
+  /** The branch it was working on, for the message. */
+  readonly branch: string;
+}
+
 /** Removes the registry manifest that named a worktree. */
 export interface ManifestClearWrite {
   readonly kind: 'manifest-clear';
@@ -240,7 +289,13 @@ export interface Refusal<Reason extends string = string> {
 }
 
 /** The workflows this package expresses. */
-export type WorkflowName = 'approve' | 'deliver' | 'reap' | 'implement' | 'release';
+export type WorkflowName =
+  | 'approve'
+  | 'deliver'
+  | 'dispatch'
+  | 'reap'
+  | 'implement'
+  | 'release';
 
 /** What a workflow answers: the writes it decided on, or the rule that stopped it. */
 export type Outcome<Detail = unknown, Reason extends string = string> =
@@ -316,6 +371,7 @@ export type Evidence = 'script' | 'fixture';
 export const EVIDENCE: Readonly<Record<WorkflowName, Evidence>> = {
   approve: 'script',
   deliver: 'script',
+  dispatch: 'script',
   reap: 'script',
   // FIXTURE-VERIFIED ONLY. Transcribed from skills/plot-implement/SKILL.md.
   implement: 'fixture',
