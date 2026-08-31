@@ -213,6 +213,69 @@ export function resetConfigCache(): void {
 }
 
 /**
+ * Answers to git questions whose subject does not change while a board runs.
+ *
+ * ## Which questions, and why only these
+ *
+ * Two, and both are properties of the CHECKOUT rather than of its contents:
+ *
+ * - `rev-parse --show-toplevel` — where the repository is. A running board
+ *   serves one repo and cannot be made to serve another without restarting.
+ * - `symbolic-ref --short refs/remotes/origin/HEAD` — the default branch. It
+ *   changes when a remote's HEAD is repointed, which is a deliberate act
+ *   somebody performs perhaps once in a project's life.
+ *
+ * **Nothing that reads repository CONTENT is cached here.** `ls-tree`,
+ * `for-each-ref`, `show` and `cat-file --batch` answer differently on every
+ * commit, and caching them would make the board show a stale estate — the exact
+ * failure `plot-fleet-scan.sh` refuses by re-deriving from git every pass.
+ *
+ * ## Why a cache and not the port
+ *
+ * `Refs` already exists in `@plot-pm/domain` and is asynchronous by design, and
+ * `feature/one-place-reaches-a-process` is the slice that moves these calls
+ * behind it. That change makes `buildBoard` async and propagates through 48
+ * functions here and 54 test files — measured at 51 call sites across 22 files,
+ * and split into its own slice precisely because branches that size stall.
+ *
+ * This is the stopgap that costs nothing and blocks nothing: caching a
+ * synchronous function keeps it synchronous, so no signature moves and the
+ * migration inherits a smaller problem. **It should be deleted by that slice**,
+ * not carried alongside it.
+ *
+ * ## Keyed on the repo path, and never invalidated
+ *
+ * Neither answer can change for a given `repoRoot` without an act that also
+ * restarts the board (a different checkout) or is rare enough to warrant one (a
+ * repointed remote HEAD). An mtime has nothing to watch here — `.git/HEAD` is
+ * the wrong file for both questions — so the honest design is a plain map with
+ * a documented reset, rather than an invalidation rule that only appears to
+ * work.
+ */
+const staticGitCache = new Map<string, string>();
+
+/**
+ * Ask git once per repo for an answer that will not change.
+ *
+ * @param repoRoot - the repository, which is part of the cache key.
+ * @param key - names the question, so two questions never share an answer.
+ * @param ask - runs the command; called at most once per repo per question.
+ */
+function cachedGit(repoRoot: string, key: string, ask: () => string): string {
+  const cacheKey = `${repoRoot}\u0000${key}`;
+  const hit = staticGitCache.get(cacheKey);
+  if (hit !== undefined) return hit;
+  const value = ask();
+  staticGitCache.set(cacheKey, value);
+  return value;
+}
+
+/** Test seam: drop the cache so a suite can point at a different repo. */
+export function resetGitCache(): void {
+  staticGitCache.clear();
+}
+
+/**
  * A plan the board will parse, and WHERE ITS BYTES CAME FROM.
  *
  * `path` is the plan's IDENTITY — repo-relative, the string a card renders and
@@ -568,7 +631,8 @@ function prefixedBranches(
   // them — cards for work belonging to a different project entirely. Cheap to
   // check (~2 ms) and it fails the safe way: no branches, behaving exactly as
   // a repo with none.
-  const top = git(repoRoot, ['rev-parse', '--show-toplevel']).trim();
+  const top = cachedGit(repoRoot, 'toplevel', () =>
+    git(repoRoot, ['rev-parse', '--show-toplevel']).trim());
   if (!top) return [];
   try {
     if (fs.realpathSync(top) !== fs.realpathSync(repoRoot)) return [];
@@ -604,9 +668,10 @@ function prefixedBranches(
 function defaultBranchOf(opts: BuildBoardOptions, repoRoot: string): string {
   const configured = readConfig(opts, 'Main branch', '');
   if (configured) return configured;
-  const symbolic = git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
-    .trim()
-    .replace(/^origin\//, '');
+  const symbolic = cachedGit(repoRoot, 'origin-head', () =>
+    git(repoRoot, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+      .trim()
+      .replace(/^origin\//, ''));
   return symbolic || 'main';
 }
 
