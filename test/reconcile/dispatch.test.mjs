@@ -984,6 +984,99 @@ test('dispatch: .plot-worker.pid records the AGENT process, not the wrapper', ()
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
+test('dispatch: .plot-worker.wrapper.pid names the agent\'s ACTUAL parent', () => {
+  // The bug this pins, measured on three of three live workers 2026-08-30: the
+  // file named the dispatcher's subshell rather than the wrapper.
+  //
+  //   wrapper.pid=7357    the agent's real ppid=7358
+  //   wrapper.pid=71953   71954
+  //   wrapper.pid=92947   92949
+  //
+  // The dispatcher wrote `echo $!` beside the spawn, and `$!` names the last job
+  // THIS shell backgrounded — with an env-var prefix before `nohup`, bash forks a
+  // subshell for the AND-list, so `$!` reported that subshell. The wrapper now
+  // writes its own `$$`.
+  //
+  // THE ASSERTION IS PARENTHOOD, NOT INEQUALITY. The pre-existing test above only
+  // checks the wrapper pid differs from the agent's, and the buggy value differed
+  // too — it was one process further up the same chain. Only `ppid` distinguishes
+  // them, so that is what this reads: the recorded pid must BE the agent's parent.
+  //
+  // Why it matters beyond tidiness: a process group built on a wrong wrapper
+  // would signal `plot-dispatch.sh` while the wrapper and its monitors carried
+  // on — which is why this lands before anything is built on the record.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-wrappid-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  const sentinel = path.join(t, 'agent.pid');
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    // THE AGENT REPORTS ITS OWN PARENT, at launch, into the sentinel.
+    //
+    // The obvious form of this test — read `ps -o ppid=` on the live agent — is
+    // unreliable under the harness for the reason this repo already recorded
+    // ("detached-worker pid tests need a launch-time sentinel"): the detached
+    // process is not guaranteed to be alive when the assertion runs. Measured
+    // here, the dispatch call itself took 21 s, because `execFileSync` waits for
+    // the inherited stdout pipe to CLOSE and the wrapper's monitor children hold
+    // it — by which time a `sleep 20` agent has long exited and `ps` answers
+    // nothing.
+    //
+    // `$PPID` in the agent's own shell is the SAME fact, captured a moment
+    // earlier and immune to that race: it is the pid of whatever process forked
+    // this one, which is precisely the wrapper. Written before `exec`, so it
+    // survives the agent being reaped.
+    + `- **Worker command:** sh -c 'echo "$$ $PPID" > ${sentinel}; exec sleep 20'\n`);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-wp.md'),
+    '# WP\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/wrappid` — one\n');
+  fs.symlinkSync('../2026-01-01-wp.md', path.join(r, 'plans', 'active', 'wp.md'));
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'wrappid.md'), 'spec\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  execFileSync('bash', [dispatch, '--offline', 'wp'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-wrappid');
+  const wrapperFile = path.join(wt, '.plot-worker.wrapper.pid');
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline
+    && !(fs.existsSync(sentinel) && fs.existsSync(wrapperFile))) {
+    execFileSync('sleep', ['0.1']);
+  }
+  assert.ok(fs.existsSync(wrapperFile), 'the wrapper must record its own pid');
+  const wrapperPid = fs.readFileSync(wrapperFile, 'utf8').trim();
+  assert.match(wrapperPid, /^\d+$/, `wrapper pid must be numeric, got: ${wrapperPid}`);
+
+  // The agent wrote its own pid and its own parent's pid before `exec` replaced
+  // the shell, so both are launch-time facts that survive it being reaped.
+  const [agentPid, ppid] = fs.readFileSync(sentinel, 'utf8').trim().split(/\s+/);
+  assert.match(ppid, /^\d+$/, `the agent must report a numeric parent, got: ${ppid}`);
+
+  // THE ASSERTION. The recorded wrapper pid must BE that parent. The buggy value
+  // was the agent's grandparent — numerically close, one process removed, and
+  // indistinguishable from the correct answer by any check but this one.
+  assert.equal(wrapperPid, ppid,
+    `.plot-worker.wrapper.pid (${wrapperPid}) must be the agent's actual parent (${ppid}), `
+    + 'not an intervening subshell');
+
+  // And it is genuinely a different process from the agent — the property the
+  // sibling test above checks, kept here so this test stands alone.
+  assert.notEqual(wrapperPid, agentPid, 'the wrapper is not the agent');
+
+  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
+});
+
 // ---------------------------------------------------------------------------
 // The work-in-flight report
 // ---------------------------------------------------------------------------
