@@ -14,6 +14,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `bug/the-scan-says-it-could-not-ask`
+- **Started:** 2026-08-31, Jan Wloka, `bug/the-board-shows-a-throttled-host`
 
 ## Approval
 
