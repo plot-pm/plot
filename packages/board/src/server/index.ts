@@ -17,7 +17,7 @@ import { refuseIfGated } from './write-gate.js';
 import { agentPanel } from './agent-panel.js';
 import { workerLog } from './worker-log.js';
 import { serverInfo } from './server-info.js';
-import { exitWithParent } from './lifetime.js';
+import { exitWhenIdle, exitWithParent } from './lifetime.js';
 import {
   approveAvailability,
   approveStatus,
@@ -720,7 +720,18 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
   res.end('Not Found');
 }
 
-const server = http.createServer(handleRequest);
+/**
+ * When this server was last asked for anything — seeded at launch, so a suite
+ * that is slow to reach its first assertion is not mistaken for a hung one.
+ * Read by {@link exitWhenIdle}; see `lifetime.ts` for why silence is the
+ * question a parent-pid check cannot answer.
+ */
+let lastRequestAt = Date.now();
+
+const server = http.createServer((req, res) => {
+  lastRequestAt = Date.now();
+  return handleRequest(req, res);
+});
 
 /**
  * The failed bind IS the check.
@@ -752,6 +763,14 @@ server.on('error', (err: NodeJS.ErrnoException) => {
  * for why the gate is an explicit variable and not the ppid change itself.
  */
 exitWithParent();
+
+/**
+ * The second half of the same gate: a launcher that is ALIVE but hung leaves
+ * `exitWithParent` satisfied forever. Measured 2026-08-31 — two vitest
+ * processes asleep at 0 % CPU for 33 and 47 minutes, holding a board server
+ * that dutifully checked its ppid every second and kept running.
+ */
+exitWhenIdle({ lastRequestAt: () => lastRequestAt });
 
 server.listen(REQUESTED_PORT, HOST, () => {
   // Read the port from the server rather than from the constant: with PORT=0

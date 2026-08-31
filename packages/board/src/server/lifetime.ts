@@ -126,3 +126,92 @@ export function exitWithParent(options: ExitWithParentOptions = {}): NodeJS.Time
   timer.unref?.();
   return timer;
 }
+
+/**
+ * How long a harness-launched server may go unasked before it gives up.
+ *
+ * Five minutes is chosen against the two populations it must separate. A test
+ * suite's server is asked constantly — the browser tests poll `/api/board` and
+ * `/api/fleet` while a page is open, and the gaps between one test file's cases
+ * are seconds, not minutes. A server whose suite has hung is asked NEVER again.
+ * Nothing legitimate sits in between, so the bound can be generous.
+ */
+export const IDLE_LIMIT_MS = 5 * 60_000;
+
+/** How often to compare now against the last request. */
+export const IDLE_CHECK_INTERVAL_MS = 30_000;
+
+export interface ExitWhenIdleOptions {
+  /** The environment to read the gate from. Defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv;
+  /** Reads the time of the most recent request. */
+  lastRequestAt: () => number;
+  /** Current time, injectable so a test need not wait five real minutes. */
+  now?: () => number;
+  /** What to do when nobody has asked. Defaults to `process.exit(0)`. */
+  onIdle?: () => void;
+  /** Interval scheduler, injectable for the same reason. */
+  setIntervalFn?: typeof setInterval;
+  /** How long to allow. Defaults to {@link IDLE_LIMIT_MS}. */
+  limitMs?: number;
+}
+
+/**
+ * Exit when a harness-launched server has served nothing for {@link IDLE_LIMIT_MS}.
+ *
+ * ## Why `exitWithParent` is not enough, measured 2026-08-31
+ *
+ * That gate polls the launcher's pid and exits once it is gone, which covers a
+ * killed or crashed suite. It does not cover the case that actually produced an
+ * orphan here: **the parent was alive the whole time.** Two `vitest` processes
+ * sat at 0 % CPU for 33 and 47 minutes holding a board server between them; the
+ * child checked its ppid every second, found it present, and kept running —
+ * correctly, and forever. One of them held 135 MB against a machine whose load
+ * average had reached 6.03.
+ *
+ * **A liveness check that a hung process passes is not a liveness check.** The
+ * parent gate asks *does my launcher exist?*; this one asks *does anyone still
+ * want me?*, and a hung suite answers no to the second while still answering
+ * yes to the first.
+ *
+ * ## It is gated on the same variable, deliberately
+ *
+ * `PLOT_EXIT_WITH_PARENT` means *you were launched by a harness and should not
+ * outlive its purpose*. A hung parent and a dead one are two ways for that
+ * purpose to end, so they are two answers to one question rather than two
+ * questions — and an operator's `pnpm board`, which sets nothing, is untouched
+ * by both. A second variable would let a project arm half of this and get a
+ * leak that only appears when a suite hangs, which is the hardest case to
+ * notice and the one this exists for.
+ *
+ * ## The clock starts at launch
+ *
+ * `lastRequestAt` is seeded when the server starts, so a suite that takes four
+ * minutes to reach its first assertion is not killed while it works. What the
+ * bound measures is silence, and a server that has never been asked is as
+ * silent as one that stopped being asked.
+ *
+ * @returns the timer when armed, `null` when the variable says nothing.
+ */
+export function exitWhenIdle(options: ExitWhenIdleOptions): NodeJS.Timeout | null {
+  const {
+    env = process.env,
+    lastRequestAt,
+    now = () => Date.now(),
+    onIdle = () => process.exit(0),
+    setIntervalFn = setInterval,
+    limitMs = IDLE_LIMIT_MS,
+  } = options;
+
+  const flag = env.PLOT_EXIT_WITH_PARENT;
+  if (flag === undefined || flag === '' || flag === '0' || flag === 'false') return null;
+
+  const timer = setIntervalFn(() => {
+    if (now() - lastRequestAt() >= limitMs) onIdle();
+  }, IDLE_CHECK_INTERVAL_MS);
+
+  // Never the reason the process stays alive — the same rule the parent gate
+  // follows, and for the same reason.
+  timer.unref?.();
+  return timer;
+}
