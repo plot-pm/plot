@@ -90,6 +90,29 @@ So what is measured and certain is the SYMPTOM: the event loop is blocked in
 bursts of 1.5–5 s, roughly every 8 s, and a static file is as slow as an API
 route during one. What blocks it is **not yet identified**.
 
+### The growth, measured from a clean start
+
+A restart gave the cleanest reading available: one process, watched from its
+first second.
+
+| | RSS |
+|---|---|
+| at start | **78 MB** |
+| 55 samples later (~5 min) | **336 MB** |
+| the process it replaced, after 1h38m | **419 MB** |
+
+**4x in five minutes**, then flattening toward ~420 MB. That is why the earlier
+one-minute windows read as "flat": they sampled the plateau, not the climb.
+
+13 % of those 55 samples were slow (>3.5 s), so the board is degraded from early
+in its life rather than only after hours.
+
+**Two questions, still separate.** Memory does not predict a slow SAMPLE
+(381 MB slow vs 380 MB fast, measured over 238 samples of the previous
+process). But something retains, and the first outage sample showed
+`plot-plan-meta.sh` churning with unreaped zombies — a plausible shared cause
+for both, and not yet established as one.
+
 ### What the first outage sample says
 
 **Measured 2026-08-31 15:41:42, the first UNREACHABLE sample** (not merely
