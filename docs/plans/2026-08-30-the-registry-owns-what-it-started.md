@@ -312,7 +312,7 @@ test that feeds a high load average with a low spawn cost and expects `clear`
 fails if someone later "improves" the verdict by consulting it — the failure
 this repo already measured twice.
 
-### Recording (Branch: feature/a-manifest-names-every-process)
+### Recording (Branch: feature/a-manifest-names-every-process, PR: #573)
 
 The manifest records the processes the registry spawned, not one of them.
 
