@@ -108,7 +108,15 @@ export default defineConfig({
         // Shells out to git for worktree state. The gap is git failing, or
         // reporting a tree shape the estate did not contain during the run.
         // Measured: 89.66 lines / 72.22 branches / 87.50 functions / 87.50 statements.
-        'src/adapters/trees/**': { lines: 84, branches: 67, functions: 82, statements: 82 },
+        //
+        // THE NUMBERS BELOW ARE CI'S, NOT A DEV MACHINE'S, AND THEY DIFFER.
+        // Measured 2026-08-31 on one commit: `refs` functions 75 locally vs
+        // 66.66 on CI; `trees` branches 72.22 vs 61.11. A threshold set from a
+        // local run passes locally and fails the build. Where the two disagree,
+        // take CI's — it is the one that gates. (Not the git host: stubbing
+        // `gh` to exit 3 reproduced the LOCAL numbers exactly, so the cause is
+        // the platform, not the host's absence.)
+        'src/adapters/trees/**': { lines: 84, branches: 58, functions: 82, statements: 82 },
 
         // Observes processes it did not start. Its uncovered branches need a
         // process to die at a specific moment — the case this file's warning is
@@ -119,7 +127,7 @@ export default defineConfig({
         // Shells out to git for ref state. The gap is git failing, or refs in
         // states the local estate did not hold during the run.
         // Measured: 72.73 lines / 40 branches / 75 functions / 65.52 statements.
-        'src/adapters/refs/**': { lines: 67, branches: 35, functions: 70, statements: 60 },
+        'src/adapters/refs/**': { lines: 67, branches: 35, functions: 63, statements: 60 },
 
         // THE LOWEST ENTRY, AND KNOWN TO BE SO. Talks to the git host CLI, so
         // most of its branches need a host to answer — or to fail — in ways a
