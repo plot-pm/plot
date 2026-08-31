@@ -18,6 +18,7 @@
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-08-31, Jan Wloka, `infra/the-browser-tests-say-which-need-a-server`
+- **Started:** 2026-08-31, Jan Wloka, `infra/the-gate-verifies-what-a-test-declares`
 -->
 
 ## Changelog
