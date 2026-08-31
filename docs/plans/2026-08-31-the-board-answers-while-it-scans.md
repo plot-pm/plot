@@ -339,7 +339,28 @@ process to make one.
 That does not retire the host findings: a 22 s host call still explains a stale
 refresh, and it is worth fixing on its own. It does mean the host call **cannot
 be the whole cause**, and that a probe which only instruments host access will
-come back clean on exactly the samples that matter most.
+come back clean on at least some samples.
+
+**HOW MUCH WEIGHT THAT ONE SAMPLE CARRIES — the tally, 143 samples:**
+
+| | outages | share |
+|---|---|---|
+| children in flight (`children>=1`) | **11** | 85 % |
+| no children (`children=0`) | **1** | 8 % |
+
+13 outages, 117 slow samples. **The dominant pattern is the opposite of what
+the single sample suggested in isolation:** outages overwhelmingly coincide with
+a child process running, which is what the host-call theory predicts.
+
+**This corrects the weight, not the logic.** One counterexample does refute
+*"host calls explain every outage"* — that inference stands. What it does not
+support is treating host calls as a minor contributor. The defensible reading:
+**host calls are the leading driver, and one outage in thirteen had no child at
+all and needs a separate explanation.** An earlier revision of this section
+stated the stronger claim, on that single sample, before the tally existed.
+
+`cpu=0.0` in 9 of 13 outages either way — so whatever blocks, it is waiting
+rather than computing, with or without a child.
 
 **What it points at:** something inside the Node process, blocking the event
 loop with nothing spawned. That is a narrower target than "a whole event loop" —
