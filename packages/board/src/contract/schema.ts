@@ -2898,6 +2898,25 @@ export function isBrokenState(state: string): boolean {
  * but to stop reading liveness OFF it — `state` is the liveness, decided per
  * pulse, and `pid` is only the launch fact and the value a reader can go check.
  */
+/**
+ * The processes one dispatch started beside the agent — the wrapper and both
+ * monitors.
+ *
+ * Named fields rather than a list or a process-group id: the wrapper inherits the
+ * DISPATCHER's process group (verified 2026-08-31, both `pgid=1298`), so a pgid
+ * here would name a group containing `plot-dispatch.sh` itself. See
+ * `registry.ts`'s `ProcessGroup` for the full argument.
+ *
+ * Each member defaults to `''` — that process was never started — so a pulse
+ * carrying a partial group still validates.
+ */
+export const ProcessGroupSchema = z.object({
+  wrapperPid: z.string().default(''),
+  workerMonitorPid: z.string().default(''),
+  agentMonitorPid: z.string().default(''),
+  buildMonitorPid: z.string().default(''),
+});
+
 export const AgentEntrySchema = z.object({
   /**
    * The session id, minted at launch. The identity, and the transcript's name.
@@ -2933,6 +2952,22 @@ export const AgentEntrySchema = z.object({
    * a first dispatch is byte-for-byte what it was before this field existed.
    */
   previousPid: z.string().default(''),
+  /**
+   * Every process the registry started for this agent, or ABSENT on a manifest
+   * written before the field existed.
+   *
+   * `.optional()` with NO default, unlike every sibling here, and that is the
+   * contract rather than an oversight: absent must stay absent. A default would
+   * turn *this manifest cannot say what it started* into *it started nothing*,
+   * and those are different facts — the same `absent is not none` rule `pid`
+   * follows. A member that is `''` means that process was genuinely never
+   * started (a dispatch with no monitors); the whole object missing means
+   * unknown.
+   *
+   * A display fact, like `pid`: the pulse carries it so a reader can go check the
+   * process table, and nothing derives liveness from it.
+   */
+  group: ProcessGroupSchema.optional(),
   /**
    * How many times this worktree's worker has been relaunched in place — 0 on a
    * first dispatch.

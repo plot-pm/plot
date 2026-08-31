@@ -224,7 +224,19 @@ test('MUTATION: removing the monitor start from start_worker turns this red', ()
     const dispatchFile = path.join(mutantDir, 'plot-dispatch.sh');
     const original = fs.readFileSync(dispatchFile, 'utf8');
     const mutated = original.replace(
-      /if \[ -n "\$PLOT_WORKER_MONITOR" \]; then "\$PLOT_WORKER_MONITOR" & fi; if \[ -n "\$PLOT_AGENT_MONITOR" \]; then "\$PLOT_AGENT_MONITOR" & fi; /,
+      // THE REGEX TRACKS THE LINE, and this test's own guard is what forced the
+      // update. `a-manifest-names-every-process` changed the monitor start from
+      // `… & fi;` to `… & wmon=$!; fi;` so the wrapper can record each monitor's
+      // pid in the manifest — the branch's entire purpose. The old pattern then
+      // matched nothing, and the assertion below caught it rather than letting
+      // the mutation test pass having sabotaged nothing.
+      //
+      // The capture assignments are matched loosely (`[^;]*`) because WHAT the
+      // line records is not what this test is about; that it STARTS the monitors
+      // is. A regex pinned to the exact assignment would need editing again the
+      // next time the manifest gains a field, and each of those edits is a
+      // chance to quietly stop sabotaging the right thing.
+      /if \[ -n "\$PLOT_WORKER_MONITOR" \]; then "\$PLOT_WORKER_MONITOR" &[^;]*; fi; if \[ -n "\$PLOT_AGENT_MONITOR" \]; then "\$PLOT_AGENT_MONITOR" &[^;]*; fi; /,
       '',
     );
     assert.notEqual(mutated, original,

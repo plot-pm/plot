@@ -34,7 +34,9 @@ function awkProgram(): string {
   // The program is inside a `sh -c '...'` where every literal single quote is
   // written as the four-byte sequence '"'"'. Undo that escaping to recover the
   // awk source as awk will actually see it.
-  const marker = 'awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" ';
+  const marker =
+    'awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '
+    + '-v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" ';
   const at = src.indexOf(marker);
   assert.notEqual(at, -1, 'the dispatcher awk invocation moved — update this extractor');
   const after = src.slice(at + marker.length);
@@ -48,8 +50,15 @@ function awkProgram(): string {
   return body.slice(0, end);
 }
 
+/** The process group a stamp records — the wrapper and both monitors. */
+interface Group {
+  wrapperPid: string;
+  workerMonitorPid: string;
+  agentMonitorPid: string;
+}
+
 /** Run the dispatcher's awk over `text`, returning what it wrote. */
-function runAwk(text: string, pid: string, started: string): string {
+function runAwk(text: string, pid: string, started: string, g: Group): string {
   const dir = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'plot-parity-'));
   try {
     const f = path.join(dir, 'm.json');
@@ -58,7 +67,14 @@ function runAwk(text: string, pid: string, started: string): string {
     // awk pre-scans on `FNR==NR` (pass one) and rewrites on pass two.
     const out = execFileSync(
       'awk',
-      ['-v', `pid=${pid}`, '-v', `started=${started}`, awkProgram(), f, f],
+      [
+        '-v', `pid=${pid}`,
+        '-v', `started=${started}`,
+        '-v', `wrapper=${g.wrapperPid}`,
+        '-v', `wmon=${g.workerMonitorPid}`,
+        '-v', `amon=${g.agentMonitorPid}`,
+        awkProgram(), f, f,
+      ],
       { encoding: 'utf8' },
     );
     return out;
@@ -84,18 +100,23 @@ function manifest(pid: string, extra: string[] = []): string {
 
 describe('the awk and stampManifest agree byte for byte', () => {
   const NOW = '2026-08-20T12:00:00Z';
+  const GROUP: Group = {
+    wrapperPid: '7358',
+    workerMonitorPid: '7364',
+    agentMonitorPid: '7365',
+  };
 
   it('on a FIRST dispatch — empty placeholder, filled', () => {
     const input = manifest('');
-    const fromAwk = runAwk(input, '4242', NOW);
-    const fromTs = stampManifest(input, { pid: '4242', startedAt: NOW });
+    const fromAwk = runAwk(input, '4242', NOW, GROUP);
+    const fromTs = stampManifest(input, { pid: '4242', startedAt: NOW, ...GROUP });
     assert.equal(fromAwk, fromTs);
   });
 
   it('on a RELAUNCH — a filled pid, updated and recorded', () => {
     const input = manifest('91471');
-    const fromAwk = runAwk(input, '69993', NOW);
-    const fromTs = stampManifest(input, { pid: '69993', startedAt: NOW });
+    const fromAwk = runAwk(input, '69993', NOW, GROUP);
+    const fromTs = stampManifest(input, { pid: '69993', startedAt: NOW, ...GROUP });
     assert.equal(fromAwk, fromTs);
   });
 
@@ -104,8 +125,50 @@ describe('the awk and stampManifest agree byte for byte', () => {
       '  "previousPid": "91471",',
       '  "relaunches": 1,',
     ]);
-    const fromAwk = runAwk(input, '70001', NOW);
-    const fromTs = stampManifest(input, { pid: '70001', startedAt: NOW });
+    const fromAwk = runAwk(input, '70001', NOW, GROUP);
+    const fromTs = stampManifest(input, { pid: '70001', startedAt: NOW, ...GROUP });
     assert.equal(fromAwk, fromTs);
+  });
+
+  // THE GROUP IS RE-EMITTED, NOT DUPLICATED. A manifest a first dispatch already
+  // grouped is stamped again by `/api/continue`; both implementations must drop
+  // the old lines and write this run's. The drop is unconditional in each — it is
+  // not gated on the relaunch flag — and this pins that they agree on it.
+  it('over an EXISTING group — the old lines replaced, on a first-dispatch shape', () => {
+    const input = manifest('', [
+      '  "wrapperPid": "111",',
+      '  "workerMonitorPid": "222",',
+      '  "agentMonitorPid": "333",',
+    ]);
+    const fromAwk = runAwk(input, '4242', NOW, GROUP);
+    const fromTs = stampManifest(input, { pid: '4242', startedAt: NOW, ...GROUP });
+    assert.equal(fromAwk, fromTs);
+    assert.ok(!fromTs.includes('"wrapperPid": "111"'), 'the stale group must be gone');
+    assert.equal(fromTs.match(/"wrapperPid"/g)?.length, 1, 'exactly one wrapperPid line');
+  });
+
+  it('over an EXISTING group — on a relaunch shape', () => {
+    const input = manifest('69993', [
+      '  "wrapperPid": "111",',
+      '  "workerMonitorPid": "222",',
+      '  "agentMonitorPid": "333",',
+      '  "previousPid": "91471",',
+      '  "relaunches": 1,',
+    ]);
+    const fromAwk = runAwk(input, '70001', NOW, GROUP);
+    const fromTs = stampManifest(input, { pid: '70001', startedAt: NOW, ...GROUP });
+    assert.equal(fromAwk, fromTs);
+    assert.equal(fromTs.match(/"wrapperPid"/g)?.length, 1, 'exactly one wrapperPid line');
+  });
+
+  // A MEMBER THAT WAS NEVER STARTED records `''` rather than vanishing — *absent
+  // is not none*. A hand-made worktree has no monitors; the field says so.
+  it('with no monitors attached — empty values, not missing lines', () => {
+    const input = manifest('');
+    const none: Group = { wrapperPid: '7358', workerMonitorPid: '', agentMonitorPid: '' };
+    const fromAwk = runAwk(input, '4242', NOW, none);
+    const fromTs = stampManifest(input, { pid: '4242', startedAt: NOW, ...none });
+    assert.equal(fromAwk, fromTs);
+    assert.ok(fromTs.includes('"workerMonitorPid": "",'), 'the line is present and empty');
   });
 });

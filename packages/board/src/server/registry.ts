@@ -53,6 +53,37 @@ const KNOWN_STATES = new Set<AgentState>(['running', 'finished', 'waiting', 'sta
 export type LivenessResolver = (worktrees: string[]) => string[];
 
 /**
+ * The processes one dispatch started, beside the agent itself.
+ *
+ * NAMED FIELDS RATHER THAN A LIST OR A PROCESS-GROUP ID, and the choice is
+ * measured. A pgid would be one integer and `kill -- -PGID` would reach the whole
+ * tree, but the wrapper does not get its own process group: it is started with
+ * `nohup` from a non-interactive bash with no job control, so it INHERITS the
+ * dispatcher's. Verified 2026-08-31 — dispatcher and wrapper both reported
+ * `pgid=1298`. Recording that would name a group containing `plot-dispatch.sh`
+ * itself, which is the "signal the dispatcher" hazard the wrapper-pid fix exists
+ * to prevent.
+ *
+ * A bare list would carry the pids but not WHICH process each is, and the members
+ * are not interchangeable: a monitor may be killed independently of the wrapper,
+ * and a reader deciding what to do needs to know which one it is looking at.
+ *
+ * Each member is a decimal string, or `''` when that process was never started —
+ * a hand-made worktree gets no monitors, and the field says so rather than
+ * omitting the member.
+ */
+export interface ProcessGroup {
+  /** The wrapper — owns the agent and outlives it to write `.plot-worker.exit`. */
+  wrapperPid: string;
+  /** The WorkerMonitor, which watches the process. */
+  workerMonitorPid: string;
+  /** The AgentMonitor, which watches the desk. */
+  agentMonitorPid: string;
+  /** The BuildMonitor, which watches the run. */
+  buildMonitorPid: string;
+}
+
+/**
  * An agent as the board can name it: a process with an identity that outlives
  * the branch it was launched on.
  *
@@ -87,6 +118,24 @@ export interface AgentEntry {
    * `running`: {@link state} is what says the process still answers.
    */
   pid: string;
+  /**
+   * Every process the registry started for this agent, or `undefined` on a
+   * manifest written before the field existed.
+   *
+   * **`undefined` is `unknown`, and an empty member is `none`** — the same
+   * distinction {@link pid} draws, and the reason this is an optional object
+   * rather than three always-present strings. An old manifest cannot say what it
+   * started, and reporting it as *nothing was started* would be a claim the file
+   * never made. A dispatch that attached no monitor DID say so, with `''`.
+   *
+   * The registry spawned these, so the registry records them — written at spawn
+   * by the wrapper, never discovered later by scanning `ps` for a pattern.
+   *
+   * Like {@link pid}, this is a DISPLAY FACT a reader can go check, not an input
+   * to liveness: a manifest can go stale, and only the process table answers
+   * whether one of these still runs.
+   */
+  group?: ProcessGroup;
   /**
    * The pid this run displaced when it relaunched in place, or `''` on a first
    * dispatch. Written by the launch stamp — see `manifest-stamp.ts`.
@@ -194,6 +243,7 @@ export function parseManifest(json: string): AgentEntry | null {
   const o = raw as Record<string, unknown>;
   const session = typeof o.session === 'string' ? o.session.trim() : '';
   if (session === '') return null;
+  const group = readGroup(o);
   return {
     session,
     branch: typeof o.branch === 'string' ? o.branch : '',
@@ -201,6 +251,10 @@ export function parseManifest(json: string): AgentEntry | null {
     command: typeof o.command === 'string' ? o.command : '',
     startedAt: typeof o.startedAt === 'string' ? o.startedAt : '',
     pid: readPid(o.pid),
+    // ABSENT IS NOT NONE. A manifest carrying none of the group fields predates
+    // them and its group is UNKNOWN — `undefined`, so a reader can tell it from a
+    // dispatch that started no monitors and recorded `''`. See `readGroup`.
+    ...(group ? { group } : {}),
     // A relaunch stamp records both; a first dispatch records neither, so an
     // older or unrelaunched manifest defaults to "displaced nothing, never
     // restarted". `previousPid` is read leniently (any string), because unlike
@@ -210,6 +264,31 @@ export function parseManifest(json: string): AgentEntry | null {
     // A launch fact carries no liveness. State is decided per pulse in
     // `readAgentRegistry`; a manifest never asserts it, so it starts `unknown`.
     state: 'unknown',
+  };
+}
+
+/**
+ * The process group off a manifest, or `undefined` when it carries none.
+ *
+ * **The absent/none distinction is the whole contract.** A manifest written
+ * before this field existed says nothing about what it started, and must report
+ * `unknown` rather than `empty` — so `undefined` is returned unless AT LEAST ONE
+ * of the three keys is present. Once any is, the group is known and each missing
+ * or unusable member reads `''`, meaning *that process was never started*.
+ *
+ * Members go through {@link readPid}, so `0` and junk fall back to `''` for the
+ * reasons it gives — a group member that cannot be a pid is not one, and a reader
+ * checking it against the process table must not be handed a value that answers
+ * about the wrong thing.
+ */
+function readGroup(o: Record<string, unknown>): ProcessGroup | undefined {
+  const keys = ['wrapperPid', 'workerMonitorPid', 'agentMonitorPid', 'buildMonitorPid'] as const;
+  if (!keys.some((k) => k in o)) return undefined;
+  return {
+    wrapperPid: readPid(o.wrapperPid),
+    workerMonitorPid: readPid(o.workerMonitorPid),
+    agentMonitorPid: readPid(o.agentMonitorPid),
+    buildMonitorPid: readPid(o.buildMonitorPid),
   };
 }
 

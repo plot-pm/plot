@@ -22,7 +22,7 @@ import path from 'node:path';
 import { stampManifest, writeManifestStamp } from '../../src/server/manifest-stamp.js';
 
 /** The manifest a first dispatch writes — two-space indent, no trailing comma. */
-function firstDispatch(pid = ''): string {
+function firstDispatch(pid = '', extra: string[] = []): string {
   return [
     '{',
     '  "session": "sess-1",',
@@ -30,27 +30,59 @@ function firstDispatch(pid = ''): string {
     '  "worktree": "/wt/x",',
     '  "command": "claude -p \\"go\\"",',
     `  "pid": "${pid}",`,
+    ...extra,
     '  "startedAt": "2026-08-20T09:00:00Z"',
     '}',
     '',
   ].join('\n');
 }
 
-describe('stampManifest — a first dispatch fills the empty pid and nothing else', () => {
-  it('replaces the empty placeholder and leaves every other line untouched', () => {
-    const out = stampManifest(firstDispatch(''), { pid: '4242', startedAt: '2026-08-20T10:00:00Z' });
-    assert.equal(out, firstDispatch('4242'),
-      'a first stamp is exactly the old behaviour: fill the pid, touch nothing else');
+/** The process group a stamped manifest carries, in the order both writers emit. */
+const GROUP = { wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
+  buildMonitorPid: '7367' };
+const GROUP_LINES = [
+  '  "wrapperPid": "7358",',
+  '  "workerMonitorPid": "7364",',
+  '  "agentMonitorPid": "7365",',
+  '  "buildMonitorPid": "7367",',
+];
+
+describe('stampManifest — a first dispatch fills the pid and records the group', () => {
+  // THESE TWO ASSERTIONS CHANGED WITH THE PROCESS GROUP, deliberately. They read
+  // "a first stamp is byte-identical to today" and "the six launch-time keys",
+  // which was the contract until the manifest had to name every process the
+  // registry started — the wrapper and both monitors, not just the agent. The
+  // estate held 1 manifest, 76 monitor processes and no way to name one of them.
+  //
+  // What survives is the half still true: a first dispatch carries NO RELAUNCH
+  // BOOKKEEPING. What changes is the "and nothing else" half — a stamp now also
+  // writes the group, on every path.
+  it('replaces the empty placeholder and adds exactly the group', () => {
+    const out = stampManifest(firstDispatch(''),
+      { pid: '4242', startedAt: '2026-08-20T10:00:00Z', ...GROUP });
+    assert.equal(out, firstDispatch('4242', GROUP_LINES),
+      'a first stamp fills the pid and writes the group after it — nothing else moves');
   });
 
-  it('adds no previousPid or relaunches on a first dispatch — byte-identical to today', () => {
-    const out = stampManifest(firstDispatch(''), { pid: '4242', startedAt: '2026-08-20T10:00:00Z' });
+  it('adds no previousPid or relaunches on a first dispatch', () => {
+    const out = stampManifest(firstDispatch(''),
+      { pid: '4242', startedAt: '2026-08-20T10:00:00Z', ...GROUP });
     assert.ok(!out.includes('previousPid'), 'a first dispatch records no displaced pid');
     assert.ok(!out.includes('relaunches'), 'a first dispatch has relaunched zero times');
     const keys = Object.keys(JSON.parse(out));
     assert.deepEqual(keys.sort(),
-      ['branch', 'command', 'pid', 'session', 'startedAt', 'worktree'],
-      'the six launch-time keys, in the same shape the registry test pins');
+      ['agentMonitorPid', 'branch', 'buildMonitorPid', 'command', 'pid', 'session', 'startedAt',
+        'workerMonitorPid', 'worktree', 'wrapperPid'],
+      'the six launch-time keys plus the three the group adds');
+  });
+
+  // ABSENT IS NOT NONE, at the writer's end. A caller that knows no group still
+  // produces the lines, empty — so a reader can tell "no monitor was started"
+  // from "this manifest predates the field".
+  it('writes the group lines empty when the caller supplies none', () => {
+    const out = stampManifest(firstDispatch(''), { pid: '4242', startedAt: '2026-08-20T10:00:00Z' });
+    assert.ok(out.includes('"wrapperPid": "",'), 'the line is present and empty');
+    assert.equal(JSON.parse(out).workerMonitorPid, '', 'empty means not attached');
   });
 });
 

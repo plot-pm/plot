@@ -488,6 +488,23 @@ start_worker() {
   # single-quoted `sh -c` mangles a path with spaces, exactly as the exit file
   # already does.
   #
+  # AND THE WRAPPER WRITES IT ITSELF, from `$$` inside the `sh -c`. Until
+  # 2026-08-31 the dispatcher wrote `echo $!` beside the spawn, which named an
+  # intermediate subshell rather than the wrapper: three of three live workers
+  # measured that day recorded a pid one process above the agent's real parent
+  # (7357 against 7358, 71953 against 71954, 92947 against 92949).
+  #
+  # The cause is that `$!` names the last job THIS shell backgrounded, and with
+  # an env-var prefix in front of `nohup` bash cannot collapse the AND-list into
+  # one child — it forks a subshell, and that subshell is what `$!` reports.
+  # (Without the prefix bash `exec`s the command in place and `$!` is correct,
+  # which is why the shape matters and a smaller repro does not show it.)
+  #
+  # So the same rule the agent pid already follows applies here: THE PROCESS
+  # THAT KNOWS A PID IS THE ONE THAT WRITES IT. The wrapper knows `$$`; no
+  # ancestor can name it without guessing. It is written FIRST, before the
+  # monitors and the agent, so the file exists as early as it can.
+  #
   # The agent runs backgrounded inside the wrapper so the wrapper can capture its
   # `$!` and `wait` for it. There is a sub-millisecond window after the wrapper
   # starts and before it writes `.plot-worker.pid`; a scan landing in it reads an
@@ -604,7 +621,8 @@ start_worker() {
       PLOT_AGENT_MONITOR="$agent_monitor" \
       PLOT_BUILD_MONITOR="$build_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
-      nohup sh -c 'if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '"'"'
+      PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
+      nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -619,18 +637,26 @@ start_worker() {
         !stamped && $0 ~ /^  "pid": "[^"]*",$/ {
           stamped = 1
           print "  \"pid\": \"" pid "\","
+          print "  \"wrapperPid\": \"" wrapper "\","
+          print "  \"workerMonitorPid\": \"" wmon "\","
+          print "  \"agentMonitorPid\": \"" amon "\","
+          print "  \"buildMonitorPid\": \"" bmon "\","
           if (relaunch) {
             print "  \"previousPid\": \"" displaced "\","
             print "  \"relaunches\": " count ","
           }
           next
         }
+        $0 ~ /^  "wrapperPid": "[^"]*",$/ { next }
+        $0 ~ /^  "workerMonitorPid": "[^"]*",$/ { next }
+        $0 ~ /^  "agentMonitorPid": "[^"]*",$/ { next }
+        $0 ~ /^  "buildMonitorPid": "[^"]*",$/ { next }
         relaunch && $0 ~ /^  "previousPid": "[^"]*",$/ { next }
         relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
         relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }
         { print }
       '"'"' "$PLOT_MANIFEST_FILE" "$PLOT_MANIFEST_FILE" > "$PLOT_MANIFEST_FILE.plot-pid-tmp" 2>/dev/null && mv "$PLOT_MANIFEST_FILE.plot-pid-tmp" "$PLOT_MANIFEST_FILE" 2>/dev/null || rm -f "$PLOT_MANIFEST_FILE.plot-pid-tmp"; fi; wait "$agent"; rc=$?; printf "%s" "$rc" > "$PLOT_EXIT_FILE"' \
-      >"$log" 2>&1 </dev/null & echo $! >"$wt/.plot-worker.wrapper.pid" )
+      >"$log" 2>&1 </dev/null & )
   echo "    started worker (log: $log)"
   return 0
 }
