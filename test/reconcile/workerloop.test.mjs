@@ -132,6 +132,11 @@ function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
         PLOT_SLUG: 'x',
         PLOT_WORKTREE: cwd,
         PLOT_MANIFEST_FILE: '',
+        // Stage markers from run_bounded's cleanup block. The hang is in there
+        // and the process table cannot say where — every snapshot shows the
+        // same three processes. Only the last stage printed identifies the line
+        // that never returned, and the backstop below prints stderr on failure.
+        PLOT_LOOP_TRACE: '1',
         ...env,
       },
     });

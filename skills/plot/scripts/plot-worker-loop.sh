@@ -399,8 +399,18 @@ run_bounded() {
   # — set only by a trap — to tell which happened.
   wait "$_prompt_child" 2>/dev/null
 
+  # STAGE MARKERS. The hang is somewhere in this block and the process table
+  # cannot say where — every snapshot shows the same three processes. Each line
+  # below is a `wait` or a `_kill_tree`, and only the last one printed tells us
+  # which never returned.
+  #
+  # Guarded by PLOT_LOOP_TRACE so an ordinary dispatch is unchanged; CI sets it.
+  _stage() { [ -n "${PLOT_LOOP_TRACE:-}" ] && echo "plot-worker-loop: stage $1" >&2; return 0; }
+
   # Stop both watchers (a no-op for one that already fired) and reap their sleeps.
-  [ -n "$_watchdog_pid" ] && { _kill_tree "$_watchdog_pid"; wait "$_watchdog_pid" 2>/dev/null || true; }
+  _stage "A: killing watchdog"
+  [ -n "$_watchdog_pid" ] && { _kill_tree "$_watchdog_pid"; _stage "B: waiting on watchdog"; wait "$_watchdog_pid" 2>/dev/null || true; }
+  _stage "C: killing monitor watcher"
   _kill_tree "$_monitor_watcher_pid"
 
   # A PROBE, NOT A FIX — and it answers the one question two process snapshots
@@ -434,7 +444,9 @@ run_bounded() {
     echo "plot-worker-loop: the monitor watcher ($_monitor_watcher_pid) survived _kill_tree; about to wait on it" >&2
   fi
 
+  _stage "D: waiting on monitor watcher"
   wait "$_monitor_watcher_pid" 2>/dev/null || true
+  _stage "E: cleanup complete"
   _watchdog_pid=""
   _monitor_watcher_pid=""
   _prompt_child=""
