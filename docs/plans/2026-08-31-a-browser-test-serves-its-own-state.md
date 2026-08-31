@@ -182,7 +182,7 @@ sits on and not by arithmetic on a stale figure.
 
 ### Survey
 
-- `infra/the-browser-tests-say-which-need-a-server` — read all 33 and classify each: catalogue candidate, must stay real (and why), or interception-over-baseline. Read-only; the output is a table in the plan, the wall-clock **baseline** for the whole suite on a stated machine and load, and the list of states `agents-tab.browser.test.ts` needs. First because the other slices' scope is unknown until it exists, and because "33 files" was an estimate — now checked: 44 browser files, 33 spawning a board, 365 tests between them. PR #575.
+- `infra/the-browser-tests-say-which-need-a-server` — read all 33 and classify each: catalogue candidate, must stay real (and why), or interception-over-baseline. Read-only; the output is a table in the plan, the wall-clock **baseline** for the whole suite on a stated machine and load, and the list of states `agents-tab.browser.test.ts` needs. First because the other slices' scope is unknown until it exists, and because "33 files" was an estimate — now checked: 44 browser files, 33 spawning a board, 365 tests between them. → #575
 
   The baseline is taken here rather than later because a number nobody wrote
   down cannot be compared to one taken at the end, and *"faster is expected"* is
