@@ -19,6 +19,7 @@
 - **Started:** 2026-08-30, Jan Wloka, `feature/every-worker-is-born-monitored`
 - **Started:** 2026-08-30, Jan Wloka, `feature/the-worker-monitor-samples-the-process`
 - **Started:** 2026-08-30, Jan Wloka, `bug/a-monitor-ends-with-its-agent`
+- **Started:** 2026-08-31, Jan Wloka, `feature/the-build-monitor-follows-the-run`
 
 ## Approval
 
