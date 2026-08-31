@@ -90,6 +90,37 @@ So what is measured and certain is the SYMPTOM: the event loop is blocked in
 bursts of 1.5–5 s, roughly every 8 s, and a static file is as slow as an API
 route during one. What blocks it is **not yet identified**.
 
+### The second outage: a host call, not a scan
+
+**15:55:34, `http=000` after 4864 ms** — and the sample rules the scan out
+completely:
+
+```
+cpu=0.0   children=4   scan=no
+```
+
+`ps` on those children during the outage:
+
+```
+72575  bash plot-fleet-scan.sh --stream        40s
+81613  bash plot-host.sh pr-list --rich ...    22s
+96255  (bash)                                  <- zombie
+```
+
+**`plot-host.sh pr-list` measures 10.4 s and 11.2 s** run directly, twice, and
+GitHub is **not** rate limiting (graphql 5000/5000). That is simply what the
+call costs against this repo's PR volume, and it runs on the 60 s
+`PR_REFRESH_MS` timer.
+
+**But `refreshPrs` is properly async** — `await run('bash', …)` behind
+`setInterval(() => void maybeRefreshPrs(…))`. So the host call does not block
+the loop by itself, and "single-threaded, therefore blocked" is too quick an
+explanation. It is discarded here rather than left implied.
+
+**What is established:** during an outage the board has zero CPU, several
+long-lived children, at least one zombie, and no scan running. It is waiting on
+child processes. **Which await is not yielding is still open.**
+
 ### The growth, measured from a clean start
 
 A restart gave the cleanest reading available: one process, watched from its
