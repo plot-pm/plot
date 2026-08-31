@@ -1,0 +1,1 @@
+../2026-08-30-the-registry-owns-what-it-started.md
