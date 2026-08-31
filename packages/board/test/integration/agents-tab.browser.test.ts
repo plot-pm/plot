@@ -4103,10 +4103,20 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       summary: withHost('throttled'),
     }));
     try {
-      const panel = page.locator('[data-status-panel]');
-      await panel.waitFor({ timeout: 10_000 });
-      const whole = (await panel.textContent()) ?? '';
-      expect(whole).toContain('plot-host.sh pr-list --rich exited 1');
+      const count = page.locator('[data-status-count]');
+      await count.waitFor({ timeout: 10_000 });
+      // BOTH are held — the new status does not erase the old one. The panel
+      // renders ONE at a time, so the PR sentence is reached by paging rather
+      // than read off the box: its text is genuinely absent from the DOM until
+      // then, which is what makes the page-and-read the honest assertion.
+      expect(await count.textContent()).toContain('of 2 statuses');
+
+      const text = page.locator('[data-status-text]');
+      expect(await text.textContent()).toContain('Fleet scan blind');
+
+      await page.locator('[data-status-next]').click();
+      await expect.poll(async () => (await text.textContent()) ?? '', { timeout: 10_000 })
+        .toContain('plot-host.sh pr-list --rich exited 1');
     } finally {
       await page.close();
     }
