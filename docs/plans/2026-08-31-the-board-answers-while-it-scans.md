@@ -298,8 +298,33 @@ every poll pays full recomputation, and a quiet estate is exactly when the
 problem "goes away". The same field is why `gh pr list` intermittently reports
 `mergeable: UNKNOWN`; that is the cache being cold, seen from the other side.
 
+**AND THE SECONDARY RATE LIMIT IS PART OF IT, measured an hour later.** While
+`gh api rate_limit` reported **5000/5000 remaining on both core and graphql**,
+`plot-host.sh pr-list` still exited 5 with:
+
+```
+plot-host: pr-list: host throttled — GraphQL: API rate limit already exceeded
+```
+
+Both readings are true. GitHub enforces a **secondary** limit — on concurrency
+and request rate — entirely separate from the primary quota the `rate_limit`
+endpoint reports, and nothing in that endpoint's numbers shows it.
+
+**This corrects a wrong inference made here.** Seeing full quota beside a
+`throttled` verdict, the first reading was that `plot-fleet-scan.sh` had cached
+a stale throttle or was misreporting a timeout as a rate limit — that the SCAN
+was lying. It is not. Its `unknown — PR could not be read (throttled host)` is
+the honest answer to a host that really is refusing, and the design note at
+`plot-fleet-scan.sh:512` — *"`throttled` says wait; `failed` says look"* — is
+being followed exactly.
+
+**What it means for the 22 s call:** the mergeability computation above is real,
+but secondary-limit backoff is at least as likely a contributor, and the two are
+indistinguishable from the outside — both present as wall-clock time at 0 % CPU.
+Any probe must tell them apart, or it will confidently name the wrong one.
+
 **Not yet established:** which await fails to yield while this is in flight. The
 call being slow explains a slow refresh; it does not by itself explain the
 SERVER going unresponsive to unrelated requests. That is still the open
-question, and it is the one the probe branch should answer — but it now has a
-specific thing to instrument rather than a whole event loop.
+question, and it is the one the probe branch should answer — but it now has two
+specific things to instrument rather than a whole event loop.
