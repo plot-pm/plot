@@ -120,28 +120,80 @@ mixed is the one most likely to need scenarios the earlier slices produced.
 
 Migrating it first would mean inventing every scenario at once, under the
 pressure of the largest file. Migrating it last means it inherits a catalogue
-that has already been proven against 271 other tests.
+that has already been proven against the 248 tests the earlier slices moved.
+
+### The exception list is declared and then verified
+
+The gate this plan extends already refuses a hand-written list, and its
+reasoning stands: *"a second place to update, and it fails open — a new stubbed
+test simply is not on it."* A marker alone would reintroduce exactly that, one
+line at a time.
+
+So an exception **declares itself and is then checked**. A file that needs a
+real board carries
+
+```
+// @needs-real-board: <reason>
+```
+
+and the gate verifies the claim structurally — the file must actually exercise a
+write route or assert on process behaviour. A declaration the structure does not
+support is an offence, so a test cannot join the exceptions by asserting that it
+belongs there.
+
+The signal is separable today: `lifetime.test.mjs` carries 71 process-shaped
+references and no write-shaped ones, measured 2026-08-31. The marker supplies
+the *reason*, which no predicate can infer; the structure supplies the
+*entitlement*, which no comment should be trusted for.
+
+### The counts stay exact, and each slice pays for them
+
+`EXPECTED_FILES` and `EXPECTED_TESTS` remain hard-coded. They fired spuriously
+once already — main added six tests mid-flight — and across seven slices that will
+recur. That churn is the price of the tripwire rather than a flaw in it: raising
+either number costs a visible line in the diff that raises it, which is the
+whole mechanism. Every slice updates them in its own commit, against the main it
+sits on and not by arithmetic on a stale figure.
 
 ### Open Questions
 
 - [ ] How many scenarios is the right number? Too few and each test overrides so
       much that the scenario name means nothing; too many and the catalogue is
       33 fixtures with a new spelling. Measure after the second slice: if the
-      average test overrides more than half the payload, the scenarios are wrong.
-- [ ] Does `tiny-garden` survive as a fixture repo at all? Several files read it
-      through a real server. If every one of those migrates, the fixture's only
-      remaining consumers are the process-behaviour tests — which may not need a
-      repo with plans in it.
+      average test overrides more than half the payload, the scenarios are
+      wrong — and that measurement is a **gate**. The third slice does not start
+      until the catalogue is re-cut. Migrating 33 files onto scenarios that
+      already do not fit is how the fixture sprawl this plan exists to remove
+      gets rebuilt under a better name.
+- [ ] Does `tiny-garden` survive as a fixture repo at all? **34 files read it**,
+      measured 2026-08-31 — far beyond the browser suite, so its fate is not
+      this plan's to settle alone. The Survey records which of those consumers
+      are browser tests and which are not; a fixture whose remaining readers are
+      all process-behaviour tests may not need plans in it, but that is a
+      finding this plan hands on rather than acts on.
 - [ ] Is the assertion-count gate strong enough once files move between
       directories? It counts `it(` in `test/integration/`; a slice that moved a
-      test to `test/unit/` would look like a deletion. Decide before the first
-      slice moves one.
+      test to `test/unit/` would look like a deletion. Decide in the Deciding
+      slice, before the first file moves.
 
 ## Branches
 
-### Sorting
+### Survey
 
-- `infra/the-browser-tests-say-which-need-a-server` — read all 33 and classify each: catalogue candidate, must stay real (and why), or interception-over-baseline. Output is a table in the plan, not code. First because the other slices' scope is unknown until it exists, and because "33 files" is an estimate nobody has checked.
+- `infra/the-browser-tests-say-which-need-a-server` — read all 33 and classify each: catalogue candidate, must stay real (and why), or interception-over-baseline. Read-only; the output is a table in the plan, the wall-clock **baseline** for the whole suite on a stated machine and load, and the list of states `agents-tab.browser.test.ts` needs. First because the other slices' scope is unknown until it exists, and because "33 files" was an estimate — now checked: 44 browser files, 33 spawning a board, 365 tests between them.
+
+  The baseline is taken here rather than later because a number nobody wrote
+  down cannot be compared to one taken at the end, and *"faster is expected"* is
+  not a measurement.
+
+  It also reads `agents-tab` in full despite that file migrating last. Its 13
+  `/api/fleet` routes are the best available statement of what the catalogue
+  must express, and a catalogue shaped without them is one the largest consumer
+  discovers it cannot use. Analysis early, migration late.
+
+### Deciding
+
+- `infra/the-gate-verifies-what-a-test-declares` — settle the two mechanisms the Survey's table implies, as a small code change: the declare-then-verify marker above, and whether the count assertion survives a file moving between directories. Separate from the Survey because a decision hidden inside a read-only report is one nobody reviewed; separate from Closing because the later slices move files and need the answer first.
 
 ### Naming
 
@@ -165,16 +217,17 @@ that has already been proven against 271 other tests.
 
 ## Done when
 
-- The gate refuses any browser test file that starts a board and is not on the
-  classified exception list, and the list is **derived** rather than written by
-  hand — a new test cannot join it by being added to an array.
+- The gate refuses any browser test file that starts a board without declaring
+  `@needs-real-board`, and refuses a declaration the file's structure does not
+  support — so a new test cannot join the exceptions by claiming to belong
+  there, which is the failure a bare list or a bare marker both allow.
 - The assertion count is unchanged except where a slice's changeset names the
   tests it added, and the count is asserted rather than reviewed.
 - **A named scenario, changed in one place, changes what every test using it
   sees** — asserted by changing one and watching the dependent tests fail, not
   by reading the code.
-- The suite's wall-clock time is measured before and after and stated in the
-  final changeset. Faster is expected; the number matters more than the
+- The suite's wall-clock time is measured in the Survey and again at the end,
+  both on a stated machine and load, and stated in the final changeset. Faster is expected; the number matters more than the
   direction, because a migration that did not speed it up means the servers were
   not the cost and something else should be looked at.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm build:board`, changeset.
