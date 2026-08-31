@@ -2195,17 +2195,17 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
     'the command survives its quotes into valid JSON');
   assert.match(m.startedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
   // The process facts the manifest carries are the ones the DISPATCHER STARTED:
-  // the agent's own pid, plus the wrapper and both monitors it spawned beside
-  // it. The wrapper stamps them at spawn so the registry can name every process
-  // it is responsible for — and answer liveness in one pass.
+  // the agent's own pid, plus the wrapper and all three monitors it spawned
+  // beside it. The wrapper stamps them at spawn so the registry can name every
+  // process it is responsible for — and answer liveness in one pass.
   //
   // The line this test draws is unchanged, and it is `started` against `guessed`:
   // model and context are still absent, because those the dispatcher cannot know
   // and a manifest claiming them would be a guess. A pid of a process it forked
   // itself is not a guess, which is why the group is admitted and they are not.
   assert.deepEqual(Object.keys(m).sort(),
-    ['agentMonitorPid', 'branch', 'command', 'pid', 'session', 'startedAt',
-      'workerMonitorPid', 'worktree', 'wrapperPid'],
+    ['agentMonitorPid', 'branch', 'buildMonitorPid', 'command', 'pid', 'session',
+      'startedAt', 'workerMonitorPid', 'worktree', 'wrapperPid'],
     'launch-time facts plus every process the dispatcher started: no model, no context it could only guess');
 });
 
