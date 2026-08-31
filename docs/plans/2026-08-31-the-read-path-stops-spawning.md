@@ -171,6 +171,43 @@ pretending to be an optimisation.
 
 - `feature/a-read-route-spawns-nothing` — the gate: a test asserting no synchronous spawn occurs while a read route is served, and a `sample`-based measurement in the plan showing the profile after. Last, because a gate over unfinished work is a gate nobody can pass.
 
+### The async ripple is wider than `buildBoard`, and it lands in the tests
+
+**Measured 2026-09-01 while implementing the Reading slice.** The plan named
+`buildBoard` becoming async and its route handler awaiting it. What actually
+became async, because each awaits the port transitively:
+
+    buildBoard  buildFleet  boardState  askOnce  askOncePerEstate
+    planStatusBySlug  collectSprints  activeSprints
+
+Production needed exactly one change — `controllers/fleet-state.ts:115` awaits
+`buildBoard` — which is the plan's own prediction holding. **The cost landed in
+the tests: 23 failures across 5 files**, all the same shape, none a behaviour
+change:
+
+| symptom | cause |
+|---|---|
+| `f.rows` undefined rather than empty | a Promise read as its value |
+| `activeSprints(...).sort is not a function` | ditto |
+| a serialised answer comparing as `'{}'` | `JSON.stringify(Promise)` |
+| `expected undefined to be true` | `.measured` off a Promise |
+
+**So a later wave should expect its own test-side ripple** rather than reading a
+green production diff as done. `fleet.ts`, `registry.ts` and `agent-panel.ts`
+have their own callers.
+
+**One fix generalised and the rest did not.** `streaming-scan.test.ts` polls a
+producer through a local `until(read, want)` helper; making `until` await its
+reader fixed every call site at once, and it is the right place because a poller
+that takes a producer owns that producer's asyncness. A predicate handed a
+Promise answers false forever, so the poll times out and returns the Promise —
+which is how the failure presented as `undefined` rather than as a rejection.
+
+**And the artifact is a test dependency.** `tiny-garden.browser.test.ts` renders
+the shipped bundle, so it fails on any `board.ts` change until `pnpm build:board`
+runs. It was the last of the 23 to go green and it needed a rebuild, not a fix —
+worth knowing before reading it as a regression.
+
 ## Done when
 
 - **A `sample` of the board under load shows no `SyncProcessRunner::Spawn` below
