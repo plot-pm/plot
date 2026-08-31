@@ -2,7 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openCatalogue, expandAgentFolds, row, wave, fleet, type Catalogue } from '../catalogue/index.js';
+import {
+  openCatalogue, expandAgentFolds, board, row, wave, fleet, scenario, SCENARIOS,
+  type Catalogue, type Scenario,
+} from '../catalogue/index.js';
 import { AgentRowSchema, FleetSchema } from '../../src/contract/schema.js';
 
 /**
@@ -203,5 +206,96 @@ describe('a field the builder omits fails rather than rendering undefined', () =
       fs.readFileSync(path.resolve(here, '../../tsconfig.json'), 'utf8'),
     ) as { include: string[] };
     expect(tsconfig.include).toContain('test/catalogue');
+  });
+});
+
+/**
+ * ONE PLACE, EVERY CONSUMER — the plan's third `Done when`.
+ *
+ * > A named scenario, changed in one place, changes what every test using it
+ * > sees — asserted by changing one and watching dependents fail, not by reading
+ * > the code.
+ *
+ * The dependent here is the mock's own `serve()` path, which is what every
+ * `open()` in the suite goes through. The assertion is structural rather than
+ * visual on purpose: rendering one scenario in a browser proves that scenario
+ * renders, and proves nothing about SHARING. What sharing needs is that the
+ * payload a consumer receives is DERIVED from the catalogue entry at call time,
+ * so a change to the entry reaches a consumer that was never edited.
+ *
+ * ## How this can fail
+ *
+ * It fails the moment a scenario is captured rather than called — a frozen
+ * object, a payload cached at module load, a consumer holding its own copy. Each
+ * of those makes the first reader privileged and every later one stale, which is
+ * exactly the fixture sprawl the catalogue replaces. So the test PATCHES the
+ * catalogue entry and asserts that an independent read sees the patch.
+ */
+describe('a named scenario is one place', () => {
+  it('a change to a catalogue entry reaches every reader of that name', () => {
+    const name = 'a-full-estate' as const;
+    const original = SCENARIOS[name];
+    const marker = 'feature/inserted-by-the-one-place-test';
+    try {
+      // THE ONE PLACE. Nothing below names this branch; it arrives only because
+      // the readers derive from the entry rather than from a copy of it.
+      (SCENARIOS as Record<string, () => Scenario>)[name] = () => {
+        const built = original();
+        return {
+          board: built.board,
+          fleet: fleet({ rows: [...built.fleet.rows, row({ branch: marker })] }),
+        };
+      };
+
+      // READER ONE: `scenario()`, which `startMockBoard` and `serve()` both call.
+      expect(scenario(name).fleet.rows.map((r) => r.branch)).toContain(marker);
+
+      // READER TWO: the same name reached with an unrelated override. The
+      // override names the BOARD, so the fleet must still carry the change —
+      // a shallow override replaces the half it names and inherits the other.
+      const withBoard = scenario(name, { board: board() });
+      expect(withBoard.fleet.rows.map((r) => r.branch)).toContain(marker);
+
+      // AND THE DERIVATION FOLLOWED IT. The new row is `working` by default, so
+      // `fleet()` must have given it a registry entry — the join that decides
+      // whether WORKING renders at all. A consumer holding a stale copy would
+      // have the row and not the agent.
+      expect(scenario(name).fleet.agents.map((a) => a.branch)).toContain(marker);
+    } finally {
+      (SCENARIOS as Record<string, () => Scenario>)[name] = original;
+    }
+    // AND THE PATCH IS GONE, so this test cannot leak into another file's run.
+    expect(scenario(name).fleet.rows.map((r) => r.branch)).not.toContain(marker);
+  });
+
+  it('every named scenario builds, and builds a fresh payload each time', () => {
+    for (const name of Object.keys(SCENARIOS) as Array<keyof typeof SCENARIOS>) {
+      // BUILDS: every entry parses through Zod, so a scenario whose shape the
+      // schema stopped admitting fails HERE rather than in a locator timeout
+      // inside whichever test happened to name it first.
+      const once = scenario(name);
+      const twice = scenario(name);
+      expect(once.fleet.rows.length, name).toBe(twice.fleet.rows.length);
+      // FRESH: two builds must not be the same object, or one test's mutation
+      // reaches another's. This is why the catalogue holds functions.
+      expect(once.fleet, name).not.toBe(twice.fleet);
+      expect(once.board, name).not.toBe(twice.board);
+    }
+  });
+
+  it('a working row always carries the registry entry that renders it', () => {
+    // The `waves`-shaped failure, one field along: WORKING renders one row per
+    // registry `agent`, joined by `branch`. A scenario with working rows and no
+    // matching agents renders an EMPTY section and every assertion against it
+    // times out looking like a selector typo.
+    for (const name of Object.keys(SCENARIOS) as Array<keyof typeof SCENARIOS>) {
+      const { fleet: pulse } = scenario(name);
+      const working = pulse.rows.filter((r) => r.group === 'working');
+      const named = new Set(pulse.agents.map((a) => a.branch));
+      for (const r of working) {
+        expect(named, `${name}: working row ${r.branch} names no agent`)
+          .toContain(r.branch);
+      }
+    }
   });
 });

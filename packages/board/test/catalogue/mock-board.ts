@@ -18,6 +18,32 @@ import { scenario, type Scenario, type ScenarioName } from './states.js';
  * and 404s everything else. No refresh timer, no estate scan, no git, no
  * `board-server.mjs`.
  *
+ * ## The three endpoints it deliberately does NOT serve
+ *
+ * The Survey names `/api/dispatch-log`, `/api/fleet-controls` and
+ * `/api/agent-panel` as endpoints the catalogue does not answer, and asks
+ * whether it should. It should not, and the reason is what each of them IS.
+ *
+ * All three are ON-DEMAND: a click fetches them, and every test that needs one
+ * already states its answer with `page.route`, because the answer is the thing
+ * being asserted. Serving a default here would give those tests a payload they
+ * did not choose, and the first symptom would be a panel rendering the mock's
+ * opinion rather than the test's.
+ *
+ * `/api/fleet-controls` is the clearest case: its READ state travels in the
+ * pulse (`fleet.fleetControls`), which this mock does serve, and the endpoint
+ * itself is a WRITE. A mock that accepted the POST would assert nothing — the
+ * plan's own words about why `approve.browser.test.ts` stays real.
+ *
+ * So the layering is: the catalogue serves the STATE, and a test that exercises
+ * an on-demand endpoint layers its own answer over it. That is the same
+ * `page.route`-over-a-served-baseline pattern `unreachable-overlay` demonstrates
+ * for a board that cannot answer, and it needs no hook here to work.
+ *
+ * The 404 stays LOUD for the test that forgets: a silent empty 200 would render
+ * half a panel and time out on a locator, which is the failure mode this whole
+ * catalogue exists to stop being ambiguous.
+ *
  * ## Why it is a SERVER at all, when the precedent is not
  *
  * `tuple-row.browser.test.ts` is the only test in this suite that already starts

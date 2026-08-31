@@ -1,6 +1,6 @@
 import {
-  AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema, WaveSchema,
-  type AgentRow, type Board, type Card, type Column, type Fleet, type Wave,
+  AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema, WaveSchema,
+  type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet, type Wave,
 } from '../../src/contract/schema.js';
 import type { z } from 'zod';
 
@@ -54,6 +54,7 @@ type CardInput = z.input<typeof CardSchema>;
 type ColumnInput = z.input<typeof ColumnSchema>;
 type FleetInput = z.input<typeof FleetSchema>;
 type BoardInput = z.input<typeof BoardSchema>;
+type AgentInput = z.input<typeof AgentEntrySchema>;
 
 /** A stable clock. A catalogue whose ages move is a catalogue that flakes. */
 const EPOCH = Date.parse('2026-08-30T12:00:00.000Z');
@@ -115,6 +116,33 @@ export const column = (over: Partial<ColumnInput> = {}): Column =>
   ColumnSchema.parse({ ...COLUMN_DEFAULTS, ...over });
 
 /**
+ * One registry entry — an Agent, as `/api/fleet` carries it.
+ *
+ * The WORKING section renders one row per registry entry, joined to a branch row
+ * by `branch`. So a scenario whose rows include a `working` branch and whose
+ * `agents` array does not name it renders an EMPTY working section, with every
+ * assertion against it timing out on a locator.
+ *
+ * That is the `waves`-shaped failure the plan records, one field along, and it
+ * is why {@link fleet} derives `agents` from the rows rather than leaving the
+ * schema's `[]` default to stand.
+ */
+const AGENT_DEFAULTS: AgentInput = {
+  session: 'sess0000',
+  branch: 'feature/a-branch',
+  worktree: '/wt/plot-wt-a-branch',
+  command: '',
+  startedAt: '',
+  pid: '',
+  previousPid: '',
+  relaunches: 0,
+  state: 'running',
+};
+
+export const agent = (over: Partial<AgentInput> = {}): AgentEntry =>
+  AgentEntrySchema.parse({ ...AGENT_DEFAULTS, ...over });
+
+/**
  * A whole fleet pulse.
  *
  * `summary` is DERIVED from the rows and waves unless a scenario states
@@ -142,6 +170,19 @@ export const fleet = (over: Partial<FleetInput> = {}): Fleet => {
   const waves = (over.waves ?? []) as WaveInput[];
   return FleetSchema.parse({
     ...FLEET_DEFAULTS,
+    /**
+     * WORKING RENDERS FROM THE REGISTRY, so `agents` is derived from the rows
+     * for the same reason `summary` is: a pulse whose working rows name no agent
+     * renders an empty WORKING section, and every assertion against it times out
+     * on a locator that reads exactly like a selector typo.
+     *
+     * The join is by `branch`. An explicit `over.agents` still wins, for a
+     * scenario that is ABOUT the registry — a session id, an order, an agent
+     * whose branch has no row.
+     */
+    agents: rows
+      .filter((r) => (r.group ?? ROW_DEFAULTS.group) === 'working')
+      .map((r) => agent({ session: `s-${r.branch}`, branch: r.branch })),
     summary: {
       plans: new Set(rows.map((r) => r.plan)).size,
       waves: waves.length,
