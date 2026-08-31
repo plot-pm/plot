@@ -46,6 +46,39 @@ dims its controls, and then recovers on its own. Measured 2026-08-31.
 **It is not a leak and not a crash.** RSS is flat at 360–387 MB across 78
 samples, 2 plot processes, 37 FDs, and the process never dies.
 
+**"THE PROCESS NEVER DIES" IS NO LONGER TRUE. Measured 2026-08-31 20:47.**
+Probed directly, three consecutive requests to `/api/board` timed out at 15 s,
+and so did a request for `/` — a STATIC FILE. The next request for `/` was
+refused in **0.0002 s**, and `ps` then showed the pid gone: the board had died
+between two probes.
+
+```
+/api/board  http=000  15.004s
+/api/board  http=000  15.003s
+/            http=000  15.006s   <- a static file, so the loop is wedged
+/            http=000  0.0002s   <- connection refused: the listener is gone
+```
+
+**This is a different failure from the one this plan describes**, and the
+distinction matters for the probe:
+
+| | the stall this plan measured | what happened at 20:47 |
+|---|---|---|
+| duration | 1.5–5 s bursts | ≥15 s, then death |
+| recovery | on its own | needed a human restart |
+| the process | alive throughout | **gone** |
+
+`node --watch` did not restart it — the watcher (pid 69580) was still running
+five hours later with no child, so a death that is not a file change leaves the
+board simply absent. It took an operator noticing.
+
+**What this does NOT establish:** that the stalls and the death share a cause.
+A wedged loop that eventually dies is one story; a stall that recovers and a
+separate fatal event are another, and one sample cannot tell them apart. But the
+probe must now record **whether the process survived**, because a diagnostic
+that assumes its subject is alive will simply stop producing data at the moment
+the worst outcome occurs.
+
 **The discriminating measurement** — six requests for `/`, a STATIC FILE, back
 to back:
 
