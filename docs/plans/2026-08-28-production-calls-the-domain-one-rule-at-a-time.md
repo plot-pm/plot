@@ -367,6 +367,39 @@ contradicting each other, which is the duplication this plan exists to remove.
 
 ## Notes
 
+### Re-measured 2026-08-31, and the motivating count still holds exactly
+
+The Motivation's per-file breakdown was re-derived three days on, counting
+INVOCATIONS rather than mentions (`^[^*/]*\b(spawn|spawnSync|execFile|execFileSync)\s*\(`):
+
+| file | plan | today |
+|---|---:|---:|
+| `board.ts` | 4 | 4 |
+| `fleet.ts` | 4 | 4 |
+| `idea.ts` | 8 | 8 |
+| `deliver.ts` | 2 | 2 |
+| `approve.ts` | 2 | 2 |
+| `dispatch.ts` | 2 | 2 |
+| `reslice.ts` | 2 | 2 |
+| `implement.ts` | 1 | 1 |
+| `commission.ts` | 1 | 1 |
+
+**Nine of nine match.** The split is now **26 in the route handlers and 26
+elsewhere, 52 total** — one site added since the plan's 51, outside the
+handlers. The ratio the ordering argument rests on is intact.
+
+**The per-file breakdown is what made this checkable**, exactly as the
+Motivation claims: a bare total of 26 would have matched by coincidence across
+several distributions, and a bare 51 would now read as drift rather than as one
+new call site. A first grep for the same words counted 9/27/18/13/9/10/15/7/9 —
+comments, imports and type positions — which would have manufactured drift that
+does not exist.
+
+**What this does NOT re-validate:** the ordering constraint itself. This plan
+still runs third, and both predecessors are unfinished — `the-domain-runs-the-workflows-in-a-sandbox`
+at 3 of 5 branches and `the-controller-answers-every-asker` at 2 of 4.
+
+
 ### How much of each script is domain, and how much is adaptation
 
 **This is the open question the sequence has to answer, and it is per-script
