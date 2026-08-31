@@ -148,11 +148,17 @@ test('a real healthy worker is monitored and silent', () => {
   // it is also the one most easily lost: an implementation that published a
   // heartbeat per pass would pass every other test in this file.
   //
-  // THE CONTROL IS THE AGENTMONITOR, which is still a no-op publishing every
-  // pass. Its file appearing is what tells "monitored and silent" apart from
-  // "no monitor ran", which is the reading a bare absence would otherwise
-  // support — and it is exactly the ambiguity the no-op slice's announcement
-  // was designed to remove.
+  // THE CONTROL IS THE WORKER'S OWN OUTPUT, and it used to be the AgentMonitor.
+  // Until `feature/the-agent-monitor-reads-the-desk` that monitor was a no-op
+  // publishing `nothing measured yet` on every pass, so its file appearing was
+  // what told "monitored and silent" apart from "no monitor ran". That monitor
+  // now MEASURES, and a healthy desk owes it nothing — so its file is correctly
+  // empty here and can no longer serve as a control. The no-op's disappearance
+  // was the point of that slice; this is the one place that depended on it.
+  //
+  // The dispatch actually having happened is asserted instead, which is the
+  // fact the old control was standing in for: a worktree with a worker log in
+  // it is a worker that really ran.
   //
   // THE WORKER MUST BURN CPU, and getting this wrong is instructive enough to
   // record. The first draft used `sleep 8` and the monitor reported `idle` —
@@ -173,11 +179,15 @@ test('a real healthy worker is monitored and silent', () => {
   const run = dispatchOne('monitor-silent', {
     workerCommand: "sh -c 'yes > /dev/null & sleep 8; kill %1'",
   });
-  const agentFindings = path.join(run.worktree, '.plot-worker.monitor.agent.jsonl');
+  const log = path.join(run.worktree, '.plot-worker.log');
   try {
-    const agent = waitFor(agentFindings, (r) => r.length > 0, 15_000);
-    assert.ok(agent.length > 0,
-      'the AgentMonitor never published, so a silent WorkerMonitor proves nothing — no monitor may have run at all');
+    // Wait for the worker to have actually started before reading silence as a
+    // measurement: an absent log is "nothing ran", not "nothing to report".
+    const deadline = Date.now() + 15_000;
+    while (!fs.existsSync(log) && Date.now() < deadline) execFileSync('sleep', ['0.2']);
+    assert.ok(fs.existsSync(log),
+      'no worker log appeared, so a silent WorkerMonitor proves nothing — the dispatch may never have run at all');
+    execFileSync('sleep', ['3']);
 
     // Several monitor intervals have passed by now, over a worker that is
     // busy-but-quiet with no commits. Nothing should have been published.
