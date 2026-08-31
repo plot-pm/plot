@@ -309,6 +309,65 @@ test('the same answer about a NEW sha is published again', () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// THE HOST OPERATION'S OWN CONTRACT — `plot-host.sh run-for-sha`
+// ---------------------------------------------------------------------------
+//
+// The filter is the op's whole substance, and it is a `jq` program: exercising
+// it directly is the only way to see the three answers it can give. The monitor
+// tests above stub this away by design, so without these the fallback rule —
+// the one that makes `head moved` reachable at all — would be untested.
+
+/** Run the op's jq filter over a `gh run list` payload. */
+function runForSha(payload, sha) {
+  const filter = '(map(select(.headSha == $sha)) | .[0]) // .[0]'
+    + ' | select(. != null)'
+    + ' | {sha:.headSha, status:.status,'
+    + '    conclusion:(if (.conclusion // "") == "" then null else .conclusion end),'
+    + '    url:.url, startedAt:.startedAt}';
+  const out = execFileSync('jq', ['-c', '--arg', 'sha', sha, filter], {
+    input: JSON.stringify(payload), encoding: 'utf8',
+  }).trim();
+  return out ? JSON.parse(out) : null;
+}
+
+const ghRun = (headSha, conclusion, status = 'completed') =>
+  ({ headSha, conclusion, status, startedAt: 't', url: `https://ci/${headSha}` });
+
+test('run-for-sha prefers the asked-for sha over a newer run', () => {
+  // THE PRIMARY CASE, and the reason the op exists beside `runs`. `gh run list`
+  // returns newest-first, so the naive answer is the top entry — which is for
+  // whatever sha was pushed last, not the one being asked about.
+  const got = runForSha([ghRun('NEW', null, 'in_progress'), ghRun('MINE', 'success')], 'MINE');
+  assert.equal(got.sha, 'MINE');
+  assert.equal(got.conclusion, 'success');
+});
+
+test('run-for-sha falls back to the newest run, labelled with ITS sha', () => {
+  // WHAT MAKES `head moved` REACHABLE. Filtering to the asked-for sha and
+  // stopping would make a run in flight for a superseded commit look exactly
+  // like no run at all, and the monitor could not tell "CI has not started"
+  // from "CI is answering about the past". The fallback reports the run and
+  // names its own commit; comparing the two is the monitor's rule.
+  const got = runForSha([ghRun('OTHER', 'success')], 'MINE');
+  assert.equal(got.sha, 'OTHER',
+    'the fallback did not report which commit the run it found is actually for');
+});
+
+test('run-for-sha reports nothing when the branch has no runs at all', () => {
+  // The ordinary state of a fresh push. Empty is a real answer, not an error.
+  assert.equal(runForSha([], 'MINE'), null);
+});
+
+test('run-for-sha reports a null conclusion for a run still going', () => {
+  // `status` and `conclusion` are never collapsed: a run that is `in_progress`
+  // has no conclusion, and inventing one would make a live build indistinguish-
+  // able from a finished one.
+  const got = runForSha([ghRun('MINE', '', 'in_progress')], 'MINE');
+  assert.equal(got.conclusion, null);
+  assert.equal(got.status, 'in_progress');
+});
+
 test('a finding carries the four fields every monitor publishes', () => {
   // ONE SUBSCRIBER READS ALL THREE MONITORS' FILES and must not need a third
   // parser to do it. The shape is the contract, not an implementation detail.

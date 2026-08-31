@@ -81,9 +81,10 @@
 #                                 to be failing. Empty on bitbucket (bb has no
 #                                 run listing) — unavailable, never "never
 #                                 failed".
-#   run-for-sha <branch> <sha>    the newest run for ONE sha, as a single JSON
-#                                 object, or nothing when the host has no run
-#                                 for it yet:
+#   run-for-sha <branch> <sha>    the run for ONE sha — else the branch's newest
+#                                 run, with `sha` saying which it is — as a
+#                                 single JSON object, or nothing when the branch
+#                                 has no runs at all:
 #                                   {"sha":"…","status":"queued|in_progress|
 #                                    completed|waiting|requested",
 #                                    "conclusion":"success|failure|…|null",
@@ -100,6 +101,15 @@
 #                                 2026-08-30: two merge waiters reported on
 #                                 superseded runs and had to be stopped and
 #                                 re-armed.
+#                                 THE FALLBACK IS WHAT MAKES THAT VISIBLE. Were
+#                                 it to report nothing when the asked-for sha
+#                                 has no run, a run IN FLIGHT for a superseded
+#                                 commit would look exactly like no run at all,
+#                                 and a caller could not tell "CI has not
+#                                 started" from "CI is answering about the
+#                                 past". `sha` names the run's own commit, and
+#                                 comparing it to the one asked about is the
+#                                 CALLER's rule — this decides nothing.
 #                                 `status` AND `conclusion` ARE BOTH REPORTED,
 #                                 never collapsed. A run that is `completed` has
 #                                 a conclusion; one that is `waiting` or
@@ -1657,10 +1667,26 @@ case "$op" in
       # newest-first, and a sha can carry several (a rerun, or several
       # workflows). The newest is the live answer; older ones for the same sha
       # are superseded by the same argument that superseded runs for older shas.
+      # THE SHA ASKED ABOUT IF THERE IS ONE, ELSE THE NEWEST RUN ON THE BRANCH —
+      # and `sha` in the output says WHICH, because a caller that could not tell
+      # the two apart would be back to the branch-scoped guessing this op exists
+      # to end.
+      #
+      # WHY IT FALLS BACK AT ALL, rather than reporting nothing. Filtering to
+      # the asked-for sha and stopping makes the most important case invisible:
+      # a run IN FLIGHT for a commit the branch has already moved past reports
+      # identically to no run at all, so a caller cannot distinguish *CI has not
+      # started yet* from *CI is busy answering about the past*. The second is
+      # the state that had two merge waiters reporting on superseded runs on
+      # 2026-08-30, and it is exactly what a caller needs to see.
+      #
+      # IT STILL DECIDES NOTHING (Principle 3). It reports the run it found and
+      # the sha that run is for; whether that sha being different from the one
+      # asked about means "superseded" is the caller's rule. This collects.
       gh run list --branch "$branch" --limit "$limit" \
         --json headSha,conclusion,status,startedAt,url 2>/dev/null \
         | jq -c --arg sha "$sha" \
-            'map(select(.headSha == $sha)) | .[0]
+            '(map(select(.headSha == $sha)) | .[0]) // .[0]
              | select(. != null)
              | {sha:.headSha, status:.status,
                 conclusion:(if (.conclusion // "") == "" then null else .conclusion end),
