@@ -133,7 +133,7 @@ should describe what is there, not forbid a state it can describe.
 
 ## Waves
 
-### Reading (Branch: bug/an-empty-branch-reads-open)
+### Reading (Branch: bug/an-empty-branch-reads-open, PR: #546)
 
 `plot-fleet-scan.sh` treats a branch with zero commits ahead of the default
 branch as `open` rather than `merged`, before any ancestry claim is made.
