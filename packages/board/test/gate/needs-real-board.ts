@@ -318,18 +318,34 @@ export const DRIVES_A_PAGE =
   /\bfrom\s+['"`][^'"`]*(?:playwright|\/catalogue(?:\/[^'"`]*)?)['"`]/;
 
 /**
- * Source with template literals emptied — an invented source is not source.
+ * Source with STRING LITERALS emptied — an invented source is not source.
  *
  * A gate's fixtures are the shapes it refuses, so they contain every marker it
- * greps for. Emptying the literal keeps the backticks (so nothing downstream
- * sees a syntax it cannot account for) and drops what is between them.
+ * greps for. All three quote forms, because a fixture is written in whichever
+ * one is convenient: `needs-real-board.test.ts` carries multi-line sources in
+ * backticks and one-line ones in single and double quotes, and stripping only
+ * backticks left 4 `chromium` and 4 `startServer` matches behind — measured
+ * 2026-08-31, by the sibling gate in `test/unit` reddening on a correct file.
  *
- * Non-greedy, and it does not attempt nesting or `${}` interpolation: this is a
- * grep over test sources, and a nested template inside a fixture would leave a
- * fragment behind rather than swallow the rest of the file.
+ * **Why emptying every string is sound for these predicates.** They ask *does
+ * this file USE the thing?*, and a use is never a string: launching a browser is
+ * `chromium.launch()`, starting a board is `startServer(FIXTURE)`, and an import
+ * is `import … from '…'` where the marker is in the SPECIFIER. That last one is
+ * why the quotes are kept and only their contents dropped — an import of
+ * `'playwright'` must still be findable, so `DRIVES_A_PAGE` reads the source
+ * before this runs.
+ *
+ * Non-greedy, and it does not attempt escapes, nesting, or `${}` interpolation.
+ * A `\'` inside a single-quoted string ends the match early and leaves a
+ * fragment; that is the safe direction — a fragment might carry a marker and
+ * cost a false positive, where swallowing to the next quote could hide a real
+ * use.
  */
 export const stripFixtures = (source: string): string =>
-  source.replace(/`[\s\S]*?`/g, '``');
+  source
+    .replace(/`[\s\S]*?`/g, '``')
+    .replace(/'[^'\n]*'/g, "''")
+    .replace(/"[^"\n]*"/g, '""');
 
 /**
  * Does this file READ the suite rather than run against it?
@@ -356,16 +372,27 @@ export const stripFixtures = (source: string): string =>
 export const READS_THE_SUITE = /\bfrom\s+['"`][^'"`]*needs-real-board\.js['"`]/;
 
 /**
+ * A fixture's own text, emptied — but the import specifiers left alone.
+ *
+ * `DRIVES_A_PAGE` reads a specifier, which IS a quoted string, so the full
+ * `stripFixtures` would blind it to every import in the suite. What it needs
+ * dropped is the multi-line invented source, which is always a template
+ * literal: a fixture short enough to fit in single quotes cannot contain the
+ * `import … from '…'` shape, because it would need a nested quote of its own.
+ */
+const stripTemplateFixtures = (source: string): string => source.replace(/`[\s\S]*?`/g, '``');
+
+/**
  * Is this file part of the browser suite the gate counts and gates?
  *
- * Three conditions, and the stripping is scoped to this predicate ALONE.
- * `stripFixtures` is not applied to the entitlement or stubbing predicates and
- * must not be: a real browser test writes `page.route(\`**\/api/board\`, …)` in
- * a template literal, so emptying literals suite-wide would make every such
- * file look like it routes nothing. Here the literals are only ever fixtures or
- * URLs, and an import is not written in one.
+ * Two conditions, and the stripping here is `stripTemplateFixtures` rather than
+ * the full `stripFixtures` — see its note. The stripping is scoped to this
+ * predicate ALONE and must not reach the entitlement or stubbing predicates: a
+ * real browser test writes `page.route(\`**\/api/board\`, …)` in a template
+ * literal, so emptying literals for those would make every such file look like
+ * it routes nothing.
  */
 export const drivesAPage = (source: string): boolean => {
-  const withoutFixtures = stripFixtures(source);
+  const withoutFixtures = stripTemplateFixtures(source);
   return DRIVES_A_PAGE.test(withoutFixtures) && !READS_THE_SUITE.test(withoutFixtures);
 };

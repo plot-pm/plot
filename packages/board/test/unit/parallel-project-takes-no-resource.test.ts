@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stripFixtures } from '../gate/needs-real-board.js';
 
 /**
  * `vitest.config.ts` runs `test/unit` in parallel and `test/integration`
@@ -37,6 +38,28 @@ function stripComments(text: string): string {
   return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 }
 
+/**
+ * TEMPLATE LITERALS GO TOO, and the reason is the same sentence one paragraph up.
+ *
+ * Measured 2026-08-31 by this gate reddening on a correct file.
+ * `needs-real-board.test.ts` tests the browser suite's declare-then-verify
+ * predicate, so it carries invented test sources as template literals — and
+ * those sources say `import { chromium } from 'playwright'` and
+ * `startServer(FIXTURE)` because those are the shapes under test. The file
+ * launches no browser and binds no port; every marker in it is a fixture.
+ *
+ * A fixture is not a use, exactly as prose is not a use. So it is stripped for
+ * the same reason, and `stripFixtures` is imported from
+ * `test/gate/needs-real-board.ts` rather than re-written here: two
+ * implementations of *"what counts as source"* would drift, and the one that
+ * drifted permissive would fail in the direction that passes.
+ *
+ * This does NOT weaken the gate. A file that really launches Chromium calls
+ * `chromium.launch()` in code, and its import is an import — neither is inside a
+ * backtick. What is lost is a use written entirely inside a template literal and
+ * then `eval`'d, which nothing in this suite does and which the port and browser
+ * both take by other means.
+ */
 const sources = fs
   .readdirSync(UNIT_DIR)
   // Excluding self, and not because self-exclusion is tidy: both markers appear
@@ -47,13 +70,31 @@ const sources = fs
   .filter((f) => f.endsWith('.test.ts') && f !== SELF)
   .map((f) => ({
     file: f,
-    code: stripComments(fs.readFileSync(path.join(UNIT_DIR, f), 'utf8')),
+    // FIXTURES FIRST, and the order is load-bearing. `stripComments` deletes
+    // `//` lines wherever they appear, including INSIDE a template literal —
+    // which unbalances the backticks, so a later `stripFixtures` no longer sees
+    // a literal to empty. Measured 2026-08-31: with the calls the other way
+    // round this gate still reported `needs-real-board.test.ts`, whose fixtures
+    // carry comment lines of their own.
+    code: stripComments(stripFixtures(fs.readFileSync(path.join(UNIT_DIR, f), 'utf8'))),
   }));
 
 describe('the parallel project takes neither contended resource', () => {
   it('finds the unit files at all, so an empty read cannot pass silently', () => {
     // Without this, a wrong UNIT_DIR would make every assertion below vacuous.
     expect(sources.length).toBeGreaterThan(40);
+  });
+
+  it('tells a fixture from a use, so a test about the markers is not an offender', () => {
+    // The failure this closes, measured 2026-08-31: `needs-real-board.test.ts`
+    // carries invented sources naming both markers and was reported for both,
+    // while launching no browser and binding no port. A gate that cannot be
+    // written a test for is one whose next author weakens it.
+    const fixture = 'const SOURCE = `import { chromium } from "playwright";\\nawait startServer(F);`;';
+    const used = "import { chromium } from 'playwright';\nawait startServer(FIXTURE);";
+    expect(/chromium|startServer/.test(stripFixtures(fixture))).toBe(false);
+    expect(/chromium/.test(stripFixtures(used))).toBe(true);
+    expect(/startServer/.test(stripFixtures(used))).toBe(true);
   });
 
   it('launches no browser — no file in test/unit mentions chromium', () => {

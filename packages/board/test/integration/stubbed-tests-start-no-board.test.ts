@@ -99,7 +99,10 @@ const browserTests: readonly BrowserTest[] = walk(TEST_ROOT)
     const source = fs.readFileSync(f, 'utf8');
     return { file: path.relative(TEST_ROOT, f), source, code: stripComments(source) };
   })
-  .filter((t) => drivesAPage(t.code))
+  // RAW source, not `t.code`: `drivesAPage` strips template literals for
+  // itself, and comment-stripping first unbalances the backticks so the
+  // literals stop being found. See the note in `parallel-project-takes-no-resource.test.ts`.
+  .filter((t) => drivesAPage(t.source))
   .sort((a, b) => a.file.localeCompare(b.file));
 
 /**

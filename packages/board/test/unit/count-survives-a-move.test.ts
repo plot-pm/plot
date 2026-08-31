@@ -1,6 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { drivesAPage, stripComments } from '../gate/needs-real-board.js';
@@ -67,8 +66,13 @@ interface Census {
 const census = (): Census => {
   const found = walk(TEST_ROOT)
     .filter((f) => f.endsWith('.test.ts'))
-    .map((f) => ({ file: path.relative(TEST_ROOT, f), code: stripComments(fs.readFileSync(f, 'utf8')) }))
-    .filter((t) => drivesAPage(t.code));
+    .map((f) => {
+      const source = fs.readFileSync(f, 'utf8');
+      // RAW into `drivesAPage`, stripped for counting: it strips fixtures for
+      // itself, and stripping comments first unbalances the backticks.
+      return { file: path.relative(TEST_ROOT, f), source, code: stripComments(source) };
+    })
+    .filter((t) => drivesAPage(t.source));
   return {
     files: found.length,
     its: found.reduce((n, t) => n + (t.code.match(/(?<![\w.])it\s*\(/g)?.length ?? 0), 0),
