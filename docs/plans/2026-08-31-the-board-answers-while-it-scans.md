@@ -363,6 +363,58 @@ place. The loop amplifies that cost; it does not create it. The host findings
 below remain the candidates for the baseline, and the probe is still what
 settles them.
 
+### THE BLOCKER, NAMED BY A STACK — 2026-08-31 21:36
+
+**`node::SyncProcessRunner::Spawn`, on the main thread, inside an HTTP request
+handler.** That is `execFileSync`/`spawnSync`.
+
+Captured with `sample <pid> 5` while the board was refusing every request. The
+main thread, **4258 of 4262 samples**:
+
+```
+node::SpinEventLoopInternal
+ uv_run → uv__io_poll → uv__stream_io
+  node::http_parser::Parser::on_headers_complete()
+   v8::Function::Call  →  Builtins_JSEntry
+    …  (the request handler)
+     Builtins_CallApiCallbackOptimizedNoProfiling
+      node::SyncProcessRunner::Spawn        ← A SYNCHRONOUS CHILD PROCESS
+```
+
+**A synchronous spawn cannot yield.** While it runs, the event loop serves
+nothing — which is why a static file times out at 15 s beside it.
+
+**IT EXPLAINS EVERY CONTRADICTORY READING IN THIS PLAN**, and that is why it is
+credible where three earlier explanations were not:
+
+| observation | why it followed |
+|---|---|
+| `cpu=0.0` during an outage | the parent blocks in `waitpid`; the CHILD burns the CPU |
+| `children=0` in one sample | sampled between two spawns |
+| `/` at 1.5 ms, then 15 s | whether a spawn was in flight at that instant |
+| worse under load | the child competes for the cores its parent is blocking on |
+| stalls with no scan running | these spawns are on the REQUEST path, not the scan's |
+
+**Everything above this section reasoned about ASYNC host calls**, because
+`refreshPrs` is properly `await`ed and that was the visible cost. The blocking
+call was never in the fleet path at all.
+
+**The population is already counted, in this repo's own words.** CLAUDE.md:
+*"`packages/board/src` holds 65 `spawn`/`execFile` lines across 23 files, and CI
+has zero path references to it."* Measured now: **53** `execFileSync`/`spawnSync`
+occurrences under `packages/board/src`, with `board.ts` — which serves
+`/api/board` — carrying five.
+
+**What this does NOT settle:** which specific call sites are reached per
+request, and how often. The stack proves one is; `board.ts:114`, `:419` and
+`:447` are the candidates on that path. The probe branch now has a named
+function to instrument rather than an event loop to characterise.
+
+**And it changes the fix.** Not "make the host call cheaper" but **"stop
+spawning synchronously on the request path"** — which is the same boundary
+`the-sprint-proves-its-own-goal` wants to ratchet and `production-calls` wants
+to migrate. This is that work's motivating measurement.
+
 ### Approach — find the blocker before fixing one
 
 The static-file measurement bounds the search: whatever runs **owns the loop and
