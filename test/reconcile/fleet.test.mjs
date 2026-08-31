@@ -1524,10 +1524,20 @@ test('fleet: the merged verdict costs no host call beyond the shared list', () =
   // being read — while the host op counts stay IDENTICAL, proving the second
   // answer cost nothing extra. A test asserting only the count would pass
   // against a scan that had stopped consulting the host at all.
+  //
+  // `PLOT_PR_LIST_LIMIT=1` is what makes the count DISCRIMINATING, and it is a
+  // real condition rather than a contrivance. A list returned AT the limit may
+  // be truncated, so the scan withholds `.list-complete` and stops deriving
+  // "absent from the list = no PR". Without that, a per-branch `--ask` is
+  // answered from the cache and spawns nothing — measured 2026-08-31, an
+  // `--ask` mutant passed this test at a populated one-row list. Held at the
+  // limit, the derivation is unlicensed and any per-branch lookup must reach
+  // the host, where `PLOT_TEST_CALLS` records it.
+  const env = { PLOT_PR_LIST_LIMIT: '1' };
   const merged = squashKeptRef('plot-fleet-sqcost-m-');
   const open = squashKeptRef('plot-fleet-sqcost-o-');
-  const m = countCalls(merged, listingHost('MERGED'));
-  const o = countCalls(open, listingHost('OPEN'));
+  const m = countCalls(merged, listingHost('MERGED'), ['p'], env);
+  const o = countCalls(open, listingHost('OPEN'), ['p'], env);
 
   assert.match(branchLine(m.out, 'feature/sq'), / — merged$/,
     'the merged list must decide the verdict');
@@ -3044,12 +3054,12 @@ case "$1" in
 esac
 `;
 
-function countCalls(f, host = COUNTING_HOST, args = ['p']) {
+function countCalls(f, host = COUNTING_HOST, args = ['p'], extraEnv = {}) {
   const h = hostShim(host);
   const calls = path.join(h.dir, 'calls.txt');
   const out = execFileSync('bash', [h.scan, ...args], {
     encoding: 'utf8', cwd: f.dir,
-    env: { ...process.env, PLOT_TEST_CALLS: calls },
+    env: { ...process.env, PLOT_TEST_CALLS: calls, ...extraEnv },
   });
   const ops = fs.existsSync(calls)
     ? fs.readFileSync(calls, 'utf8').split('\n').filter(Boolean) : [];
