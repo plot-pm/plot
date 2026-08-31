@@ -52,10 +52,38 @@ const testFiles = fs.readdirSync(here).filter((f) => f.endsWith('.test.ts')).sor
  * A file is FULLY STUBBED when it supplies both payloads the board renders
  * from. Either alone leaves the other half coming from a live scan, which is
  * a different subject and a different slice.
+ *
+ * SUPPLYING IS NOT MERELY ROUTING, and the difference is not academic. A route
+ * that calls `route.abort()` registers a handler and supplies NOTHING — the
+ * page gets a failed request, which is the opposite of a stubbed payload.
+ *
+ * Measured 2026-08-31: `agents-tab.browser.test.ts` routes `/api/fleet` 13
+ * times and `/api/board` exactly once, as
+ * `route.abort('connectionrefused')` — a deliberate transport-failure test.
+ * It reads the REAL board payload everywhere else, which is why its assertions
+ * name a real tiny-garden card and why its own comment says *"real repo
+ * /api/board takes seconds, so this is the ordinary case"*.
+ *
+ * Under the previous predicate that file counted as fully stubbed and the gate
+ * demanded a migration that would have replaced a real dependency with a
+ * fixture — 3999 lines and 114 tests, to satisfy a false positive.
  */
+/**
+ * Does this file SUPPLY a payload for `endpoint`?
+ *
+ * Splits on the route call and reads the handler that follows, so `abort` is
+ * told from `fulfill`. Six lines of lookahead covers every handler shape in
+ * this directory — the fulfills that fit on one line and the ones that spread
+ * a JSON.stringify over several.
+ */
+const suppliesPayload = (code: string, endpoint: string): boolean =>
+  code
+    .split(new RegExp(`page\\.route\\(\\s*['"\`][^'"\`]*\\/api\\/${endpoint}`))
+    .slice(1)
+    .some((after) => !/^[^\n]*(\n[^\n]*){0,5}/.exec(after)?.[0]?.includes('route.abort'));
+
 const isFullyStubbed = (code: string): boolean =>
-  /page\.route\(\s*['"`][^'"`]*\/api\/board/.test(code)
-  && /page\.route\(\s*['"`][^'"`]*\/api\/fleet/.test(code);
+  suppliesPayload(code, 'board') && suppliesPayload(code, 'fleet');
 
 /** Every spelling of "start the real board", including the two that bypass the helper. */
 const STARTS_A_BOARD: ReadonlyArray<readonly [RegExp, string]> = [
