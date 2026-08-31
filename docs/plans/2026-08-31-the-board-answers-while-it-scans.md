@@ -71,6 +71,23 @@ contact. It recovers because nothing was ever broken.
 average response". That average is an artifact of landing inside blocks — it
 describes the sampler, not the server. Measure with back-to-back requests.
 
+**AND A CONTAMINATION TO EXCLUDE, measured 2026-08-31 20:03.** Two blackouts in
+two minutes coincided with three rescue agents running full test suites in
+parallel worktrees: load average **3.79**, a 35-minute vitest, four
+`node --test --test-concurrency=4` processes, a `plot-fleet-scan.sh --stream`,
+and a `plot-host.sh pr-list --rich` of their own.
+
+Those samples are **not evidence about the board**. The agents compete for the
+same cores AND for the same rate-limited GitHub endpoint the board polls, so an
+outage during them measures the machine, not the defect.
+
+**The probe branch must record enough to tell the two apart** — load average and
+sibling `plot-*` process count at the moment of a stall, not just the board's own
+`children` and `cpu`. Without that, a future reader cannot know which samples in
+the log were taken on a quiet machine, and the honest ones get averaged together
+with the contaminated ones. That is the same failure as the "2571 ms average"
+above, one level out.
+
 ## Design
 
 ### What the cause is NOT
