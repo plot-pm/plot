@@ -82,6 +82,40 @@ So what is measured and certain is the SYMPTOM: the event loop is blocked in
 bursts of 1.5–5 s, roughly every 8 s, and a static file is as slow as an API
 route during one. What blocks it is **not yet identified**.
 
+### What the first outage sample says
+
+**Measured 2026-08-31 15:41:42, the first UNREACHABLE sample** (not merely
+slow — `http=000` after a 10 s budget, and still dead 15 s later):
+
+```
+pid=99533  rss=416752KB  cpu=0.0  children=2  scan=yes
+```
+
+**`cpu=0.0` while unreachable.** The board was not computing; it was WAITING.
+That rules out a synchronous compute burst — including `publishPartial()`, this
+plan's original suspect — and points at process I/O.
+
+`ps` on its descendants during the outage:
+
+```
+71884  <defunct>
+74127  <defunct>
+75143  bash .../plot-plan-meta.sh /var/folders/g0/...
+```
+
+**Two zombies and a live `plot-plan-meta.sh`.** Sampled every 2 s, the pattern
+holds: a continuous churn of `plot-plan-meta.sh` spawns with unreaped children.
+
+That is one process **per plan file**, which is precisely what
+`packages/board/test/plan-read-shape.test.mjs` forbids for the estate read —
+*"spawns plot-plan-meta.sh ONCE for the whole estate"*, whose own comment prices
+the alternative at **~8 s on this repo's estate**.
+
+So the next question is narrow: **which board path spawns `plot-plan-meta.sh`
+per file, and why is the contract test not catching it?** The test covers
+`/api/board`; something else on the refresh path evidently does not go through
+the batched read.
+
 ### Approach — find the blocker before fixing one
 
 The static-file measurement bounds the search: whatever runs is **synchronous on
