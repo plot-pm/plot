@@ -310,6 +310,47 @@ suite and browser suite pass unedited, and no exit code is interpreted outside
 The remaining direct calls — `git`, `ps`, one `tailscale` — move behind the
 `Refs`, `Processes` and `Machine` adapters respectively.
 
+#### Amended 2026-09-01: this slice is the WRITE and BACKGROUND halves
+
+**The read half was carved out while this plan sat in Draft.**
+[`the-read-path-stops-spawning`](2026-08-31-the-read-path-stops-spawning.md)
+was approved 2026-08-31 over `board.ts`, `fleet.ts`, `registry.ts`,
+`server-info.ts`, `agent-panel.ts` and `agent-log.ts`, and its own text calls
+itself *"the read half of `feature/one-place-reaches-a-process`"*. This slice
+was written three days earlier and does not know it exists.
+
+**Plot cannot see the overlap.** Slice eligibility is computed per plan, so
+nothing compares two approved plans over one file. Left unamended, this branch
+and that one rewrite `board.ts` and `fleet.ts` concurrently — and a worker reads
+the plan, not the estate, so it would be briefed to redo work already merged.
+
+**Re-counted 2026-09-01 across `packages/board/src/server/`, all 52 sites:**
+
+| | sites | files |
+|---|---:|---|
+| **READ** — carved out, Approved elsewhere | **16** | board 4, registry 4, fleet 4, server-info 2, agent-panel 1, agent-log 1 |
+| **WRITE routes** — this slice | **24** | idea 8, deliver 2, dispatch 2, reslice 2, continue 2, transition 2, approve 2, commission 1, implement 1, story 1, claim 1 |
+| **BACKGROUND actors** — this slice | **12** | auto-deliver 4, monitors 3, auto-dispatch 2, signals 1, resolver 1, index 1 |
+
+16 + 24 + 12 = 52. The Motivation's nine-file breakdown re-measures 9 of 9
+exactly, so the ordering argument it supports is untouched.
+
+**The third population is the finding.** Neither plan named it: `auto-deliver`,
+`auto-dispatch`, `monitors`, `signals` and `resolver` spawn on a TIMER rather
+than in response to a request. They are not read routes and not write routes,
+and a two-way split would have left twelve sites belonging to no slice while
+this plan's `Done when` greps for zero.
+
+**They stay in this slice rather than getting their own**, because the argument
+for splitting the read half does not apply to them: they are twelve sites over
+six small files, and unlike a read route a background spawn blocks nobody — it
+is a layering correction only.
+
+**This slice must not begin until the read half is delivered.** Not for
+correctness — the file sets are disjoint once amended — but because
+`buildBoard` becomes async over there, and a branch here that touches a caller
+of it would collide on the signature rather than on the lines.
+
 **Split from the slice above because of size, measured 2026-08-30: 51 call
 sites across 22 files, with 54 test files touching spawning.** That is larger
 than the Deciding slice the sandbox plan split for the same reason, and this
@@ -382,6 +423,13 @@ grep -rnE "(execFileSync|execFile|spawnSync|spawn)\(" packages/board/src/
 ```
 
 returns **nothing at all**, and the browser suite passes unedited.
+
+**This gate spans two plans, and cannot pass on this branch alone.** The 16
+read-path sites belong to `the-read-path-stops-spawning` (see the amendment
+above), so a worker here runs that grep and sees them remaining. That is not a
+failure of this slice: the emptiness is the condition for the WHOLE migration,
+and it clears when the later of the two plans lands. Assert the write and
+background sets are empty here; leave the total to whichever finishes second.
 
 **Emptiness, not "only the adapter layer".** The adapters live in
 `packages/domain/src/adapters/`, so once they exist there is nothing left in
