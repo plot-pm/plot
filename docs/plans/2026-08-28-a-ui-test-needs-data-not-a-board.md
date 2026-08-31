@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
@@ -11,7 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-30, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
-- **Delivered:** <!-- YYYY-MM-DD -->
+- **Delivered:** 2026-08-31
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `infra/the-mock-board-serves-named-states`
 - **Started:** 2026-08-31, Jan Wloka, `infra/the-browser-tests-read-the-catalogue`
