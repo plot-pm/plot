@@ -287,6 +287,17 @@ describe('a browser test that stubs its own state starts no board', () => {
  * a re-scoping rather than as a loss. The tests this slice adds are all in files
  * the new scope does not count, which is why `EXPECTED_TESTS` moves by exactly
  * the 25 that left it.
+ *
+ * IT WENT 454 → 453 → 454 WHILE THIS SLICE WAS IN FLIGHT, and the round trip is
+ * worth recording because neither move came from this branch. `0981d52a`
+ * skipped the 375px wrap assertion as a flake, taking main 479 → 478; then
+ * `91a89d95` taught the counter to read `it.skipIf(…)(` as a declaration, which
+ * put it back. A guarded test is still a test, so the second fix is the right
+ * one and this file now shares its `IT_DECLARATION`.
+ *
+ * The lesson the number itself teaches: this constant tracks a MEASUREMENT, so
+ * it is re-derived against the main the branch sits on and never adjusted by
+ * arithmetic on a stale one. Both times the tripwire fired it was correct to.
  */
 const EXPECTED_FILES = 44;
 const EXPECTED_TESTS = 454;
