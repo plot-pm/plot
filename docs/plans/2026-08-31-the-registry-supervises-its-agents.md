@@ -138,6 +138,22 @@ complete, **whatever the exit code says**. A worker killed by the `Worker bound`
 never gets to write one — which is precisely tonight's three, and precisely why
 absence has to mean incomplete rather than unknown.
 
+**ONE ENVELOPE PER BRANCH, NOT PER WORKER — and the difference is this plan's
+own failure reproduced one level up.** A worker HOPS: `plot-worker-loop.sh` asks
+`--next` for another branch of the same plan, and *"the `session` and `pid` stay
+fixed"* while `wavesCount` increments. So one worker may finish branches A and B
+before dying on C.
+
+A single end-of-life envelope would then be **absent**, and A and B — genuinely
+finished, PRs open — would read as incomplete. That is exactly tonight's
+failure: real work made invisible by a process dying. The envelope is written
+when a BRANCH is finished, so a hopping worker leaves a trail of them and only
+C's is missing.
+
+It also matches how the rest of Plot already thinks. Claims, PRs, plan lines and
+gates are all per-branch; the agent is the actor, the branch is the unit of
+work.
+
 **This replaces inference, it does not join it.** The derived signals the
 AgentMonitor computes (`commits && clean tree && no PR`) can be wrong in both
 directions: a branch with an open draft PR looks finished, and a legitimately
@@ -169,15 +185,40 @@ is told what is missing rather than asked to re-derive it.
 
 ### Retry resumes the session
 
-`plot-worker-loop.sh` captures the session id from
-`claude -p --output-format stream-json`, whose first message is
-`{"type":"system","subtype":"init","session_id":...}`, and writes it to the
-manifest.
+**PLOT DOES NOT OWN THE INVOCATION, and an earlier draft of this section assumed
+it did.** The `claude -p` call lives in `.plot/worker-prompt.sh` — *"the literal
+invocation the loop runs each iteration"* — kept in a file deliberately, so the
+config parser cannot strip `$(...)` and so the prompt may be as long as it
+needs. **That file belongs to the adopting project.** Plot cannot add
+`--output-format stream-json` to it, cannot assume the harness is `claude`, and
+must not quietly require either.
 
-**The manifest already has the field.** `AgentEntrySchema` carries `session`,
-used today only for the board's Drop action; a synthesized entry has
-`session: ''`. So the identity plumbing exists and this fills it for a second
-purpose.
+**What Plot already does is ASSERT an id rather than capture one.**
+`plot_session_id` generates a UUID *"in the shape the runtime uses for its
+transcript filename"*, and the board joins on exact string equality to find that
+transcript. It is a guess that works only if the prompt passes it through.
+
+So the contract is split honestly across the boundary:
+
+```
+Plot           → PLOT_SESSION_ID in the worker's environment
+adopter's file → claude -p "…" --session-id "$PLOT_SESSION_ID"
+Plot           → checks whether a transcript for that id exists
+```
+
+**And the check is the gate, not the documentation.** If no transcript appears
+for the asserted id, the adopter did not pass it (or uses another harness), and
+**resume is simply unavailable** — the daemon falls back to a fresh worker with
+the gate failures written into its brief. A resume path that silently did
+nothing would be worse than not having one, because a supervisor would report a
+correction it never delivered.
+
+**`session` and `resumeId` are two fields, not one.** `session` is the
+transcript join key and *"stays fixed"* across branch hops, by design. The
+resume handle is a different identity with a different lifetime — whether it
+should follow a hop is an open question below, and it cannot even be *asked* if
+one field carries both meanings. They will usually hold the same value; the plan
+must not assume they always do.
 
 A relaunch then resumes rather than restarts:
 
@@ -285,6 +326,10 @@ plot-registryd   ── asks     ──►  Machine (headroom, read-only)
 - [ ] Is `blocked` handled by the daemon or escalated straight to a person? A
       `PLOT-BLOCKED` marker is already the *"your turn"* signal, and duplicating
       it in the envelope risks two answers to one question.
+- [ ] Should `resumeId` follow a branch hop? `session` stays fixed by design,
+      but a correction about branch C delivered into a conversation that has
+      since moved to D may be worse than a fresh start. Askable only because
+      the two ids are separate fields.
 
 ## Branches
 
@@ -305,22 +350,34 @@ plot-registryd   ── asks     ──►  Machine (headroom, read-only)
 
 ### Remembering
 
-- `feature/an-agent-remembers-its-session` — capture `session_id` from
-  `--output-format stream-json` into the manifest's existing `session` field,
-  plus `attempts`, and prove a `--resume` with a correction prompt actually
-  continues the same conversation.
+- `feature/an-agent-remembers-its-session` — export `PLOT_SESSION_ID` to the
+  worker, document the `--session-id` the adopter's prompt file must pass, add
+  `resumeId` and `attempts` to the manifest, and **detect whether resume is
+  available at all** by looking for the transcript. Proves a `--resume` with a
+  correction continues the same conversation — and proves the fallback when the
+  adopter did not pass the id.
 
 ### Supervising
 
-- `feature/the-registry-supervises-its-agents` — `plot-registryd`: the tick, the
-  three bounds, the correction-and-resume path, the reap on success, and the
-  `needs a person` stop. Stateless across restarts by construction.
+<!-- THIS WAVE IS GATED ON A MEASUREMENT, and the gate is the plan's own history
+     turned on itself. `the-board-answers-while-it-scans` named a cause from
+     reading the source and was refuted twice; this plan is about to build a
+     daemon on the belief that Declaring and Judging will not be enough. That
+     belief is untested.
+
+     Declaring + Judging ship first and make stranded desks VISIBLE. The
+     Supervising slice may start only once that visibility has run against the
+     real estate for at least a week AND the count of desks that were stranded,
+     reported, and still not picked up by a person is measured NON-ZERO.
+
+     If a visible desk gets attended to, the daemon is machinery for a problem
+     that reporting already solved — and this plan should say so and stop. -->
+
+- `feature/the-registry-supervises-its-agents` <!-- deferred: gated on the measurement above — do not start until Judging has run a week against the real estate and the count of reported-but-unattended stranded desks is measured non-zero --> — `plot-registryd`: the tick, the three bounds, the correction-and-resume path, the reap on success, and the `needs a person` stop. Stateless across restarts by construction.
 
 ### Watching
 
-- `feature/the-machine-keeps-the-daemon-alive` — the launchd/systemd unit, and
-  what the daemon does on a tick it cannot complete. Last, because a supervisor
-  worth keeping alive has to exist first.
+- `feature/the-machine-keeps-the-daemon-alive` <!-- deferred: nothing to supervise until the Supervising wave lands, which is itself gated --> — the launchd/systemd unit, and what the daemon does on a tick it cannot complete. Last, because a supervisor worth keeping alive has to exist first.
 
 ## Done when
 
@@ -331,6 +388,14 @@ plot-registryd   ── asks     ──►  Machine (headroom, read-only)
   naming each failure, and the second attempt is observably the same
   conversation (same session id, and it does not redo work the first attempt
   did).
+- **And when the adopter's prompt does not pass `--session-id`, resume reports
+  itself unavailable and a fresh worker is started with the failures in its
+  brief** — asserted against a prompt file that deliberately omits the flag,
+  because that is the configuration Plot cannot control and therefore the one
+  most likely to be wrong in the field.
+- A worker that finishes branch A, hops to B and dies leaves **A's envelope
+  intact**, and A is not reported as stranded. This is the per-branch rule, and
+  a single end-of-life envelope fails it.
 - The three bounds refuse in the three ways they must: budget spent → `needs a
   person`; no progress → no relaunch; no machine headroom → deferred, not
   dropped. Each asserted separately, since a single test passing all three
