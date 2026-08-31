@@ -399,7 +399,7 @@ on their own rather than in a diff that also moves five other workflows.
 without a repository, and the `--dry-run` reasoning is reproducible from the
 domain alone.
 
-### Writing (Branch: feature/a-decision-writes-what-the-script-writes)
+### Writing (Branch: feature/a-decision-writes-what-the-script-writes, PR: #571)
 
 The sandbox tier: the domain's `Decision` applied in a temp repo, compared
 against `plot-approve.sh` and `plot-deliver.sh` through the parser rather than
