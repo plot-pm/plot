@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
-import { type AgentRow, type Fleet } from '../../src/contract/schema.js';
+import { type Page } from 'playwright';
+import {
+  openCatalogue, board as buildBoard, card as buildCard, column, fleet as buildFleet,
+  row as buildRow, type Catalogue,
+} from '../catalogue/index.js';
+import { type AgentRow, type Board, type Fleet } from '../../src/contract/schema.js';
 
 /**
  * DELIVER LIVES ON A DELIVERABLE PLAN — what only a rendered page settles.
@@ -32,14 +33,28 @@ import { type AgentRow, type Fleet } from '../../src/contract/schema.js';
  * timer and an awaited `route.fetch()` can still be in flight when the page
  * closes.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden';
 
-const row = (over: Partial<AgentRow> = {}): AgentRow => ({
+/**
+ * TWO FIELDS THIS FIXTURE HAD WRONG, both surfaced by the move to a PARSING
+ * builder and neither of them an assertion change:
+ *
+ *   `phase: 'Approved'`   a PLAN phase. `AgentRow.phase` carries one of the
+ *                         five BOARD phases, and `Approved` is not among them.
+ *   `waitingOn: 'nobody'` not in the enum, which admits `you|click|time|null`.
+ *
+ * Neither is read by anything below — these rows are asserted on for their plan
+ * grouping and the card's `deliverable` bit — which is exactly why a cast let
+ * them sit here. They are corrected to the values the schema actually admits,
+ * and named here so the diff is not read as an edited expectation.
+ */
+const row = (over: Partial<AgentRow> = {}): AgentRow => buildRow({
   repo: 'garden', branch: 'feature/x', plan: 'landed', planFile: 'p-landed.md',
-  wave: 'Implementation', state: 'merged', phase: 'Approved', group: 'done',
-  ageMinutes: 120, waitingOn: 'nobody', note: 'merged', pr: null,
+  wave: 'Implementation', state: 'merged', phase: 'Development', group: 'done',
+  // `waitingOn: null` — the schema's own spelling of "nothing is waiting".
+  // This fixture said `'nobody'`, which the enum does not admit; the client
+  // CAST its payload, so it reached the renderer as a word no branch reads.
+  ageMinutes: 120, waitingOn: null, note: 'merged', pr: null,
   branchUrl: '', waitingDays: null, verdict: 'blocked',
   localDirty: false, localLocked: false, stuck: null, repair: null, ...over,
 });
@@ -59,84 +74,59 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({ branch: 'feature/other-a', plan: 'other', planFile: 'p-other.md' }),
     row({ branch: 'feature/other-b', plan: 'other', planFile: 'p-other.md' }),
   ];
-  return {
-    generatedAt: new Date().toISOString(),
-    ageSeconds: 1, ready: true, error: null, rows,
-    summary: { plans: 2, waves: 2, branches: rows.length, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
-    stuck: { stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 },
-    prAgeSeconds: 1, prNextInSeconds: 59, scanNextInSeconds: 4, prError: null,
-    issues: [], issueAnswer: 'unsupported', issueError: null,
-    ...over,
-  } as Fleet;
+  return buildFleet({ rows, ...over });
 }
 
 /** A card, defaulted to the deliverable `landed` plan in Testing. */
 function card(over: Record<string, unknown> = {}) {
-  return {
+  return buildCard({
     slug: 'landed', title: 'A landed plan', type: 'feature', phase: 'Testing',
     path: 'p-landed.md', prs: [], phaseDate: '', deliverable: true, ...over,
-  };
+  });
 }
 
 /** The board a stub answers with — `deliver` available, one deliverable card. */
-function board(over: Record<string, unknown> = {}) {
-  return {
-    generatedAt: new Date().toISOString(),
+function board(over: Partial<Board> = {}): Board {
+  return buildBoard({
     columns: [
-      { phase: 'Discovery', cards: [] },
-      { phase: 'Design', cards: [] },
-      { phase: 'Development', cards: [] },
-      // `landed` is deliverable; `other` is an Testing card with NO bit — e.g. a
+      column({ phase: 'Discovery', cards: [] }),
+      column({ phase: 'Design', cards: [] }),
+      column({ phase: 'Development', cards: [] }),
+      // `landed` is deliverable; `other` is a Testing card with NO bit — e.g. a
       // plan already delivered, which lands in Testing too and must offer nothing.
-      {
+      column({
         phase: 'Testing',
         cards: [
           card(),
           card({ slug: 'other', title: 'Another plan', path: 'p-other.md', deliverable: undefined }),
         ],
-      },
-      { phase: 'Released', cards: [] },
+      }),
+      column({ phase: 'Released', cards: [] }),
     ],
-    checklist: null, sprints: [], stories: [],
-    dispatch: { available: false, reason: '' },
-    approve: { available: false, reason: '' },
-    continue: { available: false, reason: '' },
-    idea: { available: false, reason: '' },
-    commission: { available: false, reason: '' },
-    reslice: { available: false, reason: '' },
     deliver: { available: true, reason: '' },
-    server: { restartCommand: '', port: 0, branch: '' },
     ...over,
-  };
+  });
 }
 
 describe('a deliverable plan carries Deliver, and no other plan does', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(
     payload: Fleet = fleet(),
-    boardPayload: Record<string, unknown> = board(),
+    boardPayload: Board = board(),
   ): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.route('**/api/board', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(boardPayload) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: { fleet: payload, board: boardPayload },
+    });
     await page.getByText('Done').first().waitFor({ timeout: 10_000 });
     // DONE is collapsed by default — the same click a reader makes to see inside.
     const doneToggle = page.locator('[data-group-toggle="done"]');
