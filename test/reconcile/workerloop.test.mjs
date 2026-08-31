@@ -143,8 +143,36 @@ function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
     if (killAfterMs > 0) {
       timer = setTimeout(() => killGroup(child.pid, signal), killAfterMs);
     }
+
+    // A BACKSTOP, because `exit` is the ONLY thing that resolves this promise —
+    // so a loop that never exits hangs the test for the full `--test-timeout`,
+    // and node's timeout kills the TEST without reaping the loop's group.
+    //
+    // Measured on CI 2026-08-31, across two runs of this file: `a timed-out
+    // worker exits without hopping` (862) and `the bound fires with
+    // timeout(1)/gtimeout absent from PATH` (863) each hung 300 002 ms in one
+    // run and passed in ~1.1 s in the other. They are near-identical — bound 1s,
+    // prompt 48/49s, same helper — so the flake is in `run_bounded`'s reaping,
+    // not in either test, and it MOVES between adjacent tests.
+    //
+    // The witness caught what survives: one `plot-worker-loop.sh` holding a
+    // `sleep 5` (the monitor watcher), parented to a dead test process, still
+    // there ten minutes later.
+    //
+    // 60s is ~50x the honest duration of every test in this file and well under
+    // the 300s test timeout, so it converts a five-minute wedge into a named
+    // failure while never firing on a healthy run. It resolves rather than
+    // rejects: the assertions then report what the loop actually did, which is
+    // more useful than a timeout message.
+    const HANG_BACKSTOP_MS = 60_000;
+    const backstop = setTimeout(() => {
+      killGroup(child.pid, 'SIGKILL');
+      stderr += `\nrunLoop: the loop did not exit within ${HANG_BACKSTOP_MS}ms; killed its process group`;
+    }, HANG_BACKSTOP_MS);
+
     child.on('exit', (code, sig) => {
       if (timer) clearTimeout(timer);
+      clearTimeout(backstop);
       // The loop has exited; its group may not have. Sweep it before resolving,
       // so no test can leave a descendant behind for the runner to wait on.
       killGroup(child.pid, 'SIGKILL');
