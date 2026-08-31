@@ -75,8 +75,16 @@ fleet document on every arriving scan line — as the cause. That code is still 
 real inefficiency and worth fixing, but it cannot be this, because the stalls
 concentrate where it does not run.
 
-**Memory is not the cause either.** Slow samples average **381 MB** RSS, fast
-samples **380 MB**. There is no difference to explain anything.
+**Memory does not predict a slow SAMPLE** — slow samples average 381 MB RSS,
+fast ones 380 MB — but **it does grow, and the growth is steep.**
+
+Corrected 2026-08-31: a restart put RSS at **80 MB**, against **419 MB** on the
+process it replaced after 1h38m, and the fresh process reached **222 MB within
+one minute**. The earlier "RSS is flat" reading was taken over one-minute
+windows and measured a plateau, not a trend.
+
+So memory is not what makes any single request slow, and it is still a real
+growth to explain. The two questions are separate and both open.
 
 So what is measured and certain is the SYMPTOM: the event loop is blocked in
 bursts of 1.5–5 s, roughly every 8 s, and a static file is as slow as an API
