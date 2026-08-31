@@ -130,9 +130,25 @@ describe('a browser test that stubs its own state starts no board', () => {
    * adds this file, so the expected end state is 48 files and 477 + this
    * file's own tests.
    */
+  /**
+   * What counts as a declared test, INCLUDING one carrying a modifier.
+   *
+   * The lookbehind rejects a preceding word character or dot, so `describe.it(`
+   * and `unit(` do not count. The optional group is what admits `it.skipIf(…)(`
+   * and its siblings: a guarded test still exists, still runs wherever its
+   * guard allows, and must not read to this gate as a deletion.
+   *
+   * Measured 2026-08-31: adding one `it.skipIf(!!process.env.CI)(` dropped this
+   * count from 479 to 478 and failed the gate — correctly, by its own rule,
+   * since a bare `it(` had disappeared. But nothing was removed, and lowering
+   * the constant would have recorded a deletion that did not happen. The
+   * counter learns the spelling instead.
+   */
+  const IT_DECLARATION = /(?<![\w.])it\s*(?:\.\s*\w+\s*\([^)]*\)\s*)?\(/g;
+
   it('keeps every test it moved — a migration is not a deletion', () => {
     const its = testFiles.reduce(
-      (total, file) => total + (codeOf(file).match(/(?<![\w.])it\s*\(/g)?.length ?? 0),
+      (total, file) => total + (codeOf(file).match(IT_DECLARATION)?.length ?? 0),
       0,
     );
     expect(testFiles.length, 'browser test FILES changed — a migration adds and removes none')
