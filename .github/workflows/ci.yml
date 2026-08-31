@@ -122,7 +122,14 @@ jobs:
           done
           echo "=== fixture directories ==="
           ls -dt "${TMPDIR:-/tmp}"/plot-* 2>/dev/null | head -20 || true
+      # BOUNDED like its neighbours. The reconcile step above carries
+      # `timeout-minutes: 12` because it once wedged until the job ceiling at 25
+      # and reported nothing; this step had no bound at all. E2E dispatches real
+      # workers, so it is the likeliest of all of them to hang — and now that it
+      # is CI's gate rather than a local one, a hang here is the only place the
+      # failure can surface.
       - name: E2E choreography tests
+        timeout-minutes: 15
         run: pnpm run test:e2e
 
       # ── Domain: the package the board now imports its entities from. Gated

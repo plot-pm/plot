@@ -113,10 +113,31 @@ package under `packages/`.
 pnpm install         # install dependencies first if node_modules is missing
 pnpm test            # validates all skills parse correctly
 pnpm run test:reconcile   # plan-format contract tests (plot-plan-meta.sh)
-pnpm run test:e2e         # lifecycle choreography in sandbox repos (stubbed hosts)
 pnpm run test:board       # rebuilds the board artifact + runs its tests
 pnpm run typecheck        # typechecks @plot-pm/board
+
+pnpm run test:e2e         # lifecycle choreography in sandbox repos — CI's job,
+                          # NOT part of a local run. See below.
 ```
+
+**`test:e2e` IS CI'S GATE, NOT A LOCAL ONE.** Run it when you are changing the
+lifecycle itself and want the feedback; do not run it as a matter of course, and
+do not put it in a brief's list of repo gates.
+
+It dispatches **real workers into sandbox repositories** — that is its whole
+value and its whole cost. Measured 2026-08-31: two agents running it produced
+**53 concurrent `node --test` processes**, load average 8.69, and an operator's
+board that could not answer a request in 25 seconds. Three suites here take 5–10
+minutes; several agents run them at once, on the one machine the board also
+lives on.
+
+**Nothing local depends on it passing.** CI runs it on every PR, bounded by
+`timeout-minutes`, and CI is the authority. An agent that runs it locally is
+paying the cost twice and starving everything else the second time.
+
+The trade is explicit: skipping it locally means an e2e failure is discovered
+after a push, costing one CI round trip. That cost is bounded and serialised. An
+unbounded local run is neither, and it takes the machine down with it.
 
 **Always install dependencies and run tests.** If `pnpm test` fails due to missing `node_modules`, install them and retry — never skip tests or dismiss the failure.
 
