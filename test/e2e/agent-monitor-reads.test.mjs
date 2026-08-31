@@ -202,8 +202,28 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
     workerCommand: "sh -c 'mkdir -p .changeset && echo work > done.txt && printf -- '\\''---\\n\"plot\": patch\\n---\\n\\nA real description of a real change.\\n'\\'' > .changeset/thing.md && git add -A && git commit -qm work && git push -q -u origin HEAD'",
   });
   try {
-    // Give the loop several intervals over a desk that owes nothing.
-    execFileSync('sleep', ['5']);
+    // WAIT FOR THE POLL, DO NOT GUESS AT IT. The two assertions below want
+    // opposite things from the clock: the empty-findings one is a NEGATIVE and
+    // gets stronger the longer it waits, while the host-was-asked one is a
+    // POSITIVE and needs at least one sample to have happened.
+    //
+    // A fixed `sleep 5` at `monitorInterval: 3` served neither well. The worker
+    // runs mkdir, a write, `git add`, `git commit` and `git push` before the
+    // desk is even in the state being measured — so on a loaded runner the five
+    // seconds could contain a single sampling opportunity, or none. Measured on
+    // CI 2026-08-31 and again 2026-09-01: this test failed on
+    // `the monitor never asked the host` on two main commits whose diffs were
+    // markdown, and passed on the commits between them.
+    //
+    // Polling for the event is strictly stronger than the sleep it replaces:
+    // the positive becomes deterministic rather than probable, and the negative
+    // gets AT LEAST the old five seconds, usually more — the loop only stops
+    // once a poll has actually happened.
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline
+      && !stub.calls().some((c) => c.startsWith('gh pr list'))) {
+      execFileSync('sleep', ['0.25']);
+    }
     const records = fs.existsSync(run.findingsFile)
       ? fs.readFileSync(run.findingsFile, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
       : [];
