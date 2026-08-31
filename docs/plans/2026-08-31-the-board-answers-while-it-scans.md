@@ -323,6 +323,30 @@ but secondary-limit backoff is at least as likely a contributor, and the two are
 indistinguishable from the outside — both present as wall-clock time at 0 % CPU.
 Any probe must tell them apart, or it will confidently name the wrong one.
 
+**AND A SINGLE SAMPLE CONSTRAINS BOTH OF THEM.** Observed 2026-08-31 19:34:05:
+
+```
+BOARD UNREACHABLE: http=000 after 10006ms, pid=1585 rss=212432KB
+                   cpu=0.0 children=0 scan=no
+```
+
+**`children=0` with `scan=no`.** A total outage of more than ten seconds with no
+child process in flight and no scan running. Every host call above — the 22 s
+`pr-list --rich`, the throttled retry — runs as a CHILD. So whatever blocked the
+server for those ten seconds, it was not a host call, because there was no
+process to make one.
+
+That does not retire the host findings: a 22 s host call still explains a stale
+refresh, and it is worth fixing on its own. It does mean the host call **cannot
+be the whole cause**, and that a probe which only instruments host access will
+come back clean on exactly the samples that matter most.
+
+**What it points at:** something inside the Node process, blocking the event
+loop with nothing spawned. That is a narrower target than "a whole event loop" —
+and it is reachable, because a synchronous block of that length is visible to
+`--cpu-prof` or to an event-loop-delay histogram (`perf_hooks.monitorEventLoopDelay`),
+neither of which needs a reproduction on demand.
+
 **Not yet established:** which await fails to yield while this is in flight. The
 call being slow explains a slow refresh; it does not by itself explain the
 SERVER going unresponsive to unrelated requests. That is still the open
