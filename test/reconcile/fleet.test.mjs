@@ -1390,6 +1390,160 @@ esac
   h.cleanup();
 });
 
+// --- a squash-merged branch whose ref survives, from the LIST -----------------
+//
+// `a-squash-merged-branch-is-not-quiet`, delivered as a REGRESSION LOCK. The
+// fallback it specified — `branch_state` consulting the repo-wide merged-PR
+// list when ancestry says no — was already in place when the branch was
+// picked up, shipped by the mirror plan `a-reset-branch-is-not-a-merged-one`
+// (the `host_pr_state` check in the `ahead > 0` arm). All four of the plan's
+// done-whens were measured passing on 2026-08-31 before a line was written.
+//
+// What was NOT in place is the evidence. The test above pins the positive
+// case; these pin the three ways a future change could take it back without
+// failing anything:
+//
+//   1. `= MERGED` widened to "not OPEN" — a CLOSED PR would then settle a wave
+//      on work that was abandoned. The existing CLOSED test covers only the
+//      NO-REF arm, so nothing held this one.
+//   2. an empty or failed `pr-list` read as evidence rather than as silence —
+//      the plan's own defect inverted, and the failure `a-throttled-host-says-so`
+//      measured: a throttled `gh` yields an empty list indistinguishable from
+//      "there are no merged PRs".
+//   3. the verdict re-fetched per branch — the list is already on the PR timer,
+//      and the plan forbids a new call for it.
+//
+// The population is VOLATILE, which is the plan's own argument for shipping
+// against the smaller reading: 12 such branches on 2026-08-28, 1 on 2026-08-30,
+// 1 on 2026-08-31 (`docs/the-readme-says-what-the-fleet-is-for`, PR #481).
+// A periodic payoff is still a payoff, and a lock costs nothing between peaks.
+
+// A branch squash-merged with its ref left in place: `ahead > 0` (the
+// pre-squash commits are unreachable from main) and `real > 0`, so it takes
+// the in-flight arm where only the host can tell landed work from live work.
+function squashKeptRef(prefix) {
+  const f = makeRepo(prefix,
+    '# P\n\n## Status\n\n- **Phase:** Approved\n\n## Branches\n\n### One\n' +
+    '- `feature/sq` — squash-merged, ref kept\n');
+  f.work('feature/sq', 's.txt');
+  f.push('-u', 'origin', 'feature/sq');
+  squashMerge(f, 'feature/sq', 42);
+  f.push('origin', 'main');
+  return f;
+}
+
+// A host whose repo-wide list reports one PR for `feature/sq` in `state`.
+// `pr-state` answers NONE throughout: the verdict must come from the LIST, and
+// a fallback that quietly asked per branch would be served the wrong answer
+// here rather than silently passing.
+const listingHost = (state) => `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "\${PLOT_TEST_CALLS:-/dev/null}"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  pr-list) echo '{"number":42,"title":"t","state":"${state}","head":"feature/sq","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}' ;;
+  *) echo "{}" ;;
+esac
+`;
+
+test('fleet: a CLOSED-unmerged PR leaves a surviving ref in progress, not merged', () => {
+  // `mergedAt` is null for both a merged and a closed-unmerged PR under the
+  // per-PR lookup, which is why `plot-pr-merged.sh` reads it rather than
+  // `state`. THE LIST IS THE OTHER CASE: `gh pr list --json state` reports
+  // MERGED as its own word — verified against this repo 2026-08-31, where
+  // every row with a non-null `mergedAt` carried `state:"MERGED"` — so the
+  // cache can tell them apart and this arm may compare the word.
+  //
+  // That equivalence is exactly what a future edit could break. Only an
+  // explicit MERGED may move a branch off the local walk; widening the test to
+  // "anything but OPEN" passes every other case in this file and settles a
+  // wave on abandoned work.
+  const f = squashKeptRef('plot-fleet-sqclosed-');
+  const h = hostShim(listingHost('CLOSED'));
+  const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+  assert.match(branchLine(out, 'feature/sq'), / — in progress$/,
+    'a closed, unmerged PR is not landed work — the local walk stands');
+  assert.doesNotMatch(waveLine(out, 'One'), / — complete$/,
+    'and its wave must not complete on abandoned work');
+  h.cleanup();
+  f.cleanup();
+});
+
+test('fleet: an empty or failed PR list never reads as "not merged"', () => {
+  // THE VACUOUS PASS THE PLAN NAMES. Testing only against a populated list
+  // proves the join works and says nothing about the case that actually costs:
+  // `plot-host.sh`'s `pr-list` does not check `gh`'s exit code and runs under
+  // `set -uo pipefail` with no `-e`, so a throttled host yields an EMPTY list
+  // that is indistinguishable from "this repo has no merged PRs".
+  //
+  // A fallback reading "a branch among the merged PRs is merged, whatever
+  // ancestry says" therefore reads every branch as unmerged during a rate
+  // limit. The correct behaviour is not a different verdict — `wip` is what
+  // the local walk already says — but that SILENCE IS NEVER EVIDENCE: the
+  // branch keeps the local reading, and its wave stays blocked rather than
+  // completing on an answer nobody gave. (`wip` is the JSON word; the prose
+  // these assertions read renders it `in progress`.)
+  //
+  // Both shapes, because they arrive differently: exit 0 with no output (the
+  // throttle) and a non-zero exit (the outage).
+  for (const [label, listBody] of [
+    ['silent (exit 0, no rows)', ':'],
+    ['failed (exit 1)', 'echo "plot-host: HTTP 503 (server error)" >&2; exit 1'],
+  ]) {
+    const f = squashKeptRef('plot-fleet-sqquiet-');
+    const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  pr-list) ${listBody} ;;
+  *) echo "{}" ;;
+esac
+`);
+    const out = execFileSync('bash', [h.scan, 'p'], { encoding: 'utf8', cwd: f.dir });
+    assert.match(branchLine(out, 'feature/sq'), / — in progress$/,
+      `a ${label} list is silence, not a verdict — the local walk must stand`);
+    assert.doesNotMatch(waveLine(out, 'One'), / — complete$/,
+      `a ${label} list must not complete a wave`);
+    h.cleanup();
+    f.cleanup();
+  }
+});
+
+test('fleet: the merged verdict costs no host call beyond the shared list', () => {
+  // THE FOURTH DONE-WHEN, asserted by spawn count rather than promised. The
+  // repo-wide list is already fetched on the PR timer, and this reading must
+  // JOIN it rather than ask again — a per-branch lookup here would put one
+  // call per in-flight branch back into a scan the board polls every 5 s,
+  // undoing the change that removed them (#216).
+  //
+  // The control is what makes the count mean something: the same fixture is
+  // scanned twice, once where the list names the branch MERGED and once where
+  // it names it OPEN. The verdicts must DIFFER — proving the list is genuinely
+  // being read — while the host op counts stay IDENTICAL, proving the second
+  // answer cost nothing extra. A test asserting only the count would pass
+  // against a scan that had stopped consulting the host at all.
+  const merged = squashKeptRef('plot-fleet-sqcost-m-');
+  const open = squashKeptRef('plot-fleet-sqcost-o-');
+  const m = countCalls(merged, listingHost('MERGED'));
+  const o = countCalls(open, listingHost('OPEN'));
+
+  assert.match(branchLine(m.out, 'feature/sq'), / — merged$/,
+    'the merged list must decide the verdict');
+  assert.match(branchLine(o.out, 'feature/sq'), / — in progress$/,
+    'and an open PR must not — otherwise the count below proves nothing');
+  assert.equal(m.total, o.total,
+    `the verdict must come from the shared list: MERGED cost ${m.total} ` +
+    `(${m.ops.join(',')}), OPEN cost ${o.total} (${o.ops.join(',')})`);
+  assert.equal(m.ops.filter((op) => op === 'pr-state').length, 0,
+    `a branch whose ref exists is answered by the join, never per branch: ` +
+    `${m.ops.join(',')}`);
+
+  merged.cleanup();
+  open.cleanup();
+});
+
 test('fleet: the host is asked once per absent branch, and never for a present ref', () => {
   // COST, which is what decides whether this can live under a 5-second poll.
   // `branch_state` runs inside a command substitution — a subshell — so a
