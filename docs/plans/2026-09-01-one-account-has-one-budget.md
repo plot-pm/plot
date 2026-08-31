@@ -152,21 +152,108 @@ empty cache and asks everything.
 
 The spender that matters is the **account**, so the record lives where every
 process on the machine can find it — under `.plot/state/`, keyed by host and
-account, holding what has been spent and when the window resets.
+account, holding what has been spent, against which bucket, and when.
 
-Every host call goes through `plot-host.sh` already. That is the one place that
-must read the budget before spending and record the spend after, which is what
-makes this enforceable rather than advisory: a component that forgets to ask
-cannot reach the host at all.
+Every host call goes through `plot-host.sh` already, which is the one place that
+appends to it.
+
+### GraphQL stays the default, and the asymmetry is why
+
+The obvious inversion — *use REST whenever possible, switch to GraphQL when REST
+is spent or lacks a feature* — is rejected, and `plot-host.sh:524` already
+argues it in those words:
+
+> "Use REST whenever possible" trades one cheap call for a hundred and eighty.
+
+The cause is structural rather than incidental. **Verified 2026-09-01** against
+this repo:
+
+    GET /repos/{o}/{r}/pulls  →  mergeable_state: null,  no statusCheckRollup
+
+REST's list endpoint carries neither the merge state nor the check rollup, so
+full data costs **two REST calls per PR** — ~186 for a 93-branch scan — against
+**one** GraphQL call that returns the rollup inline. Inverting the default would
+multiply the board's main query by ~186 and exhaust `core` faster than GraphQL
+is exhausted today, which is the failure this plan exists to remove rather than
+relocate.
+
+**So the rule is: the cheap path per question, with the other bucket as the
+fallback.** For a PR list that is GraphQL. It is not a global preference for one
+API, and the plan should not be read as endorsing GraphQL — a question REST
+answers in one call belongs on REST, and `issue-view` fetching one issue is a
+candidate.
+
+**Where REST is not a fallback but the only answer**, the routing must say so
+too: a feature GraphQL lacks is a routing input exactly like a spent budget.
+
+### The routing decision belongs where every adapter can reuse it
+
+**This is the plan's structural gap, and it is bigger than the budget.** The
+choice between paths is made *inside* one op's github branch —
+`plot-host.sh:1046`, within `if [ "$be" = "github" ]`, under a comment saying
+*"THE ROUTE IS CHOSEN ONCE, HERE"*. Once **for `pr-state`**, and nowhere else.
+
+**Measured 2026-09-01:**
+
+| | count |
+|---|---|
+| backend branches (`be" = "github"`) in `plot-host.sh` | **14** |
+| paths that consult the budget at all | **3** |
+
+So roughly eleven host-touching paths spend with no idea what is left, and any
+new op inherits that by default — the routing was written for one question and
+never generalised. A second copy would drift from the first, which is the
+argument `plot-pr-merged.sh` already makes about a duplicated gate failing in
+the permissive direction.
+
+**One router, asked by every op.** Given a question, the budget record and what
+each API can answer, it returns which path to take — or that neither can be
+taken now. The ops call it; they do not each re-derive it. That is also what
+makes the `Host` port (`packages/domain/src/ports/host.ts`) able to express this
+for adapters other than `gh`: the decision is a domain rule over readings, not a
+property of one CLI.
+
+### There is no registry, and no lock
+
+Two things this plan deliberately does NOT build, because both were considered
+and both cost more than they return.
+
+**No spender registry.** Nothing counts boards. Measured 2026-09-01: nothing
+registers a running board at all — `.plot/state/` holds `fleet-controls.json`
+and `last-pulse.json`, and `index.ts` knows its own `boundPort` and nothing
+about peers. A lease file with heartbeats would answer *"how many boards?"* and
+bring with it a liveness protocol and stale-entry reaping — the same class of
+problem the orphaned-server work has already been through twice, with one
+unexplained termination path and 152 orphans measured on this machine.
+
+**Instead the spend rate is the signal.** Each spender appends what it spent,
+with a timestamp; a board derives its cadence from the observed rate across the
+whole file, not from a headcount. A board that dies stops appending and stops
+counting, with nothing to reap and no protocol to get wrong. *"How many
+spenders"* becomes a question nobody has to answer correctly.
+
+**No lock.** Reading and writing the budget under a lock on a 5 s cadence
+serialises every host call behind a filesystem operation. The budget is
+**best-effort**: appended without a lock, tolerant of a lost write, and read as
+an estimate. An occasional double-spend costs one request out of 5000; a lock on
+the hot path costs latency on every request and adds a failure mode — a stale
+lock — whose recovery nobody has written.
+
+**This makes the budget advisory, and that is the honest description.** It is
+not a quota enforcer. It is a shared measurement that lets a cadence adapt, and
+the property below is what it must deliver.
 
 ### The cadence divides, it does not double
 
 A board's refresh interval already stretches by per-refresh cost. It must also
-stretch by **the number of live spenders**: two boards on GitHub refresh every
-120 s, not every 60 s, and the pair still spends 60 requests an hour.
+stretch by the **observed spend rate**: when two boards are spending, each
+refreshes half as often, and the pair still spends 60 requests an hour.
 
 This is the property the plan is named for. A second board must not increase
-what the account spends — it must halve what each board spends.
+what the account spends — it must halve what each board spends. Note what
+follows from deriving it from rate rather than headcount: the operator's own
+`gh` calls from a terminal, and a dispatched worker's scans, are counted too,
+because they also append. A headcount of boards would have missed both.
 
 ### Concurrency is a separate ceiling from quota
 
@@ -188,13 +275,20 @@ closing a board rather than waiting for GitHub.
 
 - [ ] Where does the budget file live when boards run from different worktrees?
       `.plot/state/` is per-checkout, and two worktrees of the same repo are two
-      directories with one account behind them. A path derived from the account
-      rather than the checkout may be required — decide before the first slice
-      writes a file, because moving it later is a migration.
-- [ ] Is a file lock enough, or does the budget need a daemon? A lock per call
-      adds latency to every host request on a 5 s cadence. Measure the lock cost
-      against the round trip it protects; if it is small, a file is simpler than
-      a process that can itself die.
+      directories with one account behind them — measured tonight: two boards
+      ran from two worktrees. The record is keyed by ACCOUNT, so its path must be
+      too; a per-checkout path would give each worktree its own budget and
+      reproduce the exact bug this plan exists to fix, one level up. Decide
+      before the first slice writes a file, because moving it later is a
+      migration.
+- [x] Is a file lock enough, or does the budget need a daemon? **Neither — the
+      budget is lock-free and best-effort.** An append without a lock can lose a
+      write; that costs one request of 5000 and is recoverable by the next
+      append. A lock costs latency on every call and introduces stale-lock
+      recovery, and a daemon introduces a process that can die holding the
+      answer. The remaining question is not the lock but the FORMAT: an
+      append-only record tolerates concurrent writers far better than a
+      rewritten JSON object, and the first slice should pick accordingly.
 - [ ] What does a script do when the budget is spent — refuse, or spend anyway
       and say so? `plot-reap.sh` treats an unreachable host as *not merged* and
       keeps, which is safe. `/plot-deliver` blocking on a budget would be new
@@ -204,15 +298,19 @@ closing a board rather than waiting for GitHub.
 
 ### Counting what is spent
 
-- `bug/the-host-adapter-counts-what-it-spends` — `plot-host.sh` records every call against a per-account budget under `.plot/state/`, and reads it before spending. No behaviour change yet beyond the record: the deliverable is a number every component can see, and the answer to the file-location open question.
+- `bug/the-host-adapter-counts-what-it-spends` — `plot-host.sh` appends every call to a per-account record, lock-free, and can read back the recent spend rate. No behaviour change beyond the record: the deliverables are a number every component can see, the append format (which must tolerate concurrent writers without a lock), and the answer to where the file lives when two worktrees share one account.
 
 ### Dividing the cadence
 
-- `bug/the-board-refresh-divides-by-its-peers` — `fleet.ts` derives `PR_REFRESH_MS` from the live spender count as well as the per-refresh cost, so N boards spend what one board spends. The measurement is two boards running for an hour against a request count.
+- `bug/the-board-refresh-divides-by-its-peers` — `fleet.ts` derives `PR_REFRESH_MS` from the observed spend rate as well as the per-refresh cost, so N boards spend what one board spends. No peer counting: the rate is read from the record, which also captures the operator's own `gh` calls and a worker's scans. The measurement is two boards running for an hour against a request count.
 
 ### Telling the two limits apart
 
 - `bug/a-secondary-limit-is-not-a-spent-quota` — the banner names which limit was hit, prints a reset time only when there is one, and when the cause is local contention says how many spenders it found. `plot-host.sh` already distinguishes them at `host_failure_kind`; the board discards the distinction.
+
+### One router, reused
+
+- `bug/one-router-chooses-the-path` — extract the path choice from `pr-state`'s github branch into one routing rule asked by every op: given the question, the per-bucket record and what each API can answer, which path (or neither). Expressed so the `Host` port can carry it, since 14 backend branches consult 3 budgets today and a second copy of the rule would drift permissive. No new capability — the deliverable is that eleven paths stop spending blind.
 
 ### Budgeting each bucket by name
 
@@ -230,6 +328,8 @@ closing a board rather than waiting for GitHub.
 - A third board changes that number by nothing.
 - The banner never prints a reset time it did not receive, and when the limit is
   local it says how many spenders were found.
+- **Every op consults the router**, and no op re-derives the choice. Asserted by
+  there being one implementation, not by review.
 - **A spent GraphQL bucket does not stop a REST call, and vice versa** — the two
   are budgeted by name, so the board keeps answering from the bucket that has
   4990 left instead of pausing on the one that has 0.
@@ -251,6 +351,13 @@ and stated its unit; `plot-host.sh` separated the primary limit from the
 secondary one and recorded the outage that motivated it. Both were right about
 what they measured. The gap is that a *process* was the unit of both, and the
 limit's unit is an account.
+
+**The cheap path is per question, not per API.** An earlier reading of this
+plan inverted it — REST first, GraphQL when REST runs out — which is the natural
+instinct once you know REST's bucket is the untouched one. The measured
+asymmetry refuses it for the board's main query, and the same measurement is why
+the router takes the question as an input rather than applying one global
+preference.
 
 **The aggregate endpoint is not a source of truth.** Two of this plan's
 findings come from comparing it to the headers on a real response, and both

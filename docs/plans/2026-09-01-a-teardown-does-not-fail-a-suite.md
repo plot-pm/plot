@@ -42,6 +42,20 @@ Error: ENOTEMPTY, Directory not empty: /var/folders/…/T/plot-board-stub-8mC1bY
     at Object.cleanup (packages/board/test/helpers.mjs:246:23)
 ```
 
+### The control: serial passes, parallel fails
+
+**Measured 2026-09-01 on the same tree, same commit:**
+
+| run | result |
+|---|---|
+| `node --test --test-concurrency=1 test/*.test.mjs` | **exit 0** |
+| `node --test --test-concurrency=4` (what `test:board` runs) | **failed 5 of 5 attempts** |
+
+That is the cleanest available proof that the tests themselves are sound and
+concurrency is the whole trigger. It also rules out the tempting alternative
+reading — that the fixtures collide on a shared temp root — because a shared
+root would collide serially too.
+
 ### The diagnosis is already written down, one file away
 
 `helpers.mjs:455` explains the mechanism in full, for the `rmTree` it introduces:
@@ -101,16 +115,49 @@ synchronous so it drops into non-async `after()` hooks, and rethrows anything
 outside `ENOTEMPTY`/`EBUSY`/`EPERM` on the first attempt so a genuinely broken
 fixture still fails fast.
 
-### The unit is a teardown of a directory a server wrote in
+### Every test teardown, because the distinction costs more than it saves
 
-**Not every `fs.rmSync` in the suite.** The 81 include cases with no server and
-no child — a `mkdtemp` a unit test wrote a JSON file into cannot race anything,
-and converting it adds a retry that can never fire. The population is a
-teardown that removes a directory some spawned process had open, which is what
-makes contention possible.
+The tempting scope is *"only the teardowns that can race a child"*. It is
+rejected, for two reasons that only became clear once the numbers were counted.
 
-Deciding which is the first slice's work, from the same reading the count came
-from, rather than a blanket substitution.
+**A retry that never fires is free.** `rmTree`'s first attempt IS
+`fs.rmSync(target, { recursive: true, force: true })` — the identical call, and
+on a clean removal it returns from that attempt. There is no behaviour to
+change, no delay to pay, and nothing to weigh: a site that cannot race is
+converted at zero cost.
+
+**And the precise population is not nameable.** *"Removes a directory a spawned
+process wrote in"* is a judgement about what a fixture did, which no grep can
+decide — the plan would ask a reviewer to re-make that judgement every time a
+teardown is added, which is a rule, and this repo's own guidance says a rule is
+what an author can answer *"did I do this?"* about without doing it.
+
+**So the rule is mechanical: a test teardown does not call `fs.rmSync`
+directly.** Gateable by grep, decidable without judgement, and it makes the
+second Open Question answerable rather than perpetual.
+
+**Measured 2026-09-01 — the population, exactly:**
+
+| | count |
+|---|---|
+| `fs.rmSync(…, { recursive })` under `packages/board/test/` | **80** |
+| of those, already inside `rmTree` itself | 1 (`helpers.mjs:481`, the implementation) |
+| `rmTree(` call sites | **1** |
+
+### Production is NOT in scope, and one production site looks like the same bug
+
+Three `fs.rmSync` calls live in `packages/board/src/`:
+
+    server/idea.ts:691    removes an idea worktree
+    server/board.ts:1579  removes a stage dir
+    server/board.ts:1864  removes a stage dir
+
+`board.ts`'s two remove a directory a **git** process wrote in, which is the
+same shape as the failure this plan is about — a doomed child writing after its
+parent was signalled. They are excluded anyway: this plan is about a teardown
+failing a test suite, and a production `rmSync` throwing is a different subject
+with a different blast radius. **Recorded so it is not mistaken for coverage** —
+whether the board itself can fail this way is worth its own reading.
 
 ### Why not make `cleanup()` the only door
 
@@ -129,10 +176,13 @@ be writing to, and they would keep failing after the helper was fixed.
       which is a heavier contention than CI's, and a 250 ms ceiling may be short.
       Measure before changing it — a retry budget raised on a guess hides the
       next real failure for a quarter second longer and proves nothing.
-- [ ] Should a `PLOT-*` guard fail the build when a new raw recursive `rmSync`
-      appears in a teardown? A gate is the repo's stated preference over a rule,
-      but the population above is *"teardowns that race a child"*, which no grep
-      can name precisely. A gate that fires on all 81 would be turned off.
+- [x] Should a guard fail the build when a new raw recursive `rmSync` appears in
+      a test teardown? **Yes, and the blanket scope is what makes it possible.**
+      The population is now *"a file under `packages/board/test/` calling
+      `fs.rmSync` with `recursive`"* — a grep, not a judgement — with a single
+      allowance for `rmTree`'s own implementation. A gate scoped to *"teardowns
+      that race a child"* would have needed a reviewer's opinion per site and
+      would have been turned off; this one cannot be argued with.
 
 ## Branches
 
@@ -140,9 +190,9 @@ be writing to, and they would keep failing after the helper was fixed.
 
 - `bug/the-stub-fixture-retries-its-teardown` — `helpers.mjs:246` calls `rmTree`. One line, plus the test that proves the fixture survives a directory that regrows once. This alone would have prevented all three failures measured tonight, so it ships first and separately.
 
-### The teardowns beside it
+### Every teardown, and the gate that keeps it that way
 
-- `bug/a-server-test-tears-down-with-the-retry` — the sites that remove a directory a spawned server wrote in: `port.test.mjs` (4), `lifetime.test.mjs` (4), `agent-panel.test.mjs`, `worker-log.test.mjs`, and whatever the reading adds. Each converted to `rmTree`; the ones with no child process are listed and left alone, with the list in the PR so the exclusion is reviewable.
+- `bug/a-test-teardown-does-not-call-rmsync` — all 79 remaining sites under `packages/board/test/` converted to `rmTree`, plus a gate refusing a new raw recursive `fs.rmSync` in that directory (allowing only `rmTree`'s own implementation). Mechanical rather than judged: `rmTree`'s first attempt is the identical call, so a site that cannot race is converted at no cost, and the diff is reviewable as a substitution rather than as 79 decisions.
 
 ### Knowing whether it worked
 
@@ -153,8 +203,12 @@ be writing to, and they would keep failing after the helper was fixed.
 - **`test:board` passes on a FIRST run, twice in a row, under deliberate
   contention** — a second suite running in another worktree. Measured and stated
   in the changeset, because "passes on a re-run" is the symptom, not the fix.
-- No teardown of a directory a spawned process wrote in calls `fs.rmSync`
-  directly; the sites deliberately left alone are named in a PR.
+- **No file under `packages/board/test/` calls `fs.rmSync` with `recursive`**,
+  `rmTree`'s own implementation excepted, and a gate fails the build when one
+  reappears. Asserted by the gate, not by review.
+- The three production sites are untouched, and the reading of whether
+  `board.ts`'s stage-dir removals can fail the same way is recorded somewhere a
+  plan can pick it up.
 - `git-retry.test.mjs`'s absorption test still passes, and the fixture gains one
   proving `cleanup()` itself survives a regrowing directory.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm build:board`, changeset.
