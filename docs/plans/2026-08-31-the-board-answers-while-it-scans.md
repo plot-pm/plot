@@ -1,7 +1,19 @@
 # The board answers while it scans
 
-> The board stops serving for seconds at a time because it recomposes the whole
-> fleet document on every streamed scan line, on the thread that answers HTTP.
+> The board stops serving for seconds at a time, at zero CPU, while something it
+> is waiting on has not come back. The cause is not settled; the leading measured
+> candidate is `pr-list --rich`, which costs 22 s of wall clock and 0.22 s of CPU
+> because GitHub computes `mergeable` on demand.
+
+<!--
+THE SUBTITLE HAS BEEN WRONG ONCE, AND THE CORRECTION IS THE POINT. It read "the
+board recomposes the whole fleet document on every streamed scan line, on the
+thread that answers HTTP" — a reading of the code, not of the data. The probe's
+own 238 samples then showed stalls are three times MORE likely with NO scan
+running (23% against 8%). See ## Notes for that and for everything else ruled
+out with a measurement. A plan whose headline states a refuted cause is worse
+than one with no headline: it is the sentence a reader carries away.
+-->
 
 ## Status
 
@@ -260,3 +272,34 @@ Ruled out, with measurements, so they are not re-investigated:
 - **the streamed scan itself** — stalls are 23 % of samples with no scan running
   against 8 % with one (238 samples)
 - **memory pressure** — slow samples average 381 MB RSS, fast ones 380 MB
+
+**A MEASURED CANDIDATE, 2026-08-31: `pr-list --rich` costs 4x, and the cost is
+GitHub's, not ours.** Timed by hand against this repo, back to back:
+
+| call | wall | cpu |
+|---|---|---|
+| `plot-host.sh pr-list --rich --state all --limit 1000` | **22.19 s** | 0 % |
+| `plot-host.sh pr-list --state all --limit 1000` | **5.48 s** | 3 % |
+
+**0 % CPU across 22 seconds is the whole finding.** The process spends 0.22 s of
+actual CPU; it is blocked on the network for the rest. That matches the board's
+own stall signature exactly — every `BOARD SLOW` sample reports `cpu=0.0` — so
+the board is not slow because it is computing, it is slow because it is waiting.
+
+It is not payload volume: the rich call returned **10** PRs, the plain one 4.
+The difference is which FIELDS are asked for. `--rich` requests `mergeable` and
+`mergeStateStatus`, and GitHub computes those **on demand**, blocking the
+response until a background merge-commit calculation settles.
+
+**Which explains the intermittency nobody could pin down.** The cost depends on
+whether GitHub already holds a cached mergeability result. Every push
+invalidates it for that PR — so an evening of active pushing is exactly when
+every poll pays full recomputation, and a quiet estate is exactly when the
+problem "goes away". The same field is why `gh pr list` intermittently reports
+`mergeable: UNKNOWN`; that is the cache being cold, seen from the other side.
+
+**Not yet established:** which await fails to yield while this is in flight. The
+call being slow explains a slow refresh; it does not by itself explain the
+SERVER going unresponsive to unrelated requests. That is still the open
+question, and it is the one the probe branch should answer — but it now has a
+specific thing to instrument rather than a whole event loop.
