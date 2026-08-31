@@ -27,8 +27,14 @@ export interface EstateSource {
    * answers from fixtures.
    */
   columns(opts: BuildBoardOptions, built: FleetStateAnswer): Column[];
-  /** The estate's row-shaped view, one row per branch. */
-  fleet(opts: BuildBoardOptions): Fleet;
+  /**
+   * The estate's row-shaped view, one row per branch.
+   *
+   * Awaited, because the real source reads plan statuses through the `Refs`
+   * port. A fixture source returns a value and satisfies this by being awaited
+   * on a resolved promise — the substitution is unaffected.
+   */
+  fleet(opts: BuildBoardOptions): Promise<Fleet>;
 }
 
 /**
@@ -67,6 +73,7 @@ export const realEstateSource: EstateSource = {
   // leaving a mock free to ignore it — see `boardState`.
   columns: (_opts, built) => built.columns,
   fleet: (opts) => buildFleet(opts),
+
 };
 
 /**
@@ -88,10 +95,10 @@ export const realEstateSource: EstateSource = {
  * @param query where to read the estate from
  * @returns the board answer
  */
-export const boardState = ({
+export const boardState = async ({
   opts,
   estate = realEstateSource,
-}: FleetStateQuery): FleetStateAnswer => {
+}: FleetStateQuery): Promise<FleetStateAnswer> => {
   // ONE READ, THEN THE SUBSTITUTION. This spread the result of `buildBoard`
   // and then called `estate.columns(opts)` — which, for the real source, IS
   // `buildBoard(opts)`. Two full board builds per request, each doing its own
@@ -105,7 +112,7 @@ export const boardState = ({
   // The read happens ONCE here and the columns are taken from it; a mock source
   // overrides them without ever reading the real estate, so `mockCards` still
   // REPLACES the payload rather than merging into it.
-  const built = buildBoard(opts);
+  const built = await buildBoard(opts);
   return { ...built, columns: estate.columns(opts, built) };
 };
 
@@ -119,5 +126,5 @@ export const boardState = ({
  * @param query where to read the estate from
  * @returns the fleet rows
  */
-export const fleetState = ({ opts, estate = realEstateSource }: FleetStateQuery): Fleet =>
+export const fleetState = ({ opts, estate = realEstateSource }: FleetStateQuery): Promise<Fleet> =>
   estate.fleet(opts);

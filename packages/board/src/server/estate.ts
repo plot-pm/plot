@@ -91,7 +91,10 @@ export const mockEstate = (): Estate => {
     // Every branch the mock's plans name reads as merged: the mock estate is a
     // finished one, and a fixture knows its own world rather than guessing at it.
     host: hostFixture({ merged: plans.flatMap((plan) => [...plan.branches]) }),
-    source: { columns: () => mockCards(), fleet: () => mockFleet() },
+    // `fleet` answers a resolved promise because the port made the real one
+    // awaited; the fixture reads nothing and waits for nothing, which is
+    // exactly what a caller cannot tell from the outside.
+    source: { columns: () => mockCards(), fleet: async () => mockFleet() },
   };
 };
 

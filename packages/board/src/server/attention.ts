@@ -343,8 +343,8 @@ export function isClaimable(row: AgentRow): boolean {
  * endpoint honest about its inputs: the rows it reads are the rows a caller can
  * fetch and check the verdicts against.
  */
-export function buildAttention(opts: BuildBoardOptions): Attention {
-  const fleet = buildFleet(opts);
+export async function buildAttention(opts: BuildBoardOptions): Promise<Attention> {
+  const fleet = await buildFleet(opts);
 
   const needsAgent: AttentionItem[] = [];
   const needsHuman: AttentionItem[] = [];
