@@ -247,10 +247,12 @@ describe('the process group — every process the registry started, not just one
     manifest('a.json', {
       session: 'g', pid: '7366', worktree: '/wt/g', startedAt: '2026-08-20T10:00:00Z',
       wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
+      buildMonitorPid: '7367',
     });
     const [e] = readAgentRegistry(root, home);
     assert.deepEqual(e.group, {
       wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
+      buildMonitorPid: '7367',
     });
   });
 
@@ -271,7 +273,7 @@ describe('the process group — every process the registry started, not just one
   it('distinguishes a member never started (empty) from the whole group unknown', () => {
     manifest('a.json', {
       session: 'nomon', pid: '10', startedAt: '2026-08-20T10:00:00Z',
-      wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '',
+      wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '', buildMonitorPid: '',
     });
     const [e] = readAgentRegistry(root, home);
     assert.notEqual(e.group, undefined, 'the group IS known — the manifest carries it');
@@ -286,7 +288,8 @@ describe('the process group — every process the registry started, not just one
       session: 'part', pid: '10', startedAt: '2026-08-20T10:00:00Z', wrapperPid: '11',
     });
     const [e] = readAgentRegistry(root, home);
-    assert.deepEqual(e.group, { wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '' });
+    assert.deepEqual(e.group,
+      { wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '', buildMonitorPid: '' });
   });
 
   it('refuses a zero or non-numeric member, reading it as never started', () => {

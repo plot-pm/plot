@@ -622,7 +622,7 @@ start_worker() {
       PLOT_BUILD_MONITOR="$build_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
-      nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" '"'"'
+      nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -640,6 +640,7 @@ start_worker() {
           print "  \"wrapperPid\": \"" wrapper "\","
           print "  \"workerMonitorPid\": \"" wmon "\","
           print "  \"agentMonitorPid\": \"" amon "\","
+          print "  \"buildMonitorPid\": \"" bmon "\","
           if (relaunch) {
             print "  \"previousPid\": \"" displaced "\","
             print "  \"relaunches\": " count ","
@@ -649,6 +650,7 @@ start_worker() {
         $0 ~ /^  "wrapperPid": "[^"]*",$/ { next }
         $0 ~ /^  "workerMonitorPid": "[^"]*",$/ { next }
         $0 ~ /^  "agentMonitorPid": "[^"]*",$/ { next }
+        $0 ~ /^  "buildMonitorPid": "[^"]*",$/ { next }
         relaunch && $0 ~ /^  "previousPid": "[^"]*",$/ { next }
         relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
         relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }

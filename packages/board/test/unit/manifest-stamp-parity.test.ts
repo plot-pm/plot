@@ -36,7 +36,7 @@ function awkProgram(): string {
   // awk source as awk will actually see it.
   const marker =
     'awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '
-    + '-v wrapper="$$" -v wmon="$wmon" -v amon="$amon" ';
+    + '-v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" ';
   const at = src.indexOf(marker);
   assert.notEqual(at, -1, 'the dispatcher awk invocation moved — update this extractor');
   const after = src.slice(at + marker.length);

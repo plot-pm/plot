@@ -79,6 +79,8 @@ export interface ProcessGroup {
   workerMonitorPid: string;
   /** The AgentMonitor, which watches the desk. */
   agentMonitorPid: string;
+  /** The BuildMonitor, which watches the run. */
+  buildMonitorPid: string;
 }
 
 /**
@@ -241,6 +243,7 @@ export function parseManifest(json: string): AgentEntry | null {
   const o = raw as Record<string, unknown>;
   const session = typeof o.session === 'string' ? o.session.trim() : '';
   if (session === '') return null;
+  const group = readGroup(o);
   return {
     session,
     branch: typeof o.branch === 'string' ? o.branch : '',
@@ -248,10 +251,10 @@ export function parseManifest(json: string): AgentEntry | null {
     command: typeof o.command === 'string' ? o.command : '',
     startedAt: typeof o.startedAt === 'string' ? o.startedAt : '',
     pid: readPid(o.pid),
-    // ABSENT IS NOT NONE. A manifest carrying none of the three fields predates
+    // ABSENT IS NOT NONE. A manifest carrying none of the group fields predates
     // them and its group is UNKNOWN — `undefined`, so a reader can tell it from a
     // dispatch that started no monitors and recorded `''`. See `readGroup`.
-    ...(readGroup(o) ? { group: readGroup(o) } : {}),
+    ...(group ? { group } : {}),
     // A relaunch stamp records both; a first dispatch records neither, so an
     // older or unrelaunched manifest defaults to "displaced nothing, never
     // restarted". `previousPid` is read leniently (any string), because unlike
@@ -279,12 +282,13 @@ export function parseManifest(json: string): AgentEntry | null {
  * about the wrong thing.
  */
 function readGroup(o: Record<string, unknown>): ProcessGroup | undefined {
-  const keys = ['wrapperPid', 'workerMonitorPid', 'agentMonitorPid'] as const;
+  const keys = ['wrapperPid', 'workerMonitorPid', 'agentMonitorPid', 'buildMonitorPid'] as const;
   if (!keys.some((k) => k in o)) return undefined;
   return {
     wrapperPid: readPid(o.wrapperPid),
     workerMonitorPid: readPid(o.workerMonitorPid),
     agentMonitorPid: readPid(o.agentMonitorPid),
+    buildMonitorPid: readPid(o.buildMonitorPid),
   };
 }
 

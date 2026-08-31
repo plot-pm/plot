@@ -13,8 +13,18 @@ plot-dispatch.sh  (7357)
   └── wrapper     (7358)               ← in no manifest
         ├── WorkerMonitor       (7364) ← in no manifest
         ├── AgentMonitor        (7365) ← in no manifest
+        ├── BuildMonitor        (7367) ← in no manifest
         └── plot-worker-loop.sh (7366) ← "pid": "7366"
 ```
+
+**Every means four.** The BuildMonitor arrived on main while this branch was in
+flight (#574) and `plot-dispatch.sh` calls it *"THE THIRD MONITOR, born the same
+way and for the same reason"*. Its pid was captured into `bmon` when the two
+branches were merged and then never written, so an earlier draft of this change
+named three of the four processes it spawns while claiming all of them. The
+manifest now carries `buildMonitorPid` beside its two siblings, through both the
+awk stamper and its TypeScript twin — their byte-for-byte parity suite is what
+caught the omission on the second implementation.
 
 `DESIGN-agent.md` gives the registry *no worktree is left behind*; the same
 sentence is owed for processes, and nothing could find one to reap.

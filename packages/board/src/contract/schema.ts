@@ -2914,6 +2914,7 @@ export const ProcessGroupSchema = z.object({
   wrapperPid: z.string().default(''),
   workerMonitorPid: z.string().default(''),
   agentMonitorPid: z.string().default(''),
+  buildMonitorPid: z.string().default(''),
 });
 
 export const AgentEntrySchema = z.object({

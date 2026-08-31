@@ -38,11 +38,13 @@ function firstDispatch(pid = '', extra: string[] = []): string {
 }
 
 /** The process group a stamped manifest carries, in the order both writers emit. */
-const GROUP = { wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365' };
+const GROUP = { wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
+  buildMonitorPid: '7367' };
 const GROUP_LINES = [
   '  "wrapperPid": "7358",',
   '  "workerMonitorPid": "7364",',
   '  "agentMonitorPid": "7365",',
+  '  "buildMonitorPid": "7367",',
 ];
 
 describe('stampManifest — a first dispatch fills the pid and records the group', () => {
@@ -69,7 +71,7 @@ describe('stampManifest — a first dispatch fills the pid and records the group
     assert.ok(!out.includes('relaunches'), 'a first dispatch has relaunched zero times');
     const keys = Object.keys(JSON.parse(out));
     assert.deepEqual(keys.sort(),
-      ['agentMonitorPid', 'branch', 'command', 'pid', 'session', 'startedAt',
+      ['agentMonitorPid', 'branch', 'buildMonitorPid', 'command', 'pid', 'session', 'startedAt',
         'workerMonitorPid', 'worktree', 'wrapperPid'],
       'the six launch-time keys plus the three the group adds');
   });

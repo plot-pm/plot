@@ -2271,9 +2271,9 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
-test('dispatch: the manifest names the wrapper and both monitors, at spawn', () => {
+test('dispatch: the manifest names the wrapper and all three monitors, at spawn', () => {
   // THE DEFECT. The manifest recorded the process the registry started LEAST
-  // ambiguously — the agent — and none of the three the registry also started.
+  // ambiguously — the agent — and none of the others the registry also started.
   // Measured on the estate 2026-08-30: 1 manifest, 76 monitor processes, 0 of
   // them nameable from the registry.
   //
@@ -2340,11 +2340,19 @@ test('dispatch: the manifest names the wrapper and both monitors, at spawn', () 
     `the manifest must name the WorkerMonitor, got: ${m.workerMonitorPid}`);
   assert.match(m.agentMonitorPid, /^\d+$/,
     `the manifest must name the AgentMonitor, got: ${m.agentMonitorPid}`);
+  // THE THIRD MONITOR IS NOT AN AFTERTHOUGHT. `plot-dispatch.sh` calls the
+  // BuildMonitor "born the same way and for the same reason" as its two
+  // siblings; it was captured into `bmon` and then never written, so the
+  // manifest named three of four spawned processes while the changeset claimed
+  // every one.
+  assert.match(m.buildMonitorPid, /^\d+$/,
+    `the manifest must name the BuildMonitor, got: ${m.buildMonitorPid}`);
 
-  // FOUR DISTINCT PROCESSES. A group whose members collapsed onto one pid would
+  // FIVE DISTINCT PROCESSES. A group whose members collapsed onto one pid would
   // pass every numeric check above and name nothing useful.
-  const group = [m.pid, m.wrapperPid, m.workerMonitorPid, m.agentMonitorPid];
-  assert.equal(new Set(group).size, 4, `four distinct processes, got: ${group.join(' ')}`);
+  const group = [m.pid, m.wrapperPid, m.workerMonitorPid, m.agentMonitorPid,
+    m.buildMonitorPid];
+  assert.equal(new Set(group).size, 5, `five distinct processes, got: ${group.join(' ')}`);
 
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(wt, { recursive: true, force: true });
