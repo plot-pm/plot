@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
-import { type AgentRow, type Fleet } from '../../src/contract/schema.js';
+import { type Page } from 'playwright';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+import { expandAgentFolds } from '../helpers.mjs';
+import { type AgentRow, type Fleet, type Board } from '../../src/contract/schema.js';
 
 /**
  * THE PLAN'S ACTS LIVE ON THE PLAN HEAD — what only a rendered page can settle.
@@ -33,8 +32,6 @@ import { type AgentRow, type Fleet } from '../../src/contract/schema.js';
  * the board polls on a timer and an awaited `route.fetch()` can still be in
  * flight when the page closes.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
@@ -123,32 +120,30 @@ function board(over: Record<string, unknown> = {}) {
 }
 
 describe('the plan head carries the plan decisions, and no row does', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(
     payload: Fleet = fleet(),
     boardPayload: Record<string, unknown> = board(),
   ): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.route('**/api/board', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(boardPayload) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    // SERVED, NOT INTERCEPTED. `startServer(FIXTURE)` gave this file an
+    // origin and nothing more: both payloads were already local, and every
+    // request was answered by a `page.route` stub before it reached the
+    // estate. Serving them from the mock makes the assertion the one that
+    // matters — the board ANSWERS this state, and the page shows exactly it.
+    const page = await cat.open('an-empty-estate', {
+      over: { fleet: payload, board: boardPayload as Board },
+      tab: 'agents',
+      viewport: { width: 1400, height: 1200 },
+    });
     await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
