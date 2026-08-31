@@ -3975,6 +3975,143 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
+  // ── The SCAN's host — bug/the-board-shows-a-throttled-host ───────────────
+  //
+  // A different fact from `prError` one level up: `prError` is the board's own
+  // host call failing, this is the SCAN's. `pr-list` is one GraphQL call in
+  // place of ~186 REST calls, so a spent budget takes out every PR answer at
+  // once — the whole fleet reads unmerged, every wave stays blocked, and the
+  // board shows a busy estate with nothing eligible. That is indistinguishable
+  // from work genuinely in flight, which is why it has to be SAID.
+
+  /** A summary carrying a host verdict, with the fixture's own counters. */
+  const withHost = (host: 'ok' | 'throttled' | 'failed' | 'unknown') => ({
+    plans: 3, waves: 3, branches: 0, claimed: 0, eligible: 1, blocked: 0, deferred: 0, host,
+  });
+
+  it('SHOWS the throttled notice — visible, and carrying the reason', async () => {
+    // NOT merely present in the DOM. A hidden element satisfies `toContain` and
+    // tells an operator nothing, so this reads the one slot the panel actually
+    // renders (`data-status-text`) and checks the sentence names both the cause
+    // and what it costs.
+    const page = await openAgents(fleet({ summary: withHost('throttled') }));
+    try {
+      const text = page.locator('[data-status-text]');
+      await text.waitFor({ state: 'visible', timeout: 10_000 });
+      const shown = (await text.textContent()) ?? '';
+      expect(shown).toContain('Fleet scan blind');
+      // The REASON — a spent rate limit, not a generic failure.
+      expect(shown).toContain('rate limit');
+      // And the CONSEQUENCE, which is what explains the quiet board.
+      expect(shown).toContain('local evidence alone');
+      // Visible in the layout sense too, not just in the accessibility tree:
+      // an element with no box tells a reader nothing either.
+      const box = await text.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThan(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('sends the reader on the right errand for each word', async () => {
+    // `throttled` says WAIT, `failed` says LOOK. Collapsing them into one host
+    // sentence sends half of readers to the wrong place — the distinction the
+    // scan drew, thrown away at the last step.
+    const page = await openAgents(fleet({ summary: withHost('failed') }));
+    try {
+      const text = page.locator('[data-status-text]');
+      await text.waitFor({ state: 'visible', timeout: 10_000 });
+      const shown = (await text.textContent()) ?? '';
+      expect(shown).toContain('could not be reached');
+      expect(shown).toContain('waiting will not clear it');
+      expect(shown).not.toContain('refills on a clock');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('renders EXACTLY as today when the pulse carries no host verdict', async () => {
+    // THE TEST THAT CATCHES AN ACCIDENT. Most pulses do not carry the field, so
+    // a renderer that quietly changed their layout would pass a test written
+    // only for the new case. The panel vanishes when it has nothing to say, so
+    // a count of 0 is a strong assertion: any always-on status makes it 1.
+    const page = await openAgents(fleet({ error: null, shrink: null, prError: null }));
+    try {
+      await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('says nothing when the scan reached the host, or did not say', async () => {
+    // `ok` is asked-and-answered; `unknown` is an older scan, a partial pulse,
+    // or a cold cache. Neither is a degradation, and a notice on either is the
+    // board inventing a fact — the same defect one level up.
+    for (const host of ['ok', 'unknown'] as const) {
+      const page = await openAgents(fleet({
+        error: null, shrink: null, prError: null, summary: withHost(host),
+      }));
+      try {
+        await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+        await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(0);
+      } finally {
+        await page.close();
+      }
+    }
+  });
+
+  it('sits BESIDE the PR failure in one panel, ranked between it and a shrink', async () => {
+    // The two are the same category of fact and take the same treatment — one
+    // box, not a second visual language for *we do not know*. The scan's
+    // blindness outranks a spent PR budget (there the rows are real; here every
+    // branch was derived without a PR answer) and ranks below a shrink.
+    const page = await openAgents(fleet({
+      error: null, shrink: SHRINK, prError: 'gh: 503', summary: withHost('throttled'),
+    }));
+    try {
+      const count = page.locator('[data-status-count]');
+      await count.waitFor({ timeout: 10_000 });
+      // ONE box holding all three.
+      await expect.poll(() => page.locator('[data-status-panel]').count()).toBe(1);
+      expect(await count.textContent()).toContain('of 3 statuses');
+
+      // Severity order: shrink, then the scan's host, then the board's PR call.
+      const text = page.locator('[data-status-text]');
+      const first = (await text.textContent()) ?? '';
+      expect(first).toContain('describes less than the last one');
+
+      await page.locator('[data-status-next]').click();
+      await expect.poll(async () => (await text.textContent()) ?? '', { timeout: 10_000 })
+        .toContain('Fleet scan blind');
+
+      await page.locator('[data-status-next]').click();
+      await expect.poll(async () => (await text.textContent()) ?? '', { timeout: 10_000 })
+        .toContain('PR data unavailable');
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('KEEPS the raw prError text when both are true', async () => {
+    // The sibling contract: a browser test enforces that the age suffix is
+    // APPENDED rather than replacing `${fleet.prError}`. Adding a status beside
+    // it must not disturb that path, so the whole message survives here too.
+    const page = await openAgents(fleet({
+      error: null, shrink: null,
+      prError: 'gh: plot-host.sh pr-list --rich exited 1',
+      summary: withHost('throttled'),
+    }));
+    try {
+      const panel = page.locator('[data-status-panel]');
+      await panel.waitFor({ timeout: 10_000 });
+      const whole = (await panel.textContent()) ?? '';
+      expect(whole).toContain('plot-host.sh pr-list --rich exited 1');
+    } finally {
+      await page.close();
+    }
+  });
+
   it('leaves the view-status line at the foot, unchanged', async () => {
     // The footer answers *how fresh is what I see?* and is always true, so it
     // stays where the eye lands after the rows — it does not move into the

@@ -21,7 +21,7 @@ import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_EC
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
 import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, sectionTally, showPlanHeading, type PlanGroup, waveKeyOf, waveSection, wavesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
-import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord } from '../../src/app/lib/agent-rows/host-notes.js';
+import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord, scanHostNote } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
 import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/lib/agent-rows/waves.js';
 // THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
@@ -2461,6 +2461,73 @@ describe('prNote — the PR note distinguishes the two failures', () => {
     const note = prNote(at({ prError: 'gh: 503', prAgeSeconds: null }));
     expect(note).not.toContain('showing data');
     expect(note).toBe('PR data unavailable (gh: 503) — the two groups above that depend on it may be incomplete.');
+  });
+});
+
+describe('scanHostNote — the scan says when it could not ask', () => {
+  const at = (host: Fleet['summary']['host']): Fleet =>
+    ({ summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0, host } } as Fleet);
+
+  it('is silent when the scan reached the host', () => {
+    // `ok` is a scan that ASKED and was ANSWERED. There is nothing to warn
+    // about, and a notice on a healthy scan is noise on every board.
+    expect(scanHostNote(at('ok'))).toBeNull();
+  });
+
+  it('is silent when the scan did not say', () => {
+    // `unknown` is a pulse from an older scan, a partial pulse mid-stream, or a
+    // cold cache — none has been told anything about the host. A notice here
+    // would be the board inventing a fact, which is the defect one level up.
+    expect(scanHostNote(at('unknown'))).toBeNull();
+  });
+
+  it('is silent when the summary is missing entirely', () => {
+    // The client CASTS this payload rather than parsing it, so a server that
+    // predates the field delivers `undefined` and no Zod default fires — the
+    // `fleetControls` regression of 2026-08-22. Absent must read as "did not
+    // say", never crash and never warn.
+    expect(scanHostNote({} as Fleet)).toBeNull();
+  });
+
+  it('names the rate limit, and says it refills on a clock', () => {
+    // The word `throttled` earns its own sentence: a spent budget is partial,
+    // temporary and with a known end, so the advice is to WAIT.
+    const note = scanHostNote(at('throttled'));
+    expect(note).toContain("rate limit");
+    expect(note).toContain('refills on a clock');
+    // And it must not send the reader on the outage errand.
+    expect(note).not.toContain('check the host');
+  });
+
+  it('names an unreachable host, and says waiting will NOT help', () => {
+    // The opposite advice, which is the whole reason the two words are kept
+    // apart. A reader told to wait out an outage waits forever.
+    const note = scanHostNote(at('failed'));
+    expect(note).toContain('could not be reached');
+    expect(note).toContain('waiting will not clear it');
+    expect(note).not.toContain('refills on a clock');
+  });
+
+  it('states the CONSEQUENCE, not merely the cause', () => {
+    // "The host was throttled" is a fact about an API. What a reader needs is
+    // why the board looks quiet: every branch read from local evidence alone,
+    // and nothing was offered to --next. Both words carry it.
+    for (const host of ['throttled', 'failed'] as const) {
+      const note = scanHostNote(at(host)) ?? '';
+      expect(note).toContain('local evidence alone');
+      expect(note).toContain('--next');
+    }
+  });
+
+  it('is a DIFFERENT sentence from the board\'s own PR failure', () => {
+    // `prError` is the BOARD's host call; this is the SCAN's. They fail
+    // separately and can be true at once, so the panel must not print one
+    // sentence twice — a reader seeing the same words in two statuses learns
+    // nothing from the second.
+    const scan = scanHostNote(at('throttled')) ?? '';
+    const pr = prNote({ prError: 'gh: 503', prNextInSeconds: null, prAgeSeconds: null } as Fleet) ?? '';
+    expect(scan).not.toBe(pr);
+    expect(pr).not.toContain('Fleet scan blind');
   });
 });
 
