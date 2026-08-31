@@ -81,7 +81,7 @@ prerequisite two other stories are waiting on; see *What this sprint unblocks*.
 
 - [x] [the-domain-moves-out-of-the-board] A `@plot-pm/domain` package carries Plot's entities, states, rules and transitions; the board imports them rather than defining them — measured: `contract/schema.ts` is 4,052 lines with one import and no world access, i.e. a pure domain layer that no other component can depend on because it lives inside the board
 - [ ] [the-domain-runs-the-workflows-in-a-sandbox] The domain's ports get adapters and the workflows decide without acting, proven against the real estate — **Approved 2026-08-30, 5 slices**
-- [ ] [the-controller-answers-every-asker] A controller layer between the callers and the domain — the board's routes and the master agent ask it, and mock adapters on the driven side let a mock board serve every controller — measured 2026-08-30: the seven ports are all driven (world → domain), nothing answers *who asks*, and 10 skills each pay the scan's 18.3 s for facts the board already holds; 6 slices, **Draft**
+- [x] [the-controller-answers-every-asker] A controller layer between the callers and the domain — the board's routes and the master agent ask it, and mock adapters on the driven side let a mock board serve every controller — measured 2026-08-30: the seven ports are all driven (world → domain), nothing answers *who asks*, and 10 skills each pay the scan's 18.3 s for facts the board already holds; 6 slices, **Draft** <!-- status: delivered -->
 - [ ] [production-calls-the-domain-one-rule-at-a-time] Production code calls the domain instead of duplicating its rules, one rule at a time — **Draft, 6 slices, no branch — still blocked on the Should above**
 
 ### Should Have
