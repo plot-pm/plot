@@ -43,6 +43,15 @@ export interface Stamp {
   pid: string;
   /** ISO-8601 launch time of THIS run — rewritten on a relaunch. */
   startedAt: string;
+  /**
+   * The wrapper's pid — the process that owns the agent and outlives it to write
+   * `.plot-worker.exit`. `''` when the caller does not know it.
+   */
+  wrapperPid?: string;
+  /** The WorkerMonitor's pid, or `''` when none was attached. */
+  workerMonitorPid?: string;
+  /** The AgentMonitor's pid, or `''` when none was attached. */
+  agentMonitorPid?: string;
 }
 
 /** The `"pid": "…",` line, capturing whatever pid it already held. */
@@ -51,6 +60,16 @@ const PID_LINE = /^ {2}"pid": "([^"]*)",$/;
 const STARTED_LINE = /^ {2}"startedAt": "[^"]*"$/;
 /** An existing `"relaunches": N,` line, captured so a relaunch increments it. */
 const RELAUNCHES_LINE = /^ {2}"relaunches": (\d+),$/;
+/**
+ * The three process-group lines, dropped wherever they already sit so a fresh
+ * set can be emitted after `pid`.
+ *
+ * UNCONDITIONAL, unlike `previousPid`/`relaunches`: the group is re-emitted on
+ * EVERY stamp, including a first dispatch, so a stale copy must go whether or
+ * not this is a relaunch. Gating them on relaunch would duplicate the lines when
+ * `/api/continue` stamps a manifest a first dispatch had already grouped.
+ */
+const GROUP_LINE = /^ {2}"(wrapperPid|workerMonitorPid|agentMonitorPid)": "[^"]*",$/;
 
 /**
  * Rewrite a manifest's launch stamp, returning the new text.
@@ -64,6 +83,13 @@ const RELAUNCHES_LINE = /^ {2}"relaunches": (\d+),$/;
  * `relaunches` (starting from 0 when the manifest carries none). The two new
  * lines are inserted immediately after `pid`, in a fixed order, so the awk
  * implementation can place them identically.
+ *
+ * THE PROCESS GROUP is written on BOTH paths, immediately after `pid`, because
+ * the registry must be able to name every process the dispatcher started — not
+ * just the one doing the work. See the field docs on {@link Stamp}. A caller that
+ * does not know a member passes `''`, which records *not attached* rather than
+ * dropping the line: a reader distinguishes an absent field (an old manifest,
+ * group unknown) from an empty one (this member was never started).
  *
  * The input text unchanged when there is no `pid` line to rewrite: a manifest
  * this shape is not one this stamp wrote, and it is left exactly as found rather
@@ -85,12 +111,21 @@ export function stampManifest(text: string, stamp: Stamp): string {
   }
   if (pidIdx === -1) return text; // Not a manifest this stamp knows how to write.
 
-  // A FIRST dispatch: the placeholder was empty. Fill it and stop — the result
-  // must be indistinguishable from the manifest before relaunch bookkeeping
-  // existed, so nothing else is added or moved.
+  const group = [
+    `  "wrapperPid": "${stamp.wrapperPid ?? ''}",`,
+    `  "workerMonitorPid": "${stamp.workerMonitorPid ?? ''}",`,
+    `  "agentMonitorPid": "${stamp.agentMonitorPid ?? ''}",`,
+  ];
+
+  // A FIRST dispatch: the placeholder was empty. Fill the pid and write the
+  // group after it. No `previousPid`, no `relaunches` — those are relaunch
+  // bookkeeping and a first dispatch has none.
   if (previousPid === '') {
     lines[pidIdx] = `  "pid": "${stamp.pid}",`;
-    return lines.join('\n') + eol;
+    const kept = lines.filter((l, i) => i === pidIdx || !GROUP_LINE.test(l));
+    const at = kept.indexOf(lines[pidIdx]);
+    kept.splice(at + 1, 0, ...group);
+    return kept.join('\n') + eol;
   }
 
   // A RELAUNCH. Overwrite the current-run fields, count the restart, and keep
@@ -114,6 +149,9 @@ export function stampManifest(text: string, stamp: Stamp): string {
     if (/^ {2}"previousPid": "[^"]*",$/.test(lines[i])) {
       continue; // Likewise: re-inserted after pid with the freshly displaced pid.
     }
+    if (GROUP_LINE.test(lines[i])) {
+      continue; // Re-emitted after pid with THIS run's group.
+    }
     if (STARTED_LINE.test(lines[i])) {
       filtered.push(`  "startedAt": "${stamp.startedAt}"`);
       continue;
@@ -121,12 +159,13 @@ export function stampManifest(text: string, stamp: Stamp): string {
     filtered.push(lines[i]);
   }
 
-  // Insert the two relaunch lines immediately after the pid line — a fixed
-  // position both implementations honour.
+  // Insert the group and the two relaunch lines immediately after the pid line —
+  // a fixed position and a fixed order both implementations honour.
   const newPidIdx = filtered.indexOf(lines[pidIdx]);
   filtered.splice(
     newPidIdx + 1,
     0,
+    ...group,
     `  "previousPid": "${previousPid}",`,
     `  "relaunches": ${relaunches},`,
   );

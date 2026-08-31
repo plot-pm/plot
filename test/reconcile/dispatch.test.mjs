@@ -2265,6 +2265,85 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   fs.rmSync(wt, { recursive: true, force: true });
 });
 
+test('dispatch: the manifest names the wrapper and both monitors, at spawn', () => {
+  // THE DEFECT. The manifest recorded the process the registry started LEAST
+  // ambiguously — the agent — and none of the three the registry also started.
+  // Measured on the estate 2026-08-30: 1 manifest, 76 monitor processes, 0 of
+  // them nameable from the registry.
+  //
+  //   plot-dispatch.sh  (7357)
+  //     └── wrapper     (7358)             ← in no manifest
+  //           ├── WorkerMonitor    (7364)  ← in no manifest
+  //           ├── AgentMonitor     (7365)  ← in no manifest
+  //           └── plot-worker-loop (7366)  ← "pid": "7366"
+  //
+  // `DESIGN-agent.md` gives the registry *no worktree is left behind*; the same
+  // sentence is owed for processes, and nothing could find one to reap.
+  //
+  // AT SPAWN, NEVER DISCOVERED LATER. The group is written by the wrapper as part
+  // of the same stamp that writes the pid — not by a later sweep of `ps` for a
+  // command pattern, which is how `plot-reap.sh:162` came to recognise no
+  // worktree at all. This test kills the agent and then reads the manifest: if
+  // the record depended on the processes still being there, it would be gone.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-group-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, 'repo');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  const sentinel = path.join(t, 'agent.pid');
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
+    + `- **Worker command:** sh -c 'echo "$$ $PPID" > ${sentinel}; exec sleep 20'\n`);
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-g.md'),
+    '# G\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/group` — one\n');
+  fs.symlinkSync('../2026-01-01-g.md', path.join(r, 'plans', 'active', 'g.md'));
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'group.md'), 'spec\n');
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  execFileSync('bash', [dispatch, '--offline', 'g'],
+    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-group');
+  const dir = path.join(r, '.plot', 'agents');
+  const [name] = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
+  const read = () => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline && !(fs.existsSync(sentinel) && read().pid !== '')) {
+    execFileSync('sleep', ['0.1']);
+  }
+
+  const [agentPid, wrapperPpid] = fs.readFileSync(sentinel, 'utf8').trim().split(/\s+/);
+
+  // KILL THE AGENT FIRST, then read. The record must survive the processes it
+  // names — that is what "written at spawn" means, as opposed to a value some
+  // later reader recomputes by looking for them.
+  try { process.kill(Number(agentPid), 'SIGTERM'); } catch { /* already gone */ }
+
+  const m = read();
+  assert.equal(m.pid, agentPid, 'the agent pid (sanity)');
+  assert.equal(m.wrapperPid, wrapperPpid,
+    `the manifest must name the wrapper (${wrapperPpid}), the agent's actual parent`);
+  assert.match(m.workerMonitorPid, /^\d+$/,
+    `the manifest must name the WorkerMonitor, got: ${m.workerMonitorPid}`);
+  assert.match(m.agentMonitorPid, /^\d+$/,
+    `the manifest must name the AgentMonitor, got: ${m.agentMonitorPid}`);
+
+  // FOUR DISTINCT PROCESSES. A group whose members collapsed onto one pid would
+  // pass every numeric check above and name nothing useful.
+  const group = [m.pid, m.wrapperPid, m.workerMonitorPid, m.agentMonitorPid];
+  assert.equal(new Set(group).size, 4, `four distinct processes, got: ${group.join(' ')}`);
+
+  fs.rmSync(t, { recursive: true, force: true });
+  fs.rmSync(wt, { recursive: true, force: true });
+});
+
 test('dispatch: the session id reaches the worker as PLOT_SESSION_ID', () => {
   // The manifest points at a transcript, and the transcript only lands there if
   // the runtime is told which session it is. The dispatcher mints the id — this

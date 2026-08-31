@@ -233,6 +233,76 @@ describe('the pid — a launch fact, read straight off the manifest', () => {
   });
 });
 
+describe('the process group — every process the registry started, not just one', () => {
+  // The defect: the manifest recorded the agent and nothing else, so the wrapper
+  // and both monitors were nameable from nowhere. Measured on the estate
+  // 2026-08-30 — 1 manifest, 76 monitor processes, 0 of them nameable.
+  //
+  //   plot-dispatch.sh  (7357)
+  //     └── wrapper     (7358)             ← in no manifest
+  //           ├── WorkerMonitor    (7364)  ← in no manifest
+  //           ├── AgentMonitor     (7365)  ← in no manifest
+  //           └── plot-worker-loop (7366)  ← "pid": "7366"
+  it('carries the wrapper and both monitors a modern dispatcher wrote', () => {
+    manifest('a.json', {
+      session: 'g', pid: '7366', worktree: '/wt/g', startedAt: '2026-08-20T10:00:00Z',
+      wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
+    });
+    const [e] = readAgentRegistry(root, home);
+    assert.deepEqual(e.group, {
+      wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
+    });
+  });
+
+  // THE CONTRACT THE BRIEF NAMES: an old manifest still parses, and reports the
+  // group as UNKNOWN rather than EMPTY. `undefined` is that unknown; a group of
+  // three empty strings would be the different, false claim that this dispatch
+  // started nothing beside its agent.
+  it('reports UNKNOWN, not empty, on a manifest written before the field', () => {
+    manifest('a.json', { session: 'old', pid: '4242', startedAt: '2026-08-20T10:00:00Z' });
+    const [e] = readAgentRegistry(root, home);
+    assert.equal(e.group, undefined,
+      'a manifest that cannot say what it started must not claim it started nothing');
+    assert.equal(e.pid, '4242', 'and the rest of the entry still parses');
+  });
+
+  // The other side of the same distinction: a dispatch that attached NO monitor
+  // did say so, and `''` is that answer. A hand-made worktree gets no monitors.
+  it('distinguishes a member never started (empty) from the whole group unknown', () => {
+    manifest('a.json', {
+      session: 'nomon', pid: '10', startedAt: '2026-08-20T10:00:00Z',
+      wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '',
+    });
+    const [e] = readAgentRegistry(root, home);
+    assert.notEqual(e.group, undefined, 'the group IS known — the manifest carries it');
+    assert.equal(e.group?.wrapperPid, '11');
+    assert.equal(e.group?.workerMonitorPid, '', 'empty means this one was never started');
+  });
+
+  // A PARTIAL group is still a known group. The presence of ANY member is what
+  // makes the manifest one that speaks about its group at all.
+  it('reads a partial group as known, with the missing members empty', () => {
+    manifest('a.json', {
+      session: 'part', pid: '10', startedAt: '2026-08-20T10:00:00Z', wrapperPid: '11',
+    });
+    const [e] = readAgentRegistry(root, home);
+    assert.deepEqual(e.group, { wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '' });
+  });
+
+  it('refuses a zero or non-numeric member, reading it as never started', () => {
+    // Same rule the pid follows: `kill -0 0` signals the whole process group and
+    // succeeds, so a 0 here would send a reader to check the wrong thing.
+    manifest('a.json', {
+      session: 'bad', pid: '10', startedAt: '2026-08-20T10:00:00Z',
+      wrapperPid: '0', workerMonitorPid: 'not-a-pid', agentMonitorPid: '7365',
+    });
+    const [e] = readAgentRegistry(root, home);
+    assert.equal(e.group?.wrapperPid, '');
+    assert.equal(e.group?.workerMonitorPid, '');
+    assert.equal(e.group?.agentMonitorPid, '7365', 'a good member survives a bad sibling');
+  });
+});
+
 describe('the state — pulse-refreshed liveness, landing on the entry', () => {
   // The wave's reason for being. `plot-worker-state.sh` is the liveness check;
   // its answer lands on the entry instead of being re-derived by every caller.

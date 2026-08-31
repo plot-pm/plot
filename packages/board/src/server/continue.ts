@@ -558,11 +558,22 @@ export async function handleContinue(
     // dispatched one leave an identical manifest. A missing manifest is not a
     // failure — an older worktree has none, and the worker runs regardless —
     // which is why `writeManifestStamp` is a no-op there rather than a throw.
+    //
+    // THE GROUP IS RECORDED EMPTY, AND THAT IS THE TRUE ANSWER. This route
+    // spawns the agent DIRECTLY — no wrapper, no WorkerMonitor, no AgentMonitor
+    // — so there is no process beside it to name. Passing `''` for each member
+    // says *nothing else was started*, which is the fact; omitting them would
+    // leave the PREVIOUS dispatch's wrapper and monitors on the row, naming
+    // processes that belong to a run this one just replaced. The stamp re-emits
+    // the group on every write precisely so a stale one cannot survive.
     const manifest = manifestForWorktree(opts.repoRoot, found.worktree, opts);
     if (manifest) {
       writeManifestStamp(manifest, {
         pid: String(pid),
         startedAt: new Date().toISOString(),
+        wrapperPid: '',
+        workerMonitorPid: '',
+        agentMonitorPid: '',
       });
     }
   }
