@@ -59,7 +59,7 @@ import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
 import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, wavesElsewhere, waveKeyOf } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
-import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prNote } from '../lib/agent-rows/host-notes.js';
+import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prNote, scanHostNote } from '../lib/agent-rows/host-notes.js';
 import { isUnbegun, rowKey } from '../lib/agent-rows/row-identity.js';
 import { WAVE_LINKING_KINDS, groupByWave, waveLabel } from '../lib/agent-rows/waves.js';
 // THE ROW ESTATE, in three modules beside this one. `AgentList` is the shell:
@@ -656,6 +656,27 @@ export function AgentList({
       severity: 10,
       tone: 'amber',
       text: prMessage,
+    });
+  }
+  // THE SCAN'S OWN HOST, beside the board's — the same category of fact one
+  // level up, so it takes the same treatment rather than a second visual
+  // language for *we do not know*. `scanHostNote` owns the wording (a spent
+  // budget says so and says to wait; an unreachable host says to look); the
+  // panel owns the frame and the placement, exactly as with `prNote`.
+  //
+  // BETWEEN a shrink and a spent PR budget, in the gap the severities were
+  // spaced to leave. It outranks `pr-error` because the degradation is wider —
+  // there the rows are real and one API is missing, here EVERY branch below was
+  // derived without a PR answer and none was offered to `--next`. It ranks
+  // below a shrink because a shrink is rows that vanished, which a reader must
+  // meet first.
+  const scanHostMessage = scanHostNote(fleet);
+  if (scanHostMessage) {
+    statuses.push({
+      key: 'scan-host',
+      severity: 15,
+      tone: 'amber',
+      text: scanHostMessage,
     });
   }
 

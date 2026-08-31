@@ -58,6 +58,9 @@ const PULSE: FleetPulse = {
   }],
   summary: {
     plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0,
+    // The EVIDENCE field beside the counters. A fixture without it round-trips
+    // one key short of what the bridge restores.
+    host: 'unknown' as const,
   },
 };
 

@@ -271,7 +271,12 @@ describe('a completed scan renders identically to a batch one', () => {
   const whole: FleetPulse = {
     ...HEAD,
     plans,
-    summary: { plans: 2, waves: 3, branches: 5, claimed: 1, eligible: 1, blocked: 1, deferred: 1 },
+    // `host` joined the summary with the throttled-host reading; a fixture
+    // written before it compares one key short of what partialSummary states.
+    summary: {
+      plans: 2, waves: 3, branches: 5, claimed: 1, eligible: 1, blocked: 1, deferred: 1,
+      host: 'unknown',
+    },
   };
 
   it('produces the same rows and the same summary as the whole document', async () => {
@@ -298,9 +303,12 @@ describe('a completed scan renders identically to a batch one', () => {
     expect(partialSummary(plans)).toEqual(whole.summary);
     expect(partialSummary(plans.slice(0, 1))).toEqual({
       plans: 1, waves: 2, branches: 3, claimed: 1, eligible: 1, blocked: 0, deferred: 0,
+      // A partial answer has not asked the host, and `unknown` says exactly that.
+      host: 'unknown',
     });
     expect(partialSummary([])).toEqual({
       plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0,
+      host: 'unknown',
     });
   });
 });

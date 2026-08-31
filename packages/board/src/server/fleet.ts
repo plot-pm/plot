@@ -911,7 +911,15 @@ export function partialSummary(plans: FleetPulse['plans']): FleetPulse['summary'
       }
     }
   }
-  return { plans: plans.length, waves, branches, claimed, eligible, blocked, deferred };
+  // `host` is deliberately `unknown` here and not `ok`. This summary is built
+  // from the plan lines that have ARRIVED, mid-stream, before the scan has
+  // reported whether the host answered — and a partial pulse asserting `ok`
+  // would be claiming evidence it does not have. `unknown` renders no notice,
+  // which is what a reader who cannot yet be told anything should see.
+  return {
+    plans: plans.length, waves, branches, claimed, eligible, blocked, deferred,
+    host: 'unknown' as const,
+  };
 }
 
 /** Every branch name in a pulse, across all plans and waves. */
@@ -5640,6 +5648,11 @@ export function rowsFromPulse(
 
 const EMPTY_SUMMARY = {
   plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0,
+  // A cold cache asked no host, so it reports no verdict — the same reasoning as
+  // `partialSummary`. All-zero counters are also the healthy-fleet answer, and
+  // `ready` is what separates the two; `host` must not add a second, wronger
+  // claim on top of that collision.
+  host: 'unknown' as const,
 };
 
 /**

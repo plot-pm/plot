@@ -347,6 +347,70 @@ export function issueNote(fleet: Pick<Fleet, 'issueError' | 'prNextInSeconds'>):
 }
 
 /**
+ * THE SCAN'S OWN HOST VERDICT — a different fact from `prError`, one level up.
+ *
+ * `prError` is the BOARD's host call failing (`refreshPrs` in `fleet.ts`).
+ * This is the SCAN's: `plot-fleet-scan.sh` shells out to `plot-host.sh
+ * pr-list`, and when that call is refused the scan reports `host=throttled` on
+ * its summary rather than swallowing the failure. The two fail separately and
+ * can be true separately, so they are read separately — the board can hold
+ * fresh PR data of its own while the scan that produced the rows was blind.
+ *
+ * Why this needs saying at all: `pr-list` is ONE GraphQL call in place of ~186
+ * REST calls, so a spent budget takes out EVERY PR answer at once rather than
+ * degrading row by row. The fleet then reads unmerged, every wave stays
+ * blocked, and the board shows a busy estate with nothing eligible —
+ * indistinguishable from work genuinely in flight. Measured 2026-08-29: three
+ * merged branches read as unlanded while GraphQL was refusing.
+ *
+ * `unknown` renders NOTHING, the same rule `prStateWord` follows. A pulse from
+ * an older scan, a partial pulse mid-stream, and a cold cache all report
+ * `unknown` — none of them has been told anything about the host, and a notice
+ * on that basis would be the board inventing a fact.
+ */
+export type ScanHostVerdict = Fleet['summary']['host'];
+
+/**
+ * The scan-host note — one sentence, or null when the scan's host answered.
+ *
+ * TWO WORDS, TWO SENTENCES, because they need different responses: a spent
+ * budget refills on a clock and the reader should wait, an unreachable host
+ * will not clear by waiting and the reader should look. Collapsing them into
+ * one *host problem* sentence sends half of readers to the wrong errand — the
+ * distinction the scan went to the trouble of drawing, thrown away at the last
+ * step.
+ *
+ * BOTH NAME THE CONSEQUENCE, not just the cause. "The host was throttled" is a
+ * fact about an API; what a reader actually needs is why the board looks quiet
+ * — every branch read from local evidence alone, so nothing was offered to
+ * `--next`. That sentence turns an unexplained empty board into an explained
+ * one, which is the whole point of the plan.
+ *
+ * Exported for test — the wording is the contract with the reader.
+ */
+export function scanHostNote(
+  fleet: Pick<Fleet, 'summary'>,
+): string | null {
+  // `summary` is CAST rather than parsed on the client, so a payload from a
+  // server that predates the field arrives as `undefined` here — the
+  // `fleetControls` lesson from 2026-08-22, which a Zod `.default()` does not
+  // save because it fires only at parse time. Guarded rather than assumed.
+  const host = fleet.summary?.host;
+  if (host === 'throttled') {
+    return "Fleet scan blind: the git host's rate limit was spent, so no PR could be read."
+      + ' Every branch below reads from local evidence alone and none was offered to'
+      + ' --next — the budget refills on a clock, so a later scan will say more.';
+  }
+  if (host === 'failed') {
+    return 'Fleet scan blind: the git host could not be reached, so no PR could be read.'
+      + ' Every branch below reads from local evidence alone and none was offered to'
+      + ' --next. This is not a rate limit — waiting will not clear it; check the host'
+      + ' and auth.';
+  }
+  return null;
+}
+
+/**
  * The PR a row carries, derived from the row rather than imported.
  *
  * `AgentRowSchema` names the shape inline, so there is no exported alias to

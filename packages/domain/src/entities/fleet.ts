@@ -628,6 +628,32 @@ export const FleetPulseSchema = z.object({
     eligible: z.number(),
     blocked: z.number(),
     deferred: z.number(),
+    /**
+     * Whether the git host answered when the scan asked it about PRs.
+     *
+     * The EVIDENCE field beside the counters: it says whether they can be
+     * believed. `pr-list` is one GraphQL call in place of ~186 REST calls, so
+     * throttling takes out every PR answer at once rather than degrading row by
+     * row — the whole fleet then reads unmerged and every wave stays blocked,
+     * which is indistinguishable from work genuinely in flight.
+     *
+     * THE TWO FAILURES ARE KEPT APART because they need different responses:
+     * `throttled` is a spent budget that refills on a clock, `failed` is a host
+     * that cannot be reached and will not clear by waiting.
+     *
+     * `.catch('unknown')` rather than a bare enum, because this field is
+     * PARSED (`pulse-bridge.ts`) rather than cast: a word a later scan adds
+     * would otherwise throw and take the whole pulse down, trading a missing
+     * notice for a dead board. An unrecognised word reads as *the scan did not
+     * say something we understand*, which renders no notice — silence is never
+     * a claim, the direction every degradation in this plan takes.
+     *
+     * Defaults to `unknown` so a pulse from an older scan still validates, and
+     * so the two summaries built without a scan behind them (`partialSummary`
+     * mid-stream, `EMPTY_SUMMARY` on a cold cache) are not made to assert a
+     * health they have no evidence for.
+     */
+    host: z.enum(['ok', 'throttled', 'failed', 'unknown']).catch('unknown').default('unknown'),
   }),
 });
 export type FleetPulse = z.infer<typeof FleetPulseSchema>;
