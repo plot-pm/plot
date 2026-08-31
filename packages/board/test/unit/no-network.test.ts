@@ -18,9 +18,26 @@ import { fileURLToPath } from 'node:url';
  *
  * The local mirror is also already correct: the fleet scan fetches on its own
  * timer, so refs/remotes/origin/* is as fresh as the pulse.
+ *
+ * ## The calls moved; the guard follows them
+ *
+ * `board.ts` made these calls itself until 2026-08-31, when the read path moved
+ * onto the `Refs` port and the git invocations went with it into `refs-git.ts`.
+ * The QUESTION is unchanged — does the board reach the network to read refs? —
+ * so the guard is repointed rather than deleted: the negative checks sweep the
+ * server AND the adapter, and each positive check names the file that now holds
+ * the call it pins.
+ *
+ * Pinning `board.ts` for `'for-each-ref'` after the move would have been a
+ * check that fires on a refactor and passes on the regression, which is the
+ * opposite of what it is for.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.resolve(here, '../../src/server');
+/** Where the ref reads went. The port's git adapter is now the only caller. */
+const REFS_ADAPTER = path.resolve(
+  here, '../../../domain/src/adapters/refs/refs-git.ts',
+);
 
 /**
  * Comments are stripped before matching. The whole point of this file is to
@@ -32,14 +49,22 @@ function stripComments(text: string): string {
   return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 }
 
-const sources = fs
-  .readdirSync(SERVER_DIR)
-  .filter((f) => f.endsWith('.ts'))
-  .map((f) => ({
-    file: f,
-    text: fs.readFileSync(path.join(SERVER_DIR, f), 'utf8'),
-    code: stripComments(fs.readFileSync(path.join(SERVER_DIR, f), 'utf8')),
-  }));
+const read = (file: string, at: string) => ({
+  file,
+  text: fs.readFileSync(at, 'utf8'),
+  code: stripComments(fs.readFileSync(at, 'utf8')),
+});
+
+const sources = [
+  ...fs
+    .readdirSync(SERVER_DIR)
+    .filter((f) => f.endsWith('.ts'))
+    .map((f) => read(f, path.join(SERVER_DIR, f))),
+  // Swept for the network calls alongside the server: the adapter is where the
+  // ref reads live now, so a `ls-remote` introduced there would be exactly the
+  // regression this file exists to catch.
+  read('refs-git.ts', REFS_ADAPTER),
+];
 
 describe('the board never reaches the network to read refs', () => {
   it('calls no `ls-remote` anywhere in the server', () => {
@@ -57,15 +82,22 @@ describe('the board never reaches the network to read refs', () => {
   it('enumerates branches with `for-each-ref` over the local mirror', () => {
     // The positive half: not merely "no ls-remote", but that the intended call
     // is the one present — otherwise deleting the feature would pass too.
+    //
+    // The adapter holds the call and `board.ts` holds the PATTERN it asks for,
+    // so both halves are pinned where each one lives. `board.ts` building
+    // `refs/remotes/origin/<prefix>*` is what makes the read local; the adapter
+    // running `for-each-ref` over it is what keeps it off the wire.
+    const adapter = sources.find((s) => s.file === 'refs-git.ts');
+    expect(adapter).toBeTruthy();
+    expect(adapter!.code).toMatch(/'for-each-ref'/);
     const board = sources.find((s) => s.file === 'board.ts');
     expect(board).toBeTruthy();
-    expect(board!.code).toMatch(/'for-each-ref'/);
     expect(board!.code).toMatch(/refs\/remotes\/origin\//);
   });
 
   it('reads plan content with `git show` against a local ref', () => {
-    const board = sources.find((s) => s.file === 'board.ts');
-    expect(board!.code).toMatch(/'show'/);
+    const adapter = sources.find((s) => s.file === 'refs-git.ts');
+    expect(adapter!.code).toMatch(/'show'/);
   });
 
   it('reads branch names only in memoised helpers, never on a bare request path', () => {
@@ -91,6 +123,9 @@ describe('the board never reaches the network to read refs', () => {
     // handler), `board.ts` (the per-request walker) or anywhere else that runs
     // on every poll. Those files remain forbidden.
     const allowed = new Set(['server-info.ts', 'fleet.ts']);
+    // `refs-git.ts` is not allowed either, and is swept with the rest: the
+    // adapter answers ref questions, and "which branch is checked out" is a
+    // question about this WORKING TREE that no board read asks.
     const offenders = sources.filter(
       (s) => !allowed.has(s.file) && /--show-current/.test(s.code),
     );
