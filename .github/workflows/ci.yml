@@ -98,8 +98,30 @@ jobs:
       - name: Validate skill frontmatter
         run: pnpm run validate
 
+      # A CEILING AND A WITNESS, because the failure this catches reports NOTHING.
+      #
+      # Measured 2026-08-30/31: 10 of 16 observed runs cancelled here, at ~25
+      # minutes, with no step marked `failure` and `--log-failed` empty. The
+      # suite passes 912/912 locally in ~7 min on the same commit, so the cause
+      # is not in the assertions and has survived eight eliminations.
+      #
+      # `--test-reporter=tap` is the load-bearing half: node's default reporter
+      # buffers, so when the job is killed its output dies with it. TAP streams,
+      # so the last line before silence NAMES the file that wedged.
       - name: Reconcile contract tests
+        timeout-minutes: 12
         run: pnpm run test:reconcile
+      - name: What was still running (only when the suite wedged)
+        if: failure()
+        run: |
+          echo "=== processes ==="
+          ps -eo pid,ppid,etime,stat,args | grep -E '[n]ode|[b]ash|[s]leep|[g]it' | head -50 || true
+          echo "=== worker logs left behind ==="
+          find "${TMPDIR:-/tmp}" -name '.plot-worker*.log' -mmin -30 2>/dev/null | head -20 | while read -r f; do
+            echo "--- $f"; tail -30 "$f" || true
+          done
+          echo "=== fixture directories ==="
+          ls -dt "${TMPDIR:-/tmp}"/plot-* 2>/dev/null | head -20 || true
       - name: E2E choreography tests
         run: pnpm run test:e2e
 
