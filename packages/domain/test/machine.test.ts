@@ -174,4 +174,22 @@ describe('a starved reading defers, and says what it measured', () => {
     expect(deferralMessage(measureMachine({ ...sample, spawnCostMs: 4.8 }))).toBeNull();
     expect(deferralMessage(measureMachine({ ...sample, spawnCostMs: 25 }))).toBeNull();
   });
+
+  it('says `unmeasured` rather than `null ms` if a starved reading has no cost', () => {
+    // A DEFENSIVE BRANCH, and the only way to reach it is to construct the
+    // Machine directly: `measureMachine` derives `headroom` FROM `spawnCostMs`,
+    // so a null cost always reads `unmeasured` and `unmeasured` never defers
+    // (the test above). The two fields cannot disagree by that path.
+    //
+    // It is still worth holding. The sentence exists to be answerable, and
+    // `spawn cost null ms` is the one rendering that would be worse than
+    // silence — it reads as a measurement rather than as its absence. A future
+    // caller that sets `headroom` from somewhere other than the cost inherits
+    // that guarantee rather than discovering it.
+    const starvedButUnmeasured = { ...sample, spawnCostMs: null, headroom: 'starved' as const };
+    const message = deferralMessage(starvedButUnmeasured);
+    expect(message).toContain('unmeasured');
+    expect(message).not.toContain('null');
+    expect(message).toContain('not yet');
+  });
 });
