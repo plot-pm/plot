@@ -6,8 +6,8 @@
 // and is NEVER a link (a browser refuses http://localhost → file://, so a link
 // would lie). The formatting/omission half lives in test/unit/agent-facts.test.ts.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { chromium, type Browser, type Page } from 'playwright';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type Page } from 'playwright';
+import { openCatalogue, board as buildBoard, card as buildCard, column, type Catalogue } from '../catalogue/index.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -18,7 +18,6 @@ import { expandAgentFolds } from '../helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(here, '../../../..');
-const ARTIFACT = path.join(REPO_ROOT, 'skills/plot/scripts/board/board-server.mjs');
 
 const WORKTREE = '/Users/x/wt/the-branch';
 const PLAN_FILE = '2026-08-20-the-panel.md';
@@ -71,52 +70,41 @@ function panel(over: Partial<AgentPanel> = {}): AgentPanel {
 }
 
 describe('the agent panel facts are destinations', () => {
-  let browser: Browser;
-  let server: ChildProcess;
-  let baseURL: string;
-  let tmp: string;
   // The real board payload, fetched ONCE and served statically with one card
   // injected. Proxying `/api/board` per-request with `route.fetch()` races the
   // 30 s background poll against page teardown ("Request context disposed");
   // caching it makes the route callback synchronous, which is the rule this
   // repo already learned for route handlers.
-  let boardWithCard: string;
+
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-panel-links-'));
-    fs.mkdirSync(path.join(tmp, 'docs/plans'), { recursive: true });
-    browser = await chromium.launch();
-    server = spawn('node', [ARTIFACT], {
-      cwd: tmp,
-      env: { ...process.env, PORT: '0', PLOT_REPO_ROOT: tmp, PLOT_EXIT_WITH_PARENT: '1' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    baseURL = await new Promise((resolve, reject) => {
-      let out = '';
-      const timer = setTimeout(() => reject(new Error('server did not start')), 10_000);
-      server.stdout!.on('data', (c) => {
-        out += String(c);
-        const m = /http:\/\/localhost:(\d+)/.exec(out);
-        if (m) {
-          clearTimeout(timer);
-          resolve(`http://localhost:${m[1]}`);
-        }
-      });
-    });
-    // Fetch the real (empty but valid) board once, inject the card PLAN opens,
-    // and keep the string to serve on every route hit.
-    const board = await (await fetch(`${baseURL}/api/board`)).json();
-    board.columns[0].cards.push({
-      slug: 'the-panel', title: 'The panel', type: 'bug', phase: board.columns[0].phase,
-      path: `docs/plans/${PLAN_FILE}`, prs: [], phaseDate: '2026-08-20',
-    });
-    boardWithCard = JSON.stringify(board);
+    cat = await openCatalogue();
   }, 40_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill('SIGTERM');
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    await cat?.close();
+  });
+
+  /**
+   * THE BOARD IS BUILT, NOT SPAWNED AND PATCHED.
+   *
+   * This file spawned `board-server.mjs` by hand — over an EMPTY temp dir, with
+   * a port scraped out of its stdout — for one reason: to fetch a valid board
+   * payload and push a single card into it. Nothing else needed a server; both
+   * payloads were then served to the page from `page.route`.
+   *
+   * The builders state that shape directly, so the temp dir, the spawn, the
+   * stdout parsing and the 10s start timeout all go with it.
+   */
+  const boardWithCard = buildBoard({
+    columns: [column({
+      phase: 'Discovery',
+      cards: [buildCard({
+        slug: 'the-panel', title: 'The panel', type: 'bug', phase: 'Discovery',
+        path: `docs/plans/${PLAN_FILE}`, prs: [], phaseDate: '2026-08-20',
+      })],
+    })],
   });
 
   /**
@@ -128,14 +116,15 @@ describe('the agent panel facts are destinations', () => {
    * without this test enumerating every field the schema needs.
    */
   async function open(rows = [row()], p = panel()): Promise<Page> {
-    const page = await browser.newPage();
-    await page.route('**/api/fleet', (r) =>
-      r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
+    // The two payloads are SERVED — the board answers with this state, which is
+    // the assertion. `/api/agent-panel` stays a route: it is a per-row detail
+    // fetch, not part of the board's state.
+    const page = await cat.open('an-empty-estate', {
+      over: { board: boardWithCard, fleet: fleet(rows) },
+      tab: 'agents',
+    });
     await page.route('**/api/agent-panel*', (r) =>
       r.fulfill({ contentType: 'application/json', body: JSON.stringify(p) }));
-    await page.route('**/api/board', (r) =>
-      r.fulfill({ contentType: 'application/json', body: boardWithCard }));
-    await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
@@ -202,17 +191,20 @@ describe('the agent panel facts are destinations', () => {
   });
 
   it('Copy path writes the worktree path to the clipboard', async () => {
-    const page = await browser.newPage({
+    // ITS OWN CONTEXT, for the clipboard permission the shared opener does not
+    // grant — but pointed at the same mock, so the state is still served rather
+    // than intercepted. `cat.browser` is exposed for exactly this.
+    cat.mock.serve('an-empty-estate', { board: boardWithCard, fleet: fleet([row()]) });
+    const context = await cat.browser.newContext({
       permissions: ['clipboard-read', 'clipboard-write'],
     });
+    const page = await context.newPage();
     try {
-      await page.route('**/api/fleet', (r) =>
-        r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet([row()])) }));
       await page.route('**/api/agent-panel*', (r) =>
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(panel()) }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
-    await expandAgentFolds(page);
+      await expandAgentFolds(page);
       await openPanel(page);
       await page.locator('[data-copy-path]').click();
       // The exact path, not the truncated render — the whole point of copying.

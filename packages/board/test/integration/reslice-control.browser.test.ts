@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
-import { type AgentRow, type Fleet } from '../../src/contract/schema.js';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+import { type AgentRow, type Fleet, type Board } from '../../src/contract/schema.js';
 
 /**
  * SLICE THIS WAVE LIVES ON THE UNSLICED WAVE — what only a rendered page settles.
@@ -27,8 +26,6 @@ import { type AgentRow, type Fleet } from '../../src/contract/schema.js';
  * timer and an awaited `route.fetch()` can still be in flight when the page
  * closes.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
@@ -108,32 +105,31 @@ function board(over: Record<string, unknown> = {}) {
 }
 
 describe('the unsliced wave carries Slice this wave, and no other row does', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
+  // THE STATE IS SERVED, NOT PATCHED OVER A REAL ONE. `startServer(FIXTURE)`
+  // gave this file an origin and nothing else — both payloads were already
+  // local, and every request to the real board was answered by a `page.route`
+  // stub before it reached the estate. The mock answers them directly, so what
+  // the page renders from is stated here rather than assembled from whatever
+  // the fixture repo happened to hold.
   async function open(
     payload: Fleet = fleet(),
-    boardPayload: Record<string, unknown> = board(),
+    boardPayload: Board = board() as Board,
   ): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.route('**/api/board', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(boardPayload) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('an-empty-estate', {
+      over: { fleet: payload, board: boardPayload },
+      tab: 'agents',
+      viewport: { width: 1400, height: 1200 },
+    });
     await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;

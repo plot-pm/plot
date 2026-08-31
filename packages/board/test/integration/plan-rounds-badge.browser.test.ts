@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
-import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
+import { type Page } from 'playwright';
+import {
+  openCatalogue, board as buildBoard, card as buildCard, column,
+  fleet as buildFleet, row as buildRow, type Catalogue,
+} from '../catalogue/index.js';
+import { ELIGIBLE_NOTE, type AgentRow } from '../../src/contract/schema.js';
 
 /**
  * THE ROUNDS RIDE BESIDE THE PHASE — a badge, not another count.
@@ -28,13 +29,10 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/sch
  *   3. It leaves the summary run. A badge that also stayed in `2 waves · …`
  *      would satisfy 1 and 2 and still not be the change.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
-
-const row = (over: Partial<AgentRow> = {}): AgentRow => ({
+const row = (over: Partial<AgentRow> = {}): AgentRow => buildRow({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
   wave: 'w', state: 'open', phase: 'Discovery', group: 'not-started', ageMinutes: null,
-  waitingOn: 'click' as const, note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
+  waitingOn: 'click', note: ELIGIBLE_NOTE, pr: null, branchUrl: '', waitingDays: 3,
   localDirty: false, localLocked: false, stuck: null, repair: null,
   ...over,
 });
@@ -46,7 +44,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
  *   `reviewed`      planHeads  (WAITING ON YOU), 1 round → badge reads `1 round`
  *   `untouched`     PLAN-GROUP, no metadata block        → NO badge at all
  */
-function fleet(): Fleet {
+function fleet() {
   const rows: AgentRow[] = [
     row({ plan: 'interrogated', planFile: '2026-08-16-interrogated.md',
           branch: 'feature/i-one', wave: 'One', group: 'not-started' }),
@@ -54,18 +52,25 @@ function fleet(): Fleet {
           branch: 'feature/i-two', wave: 'Two', group: 'not-started' }),
     row({ plan: 'untouched', planFile: '2026-08-16-untouched.md',
           branch: 'feature/u-one', wave: 'One', group: 'not-started' }),
+    // `waitingOn: 'you'` — the enum admits you|click|time|null, and this row
+    // was written `'review'`, which is not one of them. The raw `page.route`
+    // stub accepted it silently; the parsing builder does not. The INTENT is
+    // unchanged: this row sits in the waiting-on-you group, which is what
+    // `'you'` says. Found by the migration, 2026-08-31.
     row({ plan: 'reviewed', planFile: '2026-08-16-reviewed.md',
           branch: 'feature/r-one', wave: 'One', group: 'waiting-on-you',
-          waitingOn: 'review' as const }),
+          waitingOn: 'you' }),
     // PAST DISCOVERY, and interrogated twice. The badge must NOT appear.
     row({ plan: 'shipped', planFile: '2026-08-16-shipped.md',
           branch: 'feature/s-one', wave: 'One', group: 'not-started',
           phase: 'Testing' }),
   ];
-  return {
-    generatedAt: new Date(0).toISOString(), ageSeconds: 0, ready: true, complete: true,
-    error: null, rows, waves: [], summary: null, stuck: [], agents: [], issues: [],
-  } as unknown as Fleet;
+  // THROUGH THE BUILDER, so the payload is the one the schema admits. The
+  // hand-written literal this replaces carried `complete`, `summary: null`,
+  // `stuck: []` and `agents: []` — and needed `as unknown as Fleet` to compile,
+  // which is the cast that let those through. The builder derives the summary
+  // from the rows, so it cannot contradict them either.
+  return buildFleet({ rows });
 }
 
 /** The card side — where `rounds` actually comes from. */
@@ -78,45 +83,41 @@ const CARDS: { slug: string; planFile: string; rounds?: number; phase?: string }
 ];
 
 describe('the rounds ride beside the phase', () => {
-  let browser: Browser;
-  let server: Awaited<ReturnType<typeof startServer>>;
-  let baseURL: string;
-  // Fetched ONCE and served statically: proxying per request with
-  // `route.fetch()` races the background poll against teardown, and the route
-  // callback must stay synchronous — the rule this repo already learned.
-  let boardWithCards: string;
+  let cat: Catalogue;
 
-  beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
-    const board = await (await fetch(`${baseURL}api/board`)).json();
-    const col = board.columns[0];
-    for (const c of CARDS) {
-      col.cards.push({
-        slug: c.slug, title: c.slug, type: 'bug', phase: c.phase ?? col.phase,
+  // THE BOARD IS BUILT, NOT FETCHED AND EDITED. The version this replaces
+  // started `board-server.mjs` for one reason: to GET /api/board and push four
+  // cards into its first column. The payload was never the real estate's — it
+  // was a scaffold for those four cards — so the server was paying a full
+  // estate scan to supply a shape the builders state directly.
+  const boardWithCards = buildBoard({
+    columns: [column({
+      phase: 'Discovery',
+      cards: CARDS.map((c) => buildCard({
+        slug: c.slug, title: c.slug, type: 'bug', phase: c.phase ?? 'Discovery',
         path: `docs/plans/${c.planFile}`, prs: [], phaseDate: '2026-08-16',
         ...(c.rounds === undefined ? {} : { rounds: c.rounds }),
-      });
-    }
-    boardWithCards = JSON.stringify(board);
+      })),
+    })],
+  });
+
+  beforeAll(async () => {
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1400 } });
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-    await page.route('**/api/board', (route) =>
-      route.fulfill({ contentType: 'application/json', body: boardWithCards }));
-    await page.goto(`${baseURL}?tab=agents`);
-    await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
-    return page;
+    // `over` replaces both payloads on the mock, so nothing is stubbed at the
+    // network boundary and nothing races the poll: the state is simply what
+    // the server answers.
+    return cat.open('an-empty-estate', {
+      over: { board: boardWithCards, fleet: fleet() },
+      tab: 'agents',
+      viewport: { width: 1400, height: 1400 },
+    });
   }
 
   const planRow = (page: Page, plan: string) => page.locator(`li[data-plan-row="${plan}"]`);

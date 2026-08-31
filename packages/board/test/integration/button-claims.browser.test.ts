@@ -5,7 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startServer, expandAgentFolds } from '../helpers.mjs';
-import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Board } from '../../src/contract/schema.js';
 
 /**
  * THE BUTTON CLAIMS ONLY WHAT IT KNOWS, in a real browser against the artifact.
@@ -220,35 +221,33 @@ function statusFleet(): Fleet {
 }
 
 describe('the Status entry — the dispatcher log gets a durable home', () => {
-  let browser: Browser;
-  let server: { port: number; kill: () => void };
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
-    baseURLHolder.url = baseURL;
-    browser = await chromium.launch();
-  });
+    cat = await openCatalogue();
+    // The fixture reports the board's own URL back to itself; the mock has one
+    // for the same reason the real server does.
+    baseURLHolder.url = cat.mock.baseURL;
+  }, 60_000);
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function openAgents(opts: {
     hasDispatchLog?: boolean;
     dispatchLogBody?: unknown;
   }): Promise<Page> {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.route('**/api/board', (route) =>
-      route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify(boardWith(
-          opts.hasDispatchLog ? { hasDispatchLog: true } : {},
-        )),
-      }));
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(statusFleet()) }));
+    // SERVED, NOT INTERCEPTED — the board answers with this state, which is
+    // what the row is asserted against. `/api/dispatch-log` stays a route: it
+    // is a read of a FILE the dispatcher wrote, not part of the board's state.
+    const page = await cat.open('an-empty-estate', {
+      over: {
+        board: boardWith(opts.hasDispatchLog ? { hasDispatchLog: true } : {}) as Board,
+        fleet: statusFleet(),
+      },
+      tab: 'agents',
+      viewport: VIEWPORT,
+    });
     if (opts.dispatchLogBody !== undefined) {
       await page.route('**/api/dispatch-log**', (route) =>
         route.fulfill({
@@ -256,7 +255,6 @@ describe('the Status entry — the dispatcher log gets a durable home', () => {
           body: JSON.stringify(opts.dispatchLogBody),
         }));
     }
-    await page.goto(`${baseURL}?tab=agents`);
     await page.getByText(/Working/).first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;

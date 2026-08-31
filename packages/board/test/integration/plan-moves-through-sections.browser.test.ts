@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
-import { ELIGIBLE_NOTE, DRAFT_PLAN_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
+import { type Page } from 'playwright';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+import {expandAgentFolds } from '../helpers.mjs';
+import { ELIGIBLE_NOTE, DRAFT_PLAN_NOTE, type AgentRow, type Fleet, type Board } from '../../src/contract/schema.js';
 
 /**
  * THE WHOLE OPERATOR PATH, WALKED ONCE — approve a plan, and it appears in NOT
@@ -48,8 +47,6 @@ import { ELIGIBLE_NOTE, DRAFT_PLAN_NOTE, type AgentRow, type Fleet } from '../..
  * re-derived — so each fixture row carries the group the pulse would have put it
  * in, which is what the browser renders from.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden';
 
 /** The plan the operator approves — Draft, so its card offers Approve. */
@@ -142,44 +139,35 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 }
 
 describe('a plan moves through the sections — approve it, and Start work takes it', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
+  // ONE STATE, TWO TABS. Both openers served the SAME pair of payloads and
+  // differed only in which tab they landed on, so the state is named once here
+  // and the tab is the argument. Served rather than routed: the board answers
+  // with this state, which is the assertion — a `page.route` stub intercepts
+  // the request before the server sees it and can only prove the client
+  // rendered a payload.
+  const openTab = (tab?: 'agents'): Promise<Page> =>
+    cat.open('an-empty-estate', {
+      over: { board: board() as Board, fleet: fleet() },
+      ...(tab ? { tab } : {}),
+      viewport: { width: 1400, height: 1200 },
+    });
+
   /** The Discovery tab — where the card's Approve lives. */
-  async function openBoard(): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
-    // SYNCHRONOUS route callbacks — an awaited `route.fetch()` can still be in
-    // flight when the page closes and fails a test that already passed.
-    await page.route('**/api/board', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(board()) }));
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-    await page.goto(baseURL);
-    return page;
-  }
+  const openBoard = (): Promise<Page> => openTab();
 
   /** The Agents tab — where the fleet's rows and NOT STARTED live. */
   async function openAgents(): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
-    await page.route('**/api/board', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(board()) }));
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await openTab('agents');
     await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
     return page;
   }
