@@ -1,0 +1,1 @@
+../2026-08-29-a-reset-branch-is-not-a-merged-one.md
