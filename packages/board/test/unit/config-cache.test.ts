@@ -153,6 +153,14 @@ describe('it degrades to today behaviour rather than caching a guess', () => {
         CONFIG.replace('docs/plans/', 'elsewhere/'),
         'utf8',
       );
+      // FORCE THE MTIMES EQUAL, which is what CI produces by accident: two
+      // temp repos created in the same millisecond carry the same stamp. This
+      // failed on CI and passed locally until the repo path joined the key —
+      // so the test now creates the condition rather than hoping for it.
+      const same = new Date(1_700_000_000_000);
+      fs.utimesSync(path.join(repo, 'CLAUDE.md'), same, same);
+      fs.utimesSync(path.join(other, 'CLAUDE.md'), same, same);
+
       expect(readConfig(opts(repo), 'Plan directory', 'x')).toBe('docs/plans/');
       expect(readConfig(opts(other), 'Plan directory', 'x')).toBe('elsewhere/');
     } finally {

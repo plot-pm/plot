@@ -132,7 +132,17 @@ function configStamp(repoRoot: string): string {
       parts.push(`${file}:-`);
     }
   }
-  return parts.every((part) => part.endsWith(':-')) ? '' : parts.join('|');
+  // THE REPO PATH IS PART OF THE STAMP, and leaving it out was a real bug
+  // caught by CI on 2026-08-31: two temp repos created in the same millisecond
+  // carry identical mtimes, so they produced identical stamps and the second
+  // read the first's answers. It passed locally, where `mkdtemp` calls are far
+  // enough apart to differ, and failed on a faster runner.
+  //
+  // `staticGitCache` keys on `repoRoot` for the same reason; this one did not,
+  // and the asymmetry is exactly the kind a reader assumes away.
+  return parts.every((part) => part.endsWith(':-'))
+    ? ''
+    : `${repoRoot}\u0000${parts.join('|')}`;
 }
 
 /** key -> value, valid only while `configCacheStamp` still matches the files. */
