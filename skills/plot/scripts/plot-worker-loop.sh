@@ -400,9 +400,31 @@ run_bounded() {
   wait "$_prompt_child" 2>/dev/null
 
   # Stop both watchers (a no-op for one that already fired) and reap their sleeps.
-  [ -n "$_watchdog_pid" ] && { _kill_tree "$_watchdog_pid"; wait "$_watchdog_pid" 2>/dev/null || true; }
+  #
+  # NO `wait` ON A PID WE JUST SIGKILLED. Both lines used to be
+  # `_kill_tree "$p"; wait "$p" 2>/dev/null || true`, and the `wait` on the
+  # WATCHDOG is where the loop hung — measured on CI, not inferred: stage
+  # markers around each call stopped at "B: waiting on watchdog" and never
+  # printed C, D or E (PR #563, run 33393895431).
+  #
+  # WHY REMOVING IT IS SAFE, INDEPENDENT OF WHY IT BLOCKED. The status neither
+  # `wait` collects is read by anything — the return is swallowed by
+  # `|| true`, and no branch below consults it. Their only purpose was reaping,
+  # which `_kill_tree`'s SIGKILL already did. The EXIT trap
+  # (`_cleanup_on_exit`) has always called `_kill_tree` on both pids with NO
+  # `wait` at all, so this makes the two paths agree rather than inventing a
+  # new one.
+  #
+  # WHY IT HUNG is still open, and deliberately not guessed at here. The
+  # watchdog is `( sleep "$BOUND"; kill -ALRM "$$" )` — the subshell that just
+  # fired the signal that brought us here — so the loop was waiting on a
+  # process mid-signal-delivery. That is consistent with every occurrence
+  # landing on a `bound: 1` fixture, the only case where the watchdog fires
+  # while the loop is still inside its own `wait`. It does not reproduce on
+  # macOS bash 5.3 in ~60 attempts, so the mechanism is Linux-side and the fix
+  # rests on what the line DOES, not on a theory of why it blocks.
+  [ -n "$_watchdog_pid" ] && _kill_tree "$_watchdog_pid"
   _kill_tree "$_monitor_watcher_pid"
-  wait "$_monitor_watcher_pid" 2>/dev/null || true
   _watchdog_pid=""
   _monitor_watcher_pid=""
   _prompt_child=""
