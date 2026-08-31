@@ -321,6 +321,23 @@ sed -n '/^== 7\./q;p' /tmp/plot-deliver-gate.txt | grep "YYYY-MM-DD-<slug>.md"
 Read the **grep's exit result**, which is the gate condition (the scan fetches first, so it sees the delivery push):
 
 - **grep printed a line (exit 0) → the delivery half-landed.** This is a hard stop. Show the finding and its printed `fix:` command, apply it (with confirmation), then **re-run the scan and grep** — repeat until the grep is empty. Only an empty grep on a real run clears the gate.
+
+  **Before each re-run, ask whether the estate actually moved.** The scan is the most expensive step in this skill — measured on the plot repo 2026-08-31, `--offline` took **279.9 s** — and the re-run reads an estate the previous run already measured. When the applied fix changed nothing the scan reads, the second run is the same question asked twice:
+
+  ```bash
+  ../plot/scripts/plot-estate-changed.sh /tmp/plot-deliver-estate.txt \
+    && ../plot/scripts/plot-reconcile-scan.sh 2>/dev/null | tee /tmp/plot-deliver-gate.txt \
+    || echo "estate unchanged — the previous scan's result stands"
+  sed -n '/^== 7\./q;p' /tmp/plot-deliver-gate.txt | grep "YYYY-MM-DD-<slug>.md"
+  ```
+
+  **This changes how often the gate asks, never what it decides.** The grep, the section-7 marker and both exit conditions are exactly as above; only a scan whose inputs are byte-for-byte unchanged is skipped, and the held output is re-grepped rather than assumed clean.
+
+  **It is a measurement, not a timer.** The guard hashes what the scan reads — every remote ref's SHA and every plan file's content — so the gate's own fix is always seen: a phase flip changes plan bytes, and the push that follows moves a ref. Nothing expires; an estate that changed produces a second scan every time.
+
+  **It fails toward scanning.** Every path that cannot take a measurement — no git, no plan directory, an unwritable state file — exits 0 and the scan runs. A guard that failed the other way would turn this gate back into a rule.
+
+  Delete `/tmp/plot-deliver-estate.txt` when the gate clears: the guard cannot see a PR merged on the host, so its state must not outlive this run.
 - **grep printed nothing (exit 1) → gate cleared.** Carry the actual `summary:` footer line forward as the Summary's gate evidence.
 
 Two expected non-failures (neither trips the gate — the grep does not match branch lines):
