@@ -14,83 +14,54 @@
 // not the server's worktree) is tested in unit tests. This test pins the
 // RENDER.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { type Fleet } from '../../src/contract/schema.js';
+import { openCatalogue, board as buildBoard, fleet as buildFleet, type Catalogue } from '../catalogue/index.js';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 
 /** A minimal board payload — needed because the Board tab fetches /api/board. */
-function boardBody(): string {
-  return JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    columns: [], checklist: [], sprints: [], stories: [],
-    dispatch: { available: false, reason: '' },
-    approve: { available: false, reason: '' },
-    continue: { available: false, reason: '' },
-    idea: { available: false, reason: '' },
-    commission: { available: false, reason: '' },
-    server: { restartCommand: '', port: 0, branch: 'main' },
-  });
+// THROUGH THE BUILDER, so the payload is one the schema admits. The literal
+// this replaces listed every capability by hand; `board()` defaults them all to
+// unavailable, which is what this suite wanted and never had to say.
+function boardBody() {
+  return buildBoard({ server: { restartCommand: '', port: 0, branch: 'main' } });
 }
 
 /** A minimal fleet payload with the fields the Master Agent row needs. */
-function fleetBody(masterAgentBranch: string, branchUrlBase = ''): string {
-  return JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    ageSeconds: 0,
-    ready: true,
-    complete: true,
-    error: null,
-    shrink: null,
-    rows: [],
-    waves: [],
-    summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
-    stuck: { stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 },
-    prAgeSeconds: null,
-    prError: null,
-    issues: [],
-    issueAnswer: 'unsupported',
-    agents: [],
-    sprints: [],
-    estateTotals: { total: 0, open: 0, wip: 0, done: 0 },
-    masterAgentBranch,
-    branchUrlBase,
-  });
+function fleetBody(masterAgentBranch: string, branchUrlBase = '') {
+  return buildFleet({ masterAgentBranch, branchUrlBase });
 }
 
 describe('the Agents tab names the master agent branch', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
+
+  /**
+   * SERVED, NOT INTERCEPTED. Six tests each opened a context and pushed both
+   * payloads in with `page.route`, so the board never saw the request and the
+   * assertion could only say the client rendered a payload. Naming the state
+   * here makes it the board's answer, which is the thing under test.
+   */
+  const openWith = (fleet: Fleet, tab?: 'agents'): Promise<Page> =>
+    cat.open('an-empty-estate', {
+      over: { board: boardBody(), fleet },
+      ...(tab ? { tab } : {}),
+      viewport: { width: 1400, height: 900 },
+    });
 
   /** The locator for the Master Agent row's container. */
   const masterAgentRow = (page: Page) => page.locator('[data-master-agent]');
 
   it('shows the master agent branch on the Agents tab', async () => {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    const page = await context.newPage();
+    const page = await openWith(fleetBody('bug/a-head-counts-its-own-waves'), 'agents');
     try {
-      await page.route('**/api/board', (route) =>
-        route.fulfill({ contentType: 'application/json', body: boardBody() }));
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: fleetBody('bug/a-head-counts-its-own-waves') }));
-
-      // Go to the Agents tab directly.
-      await page.goto(`${baseURL}?tab=agents`);
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
 
       // The Master Agent row should be visible.
@@ -107,16 +78,8 @@ describe('the Agents tab names the master agent branch', () => {
   });
 
   it('does NOT show the master agent row on the Board tab', async () => {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    const page = await context.newPage();
+    const page = await openWith(fleetBody('bug/a-head-counts-its-own-waves'));
     try {
-      await page.route('**/api/board', (route) =>
-        route.fulfill({ contentType: 'application/json', body: boardBody() }));
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: fleetBody('bug/a-head-counts-its-own-waves') }));
-
-      // Start on the Board tab (the default).
-      await page.goto(baseURL);
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
 
       // Wait a moment for the board to render fully.
@@ -130,16 +93,9 @@ describe('the Agents tab names the master agent branch', () => {
   });
 
   it('renders NO row when masterAgentBranch is empty', async () => {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    const page = await context.newPage();
+    // Empty string means detached HEAD, unreadable repo, or no main checkout.
+    const page = await openWith(fleetBody(''), 'agents');
     try {
-      // Empty string means detached HEAD, unreadable repo, or no main checkout.
-      await page.route('**/api/board', (route) =>
-        route.fulfill({ contentType: 'application/json', body: boardBody() }));
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: fleetBody('') }));
-
-      await page.goto(`${baseURL}?tab=agents`);
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
 
       // Wait a moment for the fleet to render.
@@ -153,17 +109,8 @@ describe('the Agents tab names the master agent branch', () => {
   });
 
   it('follows a branch switch across two polls', async () => {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    const page = await context.newPage();
+    const page = await openWith(fleetBody('feature/first-branch'), 'agents');
     try {
-      let branchName = 'feature/first-branch';
-
-      await page.route('**/api/board', (route) =>
-        route.fulfill({ contentType: 'application/json', body: boardBody() }));
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: fleetBody(branchName) }));
-
-      await page.goto(`${baseURL}?tab=agents`);
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
 
       // First poll: should show first-branch.
@@ -171,11 +118,14 @@ describe('the Agents tab names the master agent branch', () => {
         .poll(() => masterAgentRow(page).textContent(), { timeout: 10_000 })
         .toContain('feature/first-branch');
 
-      // Simulate a branch switch by changing what the route returns.
-      branchName = 'feature/second-branch';
-      await page.unroute('**/api/fleet');
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: fleetBody(branchName) }));
+      // A branch switch is the SERVER answering differently, so the mock is
+      // re-served rather than the stub re-routed. `unroute` changed what an
+      // interceptor returned; this changes what the board says — which is the
+      // state transition the test is about.
+      cat.mock.serve('an-empty-estate', {
+        board: boardBody(),
+        fleet: fleetBody('feature/second-branch'),
+      });
 
       // The fleet polls every 4 seconds. Wait and check the row updated.
       await expect
@@ -187,18 +137,10 @@ describe('the Agents tab names the master agent branch', () => {
   });
 
   it('renders the branch as a link when branchUrlBase is provided', async () => {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    const page = await context.newPage();
+    const urlBase = 'https://github.com/plot-pm/plot/tree/';
+    const branch = 'feature/linked-branch';
+    const page = await openWith(fleetBody(branch, urlBase), 'agents');
     try {
-      const urlBase = 'https://github.com/plot-pm/plot/tree/';
-      const branch = 'feature/linked-branch';
-
-      await page.route('**/api/board', (route) =>
-        route.fulfill({ contentType: 'application/json', body: boardBody() }));
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: fleetBody(branch, urlBase) }));
-
-      await page.goto(`${baseURL}?tab=agents`);
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
 
       // The row should be visible.
@@ -218,17 +160,9 @@ describe('the Agents tab names the master agent branch', () => {
   });
 
   it('renders the branch as plain text when branchUrlBase is empty', async () => {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    const page = await context.newPage();
+    const branch = 'feature/unlinked-branch';
+    const page = await openWith(fleetBody(branch, ''), 'agents');
     try {
-      const branch = 'feature/unlinked-branch';
-
-      await page.route('**/api/board', (route) =>
-        route.fulfill({ contentType: 'application/json', body: boardBody() }));
-      await page.route('**/api/fleet', (route) =>
-        route.fulfill({ contentType: 'application/json', body: fleetBody(branch, '') }));
-
-      await page.goto(`${baseURL}?tab=agents`);
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
 
       // The row should be visible.
