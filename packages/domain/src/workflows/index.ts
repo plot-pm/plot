@@ -13,6 +13,11 @@
  * because each reads one worktree where a fan-out reads a plan and a fleet.
  */
 export * from './decision.js';
+// The encoding half of the Decision/performer split: how one `Write` becomes
+// plan-file text. Exported here because a module the package cannot reach is a
+// module nothing can test — this file was written without its export, which is
+// why it read as 0% covered rather than as unreachable.
+export * from './rendering.js';
 export * from './approve.js';
 export * from './deliver.js';
 export * from './dispatch.js';
