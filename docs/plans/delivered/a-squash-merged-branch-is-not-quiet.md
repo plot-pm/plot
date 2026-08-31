@@ -1,0 +1,1 @@
+../2026-08-28-a-squash-merged-branch-is-not-quiet.md
