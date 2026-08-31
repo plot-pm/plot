@@ -242,7 +242,7 @@ per file, and why is the contract test not catching it?** The test covers
 `/api/board`; something else on the refresh path evidently does not go through
 the batched read.
 
-### The strongest measurement: it DEGRADES, it does not stall
+### The floor is 8 s, and an earlier reading of "it degrades" did not hold
 
 **Measured 2026-08-31 20:50, four back-to-back requests to `/api/fleet`:**
 
@@ -274,11 +274,39 @@ response time crosses the poll interval, the loop is self-sustaining** until
 something breaks it. A quiet estate has responses under 5 s and never enters it;
 a busy one crosses over and cannot get back out.
 
-**The falsifiable prediction, and it must be tested before anything is fixed:**
-slowing the client's poll below the response time — or dropping a request while
-one is in flight — should break the loop and hold response times flat. If it
-does not, this reading is wrong too, and it is the third cause this plan has
-named.
+**THE PREDICTION WAS TESTED WITHIN THE HOUR, AND IT FAILED. 2026-08-31 20:53.**
+
+Eight leftover processes were killed — two vitest runs asleep at 0 % CPU for 33
+and 47 minutes, two build shells, an orphaned board server holding 135 MB, and a
+five-hour watcher with no child. Load fell from 6.03 to 4.55. The same four
+back-to-back requests then ran:
+
+```
+200  17.355s
+200  12.044s
+200   8.590s
+200   8.279s
+```
+
+**Descending.** The feedback-loop reading predicted the opposite: work
+accumulating faster than it drains gets worse under back-to-back load, not
+better. It recovers toward a floor instead.
+
+**So the direction of the first run was LOAD, not a self-sustaining loop.** The
+hung suites were inflating it, and the ascending sequence measured the machine
+rather than the board. That is the third cause this plan has named and the third
+it has had to withdraw.
+
+**What survives the correction, and it is the useful half:** the floor is about
+**8 seconds**, against a client that polls every **5 s**. A response slower than
+the poll is enough on its own to explain the Agents tab never rendering — every
+request is superseded before it lands, and that tab has no frozen payload to
+fall back on the way the Plans tab does. No feedback loop is required for that;
+one slow endpoint is sufficient.
+
+**And the question narrows to the floor.** Not *"why does it degrade?"* — it
+does not — but *"why does one `/api/fleet` cost 8 s on a quiet machine?"* The
+host findings below are the candidates, and the probe is what settles them.
 
 **What it does not explain:** why one `/api/fleet` costs 6.6 s in the first
 place. The loop amplifies that cost; it does not create it. The host findings
