@@ -3548,13 +3548,31 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     }
   });
 
-  // SKIPPED ON CI ONLY, AND THE CAUSE IS NOT KNOWN — 2026-08-31.
+  // SKIPPED ON CI: A LOAD-SENSITIVE FLAKE, CAUSE NOT CONFIRMED — 2026-08-31.
   //
   // This asserts a wrap point in pixels: at 375px the kind must sit at or above
-  // the branch name. On CI it reads `expected 299 to be less than or equal to
+  // the branch name. On CI it read `expected 299 to be less than or equal to
   // 292.328125` — the kind one line low — on six consecutive `main` commits.
   // Locally the whole file passes 117/117 on those same commits with a freshly
   // built artifact.
+  //
+  // IT IS NOT DETERMINISTIC THERE, and the timing is the strongest evidence
+  // about what it actually is:
+  //
+  //   20:23–20:57   six consecutive failures, several CI runs live at once
+  //                 during a rapid push burst
+  //   21:06–21:07   two consecutive passes, once the queue was quiet — with
+  //                 no relevant change (a brief, and a one-line plan edit)
+  //
+  // So `main` recovered on its own BEFORE this guard landed. The sixth
+  // candidate — runner contention, where a loaded runner renders more slowly
+  // and a layout sampled mid-render reads an unsettled wrap point — fits every
+  // observation the five below do not, and is UNTESTED: proving it needs
+  // evidence from the runner, not another local experiment.
+  //
+  // A test that fails six runs in a row is unreliable whatever the mechanism,
+  // and that alone is the case for this guard. It is not a claim that CI is
+  // broken.
   //
   // FIVE EXPLANATIONS WERE MEASURED AND REFUTED, recorded so nobody re-walks them:
   //
@@ -3571,8 +3589,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   //     90.41px for the shipped `ui-sans-serif, system-ui`) passes, and so does
   //     `monospace` at 109.22px, 21 % wider
   //
-  // So the difference between a CI runner and a developer machine is real,
-  // reproducible there, and NOT YET IDENTIFIED. `skipIf` rather than `skip`
+  // So the difference is real but INTERMITTENT, and not yet identified.
+  // `skipIf` rather than `skip`
   // deliberately: the assertion still runs everywhere it is reliable, so it
   // still guards this layout for anyone editing the row — only the environment
   // that cannot answer it stops asking.
