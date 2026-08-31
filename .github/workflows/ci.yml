@@ -68,6 +68,7 @@ jobs:
         run: git fetch --no-tags origin main:refs/remotes/origin/main
 
       - name: Corpus tier — adapters vs production
+        timeout-minutes: 10
         run: pnpm --filter @plot-pm/domain run test:corpus
 
   validate:
@@ -296,6 +297,7 @@ jobs:
       # guarantees every line is reachable from a plain function call, so an
       # uncovered line is a line nobody specified.
       - name: Domain tests + coverage gate
+        timeout-minutes: 10
         run: pnpm --filter @plot-pm/domain exec vitest run --coverage
 
       # ── Board (first-class): the Definition of Done requires the board to keep
@@ -304,6 +306,7 @@ jobs:
         run: pnpm run typecheck
 
       - name: Board build + artifact freshness
+        timeout-minutes: 10
         run: |
           pnpm run build:board
           if ! git diff --quiet -- skills/plot/scripts/board/board-server.mjs; then
@@ -313,7 +316,13 @@ jobs:
           fi
           echo "Board artifact is fresh."
 
+      # BOUNDED BECAUSE IT SPAWNS. This runs the board's `node --test` suites,
+      # which start real `board-server.mjs` processes — the population that hung
+      # locally on 2026-08-31 (two runs asleep at 0% CPU for 33 and 47 minutes,
+      # holding an orphaned server). A step that spawns can hang; a grep cannot,
+      # which is why the gates below carry no bound and this does.
       - name: Board tests
+        timeout-minutes: 10
         run: pnpm --filter @plot-pm/board test
 
       # ── Board integration tests: a real browser (Playwright) renders the just-
@@ -329,6 +338,7 @@ jobs:
       # correct. `restore-keys` lets a near-miss serve the OS deps while the
       # exact browser is fetched.
       - name: Cache the Playwright browser
+        timeout-minutes: 10
         id: playwright-cache
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
