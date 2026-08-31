@@ -64,13 +64,62 @@ what the total is — including the one that renders the apology.
 > — reports a 403 naming abuse detection, while `gh api rate_limit` reads
 > 5000/5000 on both buckets.
 
-So the ceiling that bites first is **concurrency**, not the hourly quota, and it
-is reached by adding processes rather than by any one process misbehaving. A
-per-process budget cannot see it by construction.
+So **a second ceiling exists** — concurrency — reached by adding processes
+rather than by any one process misbehaving, and a per-process budget cannot see
+it by construction.
 
-**Confirmed again 2026-08-31**, while verifying a PR: `gh` GraphQL calls failed
-with `API rate limit already exceeded` while `gh api rate_limit` reported
-**5000/5000 remaining** and REST calls succeeded immediately.
+**But note which evidence that conclusion rested on.** `5000/5000 on both
+buckets` was read from `gh api rate_limit`, the endpoint measured below
+reporting 5000 while the headers reported 0. That reading cannot distinguish
+*"the quota is fine, this is a secondary limit"* from *"the quota is spent and
+this endpoint is wrong"*. The 403 naming abuse detection is independent evidence
+and stands; the bucket reading beside it does not. Whether 2026-08-27 was purely
+concurrency or partly an exhausted GraphQL quota is now unknown — which is
+itself a reason to budget by bucket and read the headers, since the same
+ambiguity will otherwise recur at every diagnosis.
+
+### The buckets are separate, and the board budgets neither of them by name
+
+GitHub meters **REST (`core`) and GraphQL as independent buckets**, 5000 each,
+plus narrower ones (`code_search` is 10). Measured 2026-09-01 from the response
+headers:
+
+| bucket | limit | remaining | used |
+|---|---|---|---|
+| `core` (REST) | 5000 | **4990** | 10 |
+| `graphql` | 5000 | **0** | **5000** |
+
+`plot-host.sh` uses both forms and does not distinguish them: `gh pr list`,
+`gh pr view` and `gh issue list` are GraphQL; `gh api repos/…` and `gh run list`
+are REST. One is exhausted while the other is untouched, so a single "host
+requests" budget both under-counts the bucket that is nearly spent and refuses
+calls that would have gone to the bucket with 4990 left.
+
+**This is why REST worked all evening while GraphQL refused** — not a secondary
+limit, which is what the failure looked like from the aggregate view.
+
+### The endpoint plot asks reports the wrong number
+
+`graphql_budget_spent()` (`plot-host.sh:536`) reads
+`.resources.graphql.remaining` from `gh api rate_limit`. Measured 2026-09-01,
+three consecutive readings, uncached, against the same account and moment:
+
+    rate_limit says graphql=5000   response header says=0
+    rate_limit says graphql=5000   response header says=0
+    rate_limit says graphql=5000   response header says=0
+
+The gate that exists to notice a spent GraphQL budget **cannot see it**, because
+the endpoint it trusts reports a full bucket while every real call is refused.
+The same reading is what licensed the comment beside it — *"the call itself is
+FREE, measured 2026-08-27: three consecutive readings, all used=0"* — and
+`used=0` from this endpoint is not evidence that a call was free; it is the
+symptom.
+
+**So the authority must be the headers on a real response**, which report
+`X-RateLimit-Resource` naming the bucket the call actually spent, alongside
+`Limit`, `Remaining` and `Used`. A call that has to happen anyway carries its own
+accounting; a separate question about the budget is both an extra request and, as
+measured, wrong.
 
 ### Twelve scripts share the same cap
 
@@ -165,6 +214,10 @@ closing a board rather than waiting for GitHub.
 
 - `bug/a-secondary-limit-is-not-a-spent-quota` — the banner names which limit was hit, prints a reset time only when there is one, and when the cause is local contention says how many spenders it found. `plot-host.sh` already distinguishes them at `host_failure_kind`; the board discards the distinction.
 
+### Budgeting each bucket by name
+
+- `bug/the-budget-knows-which-bucket-it-spent` — the record from slice 1 is keyed by bucket (`core`, `graphql`, and whatever `X-RateLimit-Resource` names), read from the response headers of calls that were going to happen rather than from `gh api rate_limit`, which was measured reporting 5000 while the headers reported 0. Fixes `graphql_budget_spent()` in the same slice: a gate that cannot see the condition it gates on is worse than no gate, because it reports safety.
+
 ### Bounding concurrency
 
 - `bug/the-budget-bounds-simultaneous-calls` — a cap on in-flight host requests per account, sized against the measured seven. Last, because it needs the record from slice 1 and the reporting from slice 3 to show it is working rather than merely quiet.
@@ -177,6 +230,12 @@ closing a board rather than waiting for GitHub.
 - A third board changes that number by nothing.
 - The banner never prints a reset time it did not receive, and when the limit is
   local it says how many spenders were found.
+- **A spent GraphQL bucket does not stop a REST call, and vice versa** — the two
+  are budgeted by name, so the board keeps answering from the bucket that has
+  4990 left instead of pausing on the one that has 0.
+- `graphql_budget_spent()` returns true when the headers say the bucket is spent,
+  asserted against a response whose `X-RateLimit-Remaining` is 0 — not against
+  `gh api rate_limit`, which reported 5000 at that moment three times running.
 - The 2026-08-27 shape is covered: more spenders than the concurrency cap
   degrades cadence rather than producing a 403.
 - A script whose budget is spent behaves the way its own safety argument
@@ -192,6 +251,11 @@ and stated its unit; `plot-host.sh` separated the primary limit from the
 secondary one and recorded the outage that motivated it. Both were right about
 what they measured. The gap is that a *process* was the unit of both, and the
 limit's unit is an account.
+
+**The aggregate endpoint is not a source of truth.** Two of this plan's
+findings come from comparing it to the headers on a real response, and both
+times it was the endpoint that was wrong. Anything that decides whether to spend
+should read what the last spend reported.
 
 **The stale banner is the tell.** A board 49 minutes behind on a 60 s timer is
 not slow — it has been refused ~49 times, and the only thing it can say is when
