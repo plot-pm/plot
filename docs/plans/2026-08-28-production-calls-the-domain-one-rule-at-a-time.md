@@ -12,6 +12,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-01, Jan Wloka, in-session
+- **Started:** 2026-09-01, Jan Wloka, `feature/the-shell-stops-parsing-plans`
 
 ## Changelog
 
