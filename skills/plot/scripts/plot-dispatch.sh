@@ -540,12 +540,12 @@ start_worker() {
   #
   # EVERY WORKER IS BORN MONITORED, AND THAT IS ENFORCED HERE OR NOWHERE.
   #
-  # Two monitors start INSIDE the wrapper, as its children, immediately before
+  # Three monitors start INSIDE the wrapper, as its children, immediately before
   # the agent: one watches the process (`plot-worker-monitor.sh`), one watches
-  # the desk (`plot-agent-monitor.sh`). In THIS slice both are no-ops that
-  # publish "nothing measured yet" and sample nothing — the attachment is the
-  # deliverable, and the measurements land in their own branches behind a
-  # dispatch change already proven.
+  # the desk (`plot-agent-monitor.sh`), one watches the run
+  # (`plot-build-monitor.sh`). Each has a subject the others do not and a
+  # cadence it cannot share — seconds on the process table, minutes on the host,
+  # seconds again on a run but only while one is live.
   #
   # WHY INSIDE THE WRAPPER RATHER THAN BESIDE IT. The wrapper already outlives
   # its agent by construction — it must, or there would be no exit code to
@@ -584,9 +584,15 @@ start_worker() {
   # A HAND-MADE WORKTREE GETS NEITHER, and that falls out rather than being
   # enforced: this is the only code that starts a wrapper, and a worktree with
   # no wrapper has nothing for a monitor to be a child of.
-  local worker_monitor='' agent_monitor=''
+  local worker_monitor='' agent_monitor='' build_monitor=''
   [ -x "$script_dir/plot-worker-monitor.sh" ] && worker_monitor="$script_dir/plot-worker-monitor.sh"
   [ -x "$script_dir/plot-agent-monitor.sh" ] && agent_monitor="$script_dir/plot-agent-monitor.sh"
+  # THE THIRD MONITOR, born the same way and for the same reason. It watches the
+  # RUN — a Build is its own entity in the spec, so a monitor per entity is the
+  # pattern rather than an exception to it. Its cadence is the WorkerMonitor's
+  # 30 s rather than the AgentMonitor's 300 s, and it can afford that against a
+  # HOST because it asks nothing while no run is live.
+  [ -x "$script_dir/plot-build-monitor.sh" ] && build_monitor="$script_dir/plot-build-monitor.sh"
   local stamp_now
   stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
@@ -596,8 +602,9 @@ start_worker() {
       PLOT_STAMP_STARTED="$stamp_now" \
       PLOT_WORKER_MONITOR="$worker_monitor" \
       PLOT_AGENT_MONITOR="$agent_monitor" \
+      PLOT_BUILD_MONITOR="$build_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
-      nohup sh -c 'if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '"'"'
+      nohup sh -c 'if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
