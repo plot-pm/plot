@@ -535,10 +535,45 @@ prefill_pr_states() {
   # that it can fail, WHICH failure it was is a fact worth carrying: exit 5 is
   # a rate limit and exit 3 is anything else, and the summary reports the
   # difference rather than degrading silently.
-  js=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" --rich \
-         </dev/null 2>/dev/null); rc=$?
+  # STDOUT TO A FILE so stderr can be captured separately — see the verdict
+  # below. It lives in `HOST_STATE_CACHE`, which already has an EXIT trap, so
+  # this adds no second cleanup path. When mktemp -d failed the cache is "",
+  # and /dev/null keeps the call working with the text simply unavailable.
+  host_list_out="${HOST_STATE_CACHE:+$HOST_STATE_CACHE/pr-list.json}"
+  host_list_out="${host_list_out:-/dev/null}"
+  host_err=$("$script_dir/plot-host.sh" pr-list --state all --limit "$PR_LIST_LIMIT" --rich \
+         </dev/null 2>&1 >"$host_list_out"); rc=$?
+  js=$(cat "$host_list_out" 2>/dev/null)
   if [ "$rc" -ne 0 ]; then
-    [ "$rc" -eq 5 ] && HOST_VERDICT=throttled || HOST_VERDICT=failed
+    # THREE OUTCOMES, NOT TWO. `unasked` already means "the question was
+    # never put" (see HOST_VERDICT above: *not a degradation, the scan was
+    # never asking*), and a host that cannot be ASKED AT ALL belongs there
+    # rather than among answers that failed to arrive.
+    #
+    # THE EXIT CODE CANNOT SEPARATE THEM. `plot-host.sh:849` is explicit
+    # that a missing token is *"a CONFIG error the op cannot proceed past
+    # — exit 3, never"* exit 4, so an unauthenticated CLI and a genuine
+    # mid-answer failure arrive with the SAME status. The stderr text is
+    # the only thing that distinguishes them, and it is already in hand:
+    # a second probe call would cost another fork for a fact this one
+    # already produced.
+    #
+    # WHY IT MATTERS: `failed` makes every branch `unknown`, and `unknown`
+    # is not startable — so a checkout with no host credentials reports an
+    # estate on which nothing can be started. Measured 2026-08-31:
+    # `packages/board/test/claimed.test.mjs`, whose header says it *"never
+    # touches a network or a git host"*, read `eligible: 0` where it had
+    # always read 1. The branch was startable; the scan had stopped being
+    # able to say so.
+    case "$rc" in
+      5) HOST_VERDICT=throttled ;;
+      4) HOST_VERDICT=unasked ;;
+      *) case "$host_err" in
+           *auth*|*Auth*|*AUTH*|*login*|*Login*|*credential*|*Credential*|*"not logged"*)
+             HOST_VERDICT=unasked ;;
+           *) HOST_VERDICT=failed ;;
+         esac ;;
+    esac
     return 0
   fi
   # The list arrived. An empty one arrived too — that is the whole distinction.
