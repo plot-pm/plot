@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { refsFixture, planStoreFixture, planRecord } from '../src/adapters/index.js';
-import { isAnswered } from '../src/index.js';
+import { isAnswered, type PortResult } from '../src/index.js';
 
 /**
  * The fixture adapters, asserted as adapters.
@@ -17,9 +17,17 @@ import { isAnswered } from '../src/index.js';
  * the port is shaped this way.
  */
 
-const answer = <T>(r: { ok: boolean } & Record<string, unknown>): T => {
-  expect(isAnswered(r as never)).toBe(true);
-  return (r as { value: T }).value;
+/**
+ * Asserts a port answered, and hands back the value it carried.
+ *
+ * Typed through `PortResult` and narrowed by `isAnswered` rather than cast: a
+ * cast would compile against a refusal, which is the one thing every test here
+ * is trying to tell apart from an answer.
+ */
+const answer = <T>(result: PortResult<T>): T => {
+  expect(isAnswered(result)).toBe(true);
+  if (!isAnswered(result)) throw new Error('unreachable: asserted above');
+  return result.value;
 };
 
 describe('refsFixture: an empty fixture still answers every method', () => {
