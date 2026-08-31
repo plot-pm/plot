@@ -81,6 +81,33 @@
 #                                 to be failing. Empty on bitbucket (bb has no
 #                                 run listing) — unavailable, never "never
 #                                 failed".
+#   run-for-sha <branch> <sha>    the newest run for ONE sha, as a single JSON
+#                                 object, or nothing when the host has no run
+#                                 for it yet:
+#                                   {"sha":"…","status":"queued|in_progress|
+#                                    completed|waiting|requested",
+#                                    "conclusion":"success|failure|…|null",
+#                                    "url":"…","startedAt":"…"}
+#                                 PINNED TO A SHA, which is the whole reason it
+#                                 exists beside `runs`. `runs` is branch-scoped
+#                                 and sha-blind, and `gh run list --branch X`
+#                                 returns runs for every sha that branch ever
+#                                 had — the newest run is NOT necessarily for
+#                                 the newest commit. A green answer read off the
+#                                 wrong run reports success for code nobody will
+#                                 merge, which is worse than no answer: it
+#                                 invites a merge of the wrong thing. Measured
+#                                 2026-08-30: two merge waiters reported on
+#                                 superseded runs and had to be stopped and
+#                                 re-armed.
+#                                 `status` AND `conclusion` ARE BOTH REPORTED,
+#                                 never collapsed. A run that is `completed` has
+#                                 a conclusion; one that is `waiting` or
+#                                 `action_required` has none yet, and folding
+#                                 the two would report a build blocked on a
+#                                 human click as merely pending forever.
+#                                 NOTHING on bitbucket (bb has no run listing) —
+#                                 unavailable, never "no run".
 #   issue-list [--limit N]        open tracker issues as JSON lines:
 #                                 {"number":N,"title":"…","url":"…",
 #                                  "createdAt":"…"}
@@ -1576,6 +1603,68 @@ case "$op" in
         | jq -c '.[] | {workflow:.workflowName,
                         conclusion:(if (.conclusion // "") == "" then .status else .conclusion end),
                         startedAt:.startedAt, url:.url}' 2>/dev/null || true
+    fi
+    ;;
+
+  run-for-sha)
+    # The newest run for ONE sha — the BuildMonitor's only host question.
+    #
+    # WHY THIS IS NOT `runs`. `runs` is branch-scoped and reports no sha at all,
+    # so a caller cannot tell which commit an answer is about. `gh run list
+    # --branch X` returns runs for every sha the branch ever had, and the newest
+    # run is not necessarily for the newest commit — a branch pushed twice in
+    # quick succession has the first sha's run finishing after the second sha's
+    # started. Reading a conclusion off that run answers about the past.
+    #
+    # WHY THAT MATTERS MORE THAN IT SOUNDS. A green result for superseded code
+    # is worse than no result: it invites a merge of the wrong thing. Measured
+    # 2026-08-30, in the session that wrote the plan: two merge waiters reported
+    # on superseded runs and had to be stopped and re-armed.
+    #
+    # FACTS, NEVER A VERDICT (Principle 3). It reports `status` and `conclusion`
+    # as the host gives them and compares nothing. Whether `action_required`
+    # means "blocked" or `null` means "still going" is the monitor's rule, not
+    # this collector's — and keeping the two words separate is what lets the
+    # monitor tell a build awaiting a human click from one merely running. A
+    # collector that folded them into one word would make that distinction
+    # unrecoverable downstream.
+    #
+    # ONE OBJECT OR NOTHING. Empty output means the host has no run for this sha
+    # — which is a real, common answer (the run has not been created yet) and
+    # deliberately NOT an error: a monitor polling a fresh push sees it on every
+    # pass until CI wakes up.
+    #
+    # Bitbucket reports nothing rather than something invented, exactly as
+    # `runs` does: `bb` has no run listing, and silence here reads as
+    # unavailable, never as "this sha has no build".
+    branch="${1:?run-for-sha needs a branch}"; shift
+    sha="${1:?run-for-sha needs a sha}"; shift
+    # Enough runs to find the sha among its neighbours. A branch accumulates
+    # runs per push and per workflow, so the sha being asked about can sit
+    # several entries down even when it is the current head.
+    limit=20
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --limit) limit="${2:?}"; shift 2 ;;
+        *) die "run-for-sha: unknown arg $1" ;;
+      esac
+    done
+    if [ "$be" = "github" ]; then
+      # `headSha` is the field that makes this answerable at all; `runs` omits
+      # it, which is why that op cannot be reused here.
+      #
+      # NEWEST FIRST, then the FIRST match is taken: `gh run list` returns runs
+      # newest-first, and a sha can carry several (a rerun, or several
+      # workflows). The newest is the live answer; older ones for the same sha
+      # are superseded by the same argument that superseded runs for older shas.
+      gh run list --branch "$branch" --limit "$limit" \
+        --json headSha,conclusion,status,startedAt,url 2>/dev/null \
+        | jq -c --arg sha "$sha" \
+            'map(select(.headSha == $sha)) | .[0]
+             | select(. != null)
+             | {sha:.headSha, status:.status,
+                conclusion:(if (.conclusion // "") == "" then null else .conclusion end),
+                url:.url, startedAt:.startedAt}' 2>/dev/null || true
     fi
     ;;
 
