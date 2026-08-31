@@ -233,6 +233,312 @@ sits on and not by arithmetic on a stale figure.
   not the cost and something else should be looked at.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm build:board`, changeset.
 
+## Survey
+
+*Slice 1, `infra/the-browser-tests-say-which-need-a-server`, 2026-08-31.
+Read-only: no test file was modified.*
+
+### The population is 32, not 33 — and three of them are not browser tests
+
+The plan's 33 counted `mock-board.browser.test.ts`, which mentions
+`startServer` only **inside a string it greps for** (`must not start a real
+board`). It starts nothing; it is the catalogue's own test. Removing it leaves
+**32 files and 372 `it(`**.
+
+Three of the 32 launch no Chromium either — `tiny-garden.data`, `.plan` and
+`.story` drive `GET /api/board`, `/plan/<file>` and `/story/<slug>` against the
+spawned artifact with `fetch`. They are **server-route tests that happen to sit
+in the browser directory**, and the catalogue has nothing to offer them: their
+subject *is* the real server's routing and allowlist.
+
+So the migratable browser population is **29 files, 350 tests**.
+
+### The finding that resizes the plan: most of these already serve their state
+
+`/api/fleet` is stubbed in **20 of the 29**. Seventeen of those never read
+`/api/board` at all — the fixture path is passed to `startServer` as a working
+directory and the served payload is never looked at. They spawn a board to be
+**a static file server for the built bundle**, nothing more.
+
+That is not the picture the Motivation drew, and it changes what the later
+slices cost. The work is not *"invent a fleet payload for 29 files"* — most
+already have one. It is *"stop starting a server to serve `index.html`"*, plus
+a genuine board-payload migration for the six files that read `/api/board`.
+
+**The write-route hypothesis is mostly false, and measurably so.** Of the six
+files the brief flagged as likely *must stay real*, five already intercept
+every write endpoint they touch with `page.route`:
+
+| file | write endpoints | intercepted? |
+|---|---|---|
+| `button-claims` | `/api/dispatch`, `/api/dispatch-log` | both |
+| `double-click` | `/api/approve`, `/api/dispatch` | both |
+| `fleet-settings` | `/api/dispatch`, `/api/fleet-controls` | both |
+| `spinner` | `/api/approve`, `/api/dispatch` | both |
+| `start-work-refusal` | `/api/dispatch` | yes |
+| **`approve`** | `/api/approve` | **no — reaches the script** |
+
+`approve.browser.test.ts` is the only file in the suite where a write leaves the
+browser and lands in `Approve command`. It copies the fixture to a temp
+directory first, precisely so the real config is read, and asserts the script's
+own failure sentence on the card. It is the one unambiguous *must stay real*.
+
+### The table
+
+**Verdicts.** `catalogue candidate` — its board state can be named.
+`must stay real` — with the reason. `interception over baseline` — a board
+that cannot answer, layered over a served state.
+
+`route f` / `route b` count `page.route` handlers for `/api/fleet` and
+`/api/board`. `ms` is summed in-file test time from the run below.
+
+#### Catalogue candidates — fleet already stubbed, board never read (17 files, 159 tests)
+
+These need **no new payload at all**. Each already builds the fleet it asserts
+against; the migration is swapping `startServer(FIXTURE)` for `openCatalogue()`
+so the bundle is served without a board process.
+
+| file | its | route f | ms |
+|---|---|---|---|
+| `activity-mark.browser.test.ts` | 24 | 3 | 7901 |
+| `group-activity.browser.test.ts` | 15 | 2 | 4541 |
+| `row-withholds.browser.test.ts` | 16 | 1 | 5734 |
+| `stuck-rows.browser.test.ts` | 15 | 1 | 5425 |
+| `not-started-plans.browser.test.ts` | 14 | 1 | 4635 |
+| `unplanned-issues.browser.test.ts` | 11 | 1 | 3603 |
+| `one-grid.browser.test.ts` | 8 | 1 | 2650 |
+| `folded-plan-pr-fold.browser.test.ts` | 7 | 1 | 2358 |
+| `working-shows-every-agent.browser.test.ts` | 5 | 1 | 1646 |
+| `split-plan-counts-elsewhere.browser.test.ts` | 4 | 2 | 1550 |
+| `stuck-row-alignment.browser.test.ts` | 4 | 1 | 1330 |
+| `wave-name-in-cell.browser.test.ts` | 3 | 1 | 962 |
+| `wave-head-says-its-verdict.browser.test.ts` | 2 | 1 | 657 |
+| `wave-in-working.browser.test.ts` | 2 | 1 | 614 |
+| `wave-leaves-the-kind-alone.browser.test.ts` | 6 | 0 | 5806 |
+| `command-copy.browser.test.ts` | 8 | 2 | 1812 |
+| `worker-log.browser.test.ts` | 15 | 4 | 8949 |
+
+`wave-leaves-the-kind-alone` routes no `/api/fleet` and reads the real pulse of
+the fixture repo — the one file in this group needing a named state rather than
+a lift-and-shift. `command-copy` and `worker-log` are the two hand-spawners
+(`spawn('node', [ARTIFACT])`); they also stub `/api/agent-panel`, so the
+catalogue needs that third endpoint or they need an override hook for it.
+
+#### Catalogue candidates — write routes already intercepted (5 files, 30 tests)
+
+The write is a `page.route` assertion about **what the browser sent**, not about
+what a script did. They need a board state and a way to observe a POST.
+
+| file | its | ms | needs |
+|---|---|---|---|
+| `spinner.browser.test.ts` | 10 | 6665 | a Draft card + a startable row; 500-response case |
+| `double-click.browser.test.ts` | 5 | 4515 | a Draft card + a startable row |
+| `button-claims.browser.test.ts` | 4 | 18466 | a startable row; `/api/dispatch-log` |
+| `start-work-refusal.browser.test.ts` | 4 | 2541 | a startable row and a refused one |
+| `fleet-settings.browser.test.ts` | 7 | 2295 | `/api/fleet-controls` state |
+
+**Three endpoints the catalogue does not serve yet** surface here and must be
+part of the Naming slice's brief: `/api/dispatch-log`, `/api/fleet-controls`,
+`/api/agent-panel`. A catalogue that serves only `/api/board` and `/api/fleet`
+cannot take these five files or the two hand-spawners above.
+
+#### Catalogue candidates — board payload, needs a card scenario (4 files, 36 tests)
+
+These read `/api/board` from the real fixture and assert on tiny-garden's card
+titles. Migrating them means naming board states, which the catalogue can
+already express (`board()`, `card()`, `column()`).
+
+| file | its | ms | state it needs |
+|---|---|---|---|
+| `tiny-garden.browser.test.ts` | 13 | 10243 | a full multi-phase board; a mobile viewport; sprint filter |
+| `story-overlay.browser.test.ts` | 12 | 9301 | a card with a story; `/story/<slug>` served |
+| `plan-source.browser.test.ts` | 9 | 841 | cards with `source` markers, ref-unseen |
+| `branch-served.browser.test.ts` | 2 | 205 | a `server.branch` value in the payload |
+
+`story-overlay` needs `/story/<slug>` to answer, which is a **document route**
+rather than a payload — the same third-endpoint problem as above.
+
+`tiny-garden.browser.test.ts` is the judgement the plan flagged. **Verdict:
+catalogue candidate.** Its assertions are about layout (no horizontal scroll at
+phone width) and the sprint filter — neither needs a real estate, both need a
+board with enough cards. The fixture repo stays for the three route tests and
+for `approve`, so nothing is deleted by moving this file.
+
+#### Must stay real (2 files, 14 tests)
+
+| file | its | ms | why |
+|---|---|---|---|
+| `approve.browser.test.ts` | 12 | 8831 | **a write reaches a script.** The only one. Runs the configured `Approve command` against a detached copy of the fixture and asserts the script's own sentence. A mock accepting the POST would assert nothing. |
+| `dead-fetch.browser.test.ts` | 2 | 30345 | **process behaviour.** Reproduces a socket accepted and then abandoned — the failure `route.abort()` cannot produce, as its own docstring records: *"a test built on it passes against the bug."* It needs a real transport that can be left hanging. |
+
+`dead-fetch` costs 30.3 s for two tests — the second-worst ratio in the suite,
+and structural: it waits out a hang deliberately. Worth stating so a later
+slice does not read it as low-hanging fruit.
+
+#### Not browser tests — out of this plan's scope (3 files, 22 tests)
+
+| file | its | ms | subject |
+|---|---|---|---|
+| `tiny-garden.data.test.ts` | 5 | 1517 | `/api/board` payload, real helpers |
+| `tiny-garden.plan.test.ts` | 8 | 459 | `/plan/<file>` render + traversal guard |
+| `tiny-garden.story.test.ts` | 9 | 709 | `/story/<slug>` resolver + allowlist |
+
+They spawn the artifact and speak HTTP. Their subject is the server, so
+*"serve your own state"* is not a thing they could do. **Recommendation: the
+Closing slice's gate must not count them**, and the cheapest way to keep that
+honest is to exclude on *launches Chromium*, not on the file name.
+
+#### The big one
+
+| file | its | route f | route b | ms |
+|---|---|---|---|---|
+| `agents-tab.browser.test.ts` | 111 | 14 | 1 (`abort`) | **127183** |
+
+**33 % of the serial project's wall clock in one file**, and it already stubs
+`/api/fleet` in every path. See the next section.
+
+#### Interception over baseline — already migrated, listed as the pattern
+
+`unreachable-overlay.browser.test.ts` (25 tests, 63.3 s) starts no board and is
+the worked example: `abort`, HTTP 500 and malformed JSON layered over a served
+scenario. It is the reference for `agents-tab`'s abort paths.
+
+At 63.3 s for 25 tests it is also the **second most expensive file in the
+suite** — a migrated file, so the cost is not the server. Whatever it waits for
+survived the migration, and the final slice's delta should not be read without
+noticing that.
+
+### What `agents-tab.browser.test.ts` needs from the catalogue
+
+Read in full, 4146 lines. It stubs `/api/fleet` in all 14 routes and aborts
+`/api/board` once, deliberately. **The obstacle is not the payload — it is that
+the file carries its own private `row()`, `agent()` and `fleet()` builders**
+(lines 24–170) that have drifted from `test/catalogue/build.ts`. Migrating it
+means reconciling two builders, not writing a fixture.
+
+**Its default `fleet()` is a ten-row estate**, and every row is there to hold a
+distinguishable case. This list is the catalogue's requirement:
+
+| row | group | carries |
+|---|---|---|
+| `feature/beans-a`, `feature/beans-b` | working | two plans in one group → sub-headings; ages 200 / 10 to fix order |
+| `feature/toms-a` | working | the second plan |
+| `feature/reviewed` | waiting-on-you | a PR as **fields** (`number`, `url`, `draft`, `state: 'green'`), never prose |
+| `feature/untaken` | not-started | `state: 'open'`, `waitingOn: 'click'`, `ELIGIBLE_NOTE`, `waitingDays: 22`, `startability: 'start-work'` — the only startable row |
+| `feature/blocked` | not-started | `waitingOn: 'time'`, `blockedBy: 'Truth'`, `startability: null` |
+| `feature/shelved` | not-started | `state: 'deferred'` with recent commits — phase fell back but the badge says why |
+| `feature/undated` | not-started | `waitingDays: null` — a plan predating `Approved:` |
+| `feature/landed` | done | `state: 'merged'`, `branchUrl: ''` — no branch link |
+| `feature/ghost` | quiet | `planFile` naming a plan with **no board card** |
+| `feature/ghost-ready` | not-started | startable **and** cardless → no button rather than a broken one |
+
+Plus the envelope: `ready`, `error`, `ageSeconds`, `prAgeSeconds`,
+`prNextInSeconds`, `scanNextInSeconds`, `prError`, and a `summary` of
+`{plans, waves, branches, claimed, eligible, blocked, deferred}`.
+
+And a derivation the catalogue must reproduce: **WORKING renders one row per
+registry `agent`, joined to a branch row by `branch`.** `agents-tab` derives
+its `agents` array from the final rows, so a test that reroutes a working row
+gets exactly the agents its rows imply. A catalogue that takes `rows` and
+`agents` independently will silently render an empty WORKING section — the
+`waves`-shaped failure the plan's Notes warn about, one field along.
+
+**Six behaviours beyond a static payload**, each currently a local helper:
+
+1. `openAgents(payload)` — serve a fleet and open `?tab=agents`.
+2. `openAgentsReducedMotion(payload)` — a **context** with `reducedMotion: 'reduce'`, set before first paint.
+3. `openAgentsWithFailSwitch(payload)` — a mutable flag flipping fulfil → `abort('connectionrefused')`, installed once so a poll in flight cannot slip through an unrouted window.
+4. `openAgentsPushable(initial)` — swap the payload mid-session and **wait for the served count to advance**, not for a duration.
+5. `/api/board` aborted while the fleet answers — *"no action before the board has said whether it can dispatch"*.
+6. A **shared browser context across reloads**, for `localStorage` fold persistence.
+
+Items 3 and 4 are the ones a static catalogue cannot express. The catalogue
+needs to hand back a **mutable served state**, not just a payload — and that is
+a design decision for the Naming slice, taken now rather than discovered under
+111 tests.
+
+**Answering the plan's first Open Question early:** these ten rows are one
+scenario, not ten. The right shape is a small number of rich named estates plus
+per-test overrides, which is what `agents-tab` already does with a single
+default and `fleet({ rows: … })` on top.
+
+### The baseline
+
+Measured 2026-08-31, this worktree, on the artifact built from this branch.
+
+**Machine.** Apple M4, 10 cores, 32 GB, macOS `Darwin 25.5.0` arm64, Node
+v24.20.0, pnpm 10.27.0.
+
+**Load.** Not idle — sibling agents were running. `pnpm run test:board`:
+load average **2.41** before, **3.17** after (1-minute). Serial project alone:
+**3.15** before, **4.14** after. Treat the numbers as conditional on that, which
+is the reason the load is recorded rather than the machine alone.
+
+| run | wall clock | contents |
+|---|---|---|
+| `pnpm run test:board` | **456 s** | build + 233 node:test + 2480 vitest, exit 0 |
+| ├ node:test (`pnpm --filter … test`) | 18.1 s | 82 suites, 233 pass |
+| └ `vitest run` (both projects) | 433.8 s | 132 files, 2477 pass / 3 skip |
+| `vitest run --project serial` | **383 s** | 48 files, 486 pass |
+
+**The number the final slice compares against is 456 s**, with **383 s** the
+part this plan can move. The bound is 1200 s (`scripts/bounded.sh`); the run
+finished at 38 % of it, so this is a complete run and not a truncated one.
+
+**486 runtime tests against the gate's `EXPECTED_TESTS = 479`.** Not a
+discrepancy: the gate counts `it(` statically and seven tests come from loops.
+A slice that changes a loop bound moves one number and not the other — worth
+knowing before the tripwire fires and is misread.
+
+**Where the time is.** Four files are 62 % of the serial project:
+
+| file | tests | s | share |
+|---|---|---|---|
+| `agents-tab.browser.test.ts` | 117 | 127.2 | 33 % |
+| `unreachable-overlay.browser.test.ts` | 25 | 63.3 | 17 % |
+| `dead-fetch.browser.test.ts` | 3 | 30.3 | 8 % |
+| `button-claims.browser.test.ts` | 4 | 18.5 | 5 % |
+
+Two of those four (`unreachable-overlay`, `dead-fetch`) will not move: one is
+already migrated, the other waits on purpose. **So roughly 90 s of the 383 s is
+structurally unavailable to this plan**, and the honest target is the remaining
+~290 s. Stating it here so the final slice's delta is read against the right
+denominator.
+
+### Handed on, not settled
+
+**`tiny-garden`'s consumers, per the plan's second Open Question.** 36 files
+reference it; the fixture directory's own contents excluded, the readers are:
+
+- **29 browser tests** — of which 25 are catalogue candidates by this table.
+- **3 server-route tests** (`tiny-garden.{data,plan,story}`) — the fixture is
+  their subject.
+- **1 node:test** — `test/discovery.test.mjs`.
+- **1 config comment** — `vitest.config.ts`.
+- **1 production script** — `skills/plot/scripts/plot-reap.sh:334`, which
+  excuses `tiny-garden/.plot/state` from the uncommitted-changes guard *because
+  every board suite rewrites it*.
+
+**So the fixture survives this plan regardless**, and that last entry is the
+finding worth handing on: a **shell script in production** depends on the
+fixture being churned by tests. If the migration stops the churn, that
+exclusion becomes dead code — harmless, but it should be retired by whoever
+notices, and it is noticed here.
+
+**Two things the Deciding slice now has evidence for.**
+
+The declare-then-verify predicate needs a **third** entitlement beyond *write
+route* and *process behaviour*: `dead-fetch` asserts neither — it needs a real
+transport it can abandon. And *"exercises a write route"* must mean **an
+un-intercepted one**, or five files that `page.route` every write would each
+qualify for an exception they do not need.
+
+The count-assertion question has a concrete answer: the gate counts `it(` in
+`test/integration/`, and nothing in this table proposes moving a file out of it.
+The risk is the reverse — the three route tests and the parallel project. Gating
+on *launches Chromium* rather than on the directory keeps the population right
+whichever way files move.
+
 ## Notes
 
 **This plan exists because the guard is not the fix.**
