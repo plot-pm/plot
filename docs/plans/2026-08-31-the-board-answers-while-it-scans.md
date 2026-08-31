@@ -305,8 +305,33 @@ fall back on the way the Plans tab does. No feedback loop is required for that;
 one slow endpoint is sufficient.
 
 **And the question narrows to the floor.** Not *"why does it degrade?"* — it
-does not — but *"why does one `/api/fleet` cost 8 s on a quiet machine?"* The
-host findings below are the candidates, and the probe is what settles them.
+does not — but *"why does one `/api/fleet` cost 8 s?"*
+
+**"ON A QUIET MACHINE" IS A PHRASE NO MEASUREMENT HERE HAS EARNED, and an
+earlier draft of this very sentence claimed it.** The 8 s floor was measured at
+load **4.55** — not quiet, merely quieter than the 6.03 before it. Tabulating
+every observation in this plan against what else was running:
+
+| observed | load | what else was running |
+|---|---|---|
+| the 22 s `pr-list --rich` | — | three rescue agents' suites |
+| the 7.6 → 16.2 s "degradation" | 6.03 | two hung vitest runs, four test shells |
+| the 8 s floor | 4.55 | the same agents, after cleanup |
+| a blackout at 21:06 | **8.69** | 17 `node --test` processes |
+
+**Not one was taken on an idle machine.** So the leading explanation is now the
+least interesting one: **the board is starved by the fleet's own testing.**
+Three of this repo's suites take 5–10 minutes and spawn dozens of processes; a
+dispatched agent runs them by design, and several agents run at once.
+
+**This does not retire the host findings** — a 22 s `pr-list --rich` is real and
+costs what it costs. It **reorders** them: contention is the first candidate,
+and the per-call cost is what leaves the board unable to absorb it.
+
+**What is still missing is a reading with nothing else running at all.** Until
+that exists, every number in this plan is an upper bound of unknown tightness —
+which is why the probe must record load and sibling process count beside each
+sample, or it will produce more of the same.
 
 **What it does not explain:** why one `/api/fleet` costs 6.6 s in the first
 place. The loop amplifies that cost; it does not create it. The host findings
