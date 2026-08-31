@@ -2,6 +2,12 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  STARTS_A_BOARD,
+  drivesAPage,
+  judge,
+  stripComments,
+} from '../gate/needs-real-board.js';
 
 /**
  * NO FULLY-STUBBED BROWSER TEST STARTS A BOARD — the gate, not the claim.
@@ -37,16 +43,64 @@ import { fileURLToPath } from 'node:url';
  * can: the number of test FILES and the number of `it(` in them. Both are
  * asserted below, so "mock everything by deleting it" fails here rather than
  * in a review that has to notice an absence.
+ *
+ * ## What the Deciding slice added, and where the decision lives
+ *
+ * `2026-08-31-a-browser-test-serves-its-own-state.md` adds declare-then-verify:
+ * a file that legitimately starts a board carries
+ * `// @needs-real-board: <reason>` **and** must match a structural entitlement,
+ * so a test cannot join the exceptions by asserting that it belongs there.
+ *
+ * That decision is `test/gate/needs-real-board.ts` and not this file, because
+ * both of its failure directions need a test and only one of them can be proved
+ * from the live suite: demonstrating *"a declaration the structure does not
+ * support fails"* needs a file somebody left broken on purpose. The predicate is
+ * therefore a function of source TEXT, `test/unit/needs-real-board.test.ts`
+ * hands it invented sources, and this file applies it to real ones. One
+ * implementation, so the two cannot drift.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-/** Source with comments removed — a comment explaining an absence must not fail the grep. */
-const codeOf = (file: string): string =>
-  fs.readFileSync(path.join(here, file), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
+/**
+ * THE BROWSER SUITE, FOUND BY WALKING AND NOT BY NAMING A DIRECTORY.
+ *
+ * The plan's third Open Question: the counts below used to read
+ * `test/integration/` only, so a test moved to `test/unit/` read as a deletion —
+ * and seven slices are about to move files. The plan's stated preference and the
+ * Survey's recommendation agree: key on what a file DOES, not on where it sits.
+ *
+ * So the root is `test/` and the walk is recursive, narrowed by `drivesAPage` —
+ * the measured form of *"launches Chromium"*, which the Survey reached from the
+ * three `tiny-garden.{data,plan,story}` files that spawn the artifact, speak
+ * HTTP, and are server-route tests sitting in the browser directory.
+ *
+ * `test/unit/count-survives-a-move.test.ts` proves it by moving a file.
+ */
+const TEST_ROOT = path.resolve(here, '..');
 
-const testFiles = fs.readdirSync(here).filter((f) => f.endsWith('.test.ts')).sort();
+const walk = (dir: string): string[] =>
+  fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory()
+      ? walk(path.join(dir, entry.name))
+      : [path.join(dir, entry.name)],
+  );
+
+interface BrowserTest {
+  /** Relative to `test/`, so a move between directories is visible in a failure. */
+  readonly file: string;
+  /** Raw source — `judge` strips internally, because the declaration IS a comment. */
+  readonly source: string;
+  readonly code: string;
+}
+
+const browserTests: readonly BrowserTest[] = walk(TEST_ROOT)
+  .filter((f) => f.endsWith('.test.ts'))
+  .map((f) => {
+    const source = fs.readFileSync(f, 'utf8');
+    return { file: path.relative(TEST_ROOT, f), source, code: stripComments(source) };
+  })
+  .filter((t) => drivesAPage(t.code))
+  .sort((a, b) => a.file.localeCompare(b.file));
 
 /**
  * A file is FULLY STUBBED when it supplies both payloads the board renders
@@ -85,35 +139,84 @@ const suppliesPayload = (code: string, endpoint: string): boolean =>
 const isFullyStubbed = (code: string): boolean =>
   suppliesPayload(code, 'board') && suppliesPayload(code, 'fleet');
 
-/** Every spelling of "start the real board", including the two that bypass the helper. */
-const STARTS_A_BOARD: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\bstartServer\b/, 'calls startServer'],
-  [/\bspawn\s*\(/, 'spawns a process'],
-  [/board-server\.mjs/, 'references the board artifact'],
-];
-
 describe('a browser test that stubs its own state starts no board', () => {
   it('finds the population it is meant to gate', () => {
     // A gate over an empty set passes and proves nothing. This is the guard
     // against a rename or a moved directory silently retiring the check.
-    const stubbed = testFiles.filter((f) => isFullyStubbed(codeOf(f)));
+    const stubbed = browserTests.filter((t) => isFullyStubbed(t.code));
     expect(stubbed.length, 'no fully-stubbed browser tests found — has the suite moved?')
       .toBeGreaterThan(0);
   });
 
   it('starts no board — the artifact least of all', () => {
     const offences: string[] = [];
-    for (const file of testFiles) {
-      const code = codeOf(file);
-      if (!isFullyStubbed(code)) continue;
+    for (const t of browserTests) {
+      if (!isFullyStubbed(t.code)) continue;
       for (const [pattern, what] of STARTS_A_BOARD) {
-        if (pattern.test(code)) offences.push(`${file} ${what}`);
+        if (pattern.test(t.code)) offences.push(`${t.file} ${what}`);
       }
     }
     expect(
       offences,
       'a test that supplies both payloads has nothing to start a board FOR — '
       + 'use `openCatalogue()` from test/catalogue and serve the state by name',
+    ).toEqual([]);
+  });
+
+  /**
+   * THE VERIFICATION ARM, applied to the live suite in the one direction it
+   * can be.
+   *
+   * A file declaring `@needs-real-board` whose structure supports no
+   * entitlement has claimed something measurable, and this refuses it. The
+   * message names the arms rather than saying *invalid*, because a gate that
+   * refuses without saying what would satisfy it is one the next author works
+   * around instead of reading.
+   *
+   * **The other direction — a board-starting file that declares nothing — is
+   * NOT applied to the whole suite here, and the reason is the plan's own
+   * ordering.** 28 files start a board today; they are what the later slices
+   * migrate, and the plan's Closing slice is where that ratchet turns. Turning
+   * it now would redden 28 files this slice is explicitly forbidden to touch.
+   * The rule itself is real and tested — `judge` returns `undeclared` for
+   * exactly that shape, asserted in `test/unit/needs-real-board.test.ts` — and
+   * it is applied below to the population that has already migrated.
+   */
+  it('refuses a declaration the file\'s structure does not support', () => {
+    const unsupported = browserTests
+      .filter((t) => judge(t.source).verdict === 'unsupported')
+      .map((t) => t.file);
+    expect(
+      unsupported,
+      'these files declare `@needs-real-board` and match no entitlement. A '
+      + 'declaration is the REASON, not the permission — the file must also '
+      + 'either reach a script through an un-intercepted write route, or accept '
+      + 'a route and never answer it. If neither is true the state can be '
+      + 'served: use `openCatalogue()` from test/catalogue',
+    ).toEqual([]);
+  });
+
+  /**
+   * A migrated file that starts a board again must declare why — the ratchet,
+   * on the population it has already been earned against.
+   *
+   * This is `starts no board` said the other way round, and it is not
+   * redundant: that test refuses the START, this one refuses an UNDECLARED
+   * start, and the difference is what the Closing slice widens from the stubbed
+   * set to the whole suite. Keeping both means the widening changes a
+   * population and not a rule.
+   */
+  it('lets a migrated file start a board only with a declaration it can support', () => {
+    const undeclared = browserTests
+      .filter((t) => isFullyStubbed(t.code))
+      .filter((t) => judge(t.source).verdict === 'undeclared')
+      .map((t) => t.file);
+    expect(
+      undeclared,
+      'these files serve their own state and start a board anyway, declaring '
+      + 'nothing. Either drop the server, or say why with '
+      + '`// @needs-real-board: <reason>` — which the gate then verifies '
+      + 'structurally, so the comment alone will not do it',
     ).toEqual([]);
   });
 
@@ -125,10 +228,11 @@ describe('a browser test that stubs its own state starts no board', () => {
    * when it changes. Raising either is a decision about the suite's coverage,
    * and it should cost a line in a diff that says so.
    *
-   * Measured 2026-08-31 on `main`, before the migration: 47 files, 477 tests
-   * in the `serial` project. The migration moves where data comes from and
-   * adds this file, so the expected end state is 48 files and 477 + this
-   * file's own tests.
+   * **The scope is the browser SUITE, not a directory** — the plan's third Open
+   * Question, settled in the Deciding slice and proved by
+   * `test/unit/count-survives-a-move.test.ts`, which moves a file between
+   * directories and asserts both figures hold. Before that, a slice moving a
+   * test out of `test/integration/` read as a deletion here.
    */
   /**
    * What counts as a declared test, INCLUDING one carrying a modifier.
@@ -147,12 +251,14 @@ describe('a browser test that stubs its own state starts no board', () => {
   const IT_DECLARATION = /(?<![\w.])it\s*(?:\.\s*\w+\s*\([^)]*\)\s*)?\(/g;
 
   it('keeps every test it moved — a migration is not a deletion', () => {
-    const its = testFiles.reduce(
-      (total, file) => total + (codeOf(file).match(IT_DECLARATION)?.length ?? 0),
+    const its = browserTests.reduce(
+      (total, t) => total + (t.code.match(IT_DECLARATION)?.length ?? 0),
       0,
     );
-    expect(testFiles.length, 'browser test FILES changed — a migration adds and removes none')
-      .toBe(EXPECTED_FILES);
+    expect(
+      browserTests.length,
+      'browser test FILES changed — a migration adds and removes none',
+    ).toBe(EXPECTED_FILES);
     expect(its, 'browser test COUNT changed — assertions move, they do not disappear')
       .toBe(EXPECTED_TESTS);
   });
@@ -161,21 +267,23 @@ describe('a browser test that stubs its own state starts no board', () => {
 /**
  * The two counts, named so a diff that changes them says which one moved.
  *
- * `EXPECTED_FILES` counts `test/integration/*.test.ts`; `EXPECTED_TESTS`
- * counts `it(` across them. Neither is a target — they are a tripwire, and a
- * legitimate new test updates them in the same commit that adds it.
- */
-const EXPECTED_FILES = 48;
-/**
- * 473 → 479 on 2026-08-31, and NOT because this branch moved anything.
+ * `EXPECTED_FILES` counts the files under `test/` that drive a browser page;
+ * `EXPECTED_TESTS` counts `it(` across them. Neither is a target — they are a
+ * tripwire, and a legitimate new test updates them in the same commit that
+ * adds it.
  *
- * The tripwire fired the way it is supposed to: main added six browser tests
- * while this migration was in flight, so the branch's own count (473, measured
- * against the main it was cut from) was six behind the main it now sits on.
- * The migration itself still adds and removes none — `EXPECTED_FILES` did not
- * move, and the two gate assertions above still report an empty offence list.
+ * **48 → 44 and 479 → 454 on 2026-08-31, and NOT because anything was deleted.**
+ * The scope changed from `test/integration/*.test.ts` to *the files that drive a
+ * page, wherever they sit*, which drops four files the old scope counted and
+ * should not have: the three `tiny-garden.{data,plan,story}` server-route tests
+ * (22 `it(` — they spawn the artifact and speak HTTP, so *"serve your own
+ * state"* is not a thing they could do, per the Survey) and this gate file
+ * itself (3 `it(`, now 5).
  *
- * Raised to the real current number rather than by six, so the value stays a
- * measurement of the suite rather than an arithmetic on a stale one.
+ * Stated as the subtraction it was — 479 − 22 − 3 = 454 — so the change reads as
+ * a re-scoping rather than as a loss. The tests this slice adds are all in files
+ * the new scope does not count, which is why `EXPECTED_TESTS` moves by exactly
+ * the 25 that left it.
  */
-const EXPECTED_TESTS = 479;
+const EXPECTED_FILES = 44;
+const EXPECTED_TESTS = 454;

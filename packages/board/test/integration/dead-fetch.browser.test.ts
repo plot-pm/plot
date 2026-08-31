@@ -21,6 +21,14 @@ import { DOC_FETCH_TIMEOUT_MS } from '../../src/app/lib/bounded-fetch.js';
  * reproduction is a route that ACCEPTS the connection and then says nothing,
  * which is a handler that never calls `fulfill` or `abort` at all.
  */
+// @needs-real-board: it needs a live transport it can abandon mid-response, which is the one condition route.abort cannot produce
+//
+// Read by the gate (`stubbed-tests-start-no-board.test.ts`) and then verified:
+// the entitlement is the handler below that accepts a route and never answers
+// it — the same structure the docstring above argues is the only faithful
+// reproduction. This file asserts neither a write nor a process, so the plan's
+// two named arms would have refused it; the third exists because this file
+// exists.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const VIEWPORT = { width: 1280, height: 900 };

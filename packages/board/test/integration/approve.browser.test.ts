@@ -6,6 +6,16 @@ import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startServer } from '../helpers.mjs';
 
+// @needs-real-board: the second click's POST leaves the browser and runs the configured `Approve command`, and the card asserts that script's own sentence
+//
+// The declaration above is READ BY THE GATE
+// (`stubbed-tests-start-no-board.test.ts`) and then VERIFIED against this
+// file's structure: it earns the exception by referencing `/api/approve`
+// without a `page.route` over it — the only file in the suite where a write
+// reaches a script, measured 2026-08-31. The reason is here because no
+// predicate could infer it; the entitlement is structural because no comment
+// should be trusted for it.
+
 // UI layer: a real browser against the shipped artifact.
 //
 // Four of these assertions exist because a WEAKER implementation passes
