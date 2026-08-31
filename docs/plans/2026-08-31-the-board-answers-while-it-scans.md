@@ -1,9 +1,10 @@
 # The board answers while it scans
 
 > The board stops serving for seconds at a time, at zero CPU, while something it
-> is waiting on has not come back. The cause is not settled; the leading measured
-> candidate is `pr-list --rich`, which costs 22 s of wall clock and 0.22 s of CPU
-> because GitHub computes `mergeable` on demand.
+> is waiting on has not come back. **This plan finds out what** — it ships the
+> probe, not the fix. Two causes have already been named from reading the source
+> and refuted by measuring; the leading measured candidate is `pr-list --rich`,
+> 22 s of wall clock for 0.22 s of CPU.
 
 <!--
 THE SUBTITLE HAS BEEN WRONG ONCE, AND THE CORRECTION IS THE POINT. It read "the
@@ -29,8 +30,9 @@ than one with no headline: it is the sentence a reader carries away.
 
 ## Changelog
 
-- The board keeps answering while a fleet scan is in flight, instead of freezing
-  for seconds at a time and showing "No contact with the board server".
+- The board can say what blocked it: a flag-gated probe records event-loop
+  stalls together with the async resource in flight when each began, so a stall
+  is attributable to a named call instead of guessed at from the source.
 
 Board impact: this IS the board. `packages/board/src/server/fleet.ts` only; the
 plan format, the template, the helper scripts and the `docs/plans` layout are
@@ -192,8 +194,15 @@ the batched read.
 
 ### Approach — find the blocker before fixing one
 
-The static-file measurement bounds the search: whatever runs is **synchronous on
-the main thread**, in bursts, and is not the scan. Candidates, in the order they
+The static-file measurement bounds the search: whatever runs **owns the loop and
+does not yield**, in bursts, and is not the scan.
+
+**Not necessarily synchronous JS, and the distinction decides where to look.**
+An earlier draft said "synchronous on the main thread", which reads as a compute
+burst — and `cpu=0.0` during every outage rules a compute burst out. Both
+readings are measured, so the wording has to hold both: something owns the loop
+(the static file proves it) while burning no CPU (the sampler proves it). That
+leaves a blocking SYSCALL or a starved loop, not JS arithmetic. Candidates, in the order they
 can be cheaply ruled out:
 
 1. **The PR refresh** (`PR_REFRESH_MS`, 60 s) and whatever it does with the
@@ -202,10 +211,46 @@ can be cheaply ruled out:
 2. **The registry / manifest read** — per-agent file reads on every pulse.
 3. **Anything the board derives per request** rather than per refresh.
 
-**The first branch is instrumentation, not a fix.** An event-loop lag probe
-inside the server (`monitorEventLoopDelay`, or a `setInterval` measuring its own
-drift) records WHAT was running when a stall began. This plan asked for a fix
-before it had that, which is how it got the cause wrong.
+**The first branch is instrumentation, not a fix.** This plan asked for a fix
+before it had a measurement, which is how it got the cause wrong.
+
+**`monitorEventLoopDelay` ALONE CANNOT SATISFY `Done when`.** It reports THAT
+the loop stalled and for how long — it does not report WHAT stalled it, and a
+stall at `cpu=0.0` leaves no JS frame to sample, so a CPU profiler comes back
+empty on exactly the samples that matter. A histogram plus the existing
+`children`/`scan`/`cpu` sampling would give correlation; `Done when` asks for
+attribution to a **named call**, which is a stronger claim.
+
+**So the probe tracks async RESOURCES, not just loop delay.** `async_hooks`
+records each resource's `init` (with its creation stack) and its `before`/`after`
+transitions, so a resource that entered `before` and has not reached `after` when
+the stall begins is a named, stack-carrying suspect:
+
+```js
+const inFlight = new Map();
+async_hooks.createHook({
+  init(id, type)  { created.set(id, { type, stack: new Error().stack }); },
+  before(id)      { inFlight.set(id, { ...created.get(id), at: now() }); },
+  after(id)       { const r = inFlight.get(id);
+                    if (r && now() - r.at > STALL_MS) record(r);
+                    inFlight.delete(id); },
+}).enable();
+```
+
+**What this costs, and why it is still the right trade.** `async_hooks` has real
+overhead — it fires on every async resource, and capturing a stack in `init` is
+the expensive part. Two consequences the branch must handle rather than discover:
+
+- **It is a diagnostic, not a permanent default.** Behind a flag, off unless
+  asked for. A probe that slows the thing it measures changes the measurement.
+- **`init` stacks must be capturable cheaply or lazily** — capture the stack only
+  for resource types worth naming (process spawns, file ops, host calls), not for
+  every timer and promise the server creates.
+
+The alternative — hand-timing the dozen known `await` sites — was considered and
+rejected as the *primary* mechanism: it can only ever name a call somebody
+already suspected, and this plan's whole history is being wrong about which call
+to suspect. It remains a fine *supplement* once the probe narrows the field.
 
 
 Publish on a **schedule**, not per line. Accumulate arriving plans and compose
@@ -238,10 +283,25 @@ Two properties the current code establishes and this must not lose:
   first branch, and it comes first because the plan's original cause was wrong
   and only a measurement would have caught that.
 
-### Answering
+<!--
+THE ANSWERING WAVE WAS REMOVED, and the removal is the decision.
 
-- <!-- deferred: named once the probe says what blocks. Writing this branch now
-     would repeat the mistake this plan already made once. -->
+It read: `deferred: named once the probe says what blocks`. That is honest, and
+it still leaves one plan spanning two questions with different evidence — a
+diagnosis that can finish, and a fix that cannot even be NAMED until it does.
+Such a plan can never be delivered: `/plot-deliver` gates on every non-deferred
+branch being merged, and a branch nobody can name is a branch nobody can merge,
+so the deferral would have to be renewed indefinitely.
+
+So this plan is now the DIAGNOSIS ONLY, and it can finish. The probe is a real
+deliverable on its own merit — a permanent, flag-gated diagnostic the board
+keeps, useful the next time it stalls for a different reason.
+
+The fix gets its own plan, opened AFTER the probe reports and NAMED FOR THE
+ACTUAL CAUSE. That ordering is this plan's own lesson applied to its own shape:
+it named a cause twice from reading and was wrong twice, so it will not name a
+third one in advance.
+-->
 
 ## Done when
 
@@ -249,9 +309,15 @@ Two properties the current code establishes and this must not lose:
   a stall of >1 s is attributable to a named call rather than inferred.
 - The 8 s period and the 1.5–5 s duration are explained by that record — or
   shown to be something else, in which case this plan is corrected again.
-- Only then: a fix, and `/` answers in tens of milliseconds while the board is
-  under its normal load, measured **back to back** rather than on a timer.
+- The probe is **off by default and flag-gated**, so a board nobody is
+  debugging pays nothing for it — and the flag's own overhead is measured, not
+  assumed.
 - `pnpm build:board`, `pnpm run test:board`, `pnpm run typecheck`, changeset.
+
+**THE FIX IS NOT IN THIS LIST, deliberately.** `/` answering in tens of
+milliseconds under load is the goal of the plan that FOLLOWS this one, opened
+once the probe has named the cause. Keeping it here would make this plan
+undeliverable until a branch nobody can name yet is merged.
 
 ## Notes
 
@@ -272,6 +338,22 @@ Ruled out, with measurements, so they are not re-investigated:
 - **the streamed scan itself** — stalls are 23 % of samples with no scan running
   against 8 % with one (238 samples)
 - **memory pressure** — slow samples average 381 MB RSS, fast ones 380 MB
+- **the synchronous plan-directory walk in `board.ts`** — `readdirSync` over
+  `active/`, `delivered/` and the plan root, then `realpathSync` + `statSync`
+  per `.md` entry. **6.6 ms for 360 files**, warm cache. Three orders of
+  magnitude short of a 1.5–5 s stall.
+
+  **It is listed because of how convincing it was, not because it was close.**
+  It fits every bound this plan states: synchronous, `cpu=0.0` (syscall wait,
+  not compute), bursty (per refresh, not continuous), and independent of the
+  scan — which would explain why stalls concentrate when no scan runs. Reading
+  the code, it looks like the answer. It is wrong by 1000x.
+
+  **That is the second time a suspect was picked by reading and refuted by
+  measuring**, after `publishPartial()`. The bounds this plan has established
+  are real, but they are **not selective enough to identify a culprit from the
+  source** — a fact worth stating once, because it is the entire argument for
+  the probe branch coming first.
 
 **A MEASURED CANDIDATE, 2026-08-31: `pr-list --rich` costs 4x, and the cost is
 GitHub's, not ours.** Timed by hand against this repo, back to back:
