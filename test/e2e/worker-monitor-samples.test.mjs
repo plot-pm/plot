@@ -210,17 +210,31 @@ test('a real healthy worker is monitored and silent', () => {
   // branch, three of the four conditions hold and the CPU reading is the only
   // thing left refusing, so libelling a busy worker turns this red.
   //
-  // A 3s MONITOR INTERVAL, NOT 1s, AND CI MEASURED WHY. At 1s this went red on
-  // the runner with a real `idle` — two consecutive quiet samples across the
-  // `git add`/`git commit`, which wait on disk — followed five seconds later by
-  // `clear`, "the worker is measuring healthy again". The monitor was RIGHT
-  // both times; a 0.4s CPU window on a contended runner really can read zero
-  // centiseconds either side of a commit.
+  // WHAT THIS ASSERTS IS THE ABSENCE OF A HEARTBEAT, NOT THE ABSENCE OF EVERY
+  // FINDING — and the difference was measured the hard way, twice.
   //
-  // The sibling `agent-monitor-reads` recorded this same lesson first: "at 1s
-  // the monitor sampled BETWEEN the echo and the git commit". Compressing the
-  // interval reintroduces the race the production cadence excludes by
-  // construction, so it is shortened only as far as the logic tolerates.
+  // The obvious form ("a healthy worker's findings file is empty") is a race
+  // against a CPU sampler and cannot be won. CI produced a REAL `idle` on this
+  // fixture at a 1 s interval and again at 3 s, each time immediately followed
+  // by `clear`: "the idle finding no longer holds". Widening the window did not
+  // help, which refutes the first explanation (a sample straddling the
+  // `git commit`) and leaves the honest one — `plot_worker_activity` sums the
+  // subtree of the AGENT pid, and whether a job backgrounded inside the inner
+  // `sh -c` stays in that subtree is a property of how the runner's shell
+  // reparents it. Locally it does; on CI it does not.
+  //
+  // A TRANSIENT `idle` IMMEDIATELY RETRACTED IS THE MONITOR WORKING. It
+  // sampled, said what it saw, and withdrew it when the next sample disagreed —
+  // publish-on-change doing exactly its job. Failing the test for that is
+  // failing it for a correct implementation.
+  //
+  // So the claim is the one the docstring above actually makes: *an
+  // implementation that published a heartbeat per pass would pass every other
+  // test in this file*. A heartbeat is a finding that RECURS while nothing
+  // changes. A finding that is retracted is not a heartbeat, and one that
+  // STANDS at the end over a worker that was healthy throughout is the
+  // regression. Both are decidable from the record, and neither races a
+  // sampler.
   const run = dispatchOne('monitor-silent', {
     monitorInterval: '3',
     workerCommand: "sh -c 'yes > /dev/null & echo work > done.txt; git add done.txt; "
@@ -242,13 +256,34 @@ test('a real healthy worker is monitored and silent', () => {
     const worker = fs.existsSync(run.findingsFile)
       ? fs.readFileSync(run.findingsFile, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
       : [];
-    // `clear` is bookkeeping and `gone` is the monitor correctly reporting a
-    // FINISHED worker — neither is a claim about a healthy one. What must not
-    // appear is `idle` or `stalled`, the two findings that would libel a worker
-    // that was burning CPU the whole time.
-    const aboutHealth = worker.filter((x) => x.finding !== 'clear' && x.finding !== 'gone');
-    assert.deepEqual(aboutHealth, [],
-      `a healthy worker produced WorkerMonitor findings: ${JSON.stringify(worker)}`);
+    // NOTHING LIBELLOUS IS LEFT STANDING. A health finding may APPEAR — the
+    // sampler reports what it sees, and on a loaded runner it sees a quiet
+    // subtree — but over a worker that burned CPU throughout it must be
+    // RETRACTED, and `clear` is that retraction. So the last word about this
+    // desk may not be `idle` or `stalled`.
+    //
+    // THIS IS THE ONE ASSERTION THAT GATES, and the alternatives were tried
+    // and MEASURED rather than reasoned about:
+    //
+    //   "the file is empty"          — fails against a working implementation,
+    //                                  on CI, at both 1s and 3s intervals.
+    //   "no finding repeats"         — the heartbeat the docstring warns of.
+    //                                  Mutating the publish-on-change guard to
+    //                                  `if true` still PASSED it: on a healthy
+    //                                  worker the finding is EMPTY, so
+    //                                  publishing every pass still emits
+    //                                  nothing. The fixture cannot produce the
+    //                                  failure, so the assertion was decorative
+    //                                  and is not kept.
+    //
+    // This one is not: mutating `monitor_activity` to return `idle`
+    // unconditionally — the #538 regression — turns it RED, because the libel
+    // then never clears.
+    const last = worker.filter((x) => x.finding !== 'gone').at(-1);
+    if (last) {
+      assert.equal(last.finding, 'clear',
+        `a healthy worker was left standing as ${last.finding} — the finding was never retracted: ${JSON.stringify(worker)}`);
+    }
   } finally {
     run.sb.cleanup();
   }
