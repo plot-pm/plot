@@ -1,3 +1,6 @@
+import { planRecord } from '@plot-pm/domain/adapters';
+import type { FleetPulse, PlanRecord } from '@plot-pm/domain';
+
 import { FleetSchema, RowKindSchema } from '../contract/schema.js';
 import type { Fleet, AgentRow, Card, Column } from '../contract/schema.js';
 
@@ -458,4 +461,83 @@ export function mockCards(): Column[] {
       ],
     },
   ];
+}
+
+/**
+ * The mock estate as the `PlanStore` port sees it — one record per plan the
+ * mock's cards and rows refer to.
+ *
+ * DERIVED from `mockCards()` and `mockFleet()` rather than written a third
+ * time. This file already records what a second hand-made copy costs: four
+ * rows carried `kind: 'plan'` for weeks because the mock and what it stood for
+ * had drifted, and nothing could see it. A port-shaped view built from the
+ * same data cannot drift from it.
+ *
+ * @returns one `PlanRecord` per plan in the mock estate.
+ */
+export function mockPlans(): PlanRecord[] {
+  const rows = mockFleet().rows;
+  const cards = mockCards().flatMap((column) => column.cards);
+
+  // Every plan the mock mentions, from whichever side mentions it. A card
+  // without rows is a plan nothing has started; a row without a card is the
+  // planless-PR loop's shape. Both are real, so neither side alone is the list.
+  const files = [...new Set([
+    ...cards.map((card) => card.path),
+    ...rows.map((row) => row.planFile),
+  ])].filter((file) => file.length > 0);
+
+  return files.map((file) => {
+    const card = cards.find((c) => c.path === file);
+    const mine = rows.filter((row) => row.planFile === file);
+    const slug = card?.slug ?? mine[0]?.plan ?? '';
+    const branches = [...new Set(mine.map((row) => row.branch))].filter((b) => b.length > 0);
+
+    return planRecord({
+      file,
+      phase: (card?.phase ?? 'Development').toLowerCase(),
+      phaseRaw: card?.phase ?? 'Development',
+      type: card?.type ?? 'feature',
+      title: card?.title ?? slug,
+      story: card?.story ?? '',
+      branches,
+      prs: [...new Set(mine.flatMap((row) => (row.pr ? [row.pr.number] : [])))],
+      // One slice per wave name the plan's rows carry, holding that wave's
+      // branches — the shape `plot-plan-meta.sh` reports and the fleet reads.
+      slices: [...new Set(mine.map((row) => row.wave))]
+        .filter((wave) => wave.length > 0)
+        .map((wave) => ({
+          name: wave,
+          branches: mine
+            .filter((row) => row.wave === wave && row.branch.length > 0)
+            .map((row) => ({
+              branch: row.branch,
+              deferred: false,
+              deferredReason: '',
+              claimed: '',
+            })),
+        })),
+    });
+  });
+}
+
+/**
+ * The mock estate as the `Refs` port's pulse sees it.
+ *
+ * Carries the same summary the mock fleet states, so the two readings of one
+ * estate agree by construction. `plans` is empty because the scan's own plan
+ * shape is not what `mockPlans()` answers — a caller wanting the plans asks
+ * the `PlanStore`, which is the port that holds them.
+ *
+ * @returns the pulse a mock scan would emit.
+ */
+export function mockPulse(): FleetPulse {
+  return {
+    main: 'main',
+    head: 'mock',
+    read_ref: 'origin/main',
+    local_head: 'mock',
+    plans: [],
+    summary: mockFleet().summary,
+  };
 }
