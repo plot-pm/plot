@@ -41,6 +41,7 @@ import { collectSprints, planStatusBySlug, readConfig, type BuildBoardOptions } 
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
+import { readMachine } from './machine-reading.js';
 import { maybeAutoDeliver } from './auto-deliver.js';
 import { readAgentRegistryWithInfo, bashCleanliness } from './registry.js';
 import type { RegistryInfo } from './registry.js';
@@ -2313,12 +2314,22 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // pulses — assigned whole, never mutated, so the cache's one-directional
     // rule holds. It withholds the next dispatch when the switch is off or the
     // cap is at its live count; it NEVER signals a running worker.
+    //
+    // THE MACHINE READING is taken here, on the scan's clock, and handed in as
+    // a VALUE — `maybeAutoDispatch` stays synchronous and `planAutoDispatch`
+    // stays pure. One reading per pulse, shared, rather than one per agent:
+    // measuring per agent would multiply the very cost it measures
+    // (`DESIGN-machine.md` §9). The sampling is time-bounded in the adapter, so
+    // a starved machine costs a bounded amount to detect rather than
+    // `samples x spawnCostMs`.
+    const machine = await readMachine(opts);
     entry.autoInFlight = maybeAutoDispatch(
       opts,
       complete,
       readFleetSettings(opts),
       entry.agents,
       entry.autoInFlight,
+      machine,
     );
 
     // THE THIRD AUTOMATIC WRITE — a finished plan delivers itself, and its

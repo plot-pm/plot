@@ -57,8 +57,24 @@ import { isSameOrigin, readJsonBody } from './dispatch.js';
  */
 export const AUTO_DISPATCH_KEY = 'Auto-dispatch';
 export const PARALLEL_AGENTS_KEY = 'Parallel agents';
+/**
+ * The key that lets an operator say *now anyway* to a starved machine.
+ *
+ * `DESIGN-machine.md` §10 makes the machine's `starved` reading a DEFERRAL and
+ * not a veto — *"the dispatch stands, the dial keeps its value… the operator
+ * can always say now anyway, and that is what keeps this a deferral rather
+ * than a veto."* Without an override the reading would be exactly the refusal
+ * §7 forbids, so this key is what makes the whole gate legal.
+ */
+export const MACHINE_OVERRIDE_KEY = 'Machine override';
 const AUTO_DISPATCH_DEFAULT = false;
 const PARALLEL_AGENTS_DEFAULT = 3;
+/**
+ * The override defaults OFF, so the deferral is in force on a machine nobody
+ * has configured. The measurement is the point; a default that ignored it
+ * would ship the reading with nothing reading it.
+ */
+const MACHINE_OVERRIDE_DEFAULT = false;
 
 /**
  * The cap refuses to go below 1. A cap of zero is a stopped fleet expressed as
@@ -76,6 +92,11 @@ export interface FleetSettings {
   autoDispatch: boolean;
   /** How many agents may run at once — never below {@link MIN_PARALLEL_AGENTS}. */
   parallelAgents: number;
+  /**
+   * Whether to dispatch even while the machine reads `starved` — the operator's
+   * *now anyway*. See {@link MACHINE_OVERRIDE_KEY}.
+   */
+  machineOverride: boolean;
 }
 
 /**
@@ -103,6 +124,7 @@ export function fleetSettingsPath(repoRoot: string): string {
 export function defaultFleetSettings(opts: BuildBoardOptions): FleetSettings {
   const rawSwitch = readConfig(opts, AUTO_DISPATCH_KEY, String(AUTO_DISPATCH_DEFAULT)).trim();
   const rawCap = readConfig(opts, PARALLEL_AGENTS_KEY, String(PARALLEL_AGENTS_DEFAULT)).trim();
+  const rawOverride = readConfig(opts, MACHINE_OVERRIDE_KEY, String(MACHINE_OVERRIDE_DEFAULT)).trim();
   const parsedCap = Number.parseInt(rawCap, 10);
   return {
     autoDispatch: rawSwitch === 'true',
@@ -110,6 +132,9 @@ export function defaultFleetSettings(opts: BuildBoardOptions): FleetSettings {
       Number.isInteger(parsedCap) && parsedCap >= MIN_PARALLEL_AGENTS
         ? parsedCap
         : PARALLEL_AGENTS_DEFAULT,
+    // The same exact-literal rule the switch uses: a typo or an empty value
+    // reads as OFF, so a malformed config cannot silently disable the gate.
+    machineOverride: rawOverride === 'true',
   };
 }
 
@@ -130,7 +155,11 @@ function coerce(raw: unknown, fallback: FleetSettings): FleetSettings {
     typeof obj.parallelAgents === 'number' && Number.isInteger(obj.parallelAgents)
       ? Math.max(MIN_PARALLEL_AGENTS, obj.parallelAgents)
       : fallback.parallelAgents;
-  return { autoDispatch, parallelAgents };
+  // Additive: a file written before this field existed drops to the fallback
+  // rather than reading as an override nobody asked for.
+  const machineOverride =
+    typeof obj.machineOverride === 'boolean' ? obj.machineOverride : fallback.machineOverride;
+  return { autoDispatch, parallelAgents, machineOverride };
 }
 
 /**
@@ -185,6 +214,7 @@ export function writeFleetSettings(repoRoot: string, controls: FleetSettings): v
   const clamped: FleetSettings = {
     autoDispatch: controls.autoDispatch,
     parallelAgents: Math.max(MIN_PARALLEL_AGENTS, Math.trunc(controls.parallelAgents)),
+    machineOverride: controls.machineOverride,
   };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
@@ -268,9 +298,11 @@ export async function handleFleetSettings(
   const current = readFleetSettings(opts);
   let autoDispatch: boolean | undefined;
   let parallelAgents: number | undefined;
+  let machineOverride: boolean | undefined;
   try {
     autoDispatch = field(body as Record<string, unknown>, 'autoDispatch', isBoolean);
     parallelAgents = field(body as Record<string, unknown>, 'parallelAgents', isInteger);
+    machineOverride = field(body as Record<string, unknown>, 'machineOverride', isBoolean);
   } catch (err) {
     json(400, { error: err instanceof Error ? err.message : String(err) });
     return;
@@ -279,6 +311,7 @@ export async function handleFleetSettings(
   const next: FleetSettings = {
     autoDispatch: autoDispatch ?? current.autoDispatch,
     parallelAgents: parallelAgents ?? current.parallelAgents,
+    machineOverride: machineOverride ?? current.machineOverride,
   };
 
   try {

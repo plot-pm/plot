@@ -63,9 +63,14 @@ const pulse = (
     },
   });
 
-const controls = (autoDispatch: boolean, parallelAgents: number): FleetSettings => ({
+const controls = (
+  autoDispatch: boolean,
+  parallelAgents: number,
+  machineOverride = false,
+): FleetSettings => ({
   autoDispatch,
   parallelAgents,
+  machineOverride,
 });
 
 /** A registry entry in a given state — only `state`/`branch` matter here. */
