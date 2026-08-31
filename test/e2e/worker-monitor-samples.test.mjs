@@ -209,7 +209,20 @@ test('a real healthy worker is monitored and silent', () => {
   // vacuous on this dimension. A real commit closes that: with one on the
   // branch, three of the four conditions hold and the CPU reading is the only
   // thing left refusing, so libelling a busy worker turns this red.
+  //
+  // A 3s MONITOR INTERVAL, NOT 1s, AND CI MEASURED WHY. At 1s this went red on
+  // the runner with a real `idle` — two consecutive quiet samples across the
+  // `git add`/`git commit`, which wait on disk — followed five seconds later by
+  // `clear`, "the worker is measuring healthy again". The monitor was RIGHT
+  // both times; a 0.4s CPU window on a contended runner really can read zero
+  // centiseconds either side of a commit.
+  //
+  // The sibling `agent-monitor-reads` recorded this same lesson first: "at 1s
+  // the monitor sampled BETWEEN the echo and the git commit". Compressing the
+  // interval reintroduces the race the production cadence excludes by
+  // construction, so it is shortened only as far as the logic tolerates.
   const run = dispatchOne('monitor-silent', {
+    monitorInterval: '3',
     workerCommand: "sh -c 'yes > /dev/null & echo work > done.txt; git add done.txt; "
       + "git -c user.email=a@b -c user.name=a commit -qm work; sleep 8; kill %1'",
   });
