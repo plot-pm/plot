@@ -4,13 +4,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Issue:** <!-- optional -->
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-01, Jan Wloka, in-session
 
 ## Changelog
 
