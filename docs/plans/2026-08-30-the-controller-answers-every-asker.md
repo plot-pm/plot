@@ -240,7 +240,7 @@ the Design section says so. What the slice does buy is an escape from it:
 construct the adapters and the variable stops mattering. Asserting the stronger
 claim would have shipped a done-when that fails on its own design.
 
-### Asking again (Branch: feature/the-master-agent-asks-the-controller)
+### Asking again (Branch: feature/the-master-agent-asks-the-controller, PR: #572)
 
 The master agent reaches the same controller — one entry point, callable
 without HTTP, returning the same typed answer the route serialises.
