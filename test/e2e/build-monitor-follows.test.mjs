@@ -171,10 +171,33 @@ test('a real dispatched worker has its build followed, and a failure reaches the
   // The stub answers about whatever sha the worktree's head really is, which is
   // only knowable after the worker has committed. Waiting for the commit is the
   // honest ordering: before it, there is genuinely no build to report on.
+  //
+  // WAIT FOR THE COMMIT, NOT FOR THE FILE THE COMMIT WILL CONTAIN. An earlier
+  // version watched for `built.txt` and read HEAD the moment it appeared — but
+  // the worker CREATES that file and THEN commits it, so between the two
+  // `rev-parse HEAD` still answers the pre-commit sha.
+  //
+  // Locally the commit follows fast enough to hide the gap. On CI it does not:
+  // `git commit` waits on disk, the test captured the old sha, wrote it into
+  // the stub, and the monitor — correctly reading the NEW head — reported a sha
+  // the assertion below did not expect. Measured on main 2026-08-31: `actual`
+  // named e280e769…, and the same test passes locally every time.
+  //
+  // So the condition is the file being TRACKED, which is true only once the
+  // commit exists. `git log -1 --name-only` names the paths the last commit
+  // touched; until that commit happens, `built.txt` is not among them.
   const deadline = Date.now() + 20_000;
   let head = '';
   while (Date.now() < deadline) {
-    if (fs.existsSync(path.join(run.worktree, 'built.txt'))) {
+    const committed = (() => {
+      try {
+        return execFileSync('git', ['-C', run.worktree, 'log', '-1', '--name-only', '--format='],
+          { encoding: 'utf8' }).includes('built.txt');
+      } catch {
+        return false; // no commits yet: the branch still carries only its claim
+      }
+    })();
+    if (committed) {
       head = execFileSync('git', ['-C', run.worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
       break;
     }
