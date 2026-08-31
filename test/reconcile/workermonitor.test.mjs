@@ -561,3 +561,55 @@ test('work with no claim at all is work (a hand-made worktree)', () => {
 test('a branch with nothing on it is not work', () => {
   assert.equal(hasCommits(repoWith([])), 1);
 });
+
+// ---------------------------------------------------------------------------
+// A MONITOR ENDS WHEN ITS DESK IS GONE — the reconcile-suite hang
+// ---------------------------------------------------------------------------
+//
+// `plot_monitor_subject` answers `starting | alive | gone` from a pid file, and
+// `plot_monitor_wait` leaves only on `gone`. A missing pid file used to answer
+// `starting` unconditionally, so a monitor whose worktree had been removed
+// waited for a subject that was never coming.
+//
+// Measured on CI 2026-08-31: 14 monitors at PPID 1, aged 11-13 minutes, each
+// holding a `sleep 1`, AFTER every test in the reconcile suite had passed. A
+// fixture is removed at teardown, so its pid file vanishes before its agent
+// does — node then cannot exit and the job dies at its ceiling. Five open PRs
+// were red on this, none of them for anything in their own diff.
+//
+// The fix splits the missing-file case by whether the DESK is still there, so
+// these assert both halves. Asserting only `gone` would pass against a version
+// that always says `gone`, which would end every monitor during its startup
+// window — the opposite defect, and the reason the startup case is here.
+const subject = (pidFile) => {
+  const script = `
+    . ${JSON.stringify(path.join(scripts, 'plot-monitor-subject.sh'))}
+    plot_monitor_subject ${JSON.stringify(pidFile)}
+  `;
+  return spawnSync('bash', ['-c', script], { encoding: 'utf8' }).stdout;
+};
+
+test('subject: a removed desk is gone, not starting — the CI hang', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-desk-'));
+  const pidFile = path.join(dir, '.plot-worker.pid');
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(subject(pidFile), 'gone',
+    'a pid file whose directory is gone reported a subject still to come — ' +
+    'the monitor waits forever and holds the test runner open');
+});
+
+test('subject: a desk with no pid file yet is starting — the startup window', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-desk-'));
+  try {
+    // The worktree exists; the wrapper has not written the pid yet. Ending here
+    // would kill every monitor in the second before its agent is recorded.
+    assert.equal(subject(path.join(dir, '.plot-worker.pid')), 'starting',
+      'a monitor attached before its wrapper wrote the pid was told its subject was gone');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('subject: no pid file path at all is still starting — a hand-run monitor', () => {
+  assert.equal(subject(''), 'starting');
+});

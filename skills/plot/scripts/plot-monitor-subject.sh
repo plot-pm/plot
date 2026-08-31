@@ -108,7 +108,26 @@ plot_monitor_subject() {
   # — there is nothing here that says the subject is gone.
   [ -n "$pid_file" ] || { printf 'starting'; return 0; }
 
-  [ -f "$pid_file" ] || { printf 'starting'; return 0; }
+  # NO PID FILE SPLITS TWO CASES, and reading them as one is what made monitors
+  # immortal. `starting` is right only while the desk is still there and the
+  # wrapper has not yet written the pid. If the DIRECTORY the pid file lives in
+  # is gone, the desk was removed — there is no subject to wait for and none is
+  # coming, so the honest answer is `gone`.
+  #
+  # Measured on CI 2026-08-31: 14 monitors at PPID 1, aged 11-13 minutes, each
+  # holding a `sleep 1`, after every test in the reconcile suite had PASSED.
+  # A test's fixture is removed at teardown, so its pid file vanishes BEFORE the
+  # agent does; `plot_monitor_wait` then never sees `gone` and loops forever,
+  # holding node's event loop open until the job ceiling kills it. That is the
+  # whole of the reconcile-suite hang, and it is why this is a two-case answer
+  # rather than one.
+  #
+  # PRODUCTION IS UNCHANGED: a real worktree outlives its agent, so the
+  # directory is present and this reads `starting` exactly as before.
+  if [ ! -f "$pid_file" ]; then
+    [ -d "$(dirname "$pid_file")" ] && { printf 'starting'; return 0; }
+    printf 'gone'; return 0
+  fi
 
   pid=$(cat "$pid_file" 2>/dev/null | tr -d ' \n')
 
