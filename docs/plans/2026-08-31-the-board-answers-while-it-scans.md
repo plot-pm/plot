@@ -90,6 +90,31 @@ The first waits 3.6 s; the rest answer in ~1.5 ms. **A static file cannot wait
 on a fleet scan** — it waits on the event loop. So the board is not slow; it is
 periodically *blocked*, and everything arriving in that window queues behind it.
 
+> **THIS PREMISE DID NOT SURVIVE A QUIET MACHINE, 2026-08-31 21:19.** With load
+> at **3.08** and zero test processes, zero agents — the quietest reading this
+> investigation ever took — the same two measurements diverge completely:
+>
+> ```
+> /           1.6ms   1.4ms   1.5ms      ← static, never slow
+> /api/board  1.3s    6.7s    1.2s       ← same server, same minute
+> /api/board  1.3s  4.5s  6.2s  1.2s  3.1s  4.4s
+> /api/fleet  3.8s  5.0s  3.7s
+> ```
+>
+> **The static file is fast while the API is slow.** The event loop is therefore
+> NOT blocked — a blocked loop cannot serve `/` in 1.5 ms. The 3630 ms static
+> read above was taken under load and measured the machine, not the loop.
+>
+> **What is actually there is two costs on `/api/board`:** a floor of ~1.2 s even
+> at its fastest, and a spike to 4–6 s with no visible pattern — plausibly a
+> cache hit versus a recomputation, which the probe can settle. `/api/fleet` sits
+> at 3.7–5.0 s and never gets below the client's 5 s poll, which is the whole of
+> why the Agents tab shows *Loading…* forever.
+>
+> The Motivation below is left as written because it records what was measured at
+> the time and how it was read. It is wrong, and the correction belongs beside it
+> rather than in place of it.
+
 Sampling `/` once a second for 40 s gives the shape:
 
 - blocks of **1.5–5 s**, arriving every **~8 s**
