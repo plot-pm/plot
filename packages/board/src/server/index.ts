@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
 import { repairEnabledFromEnv } from './resolver.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
+import { estateFromEnv } from './estate.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatch.js';
 import { isUnderAgentLogDir } from './agent-log.js';
@@ -68,6 +69,16 @@ const opts: BuildBoardOptions = {
   // settle under the other.
   repairEnabled: repairEnabledFromEnv(),
 };
+
+/**
+ * The driven side this process serves, chosen ONCE at start.
+ *
+ * `PLOT_BOARD_MOCK` is read here and nowhere above: the routes and the
+ * controller take the estate they are given and cannot tell whether it reads
+ * git or fixtures. A mock board is therefore a different composition of the
+ * same program, not a mode any of it checks.
+ */
+const estate = estateFromEnv(opts);
 
 /**
  * The markdown-viewer routes, which differ ONLY in which allowlist they consult.
@@ -323,7 +334,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       // the same answer; one flag serving several capabilities is precisely
       // how they diverge when a later change makes only one of them local.
       const board = {
-        ...boardState({ opts }),
+        ...boardState({ opts, estate: estate.source }),
         dispatch: dispatchAvailability(HOST),
         server: serverInfo(opts, boundPort),
         approve: approveAvailability(HOST),
@@ -359,7 +370,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       // REPLACES the payload rather than adding to it — a mock beside real rows
       // is indistinguishable from a real estate behaving oddly, and the first
       // confused reading would cost more than the aid saves.
-      res.end(JSON.stringify(fleetState({ opts })));
+      res.end(JSON.stringify(fleetState({ opts, estate: estate.source })));
     } catch (err) {
       console.error('Error building fleet:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
