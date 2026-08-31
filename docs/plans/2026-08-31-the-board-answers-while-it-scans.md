@@ -59,27 +59,46 @@ describes the sampler, not the server. Measure with back-to-back requests.
 
 ## Design
 
-### The cause
+### What the cause is NOT
 
-`refreshFleet` in `packages/board/src/server/fleet.ts` consumes
-`plot-fleet-scan.sh --stream` and calls `publishPartial()` **once per arriving
-plan line**. Each call:
+**The streamed scan is not the blocker, and this plan first said it was.**
+Corrected 2026-08-31 from the probe's own data, 238 samples:
 
-- builds a `Set` over every plan arrived so far
-- filters the previous plan list against it
-- concatenates both
-- recomputes `partialSummary(plans)` over the whole collection
+| | slow (>3.5 s) | total | rate |
+|---|---|---|---|
+| no scan running | 12 | 53 | **23 %** |
+| scan running | 15 | 185 | **8 %** |
 
-and `mergePlan` copies the entire array on every line as well. With ~24 plans
-that is ~24 full recompositions per scan, each O(n) over a growing list, all
-synchronous on the thread that serves requests.
+The board is **three times more likely to stall when no scan is running**. The
+first version of this plan named `publishPartial()` — which recomposes the whole
+fleet document on every arriving scan line — as the cause. That code is still a
+real inefficiency and worth fixing, but it cannot be this, because the stalls
+concentrate where it does not run.
 
-**The intent is right and must be kept.** The composition exists so a streaming
-board does not flicker — at line one the tab would otherwise drop 23 of 24 plans
-and grow them back, which reads as losing the fleet rather than refreshing it.
-The defect is the *cadence*, not the composition.
+**Memory is not the cause either.** Slow samples average **381 MB** RSS, fast
+samples **380 MB**. There is no difference to explain anything.
 
-### Approach
+So what is measured and certain is the SYMPTOM: the event loop is blocked in
+bursts of 1.5–5 s, roughly every 8 s, and a static file is as slow as an API
+route during one. What blocks it is **not yet identified**.
+
+### Approach — find the blocker before fixing one
+
+The static-file measurement bounds the search: whatever runs is **synchronous on
+the main thread**, in bursts, and is not the scan. Candidates, in the order they
+can be cheaply ruled out:
+
+1. **The PR refresh** (`PR_REFRESH_MS`, 60 s) and whatever it does with the
+   host's answer — a 60 s timer cannot produce an 8 s period, but its
+   *processing* may be one of two interleaved sources.
+2. **The registry / manifest read** — per-agent file reads on every pulse.
+3. **Anything the board derives per request** rather than per refresh.
+
+**The first branch is instrumentation, not a fix.** An event-loop lag probe
+inside the server (`monitorEventLoopDelay`, or a `setInterval` measuring its own
+drift) records WHAT was running when a stall began. This plan asked for a fix
+before it had that, which is how it got the cause wrong.
+
 
 Publish on a **schedule**, not per line. Accumulate arriving plans and compose
 at most once per interval (and once on the terminal line), so the number of
@@ -106,28 +125,33 @@ Two properties the current code establishes and this must not lose:
 
 ### Measuring
 
-- `bug/the-board-answers-while-it-scans` — a test that fails on the current
-  cadence: assert the event loop is not blocked beyond a bound while a scan is
-  in flight. This is the gate; without it the fix is unfalsifiable.
+- `bug/the-board-times-its-own-loop` — an event-loop lag probe in the server
+  that records the stall AND what was running when it began. This is the whole
+  first branch, and it comes first because the plan's original cause was wrong
+  and only a measurement would have caught that.
 
 ### Answering
 
-- `bug/the-partial-publishes-on-a-schedule` — batch `publishPartial` behind an
-  interval, keeping `pulseComplete: false` and the recounted summary.
+- <!-- deferred: named once the probe says what blocks. Writing this branch now
+     would repeat the mistake this plan already made once. -->
 
 ## Done when
 
-- A test holds the event loop's stall under a stated bound during a scan, and
-  fails against the current per-line cadence.
-- Requesting `/` while a scan is in flight answers in tens of milliseconds, not
-  seconds — measured back to back, not on a timer.
-- The board still streams: plans appear as they arrive and none is dropped and
-  regrown.
-- `pulseComplete` is false for every partial; `summary` matches the plans in the
-  same payload.
+- The server records event-loop stalls with what was running at their start, and
+  a stall of >1 s is attributable to a named call rather than inferred.
+- The 8 s period and the 1.5–5 s duration are explained by that record — or
+  shown to be something else, in which case this plan is corrected again.
+- Only then: a fix, and `/` answers in tens of milliseconds while the board is
+  under its normal load, measured **back to back** rather than on a timer.
 - `pnpm build:board`, `pnpm run test:board`, `pnpm run typecheck`, changeset.
 
 ## Notes
+
+**This plan named the wrong cause once.** Its first version blamed
+`publishPartial()`'s per-line recomposition, which was a reading of the code
+rather than of the data. The probe's own samples then showed stalls are three
+times MORE likely when no scan is running. The measurements were right and the
+inference was wrong — which is why the first branch is now a probe.
 
 Ruled out, with measurements, so they are not re-investigated:
 
@@ -137,3 +161,6 @@ Ruled out, with measurements, so they are not re-investigated:
   in `fleet.ts`** — both measure 0.00 s against 21 worktrees
 - **the 5 s scan timer and the 60 s PR timer** — the observed period is ~8 s,
   which is neither
+- **the streamed scan itself** — stalls are 23 % of samples with no scan running
+  against 8 % with one (238 samples)
+- **memory pressure** — slow samples average 381 MB RSS, fast ones 380 MB
