@@ -76,14 +76,14 @@ function sprintFile(status: string, members: string): string {
 }
 
 describe('parseSprintFile — release', () => {
-  it('reads the `- **Release:** x.y.z` record from the ## Status block', () => {
+  it('reads the `- **Release:** x.y.z` record from the ## Status block', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-release-'));
     const abs = path.join(dir, '2026-W40-fixture.md');
     fs.writeFileSync(abs, `# Sprint: Fixture\n\n## Status\n\n- **Phase:** Active\n- **Release:** 2.9.0\n`, 'utf8');
     expect(parseSprintFile(abs)!.release).toBe('2.9.0');
   });
 
-  it('is "" when the sprint names no release — never a placeholder', () => {
+  it('is "" when the sprint names no release — never a placeholder', async () => {
     // The control renders nothing rather than "→ —", so absence must reach it as
     // an empty string.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sprint-release-'));
@@ -92,7 +92,7 @@ describe('parseSprintFile — release', () => {
     expect(parseSprintFile(abs)!.release).toBe('');
   });
 
-  it("reads this repo's own W35 file's release", () => {
+  it("reads this repo's own W35 file's release", async () => {
     const abs = path.resolve(
       HERE, '../../../../docs/sprints/2026-W35-the-board-tells-the-truth-in-every-section.md',
     );
@@ -101,7 +101,7 @@ describe('parseSprintFile — release', () => {
 });
 
 describe('activeSprints — the three exhaustive counts, aggregated from plan.status', () => {
-  it('tallies each member into its bucket, and carries the release', () => {
+  it('tallies each member into its bucket, and carries the release', async () => {
     const opts = withEstate(
       {
         'plan-app': APPROVED,       // approved → open
@@ -116,7 +116,7 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
         ),
       },
     );
-    const [sprint] = activeSprints(opts, null);
+    const [sprint] = await activeSprints(opts, null);
     expect(sprint.slug).toBe('alpha');
     expect(sprint.release).toBe('3.1.0');
     // 4 members: 1 open (approved), 1 wip (in-progress), 2 done (delivered + released)
@@ -125,7 +125,7 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
     expect(() => FleetSprintSchema.parse(sprint)).not.toThrow();
   });
 
-  it('a merged pulse turns a started, approved plan into `deliverable` (wip)', () => {
+  it('a merged pulse turns a started, approved plan into `deliverable` (wip)', async () => {
     // Same plan, two pulses: the count follows `planStatus`, which reads the
     // pulse's merge state. Both in-progress and deliverable land in WIP.
     const opts = withEstate(
@@ -138,14 +138,14 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
       },
     );
     // No pulse: in-progress → wip
-    expect(activeSprints(opts, null)[0].counts)
+    expect((await activeSprints(opts, null))[0].counts)
       .toEqual({ total: 1, open: 0, wip: 1, done: 0 });
     // With merged pulse: deliverable → still wip
-    expect(activeSprints(opts, mergedPulse('2026-08-24-plan-run.md'))[0].counts)
+    expect((await activeSprints(opts, mergedPulse('2026-08-24-plan-run.md')))[0].counts)
       .toEqual({ total: 1, open: 0, wip: 1, done: 0 });
   });
 
-  it('excludes a `### Deferred` member from counts — a deferral is not a commitment', () => {
+  it('excludes a `### Deferred` member from counts — a deferral is not a commitment', async () => {
     const opts = withEstate(
       { 'plan-app': APPROVED, 'plan-shelf': APPROVED },
       {
@@ -156,12 +156,12 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
       },
     );
     // Both plans are `approved`, but only the Must-tier one is counted.
-    const counts = activeSprints(opts, null)[0].counts;
+    const counts = (await activeSprints(opts, null))[0].counts;
     expect(counts.open).toBe(1);
     expect(counts.total).toBe(1);
   });
 
-  it('a member naming no plan the board found adds to nothing — total still sums', () => {
+  it('a member naming no plan the board found adds to nothing — total still sums', async () => {
     const opts = withEstate(
       { 'plan-app': APPROVED },
       {
@@ -173,13 +173,13 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
     );
     // The ghost has no status; counts are 1, not a crash and not a phantom.
     // total === open + wip + done, even with a ghost.
-    const counts = activeSprints(opts, null)[0].counts;
+    const counts = (await activeSprints(opts, null))[0].counts;
     expect(counts.open).toBe(1);
     expect(counts.total).toBe(1);
     expect(counts.total).toBe(counts.open + counts.wip + counts.done);
   });
 
-  it('renders one entry per Active sprint — two teams, one train', () => {
+  it('renders one entry per Active sprint — two teams, one train', async () => {
     const opts = withEstate(
       { 'plan-a': APPROVED, 'plan-b': DELIVERED },
       {
@@ -191,14 +191,14 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
         ),
       },
     );
-    const out = activeSprints(opts, null).sort((x, y) => x.slug.localeCompare(y.slug));
+    const out = (await activeSprints(opts, null)).sort((x, y) => x.slug.localeCompare(y.slug));
     expect(out.map((s) => s.slug)).toEqual(['first', 'second']);
     expect(out.map((s) => s.release)).toEqual(['1.0.0', '2.0.0']);
     expect(out[0].counts.open).toBe(1);      // approved → open
     expect(out[1].counts.done).toBe(1);      // delivered → done
   });
 
-  it('ignores a Closed sprint left in the active dir', () => {
+  it('ignores a Closed sprint left in the active dir', async () => {
     const opts = withEstate(
       { 'plan-a': APPROVED },
       {
@@ -207,15 +207,15 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
         ),
       },
     );
-    expect(activeSprints(opts, null)).toEqual([]);
+    expect(await activeSprints(opts, null)).toEqual([]);
   });
 
-  it('is [] when no sprint is Active — the control shows its disabled state', () => {
+  it('is [] when no sprint is Active — the control shows its disabled state', async () => {
     const opts = withEstate({ 'plan-a': APPROVED }, {});
-    expect(activeSprints(opts, null)).toEqual([]);
+    expect(await activeSprints(opts, null)).toEqual([]);
   });
 
-  it('total === open + wip + done — the invariant the plan requires', () => {
+  it('total === open + wip + done — the invariant the plan requires', async () => {
     // This is Done when item 3: the three counts sum to the member total.
     // The old four buckets (delivered, deliverable, inProgress, approved)
     // could silently drop a Draft member; these three cannot.
@@ -236,7 +236,7 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
         ),
       },
     );
-    const counts = activeSprints(opts, null)[0].counts;
+    const counts = (await activeSprints(opts, null))[0].counts;
     // 6 members, all counted: draft + open + approved → 3 open, started → 1 wip, delivered + released → 2 done
     expect(counts).toEqual({ total: 6, open: 3, wip: 1, done: 2 });
     expect(counts.total).toBe(counts.open + counts.wip + counts.done);
@@ -244,12 +244,12 @@ describe('activeSprints — the three exhaustive counts, aggregated from plan.st
 });
 
 describe('planStatusBySlug — reads plan.status, does not recompute it', () => {
-  it('keys each working-tree plan by slug to its planStatus answer', () => {
+  it('keys each working-tree plan by slug to its planStatus answer', async () => {
     const opts = withEstate(
       { 'plan-app': APPROVED, 'plan-done': DELIVERED },
       {},
     );
-    const map = planStatusBySlug(opts, null);
+    const map = await planStatusBySlug(opts, null);
     expect(map.get('plan-app')).toBe('approved');
     expect(map.get('plan-done')).toBe('delivered');
   });

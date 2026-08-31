@@ -20,7 +20,7 @@ function writeSprint(body: string): string {
 const STATUS = `## Status\n\n- **Phase:** Active\n- **Release:** 9.9.0\n`;
 
 describe('parseSprintFile — members', () => {
-  it("reads this repo's own W35 file: every checkbox line, deduplicated by slug", () => {
+  it("reads this repo's own W35 file: every checkbox line, deduplicated by slug", async () => {
     // The case the whole plan exists for: a plan carrying several waves takes one
     // checkbox line per wave, and the member list must collapse them to one
     // entry. `the-wave-is-a-thing-the-board-can-hold` is the live example —
@@ -63,7 +63,7 @@ describe('parseSprintFile — members', () => {
     expect(members.find((m) => m.slug === 'loose-checks-what-it-promises')?.tier).toBe('could');
   });
 
-  it('parses both `- [ ]` and `- [x]` — a ticked item is still a member', () => {
+  it('parses both `- [ ]` and `- [x]` — a ticked item is still a member', async () => {
     const abs = writeSprint(
       `# Sprint: Fixture\n\n${STATUS}\n### Must Have\n\n- [ ] [open-one] open\n- [x] [done-one] ticked\n`,
     );
@@ -73,7 +73,7 @@ describe('parseSprintFile — members', () => {
     expect(card.members.find((m) => m.slug === 'open-one')?.checked).toBe(false);
   });
 
-  it('distinguishes `### Deferred` items from Must/Should/Could', () => {
+  it('distinguishes `### Deferred` items from Must/Should/Could', async () => {
     const abs = writeSprint(
       `# Sprint: Fixture\n\n${STATUS}\n` +
         `### Must Have\n\n- [ ] [m] must\n\n` +
@@ -88,7 +88,7 @@ describe('parseSprintFile — members', () => {
     expect(card.members.find((m) => m.slug === 'd')?.tier).toBe('deferred');
   });
 
-  it('a `### Deferred` line under prose (not a checkbox) is not a member', () => {
+  it('a `### Deferred` line under prose (not a checkbox) is not a member', async () => {
     // The W35 file's Deferred section is prose bullets, not `- [ ] [slug]`; only
     // checkbox members are read.
     const abs = writeSprint(
@@ -97,13 +97,13 @@ describe('parseSprintFile — members', () => {
     expect(parseSprintFile(abs)!.members).toEqual([]);
   });
 
-  it('a sprint file with no members yields an empty list, not an error', () => {
+  it('a sprint file with no members yields an empty list, not an error', async () => {
     const abs = writeSprint(`# Sprint: Empty\n\n${STATUS}\n## Notes\n\nnothing here\n`);
     const card = parseSprintFile(abs)!;
     expect(card.members).toEqual([]);
   });
 
-  it('dedupes a slug repeated across waves to one member, first tier wins', () => {
+  it('dedupes a slug repeated across waves to one member, first tier wins', async () => {
     // A plan sliced into waves lists its slug once per wave; the sprint contains
     // it once. First occurrence (highest tier, read top-down) wins.
     const abs = writeSprint(
@@ -117,7 +117,7 @@ describe('parseSprintFile — members', () => {
     expect(w[0].tier).toBe('must');
   });
 
-  it('marks every parsed member known:true — the file cannot tell what exists', () => {
+  it('marks every parsed member known:true — the file cannot tell what exists', async () => {
     const abs = writeSprint(
       `# Sprint: Fixture\n\n${STATUS}\n### Must Have\n\n- [ ] [anything] x\n`,
     );
@@ -135,12 +135,12 @@ describe('collectSprints — a slug naming no plan is reported, not dropped', ()
     return { repoRoot, sprintDir: 'docs/sprints' };
   }
 
-  it('flags a member whose slug matches no known plan, keeping it in the list', () => {
+  it('flags a member whose slug matches no known plan, keeping it in the list', async () => {
     const { repoRoot, sprintDir } = withSprintDir(
       '2026-W40-fixture.md',
       `# Sprint: Fixture\n\n${STATUS}\n### Must Have\n\n- [ ] [real-plan] here\n- [ ] [ghost-plan] renamed away\n`,
     );
-    const sprints = collectSprints(repoRoot, sprintDir, new Set(['real-plan']));
+    const sprints = await collectSprints(repoRoot, sprintDir, new Set(['real-plan']));
     expect(sprints).toHaveLength(1);
     const byslug = Object.fromEntries(sprints[0].members.map((m) => [m.slug, m]));
     // The ghost is present, flagged — never silently absent.
@@ -149,12 +149,12 @@ describe('collectSprints — a slug naming no plan is reported, not dropped', ()
     expect(byslug['real-plan'].known).toBe(true);
   });
 
-  it('leaves every member known when no plan set is supplied (back-compat)', () => {
+  it('leaves every member known when no plan set is supplied (back-compat)', async () => {
     const { repoRoot, sprintDir } = withSprintDir(
       '2026-W40-fixture.md',
       `# Sprint: Fixture\n\n${STATUS}\n### Must Have\n\n- [ ] [any] x\n`,
     );
-    const sprints = collectSprints(repoRoot, sprintDir);
+    const sprints = await collectSprints(repoRoot, sprintDir);
     expect(sprints[0].members[0].known).toBe(true);
   });
 });
@@ -179,7 +179,7 @@ describe('sprintMembership — which active sprint claims each plan', () => {
   const ACTIVE = `## Status\n\n- **Phase:** Active\n`;
   const CLOSED = `## Status\n\n- **Phase:** Closed\n`;
 
-  it('maps each member plan slug to the sprint that lists it', () => {
+  it('maps each member plan slug to the sprint that lists it', async () => {
     // The sprint's own slug comes from its FILENAME (`\d{4}-W\d{2}-<slug>.md`),
     // not its `# Sprint:` title — the same rule `parseSprintFile` follows.
     const opts = withSprints({
@@ -193,7 +193,7 @@ describe('sprintMembership — which active sprint claims each plan', () => {
     expect(map.has('plan-three')).toBe(false);
   });
 
-  it('ignores a Closed sprint left in the active dir — a stale link must not claim a row', () => {
+  it('ignores a Closed sprint left in the active dir — a stale link must not claim a row', async () => {
     // `collectSprints` reads the active/ dir, which is a symlink index the estate
     // curates. This function does not trust it: a Closed sprint reachable there by
     // drift is excluded on its own phase, so the field never reads a commitment
@@ -209,7 +209,7 @@ describe('sprintMembership — which active sprint claims each plan', () => {
     expect(map.has('old-plan')).toBe(false);
   });
 
-  it('gives a plan two active sprints both list to the FIRST — deterministic', () => {
+  it('gives a plan two active sprints both list to the FIRST — deterministic', async () => {
     // Two Active sprints are permitted (two teams, one train). The field records
     // one sprint per row; the first to list a plan wins, matching the first-wins
     // dedup the member list itself uses, so the answer does not depend on which
@@ -227,7 +227,7 @@ describe('sprintMembership — which active sprint claims each plan', () => {
     expect(['first', 'second']).toContain(map.get('shared-plan'));
   });
 
-  it('is empty when no sprint is active — the caller then leaves every row unclaimed', () => {
+  it('is empty when no sprint is active — the caller then leaves every row unclaimed', async () => {
     const opts = withSprints({
       '2026-W39-closed.md':
         `# Sprint: Closed\n\n${CLOSED}\n### Must Have\n\n- [ ] [some-plan] a\n`,
