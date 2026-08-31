@@ -166,8 +166,21 @@ function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
     // more useful than a timeout message.
     const HANG_BACKSTOP_MS = 60_000;
     const backstop = setTimeout(() => {
+      // WHAT THE LOOP WAS DOING, captured BEFORE the kill — the one question
+      // every previous occurrence left unanswered. `ps` output is the only
+      // evidence available here: whether the watchdog subshell, the prompt
+      // child, or neither still exists says which half of `run_bounded` is
+      // stuck, and the CI witness runs 5+ minutes later when they are gone.
+      let snapshot = '';
+      try {
+        snapshot = execFileSync('ps', ['-eo', 'pid,ppid,stat,args'], { encoding: 'utf8' })
+          .split('\n')
+          .filter((l) => /plot-worker-loop|sleep |worker-prompt/.test(l))
+          .join('\n');
+      } catch { snapshot = '(ps unavailable)'; }
       killGroup(child.pid, 'SIGKILL');
-      stderr += `\nrunLoop: the loop did not exit within ${HANG_BACKSTOP_MS}ms; killed its process group`;
+      stderr += `\nrunLoop: the loop did not exit within ${HANG_BACKSTOP_MS}ms;`
+        + ` killed its process group. Live at that moment:\n${snapshot}`;
     }, HANG_BACKSTOP_MS);
 
     child.on('exit', (code, sig) => {
@@ -210,7 +223,8 @@ test('worker-loop: a hung prompt is ended by the bound and logged', serial, asyn
     const r = await runLoop(dir);
     const elapsed = Date.now() - started;
     assert.notEqual(r.code, 0, 'loop must exit non-zero on timeout');
-    assert.equal(r.code, 124, 'timeout uses the timeout(1) convention, exit 124');
+    assert.equal(r.code, 124,
+      `timeout uses the timeout(1) convention, exit 124\n--- loop stderr ---\n${r.stderr}`);
     assert.match(r.stderr, /exceeded the 1s bound/, 'the log names the bound');
     assert.ok(elapsed < 10000, `bound fired promptly, took ${elapsed}ms`);
   } finally {
@@ -249,7 +263,7 @@ test('worker-loop: a timed-out worker exits without hopping', serial, async () =
   const dir = fixture('nohop', 1, `sleep ${secs}\n`);
   try {
     const r = await runLoop(dir);
-    assert.equal(r.code, 124, 'timed out');
+    assert.equal(r.code, 124, `timed out\n--- loop stderr ---\n${r.stderr}`);
     // A hop creates a sibling `plot-wt-*` worktree beside PLOT_WORKTREE. The
     // fixture dir IS PLOT_WORKTREE; a hop would add one under its parent.
     const parent = path.dirname(dir);
@@ -297,7 +311,8 @@ test('worker-loop: the bound fires with timeout(1)/gtimeout absent from PATH', s
   assert.equal(usable('gtimeout'), false, 'gtimeout unusable on the sanitized PATH');
   try {
     const r = await runLoop(dir, { env: { PATH: sanitized } });
-    assert.equal(r.code, 124, 'the bound fired without coreutils timeout(1)');
+    assert.equal(r.code, 124,
+      `the bound fired without coreutils timeout(1)\n--- loop stderr ---\n${r.stderr}`);
     assert.match(r.stderr, /exceeded/, 'the log names the bound');
   } finally {
     reap(secs);
@@ -333,7 +348,7 @@ test('worker-loop: no stray sleep after a timeout', serial, async () => {
   const dir = fixture('leak-timeout', 1, `sleep ${promptSecs}\n`);
   try {
     const r = await runLoop(dir);
-    assert.equal(r.code, 124, 'timed out');
+    assert.equal(r.code, 124, `timed out\n--- loop stderr ---\n${r.stderr}`);
     await wait(300);
     assert.equal(sleepCount(promptSecs), 0, 'the prompt sleep was killed on timeout');
   } finally {
