@@ -242,6 +242,49 @@ per file, and why is the contract test not catching it?** The test covers
 `/api/board`; something else on the refresh path evidently does not go through
 the batched read.
 
+### The strongest measurement: it DEGRADES, it does not stall
+
+**Measured 2026-08-31 20:50, four back-to-back requests to `/api/fleet`:**
+
+```
+200  7.636s
+200  11.356s
+200  12.971s
+200  16.211s
+```
+
+**Monotonic. Every request slower than the one before, and no recovery.** A
+stall recovers to baseline between bursts; this does not. Beside it, RSS on a
+process restarted minutes earlier went **112 MB → 300 MB in under two minutes**,
+and the sequence ended in an `UNREACHABLE`.
+
+**The shape is a queue draining slower than it fills.** `/api/fleet` takes ~6.6 s
+while the client polls every **5 s**, so each request arrives before the last
+one finished. Work accumulates: more pending requests, more retained memory,
+slower responses, more overlap. A positive feedback loop, and it ends where the
+board ended at 20:47 — wedged, then dead.
+
+**THIS REFRAMES THE WHOLE PLAN.** The "1.5–5 s bursts every ~8 s" recorded in the
+Motivation is not the disease. It is what this loop looks like EARLY, sampled at
+5 s. The sampler's own cadence is close enough to the poll interval to alias the
+degradation into something that reads as periodic.
+
+It also explains the intermittency without invoking GitHub's cache: **once a
+response time crosses the poll interval, the loop is self-sustaining** until
+something breaks it. A quiet estate has responses under 5 s and never enters it;
+a busy one crosses over and cannot get back out.
+
+**The falsifiable prediction, and it must be tested before anything is fixed:**
+slowing the client's poll below the response time — or dropping a request while
+one is in flight — should break the loop and hold response times flat. If it
+does not, this reading is wrong too, and it is the third cause this plan has
+named.
+
+**What it does not explain:** why one `/api/fleet` costs 6.6 s in the first
+place. The loop amplifies that cost; it does not create it. The host findings
+below remain the candidates for the baseline, and the probe is still what
+settles them.
+
 ### Approach — find the blocker before fixing one
 
 The static-file measurement bounds the search: whatever runs **owns the loop and
