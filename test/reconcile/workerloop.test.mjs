@@ -99,10 +99,33 @@ function discard(dir) {
  * Run the loop to completion (or until `killAfterMs`, when set, sends `signal`
  * to the loop process). Resolves with { code, signal, stdout, stderr, pid }.
  */
+/**
+ * Signal a whole process group, by the negative pid its leader owns.
+ *
+ * `process.kill(-pid)` reaches the leader AND every descendant in one call;
+ * `child.kill()` reaches only the leader. Tolerant of an already-dead group,
+ * because both the timeout path and the exit path call it.
+ */
+function killGroup(pid, signal) {
+  if (!pid) return;
+  try { process.kill(-pid, signal); } catch { /* already gone */ }
+}
+
 function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
   return new Promise((resolve) => {
+    // `detached` MAKES THE LOOP A PROCESS-GROUP LEADER, so it can be killed as
+    // a GROUP. Without it the loop shares the runner's group, `child.kill()`
+    // signals one pid, and the loop's descendants — the prompt, the watchdog,
+    // and the `sleep` each respawns — survive, reparent to PPID 1, and hold
+    // node's event loop open.
+    //
+    // Measured on CI 2026-08-31: 13 orphaned `plot-worker-loop.sh` at PPID 1,
+    // aged 10-12 minutes, holding 14 `sleep`s — after every test had PASSED.
+    // The runner reported `ok 877` (this file's last test) and then hung until
+    // the job ceiling killed it. That is the whole of the reconcile-suite hang.
     const child = spawn('bash', [loop], {
       cwd,
+      detached: true,
       env: {
         ...process.env,
         PLOT_BRANCH: 'bug/x',
@@ -118,10 +141,13 @@ function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
     child.stderr.on('data', (d) => { stderr += d; });
     let timer;
     if (killAfterMs > 0) {
-      timer = setTimeout(() => child.kill(signal), killAfterMs);
+      timer = setTimeout(() => killGroup(child.pid, signal), killAfterMs);
     }
     child.on('exit', (code, sig) => {
       if (timer) clearTimeout(timer);
+      // The loop has exited; its group may not have. Sweep it before resolving,
+      // so no test can leave a descendant behind for the runner to wait on.
+      killGroup(child.pid, 'SIGKILL');
       resolve({ code, signal: sig, stdout, stderr, pid: child.pid });
     });
   });
