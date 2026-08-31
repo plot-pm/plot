@@ -148,7 +148,7 @@ test('a real healthy worker is monitored and silent', () => {
   // it is also the one most easily lost: an implementation that published a
   // heartbeat per pass would pass every other test in this file.
   //
-  // THE CONTROL IS THE WORKER'S OWN OUTPUT, and it used to be the AgentMonitor.
+  // THE CONTROL IS THE LIVE AGENT PID, and it used to be the AgentMonitor.
   // Until `feature/the-agent-monitor-reads-the-desk` that monitor was a no-op
   // publishing `nothing measured yet` on every pass, so its file appearing was
   // what told "monitored and silent" apart from "no monitor ran". That monitor
@@ -156,9 +156,29 @@ test('a real healthy worker is monitored and silent', () => {
   // empty here and can no longer serve as a control. The no-op's disappearance
   // was the point of that slice; this is the one place that depended on it.
   //
-  // The dispatch actually having happened is asserted instead, which is the
-  // fact the old control was standing in for: a worktree with a worker log in
-  // it is a worker that really ran.
+  // THE TEST CANNOT WATCH A LIVE AGENT AT ALL, and MEASURING that is what
+  // settled the replacement. Two drafts assumed it could — one slept a fixed
+  // 3 s after the log appeared, one waited on the pid and asserted `kill -0`
+  // still answered — and both failed against a working implementation.
+  //
+  // Measured 2026-08-31 with a timing probe: `plot-dispatch.sh` returns only
+  // once the worker has FINISHED. Dispatch returned at +8627 ms — the worker's
+  // whole 8 s life — and the pid file, the log and the agent's death were all
+  // already in the past at that instant. There is no moment after the dispatch
+  // call in which this test can find a living agent, so any assertion phrased
+  // as "read the findings while it runs" is asserting something unreachable.
+  //
+  // The old AgentMonitor control worked for a reason that is easy to misread:
+  // not good timing, but PERSISTENCE. The no-op published during those 8 s and
+  // the file outlived the worker, so the check ran afterwards on a record made
+  // while the worker was alive.
+  //
+  // SO THE CLAIM IS ABOUT THE RECORD, NOT THE MOMENT: over a healthy busy
+  // worker's whole life the WorkerMonitor published no finding about its
+  // health. `gone` is excluded because it is the monitor being RIGHT about a
+  // worker that has finished — this test is about the passes taken while the
+  // work was going on, and `idle` or `stalled` among them is the regression it
+  // exists to catch.
   //
   // THE WORKER MUST BURN CPU, and getting this wrong is instructive enough to
   // record. The first draft used `sleep 8` and the monitor reported `idle` —
@@ -176,25 +196,45 @@ test('a real healthy worker is monitored and silent', () => {
   // inside plot-dispatch.sh, so a `$n` is expanded by a shell several levels
   // out and the loop reads `[: -lt: unary operator expected`. `yes` into
   // `/dev/null` burns CPU in a grandchild with no variables at all.
+  // THE WORKER MUST COMMIT, or this test asserts nothing. `idle` carries FOUR
+  // conditions and `monitor_has_commits` is one of them — a branch with no
+  // commits is the middle row, "it may be thinking", and no CPU reading can
+  // produce a finding there. So a fixture that only burns CPU makes `idle`
+  // unreachable for a reason that has nothing to do with the sampler under
+  // test, and the test passes whatever the sampler says.
+  //
+  // MEASURED 2026-08-31, which is the only reason this is written down: with
+  // `monitor_activity` mutated to return `idle` unconditionally — the exact
+  // #538 regression the comment above describes — the test still passed. It was
+  // vacuous on this dimension. A real commit closes that: with one on the
+  // branch, three of the four conditions hold and the CPU reading is the only
+  // thing left refusing, so libelling a busy worker turns this red.
   const run = dispatchOne('monitor-silent', {
-    workerCommand: "sh -c 'yes > /dev/null & sleep 8; kill %1'",
+    workerCommand: "sh -c 'yes > /dev/null & echo work > done.txt; git add done.txt; "
+      + "git -c user.email=a@b -c user.name=a commit -qm work; sleep 8; kill %1'",
   });
-  const log = path.join(run.worktree, '.plot-worker.log');
+  const exitFile = path.join(run.worktree, '.plot-worker.exit');
   try {
-    // Wait for the worker to have actually started before reading silence as a
-    // measurement: an absent log is "nothing ran", not "nothing to report".
-    const deadline = Date.now() + 15_000;
-    while (!fs.existsSync(log) && Date.now() < deadline) execFileSync('sleep', ['0.2']);
-    assert.ok(fs.existsSync(log),
-      'no worker log appeared, so a silent WorkerMonitor proves nothing — the dispatch may never have run at all');
-    execFileSync('sleep', ['3']);
+    // The worker really ran, and ran to completion: the wrapper writes this
+    // file after its agent, so its presence dates the whole life the monitor
+    // was watching. An absent one is "nothing ran", not "nothing to report" —
+    // which is the ambiguity the old AgentMonitor control removed.
+    const deadline = Date.now() + 20_000;
+    while (!fs.existsSync(exitFile) && Date.now() < deadline) execFileSync('sleep', ['0.2']);
+    assert.ok(fs.existsSync(exitFile),
+      'no worker exit record appeared, so a silent WorkerMonitor proves nothing — the dispatch may never have run at all');
 
-    // Several monitor intervals have passed by now, over a worker that is
-    // busy-but-quiet with no commits. Nothing should have been published.
+    // Several monitor intervals passed over a worker that was busy-but-quiet
+    // with no commits. Nothing about its HEALTH should have been published.
     const worker = fs.existsSync(run.findingsFile)
       ? fs.readFileSync(run.findingsFile, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
       : [];
-    assert.deepEqual(worker.filter((x) => x.finding !== 'clear'), [],
+    // `clear` is bookkeeping and `gone` is the monitor correctly reporting a
+    // FINISHED worker — neither is a claim about a healthy one. What must not
+    // appear is `idle` or `stalled`, the two findings that would libel a worker
+    // that was burning CPU the whole time.
+    const aboutHealth = worker.filter((x) => x.finding !== 'clear' && x.finding !== 'gone');
+    assert.deepEqual(aboutHealth, [],
       `a healthy worker produced WorkerMonitor findings: ${JSON.stringify(worker)}`);
   } finally {
     run.sb.cleanup();
