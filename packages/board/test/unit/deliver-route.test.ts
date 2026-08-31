@@ -317,7 +317,7 @@ describe('deliverability is read through the real plan parser for the pulse-free
     // point of the change rather than a casualty of it. Claiming a branch had not
     // merged from an empty cache is what sent an operator looking for work that
     // did not exist. The sibling suite pins the same input at the function level
-    // (`allWavesMerged(m, null, true)` is `unknown`); leaving this line as it was
+    // (`allSlicesMerged(m, null, true)` is `unknown`); leaving this line as it was
     // would have one input answered two ways in one run.
     mergedPlan(dir);
     assert.equal(deliverability(opts, SLUG).verdict, 'scan-incomplete');

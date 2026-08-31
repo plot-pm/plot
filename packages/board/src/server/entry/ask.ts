@@ -1,4 +1,5 @@
 import { boardState, fleetState, type EstateSource } from '../controllers/fleet-state.js';
+import { deliverabilityOf, type DeliverabilityAnswer } from '../controllers/deliverability.js';
 import type { BuildBoardOptions } from '../board.js';
 import type { Board, Fleet } from '../../contract/schema.js';
 import {
@@ -27,8 +28,21 @@ import {
  * two paths to one answer before either is proven.
  */
 
-/** What the master agent can ask for. */
-export type Question = 'board' | 'fleet';
+/**
+ * What the master agent can ask for.
+ *
+ * `deliverable` differs from the other two in what it reads. `board` and
+ * `fleet` answer from the scan's pulse, which a one-shot process does not have
+ * — `ensureCache` starts the refresh and returns before it lands, so a `node`
+ * run reports `ready: false`. That is honest for a status board and useless for
+ * a gate: `plot-deliver.sh` must answer now, and a cold pulse would refuse
+ * every delivery.
+ *
+ * So this question reads the branches through `plot-plan-meta.sh` and their
+ * merge state through `plot-impl-status.sh` — the two scripts the shell already
+ * ran — and asks the domain about those. Same rule, no pulse, no wait.
+ */
+export type Question = 'board' | 'fleet' | 'deliverable';
 
 /** What a caller must say to ask. */
 export interface Ask {
@@ -38,6 +52,10 @@ export interface Ask {
   estate?: EstateSource;
   /** The configured plan directory, for the estate measurement. */
   planDir?: string;
+  /** The plan asked about — `deliverable` only. */
+  slug?: string;
+  /** That plan's file, resolved by the caller — `deliverable` only. */
+  planFile?: string;
 }
 
 /**
@@ -82,7 +100,7 @@ export interface Answer<T> {
  * @param ask what to ask and where to read it from
  * @returns the controller's answer and the estate it was read from
  */
-export const askOnce = (ask: Ask): Answer<Board | Fleet> => {
+export const askOnce = (ask: Ask): Answer<Board | Fleet | DeliverabilityAnswer> => {
   // MEASURED BEFORE, NOT AFTER. A fingerprint taken after the read would
   // describe an estate the answer may not have come from: the scan runs for
   // minutes, and anything landing inside that window would be stamped onto an
@@ -91,9 +109,11 @@ export const askOnce = (ask: Ask): Answer<Board | Fleet> => {
   // that fails safe.
   const estate = estateFingerprint(ask.opts, ask.planDir);
   const value =
-    ask.question === 'fleet'
-      ? fleetState({ opts: ask.opts, estate: ask.estate })
-      : boardState({ opts: ask.opts, estate: ask.estate });
+    ask.question === 'deliverable'
+      ? deliverabilityOf(ask.opts, ask.slug ?? '', ask.planFile ?? '')
+      : ask.question === 'fleet'
+        ? fleetState({ opts: ask.opts, estate: ask.estate })
+        : boardState({ opts: ask.opts, estate: ask.estate });
   return { value, estate, measured: true };
 };
 
@@ -124,7 +144,11 @@ export const askedWithoutTransport = (board: Board): boolean =>
  * caller itself made, and those are local edits and pushes the digest sees.
  */
 export interface EstateMemory {
-  last?: { estate: EstateFingerprint; value: Board | Fleet; question: Question };
+  last?: {
+    estate: EstateFingerprint;
+    value: Board | Fleet | DeliverabilityAnswer;
+    question: Question;
+  };
 }
 
 /** A fresh memory, holding nothing. */
@@ -152,7 +176,7 @@ export const newMemory = (): EstateMemory => ({});
 export const askOncePerEstate = (
   memory: EstateMemory,
   ask: Ask,
-): Answer<Board | Fleet> => {
+): Answer<Board | Fleet | DeliverabilityAnswer> => {
   const estate = estateFingerprint(ask.opts, ask.planDir);
   const held = memory.last;
   if (held && held.question === ask.question && sameEstate(held.estate, estate)) {

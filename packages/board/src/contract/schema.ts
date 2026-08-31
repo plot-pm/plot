@@ -380,7 +380,7 @@ export const CardSchema = z.object({
    * record. Delivering stays a person's click on the control this gates.
    *
    * Set ONLY on a card the server auto-bumped from Development into Testing
-   * because `allWavesMerged` held (see `buildBoard`). An already-`delivered`
+   * because `allSlicesMerged` held (see `buildBoard`). An already-`delivered`
    * plan also lands in Testing, and it deliberately does NOT carry this — its
    * decision was already made, so the control it would gate must not appear.
    * That asymmetry is the whole reason this is its own bit rather than

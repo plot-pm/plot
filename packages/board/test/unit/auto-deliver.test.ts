@@ -152,7 +152,7 @@ const settle = (ms = 4000) => new Promise((r) => setTimeout(r, ms));
 // wave, including ones holding an open branch — a shape the real scan cannot
 // emit: plot-fleet-scan.sh sets complete only when outstanding -eq 0.
 //
-// That inconsistency was invisible while allWavesMerged re-walked the branch
+// That inconsistency was invisible while allSlicesMerged re-walked the branch
 // states, because it never read the field. Since #491 it reads the VERDICT (the
 // scan already computed this, and two derivations of one question is the
 // duplication this repo keeps removing), so a fixture claiming complete over an

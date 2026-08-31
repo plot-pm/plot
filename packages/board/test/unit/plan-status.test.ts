@@ -13,7 +13,7 @@ import { PlanMetaSchema, PlanStatusSchema, type FleetPulse } from '../../src/con
 //
 // Every fixture here reads the plan file and the pulse and returns one of seven
 // values. It flips no phase and writes no record: `planStatus` returns a string
-// and touches nothing, exactly as `allWavesMerged` returns a boolean and does.
+// and touches nothing, exactly as `allSlicesMerged` returns a boolean and does.
 
 const meta = (over: Record<string, unknown> = {}) =>
   PlanMetaSchema.parse({
@@ -176,7 +176,7 @@ describe('planStatus — the release gate reads phase, never status', () => {
 });
 
 describe('planStatus on a partial pulse — the CARD, not just the button', () => {
-  // Item 7. `allWavesMerged` has TWO callers and the operator meets both symptoms
+  // Item 7. `allSlicesMerged` has TWO callers and the operator meets both symptoms
   // at once: `deliver.ts` refuses the button, and `planStatus` renders the card.
   // Fixing the route alone would leave a card that will not offer what the button
   // would allow, which is why the fix lives in the shared function — and why the
@@ -237,7 +237,7 @@ describe('deliverable is exactly status === deliverable — the one word', () =>
   // The card's `deliverable` bit and the auto-bump into Testing both read
   // `planStatus(...) === 'deliverable'` now. This asserts that word means the
   // SAME thing the old inline boolean (`mapped === 'Development' &&
-  // allWavesMerged`) did — approved AND every non-deferred branch merged — so
+  // allSlicesMerged`) did — approved AND every non-deferred branch merged — so
   // the Deliver button, the column bump and the reported status cannot disagree.
   //
   // SCOPED TO A COMPLETE SCAN, which is what every case below passes. On a
