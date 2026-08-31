@@ -906,7 +906,7 @@ and `plot-pr-merged.sh`.
 a PR exists, it publishes on change with the same three fields,
 and **it writes nothing at all** — publishing is its only output.
 
-### Watching the build (Branch: feature/the-build-monitor-follows-the-run)
+### Watching the build (Branch: feature/the-build-monitor-follows-the-run, PR: #574)
 
 The BuildMonitor: four findings about a run, sampled only while one is live.
 
