@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { openCatalogue, board as buildBoard, type Catalogue } from '../catalogue/index.js';
+import { expandAgentFolds } from '../helpers.mjs';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 /**
@@ -21,8 +20,6 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../s
  * page's own state machine is what is under test — no child process, no budget
  * to guess, and the teardown has nothing to race.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
@@ -63,56 +60,41 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 }
 
 describe('the issue row has one action, and it creates a Draft', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   /**
    * Open the board with a chosen fleet and a chosen `idea` capability.
    *
-   * `/api/board` is intercepted for the flag alone — the rest of the real
-   * server's payload is passed through, so this test is not maintaining a
-   * second copy of a Board fixture that would drift from the schema.
+   * THE TWO PAYLOADS ARE SERVED; THE TWO WRITE ROUTES ARE NOT. `/api/board` and
+   * `/api/fleet` are what the board ANSWERS, so the mock answers them and the
+   * assertion becomes the round trip — this state in, this page out. `/api/idea`
+   * and its status poll stay intercepted, because their job here is to RECORD
+   * what the click posted and to answer without starting an agent; there is
+   * nothing for a server to state.
+   *
+   * The docstring this replaces said the real server's payload was passed
+   * through. It was not — the code below already stubbed `/api/board` whole,
+   * and its own comment said so ("Nothing in this file needs the real payload").
+   * Serving it makes that explicit rather than contradicted.
    */
   async function open(
     payload: Fleet = fleet(),
     idea: { available: boolean; reason: string } = { available: true, reason: '' },
   ): Promise<{ page: Page; posts: unknown[] }> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
     const posts: unknown[] = [];
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    // SYNCHRONOUS, and that is the point rather than a style choice. The board
-    // polls this route on a timer, so a callback that awaited `route.fetch()`
-    // could still be in flight when the page closes — rejecting on a disposed
-    // context and failing a test that had already made its assertion. Measured
-    // here on the first run. Nothing in this file needs the real payload: the
-    // control reads `board.idea`, and the contract defaults the rest.
-    await page.route('**/api/board', (route) =>
-      route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          generatedAt: new Date().toISOString(),
-          columns: [], checklist: [], sprints: [], stories: [],
-          dispatch: { available: false, reason: '' },
-          approve: { available: false, reason: '' },
-          continue: { available: false, reason: '' },
-          server: { restartCommand: '', port: 0 },
-          idea,
-        }),
-      }));
+    const page = await cat.open('an-empty-estate', {
+      over: { board: buildBoard({ idea }), fleet: payload },
+      tab: 'agents',
+      viewport: { width: 1400, height: 1200 },
+    });
     // The route the click reaches. Recorded, never forwarded — no agent starts.
     await page.route('**/api/idea', (route) => {
       posts.push(JSON.parse(route.request().postData() ?? '{}'));
@@ -128,7 +110,6 @@ describe('the issue row has one action, and it creates a Draft', () => {
         contentType: 'application/json',
         body: JSON.stringify({ state: 'running', message: '', log: '' }),
       }));
-    await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return { page, posts };
