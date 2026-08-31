@@ -23,8 +23,26 @@ import { z } from "zod";
 // A different time axis from the board's view schemas: minutes rather than
 // days, processes rather than artifacts.
 
-/** The scan's INTERNAL vocabulary, not the prose labels people read. */
-export const BranchStateSchema = z.enum(['open', 'wip', 'merged', 'claimed', 'deferred']);
+/**
+ * The scan's INTERNAL vocabulary, not the prose labels people read.
+ *
+ * `unknown` is what the scan says when it COULD NOT ASK — the git host was
+ * throttled or failed, so whether the branch merged was never established. It
+ * is deliberately not `open`: reporting a branch as unfinished because nobody
+ * could be asked is a guess presented as an answer, and it counted merged work
+ * among the unfinished on 2026-08-30.
+ *
+ * It is therefore a state no consumer may treat as a merge verdict. `open` and
+ * `merged` are readings; this is the absence of one.
+ */
+export const BranchStateSchema = z.enum([
+  'open',
+  'wip',
+  'merged',
+  'claimed',
+  'deferred',
+  'unknown',
+]);
 export type BranchState = z.infer<typeof BranchStateSchema>;
 
 /**

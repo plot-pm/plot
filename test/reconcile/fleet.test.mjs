@@ -4380,3 +4380,253 @@ test('fleet: a merged-and-DELETED branch reports ref_held false', () => {
   assert.equal(b.ref_held, false, 'but no ref holds the name any more');
   f.cleanup();
 });
+
+// --- a scan that could not ask says so -------------------------------------
+//
+// THE MEASURED FAILURE, 2026-08-30. `#513` was merged. Minutes later the scan
+// reported its branch `open`, counted it among the unfinished, and put
+// `merge_detect=pr-merge` in the summary — which reads as *the host was asked
+// and answered*. What had happened was
+// `GraphQL: API rate limit already exceeded for user ID 870334`.
+//
+// Nothing in that output was a warning, and that is what makes it expensive:
+// `pr-list` is ONE GraphQL call in place of ~186 REST calls, so throttling
+// takes out EVERY PR answer at once. The whole fleet reads unmerged, every
+// wave stays blocked, and the board shows a busy estate with nothing eligible
+// — indistinguishable from work genuinely in flight.
+//
+// THE DEGRADATION DIRECTION DOES NOT CHANGE, and the tests above pin it: an
+// unreachable host still answers *not merged*, because silence is never
+// permission. What is added is the REPORT.
+
+test('fleet: a throttled host is named in the summary', () => {
+  const f = makeRepo('plot-fleet-throttled-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 513);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  // Exit 5 is `plot-host.sh`'s word for a rate limit. `pr-state` fails the same
+  // way — a spent bucket does not refill between two calls a millisecond apart,
+  // and a stub where the list is throttled but the per-branch lookup answers
+  // would test a state that cannot occur.
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) echo 'plot-host: pr-list: host throttled — API rate limit exceeded' >&2; exit 5 ;;
+  pr-state) echo 'plot-host: host throttled' >&2; exit 5 ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(footerOf(out), /\bhost=throttled\b/,
+    'a reader who sees host=throttled knows the merge answers are unreliable ' +
+    'without reading further — which is the whole point of it being in the footer');
+});
+
+// DONE-WHEN 2, AND THE ROW IS WHERE IT BITES. `open` is a claim about a PR:
+// that one was looked for and none was found. When the host could not be
+// asked, no such claim was earned, and the honest word is a different one.
+test('fleet: no row reads `open` when its PR could not be read', () => {
+  const f = makeRepo('plot-fleet-throttledrow-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 513);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 5 ;;
+  pr-state) exit 5 ;;
+  *) echo "{}" ;;
+esac
+`);
+  const line = branchLine(out, 'feature/squashed');
+  assert.doesNotMatch(line, / — open$/,
+    'this branch WAS merged; reporting `open` states a fact the scan does not have');
+  assert.match(line, /unknown/,
+    'and the word says which of the two it is — asked and answered, or never asked');
+});
+
+// AND IT MUST NOT MANUFACTURE THE OPPOSITE. The direction is the whole safety
+// property: an unreachable host may not produce `merged`, because `merged`
+// settles a wave and opens the next one on work that may never have landed.
+// A test that only forbids `open` passes an implementation that swapped one
+// fabricated verdict for a worse one.
+test('fleet: a throttled host still never manufactures `merged`', () => {
+  const f = makeRepo('plot-fleet-throttlednomerge-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 513);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 5 ;;
+  pr-state) exit 5 ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.doesNotMatch(branchLine(out, 'feature/squashed'), / — merged$/,
+    'silence is never permission');
+  assert.doesNotMatch(waveLine(out, 'One'), / — complete$/,
+    'and a wave may not settle on an answer nobody received');
+});
+
+// AN UNREADABLE PR IS NOT A BRANCH TO HAND OUT. This is the measured failure
+// stated as a consequence rather than as a word: #513 was merged, read
+// `eligible`, and `--next` would have handed a finished branch to a worker.
+// A branch whose PR could not be read may not be claimed, because "nobody has
+// started this" is precisely the claim that went unverified.
+test('fleet: --next offers no branch whose PR could not be read', () => {
+  const f = makeRepo('plot-fleet-throttlednext-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 513);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 5 ;;
+  pr-state) exit 5 ;;
+  *) echo "{}" ;;
+esac
+`);
+  // NO `--offline`: that flag promises no network, so the host is never asked
+  // and the verdict is `unasked` rather than `throttled` — a question not put
+  // is not a question that went unanswered. The case under test needs the scan
+  // to actually try.
+  const res = spawnSync('bash', [h.scan, '--next'], {
+    encoding: 'utf8', cwd: f.dir, env: { ...process.env },
+  });
+  assert.equal(res.stdout.trim(), '',
+    'handing out a branch whose PR is unknown is how a merged branch got re-dispatched');
+  assert.notEqual(res.status, 0, 'and nothing to start exits 1');
+  h.cleanup();
+  f.cleanup();
+});
+
+// A HEALTHY SCAN IS UNCHANGED — Done-when 3, and it is the constraint the rest
+// of this slice has to fit inside. `--next` picks branches to claim from this
+// output, so any moved verdict is a regression rather than a cosmetic
+// difference.
+test('fleet: a healthy host reads host=ok and moves no verdict', () => {
+  const f = makeRepo('plot-fleet-hostok-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 42);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) echo '{"number":42,"title":"the work","state":"MERGED","head":"feature/squashed"}' ;;
+  pr-state) echo '{"number":42,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(footerOf(out), /\bhost=ok\b/, 'the host answered');
+  assert.match(branchLine(out, 'feature/squashed'), / — merged$/,
+    'and the verdict is exactly what it was before this field existed');
+  assert.match(waveLine(out, 'One'), / — complete$/, 'as is the wave');
+});
+
+// THE ASSERTION THAT CARRIES THE SLICE. Without it the fix could be "treat an
+// empty list as throttled", which trades a silent wrong answer for a noisy one
+// and breaks every repo that genuinely has no open PRs. An empty list that
+// ARRIVED is evidence; the absence of a list is not.
+test('fleet: an EMPTY list still reads host=ok, with zero PRs', () => {
+  const f = makeRepo('plot-fleet-hostokempty-', ONE_WAVE('feature/inflight'));
+  f.work('feature/inflight', 'a.txt');
+  f.push('-u', 'origin', 'feature/inflight');
+  git(f.dir, 'checkout', '-q', 'main');
+
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) : ;;
+  pr-state) echo '{"number":0,"state":"NONE","draft":false,"url":""}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(footerOf(out), /\bhost=ok\b/,
+    'a repo with no PRs is not a broken host, and must not be reported as one');
+  assert.match(branchLine(out, 'feature/inflight'), / — in progress$/,
+    'the local state answers, exactly as it did before');
+});
+
+// THROTTLED AND FAILED ARE DIFFERENT WORDS BECAUSE THEY ASK FOR DIFFERENT
+// THINGS. `throttled` says wait — the budget refills on a clock. `failed` says
+// look — something is broken and waiting will not fix it. A summary that
+// collapsed them would counsel one when it meant the other.
+test('fleet: a broken host reads host=failed, not host=throttled', () => {
+  const f = makeRepo('plot-fleet-hostfailed-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 513);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  // Exit 3 is `plot-host.sh`'s word for any failure it could not classify.
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) echo 'plot-host: pr-list: 503 Service Unavailable' >&2; exit 3 ;;
+  pr-state) exit 3 ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(footerOf(out), /\bhost=failed\b/, 'a 503 is not a rate limit');
+  assert.doesNotMatch(footerOf(out), /\bhost=throttled\b/,
+    'telling an operator to wait out an outage wastes the time waiting was meant to save');
+});
+
+// THE JSON CARRIES IT TOO, because the board is the consumer that renders it
+// and must not parse the prose footer. The same rule every other field here
+// follows: the machine reads the field, the human reads the line.
+test('fleet: the JSON pulse carries the host verdict', () => {
+  const f = makeRepo('plot-fleet-hostjson-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 513);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 5 ;;
+  pr-state) exit 5 ;;
+  *) echo "{}" ;;
+esac
+`);
+  // No `--offline`, for the reason the --next test above states.
+  const out = execFileSync('bash', [h.scan, '--json'],
+    { encoding: 'utf8', cwd: f.dir });
+  const pulse = JSON.parse(out);
+  assert.equal(pulse.summary.host, 'throttled',
+    'the board renders this beside prError — the same shape, one level up');
+  h.cleanup();
+  f.cleanup();
+});

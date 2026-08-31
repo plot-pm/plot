@@ -440,7 +440,21 @@ while true; do
   fi
 
   # Ask for the next claimable branch of the same plan.
-  next_branch=$("$script_dir/plot-fleet-scan.sh" --next "$PLOT_SLUG" 2>/dev/null) || break
+  #
+  # `--offline` IS DELIBERATE, AND IT IS A TRADE. Without it, a host that
+  # answers `failed` (an unauthenticated CI runner, a rate limit, a token that
+  # expired mid-run) makes every unmerged branch read `unknown`, and `--next`
+  # does not hand out an `unknown` branch. The hop then finds nothing and a
+  # long-running agent stops taking work — silently, which is the worst shape
+  # for it to fail in.
+  #
+  # WHAT IT COSTS: the hop claims on git alone, so it can take a branch whose
+  # merge state was never verified against the host. That is the inference this
+  # very scan tightened, applied one level down. It is accepted here because
+  # `--offline` means *the question was never put* rather than *the answer was
+  # refused* — and a claim is re-checked by the push, which is rejected if the
+  # ref already exists.
+  next_branch=$("$script_dir/plot-fleet-scan.sh" --offline --next "$PLOT_SLUG" 2>/dev/null) || break
 
   # Create worktree for the next branch.
   wt_root=$(dirname "$PLOT_WORKTREE")

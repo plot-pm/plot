@@ -35,9 +35,26 @@ const bareSummary = {
 };
 
 describe('the scan vocabularies are closed sets', () => {
-  it('names the five branch states and refuses a sixth', () => {
-    expect(BranchStateSchema.options).toEqual(['open', 'wip', 'merged', 'claimed', 'deferred']);
+  it('names the six branch states and refuses a seventh', () => {
+    expect(BranchStateSchema.options).toEqual([
+      'open',
+      'wip',
+      'merged',
+      'claimed',
+      'deferred',
+      'unknown',
+    ]);
     expect(BranchStateSchema.safeParse('abandoned').success).toBe(false);
+  });
+
+  it('keeps `unknown` apart from `open`, because one is a reading and one is not', () => {
+    // The scan says `unknown` when the git host could not be asked. Reporting
+    // such a branch as `open` counted merged work among the unfinished on
+    // 2026-08-30 — a guess presented as an answer.
+    expect(BranchStateSchema.safeParse('unknown').success).toBe(true);
+    expect(BranchStateSchema.options).not.toEqual(
+      expect.arrayContaining(['unasked', 'throttled']),
+    );
   });
 
   it('names the four slice verdicts, `unapproved` among them', () => {

@@ -94,9 +94,16 @@ const ACTIVITY_VALUES = ['working', 'idle', ''];
  * Named rather than ignored, for the reason the plan corpus names its own: a
  * port narrower than the wire on purpose and an adapter that forgot a field are
  * indistinguishable from inside the adapter.
+ *
+ * `host` joins `merge_detect` for the same reason `fetch_failed` and
+ * `fetch_error` sit here: it describes **how reliable this reading is**, not
+ * what was counted. Every field the port does carry is a count or a state the
+ * estate has; these say whether the estate could be asked at all. No consumer
+ * reads it today, and carrying a field nothing reads would be speculative — the
+ * gate exists so that adding one later is a decision somebody makes.
  */
 const UNCARRIED_TOP = ['fetch_failed', 'fetch_error', 'plan_source'];
-const UNCARRIED_SUMMARY = ['merge_detect'];
+const UNCARRIED_SUMMARY = ['merge_detect', 'host'];
 
 /** The branch fields `SourceBranchSchema` declares, beside their wire spelling. */
 const BRANCH_FIELDS = [
