@@ -235,10 +235,64 @@ test('a real healthy worker is monitored and silent', () => {
   // STANDS at the end over a worker that was healthy throughout is the
   // regression. Both are decidable from the record, and neither races a
   // sampler.
+  // THE BURN IS IN THE FOREGROUND, and three CI failures are why.
+  //
+  // The fixture used to background it — `yes > /dev/null & ... sleep 8; kill %1`
+  // — and `plot_worker_activity` sums the subtree of the AGENT pid by walking
+  // `ps -o pid=,ppid=` from that root. A job backgrounded inside the inner
+  // `sh -c` is only in that subtree while its parent lives to hold it there;
+  // on CI it was not, so the sampler read a genuinely quiet subtree and
+  // published `idle` about a worker that was, in every real sense, busy.
+  //
+  // Locally it never reproduced, which is what made three successive diagnoses
+  // wrong: a 1s interval racing the commit (refuted — it failed at 3s too),
+  // then "assert no heartbeat" (refuted — the mutation passed it), then "the
+  // libel must be retracted" (refuted — the worker exited before the retracting
+  // pass, so one lone `idle` stood).
+  //
+  // A FOREGROUND LOOP IS IN THE SUBTREE BY CONSTRUCTION. It burns CPU in a
+  // process the sampler is guaranteed to find, because it is the very process
+  // whose pid the wrapper recorded. No reparenting, no job control, nothing for
+  // a runner's shell to do differently.
+  //
+  // NO `$` IN THE COMMAND: this string is interpolated into a single-quoted
+  // `sh -c` body inside plot-dispatch.sh, so a `$n` is expanded several shells
+  // out. `while true; do :; done` needs none.
   const run = dispatchOne('monitor-silent', {
     monitorInterval: '3',
-    workerCommand: "sh -c 'yes > /dev/null & echo work > done.txt; git add done.txt; "
-      + "git -c user.email=a@b -c user.name=a commit -qm work; sleep 8; kill %1'",
+    // A FOREGROUND PIPELINE, BOUNDED BY ITS CONSUMER, AND `$`-FREE.
+    //
+    // Each constraint is one the alternatives fail:
+    //
+    //   not `sleep`     — burns nothing; a faithful model of a STALLED worker,
+    //                     which is the opposite of what this test needs.
+    //   not `timeout`   — this repo asserts the worker bound still fires with
+    //                     `timeout(1)`/`gtimeout` ABSENT from PATH, so a
+    //                     fixture needing it cannot run everywhere the suite
+    //                     does.
+    //   no arithmetic   — a counted `until` loop needs `$((i+1))`, and this
+    //                     string is interpolated into a single-quoted `sh -c`
+    //                     body inside plot-dispatch.sh: the `$` is expanded
+    //                     several shells out, and the loop becomes infinite. I
+    //                     verified that by hand — it hung.
+    //   not backgrounded — `yes > /dev/null &` was the previous fixture and is
+    //                     the whole bug: a job backgrounded inside the inner
+    //                     `sh -c` is not reliably in the AGENT's subtree on CI,
+    //                     so the sampler read a quiet subtree.
+    //
+    // `yes | head -c N | cksum` is a foreground pipeline: every process in it is
+    // the agent's own descendant, so the sampler finds them by construction,
+    // and `head` ends it by closing the pipe — bounded, with nothing to kill.
+    //
+    // `cksum` is what makes it a CPU sink rather than a throughput test.
+    // Measured here: `head -c` alone consumed 6 GB in 1.2 s (it is mostly page
+    // shuffling), while piping through `cksum` cost 4.7 s for 2 GB at 106 %
+    // CPU. 4 GB is therefore ~10 s — comfortably more than the two passes a 3 s
+    // interval needs, with room for a runner several times slower than this
+    // machine.
+    workerCommand: "sh -c 'echo work > done.txt; git add done.txt; "
+      + "git -c user.email=a@b -c user.name=a commit -qm work; "
+      + "yes | head -c 4000000000 | cksum > /dev/null; true'",
   });
   const exitFile = path.join(run.worktree, '.plot-worker.exit');
   try {
