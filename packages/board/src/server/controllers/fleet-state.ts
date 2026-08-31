@@ -17,8 +17,16 @@ import type { Board, Column, Fleet } from '../../contract/schema.js';
  * root substitutes.
  */
 export interface EstateSource {
-  /** Every plan the estate holds, grouped into the board's phase columns. */
-  columns(opts: BuildBoardOptions): Column[];
+  /**
+   * Every plan the estate holds, grouped into the board's phase columns.
+   *
+   * `built` is the board the caller ALREADY read, passed so the real source can
+   * take its columns instead of reading the estate a second time — one
+   * `cat-file --batch` and one parser spawn per request, which
+   * `plan-read-shape.test.mjs` enforces. A mock ignores both arguments and
+   * answers from fixtures.
+   */
+  columns(opts: BuildBoardOptions, built: FleetStateAnswer): Column[];
   /** The estate's row-shaped view, one row per branch. */
   fleet(opts: BuildBoardOptions): Fleet;
 }
@@ -54,7 +62,10 @@ export type FleetStateAnswer = Board;
  * the real estate, which is what every production call site already wanted.
  */
 export const realEstateSource: EstateSource = {
-  columns: (opts) => buildBoard(opts).columns,
+  // Takes the ALREADY-BUILT board rather than building a second one. The
+  // parameter is what keeps the real source honest about the single read while
+  // leaving a mock free to ignore it — see `boardState`.
+  columns: (_opts, built) => built.columns,
   fleet: (opts) => buildFleet(opts),
 };
 
@@ -80,10 +91,23 @@ export const realEstateSource: EstateSource = {
 export const boardState = ({
   opts,
   estate = realEstateSource,
-}: FleetStateQuery): FleetStateAnswer => ({
-  ...buildBoard(opts),
-  columns: estate.columns(opts),
-});
+}: FleetStateQuery): FleetStateAnswer => {
+  // ONE READ, THEN THE SUBSTITUTION. This spread the result of `buildBoard`
+  // and then called `estate.columns(opts)` — which, for the real source, IS
+  // `buildBoard(opts)`. Two full board builds per request, each doing its own
+  // `cat-file --batch` and its own `plot-plan-meta.sh` spawn.
+  //
+  // `plan-read-shape.test.mjs` measures exactly that and caught it: two batch
+  // reads where its contract allows one. Its own comment prices the regression
+  // at ~8 s on this repo's estate, and the guard exists so a board build does
+  // not cost more processes because a repo has more plans.
+  //
+  // The read happens ONCE here and the columns are taken from it; a mock source
+  // overrides them without ever reading the real estate, so `mockCards` still
+  // REPLACES the payload rather than merging into it.
+  const built = buildBoard(opts);
+  return { ...built, columns: estate.columns(opts, built) };
+};
 
 /**
  * The same estate, in the fleet's row-shaped view: one row per branch, read
