@@ -4,7 +4,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import type { FleetSettings } from './fleet-settings.js';
 import { LIVE_STATES, type SourceBranch, type FleetPulse } from '../contract/schema.js';
-import { isFree } from '@plot-pm/domain';
+import {
+  isFree,
+  dispatchDefers,
+  deferralMessage,
+  hasRoomToDispatch,
+  type Machine as MachineEntity,
+} from '@plot-pm/domain';
 import type { AgentEntry } from './registry.js';
 import { dispatchLogPath } from './dispatch.js';
 
@@ -265,6 +271,15 @@ function dispatchable(branch: SourceBranch): boolean {
 export interface PlanAutoDispatchInput {
   controls: FleetSettings;
   pulse: FleetPulse;
+  /**
+   * This pulse's machine reading, for the OTHER question a dispatch asks: not
+   * *is an agent free* but *has the machine room*. See {@link machineDefers}.
+   *
+   * A READING, not a port — the caller measures and passes the value, so this
+   * function stays pure and synchronous. Absent means the question was not
+   * asked, which dispatches: silence is never a refusal.
+   */
+  machine?: MachineEntity;
   /** Live registry entries this pulse — see {@link liveAgentCount}. */
   liveCount: number;
   /**
@@ -320,9 +335,68 @@ export interface PlanAutoDispatchInput {
  * `max` never exceeds the budget — that sum, held below the cap across every
  * pulse, is the property the whole wave exists to guarantee.
  */
+/**
+ * Whether the machine is clear enough that a dispatch costs nothing to explain.
+ *
+ * THE OTHER MACHINE QUESTION, and it is not the gate. {@link hasRoomToDispatch}
+ * is true only on `clear`, so a `tight` machine answers false here and
+ * dispatches anyway — `tight` is fit to work on, and only `starved` defers.
+ * The two are kept apart for the same reason `liveAgentCount` and `isFree` are:
+ * *is the machine clear?* and *should a dispatch wait?* are different
+ * questions, and collapsing them would stop the fleet on every `tight` reading.
+ *
+ * Used to say so in the log: a dispatch proceeding on a non-clear machine is
+ * worth one sentence, because it is the reading an operator wants when the
+ * fleet feels slow and nothing is refusing.
+ *
+ * @returns true when the reading exists and is `clear`.
+ */
+export function machineIsClear(machine: MachineEntity | undefined): boolean {
+  return machine !== undefined && hasRoomToDispatch(machine);
+}
+
+/**
+ * Whether this pulse's machine reading defers a dispatch, and what it measured.
+ *
+ * THE OVERRIDE LIVES HERE, because §10 of `DESIGN-machine.md` makes this a
+ * deferral and not a veto: *"the operator can always say now anyway — and that
+ * is what keeps this a deferral rather than a veto."* `machineOverride` is that
+ * sentence in code; when it is set the reading is still measured and still
+ * logged, and it simply stops gating.
+ *
+ * ABSENT DISPATCHES. No reading means the question was not asked, which is the
+ * `unmeasured` case by another route — and `unmeasured` dispatches, because a
+ * reading nobody can date is not evidence of harm. Silence is never a refusal.
+ *
+ * Only `starved` defers. `tight` does not, which is why this asks
+ * {@link dispatchDefers} rather than negating `hasRoomToDispatch` — that
+ * function answers *is the machine clear?* and `tight` fails it while still
+ * being fit to work on.
+ *
+ * @returns the deferral sentence when a dispatch should wait, else null.
+ */
+export function machineDefers(
+  machine: MachineEntity | undefined,
+  controls: FleetSettings,
+): string | null {
+  if (!machine) return null;
+  if (controls.machineOverride) return null;
+  if (!dispatchDefers(machine)) return null;
+  return deferralMessage(machine);
+}
+
 export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan[] {
-  const { controls, agents = [], pulse, liveCount, inFlight, missingBriefs } = input;
+  const { controls, agents = [], pulse, liveCount, inFlight, missingBriefs, machine } = input;
   if (!controls.autoDispatch) return [];
+
+  // THE MACHINE QUESTION, beside the budget and before it is spent. A dispatch
+  // asks two things — *is an agent free* and *has the machine room* — and this
+  // is the second. See {@link machineDefers} for why only `starved` defers and
+  // why an absent reading does not.
+  //
+  // TODO(decision): does a starved reading also stop the free-agent
+  // fall-through below? See the discussion in the PR.
+  if (machineDefers(machine, controls)) return [];
 
   let budget = controls.parallelAgents - (liveCount + inFlight.size);
 
@@ -630,9 +704,41 @@ export function maybeAutoDispatch(
   controls: FleetSettings,
   agents: AgentEntry[],
   inFlight: Set<string>,
+  machine?: MachineEntity,
 ): Set<string> {
   const pruned = pruneInFlight(inFlight, pulse, agents);
   const liveCount = liveAgentCount(agents, pulse);
+
+  // THE MACHINE DEFERS, AND IT SAYS WHAT IT MEASURED. Logged before the cap
+  // arithmetic because it outranks it: a starved machine is not a full one, and
+  // an operator reading "at cap" while the real answer is "spawn cost 287 ms"
+  // would raise the dial and make it worse.
+  //
+  // `"too much load"` is not answerable and load average is never the verdict;
+  // the sentence carries the number so a person can act on it — including by
+  // setting `Machine override` and saying now anyway.
+  if (controls.autoDispatch) {
+    const deferral = machineDefers(machine, controls);
+    if (deferral) {
+      const hasEligible = pulse.plans.some(
+        (p) => p.phase === 'approved' && p.slices.some((w) => w.verdict === 'eligible'),
+      );
+      // Same rule as the cap refusal: a deferral with nothing to dispatch is
+      // routine, not a decision anybody needs to read every five seconds.
+      if (hasEligible) console.log(`auto-dispatch: ${deferral}`);
+      return pruned;
+    }
+    // NOT CLEAR, BUT NOT STARVED EITHER — the `tight` band, which dispatches.
+    // Said out loud because a fleet that feels slow while nothing refuses is
+    // the case an operator otherwise has no reading for; this is the one line
+    // that distinguishes *the machine is working hard* from *Plot is stuck*.
+    if (machine && !machineIsClear(machine) && !dispatchDefers(machine)) {
+      console.log(
+        `auto-dispatch: machine reads ${machine.headroom} ` +
+        `(spawn cost ${machine.spawnCostMs?.toFixed(1) ?? 'unmeasured'} ms); dispatching anyway`,
+      );
+    }
+  }
 
   // Check if we're at the cap BEFORE calling planAutoDispatch, so we can log
   // meaningfully. The switch being off is a deliberate absence, not a refusal;
@@ -723,6 +829,9 @@ export function maybeAutoDispatch(
     controls,
     pulse,
     liveCount,
+    // The same reading this function already logged about, so the planner's
+    // machine question and the sentence above cannot answer differently.
+    machine,
     // The registry the cap was measured against, so the planner's free-agent
     // question is asked of the same fleet this function just logged about.
     agents,

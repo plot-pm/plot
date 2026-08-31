@@ -3323,6 +3323,17 @@ export const FleetSchema = z.object({
       autoDispatch: z.boolean(),
       parallelAgents: z.number().int(),
       /**
+       * Whether the operator has said *now anyway* to a starved machine.
+       *
+       * NAMED HERE BECAUSE THE CLIENT CASTS THIS PAYLOAD RATHER THAN PARSING
+       * IT — a Zod default never fires client-side, so a field the schema does
+       * not name is `undefined` in the renderer no matter what the server
+       * sends. Optional so a payload from a server predating this field still
+       * validates; absent reads as no override, which keeps the deferral in
+       * force rather than silently disabling it.
+       */
+      machineOverride: z.boolean().optional(),
+      /**
        * How many workers are in WORKING — the registry size, one derivation
        * read twice.
        *

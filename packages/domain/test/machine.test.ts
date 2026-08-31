@@ -5,6 +5,8 @@ import {
   measureMachine,
   machineReadingIsStale,
   hasRoomToDispatch,
+  dispatchDefers,
+  deferralMessage,
 } from '../src/index.js';
 
 /**
@@ -88,5 +90,106 @@ describe('dispatch asks for room', () => {
 
   it('refuses on an unmeasured reading rather than assuming room', () => {
     expect(hasRoomToDispatch(measureMachine({ ...sample, spawnCostMs: null }))).toBe(false);
+  });
+});
+
+/**
+ * THE REGRESSION THIS REPO HAS MEASURED TWICE.
+ *
+ * `headroomFor` takes a spawn cost and nothing else, which is what makes the
+ * rule enforceable rather than merely written down: there is no load average in
+ * scope to consult. These tests fail the moment someone widens the signature to
+ * "improve" the verdict by reading it.
+ */
+describe('headroomFor ignores load average, and must keep ignoring it', () => {
+  it('reads clear at a high load average with a low spawn cost', () => {
+    // Measured 2026-08-30: load read 13.0 across three readings while spawn
+    // cost went 23.3 -> 76.5 -> 4.8 ms. The load average did not move; the
+    // verdict did, three times, and the verdict was right each time.
+    const loaded = measureMachine({
+      ...sample,
+      loadAverage: [13.0, 13.0, 13.0],
+      spawnCostMs: 4.8,
+    });
+    expect(loaded.headroom).toBe('clear');
+    expect(hasRoomToDispatch(loaded)).toBe(true);
+  });
+
+  it('reads starved at a low load average with a high spawn cost', () => {
+    // The other direction, and the one that matters more: a quiet-looking load
+    // average must not talk the verdict out of a measured 287 ms fork.
+    const quiet = measureMachine({
+      ...sample,
+      loadAverage: [0.2, 0.3, 0.4],
+      spawnCostMs: 287,
+    });
+    expect(quiet.headroom).toBe('starved');
+    expect(hasRoomToDispatch(quiet)).toBe(false);
+  });
+
+  it('gives the same verdict for the same cost at any load average', () => {
+    // Five workers ran fine at load 10 and starved the machine at load 8,
+    // because the variable was what else was spawning. The verdict is a
+    // function of the spawn cost ALONE, so these must be indistinguishable.
+    const costs = [4.8, 25, 287];
+    for (const spawnCostMs of costs) {
+      const idle = measureMachine({ ...sample, loadAverage: [0, 0, 0], spawnCostMs });
+      const busy = measureMachine({ ...sample, loadAverage: [64, 64, 64], spawnCostMs });
+      expect(idle.headroom).toBe(busy.headroom);
+    }
+  });
+});
+
+describe('a starved reading defers, and says what it measured', () => {
+  it('defers only on starved — tight is fit to work on', () => {
+    // NOT the negation of hasRoomToDispatch: `tight` fails that and defers
+    // nothing. Collapsing the two would stop the fleet on every tight reading.
+    expect(dispatchDefers(measureMachine({ ...sample, spawnCostMs: 4.8 }))).toBe(false);
+    expect(dispatchDefers(measureMachine({ ...sample, spawnCostMs: 25 }))).toBe(false);
+    expect(dispatchDefers(measureMachine({ ...sample, spawnCostMs: 287 }))).toBe(true);
+  });
+
+  it('does not defer on an unmeasured reading — silence is never a refusal', () => {
+    // `measuredAt` is required for exactly this reason: a starved reading
+    // nobody can date is `unmeasured`, and `unmeasured` dispatches.
+    const unmeasured = measureMachine({ ...sample, spawnCostMs: null });
+    expect(unmeasured.headroom).toBe('unmeasured');
+    expect(dispatchDefers(unmeasured)).toBe(false);
+    expect(deferralMessage(unmeasured)).toBeNull();
+  });
+
+  it('carries the number, because "too much load" is not answerable', () => {
+    const message = deferralMessage(measureMachine({ ...sample, spawnCostMs: 287 }));
+    expect(message).not.toBeNull();
+    // The measurement itself, so an operator can act on it.
+    expect(message).toContain('287.0 ms');
+    // The threshold it is being read against.
+    expect(message).toContain('10 ms');
+    expect(message).toContain('not yet');
+    // NEVER the load average — it is not the verdict, so it is not the reason.
+    expect(message?.toLowerCase()).not.toContain('load');
+  });
+
+  it('says nothing when the reading does not defer', () => {
+    expect(deferralMessage(measureMachine({ ...sample, spawnCostMs: 4.8 }))).toBeNull();
+    expect(deferralMessage(measureMachine({ ...sample, spawnCostMs: 25 }))).toBeNull();
+  });
+
+  it('says `unmeasured` rather than `null ms` if a starved reading has no cost', () => {
+    // A DEFENSIVE BRANCH, and the only way to reach it is to construct the
+    // Machine directly: `measureMachine` derives `headroom` FROM `spawnCostMs`,
+    // so a null cost always reads `unmeasured` and `unmeasured` never defers
+    // (the test above). The two fields cannot disagree by that path.
+    //
+    // It is still worth holding. The sentence exists to be answerable, and
+    // `spawn cost null ms` is the one rendering that would be worse than
+    // silence — it reads as a measurement rather than as its absence. A future
+    // caller that sets `headroom` from somewhere other than the cost inherits
+    // that guarantee rather than discovering it.
+    const starvedButUnmeasured = { ...sample, spawnCostMs: null, headroom: 'starved' as const };
+    const message = deferralMessage(starvedButUnmeasured);
+    expect(message).toContain('unmeasured');
+    expect(message).not.toContain('null');
+    expect(message).toContain('not yet');
   });
 });

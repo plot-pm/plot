@@ -97,3 +97,36 @@ export const machineReadingIsStale = (machine: Machine, now: number, maxAgeMs: n
  * @returns true only when headroom is `clear`.
  */
 export const hasRoomToDispatch = (machine: Machine): boolean => machine.headroom === 'clear';
+
+/**
+ * Whether a reading defers a dispatch.
+ *
+ * NOT the negation of {@link hasRoomToDispatch}, and the difference is the
+ * whole rule. That function answers *is the machine clear?*, which `tight`
+ * fails; this answers *should a dispatch wait?*, which only `starved` passes.
+ * `unmeasured` defers nothing — silence is never a refusal.
+ *
+ * @param machine - the reading to consult.
+ * @returns true only when headroom is `starved`.
+ */
+export const dispatchDefers = (machine: Machine): boolean => machine.headroom === 'starved';
+
+/**
+ * The sentence a deferral gives the operator, carrying its measurement.
+ *
+ * `"not yet: spawn cost 287.0 ms against a clear reading under 10 ms"` is
+ * answerable; `"too much load"` is not. Load average is never named, because
+ * it is never the verdict.
+ *
+ * @param machine - the reading being reported; expected to be `starved`.
+ * @returns the deferral sentence, or null when the reading does not defer.
+ */
+export const deferralMessage = (machine: Machine): string | null => {
+  if (!dispatchDefers(machine)) return null;
+  const cost = machine.spawnCostMs === null ? 'unmeasured' : `${machine.spawnCostMs.toFixed(1)} ms`;
+  return (
+    `not yet: spawn cost ${cost} against a clear reading under ` +
+    `${HEADROOM_THRESHOLDS.clearBelowMs} ms ` +
+    `(measured over ${machine.sampleMs} ms)`
+  );
+};

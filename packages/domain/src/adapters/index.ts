@@ -25,3 +25,9 @@ export {
 
 export { refsGit } from './refs/refs-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
+
+export {
+  machineSystem,
+  DEFAULT_SAMPLE_BUDGET_MS,
+  type MachineSystemOptions,
+} from './machine/machine-system.js';

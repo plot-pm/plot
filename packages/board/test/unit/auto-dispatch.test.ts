@@ -10,8 +10,11 @@ import {
   planSlug,
   briefPath,
   dispatchCandidates,
+  machineDefers,
+  machineIsClear,
   type AutoDispatchPlan,
 } from '../../src/server/auto-dispatch.js';
+import { measureMachine, type Machine as MachineEntity } from '@plot-pm/domain';
 import { FleetPulseSchema, type FleetPulse } from '../../src/contract/schema.js';
 import type { AgentEntry } from '../../src/server/registry.js';
 import type { FleetSettings } from '../../src/server/fleet-settings.js';
@@ -63,9 +66,14 @@ const pulse = (
     },
   });
 
-const controls = (autoDispatch: boolean, parallelAgents: number): FleetSettings => ({
+const controls = (
+  autoDispatch: boolean,
+  parallelAgents: number,
+  machineOverride = false,
+): FleetSettings => ({
   autoDispatch,
   parallelAgents,
+  machineOverride,
 });
 
 /** A registry entry in a given state — only `state`/`branch` matter here. */
@@ -965,5 +973,176 @@ describe('the two counts stay distinct — the 2026-08-25 regression lock', () =
     });
     // Two free agents, two slots reused — never a third.
     expect(total(plans)).toBe(2);
+  });
+});
+
+/**
+ * THE MACHINE QUESTION — the second thing a dispatch asks.
+ *
+ * `isFree` answers *can any agent take a slice?*; this answers *has the machine
+ * room?*. Both sit beside the budget, and a refusal must name which one it is.
+ *
+ * The reading arrives as a VALUE, not a port: `planAutoDispatch` is pure, so
+ * measuring happens on the scan's clock and the answer travels as data. That is
+ * what lets every case here be asserted without forking a process.
+ */
+
+/** A reading at a given spawn cost, dated now so it is never `unmeasured`. */
+const reading = (spawnCostMs: number | null): MachineEntity =>
+  measureMachine({
+    spawnCostMs,
+    measuredAt: 1_000,
+    sampleMs: 24,
+    loadAverage: [13, 13, 13],
+    cores: 16,
+  });
+
+/** A pulse with one approved, eligible plan holding three startable branches. */
+const workToDo = () =>
+  pulse([['2026-08-30-m.md', 'approved', [
+    wave('W', 'eligible', [
+      ['feature/x', 'open'], ['feature/y', 'open'], ['feature/z', 'open'],
+    ]),
+  ]]]);
+
+describe('planAutoDispatch — a starved machine defers', () => {
+  it('dispatches nothing while the machine reads starved', () => {
+    // 287 ms/fork, measured 2026-08-30. The budget is wide open and the work is
+    // there; the machine is the only reason nothing starts.
+    const plans = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+      machine: reading(287),
+    });
+    expect(plans).toEqual([]);
+  });
+
+  it('dispatches on a clear reading', () => {
+    const plans = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+      machine: reading(4.8),
+    });
+    expect(total(plans)).toBe(3);
+  });
+
+  it('dispatches on a TIGHT reading — only starved defers', () => {
+    // THE ASYMMETRY THAT MATTERS. `hasRoomToDispatch` is false at 25 ms, but
+    // `tight` is fit to work on. Gating on `!hasRoomToDispatch` would stop the
+    // fleet on every tight reading — which is most of a working day.
+    const plans = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+      machine: reading(25),
+    });
+    expect(total(plans)).toBe(3);
+  });
+
+  it('dispatches on an unmeasured reading — silence is never a refusal', () => {
+    // A reading nobody could take is not evidence of harm. Refusing on it would
+    // let a broken probe stop the fleet with no way to tell that from a busy
+    // machine.
+    const plans = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+      machine: reading(null),
+    });
+    expect(total(plans)).toBe(3);
+  });
+
+  it('dispatches when no reading was taken at all', () => {
+    // The same fact by another route: a caller that asks nothing gets exactly
+    // the behaviour that predates this slice.
+    const plans = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+    });
+    expect(total(plans)).toBe(3);
+  });
+
+  it('is OVERRIDABLE — the operator says now anyway', () => {
+    // `DESIGN-machine.md` §10: the three forbidden actions each take something
+    // from the operator permanently, and "not yet" takes nothing away. Without
+    // this the gate would be the veto §7 forbids.
+    const plans = planAutoDispatch({
+      controls: controls(true, 5, true),
+      pulse: workToDo(),
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+      machine: reading(287),
+    });
+    expect(total(plans)).toBe(3);
+  });
+
+  it('defers before the free-agent fall-through, not after it', () => {
+    // At the cap AND starved: the machine outranks the slot arithmetic, so a
+    // free agent does not talk the fleet past a starving machine.
+    const agents = [agent('feature/done', 'running')];
+    const p = pulse([['2026-08-30-m.md', 'approved', [
+      wave('W', 'eligible', [['feature/done', 'merged'], ['feature/x', 'open']]),
+    ]]]);
+    expect(freeAgentCount(agents, p)).toBe(1);
+    const plans = planAutoDispatch({
+      controls: controls(true, 1),
+      pulse: p,
+      liveCount: 1,
+      agents,
+      inFlight: new Set(),
+      missingBriefs: new Set(),
+      machine: reading(287),
+    });
+    expect(plans).toEqual([]);
+  });
+});
+
+describe('machineDefers — the sentence carries the number', () => {
+  it('names the measurement, never the load average', () => {
+    // "not yet: spawn cost 287 ms against a clear reading of 4.8 ms" is
+    // answerable; "too much load" is not, and load average is never the verdict.
+    const message = machineDefers(reading(287), controls(true, 5));
+    expect(message).not.toBeNull();
+    expect(message).toContain('287.0 ms');
+    expect(message?.toLowerCase()).not.toContain('load');
+  });
+
+  it('says nothing on clear, tight, unmeasured, or absent', () => {
+    const on = controls(true, 5);
+    expect(machineDefers(reading(4.8), on)).toBeNull();
+    expect(machineDefers(reading(25), on)).toBeNull();
+    expect(machineDefers(reading(null), on)).toBeNull();
+    expect(machineDefers(undefined, on)).toBeNull();
+  });
+
+  it('says nothing while the override is set', () => {
+    expect(machineDefers(reading(287), controls(true, 5, true))).toBeNull();
+  });
+});
+
+describe('machineIsClear — the other machine question, and not the gate', () => {
+  it('is true only on clear, and false on tight without deferring it', () => {
+    // The pair `liveAgentCount`/`isFree` one entity over: two questions, both
+    // true of the same reading, neither redundant.
+    expect(machineIsClear(reading(4.8))).toBe(true);
+    expect(machineIsClear(reading(25))).toBe(false);
+    expect(machineDefers(reading(25), controls(true, 5))).toBeNull();
+    expect(machineIsClear(reading(287))).toBe(false);
+    expect(machineIsClear(reading(null))).toBe(false);
+    expect(machineIsClear(undefined)).toBe(false);
   });
 });

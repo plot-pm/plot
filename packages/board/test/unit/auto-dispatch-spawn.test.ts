@@ -113,8 +113,10 @@ const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): Fleet
     summary: { plans: plans.length, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
   });
 
-const on = (parallelAgents: number): FleetSettings => ({ autoDispatch: true, parallelAgents });
-const off = (parallelAgents: number): FleetSettings => ({ autoDispatch: false, parallelAgents });
+const on = (parallelAgents: number): FleetSettings =>
+  ({ autoDispatch: true, parallelAgents, machineOverride: false });
+const off = (parallelAgents: number): FleetSettings =>
+  ({ autoDispatch: false, parallelAgents, machineOverride: false });
 
 const running = (branch: string): AgentEntry => ({
   session: `s-${branch}`, branch, worktree: `/wt/${branch}`, command: '',
