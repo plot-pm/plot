@@ -16,6 +16,34 @@ out with a measurement. A plan whose headline states a refuted cause is worse
 than one with no headline: it is the sentence a reader carries away.
 -->
 
+> ## WHY THIS PLAN IS WITHDRAWN — 2026-08-31
+>
+> **It exists to find a blocker that has since been found, in five seconds, by a
+> tool this plan never considered.**
+>
+> The plan's single branch, `bug/the-board-times-its-own-loop`, proposes an
+> `async_hooks` probe to attribute event-loop stalls to a named call. Before it
+> was built, `sample <pid> 5` on a wedged board named the call outright:
+> `node::SyncProcessRunner::Spawn` on the main thread inside
+> `on_headers_complete`, 4258 of 4262 samples — `execFileSync`, synchronous, on
+> the request path.
+>
+> **The fix moved with the finding.** It is now
+> `docs/plans/2026-08-31-the-read-path-stops-spawning.md`, whose `Done when` is
+> a profile rather than a probe: a `sample` under load shows no
+> `SyncProcessRunner::Spawn` below a read route's handler.
+>
+> **What is NOT withdrawn is everything measured here.** Four causes were named
+> from reading the source and refuted by data, and each refutation is recorded
+> below with its numbers. That record is why the fifth explanation was believed
+> only after a stack, and it is the reason to keep this file rather than delete
+> it.
+>
+> **The probe itself might still be worth building** as a permanent diagnostic —
+> `sample` needs a human holding a wedged process, and a server that records its
+> own stalls does not. That is a different plan with a different argument, and
+> it should be written when somebody wants it, not inherited from this one.
+
 ## Status
 
 - **Phase:** Draft
@@ -23,6 +51,12 @@ than one with no headline: it is the sentence a reader carries away.
 - **Sprint:** the-domain-is-one-implementation
 - **Review:** pr
 - **Impl:** own branches
+<!-- WITHDRAWN 2026-08-31, Jan Wloka, in-session. The phase stays Draft because
+     Plot has four phases and none of them is "withdrawn" — inventing a fifth
+     would make this file unreadable to plot-plan-meta.sh and to every consumer
+     that switches on a phase, which is a worse outcome than a Draft nobody
+     starts. Its only branch is annotated `deferred:`, so the fleet will not
+     offer it and /plot-deliver will not demand it. See the notice above. -->
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
@@ -501,7 +535,7 @@ Two properties the current code establishes and this must not lose:
 
 ### Measuring
 
-- `bug/the-board-times-its-own-loop` — an event-loop lag probe in the server
+- `bug/the-board-times-its-own-loop` <!-- deferred: plan withdrawn 2026-08-31 — the blocker was found with `sample` before this was built; the fix is in the-read-path-stops-spawning --> — an event-loop lag probe in the server
   that records the stall AND what was running when it began. This is the whole
   first branch, and it comes first because the plan's original cause was wrong
   and only a measurement would have caught that.
