@@ -166,6 +166,31 @@ const BOARD_DEFAULTS: BoardInput = {
   sprints: [],
   stories: [],
   checklist: null,
+  /**
+   * WHAT THE SERVER SAYS ABOUT ITSELF, and it is stated rather than defaulted.
+   *
+   * `BoardSchema` defaults this to empty strings and a port of 0, which is the
+   * right default for a PARSER — a payload from an older build should not fail
+   * to load over a field it never had. It is the wrong default for a CATALOGUE,
+   * because a component that renders `restartCommand` only when the server sent
+   * one is then untestable: the mock silently declines to say anything, the
+   * block correctly does not render, and the test reads as a component bug.
+   *
+   * Measured 2026-08-31: three assertions in `unreachable-overlay` failed
+   * exactly this way — the overlay's message is built from these fields, and
+   * with the schema defaults it could name neither the command nor the port.
+   *
+   * So the catalogue serves a plausible, FIXED answer, in the same spirit as
+   * `generatedAt`: a scenario that is about server identity overrides it, and
+   * every other scenario gets a board that describes itself the way a real one
+   * does.
+   */
+  server: {
+    restartCommand: 'pnpm board',
+    port: 4711,
+    branch: 'main',
+    repo: 'garden',
+  },
 };
 
 export const board = (over: Partial<BoardInput> = {}): Board =>

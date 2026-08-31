@@ -150,4 +150,16 @@ describe('a browser test that stubs its own state starts no board', () => {
  * legitimate new test updates them in the same commit that adds it.
  */
 const EXPECTED_FILES = 48;
-const EXPECTED_TESTS = 473;
+/**
+ * 473 → 479 on 2026-08-31, and NOT because this branch moved anything.
+ *
+ * The tripwire fired the way it is supposed to: main added six browser tests
+ * while this migration was in flight, so the branch's own count (473, measured
+ * against the main it was cut from) was six behind the main it now sits on.
+ * The migration itself still adds and removes none — `EXPECTED_FILES` did not
+ * move, and the two gate assertions above still report an empty offence list.
+ *
+ * Raised to the real current number rather than by six, so the value stays a
+ * measurement of the suite rather than an arithmetic on a stale one.
+ */
+const EXPECTED_TESTS = 479;

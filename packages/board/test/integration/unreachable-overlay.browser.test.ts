@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
-import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/schema.js';
+import { type Browser, type Page } from 'playwright';
+import {
+  openCatalogue, expandAgentFolds, scenario, board, fleet, row, wave,
+  type Catalogue,
+} from '../catalogue/index.js';
+import { ELIGIBLE_NOTE, type Fleet } from '../../src/contract/schema.js';
 // The threshold under test, IMPORTED rather than restated: a copy here would
 // drift in exactly the way that matters — raise it in App.tsx and a hard-coded
 // 8 would keep passing while asserting nothing about the shipped behaviour.
@@ -31,40 +32,89 @@ import { DIM_AFTER_FAILURES } from '../../src/app/App.js';
  * 30 s rate is four minutes of wall clock, which no test suite should spend,
  * and counting the failures is precisely what these tests are about.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
-
 const GH = 'https://github.com/tiny/garden/tree/';
 
-const row = (over: Partial<AgentRow> = {}): AgentRow => ({
-  repo: 'garden', branch: 'feature/x', plan: 'plant-tomatoes',
-  planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
-  phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
-  pr: null, branchUrl: `${GH}feature/x`, waitingDays: null, ...over,
-});
+/**
+ * The card this file waits on to know the board has rendered.
+ *
+ * NAMED ONCE because it is an ANCHOR, not a subject: nine assertions used to
+ * spell out a tiny-garden plan title, and none of them is about that plan. What
+ * each one means is *the board payload arrived*, so the served scenario's card
+ * is as good an anchor as the fixture's was — and better, because changing the
+ * scenario now moves one line instead of nine.
+ */
+const CARD = 'A wave is a thing, not a label';
 
-function fleet(over: Partial<Fleet> = {}): Fleet {
-  const rows: AgentRow[] = [
-    row({ branch: 'feature/beans-a', plan: 'beans', ageMinutes: 200 }),
+/** The port the served scenario reports as its own — see `BOARD_DEFAULTS`. */
+const SERVED_PORT = 4711;
+
+/**
+ * THE PLAN THIS FILE'S ELIGIBLE ROW BELONGS TO — the SERVED scenario's plan,
+ * and the identity is load-bearing rather than tidy.
+ *
+ * `Start work` is gated on `group.verdict === 'eligible' && card && dispatch`
+ * (`rows.tsx`), and the `card` is looked up from the BOARD payload by the row's
+ * plan slug. This file serves `an-eligible-wave` on `/api/board` and supplies
+ * its own fleet on `/api/fleet`, so a fleet naming a plan the board has no card
+ * for renders no menu at all — silently, because a missing card is a `null`
+ * branch in a ternary rather than an error.
+ *
+ * Measured: the fleet named `plant-tomatoes` while the served board's only card
+ * was this one, and four tests failed reaching for a menu that could never
+ * exist. Naming the slug once, from the scenario that supplies the card, is
+ * what keeps the two payloads describing one estate.
+ */
+const PLAN = 'a-wave-is-a-thing-not-a-label';
+const PLAN_FILE = '2026-08-24-a-wave-is-a-thing-not-a-label.md';
+
+/** The wave the eligible branch sits in — `anEligibleWave`'s own name. */
+const WAVE = 'Anchored';
+
+/**
+ * This file's fleet, BUILT FROM THE CATALOGUE'S BUILDERS rather than cast.
+ *
+ * The object here used to be a raw literal cast to `Fleet`. That satisfies
+ * `tsc` structurally while `.parse()` never runs, so every Zod default is
+ * missing at render time and a wrong shape draws nothing instead of throwing —
+ * which is exactly how this file came to assert against a row that could not
+ * have had the menu it looked for. `fleet()`/`row()`/`wave()` take
+ * `z.input<…>`, fill the defaults and parse, so the same mistake now fails
+ * where it is written, naming the field.
+ */
+function localFleet(over: Partial<Fleet> = {}): Fleet {
+  const rows = [
+    // A WORKING row — the payload the dimmed page must keep readable. It is
+    // not this file's subject: it proves the rows underneath the scrim survive.
+    row({
+      repo: 'garden', branch: 'feature/beans-a', plan: 'beans',
+      planFile: '2026-03-01-beans.md', wave: 'w', state: 'wip',
+      phase: 'Development', group: 'working', ageMinutes: 200,
+      note: 'last commit 200 min ago', branchUrl: `${GH}feature/beans-a`,
+    }),
     // The row that carries a Start work button: the control whose invitation
     // this whole plan exists to withdraw.
     row({
-      branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      // `verdict: 'eligible'`, said in the FIELD and not only in the note.
+      repo: 'garden', branch: 'feature/untaken', plan: PLAN, planFile: PLAN_FILE,
+      // `kind: 'wave'` and `state: 'open'`, both load-bearing, both copied from
+      // `anEligibleWave` — the catalogue's WORKING example of this shape.
       //
-      // The row describes a startable branch — `ELIGIBLE_NOTE`, `waitingOn:
-      // 'click'` — and the menu that offers `Start work` is gated on the wave's
-      // VERDICT, which was absent. A wave with no verdict offers no control at
-      // all (`isStartable`'s rule: a button whose usual state is *you cannot*
-      // teaches people to ignore buttons), so the whole suite was asserting
-      // against a row that could never have had the menu it looks for.
-      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const,
-      verdict: 'eligible' as const, note: ELIGIBLE_NOTE,
+      // NOT STARTED groups only `isUnbegun` rows (`group === 'not-started' &&
+      // state === 'open'`), and since `a-wave-is-a-kind` an eligible branch
+      // renders as its WAVE, which is what carries the menu — `Start work` acts
+      // on a plan and a dispatch binding, never on a branch. A row left at the
+      // builder's `wip` default renders no wave row at all and every assertion
+      // against it times out, indistinguishable from a selector typo.
+      kind: 'wave', wave: WAVE, state: 'open', group: 'not-started',
+      phase: 'Design', ageMinutes: null, waitingOn: 'click',
+      // `verdict: 'eligible'`, said in the FIELD and not only in the note. The
+      // menu is gated on the wave's VERDICT, and a wave with no verdict offers
+      // no control at all (`isStartable`'s rule: a button whose usual state is
+      // *you cannot* teaches people to ignore buttons).
+      verdict: 'eligible', note: ELIGIBLE_NOTE,
       branchUrl: `${GH}feature/untaken`, waitingDays: 22,
     }),
   ];
-  return {
-    generatedAt: new Date().toISOString(),
+  return fleet({
     ageSeconds: 1,
     ready: true,
     error: null,
@@ -79,31 +129,61 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
         command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0,
         state: 'running' as const,
       })),
-    summary: {
-      plans: 2, waves: 2, branches: rows.length,
-      claimed: 0, eligible: 1, blocked: 0, deferred: 0,
-    },
+    // THE WAVE THE ELIGIBLE ROW BELONGS TO, and without it this file's whole
+    // subject is unreachable: a fleet with a verdict-carrying row but no
+    // `waves` entry renders no menu, so "the frozen board stops offering
+    // `Start work`" would have nothing to withdraw.
+    //
+    // It went unnoticed because the payload used to be half real: `/api/board`
+    // fell through to a live server over the tiny-garden fixture, which
+    // supplied waves this object never mentions. Serving the whole state is
+    // what exposed the gap — the fixture always was incomplete, and only a real
+    // dependency was hiding it.
+    waves: [wave({
+      plan: PLAN, name: WAVE, branches: ['feature/untaken'],
+      verdict: 'eligible', section: 'not-started', complete: false,
+    })],
     prAgeSeconds: 74,
     prNextInSeconds: 46,
     scanNextInSeconds: 3,
     prError: null,
     ...over,
-  };
+  });
 }
 
 describe('tiny-garden: a frozen board stops inviting', () => {
-  let server: { port: number; kill: () => void };
+  let cat: Catalogue;
   let browser: Browser;
   let baseURL: string;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
+    cat = await openCatalogue();
+    // THE SERVED BOARD, WITH DISPATCH TURNED ON — the one override this file
+    // needs on top of the named state.
+    //
+    // `BoardSchema.dispatch` defaults to `{ available: false }`, which is the
+    // right default for the catalogue (a scenario that wants a button says so)
+    // and the wrong one here: `WaveActions` renders `aria-disabled` from
+    // `dispatch.available`, so a board that cannot dispatch produces a menu
+    // that is ALREADY disabled while the server is healthy. Two assertions
+    // read that attribute as the thing the overlay changes — one expects
+    // `null` before the outage and after recovery — and both would pass
+    // vacuously, asserting nothing about the freeze.
+    //
+    // Overridden through `scenario()` rather than hand-built, so the card, the
+    // wave and the columns stay the ones `an-eligible-wave` defines.
+    const base = scenario('an-eligible-wave');
+    cat.mock.serve('an-eligible-wave', {
+      board: board({
+        columns: base.board.columns,
+        dispatch: { available: true, reason: '' },
+      }),
+    });
+    baseURL = cat.mock.baseURL;
+    browser = cat.browser;
   });
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   const overlay = (page: Page) => page.locator('[data-unreachable-overlay]');
@@ -191,7 +271,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
   type Mode = 'ok' | 'dead' | 'http500' | 'garbage';
   async function open(
     tab: 'board' | 'agents',
-    payload: Fleet = fleet(),
+    payload: Fleet = localFleet(),
   ): Promise<{ page: Page; set: (m: Mode) => void }> {
     let mode: Mode = 'ok';
     const page = await browser.newPage();
@@ -209,14 +289,25 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       return route.fulfill({ contentType: 'application/json', body });
     };
     await page.route('**/api/fleet', (route) => answer(route, JSON.stringify(payload)));
+    // THE HEALTHY BOARD IS SERVED, NOT FETCHED. This route used to
+    // `route.fallback()` in `ok` mode, which reached a real `board-server.mjs`
+    // started over the tiny-garden fixture — the last thing in this directory
+    // spawning the artifact. Nothing here was ever ABOUT that server: the file's
+    // subject is what the page does when it CANNOT reach one, and the healthy
+    // payload is only the thing being degraded from. So the mock answers it, and
+    // the three failure modes below stay interception, because a server cannot
+    // serve its own unreachability.
     await page.route('**/api/board', async (route) => {
+      // `ok` falls through to the MOCK, which serves this endpoint itself —
+      // the same `route.fallback()` as before, now landing on a payload the
+      // catalogue names instead of on a spawned artifact.
       if (mode === 'ok') return route.fallback();
       return answer(route, '');
     });
     await page.goto(tab === 'agents' ? `${baseURL}?tab=agents` : baseURL);
     // Wait for real content, so there is a payload to degrade FROM.
     if (tab === 'agents') await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    else await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    else await page.getByText(CARD).waitFor({ timeout: 10_000 });
     // AFTER the branch, not inside it: a line inserted between `if` and `else`
     // is a parse error, and this file carried one — the whole suite failed to
     // load rather than failing an assertion.
@@ -225,7 +316,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // and the restart command come from.
     if (tab === 'agents') {
       await page.getByRole('button', { name: 'Plans' }).click();
-      await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+      await page.getByText(CARD).waitFor({ timeout: 10_000 });
       await page.getByRole('button', { name: 'Agents' }).click();
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
@@ -445,7 +536,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       await overlay(page).waitFor({ timeout: 10_000 });
 
       // The cards are still there, and still readable.
-      const card = page.getByText('Deal with the zucchini glut');
+      const card = page.getByText(CARD);
       expect(await card.count()).toBe(1);
       expect((await card.boundingBox())?.height ?? 0).toBeGreaterThan(0);
       // And the old whole-view replacement is gone.
@@ -491,7 +582,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       // And it says something — the failure is reported, just not as silence.
       await page.getByText(/Last board refresh failed/).waitFor({ timeout: 10_000 });
       // The cards survive that too.
-      expect(await page.getByText('Deal with the zucchini glut').count()).toBe(1);
+      expect(await page.getByText(CARD).count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -503,7 +594,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       set('garbage');
       await failPolls(page, DIM_AFTER_FAILURES * 2);
       expect(await overlay(page).count()).toBe(0);
-      expect(await page.getByText('Deal with the zucchini glut').count()).toBe(1);
+      expect(await page.getByText(CARD).count()).toBe(1);
     } finally {
       await page.close();
     }
@@ -644,8 +735,16 @@ describe('tiny-garden: a frozen board stops inviting', () => {
       set('dead');
       await failPolls(page, DIM_AFTER_FAILURES);
       await overlay(page).waitFor({ timeout: 10_000 });
+      // THE PORT THE SERVER NAMED, not the one the page was fetched over, and
+      // the distinction is the point of the field. `boundPort` is what the
+      // server says about ITSELF — a reader whose board came back on a
+      // different port needs to see the port this page is stuck asking, which
+      // is the one that was serving when contact was lost. Asserting the live
+      // socket's port instead would make this test agree with the payload only
+      // by coincidence, and pass for a component that ignored the field and
+      // read `window.location` (the implementation the comment above rejects).
       expect(await page.locator('[data-served-port]').textContent())
-        .toBe(`localhost:${server.port}`);
+        .toBe(`localhost:${SERVED_PORT}`);
     } finally {
       await page.close();
     }
@@ -669,7 +768,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
         return route.fulfill({ response: res, json: body });
       });
       await page.goto(baseURL);
-      await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+      await page.getByText(CARD).waitFor({ timeout: 10_000 });
       dead = true;
       await failPolls(page, DIM_AFTER_FAILURES);
       await overlay(page).waitFor({ timeout: 10_000 });
@@ -698,7 +797,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
         return route.fulfill({ response: res, json: body });
       });
       await page.goto(baseURL);
-      await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+      await page.getByText(CARD).waitFor({ timeout: 10_000 });
       dead = true;
       await failPolls(page, DIM_AFTER_FAILURES);
       await overlay(page).waitFor({ timeout: 10_000 });
