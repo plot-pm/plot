@@ -14,6 +14,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `infra/the-mock-board-serves-named-states`
+- **Started:** 2026-08-31, Jan Wloka, `infra/the-browser-tests-read-the-catalogue`
 
 ## Approval
 
