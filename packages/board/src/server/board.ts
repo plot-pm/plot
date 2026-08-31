@@ -103,23 +103,113 @@ function readChecklist(repoRoot: string, releaseDir: string): { done: number; to
 }
 
 /**
+ * The config files `plot-config.sh` reads, in its own precedence order.
+ *
+ * CLAUDE.md first, AGENTS.md as the modern fallback - the same two candidates
+ * and the same order the script itself uses (`plot-config.sh:117`). The cache
+ * below is keyed on their mtimes, so this list must not drift from that one: a
+ * file the script reads and this does not would be a config change the cache
+ * never notices.
+ */
+const CONFIG_FILES = ['CLAUDE.md', 'AGENTS.md'] as const;
+
+/**
+ * A fingerprint of the config's mtimes, or `''` when neither file can be read.
+ *
+ * THE EMPTY STRING IS A CACHE MISS, deliberately: a repo whose config cannot be
+ * stat'ed gets today's behaviour - one spawn per lookup - rather than a cached
+ * answer nothing can invalidate. Failing toward the slow, correct path is the
+ * same choice `plot-estate-changed.sh` makes for the same reason.
+ */
+function configStamp(repoRoot: string): string {
+  const parts: string[] = [];
+  for (const file of CONFIG_FILES) {
+    try {
+      parts.push(`${file}:${fs.statSync(path.join(repoRoot, file)).mtimeMs}`);
+    } catch {
+      // Absent is a fact, not a failure: a repo with only AGENTS.md must
+      // produce a stable stamp rather than none.
+      parts.push(`${file}:-`);
+    }
+  }
+  return parts.every((part) => part.endsWith(':-')) ? '' : parts.join('|');
+}
+
+/** key -> value, valid only while `configCacheStamp` still matches the files. */
+let configCache = new Map<string, string>();
+let configCacheStamp = '';
+
+/**
  * Read one `## Plot Config` key via the shared helper (with a default).
  *
  * Exported for `approve.ts`, which needs `Approve command`. Config lookup goes
  * through this one function so `plot-config.sh` stays the only thing that knows
  * where Plot configuration lives.
+ *
+ * ## Why this caches, measured 2026-08-31
+ *
+ * Each miss spawns `bash plot-config.sh` SYNCHRONOUSLY, and a synchronous spawn
+ * on the request path cannot yield - a `sample` of a wedged board caught
+ * `node::SyncProcessRunner::Spawn` on the main thread inside
+ * `on_headers_complete`, in 4258 of 4262 samples, while a STATIC FILE timed out
+ * at 15 s beside it.
+ *
+ * The arithmetic: one spawn measured 58 ms, `buildBoard` calls this five times
+ * per request, and there are 37 call sites across the server. That is ~290 ms of
+ * blocking spawns per `/api/board`, to read five lines out of a markdown file
+ * that changes perhaps twice a day.
+ *
+ * ## The cache is keyed on the FILES, not on a clock
+ *
+ * An expiry would answer *was it recent?* when the question is *did it change?*
+ * - and those differ in exactly the case that matters: an operator editing
+ * `## Plot Config` and reloading the board expects the new value, not the value
+ * from before the TTL. The mtimes of both candidate files are the key, so a
+ * config edit invalidates every key at once and nothing goes stale.
+ *
+ * This does NOT make the spawn asynchronous, and does not pretend to: it makes
+ * it rare. `git()` and `gitBuffer()` below block the same way and are not
+ * addressed here - de-synchronising the request path is its own work.
  */
 export function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
+  const stamp = configStamp(opts.repoRoot);
+  if (stamp === '' || stamp !== configCacheStamp) {
+    configCache = new Map();
+    configCacheStamp = stamp;
+  }
+
+  // The fallback is part of the identity: `plot-config.sh` returns it when the
+  // key is absent, so two callers asking for one key with different defaults
+  // must not share an answer.
+  const cacheKey = `${key} ${fallback}`;
+  if (stamp !== '') {
+    const hit = configCache.get(cacheKey);
+    if (hit !== undefined) return hit;
+  }
+
+  let value = fallback;
   try {
     const out = execFileSync(
       'bash',
       [path.join(opts.scriptsDir, 'plot-config.sh'), 'get', key, fallback],
       { cwd: opts.repoRoot, encoding: 'utf8' },
     );
-    return out.trim() || fallback;
+    value = out.trim() || fallback;
   } catch {
-    return fallback;
+    value = fallback;
   }
+
+  // A failed lookup is cached too. It costs the same spawn to rediscover, and
+  // `plot-config.sh` answers the fallback for an absent key rather than
+  // failing - so "absent" is an answer, not an error to retry per request.
+  if (stamp !== '') configCache.set(cacheKey, value);
+  return value;
+}
+
+/** Test seam: drop the cache so a suite can change config between assertions. */
+export function resetConfigCache(): void {
+  configCache = new Map();
+  configCacheStamp = '';
 }
 
 /**

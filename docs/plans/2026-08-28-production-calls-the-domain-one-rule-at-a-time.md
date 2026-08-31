@@ -324,6 +324,57 @@ becomes one that asks ports. Until both land, the adapters exist and the board
 routes around them — the same shape as `plot-reap.sh` reaching past
 `plot-host.sh`, one layer up.
 
+#### It is also the board's unresponsiveness, measured 2026-08-31
+
+This slice was argued as a LAYERING correction. It is also a performance fix,
+and the measurement was taken the hard way — after four wrong causes were named
+and withdrawn in `the-board-answers-while-it-scans`.
+
+`sample <pid> 5` on a board refusing every request, main thread, **4258 of 4262
+samples**:
+
+```
+uv_run → uv__io_poll → http_parser::on_headers_complete()
+ → v8::Function::Call → (the request handler)
+   → node::SyncProcessRunner::Spawn        ← execFileSync
+```
+
+**A synchronous spawn cannot yield.** While it runs the event loop serves
+nothing — a STATIC FILE timed out at 15 s beside it, which is what finally
+distinguished this from every "the board is slow" theory: a slow computation
+does not stop `/` from being served, and a blocked loop does.
+
+It accounts for every reading that refuted the earlier explanations:
+
+| observation | why it followed |
+|---|---|
+| `cpu=0.0` during an outage | the parent blocks in `waitpid`; the CHILD burns CPU |
+| `children=0` in one sample | sampled between two spawns |
+| `/` at 1.5 ms, then 15 s | whether a spawn was in flight at that instant |
+| stalls with no scan running | these are on the REQUEST path, not the scan's |
+
+**One of the three primitives has since been mitigated, and the mitigation
+proves the rest.** `readConfig` — `bash plot-config.sh`, 58 ms a spawn, five
+calls per `/api/board`, 318 ms of blocking per request — is now cached on the
+config files' mtimes. A second `sample` after that change shows the profile
+changed SHAPE rather than emptied: the single 4258-sample block is gone, and
+**20 separate spawns remain in a 4 s sample**, the largest holding 49.
+
+Those are `git()` and `gitBuffer()` — **14 call sites in `board.ts` alone** —
+and they are precisely this slice's subject. The board still answers in
+2.4–5.3 s.
+
+**The cache is a stopgap and this slice retires it.** `plan-store.config(key,
+fallback)` is already the async twin of `readConfig`; an mtime cache was built
+around a synchronous spawn because the port existed and the board did not call
+it. When it does, the cache should go.
+
+**And it is what makes the board testable without git.** `refs-fixture.ts`
+already sits beside `refs-git.ts`. A board on the ports takes an injected
+fixture and needs no repository, no subprocess and no estate — the same
+round-trip property `a-browser-test-serves-its-own-state` is chasing one layer
+up, which is why the two plans reinforce rather than duplicate each other.
+
 **Done when**
 
 ```bash
