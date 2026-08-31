@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -21,7 +21,8 @@ import {
   type FleetPulse,
   type PlanMeta,
   type WaveSummary } from '../contract/schema.js';
-import { allSlicesMerged } from '@plot-pm/domain';
+import { allSlicesMerged, valueOr, type Refs } from '@plot-pm/domain';
+import { refsGit } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
 import { extractTopics } from './topics.js';
@@ -46,7 +47,30 @@ export interface BuildBoardOptions {
    * whose signatures had to change to admit it.
    */
   repairEnabled?: boolean;
+  /**
+   * Where ref questions are answered from. Absent means this repository.
+   *
+   * The seam the plan named the second prize: a board handed a fixture `Refs`
+   * takes no repository, no subprocess and no estate. Nothing above this
+   * option is told which it holds — the substitution is the whole point of a
+   * port — so a caller supplying one and a caller supplying none run the same
+   * code.
+   */
+  refs?: Refs;
 }
+
+/**
+ * The ref reader for these options — the caller's, or this repository's.
+ *
+ * Built per call rather than cached. `refsGit` allocates nothing but a closure
+ * over two paths; the expense was never in constructing the adapter, it was in
+ * the synchronous spawns the adapter no longer makes.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the injected reader, or one backed by git in `opts.repoRoot`.
+ */
+const refsFor = (opts: BuildBoardOptions): Refs =>
+  opts.refs ?? refsGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /**
  * Resolve `repoRoot` through symlinks. Plan files are reported as real paths, so
@@ -103,186 +127,93 @@ function readChecklist(repoRoot: string, releaseDir: string): { done: number; to
 }
 
 /**
- * The config files `plot-config.sh` reads, in its own precedence order.
- *
- * CLAUDE.md first, AGENTS.md as the modern fallback - the same two candidates
- * and the same order the script itself uses (`plot-config.sh:117`). The cache
- * below is keyed on their mtimes, so this list must not drift from that one: a
- * file the script reads and this does not would be a config change the cache
- * never notices.
- */
-const CONFIG_FILES = ['CLAUDE.md', 'AGENTS.md'] as const;
-
-/**
- * A fingerprint of the config's mtimes, or `''` when neither file can be read.
- *
- * THE EMPTY STRING IS A CACHE MISS, deliberately: a repo whose config cannot be
- * stat'ed gets today's behaviour - one spawn per lookup - rather than a cached
- * answer nothing can invalidate. Failing toward the slow, correct path is the
- * same choice `plot-estate-changed.sh` makes for the same reason.
- */
-function configStamp(repoRoot: string): string {
-  const parts: string[] = [];
-  for (const file of CONFIG_FILES) {
-    try {
-      parts.push(`${file}:${fs.statSync(path.join(repoRoot, file)).mtimeMs}`);
-    } catch {
-      // Absent is a fact, not a failure: a repo with only AGENTS.md must
-      // produce a stable stamp rather than none.
-      parts.push(`${file}:-`);
-    }
-  }
-  // THE REPO PATH IS PART OF THE STAMP, and leaving it out was a real bug
-  // caught by CI on 2026-08-31: two temp repos created in the same millisecond
-  // carry identical mtimes, so they produced identical stamps and the second
-  // read the first's answers. It passed locally, where `mkdtemp` calls are far
-  // enough apart to differ, and failed on a faster runner.
-  //
-  // `staticGitCache` keys on `repoRoot` for the same reason; this one did not,
-  // and the asymmetry is exactly the kind a reader assumes away.
-  return parts.every((part) => part.endsWith(':-'))
-    ? ''
-    : `${repoRoot}\u0000${parts.join('|')}`;
-}
-
-/** key -> value, valid only while `configCacheStamp` still matches the files. */
-let configCache = new Map<string, string>();
-let configCacheStamp = '';
-
-/**
  * Read one `## Plot Config` key via the shared helper (with a default).
  *
  * Exported for `approve.ts`, which needs `Approve command`. Config lookup goes
  * through this one function so `plot-config.sh` stays the only thing that knows
  * where Plot configuration lives.
  *
- * ## Why this caches, measured 2026-08-31
+ * ## Still synchronous, and that is a SCOPE statement rather than a defence
  *
- * Each miss spawns `bash plot-config.sh` SYNCHRONOUSLY, and a synchronous spawn
- * on the request path cannot yield - a `sample` of a wedged board caught
- * `node::SyncProcessRunner::Spawn` on the main thread inside
- * `on_headers_complete`, in 4258 of 4262 samples, while a STATIC FILE timed out
- * at 15 s beside it.
+ * Fourteen files outside this one call it — every write route, plus `fleet.ts`
+ * and `agent-panel.ts`. Making it async would propagate through all of them,
+ * which is the migration
+ * `production-calls-the-domain-one-rule-at-a-time` owns. So the READ PATH in
+ * this file uses {@link readConfigAsync} and this stays for the callers that
+ * have not moved yet.
  *
- * The arithmetic: one spawn measured 58 ms, `buildBoard` calls this five times
- * per request, and there are 37 call sites across the server. That is ~290 ms of
- * blocking spawns per `/api/board`, to read five lines out of a markdown file
- * that changes perhaps twice a day.
- *
- * ## The cache is keyed on the FILES, not on a clock
- *
- * An expiry would answer *was it recent?* when the question is *did it change?*
- * - and those differ in exactly the case that matters: an operator editing
- * `## Plot Config` and reloading the board expects the new value, not the value
- * from before the TTL. The mtimes of both candidate files are the key, so a
- * config edit invalidates every key at once and nothing goes stale.
- *
- * This does NOT make the spawn asynchronous, and does not pretend to: it makes
- * it rare. `git()` and `gitBuffer()` below block the same way and are not
- * addressed here - de-synchronising the request path is its own work.
+ * Its mtime cache is GONE. It bought ~318 ms per `/api/board`, and the read
+ * path no longer calls it — so what remains is a cache in front of a spawn
+ * that only write routes make, where one operator waits for their own click.
+ * A cache nothing on the hot path reads is a second thing to invalidate and
+ * nothing else.
  */
 export function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
-  const stamp = configStamp(opts.repoRoot);
-  if (stamp === '' || stamp !== configCacheStamp) {
-    configCache = new Map();
-    configCacheStamp = stamp;
-  }
-
-  // The fallback is part of the identity: `plot-config.sh` returns it when the
-  // key is absent, so two callers asking for one key with different defaults
-  // must not share an answer.
-  const cacheKey = `${key} ${fallback}`;
-  if (stamp !== '') {
-    const hit = configCache.get(cacheKey);
-    if (hit !== undefined) return hit;
-  }
-
-  let value = fallback;
   try {
     const out = execFileSync(
       'bash',
       [path.join(opts.scriptsDir, 'plot-config.sh'), 'get', key, fallback],
       { cwd: opts.repoRoot, encoding: 'utf8' },
     );
-    value = out.trim() || fallback;
+    return out.trim() || fallback;
   } catch {
-    value = fallback;
+    return fallback;
   }
-
-  // A failed lookup is cached too. It costs the same spawn to rediscover, and
-  // `plot-config.sh` answers the fallback for an absent key rather than
-  // failing - so "absent" is an answer, not an error to retry per request.
-  if (stamp !== '') configCache.set(cacheKey, value);
-  return value;
-}
-
-/** Test seam: drop the cache so a suite can change config between assertions. */
-export function resetConfigCache(): void {
-  configCache = new Map();
-  configCacheStamp = '';
 }
 
 /**
- * Answers to git questions whose subject does not change while a board runs.
+ * The same lookup, awaited — what the read path calls.
  *
- * ## Which questions, and why only these
+ * `plot-config.sh` is spawned through `execFile` rather than `execFileSync`,
+ * so the event loop keeps serving while it runs. That is the whole difference
+ * and it is the whole point: a synchronous spawn cannot yield, and a static
+ * file timed out at 15 s beside one on 2026-08-31.
  *
- * Two, and both are properties of the CHECKOUT rather than of its contents:
- *
- * - `rev-parse --show-toplevel` — where the repository is. A running board
- *   serves one repo and cannot be made to serve another without restarting.
- * - `symbolic-ref --short refs/remotes/origin/HEAD` — the default branch. It
- *   changes when a remote's HEAD is repointed, which is a deliberate act
- *   somebody performs perhaps once in a project's life.
- *
- * **Nothing that reads repository CONTENT is cached here.** `ls-tree`,
- * `for-each-ref`, `show` and `cat-file --batch` answer differently on every
- * commit, and caching them would make the board show a stale estate — the exact
- * failure `plot-fleet-scan.sh` refuses by re-deriving from git every pass.
- *
- * ## Why a cache and not the port
- *
- * `Refs` already exists in `@plot-pm/domain` and is asynchronous by design, and
- * `feature/one-place-reaches-a-process` is the slice that moves these calls
- * behind it. That change makes `buildBoard` async and propagates through 48
- * functions here and 54 test files — measured at 51 call sites across 22 files,
- * and split into its own slice precisely because branches that size stall.
- *
- * This is the stopgap that costs nothing and blocks nothing: caching a
- * synchronous function keeps it synchronous, so no signature moves and the
- * migration inherits a smaller problem. **It should be deleted by that slice**,
- * not carried alongside it.
- *
- * ## Keyed on the repo path, and never invalidated
- *
- * Neither answer can change for a given `repoRoot` without an act that also
- * restarts the board (a different checkout) or is rare enough to warrant one (a
- * repointed remote HEAD). An mtime has nothing to watch here — `.git/HEAD` is
- * the wrong file for both questions — so the honest design is a plain map with
- * a documented reset, rather than an invalidation rule that only appears to
- * work.
+ * An unreadable config answers the fallback, matching the script: it returns
+ * the fallback for an absent key, so "absent" is an answer here rather than a
+ * failure to report.
  */
-const staticGitCache = new Map<string, string>();
-
-/**
- * Ask git once per repo for an answer that will not change.
- *
- * @param repoRoot - the repository, which is part of the cache key.
- * @param key - names the question, so two questions never share an answer.
- * @param ask - runs the command; called at most once per repo per question.
- */
-function cachedGit(repoRoot: string, key: string, ask: () => string): string {
-  const cacheKey = `${repoRoot}\u0000${key}`;
-  const hit = staticGitCache.get(cacheKey);
-  if (hit !== undefined) return hit;
-  const value = ask();
-  staticGitCache.set(cacheKey, value);
-  return value;
+export async function readConfigAsync(
+  opts: BuildBoardOptions,
+  key: string,
+  fallback: string,
+): Promise<string> {
+  const out = await run('bash', [
+    path.join(opts.scriptsDir, 'plot-config.sh'), 'get', key, fallback,
+  ], { cwd: opts.repoRoot });
+  return out === null ? fallback : out.trim() || fallback;
 }
 
-/** Test seam: drop the cache so a suite can point at a different repo. */
-export function resetGitCache(): void {
-  staticGitCache.clear();
+/**
+ * Runs a command off the event loop and answers its stdout, or null.
+ *
+ * The one process helper this file keeps, for the two spawns that are not ref
+ * questions: `plot-config.sh` and `plot-plan-meta.sh`. Both are Plot's own
+ * helper scripts rather than git, so neither belongs on the `Refs` port —
+ * `plot-plan-meta.sh` IS the plan-format contract, and a port that re-declared
+ * its output would be a second spelling of it.
+ *
+ * `null` for any failure, which is what both callers already did with a
+ * throwing `execFileSync`. The reason is not thrown away silently: each caller
+ * says below what an absent answer means for it.
+ */
+function run(
+  command: string,
+  args: string[],
+  options: { cwd?: string; maxBuffer?: number } = {},
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      {
+        cwd: options.cwd,
+        encoding: 'utf8',
+        maxBuffer: options.maxBuffer ?? 16 * 1024 * 1024,
+      },
+      (error, stdout) => resolve(error === null ? stdout : null),
+    );
+  });
 }
 
 /**
