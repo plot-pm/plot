@@ -76,7 +76,7 @@ export const withRecord = (
   let slot = -1;
   let insert = start;
   for (let i = start + 1; i < lines.length; i += 1) {
-    const line = lines[i] ?? '';
+    const line = lines[i] as string;
     if (ANY_HEADING.test(line)) break;
     if (placeholder.test(line)) {
       slot = i;
@@ -111,7 +111,7 @@ export const withPhase = (text: string, phase: string): { text: string; wrote: b
   const lines = text.split('\n');
   let inStatus = false;
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? '';
+    const line = lines[i] as string;
     if (ANY_HEADING.test(line)) {
       inStatus = STATUS_HEADING.test(line);
       continue;
