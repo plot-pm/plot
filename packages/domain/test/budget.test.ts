@@ -438,3 +438,107 @@ describe('truncation keeps every line inside the window', () => {
     expect(read.unreadable).toBe(0);
   });
 });
+
+/**
+ * THE EDGE PATHS, each of which a reader reaches on a real record and none of
+ * which the assertions above pass through.
+ *
+ * Every one is a case where the wrong answer READS AS HEADROOM — a field that
+ * decodes to a number it is not, a window that starts too early, a pace divided
+ * by a span of zero. That is the direction this record must never fail in, so
+ * the paths are specified rather than left to the reducer's initial step.
+ */
+describe('a field that is neither absent nor a number', () => {
+  it('reads as absent rather than as NaN', () => {
+    // `Number('some')` is NaN, and `headroom` returns `remaining` unchanged, so
+    // a NaN there reaches `left > 0` and answers false — `spent`, a refusal
+    // invented from a torn field. Reading the field as absent answers `unknown`
+    // instead, which is the one verdict a caller may not treat as permission.
+    const line = encodeEntry(entry(GITHUB, NOW)).split('\t');
+    line[7] = 'some';
+    const read = decodeEntry(line.join('\t'));
+    expect(read?.remaining).toBeNull();
+    expect(spendVerdict(read)).toBe('unknown');
+  });
+
+  it('rejects the whole line where the timestamp is not a number', () => {
+    // `at` orders the window. A line whose timestamp does not parse cannot be
+    // placed in or out of it, so it is not a reading at all.
+    const line = encodeEntry(entry(GITHUB, NOW)).split('\t');
+    line[4] = 'tuesday';
+    expect(decodeEntry(line.join('\t'))).toBeNull();
+  });
+
+  it('rejects the whole line where the spend is not a number', () => {
+    const line = encodeEntry(entry(GITHUB, NOW)).split('\t');
+    line[5] = 'some';
+    expect(decodeEntry(line.join('\t'))).toBeNull();
+  });
+});
+
+describe('the window over several passed resets', () => {
+  it('keeps the latest passed reset when an earlier one follows it in the file', () => {
+    // File order is append order, which is NOT reset order: a process writing
+    // late can carry an older `resetAt` than one already on disk. The window
+    // takes the LATEST passed reset whichever line holds it, so a stale line
+    // arriving last must not widen the window back.
+    const late = NOW - 5 * 60 * 1000;
+    const early = NOW - 20 * 60 * 1000;
+    const lines = [
+      entry(GITHUB, NOW - 30 * 60 * 1000, { resetAt: late }),
+      entry(GITHUB, NOW - 25 * 60 * 1000, { resetAt: early }),
+    ];
+    expect(windowStart(lines, NOW)).toBe(late);
+  });
+});
+
+describe('the pace of an empty window', () => {
+  it('reports no pace rather than a division by zero', () => {
+    // A record with no live line has no span. `spent / 0` is Infinity, which
+    // would read as a rate no caller could act on, so the pace is absent.
+    const read = readWindow([], GITHUB, NOW);
+    const spend = windowSpend(read, NOW);
+    expect(spend.spent).toBe(0);
+    expect(spend.spanMs).toBe(0);
+    expect(spend.perHour).toBeNull();
+  });
+});
+
+describe('a blank line in the record', () => {
+  it('is skipped without counting as unreadable', () => {
+    // A record is appended to by several processes and ends with a newline, so
+    // a trailing blank line is the normal shape rather than damage. Counting it
+    // as unreadable would report corruption on every healthy file, and
+    // `unreadable` is what a caller reads to decide the record cannot be
+    // trusted.
+    const read = readWindow(['', encodeEntry(entry(GITHUB, NOW)), '   ', ''], GITHUB, NOW);
+    expect(read.live).toHaveLength(1);
+    expect(read.unreadable).toBe(0);
+  });
+});
+
+describe('the newest live entry among several', () => {
+  it('keeps the newer entry when an older one follows it', () => {
+    // File order is append order and carries no guarantee about `at`: a process
+    // delayed between reading a header and writing its line appends an older
+    // stamp after a newer one. The reducer keeps the newest by stamp rather
+    // than the last by position, so a late-arriving old line must not become
+    // the reading.
+    const newer = entry(GITHUB, NOW, { remaining: 3000 });
+    const older = entry(GITHUB, NOW - 60 * 1000, { remaining: 4900 });
+    const read = readWindow([encodeEntry(newer), encodeEntry(older)], GITHUB, NOW);
+    expect(read.live).toHaveLength(2);
+    expect(latest(read)?.remaining).toBe(3000);
+  });
+
+  it('takes the last of two entries written in the same millisecond', () => {
+    // `at` is a millisecond stamp and two appends can share one. The reducer
+    // keeps the later line, so the answer is the one written last rather than
+    // the one read first.
+    const first = entry(GITHUB, NOW, { remaining: 4000 });
+    const second = entry(GITHUB, NOW, { remaining: 3000 });
+    const read = readWindow([encodeEntry(first), encodeEntry(second)], GITHUB, NOW);
+    expect(read.live).toHaveLength(2);
+    expect(latest(read)?.remaining).toBe(3000);
+  });
+});
