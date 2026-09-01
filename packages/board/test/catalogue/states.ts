@@ -466,30 +466,66 @@ const tenRowsOneKindEach = (): Scenario => ({
       column({
         phase: 'Development',
         cards: [
+          // `waveSummary.eligible` IS THE MENU'S RENDER GATE.
+          //
+          // `PlanActions` renders on `isDraftPlan || canDeliver || hasEligible
+          // || soleWave`, and `hasEligible` reads `card.waveSummary.eligible`.
+          // These plans are in Development, so the first two are false and the
+          // summary is the only door — a card without one renders every row and
+          // no `⋯`. `agents-tab` used to get this from the real fixture's git
+          // scan, by clicking to the Plans tab and waiting for it.
+          //
+          // `claimed` and `eligible` are OPTIONAL in `WaveSummarySchema`
+          // precisely so a card built before a pulse can omit them: `claimed: 0`
+          // and *no pulse has landed yet* must not render identically. Stated
+          // here, because this board HAS a pulse.
           card({
             slug: 'plant-tomatoes', title: 'Plant heirloom tomatoes', type: 'feature',
             phase: 'Development', path: `docs/plans/${TOMS_FILE}`,
+            waveSummary: { waves: 1, branches: 4, claimed: 1, eligible: 1, deferred: 0 },
+            // `Show in board` filters to the plan's STORY, so the card sits
+            // among its neighbours rather than alone — and the story name is
+            // what the resulting URL carries. The fixture plan records
+            // `**Story:** raised-beds`; stated here because a card's story is a
+            // field, not something the board derives.
+            story: 'raised-beds',
           }),
           card({
             slug: 'beans', title: 'Train the runner beans', type: 'feature',
             phase: 'Development', path: 'docs/plans/2026-04-02-beans.md',
+            waveSummary: { waves: 1, branches: 4, claimed: 2, eligible: 1, deferred: 1 },
           }),
         ],
       }),
     ],
   }),
   fleet: fleet({
-    rows: [
+    // EVERY ROW'S WAVE IS SCOPED TO ITS PLAN *AND* ITS GROUP.
+    //
+    // `rowsBySection` places a WAVE as a unit — the `Inverted` rule: a wave
+    // whose scan verdict says it is unfinished goes where its unfinished work
+    // is, whatever its merged branches say. That rule is right, and it makes a
+    // wave spanning two sections a fixture bug. Measured while migrating
+    // `agents-tab`: with the builder's single default wave name, one eligible
+    // row dragged `untaken`, `blocked` AND `landed` into `working`, and the DONE
+    // group vanished for having nothing left in it.
+    //
+    // Dropping the verdicts also fixed the grouping and cost a different test:
+    // a plan head reads `1 wave, first eligible`, and that sentence is the
+    // WAVE's verdict. So the verdicts stay and the waves are separated instead —
+    // one wave per plan per section, which is what a real estate looks like
+    // anyway: a wave is a cohort of branches at the same stage.
+        rows: [
       // Two plans in `working`, so the group earns sub-headings. `beans` holds
       // the older row, so it must be the first plan shown.
-      row({ branch: 'feature/beans-a', plan: 'beans', planFile: 'p-beans.md', ageMinutes: 200, branchUrl: `${GH}feature/beans-a` }),
-      row({ branch: 'feature/beans-b', plan: 'beans', planFile: 'p-beans.md', ageMinutes: 10, branchUrl: `${GH}feature/beans-b` }),
-      row({ branch: 'feature/toms-a', plan: 'plant-tomatoes', planFile: TOMS_FILE, ageMinutes: 50, branchUrl: `${GH}feature/toms-a` }),
+      row({ branch: 'feature/beans-a', wave: 'beans-working', plan: 'beans', planFile: 'p-beans.md', ageMinutes: 200, branchUrl: `${GH}feature/beans-a` }),
+      row({ branch: 'feature/beans-b', wave: 'beans-working', plan: 'beans', planFile: 'p-beans.md', ageMinutes: 10, branchUrl: `${GH}feature/beans-b` }),
+      row({ branch: 'feature/toms-a', wave: 'toms-working', plan: 'plant-tomatoes', planFile: TOMS_FILE, ageMinutes: 50, branchUrl: `${GH}feature/toms-a` }),
       // A branch WITH a PR: the two links must differ, each landing where its
       // own text points. The PR carries its condition as FIELDS — the row's
       // cell is built from these, never from the sentence in `note`.
       row({
-        branch: 'feature/reviewed', plan: 'beans', planFile: 'p-beans.md',
+        branch: 'feature/reviewed', wave: 'beans-review', plan: 'beans', planFile: 'p-beans.md',
         group: 'waiting-on-you', ageMinutes: 20, note: 'PR #130 green',
         pr: { number: 130, url: 'https://github.com/tiny/garden/pull/130', draft: false, state: 'green' },
         branchUrl: `${GH}feature/reviewed`,
@@ -497,7 +533,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // No PR at all, `state: 'open'` and the eligible note: the one row a
       // person can actually pick up, so also the one carrying Start work.
       row({
-        branch: 'feature/untaken', plan: 'plant-tomatoes', planFile: TOMS_FILE,
+        branch: 'feature/untaken', wave: 'toms-open', plan: 'plant-tomatoes', planFile: TOMS_FILE,
         group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         branchUrl: `${GH}feature/untaken`, waitingDays: 22, startability: 'start-work',
@@ -506,7 +542,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // `plot-dispatch.sh` would refuse. `blockedBy` is a FIELD, because a
       // grouped row drops its note and the sentence was the sole carrier.
       row({
-        branch: 'feature/blocked', plan: 'plant-tomatoes', planFile: TOMS_FILE,
+        branch: 'feature/blocked', wave: 'toms-open', plan: 'plant-tomatoes', planFile: TOMS_FILE,
         group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
         waitingOn: 'time', blockedBy: 'Truth', verdict: 'blocked',
         branchUrl: `${GH}feature/blocked`, waitingDays: 22, startability: null,
@@ -515,7 +551,7 @@ const tenRowsOneKindEach = (): Scenario => ({
       // plan. Both halves must show — the phase fell back to Design AND the
       // badge says someone gave it up rather than never having begun.
       row({
-        branch: 'feature/shelved', plan: 'beans', planFile: 'p-beans.md',
+        branch: 'feature/shelved', wave: 'beans-open', plan: 'beans', planFile: 'p-beans.md',
         group: 'not-started', state: 'deferred', phase: 'Design', ageMinutes: 2,
         note: 'last commit 2 min ago', branchUrl: `${GH}feature/shelved`,
         startability: null,
@@ -523,28 +559,28 @@ const tenRowsOneKindEach = (): Scenario => ({
       // A plan recording no approval date — every plan predating `Approved:`.
       // It must show no waiting age at all.
       row({
-        branch: 'feature/undated', plan: 'beans', planFile: 'p-beans.md',
+        branch: 'feature/undated', wave: 'beans-open', plan: 'beans', planFile: 'p-beans.md',
         group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         branchUrl: `${GH}feature/undated`, waitingDays: null, startability: 'start-work',
       }),
       // Merged: its remote page is gone, so no branch link.
       row({
-        branch: 'feature/landed', plan: 'plant-tomatoes', planFile: TOMS_FILE,
+        branch: 'feature/landed', wave: 'toms-done', plan: 'plant-tomatoes', planFile: TOMS_FILE,
         group: 'done', state: 'merged', ageMinutes: 300, note: 'merged',
         branchUrl: '', startability: null,
       }),
       // A plan with NO board card, so the row keeps its plain `/plan/` link
       // rather than opening an empty modal.
       row({
-        branch: 'feature/ghost', plan: 'ghost-plan', planFile: GHOST_FILE,
+        branch: 'feature/ghost', wave: 'ghost-quiet', plan: 'ghost-plan', planFile: GHOST_FILE,
         group: 'quiet', ageMinutes: 999, note: 'no commit for 16 hours',
         branchUrl: `${GH}feature/ghost`,
       }),
       // The same missing card on an otherwise perfectly startable row.
       // `StartWorkButton` takes a Card and a row is not one, so: NO button.
       row({
-        branch: 'feature/ghost-ready', plan: 'ghost-plan', planFile: GHOST_FILE,
+        branch: 'feature/ghost-ready', wave: 'ghost-open', plan: 'ghost-plan', planFile: GHOST_FILE,
         group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
         waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
         branchUrl: `${GH}feature/ghost-ready`, startability: 'start-work',

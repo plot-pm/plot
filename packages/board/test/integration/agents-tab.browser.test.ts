@@ -135,10 +135,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    */
   async function openAgentsWithBoard(payload: Fleet = fleet()): Promise<Page> {
     const page = await openAgents(payload);
-    // The cards have LANDED when a row that should have a menu has one. Polling
-    // the DOM rather than the network, because what the tests need is the render
-    // and a fetch resolving is not yet one.
-    await rowFor(page, 'feature/untaken').locator('[data-plan-actions]')
+    // The cards have LANDED when the plan's action menu exists. `PlanActions` is
+    // gated on the card, so its presence is exactly the fact the round trip used
+    // to establish — and the menu is a PLAN-level control, so the wait names the
+    // plan rather than a row. Polling the DOM rather than the network, because
+    // what the tests need is the render and a fetch resolving is not yet one.
+    await page.locator('[data-plan-actions="plant-tomatoes"]').first()
       .waitFor({ timeout: 10_000 });
     return page;
   }
@@ -3636,12 +3638,19 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // A stale link, or a plan since delivered out of the filtered set. An empty
     // filtered column would read as "this story has no plans", which is a
     // different and false statement.
-    const page = await cat.browser.newPage();
+    // A BOARD OF PLANS, one card per phase — the claim is that the filter takes
+    // nothing away, so what matters is that there is a countable set of cards
+    // and that all of them survive. The count is read from the payload rather
+    // than written down, because a fixed number is a second fact to maintain and
+    // this test is not about how many plans a board has.
+    const expected = scenario('a-board-of-plans').board.columns
+      .reduce((n, c) => n + c.cards.length, 0);
+    const page = await cat.open('a-board-of-plans');
     try {
       await page.goto(`${cat.mock.baseURL}?plan=no-such-plan`);
-      await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+      await page.locator('article').first().waitFor({ timeout: 10_000 });
       // Every card the board has, exactly as with no parameter at all.
-      expect(await page.locator('article').count()).toBe(8);
+      await expect.poll(() => page.locator('article').count()).toBe(expected);
       expect(await page.locator('article[data-highlighted="true"]').count()).toBe(0);
     } finally {
       await page.close();
