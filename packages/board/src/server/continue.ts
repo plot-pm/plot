@@ -10,6 +10,7 @@ import { branchFromPulse } from './agent-panel.js';
 import { markerIn } from './worker-question.js';
 import { manifestForWorktree, writeManifestStamp } from './manifest-stamp.js';
 import { localCapability } from './controllers/caller.js';
+import { briefPath } from './brief-path.js';
 
 /**
  * Continuing an answered agent — the board's SECOND state-changing route, and
@@ -292,20 +293,14 @@ export function composeContinuation(input: {
 }
 
 /**
- * Where a branch's brief lives, by the convention `/plot-implement` writes and
- * every worker prompt reads.
+ * Where a branch's brief lives — `briefPath` under this module's own name.
  *
- * The same convention `attention.ts` states, and deliberately a THIRD reader of
- * it rather than an import: that module derives the path to REPORT it to a
- * caller, this one to read a file. Sharing the helper across a server module
- * boundary to save four lines would couple a spawning route to an advisory
- * endpoint for no gain. If the convention ever moves, both fail the same way —
- * loudly, on a missing file — rather than one silently.
+ * Re-exported rather than aliased away because `test/unit/continue.test.ts` and
+ * this route both name it, and the composer reads a file where `attention.ts`
+ * only reports a path. The computation is one function; the two callers differ
+ * in what they do with it, not in what it returns.
  */
-export function briefPathFor(branch: string): string {
-  const slug = branch.split('/').pop() ?? branch;
-  return path.join('.plot/briefs', `${slug}.md`);
-}
+export const briefPathFor = briefPath;
 
 /**
  * Read the brief from the WORKTREE, not from the board's own checkout.
