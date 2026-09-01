@@ -15,6 +15,7 @@
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-shell-stops-parsing-plans`
 - **Started:** 2026-09-01, Jan Wloka, `feature/one-eligibility-rule-decides`
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-refusals-are-domain-rules`
+- **Started:** 2026-09-01, Jan Wloka, `feature/one-place-reaches-a-script`
 
 ## Changelog
 
