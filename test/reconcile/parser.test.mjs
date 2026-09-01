@@ -1715,3 +1715,178 @@ test('plan-meta: a genuine multi-line comment is still skipped', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ---------------------------------------------------------------------------
+// `waits:` — the prerequisite a branch names, and the field three components
+// will read.
+//
+// A slice that cannot start until another branch lands says so on its own line:
+// `- `feature/x` <!-- waits: bug/y --> — description`. The parser reports what
+// the file says and validates nothing: whether `bug/y` exists, whether any plan
+// declares it, and whether the wait is satisfied are all questions for the
+// scan, not for a field extractor.
+
+test('plan-meta: `waits:` reports the branch it names, and is absent otherwise', () => {
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/second\` <!-- waits: bug/the-budget-knows-which-bucket-it-spent --> — needs the budget first.
+- \`feature/first\` — nothing blocks it.
+`);
+  const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
+  assert.equal(byName['feature/second'].waits_on,
+    'bug/the-budget-knows-which-bucket-it-spent',
+    'the annotation names one branch, and that branch is reported');
+  // ABSENT, NOT EMPTY. The board distinguishes the two elsewhere, and a
+  // `waits_on: ""` would read as "waits on a branch whose name is blank"
+  // rather than "declares no prerequisite".
+  assert.ok(!('waits_on' in byName['feature/first']),
+    'a branch with no annotation carries no waits_on key at all');
+});
+
+test('plan-meta: `waits:` and `deferred:` on one branch do not clobber each other', () => {
+  // THEY ARE DIFFERENT ANNOTATIONS FOR DIFFERENT THINGS. `deferred:` is a
+  // judgement — this work was given up on — and `waits:` is a fact a script can
+  // check. Both are read off the whole line before the branch match runs, and
+  // both use a greedy `sub()`; a shared line is where a sloppy pattern for one
+  // eats the other.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/both\` <!-- waits: bug/prereq --> <!-- deferred: superseded 2026-09-01 --> — shelved, and it had a prerequisite.
+- \`feature/defer-first\` <!-- deferred: not now --> <!-- waits: bug/other --> — the other order.
+`);
+  const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
+  assert.equal(byName['feature/both'].waits_on, 'bug/prereq', 'waits survives a deferral beside it');
+  assert.equal(byName['feature/both'].deferred, true, 'and the deferral still binds');
+  assert.equal(byName['feature/both'].deferred_reason, 'superseded 2026-09-01',
+    'with its reason intact');
+  assert.equal(byName['feature/defer-first'].waits_on, 'bug/other', 'order does not matter');
+  assert.equal(byName['feature/defer-first'].deferred_reason, 'not now',
+    'and the reason survives the annotation that follows it');
+});
+
+test('plan-meta: `waits:` naming a branch no plan declares still parses', () => {
+  // THE PARSER REPORTS, IT DOES NOT VALIDATE. The scan turns an unknown
+  // prerequisite into `blocked`; a parser that refused the annotation would
+  // hide the very case the verdict exists for.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/hopeful\` <!-- waits: feature/nobody-declares-this --> — waiting on a stranger.
+`);
+  assert.equal(meta.waves[0].branches[0].waits_on, 'feature/nobody-declares-this',
+    'an undeclared prerequisite is reported, not refused');
+});
+
+test('plan-meta: one prerequisite per branch — a second `waits:` wins', () => {
+  // ONE PREREQUISITE, NEVER A LIST. A slice needing two has not been cut finely
+  // enough, and a list invites a dependency graph nobody wants to debug. The
+  // parse does not fail on a second annotation — it takes the LAST one, which
+  // is what the greedy read shared with `deferred:` and `claimed:` produces.
+  // Pinned so the shape is a decision rather than an accident.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/greedy\` <!-- waits: bug/first --> <!-- waits: bug/second --> — two written, one read.
+`);
+  assert.equal(meta.waves[0].branches[0].waits_on, 'bug/second',
+    'the later annotation wins; the field is never a list');
+});
+
+test('plan-meta: `waits:` binds in the `## Waves` heading spelling too', () => {
+  // BOTH SPELLINGS EMIT THE SAME waves[] — that is the parser's standing
+  // contract, and a field added to one dialect only would break it the first
+  // time a plan migrated.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Waves
+
+### Declaring (Branch: feature/declaring, PR: #601)
+
+### Consuming (Branch: feature/consuming) <!-- waits: feature/declaring -->
+`);
+  assert.deepEqual(meta.waves.map((w) => w.name), ['Declaring', 'Consuming']);
+  assert.ok(!('waits_on' in meta.waves[0].branches[0]),
+    'the first slice waits on nothing');
+  assert.equal(meta.waves[1].branches[0].waits_on, 'feature/declaring',
+    'the heading annotation binds like the list-item one');
+});
+
+test('plan-meta: a `waits:` value stops at the comment, not at the prose after it', () => {
+  // The value is a BRANCH NAME, not free prose: `deferred_reason` takes the
+  // rest of the comment because a reason is a sentence, and `waits_on` must not
+  // — a trailing word inside the comment would silently become part of the
+  // branch name and match nothing.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/tidy\` <!-- waits:   bug/spaced   --> — leading and trailing space around the name.
+`);
+  assert.equal(meta.waves[0].branches[0].waits_on, 'bug/spaced',
+    'whitespace inside the annotation is not part of the branch name');
+});
+
+test('plan-meta: a `waits:` syntax example in prose is not a declaration', () => {
+  // THE PLAN THAT INTRODUCED THIS FIELD DOCUMENTS IT ON A BRANCH LINE, writing
+  // the literal marker inside backticks as prose. No comment-aware reading can
+  // tell that apart from a real annotation — the branch prefixes can, and that
+  // is why the value is shape-checked. `<branch>` is a placeholder; `bug/x` is
+  // a branch.
+  //
+  // Measured 2026-09-01: without the check,
+  // `2026-09-01-a-slice-can-wait-on-another-plan.md` reported
+  // `waits_on: "<branch>"` for its own first slice.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/documenting\` — the parser reads \`<!-- waits: <branch> -->\` beside \`deferred:\`.
+- \`feature/real\` <!-- waits: bug/actual --> — and this one means it.
+`);
+  const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
+  assert.ok(!('waits_on' in byName['feature/documenting']),
+    'a placeholder is not a branch name, so the plan declares no prerequisite');
+  assert.equal(byName['feature/real'].waits_on, 'bug/actual',
+    'and a real annotation on the next line is unaffected');
+});

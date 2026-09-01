@@ -120,6 +120,14 @@
 #                  `<!-- deferred -->` (bare, no colon) sets the flag with no
 #                  reason; `waves[].branches[].deferred_reason` carries the
 #                  sentence after the colon, "" where none was written.
+#                  `<!-- waits: bug/other -->` names ONE branch this branch
+#                  waits on, reported as `waves[].branches[].waits_on`. The key
+#                  is ABSENT where no annotation was written — never "" — and
+#                  the value is a branch name in this repo, not a plan slug and
+#                  not a cross-repo reference. The parser reports what the file
+#                  says: a prerequisite no plan declares still parses, and the
+#                  scan is what turns that into a verdict. `waits:` and
+#                  `deferred:` are independent — a branch may carry both.
 #   prs            PR numbers, sorted and unique, read from EITHER spelling:
 #                  `→ #NNN` / `→ owner/repo#NNN` links in the `## Branches`
 #                  section, OR `PR: #NNN` in a `## Waves` `### ` heading. The
@@ -392,6 +400,7 @@ function reset_state() {
   delete issues; n_issues = 0
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; n_waves = 0
+  delete waits_of; delete waits_set
   delete started; n_started = 0
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
@@ -536,7 +545,13 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
       if (wave_of[i] != w) continue
       out = out (first ? "" : ",") "{\"branch\":\"" jesc(ordered_b[i]) "\",\"deferred\":" deferred_of[i] \
             ",\"deferred_reason\":\"" jesc(deferred_why[i]) "\"" \
-            ",\"claimed\":\"" jesc(claimed_of[i]) "\"}"
+            ",\"claimed\":\"" jesc(claimed_of[i]) "\""
+      # ABSENT, NOT EMPTY, where no prerequisite was declared. The key appears
+      # only on a branch whose line carries a `waits:` annotation, so a consumer
+      # reading `waits_on` gets a branch name or nothing — never a blank string
+      # that reads as a prerequisite with no name.
+      if (waits_set[i] == 1) out = out ",\"waits_on\":\"" jesc(waits_of[i]) "\""
+      out = out "}"
       first = 0
     }
     out = out "]}"
@@ -855,6 +870,46 @@ section == "branches" {
     sub(/[ \t]*-->.*$/, "", _d)
     defer_note = trim(_d)
   }
+  # THE PREREQUISITE THIS BRANCH NAMES: `<!-- waits: bug/other-branch -->`.
+  #
+  # ONE branch, never a list. A slice needing two prerequisites has not been cut
+  # finely enough, and a list invites a dependency graph nobody wants to debug.
+  # The greedy `.*` takes the LAST annotation when a line carries two, which is
+  # the same rule `deferred:` and `claimed:` already follow.
+  #
+  # The value is a BRANCH NAME, so it stops at the first whitespace rather than
+  # running to the closing marker the way a deferral reason does: a reason is a
+  # sentence, a branch name is a token, and trailing prose inside the comment
+  # would silently become part of a name that then matches nothing.
+  #
+  # `deferred:` is a judgement and `waits:` is a checkable fact, so the two are
+  # separate annotations and both may sit on one line. Read here, beside the
+  # other two, for the same reason: `match()` in the branch loop below clobbers
+  # RSTART/RLENGTH, so anything read from the whole line must be read first.
+  #
+  # `has_waits` carries presence separately from the value, because ABSENT and
+  # EMPTY are different answers — a branch declaring no prerequisite emits no
+  # `waits_on` key at all.
+  waits_note = ""
+  has_waits = 0
+  if ($0 ~ /<!--[ \t]*waits:[ \t]*/) {
+    _w = $0
+    sub(/^.*<!--[ \t]*waits:[ \t]*/, "", _w)
+    sub(/[ \t].*$/, "", _w)
+    sub(/-->.*$/, "", _w)
+    waits_note = trim(_w)
+    # THE VALUE MUST LOOK LIKE A BRANCH, and that check is what keeps a
+    # SYNTAX EXAMPLE from becoming a declaration. A plan that documents the
+    # annotation writes the literal marker in prose, and no comment-aware
+    # reading can tell that apart from the real thing on the same line — the
+    # branch prefixes can. `<branch>` is not a branch name; `bug/x` is.
+    #
+    # Reusing the branch prefixes rather than a new pattern: the prerequisite
+    # IS a branch in this repo, so the two must never disagree about what a
+    # branch name looks like.
+    if (waits_note ~ "^(" PREFIXES ")/[^ \t]+$") has_waits = 1
+    else waits_note = ""
+  }
   # ONE LIST ITEM, AT MOST ONE CLAIM — an `if`, not the `while` this was.
   #
   # The old loop walked the line taking every backticked name on it, which is
@@ -888,6 +943,10 @@ section == "branches" {
     # Claim reflection, written by the worker after its ref push succeeds. This
     # is a reflection, not the claim: git refs remain authoritative.
     claimed_of[n_branches] = claim_note
+    # The prerequisite travels with the branch. Presence is tracked separately
+    # so a branch that declares none emits no key.
+    waits_of[n_branches] = waits_note
+    waits_set[n_branches] = has_waits
     ordered_b[n_branches] = b
   }
   line = $0
@@ -958,6 +1017,29 @@ section == "waves" {
     sub(/[ \t]*-->.*$/, "", _d)
     defer_note = trim(_d)
   }
+  # The prerequisite, read exactly as the list-item spelling reads it. Both
+  # dialects emit the same waves[], so a field added to one only would break
+  # that contract the first time a plan migrated.
+  waits_note = ""
+  has_waits = 0
+  if ($0 ~ /<!--[ \t]*waits:[ \t]*/) {
+    _w = $0
+    sub(/^.*<!--[ \t]*waits:[ \t]*/, "", _w)
+    sub(/[ \t].*$/, "", _w)
+    sub(/-->.*$/, "", _w)
+    waits_note = trim(_w)
+    # THE VALUE MUST LOOK LIKE A BRANCH, and that check is what keeps a
+    # SYNTAX EXAMPLE from becoming a declaration. A plan that documents the
+    # annotation writes the literal marker in prose, and no comment-aware
+    # reading can tell that apart from the real thing on the same line — the
+    # branch prefixes can. `<branch>` is not a branch name; `bug/x` is.
+    #
+    # Reusing the branch prefixes rather than a new pattern: the prerequisite
+    # IS a branch in this repo, so the two must never disagree about what a
+    # branch name looks like.
+    if (waits_note ~ "^(" PREFIXES ")/[^ \t]+$") has_waits = 1
+    else waits_note = ""
+  }
 
   # The branch is the `Branch:` value, matched against the known prefixes exactly
   # as the old shape matched the backticked name. Written unquoted in the heading
@@ -977,6 +1059,8 @@ section == "waves" {
     deferred_of[n_branches] = ($0 ~ /<!--[ \t]*deferred[ \t]*(:|-->)/) ? "true" : "false"
     deferred_why[n_branches] = defer_note
     claimed_of[n_branches] = claim_note
+    waits_of[n_branches] = waits_note
+    waits_set[n_branches] = has_waits
     ordered_b[n_branches] = b
   }
 
