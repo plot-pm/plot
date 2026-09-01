@@ -255,7 +255,7 @@ more fundamental correction and the identity it needs was settled by
 `a-machine-is-an-instance`; monitoring adapts to a clock that exists rather than
 the two plans waiting on each other.
 
-### Freeing the word (Branch: feature/the-scan-reads-a-fleet-reading)
+### Freeing the word (Branch: feature/the-scan-reads-a-fleet-reading, PR: #600)
 
 `FleetPulse` becomes `FleetReading` and the stream's `kind` moves with it, so the
 clock can have the word `Pulse` without two meanings sharing it.

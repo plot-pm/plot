@@ -176,7 +176,7 @@ and reported**, and the operator or the next pass acts on it — the same postur
 
 ### Naming
 
-- `feature/a-brief-has-one-name` — one function computes the brief path from a branch, used by `plot-dispatch.sh`, `auto-dispatch.ts` and `/plot-implement`, with a test that every brief in `.plot/briefs/` matches a name the gate would read. **First because of the WRITER, not the residue:** a `Brief command` writing under the wrong convention produces a file the gate then reports as missing, on every call, silently. The 6 prefixed briefs on main name no branch that still exists and are cleanup carried along, not the reason.
+- `feature/a-brief-has-one-name` — one function computes the brief path from a branch, used by `plot-dispatch.sh`, `auto-dispatch.ts` and `/plot-implement`, with a test that every brief in `.plot/briefs/` matches a name the gate would read. **First because of the WRITER, not the residue:** a `Brief command` writing under the wrong convention produces a file the gate then reports as missing, on every call, silently. The 6 prefixed briefs on main name no branch that still exists and are cleanup carried along, not the reason. → #603
 
 ### Asking
 

@@ -217,7 +217,7 @@ reaching past the port — the half that was never enforced.
 Spawning slices should take it down. That is the ratchet working as intended:
 the gate does not do the migration, it records it.
 
-### Counting (Branch: infra/the-gate-counts-what-production-keeps)
+### Counting (Branch: infra/the-gate-counts-what-production-keeps, PR: #602)
 
 A CI gate counting domain names production still aliases, with `allowed` set to
 today's number and the target stated as zero.

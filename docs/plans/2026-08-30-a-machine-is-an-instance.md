@@ -214,7 +214,7 @@ the meaning was never wrong — only the count.
 
 ## Slices
 
-### Correcting (Branch: docs/a-machine-has-an-identity)
+### Correcting (Branch: docs/a-machine-has-an-identity, PR: #601)
 
 `DESIGN-machine.md`'s Identity and §8 sections say a Machine is a Plot instance,
 keyed by `repoRoot + scriptsDir`, and that several run per computer.
