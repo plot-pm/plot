@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 /**
@@ -17,7 +18,6 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../s
  * name for a branch that does not exist, and a tracker URL the host never gave.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
@@ -65,27 +65,28 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 }
 
 describe('an unplanned issue appears in WAITING ON YOU', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture only to
+  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
+  // itself. The mock serves the same built client and answers both payloads by
+  // name, so the test states its own input instead of inheriting an estate.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(payload: Fleet = fleet()): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: { fleet: payload },
+      viewport: { width: 1400, height: 1200 },
+    });
     await page.getByText('Waiting on you').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;

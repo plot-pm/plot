@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 /**
@@ -35,7 +36,6 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../s
  * stands in its place.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
@@ -103,29 +103,27 @@ function fleet(): Fleet {
 }
 
 describe('one grid renders a plan row, a branch row and a ticket row', () => {
-  let browser: Browser;
-  let server: { port: number; kill: () => void } | undefined;
-  let baseURL = '';
-
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture only to
+  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
+  // itself. The mock serves the same built client and answers both payloads by
+  // name, so the test states its own input instead of inheriting an estate.
+  let cat: Catalogue;
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server!.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1480, height: 1400 } });
-    const page = await context.newPage();
-    // SYNCHRONOUS fulfil. A route callback that awaits anything (`route.fetch()`
-    // among them) fails suites that already passed on this machine.
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: { fleet: fleet() },
+      viewport: { width: 1480, height: 1400 },
+    });
     await page.locator('li[data-tuple-kind]').first().waitFor({ timeout: 15_000 });
     await expandAgentFolds(page);
     return page;

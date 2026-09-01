@@ -347,9 +347,17 @@ const aPlanInWaves = (): Scenario => {
  * group that routes no `/api/fleet` and so needs a NAMED state rather than a
  * swapped opener.
  *
- * Every row sits in `working`, so the kinds are compared under one section
+ * Every KIND row sits in `working`, so the kinds are compared under one section
  * rather than scattered across six: the claim is that the WAVE kind leaves the
  * others alone, and a difference between two sections cannot show that.
+ *
+ * PLUS ONE `not-started` ROW, and it is not a kind — it is what makes a PLAN
+ * row exist. The client synthesises a plan head for a not-started plan; the
+ * fleet never emits `kind: 'plan'` itself. Measured 2026-09-01: without this
+ * row the consuming test's *"no wave on a plan row"* assertion found zero plan
+ * rows and failed on an empty population, which is the assertion passing for
+ * the wrong reason. A state named `one-row-per-kind` has to be able to show a
+ * plan row, or the kind it cannot show is the one nobody checks.
  */
 const oneRowPerKind = (): Scenario => ({
   board: board({
@@ -359,17 +367,35 @@ const oneRowPerKind = (): Scenario => ({
     })],
   }),
   fleet: fleet({
-    rows: KINDS.map((kind) => row({
-      kind,
-      plan: 'every-kind', planFile: KINDS_FILE,
-      branch: `feature/${kind}-row`, branchUrl: `${GH}feature/${kind}-row`,
-      wave: 'Kinds', ageMinutes: 30,
-    })),
-    waves: [wave({
-      plan: 'every-kind', name: 'Kinds', section: 'working',
-      branches: KINDS.map((kind) => `feature/${kind}-row`),
-      verdict: 'eligible', complete: false,
-    })],
+    rows: [
+      // ONE WAVE PER ROW, not one wave over all eight. The consuming test
+      // asserts a named wave renders as EXACTLY ONE `data-wave-row`; eight rows
+      // sharing a name render eight heads, which fails a property that is about
+      // the wave's home rather than about its population.
+      ...KINDS.map((kind) => row({
+        kind,
+        plan: 'every-kind', planFile: KINDS_FILE,
+        branch: `feature/${kind}-row`, branchUrl: `${GH}feature/${kind}-row`,
+        wave: `Kind-${kind}`, ageMinutes: 30,
+      })),
+      // The not-started branch whose plan head the client renders as a PLAN row.
+      row({
+        kind: 'branch', group: 'not-started', verdict: 'eligible',
+        plan: 'not-yet', planFile: '2026-08-24-not-yet.md',
+        branch: 'feature/not-yet-row', branchUrl: `${GH}feature/not-yet-row`,
+        wave: 'Waiting', ageMinutes: 30,
+      }),
+    ],
+    waves: [
+      ...KINDS.map((kind) => wave({
+        plan: 'every-kind', name: `Kind-${kind}`, section: 'working',
+        branches: [`feature/${kind}-row`], verdict: 'eligible', complete: false,
+      })),
+      wave({
+        plan: 'not-yet', name: 'Waiting', section: 'not-started',
+        branches: ['feature/not-yet-row'], verdict: 'eligible', complete: false,
+      }),
+    ],
   }),
 });
 
