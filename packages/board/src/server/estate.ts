@@ -1,10 +1,12 @@
 import {
+  hostFixture,
+  hostShell,
   planStoreFixture,
   planStoreShell,
   refsFixture,
   refsGit,
 } from '@plot-pm/domain/adapters';
-import type { PlanStore, Refs } from '@plot-pm/domain';
+import type { Host, PlanStore, Refs } from '@plot-pm/domain';
 
 import type { EstateSource } from './controllers/fleet-state.js';
 import { realEstateSource } from './controllers/fleet-state.js';
@@ -20,6 +22,16 @@ import { mockCards, mockFleet, mockPlans, mockPulse, mockRequested } from './moc
 export interface Estate {
   planStore: PlanStore;
   refs: Refs;
+  /**
+   * The git host, for the questions only it can answer.
+   *
+   * Added when `deliverabilityOf` was migrated: that controller asks whether a
+   * branch merged, and a controller may not spawn to find out. It is on the
+   * estate rather than constructed at the call site so the mock board gets a
+   * FIXTURE — `hostShell` runs `plot-host.sh`, and a mock that spawned would
+   * not be one.
+   */
+  host: Host;
   /**
    * The same estate in the shape the synchronous board still reads it.
    *
@@ -50,6 +62,7 @@ export const realEstate = (opts: EstateOptions): Estate => {
   return {
     planStore: planStoreShell(context),
     refs: refsGit(context),
+    host: hostShell(context),
     source: realEstateSource,
   };
 };
@@ -75,6 +88,9 @@ export const mockEstate = (): Estate => {
       branches: plans.flatMap((plan) => [...plan.branches]),
       pulse: mockPulse(),
     }),
+    // Every branch the mock's plans name reads as merged: the mock estate is a
+    // finished one, and a fixture knows its own world rather than guessing at it.
+    host: hostFixture({ merged: plans.flatMap((plan) => [...plan.branches]) }),
     source: { columns: () => mockCards(), fleet: () => mockFleet() },
   };
 };

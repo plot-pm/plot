@@ -100,11 +100,11 @@ export const questionFrom = (argv: string[]): Question | null => {
  * @param write where the answer goes
  * @returns the process exit code
  */
-export const run = (
+export const run = async (
   argv: string[],
   here: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
-): number => {
+): Promise<number> => {
   const question = questionFrom(argv);
   if (!question) {
     process.stderr.write('usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file>\n');
@@ -123,11 +123,15 @@ export const run = (
   // The SAME composition root the board uses, so `PLOT_BOARD_MOCK` works here
   // for the reason it works there: the variable chooses adapters once, and
   // nothing above them can tell which it got.
-  const { source } = estateFromEnv(opts);
-  const answer = askOnce({
+  // The WHOLE estate, not just its source: `deliverable` is answered by a
+  // controller that asks ports, and those ports are chosen by the same
+  // composition root — so `PLOT_BOARD_MOCK` reaches this question too.
+  const estate = estateFromEnv(opts);
+  const answer = await askOnce({
+    ports: estate,
     question,
     opts,
-    estate: source,
+    estate: estate.source,
     planDir,
     slug: argv[1],
     planFile: argv[2],
@@ -139,7 +143,10 @@ export const run = (
 // Only when RUN, never when imported — a test importing `run` must not have the
 // process exit under it.
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
-  process.exit(run(process.argv.slice(2), path.dirname(fileURLToPath(import.meta.url))));
+  // `run` awaits ports now, so the exit code arrives as a promise. Awaiting it
+  // at the entry keeps the contract a NUMBER for every other caller.
+  void run(process.argv.slice(2), path.dirname(fileURLToPath(import.meta.url)))
+    .then((code) => process.exit(code));
 }
 
 export { askOnce, askOncePerEstate, newMemory };
