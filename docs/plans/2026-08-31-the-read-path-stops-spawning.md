@@ -158,7 +158,7 @@ pretending to be an optimisation.
 
 ### Reading
 
-- `feature/the-board-reads-through-the-port` — `board.ts` only: `git()` and `gitBuffer()` give way to `Refs`, `buildBoard` becomes async, its route handler awaits it, and the static-git cache is deleted. The largest single file and the one on every request.
+- `feature/the-board-reads-through-the-port` — `board.ts` only: `git()` and `gitBuffer()` give way to `Refs`, `buildBoard` becomes async, its route handler awaits it, and the static-git cache is deleted. The largest single file and the one on every request. → #580
 
 ### Fleeting
 

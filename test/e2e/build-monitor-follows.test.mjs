@@ -211,8 +211,22 @@ test('a real dispatched worker has its build followed, and a failure reaches the
   fs.writeFileSync(path.join(stub.dir, 'respond.mjs'),
     `const [cli, ...argv] = process.argv.slice(2);\nprocess.env.PLOT_E2E_HEAD_SHA = ${JSON.stringify(head)};\n${runFor('failure')}\n`);
 
-  const found = waitFor(run.findingsFile, (r) => r.some((f) => f.finding === 'build failed'));
-  const failed = found.find((f) => f.finding === 'build failed');
+  // WAIT FOR A FINDING ABOUT *THIS* HEAD, not for any build failure.
+  //
+  // The monitor is already running when the stub is rewritten above, and the
+  // worker commits more than once — its claim, then `built.txt`. A pass that
+  // lands between those two publishes a `build failed` naming the EARLIER sha,
+  // and a predicate matching the finding alone returns that one. The assertion
+  // below then compares the stale sha against `head` and fails with
+  // "the evidence does not name the real sha the run was about".
+  //
+  // Measured 2026-09-01: twice in one hour, on two unrelated PRs and on main,
+  // each time with an older sha in the evidence. It is a race in the test, not
+  // in the monitor — and because e2e runs before every domain and board gate,
+  // one such failure marks eighteen later steps `skipped`.
+  const about = (f) => f.finding === 'build failed' && String(f.evidence || '').includes(head);
+  const found = waitFor(run.findingsFile, (r) => r.some(about));
+  const failed = found.find(about);
   assert.ok(failed,
     `the BuildMonitor published no failure for a really-failing run: ${JSON.stringify(found)}`);
   assert.equal(failed.monitor, 'BuildMonitor');
