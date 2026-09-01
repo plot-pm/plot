@@ -37,6 +37,7 @@ export * from './rules/movable.js';
 export * from './rules/phase.js';
 export * from './rules/pulse.js';
 export * from './rules/verdict.js';
+export * from './rules/attention.js';
 export * from './rules/sample.js';
 /**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
