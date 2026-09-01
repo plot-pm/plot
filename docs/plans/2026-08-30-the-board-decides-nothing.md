@@ -11,7 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-01, Jan Wloka, in-session
-- **Started:** <!-- YYYY-MM-DD, who, `branch` -->
+- **Started:** 2026-09-01, Jan Wloka, `feature/a-verdict-is-a-domain-rule`
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 
@@ -197,7 +197,7 @@ should stop existing.
 
 ## Slices
 
-### Verdicts (Branch: feature/a-verdict-is-a-domain-rule)
+### Verdicts (Branch: feature/a-verdict-is-a-domain-rule, PR: #583)
 
 `startabilityVerdict` and `waveVerdict` become domain rules; the board calls
 them.
