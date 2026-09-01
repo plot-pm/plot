@@ -35,31 +35,31 @@ describe('parsing what ps reports', () => {
 });
 
 describe('uptime is read from the process, not stored', () => {
-  it('measures this very process, which is certainly alive', () => {
-    const up = uptimeSeconds(String(process.pid));
+  it('measures this very process, which is certainly alive', async () => {
+    const up = await uptimeSeconds(String(process.pid));
     assert.notEqual(up, null, 'a running pid must report an uptime');
     assert.ok(typeof up === 'number' && up >= 0);
   });
 
-  it('reports NO uptime for a pid nobody is running', () => {
+  it('reports NO uptime for a pid nobody is running', async () => {
     // THE "no fabricated uptime" REQUIREMENT, at its source. A stored launch
     // timestamp would still be here, and would still be counting.
     //
     // 99998 rather than a huge number: `ps` rejects an out-of-range pid with a
     // different error than "no such process", and the assertion should exercise
     // the ordinary absent-process path.
-    assert.equal(uptimeSeconds('99998'), null);
+    assert.equal(await uptimeSeconds('99998'), null);
   });
 
-  it('refuses pid 0 — `kill -0 0` signals the whole process group', () => {
+  it('refuses pid 0 — `kill -0 0` signals the whole process group', async () => {
     // The trap this repo has sprung before: a naive liveness check on pid 0
     // succeeds forever, so a 0 would report an agent alive that never was.
-    assert.equal(uptimeSeconds('0'), null);
+    assert.equal(await uptimeSeconds('0'), null);
   });
 
   for (const bad of ['', 'abc', '-1', '12x', '1 2']) {
-    it(`refuses a malformed pid ${JSON.stringify(bad)}`, () => {
-      assert.equal(uptimeSeconds(bad), null);
+    it(`refuses a malformed pid ${JSON.stringify(bad)}`, async () => {
+      assert.equal(await uptimeSeconds(bad), null);
     });
   }
 });
