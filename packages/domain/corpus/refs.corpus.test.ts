@@ -183,9 +183,28 @@ let raw: Record<string, unknown>;
  * is per-checkout, untracked, and restored in `afterAll` — and a fetch does not
  * move either it or the pin.
  */
-/** The branch `origin/HEAD` is restored to. Read before the pin replaces it. */
-const MAIN = execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
-  { cwd: ROOT, encoding: 'utf8' }).trim().replace(/^origin\//, '');
+/**
+ * The branch `origin/HEAD` is restored to, or `''` where there is no such ref.
+ *
+ * `origin/HEAD` IS A CLONE'S CONVENIENCE, NOT A GUARANTEE. `actions/checkout`
+ * fetches one ref and never creates it, so on a runner this command fails with
+ * *"not a symbolic ref"* — and at module level that failed the whole SUITE
+ * rather than one test. Measured on CI 2026-09-01, after the pin passed locally
+ * every time: a clone has the ref, a checkout does not.
+ *
+ * `plot-fleet-scan.sh:204` already treats it that way, discarding the error and
+ * falling back to `main`. This copies the command's tolerance, not just the
+ * command.
+ */
+const MAIN = (() => {
+  try {
+    return execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+      { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .trim().replace(/^origin\//, '');
+  } catch {
+    return '';
+  }
+})();
 const PIN = 'plot-corpus-pin';
 const PIN_REF = `refs/remotes/origin/${PIN}`;
 let pinned = false;
@@ -195,10 +214,17 @@ const git = (...args: string[]): string =>
 
 beforeAll(async () => {
   // Freeze the ref before either scan runs, and tell the scan to use it.
-  const head = git('rev-parse', 'origin/HEAD');
-  git('update-ref', PIN_REF, head);
-  git('symbolic-ref', 'refs/remotes/origin/HEAD', PIN_REF);
-  pinned = true;
+  // NO `origin/HEAD` MEANS NO PIN, AND THAT IS NOT A FAILURE. On a checkout
+  // that never created the ref there is nothing to repoint and nothing to
+  // restore; the two scans then read the branch directly, exactly as they did
+  // before this pin existed. The race is a rare disagreement, and refusing to
+  // run at all would trade it for never running.
+  if (MAIN) {
+    const head = git('rev-parse', `origin/${MAIN}`);
+    git('update-ref', PIN_REF, head);
+    git('symbolic-ref', 'refs/remotes/origin/HEAD', PIN_REF);
+    pinned = true;
+  }
 
   // Adapter first, production second. The order matters only for the elapsed
   // field, and taking the adapter's reading first makes production's the LATER
