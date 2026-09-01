@@ -169,6 +169,10 @@ was interrogated; a round that survives scrutiny unchanged is still a round, and
 must still be counted. A plan that reads as unexamined for having answered every
 question cleanly is the exact failure this step prevents.
 
+**The round is owed by anyone who interrogates a plan, whether or not this skill
+did the interrogating** — an interrogation conducted directly writes `- **Rounds:**
+N` to `## Status` by the same rule below, and needs no metadata block to do it.
+
 State lives in a single HTML comment in the plan file, keyed on the
 `CHALLENGE-THE-PLAN-METADATA` sentinel:
 
