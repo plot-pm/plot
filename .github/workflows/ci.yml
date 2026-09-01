@@ -154,7 +154,7 @@ jobs:
       # directory from being a place to put anything.
       - name: Domain purity gate
         run: |
-          hits=$(grep -rlE "from '(node:|fs|child_process|http|https|net)" packages/domain/src/ \
+          hits=$(grep -rlaE "from '(node:|fs|child_process|http|https|net)" packages/domain/src/ \
                  | grep -v '^packages/domain/src/adapters/' || true)
           if [ -n "$hits" ]; then
             echo "::error::the domain reached the world — outside adapters/ it may import zod and nothing else:"
@@ -275,13 +275,13 @@ jobs:
           # FILTERED ON THE LINE, NOT THE MATCHED WORD — the lesson the actor-name
           # gate below already records. `grep -o` prints the word alone, which
           # discards the quotes that tell a wire key from an identifier.
-          found=$(grep -rnE "FleetWave|WaveVerdict|\bwaves\b" packages/domain/src/ \
+          found=$(grep -rnaE "FleetWave|WaveVerdict|\bwaves\b" packages/domain/src/ \
                   | grep -vE "=\s*'waves'" | wc -l | tr -d ' ')
           if [ "$found" -gt "$allowed" ]; then
             echo "::error::the domain gained $((found - allowed)) misuse(s) of Wave ($found > $allowed)."
             echo "A Slice holds one branch and belongs to one plan. A Wave is the fleet's"
             echo "cross-plan cohort — that entity keeps the name. See DESIGN-slice.md."
-            grep -rnE "FleetWave|WaveVerdict|\bwaves\b" packages/domain/src/ \
+            grep -rnaE "FleetWave|WaveVerdict|\bwaves\b" packages/domain/src/ \
               | grep -vE "=\s*'waves'" | head -40
             exit 1
           fi
@@ -300,12 +300,24 @@ jobs:
       # process-table observations plus two task states) and `WorkerActivity*`
       # (a CPU cue) — plus the `Worker command` / `Worker bound` config keys,
       # and refuses `Worker` as a name for the actor.
+      #
+      # `WorkerMonitor` JOINS THE ALLOWLIST, and it is the same rule rather than
+      # an exception to it. `entities/finding.ts` names three monitors by their
+      # SUBJECT — `WorkerMonitor` the process every ~30 s, `AgentMonitor` the
+      # desk every ~5 min, `BuildMonitor` the run — which is precisely the split
+      # CLAUDE.md draws. A monitor of the process is Machine-side vocabulary and
+      # is correctly named for it; renaming it would destroy the distinction its
+      # sibling `AgentMonitor` exists to make.
+      #
+      # It is added here only because the `-a` fix below made these four lines
+      # VISIBLE for the first time. They were always present and always correct;
+      # the gate simply could not read the file they live in.
       - name: Domain actor-name gate
         run: |
           # Filter on the LINE, not on the matched word: `grep -o` discards the
           # context that tells `Worker command` apart from a bare `Worker`.
-          hits=$(grep -rnE "\bWorker[A-Za-z]*" packages/domain/src/ \
-                 | grep -vE "WorkerState|WorkerActivity" \
+          hits=$(grep -rnaE "\bWorker[A-Za-z]*" packages/domain/src/ \
+                 | grep -vE "WorkerState|WorkerActivity|WorkerMonitor" \
                  | grep -vE "\`?Worker (command|bound)\`?" || true)
           if [ -n "$hits" ]; then
             echo "::error::the actor is an Agent — 'Worker' names the process, never the actor:"
@@ -315,12 +327,44 @@ jobs:
           fi
           echo "Domain actor-name gate: clean."
 
+      # EVERY GATE ABOVE MUST BE ABLE TO READ EVERY FILE, and one NUL byte is
+      # enough to stop it. `grep` classifies a file holding a NUL as binary and
+      # prints "binary file matches" INSTEAD OF the matching lines, so a gate
+      # that tests `[ -n "$hits" ]` sees an empty variable and passes.
+      #
+      # Measured 2026-09-01 on PR #610. `entities/finding.ts` builds a composite
+      # key as `${f.monitor}\0${f.branch}` — a deliberate, correct separator,
+      # since a NUL cannot occur in either half. The actor-name gate failed the
+      # branch on two lines in `sample.ts` while FOUR `WorkerMonitor` hits in
+      # `finding.ts`, one of them inside a `z.enum`, went unreported. The gate
+      # was not wrong about the file; it could not see it.
+      #
+      # The stakes are highest for the purity gate: a domain file with a NUL
+      # could import `child_process` invisibly, which is the one thing that gate
+      # exists to prevent.
+      #
+      # `-a` is the fix, and this step is the gate on the fix. A recursive grep
+      # over the domain that lacks it is refused here, so the blind spot cannot
+      # come back by someone adding a sixth gate in the old shape.
+      - name: Gate greps read every file
+        run: |
+          blind=$(grep -nE "grep -r[a-zA-Z]*" .github/workflows/ci.yml \
+                  | grep -E "packages/domain/src|@plot-pm/domain" \
+                  | grep -vE "grep -r[a-zA-Z]*a[a-zA-Z]*" || true)
+          if [ -n "$blind" ]; then
+            echo "::error::a domain gate greps without -a, so one NUL byte hides a whole file:"
+            echo "$blind"
+            echo "Add -a (--text) so grep reports matching lines rather than 'binary file matches'."
+            exit 1
+          fi
+          echo "Gate greps read every file: clean."
+
       # ARROW FUNCTIONS, per CLAUDE.md > The Domain Package. The board's 507
       # `function` declarations are deliberately not the model — this rule is
       # for new code only, so it is scoped to this package.
       - name: Domain function-style gate
         run: |
-          hits=$(grep -rnE "^\s*(export )?function " packages/domain/src/ || true)
+          hits=$(grep -rnaE "^\s*(export )?function " packages/domain/src/ || true)
           if [ -n "$hits" ]; then
             echo "::error::the domain package uses arrow functions — 'export const f = (…) => …':"
             echo "$hits"
@@ -415,7 +459,7 @@ jobs:
         run: |
           tree=packages/board/src/server
           total=$(find "$tree" -name '*.ts' 2>/dev/null | wc -l | tr -d ' ' || true)
-          reachers=$(grep -rl '@plot-pm/domain' "$tree" --include='*.ts' 2>/dev/null | sort || true)
+          reachers=$(grep -rla '@plot-pm/domain' "$tree" --include='*.ts' 2>/dev/null | sort || true)
           reaching=$(printf '%s' "$reachers" | grep -c . || true)
           echo "board server files importing @plot-pm/domain: $reaching of $total"
           echo "This is a REPORT, not a gate: it measures file layout, not adoption,"
