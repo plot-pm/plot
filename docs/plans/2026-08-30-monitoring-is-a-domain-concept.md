@@ -4,13 +4,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -201,6 +201,23 @@ status, both already reachable.
 **The likely answer is that the rule composes it** and `ports/` is untouched —
 in which case this slice is a paragraph in the first slice's PR rather than a
 branch, and **saying so is a finished slice.**
+
+**Answered 2026-09-01, before approval: the rule composes it, and no port
+changes.** `monitor_tree_fingerprint` (`plot-worker-monitor.sh:294`) is exactly
+two readings joined by a newline —
+
+- `git rev-parse HEAD` → `Refs.resolve('HEAD')`
+- `git status --porcelain`, passed through `plot_worker_dirty_filter` →
+  `Trees.markers(path, prefix)`, which is the same prefix filter
+
+and the filter is not incidental: *"a fingerprint over raw `git status` would see
+the monitor's own file appear"* — a monitor watching a desk it writes to. The
+port already applies it, so composing through `Trees.markers` preserves the
+property rather than re-implementing it.
+
+`ProcessReading.activity` (`ports/processes.ts:26`) already carries the CPU
+reading. **So this slice closes with no code**, as its own text allowed for, and
+the argument above is the deliverable — fold it into the Sampling PR.
 
 **Done when** the composition question is answered in writing: either the rule
 composes the fingerprint from existing ports — and this slice closes with no
