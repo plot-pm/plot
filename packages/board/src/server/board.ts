@@ -24,9 +24,11 @@ import {
 import {
   allSlicesMerged,
   planStatus as decidePlanStatus,
+  type PlanStore,
   type Refs,
+  type Trees,
 } from '@plot-pm/domain';
-import { refsGit } from '@plot-pm/domain/adapters';
+import { planStoreShell, refsGit, treesGit } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
 import { extractTopics } from './topics.js';
@@ -61,6 +63,25 @@ export interface BuildBoardOptions {
    * code.
    */
   refs?: Refs;
+  /**
+   * Where worktree questions are answered from. Absent means this machine.
+   *
+   * A SECOND port rather than more of `refs`, because a desk is not a ref: the
+   * two branch readings the board makes — the main checkout's, in `fleet.ts`,
+   * and this server's own, in `server-info.ts` — are questions about
+   * CHECKOUTS, and `refs-git.ts` is pinned as the place that never asks one
+   * (`no-network.test.ts`).
+   */
+  trees?: Trees;
+  /**
+   * Where `## Plot Config` keys are read from. Absent means this repository.
+   *
+   * `plan-store.config(key, fallback)` is the async twin of the `readConfig`
+   * that spawned `bash plot-config.sh`, which is why the plan calls the mtime
+   * cache around that spawn dead code pretending to be an optimisation:
+   * caching a synchronous function keeps it synchronous.
+   */
+  planStore?: PlanStore;
 }
 
 /**
@@ -83,6 +104,27 @@ export interface BuildBoardOptions {
  */
 const refsFor = (opts: BuildBoardOptions): Refs =>
   opts.refs ?? refsGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * The worktree reader for these options — the caller's, or this machine's.
+ *
+ * Built per call for the same reason as {@link refsFor}: the adapter is a
+ * closure over two paths, and the expense was never in constructing it.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the injected reader, or one backed by git in `opts.repoRoot`.
+ */
+export const treesFor = (opts: BuildBoardOptions): Trees =>
+  opts.trees ?? treesGit({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * The config reader for these options — the caller's, or this repository's.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the injected store, or one backed by `plot-config.sh`.
+ */
+export const planStoreFor = (opts: BuildBoardOptions): PlanStore =>
+  opts.planStore ?? planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /**
  * Resolve `repoRoot` through symlinks. Plan files are reported as real paths, so
