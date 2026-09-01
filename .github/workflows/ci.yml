@@ -328,6 +328,52 @@ jobs:
           fi
           echo "Domain function-style gate: clean."
 
+      # WHAT THE MIGRATION LEAVES BEHIND IS A NAME, not a copy. When a rule moves
+      # into the domain, production can keep compiling by aliasing the old name
+      # to the new one — and then the move looks finished while the old seam is
+      # still open. Measured 2026-08-30 on the sprint goal's own example:
+      # `export { allSlicesMerged as allWavesMerged }` in `board.ts`, one line
+      # carrying three callers. There was no second implementation; a grep for
+      # duplicated CODE finds nothing here, which is exactly why this counts
+      # names.
+      #
+      # THE SUBJECT IS THE RE-EXPORT, NOT ITS CALL SITES. Counting the three
+      # callers would go red on a refactor that touched them without changing
+      # the seam, and green if a fourth call joined an alias that should not
+      # exist. One alias, one count, however many callers it has.
+      #
+      # `allowed` IS A LITERAL, for the reason the spawn ratchet above states:
+      # deriving it from the estate makes the gate agree with whatever it finds.
+      #
+      # THE COUNT IS ALREADY 0, and that is a fact about timing rather than a
+      # gate with nothing to do. `production-calls` removed the `allWavesMerged`
+      # alias while this slice was being built — `board.ts` now re-exports
+      # `allSlicesMerged` under its own name. So this gate never got to watch
+      # that seam close; what it does is stop the next one opening, and the
+      # migration still to come is exactly when that is likely.
+      #
+      # A ZERO A GATE CANNOT SEE IS WORTH NOTHING, so the counter was tested
+      # against two aliases before this line was written: the historical
+      # `allSlicesMerged as allWavesMerged`, and an invented
+      # `approvable as planIsApprovable` in a multi-line block in the other
+      # package. Both were caught, the three legitimate disambiguations beside
+      # the second one still passed, and both were then removed.
+      - name: Domain alias gate
+        run: |
+          allowed=0  # 2026-08-30: 0 at introduction; the alias it was written for is already gone
+          out=$(./scripts/count-domain-aliases.sh)
+          count=$(printf '%s' "$out" | sed -n 's/^count=//p')
+          echo "domain names production still aliases: $count (allowed $allowed, target 0)"
+          if [ "$count" -gt "$allowed" ]; then
+            echo "::error::a domain name gained an alias — $count, allowed $allowed."
+            echo "A moved rule kept its old name alive. Remove the alias and rename the callers;"
+            echo "if the rename is forced by a real collision, both names are declared and this"
+            echo "gate already ignores it. The aliases:"
+            printf '%s\n' "$out" | grep -v '^count='
+            exit 1
+          fi
+          echo "Domain alias gate: $count alias(es), none added."
+
       - name: Domain typecheck
         run: pnpm --filter @plot-pm/domain typecheck
 
