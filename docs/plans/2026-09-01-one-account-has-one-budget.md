@@ -98,6 +98,14 @@ calls that would have gone to the bucket with 4990 left.
 **This is why REST worked all evening while GraphQL refused** — not a secondary
 limit, which is what the failure looked like from the aggregate view.
 
+**But a spent bucket is not the only cause, and a second measurement proves it.**
+2026-09-01, hours after that evening: `gh pr view` refused with *"API rate limit
+already exceeded"* while the same account's GraphQL headers read **4854 of 5000
+remaining, 146 used**. A bucket with 97 % left does not refuse on quota. So both
+causes are real — an exhausted bucket AND a limit that fires on burst
+concurrency — and the aggregate view cannot tell them apart, which is exactly why
+the banner must name which one it hit.
+
 ### The endpoint plot asks reports the wrong number
 
 `graphql_budget_spent()` (`plot-host.sh:536`) reads
@@ -257,6 +265,45 @@ provided the bucket is the connector's own word rather than a normalised one.
 | `Git host` | closed enum | **dies** (`plot-host.sh:1006`) |
 | `Tracker` | named set, open in practice | tolerated; branches on behaviour |
 | `CI` | free string | tolerated |
+
+### The connector answers for its own limit, and says how well it knows
+
+**Settled 2026-09-01.** The adapter — not the budget, and not a table in Plot —
+answers *what is this connector's limit?*, and tags the answer with how it was
+obtained:
+
+- **`actual`** — the connector has a rate-limit API or sends limit headers, and
+  this is what it said. GitHub's `X-RateLimit-Limit`/`Remaining`/`Resource` are
+  the case.
+- **`predicted`** — the connector offers nothing to ask, so this is a value from
+  experience. Jenkins has no limit to report; Bitbucket, GitLab and Trello each
+  answer differently or not at all.
+
+**This is why the budget needs no connector table and no probe at setup.** It
+asks the port and reads the tag. A connector Plot has never seen returns
+`predicted` from its own adapter, which is the only place that could know — and
+a connector nobody has written an adapter for cannot be called at all, so it has
+no budget to get wrong.
+
+**A `predicted` value is corrected by the session that disproves it.** A refusal
+observed while spending — `plot-host.sh:245` already classifies stderr as
+`throttled` — is evidence about the real limit, and it updates the prediction
+for the rest of the session. The estimate improves where it is wrong and costs
+nothing where it is right. **This is the piece a static default cannot have**: a
+number shipped in Plot is stale the moment a vendor changes it, while a number
+corrected by the refusal it caused cannot be.
+
+**The vocabulary already exists in this repo.** `StateSourceSchema`
+(`entities/identity.ts:40`) is `stated | derived | foreign | measured`, and
+`stateFailureMode` names how each goes wrong — *"`measured`: decaying
+instantly"*. A limit reading is the same idea one level down: **`actual` decays,
+`predicted` is wrong until something proves it.** Name the pair in that
+vocabulary rather than inventing a second one.
+
+**And it is orthogonal to `PortResult`.** `answered | failed | unaskable` says
+whether the question could be put; `actual | predicted` says how the answer was
+come by. A `predicted` limit is *answered* — the adapter is not failing, it is
+telling the truth about what it knows.
 
 **The budget follows `CI`.** It is the axis that already survives a vendor
 nobody has written an adapter for, which is what gitlab and trello will be.
@@ -442,6 +489,10 @@ this — `.plot/state/` being per checkout, and the connector list being open �
 are recorded in the Design above. **Naming the record is a slice of its own and
 comes first**, because five branches write to it.
 
+### Asking the connector
+
+- `bug/a-connector-answers-for-its-limit` — `Host` gains one op: *what is this connector's limit, and how well do you know it?* The answer carries a value and a tag — `actual` where the connector has a rate-limit API or sends limit headers, `predicted` where it has neither and the adapter supplies a value from experience. **The adapter is the only place that could know**, which is what removes the need for a connector table in Plot or a probe at setup. Deliverables: the port op, GitHub's `actual` implementation from response headers, one `predicted` implementation (Jenkins, which has no limit to report), and the rule that a `predicted` value is corrected by a `throttled` observed during the session — `plot-host.sh:245` already classifies the stderr. **First, because the record cannot be shaped before it is known what a connector can answer.**
+
 ### Naming the record
 
 - `bug/a-budget-belongs-to-the-computer` — where the record lives and what it is keyed by, before anything appends to it. Outside any checkout, since two GitHub checkouts on this machine share one account and each `.plot/state/` would read a full 5000. Keyed by connector, account and bucket, with the **connector carried as a string the record does not validate** — `Tracker` already names `linear` without an adapter, and a third closed enum is an edit that gets forgotten when GitLab arrives. Append-only with a stated line cap, since concurrent `O_APPEND` is atomic only below `PIPE_BUF`. Deliverables: the location, the key, the format, and what a connector that reports no limit records — which is `unknown`, never `free`.
@@ -456,7 +507,7 @@ comes first**, because five branches write to it.
 
 ### Telling the two limits apart
 
-- `bug/a-secondary-limit-is-not-a-spent-quota` — the banner names which limit was hit, prints a reset time only when there is one, and when the cause is local contention says how many spenders it found. `plot-host.sh` already distinguishes them at `host_failure_kind`; the board discards the distinction.
+- `bug/a-secondary-limit-is-not-a-spent-quota` — the banner names which limit was hit, prints a reset time only when there is one, and when the cause is local contention says how many spenders it found. **`plot-host.sh` does NOT already distinguish them, and an earlier draft of this line said it did.** Verified 2026-09-01: `host_failure_kind` matches one regex — `rate limit|ratelimit|too many requests|429|secondary rate|abuse detection|exceeded a secondary` — and returns `throttled` for every one of them. *"API rate limit exceeded"* and *"You have exceeded a secondary rate limit"* both come back `throttled`, so the board is not discarding a distinction; there is none to discard. **This slice makes it, rather than surfacing it.**
 
 ### One router, reused
 
