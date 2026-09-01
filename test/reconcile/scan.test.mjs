@@ -259,9 +259,11 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // stale_tally: 0 — no sprint files, so section 11 is also silent.
   // double_claims: 0 — every branch in this fixture is named by exactly one
   // plan, so section 12 is silent; its collision case has its own fixture.
+  // rounds_drift: 0 — no plan here is Draft and none records a Rounds: value,
+  // so section 13 is silent; its stale-round case has its own fixture.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -1895,12 +1897,193 @@ test('scan: a double claim leaves attention= unchanged — the section does NOT 
   assert.match(footer, /\battention=0\b/);
 });
 
-test('scan: section 12 sits last, leaving /plot-deliver\'s `== 7.` gate marker intact', () => {
+test('scan: section 12 stays below the blocking set, leaving /plot-deliver\'s `== 7.` gate marker intact', () => {
+  // The gate marker is `sed -n '/^== 7./q;p'` — a hardcoded number meaning "the
+  // first non-blocking section". Inserting a section below 7 would silently
+  // shrink the delivery gate, so every new one goes after the last. This pins
+  // that placement; section 13 (stale rounds) now sits after it.
+  assert.match(dcReport, /^== 12\. Double-claimed branches/m);
+  assert.match(dcReport, /^== 7\. Unsliced waves/m, 'section 7 must still be unsliced waves');
+});
+
+// ---------------------------------------------------------------------------
+// Stale interrogation rounds (section 13).
+//
+// A SEPARATE fixture, because this section's subject is a plan's COMMIT
+// HISTORY rather than its text: the finding needs one commit that writes a
+// `Rounds:` value and a later commit that amends the plan, and neither the
+// main fixture nor the double-claim one commits a plan twice. Same minimal
+// shape as those two — one plan directory, no branches, no git host, run
+// --offline.
+//
+// The properties under test are the ones the plan's `## Done when` names: a
+// Draft plan amended after its recorded round is reported, naming the round
+// and the commits compared; a plan with NO `Rounds:` field is silent (the half
+// a careless implementation gets wrong, because an unquestioned plan is
+// honestly unquestioned); `Rounds: 0` is a RECORDED value and reports like any
+// other, asserted separately because a truthiness test silences exactly it; an
+// Approved plan is out of scope; a plan not touched since its round is silent;
+// and — the property the naive implementation breaks — `attention=` is
+// unchanged by a stale round.
+// ---------------------------------------------------------------------------
+
+let srTmp, srRepo, srReport, srSections;
+
+before(() => {
+  srTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-sr-'));
+  const origin = path.join(srTmp, 'origin.git');
+  srRepo = path.join(srTmp, 'repo');
+  git(srTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(srTmp, 'clone', '-q', origin, srRepo);
+  git(srRepo, 'config', 'user.email', 'test@example.invalid');
+  git(srRepo, 'config', 'user.name', 'Plot Test');
+  git(srRepo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(srRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+
+  const plan = (title, phase, roundsLine, body = '') =>
+    `# ${title}\n\n## Status\n\n- **Phase:** ${phase}\n- **Type:** feature\n${roundsLine}${body}`;
+
+  // THE FINDING. Draft, records round 2, and gets amended in a LATER commit.
+  w('plans/2026-04-01-stale-round.md', plan('Stale round', 'Draft', '- **Rounds:** 2\n'));
+  // `Rounds: 0` — a recorded value, not an absence. The parser emits
+  // `"rounds":0`, and reading the KEY'S PRESENCE rather than its truthiness is
+  // what keeps this plan visible. Amended later, exactly like the one above.
+  w('plans/2026-04-02-zero-round.md', plan('Zero round', 'Draft', '- **Rounds:** 0\n'));
+  // NO `Rounds:` field. Amended later too — so the only thing keeping it out of
+  // the report is the missing round, which is the point.
+  w('plans/2026-04-03-never-questioned.md', plan('Never questioned', 'Draft', ''));
+  // APPROVED, records a round, amended later. Out of scope: the questioning
+  // feeds the review, and this plan has passed it.
+  w('plans/2026-04-04-approved.md', plan('Approved plan', 'Approved', '- **Rounds:** 3\n'));
+  // Draft with a round and NEVER amended after it — the healthy case.
+  w('plans/2026-04-05-current.md', plan('Current', 'Draft', '- **Rounds:** 1\n'));
+
+  fs.mkdirSync(path.join(srRepo, 'plans', 'active'), { recursive: true });
+  fs.mkdirSync(path.join(srRepo, 'plans', 'delivered'), { recursive: true });
+  for (const [link, target] of [
+    ['stale-round.md', '../2026-04-01-stale-round.md'],
+    ['zero-round.md', '../2026-04-02-zero-round.md'],
+    ['never-questioned.md', '../2026-04-03-never-questioned.md'],
+    ['approved.md', '../2026-04-04-approved.md'],
+    ['current.md', '../2026-04-05-current.md'],
+  ]) fs.symlinkSync(target, path.join(srRepo, 'plans', 'active', link));
+
+  git(srRepo, 'add', '-A');
+  git(srRepo, 'commit', '-q', '-m', 'plans, each recording its round');
+
+  // THE AMENDMENT — a SECOND commit, dated explicitly rather than taken from
+  // the clock. git records commit time in whole SECONDS, so two commits made in
+  // the same second compare equal, the `>` test is silent, and the fixture
+  // tests nothing while passing. A pinned date orders them strictly without a
+  // sleep. Every plan here is touched EXCEPT
+  // 2026-04-05-current.md, so the difference between the reported and the
+  // silent plans is the round, never the edit.
+  const bump = (rel) => {
+    const p = path.join(srRepo, rel);
+    fs.writeFileSync(p, fs.readFileSync(p, 'utf8') + '\nAmended after the round.\n');
+  };
+  bump('plans/2026-04-01-stale-round.md');
+  bump('plans/2026-04-02-zero-round.md');
+  bump('plans/2026-04-03-never-questioned.md');
+  bump('plans/2026-04-04-approved.md');
+  execFileSync('git', ['commit', '-qam', 'amend the plans'], {
+    cwd: srRepo,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_DATE: '@2000000000 +0000',
+      GIT_COMMITTER_DATE: '@2000000000 +0000',
+    },
+  });
+
+  git(srRepo, 'push', '-q', 'origin', 'main');
+
+  srReport = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: srRepo });
+  srSections = splitSections(srReport);
+});
+after(() => fs.rmSync(srTmp, { recursive: true, force: true }));
+
+test('scan: section 13 reports a Draft plan amended since its recorded round, naming both commits', () => {
+  assert.match(srSections['13'], /2026-04-01-stale-round\.md — records round 2 \(last written in [0-9a-f]+\), amended since in [0-9a-f]+/);
+  // The finding names its inputs, so a reader can judge it — and the two
+  // commits must DIFFER, or the comparison reported nothing.
+  const m = /records round 2 \(last written in ([0-9a-f]+)\), amended since in ([0-9a-f]+)/.exec(srSections['13']);
+  assert.ok(m, 'the finding must name both commits');
+  assert.notEqual(m[1], m[2], 'the round commit and the amendment must be different commits');
+  // A hint, not an order: the verb is `consider:`, not `fix:`.
+  assert.match(srSections['13'], /consider: re-question the plan/);
+});
+
+test('scan: section 13 treats `Rounds: 0` as a recorded value, not as absence', () => {
+  // The parser emits `"rounds":0` for this plan and NO `rounds` key for one
+  // with no field. A shell test on truthiness would silence exactly this plan —
+  // the one that explicitly said it was never questioned.
+  assert.match(srSections['13'], /2026-04-02-zero-round\.md — records round 0 \(last written in [0-9a-f]+\)/);
+});
+
+test('scan: section 13 is silent for a plan with no Rounds: field', () => {
+  // THE HALF A CARELESS IMPLEMENTATION GETS WRONG. This plan was amended in the
+  // same commit as the two reported above, so only the missing round separates
+  // it from them: a plan nobody has questioned is honestly unquestioned.
+  assert.doesNotMatch(srSections['13'], /never-questioned/);
+});
+
+test('scan: section 13 is silent for an Approved plan', () => {
+  // Records round 3, amended after it — and out of scope. An Approved plan has
+  // passed the review the questioning feeds; the badge a reader judges belongs
+  // to a Draft plan's card.
+  assert.doesNotMatch(srSections['13'], /2026-04-04-approved\.md/);
+});
+
+test('scan: section 13 is silent for a Draft plan untouched since its round', () => {
+  assert.doesNotMatch(srSections['13'], /2026-04-05-current\.md/);
+});
+
+test('scan: section 13 footer counter matches the number of findings', () => {
+  // Two findings: the round-2 plan and the round-0 plan. The counter must be
+  // wired to the same variable the body increments — a footer wired to a
+  // different variable is a bug no single-finding assertion above can see.
+  const bodyFindings = srSections['13'].split('\n').filter((l) => l.includes('records round ')).length;
+  assert.equal(bodyFindings, 2, `expected 2 body findings, got ${bodyFindings}`);
+  const footer = srReport.trim().split('\n').at(-1);
+  assert.match(footer, /\brounds_drift=2\b/);
+});
+
+test('scan: a stale round leaves attention= unchanged — the section does NOT gate', () => {
+  // THE property a naive implementation breaks: adding a finding to attention=
+  // looks like diligence and turns a report into a gate. /plot-deliver's
+  // delivery-landed gate and the /plot hygiene line read attention= from this
+  // footer, and a stale round is a hint about a badge, not a delivery that
+  // cannot land.
+  const footer = srReport.trim().split('\n').at(-1);
+  assert.match(footer, /\battention=0\b/);
+  // And it appears in 13, not in 5 — the section-scoped contrast, not a
+  // report-wide substring match.
+  assert.doesNotMatch(srSections['5'], /stale-round/);
+});
+
+test('scan: section 13 sits last, leaving /plot-deliver\'s `== 7.` gate marker intact', () => {
   // The gate marker is `sed -n '/^== 7./q;p'` — a hardcoded number meaning "the
   // first non-blocking section". Inserting this section below 7 would silently
-  // shrink the delivery gate, so it goes last. This pins that placement.
-  const nums = dcReport.split('\n')
+  // shrink the delivery gate, so it goes last. This pins that placement, and
+  // that sections 1-12 kept their numbers.
+  const nums = srReport.split('\n')
     .map((l) => /^== (\d+)\. /.exec(l)).filter(Boolean).map((m) => Number(m[1]));
-  assert.equal(Math.max(...nums), 12, 'the double-claim section must be the last one');
-  assert.match(dcReport, /^== 7\. Unsliced waves/m, 'section 7 must still be unsliced waves');
+  assert.equal(Math.max(...nums), 13, 'the stale-round section must be the last one');
+  assert.match(srReport, /^== 7\. Unsliced waves/m, 'section 7 must still be unsliced waves');
+  assert.match(srReport, /^== 12\. Double-claimed branches/m, 'section 12 must keep its number');
 });
