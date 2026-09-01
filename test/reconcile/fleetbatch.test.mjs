@@ -78,6 +78,21 @@ function countingShim() {
       fs.chmodSync(path.join(shim, 'scripts', f), 0o755);
     }
   }
+  // THE BUNDLE TRAVELS WITH THE SCRIPTS. `plot-fleet-scan.sh` resolves
+  // `board/plot-verdicts.mjs` from its own `BASH_SOURCE` directory and exits 2
+  // when it is absent, so a shim holding only `*.sh` fails with
+  // `cannot read slice verdicts` before it can count a single spawn.
+  const board = path.join(realScripts, 'board');
+  if (fs.existsSync(board)) {
+    fs.mkdirSync(path.join(shim, 'scripts', 'board'), { recursive: true });
+    for (const f of fs.readdirSync(board)) {
+      if (f.endsWith('.mjs')) {
+        const to = path.join(shim, 'scripts', 'board', f);
+        fs.copyFileSync(path.join(board, f), to);
+        fs.chmodSync(to, 0o755);
+      }
+    }
+  }
   fs.renameSync(path.join(shim, 'scripts', 'plot-plan-meta.sh'),
     path.join(shim, 'scripts', 'plot-plan-meta-real.sh'));
   // Records how many FILES one invocation covered — the argument count minus
