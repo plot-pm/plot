@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import type { FleetReading } from '../contract/schema.js';
-import { readConfig, type BuildBoardOptions } from './board.js';
+import { readConfigAsync, type BuildBoardOptions } from './board.js';
 import { pulseFor } from './fleet.js';
 import { transcriptFacts, type TranscriptFacts } from './transcript.js';
 
@@ -128,28 +128,52 @@ export function parseEtime(raw: string): number | null {
  *
  * `pid` arrives as the string the scan recorded. A non-numeric or empty one is
  * refused before it reaches the shell — not as sanitisation theatre, but because
- * `execFileSync` passes an argument vector and there is no shell to inject
- * into; the check exists so a malformed record fails as null instead of as a
- * spawn.
+ * `execFile` passes an argument vector and there is no shell to inject into;
+ * the check exists so a malformed record fails as null instead of as a spawn.
  *
  * **`0` is refused explicitly.** `kill -0 0` signals the caller's entire process
  * group and succeeds, and the equivalent trap has been sprung in this repo
  * before. The scan already rejects it, so a `0` here means a record that should
  * not exist — answering null is the honest reading.
+ *
+ * ## `ps -o etime=`, not `Processes.startedAt`
+ *
+ * The port answers a start time from `ps -o lstart=`; this answers ELAPSED
+ * seconds. Deriving one from the other is arithmetic against the board's own
+ * clock, and it changes what an absent answer means: `startedAt` reports
+ * `failed` for a dead pid, while `etime`'s empty output IS the reading —
+ * *nothing is running under this pid* — which is the distinction
+ * {@link parseEtime} enumerates across four measured formats and this panel
+ * renders as an absent uptime. A port call would put a `PortResult` in front of
+ * a question already answered without one.
  */
-export function uptimeSeconds(pid: string): number | null {
+export async function uptimeSeconds(pid: string): Promise<number | null> {
   if (!/^\d+$/.test(pid)) return null;
   if (Number(pid) <= 0) return null;
-  try {
-    const out = execFileSync('ps', ['-o', 'etime=', '-p', pid], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    return parseEtime(out);
-  } catch {
-    // Non-zero exit: no such process. Uptime is absent, not zero.
-    return null;
-  }
+  const out = await run('ps', ['-o', 'etime=', '-p', pid]);
+  // Non-zero exit: no such process. Uptime is absent, not zero — the same
+  // answer the throwing form gave, reached without blocking the loop.
+  return out === null ? null : parseEtime(out);
+}
+
+/**
+ * Runs a command off the event loop and answers its stdout, or null.
+ *
+ * `ps` is not a git question and not one any port answers in the shape this
+ * panel needs, so it keeps its own one-line helper rather than borrowing an
+ * adapter. `null` for any failure, which is what the throwing `execFileSync`
+ * already meant here.
+ *
+ * @param command - the executable to run.
+ * @param args - its arguments.
+ * @returns stdout, or null when the process failed.
+ */
+function run(command: string, args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(command, args, { encoding: 'utf8' }, (error, stdout) =>
+      resolve(error ? null : stdout),
+    );
+  });
 }
 
 /**
@@ -161,15 +185,26 @@ export function uptimeSeconds(pid: string): number | null {
  * context, last activity). Nothing is re-derived across that boundary — worker
  * liveness in particular is the scan's verdict, forwarded, never a second
  * opinion computed here.
+ *
+ * The two spawns are asked CONCURRENTLY. They share no input — one asks the
+ * process table about a pid, the other asks `plot-config.sh` for a key — so
+ * awaiting them in sequence would serialise two independent reads for nothing.
+ * The pulse lookup and the transcript read stay synchronous: both are already
+ * in memory or one bounded file read away.
  */
-export function agentPanel(
+export async function agentPanel(
   opts: BuildBoardOptions,
   branch: string,
   env: { home?: string } = {},
-): AgentPanel {
+): Promise<AgentPanel> {
   const found = branchFromPulse(pulseFor(opts), branch);
   if (!found) return { ok: false, branch, reason: 'unknown-branch' };
   if (!found.worktree) return { ok: false, branch, reason: 'no-worktree' };
+
+  const [uptime, command] = await Promise.all([
+    uptimeSeconds(found.pid),
+    readConfigAsync(opts, 'Worker command', ''),
+  ]);
 
   return {
     ok: true,
@@ -179,8 +214,8 @@ export function agentPanel(
     wave: found.wave,
     worker: found.worker,
     pid: found.pid,
-    uptimeSeconds: uptimeSeconds(found.pid),
-    command: readConfig(opts, 'Worker command', ''),
+    uptimeSeconds: uptime,
+    command,
     // Spread LAST and deliberately: every key in it is optional, so a
     // transcript that yielded nothing adds nothing, and the fields above are
     // never shadowed by an absent one.

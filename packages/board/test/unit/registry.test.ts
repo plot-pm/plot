@@ -56,7 +56,7 @@ function transcript(cwd: string, session: string, lines: unknown[]): void {
 }
 
 describe('parseManifest — the session id is the only requirement', () => {
-  it('reads every launch-time field', () => {
+  it('reads every launch-time field', async () => {
     const e = parseManifest(JSON.stringify({
       session: 'aaa', branch: 'feature/x', worktree: '/wt',
       command: 'claude -p "go"', startedAt: '2026-08-20T09:00:00Z',
@@ -67,19 +67,19 @@ describe('parseManifest — the session id is the only requirement', () => {
     assert.equal(e?.startedAt, '2026-08-20T09:00:00Z');
   });
 
-  it('rejects a manifest with no session — it names no agent', () => {
+  it('rejects a manifest with no session — it names no agent', async () => {
     // The key everything joins on. Defaulting it would invent an identity.
     assert.equal(parseManifest(JSON.stringify({ branch: 'feature/x' })), null);
     assert.equal(parseManifest(JSON.stringify({ session: '   ' })), null);
   });
 
-  it('rejects what is not an object, without throwing', () => {
+  it('rejects what is not an object, without throwing', async () => {
     for (const bad of ['', 'not json', '[]', 'null', '42']) {
       assert.equal(parseManifest(bad), null, `for ${JSON.stringify(bad)}`);
     }
   });
 
-  it('defaults every other field rather than rejecting the entry', () => {
+  it('defaults every other field rather than rejecting the entry', async () => {
     // A manifest from an older dispatcher must still list its agent: an agent
     // nobody can see is one that gets restarted into work it already holds.
     const e = parseManifest(JSON.stringify({ session: 'bbb' }));
@@ -88,7 +88,7 @@ describe('parseManifest — the session id is the only requirement', () => {
     assert.equal(e?.command, '');
   });
 
-  it('carries a command with quotes and newlines through unchanged', () => {
+  it('carries a command with quotes and newlines through unchanged', async () => {
     // This repo's Worker command is ~1,500 characters of exactly this.
     const cmd = 'claude -p "line one\nline two \\"quoted\\"" --flag';
     const e = parseManifest(JSON.stringify({ session: 'ccc', command: cmd }));
@@ -97,36 +97,36 @@ describe('parseManifest — the session id is the only requirement', () => {
 });
 
 describe('readAgentRegistry — an agent is not a branch', () => {
-  it('LISTS an agent that holds no branch', () => {
+  it('LISTS an agent that holds no branch', async () => {
     // The criterion this wave exists for. An empty branch is a real value, and
     // the entry must be present rather than omitted.
     manifest('a.json', { session: 'sess-a', branch: '', worktree: '/wt/a',
       command: 'claude', startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home);
+    const got = await readAgentRegistry(root, home);
     assert.equal(got.length, 1);
     assert.equal(got[0].session, 'sess-a');
     assert.equal(got[0].branch, '');
   });
 
-  it('returns [] when no dispatch has ever run', () => {
+  it('returns [] when no dispatch has ever run', async () => {
     rmTree(path.join(root, AGENT_MANIFEST_DIR));
-    assert.deepEqual(readAgentRegistry(root, home), []);
+    assert.deepEqual(await readAgentRegistry(root, home), []);
   });
 
-  it('skips a file that is not a manifest and keeps the ones that are', () => {
+  it('skips a file that is not a manifest and keeps the ones that are', async () => {
     manifest('good.json', { session: 'ok', startedAt: '2026-08-20T10:00:00Z' });
     fs.writeFileSync(path.join(root, AGENT_MANIFEST_DIR, 'broken.json'), '{ not json');
     fs.writeFileSync(path.join(root, AGENT_MANIFEST_DIR, 'notes.txt'), 'ignored');
-    const got = readAgentRegistry(root, home);
+    const got = await readAgentRegistry(root, home);
     assert.deepEqual(got.map((e) => e.session), ['ok']);
   });
 
-  it('orders newest first, and an unknown time sorts LAST', () => {
+  it('orders newest first, and an unknown time sorts LAST', async () => {
     // An unknown launch time must not claim to be the most recent.
     manifest('old.json', { session: 'old', startedAt: '2026-08-19T10:00:00Z' });
     manifest('new.json', { session: 'new', startedAt: '2026-08-20T10:00:00Z' });
     manifest('none.json', { session: 'none' });
-    assert.deepEqual(readAgentRegistry(root, home).map((e) => e.session),
+    assert.deepEqual((await readAgentRegistry(root, home)).map((e) => e.session),
       ['new', 'old', 'none']);
   });
 });
@@ -137,18 +137,18 @@ describe('the transcript join — by exact session id, never by guess', () => {
       message: { model: `model-for-${session}`, usage: { cache_read_input_tokens: 4242 } } },
   ];
 
-  it('reads model, context and last activity from the named transcript', () => {
+  it('reads model, context and last activity from the named transcript', async () => {
     const wt = '/tmp/wt-join';
     manifest('a.json', { session: 'exact', branch: 'feature/x', worktree: wt,
       command: 'claude', startedAt: '2026-08-20T10:00:00Z' });
     transcript(wt, 'exact', facts('exact'));
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.equal(e.model, 'model-for-exact');
     assert.equal(e.contextTokens, 4242);
     assert.equal(e.lastActivity, '2026-08-20T11:00:00Z');
   });
 
-  it('joins the NAMED session even when a newer transcript sits beside it', () => {
+  it('joins the NAMED session even when a newer transcript sits beside it', async () => {
     // The guess this registry exists to remove: one worktree held eight
     // transcripts on 2026-08-20, so "the newest file" answers about whichever
     // run touched the disk last rather than about this agent.
@@ -160,44 +160,44 @@ describe('the transcript join — by exact session id, never by guess', () => {
     const dir = path.join(home, '.claude', 'projects', projectSlug(wt));
     const later = new Date(Date.now() + 60_000);
     fs.utimesSync(path.join(dir, 'someone-else.jsonl'), later, later);
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.equal(e.model, 'model-for-mine');
   });
 
-  it('costs FIELDS and not the entry when the transcript is absent', () => {
+  it('costs FIELDS and not the entry when the transcript is absent', async () => {
     manifest('a.json', { session: 'lonely', branch: 'feature/x', worktree: '/tmp/wt-gone',
       command: 'claude', startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home);
+    const got = await readAgentRegistry(root, home);
     assert.equal(got.length, 1, 'the agent is still listed');
     assert.equal(got[0].session, 'lonely');
     assert.equal(got[0].model, undefined);
     assert.equal(got[0].contextTokens, undefined);
   });
 
-  it('costs FIELDS and not the entry when the transcript is unrecognised', () => {
+  it('costs FIELDS and not the entry when the transcript is unrecognised', async () => {
     // Both directions asserted, because the format is private and may change.
     const wt = '/tmp/wt-weird';
     manifest('a.json', { session: 'odd', worktree: wt, startedAt: '2026-08-20T10:00:00Z' });
     transcript(wt, 'odd', [{ shape: 'nothing this board knows' }]);
-    const got = readAgentRegistry(root, home);
+    const got = await readAgentRegistry(root, home);
     assert.equal(got.length, 1);
     assert.equal(got[0].model, undefined);
   });
 
-  it('has no transcript to join when the worktree is unknown', () => {
+  it('has no transcript to join when the worktree is unknown', async () => {
     manifest('a.json', { session: 'nowt', startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home);
+    const got = await readAgentRegistry(root, home);
     assert.equal(got.length, 1);
     assert.equal(got[0].model, undefined);
   });
 });
 
 describe('what the registry deliberately does NOT record', () => {
-  it('carries no model from the MANIFEST — only from the transcript', () => {
+  it('carries no model from the MANIFEST — only from the transcript', async () => {
     // Launch-time knowledge only. The dispatcher does not know the model; the
     // runtime chooses it, and a manifest that claimed one would be a guess.
     manifest('a.json', { session: 'y', model: 'invented', startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.equal(e.model, undefined);
   });
 });
@@ -207,28 +207,28 @@ describe('the pid — a launch fact, read straight off the manifest', () => {
   // pass, without a per-entry worktree lookup. It is the AGENT's pid, written by
   // the wrapper the instant it learns its own child — the same value that lands
   // in `.plot-worker.pid`.
-  it('carries the pid a modern dispatcher wrote', () => {
+  it('carries the pid a modern dispatcher wrote', async () => {
     manifest('a.json', { session: 'p', pid: '4242', worktree: '/wt/p',
       startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.equal(e.pid, '4242');
   });
 
-  it('leaves the pid empty on an older manifest that has none', () => {
+  it('leaves the pid empty on an older manifest that has none', async () => {
     // Absent is not a guess. An older dispatch wrote no pid; the entry says so
     // rather than inventing one.
     manifest('a.json', { session: 'q', startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.equal(e.pid, '');
   });
 
-  it('refuses a non-numeric or zero pid, reading it as absent', () => {
+  it('refuses a non-numeric or zero pid, reading it as absent', async () => {
     // `kill -0 0` signals the whole process group and succeeds, so a 0 would
     // read as running forever; junk cannot be a pid at all. Both are the same
     // answer a garbled `.plot-worker.pid` gets in plot-worker-state.sh.
     manifest('zero.json', { session: 'z', pid: '0', startedAt: '2026-08-20T10:00:00Z' });
     manifest('junk.json', { session: 'j', pid: 'not-a-pid', startedAt: '2026-08-20T09:00:00Z' });
-    const got = readAgentRegistry(root, home);
+    const got = await readAgentRegistry(root, home);
     assert.equal(got.find((e) => e.session === 'z')?.pid, '');
     assert.equal(got.find((e) => e.session === 'j')?.pid, '');
   });
@@ -244,13 +244,13 @@ describe('the process group — every process the registry started, not just one
   //           ├── WorkerMonitor    (7364)  ← in no manifest
   //           ├── AgentMonitor     (7365)  ← in no manifest
   //           └── plot-worker-loop (7366)  ← "pid": "7366"
-  it('carries the wrapper and both monitors a modern dispatcher wrote', () => {
+  it('carries the wrapper and both monitors a modern dispatcher wrote', async () => {
     manifest('a.json', {
       session: 'g', pid: '7366', worktree: '/wt/g', startedAt: '2026-08-20T10:00:00Z',
       wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
       buildMonitorPid: '7367',
     });
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.deepEqual(e.group, {
       wrapperPid: '7358', workerMonitorPid: '7364', agentMonitorPid: '7365',
       buildMonitorPid: '7367',
@@ -261,9 +261,9 @@ describe('the process group — every process the registry started, not just one
   // group as UNKNOWN rather than EMPTY. `undefined` is that unknown; a group of
   // three empty strings would be the different, false claim that this dispatch
   // started nothing beside its agent.
-  it('reports UNKNOWN, not empty, on a manifest written before the field', () => {
+  it('reports UNKNOWN, not empty, on a manifest written before the field', async () => {
     manifest('a.json', { session: 'old', pid: '4242', startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.equal(e.group, undefined,
       'a manifest that cannot say what it started must not claim it started nothing');
     assert.equal(e.pid, '4242', 'and the rest of the entry still parses');
@@ -271,12 +271,12 @@ describe('the process group — every process the registry started, not just one
 
   // The other side of the same distinction: a dispatch that attached NO monitor
   // did say so, and `''` is that answer. A hand-made worktree gets no monitors.
-  it('distinguishes a member never started (empty) from the whole group unknown', () => {
+  it('distinguishes a member never started (empty) from the whole group unknown', async () => {
     manifest('a.json', {
       session: 'nomon', pid: '10', startedAt: '2026-08-20T10:00:00Z',
       wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '', buildMonitorPid: '',
     });
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.notEqual(e.group, undefined, 'the group IS known — the manifest carries it');
     assert.equal(e.group?.wrapperPid, '11');
     assert.equal(e.group?.workerMonitorPid, '', 'empty means this one was never started');
@@ -284,23 +284,23 @@ describe('the process group — every process the registry started, not just one
 
   // A PARTIAL group is still a known group. The presence of ANY member is what
   // makes the manifest one that speaks about its group at all.
-  it('reads a partial group as known, with the missing members empty', () => {
+  it('reads a partial group as known, with the missing members empty', async () => {
     manifest('a.json', {
       session: 'part', pid: '10', startedAt: '2026-08-20T10:00:00Z', wrapperPid: '11',
     });
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.deepEqual(e.group,
       { wrapperPid: '11', workerMonitorPid: '', agentMonitorPid: '', buildMonitorPid: '' });
   });
 
-  it('refuses a zero or non-numeric member, reading it as never started', () => {
+  it('refuses a zero or non-numeric member, reading it as never started', async () => {
     // Same rule the pid follows: `kill -0 0` signals the whole process group and
     // succeeds, so a 0 here would send a reader to check the wrong thing.
     manifest('a.json', {
       session: 'bad', pid: '10', startedAt: '2026-08-20T10:00:00Z',
       wrapperPid: '0', workerMonitorPid: 'not-a-pid', agentMonitorPid: '7365',
     });
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.equal(e.group?.wrapperPid, '');
     assert.equal(e.group?.workerMonitorPid, '');
     assert.equal(e.group?.agentMonitorPid, '7365', 'a good member survives a bad sibling');
@@ -317,35 +317,35 @@ describe('the state — pulse-refreshed liveness, landing on the entry', () => {
   const fakeLiveness = (byWorktree: Record<string, string>) =>
     (worktrees: string[]): string[] => worktrees.map((wt) => byWorktree[wt] ?? 'unknown');
 
-  it('reads `running` for an entry whose pid is alive', () => {
+  it('reads `running` for an entry whose pid is alive', async () => {
     manifest('a.json', { session: 'alive', pid: '4242', worktree: '/wt/alive',
       startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home, { liveness: fakeLiveness({ '/wt/alive': 'running' }) });
+    const [e] = await readAgentRegistry(root, home, { liveness: fakeLiveness({ '/wt/alive': 'running' }) });
     assert.equal(e.state, 'running');
   });
 
-  it('reads `finished` for an entry whose pid is gone', () => {
+  it('reads `finished` for an entry whose pid is gone', async () => {
     // The stale-manifest cure: the entry corrects itself on the next pulse,
     // with nobody deleting the file.
     manifest('a.json', { session: 'gone', pid: '4242', worktree: '/wt/gone',
       startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home, { liveness: fakeLiveness({ '/wt/gone': 'finished' }) });
+    const [e] = await readAgentRegistry(root, home, { liveness: fakeLiveness({ '/wt/gone': 'finished' }) });
     assert.equal(e.state, 'finished');
   });
 
-  it('keeps the waiting and stalled distinctions the shell already computes', () => {
+  it('keeps the waiting and stalled distinctions the shell already computes', async () => {
     manifest('w.json', { session: 'w', pid: '11', worktree: '/wt/w',
       startedAt: '2026-08-20T10:00:00Z' });
     manifest('s.json', { session: 's', pid: '12', worktree: '/wt/s',
       startedAt: '2026-08-20T09:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({ '/wt/w': 'waiting', '/wt/s': 'stalled' }),
     });
     assert.equal(got.find((e) => e.session === 'w')?.state, 'waiting');
     assert.equal(got.find((e) => e.session === 's')?.state, 'stalled');
   });
 
-  it('CLASSIFIES an older manifest with no pid but a live worktree — the pid never gated the answer', () => {
+  it('CLASSIFIES an older manifest with no pid but a live worktree — the pid never gated the answer', async () => {
     // Fix B. `plot-worker-state.sh` reads liveness from the WORKTREE — it is
     // handed the worktree path and reads `$wt/.plot-worker.pid` for itself — so
     // the manifest pid was never an input to the answer, only a ticket to be
@@ -355,37 +355,37 @@ describe('the state — pulse-refreshed liveness, landing on the entry', () => {
     let asked: string[] = [];
     manifest('a.json', { session: 'old', worktree: '/wt/old',
       startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home, {
+    const [e] = await readAgentRegistry(root, home, {
       liveness: (wts) => { asked = wts; return wts.map(() => 'running'); },
     });
     assert.equal(e.state, 'running', 'a pid-less entry with a worktree is classified');
     assert.deepEqual(asked, ['/wt/old'], 'and it IS asked about — the worktree is the only input');
   });
 
-  it('reports `unknown` for an entry with a pid but no worktree to look in', () => {
+  it('reports `unknown` for an entry with a pid but no worktree to look in', async () => {
     // The shell reads liveness from a worktree. An agent between branches holds
     // none, so there is nowhere to look — `unknown`, not a guess either way.
     manifest('a.json', { session: 'nowt', pid: '4242', startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home, { liveness: fakeLiveness({}) });
+    const [e] = await readAgentRegistry(root, home, { liveness: fakeLiveness({}) });
     assert.equal(e.state, 'unknown');
   });
 
-  it('defaults to `unknown` when no liveness resolver reaches an entry', () => {
+  it('defaults to `unknown` when no liveness resolver reaches an entry', async () => {
     // The registry must never crash a read for want of a state. With the default
     // resolver unavailable to a bare call, every entry is at worst `unknown`.
     manifest('a.json', { session: 'x', pid: '4242', worktree: '/wt/x',
       startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home, { liveness: () => { throw new Error('boom'); } });
+    const [e] = await readAgentRegistry(root, home, { liveness: () => { throw new Error('boom'); } });
     assert.equal(e.state, 'unknown');
   });
 
-  it('counts the live entries in one pass — the cap asks every pulse', () => {
+  it('counts the live entries in one pass — the cap asks every pulse', async () => {
     // Derivable without a per-entry shell-out: the states are already on the
     // entries, so the cap is one filter over the array.
     manifest('a.json', { session: 'a', pid: '1', worktree: '/wt/a', startedAt: '2026-08-20T12:00:00Z' });
     manifest('b.json', { session: 'b', pid: '2', worktree: '/wt/b', startedAt: '2026-08-20T11:00:00Z' });
     manifest('c.json', { session: 'c', pid: '3', worktree: '/wt/c', startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({ '/wt/a': 'running', '/wt/b': 'finished', '/wt/c': 'running' }),
     });
     assert.equal(got.filter((e) => e.state === 'running').length, 2);
@@ -406,10 +406,10 @@ describe('a worktree with no manifest is listed — absence of a record is not a
   const fakeLiveness = (byWorktree: Record<string, string>) =>
     (wts: string[]): string[] => wts.map((wt) => byWorktree[wt] ?? 'unknown');
 
-  it('synthesizes an entry for a worktree no manifest names, carrying its branch and a real state', () => {
+  it('synthesizes an entry for a worktree no manifest names, carrying its branch and a real state', async () => {
     // No manifests at all, one real worktree — the shape three of the six
     // measured here have (a .plot-worker.pid, no manifest).
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
       liveness: fakeLiveness({ '/wt/orphan': 'waiting' }),
     });
@@ -419,11 +419,11 @@ describe('a worktree with no manifest is listed — absence of a record is not a
     assert.equal(got[0].state, 'waiting', 'classified like any other entry');
   });
 
-  it('gives a synthesized entry session="" and no invented command or startedAt', () => {
+  it('gives a synthesized entry session="" and no invented command or startedAt', async () => {
     // A synthesized entry must not invent launch facts it does not have. `session`
     // is minted at launch and this worktree has none; a startedAt guessed from
     // mtime would read as a launch record and be false.
-    const [e] = readAgentRegistry(root, home, {
+    const [e] = await readAgentRegistry(root, home, {
       worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
       liveness: fakeLiveness({ '/wt/orphan': 'running' }),
     });
@@ -434,9 +434,9 @@ describe('a worktree with no manifest is listed — absence of a record is not a
     assert.equal(e.contextTokens, undefined);
   });
 
-  it('does NOT render the main repo as an agent', () => {
+  it('does NOT render the main repo as an agent', async () => {
     // `git worktree list` includes the primary checkout; it is not an agent.
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       worktrees: worktrees([
         { path: '/repo', branch: 'main', isMain: true },
         { path: '/wt/real', branch: 'feature/real' },
@@ -446,10 +446,10 @@ describe('a worktree with no manifest is listed — absence of a record is not a
     assert.deepEqual(got.map((e) => e.worktree), ['/wt/real'], 'the main repo is excluded');
   });
 
-  it('does NOT render a branchless worktree as an agent', () => {
+  it('does NOT render a branchless worktree as an agent', async () => {
     // A detached or unreadable HEAD has nothing an agent row could be about —
     // the scratch dirs wt-gate3 and plot-wt-folded-plan measured here.
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       worktrees: worktrees([
         { path: '/wt/real', branch: 'feature/real' },
         { path: '/wt/scratch', branch: '' },
@@ -459,11 +459,11 @@ describe('a worktree with no manifest is listed — absence of a record is not a
     assert.deepEqual(got.map((e) => e.worktree), ['/wt/real'], 'the branchless worktree is excluded');
   });
 
-  it('does NOT synthesize where a manifest already names the worktree — no worktree appears twice', () => {
+  it('does NOT synthesize where a manifest already names the worktree — no worktree appears twice', async () => {
     // Precedence: a manifest wins. The worktree it names is not synthesized again.
     manifest('a.json', { session: 'has-manifest', branch: 'feature/known',
       worktree: '/wt/known', pid: '42', startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       worktrees: worktrees([
         { path: '/wt/known', branch: 'feature/known' },
         { path: '/wt/new', branch: 'feature/new' },
@@ -476,10 +476,10 @@ describe('a worktree with no manifest is listed — absence of a record is not a
     assert.equal(got.length, 2, 'the manifest entry plus the one synthesized worktree');
   });
 
-  it('lists nothing extra when every worktree already has a manifest', () => {
+  it('lists nothing extra when every worktree already has a manifest', async () => {
     manifest('a.json', { session: 's', branch: 'feature/x', worktree: '/wt/x',
       pid: '42', startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       worktrees: worktrees([{ path: '/wt/x', branch: 'feature/x' }]),
       liveness: fakeLiveness({ '/wt/x': 'running' }),
     });
@@ -508,7 +508,7 @@ describe('the manifest directory is configured — the registry lives where the 
     );
   }
 
-  it('reads manifests from an explicit manifestDir, and the session id survives', () => {
+  it('reads manifests from an explicit manifestDir, and the session id survives', async () => {
     // Item 1. The test seam: an already-resolved directory bypasses the shell.
     // A manifest-backed entry carries its session — the identity a synthesized
     // row cannot — so `BrokenAgentMenu` can offer *Drop this agent*.
@@ -519,12 +519,12 @@ describe('the manifest directory is configured — the registry lives where the 
       JSON.stringify({ session: 'sess-a', branch: 'feature/x', worktree: '/wt/a',
         command: 'claude', startedAt: '2026-08-20T10:00:00Z' }),
     );
-    const got = readAgentRegistry(root, home, { manifestDir: elsewhere });
+    const got = await readAgentRegistry(root, home, { manifestDir: elsewhere });
     assert.equal(got.length, 1);
     assert.equal(got[0].session, 'sess-a', 'the session id is not lost');
   });
 
-  it('resolves the directory through plot-config.sh when a key is set', () => {
+  it('resolves the directory through plot-config.sh when a key is set', async () => {
     // Item 1, end to end through the real shell: the board reads the key the
     // adopting project declares, and finds the dispatcher's manifests there.
     const elsewhere = path.join(root, 'shared-registry');
@@ -535,11 +535,11 @@ describe('the manifest directory is configured — the registry lives where the 
         startedAt: '2026-08-20T10:00:00Z' }),
     );
     configFile('Agent registry', 'shared-registry');
-    const got = readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
+    const got = await readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
     assert.deepEqual(got.map((e) => e.session), ['sess-cfg']);
   });
 
-  it('a project with no config key set behaves exactly as today', () => {
+  it('a project with no config key set behaves exactly as today', async () => {
     // Item 6. This is the assertion a fix-this-estate-break-every-other-adopter
     // change fails: with no key, the default `.plot/agents` is read, and the
     // manifest written there in `beforeEach`'s directory is found.
@@ -549,29 +549,29 @@ describe('the manifest directory is configured — the registry lives where the 
     );
     // No CLAUDE.md, but scriptsDir IS present — proving the shell resolves to the
     // default rather than the change only working when the shell is absent.
-    const got = readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
+    const got = await readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
     assert.deepEqual(got.map((e) => e.session), ['default-path']);
   });
 
-  it('falls back to the default path with no scriptsDir and no override — no shell-out', () => {
+  it('falls back to the default path with no scriptsDir and no override — no shell-out', async () => {
     // A bare call resolves to `.plot/agents` without shelling out at all, the
     // same graceful degradation every other injected resolver follows.
     fs.writeFileSync(
       path.join(root, AGENT_MANIFEST_DIR, 'a.json'),
       JSON.stringify({ session: 'bare', startedAt: '2026-08-20T10:00:00Z' }),
     );
-    const got = readAgentRegistry(root, home);
+    const got = await readAgentRegistry(root, home);
     assert.deepEqual(got.map((e) => e.session), ['bare']);
   });
 
-  it('a worktree that genuinely has no manifest still synthesizes an entry with session=""', () => {
+  it('a worktree that genuinely has no manifest still synthesizes an entry with session=""', async () => {
     // Item 2. The synthesis path is NOT removed by pointing the reader elsewhere.
     // The resolved directory is empty, so a hand-made worktree is still visible —
     // with `session: ''`, which is what a naive implementation that deleted the
     // fallback would make vanish.
     const empty = path.join(root, 'empty-registry');
     fs.mkdirSync(empty, { recursive: true });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       manifestDir: empty,
       worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
       liveness: (wts) => wts.map(() => 'running'),
@@ -581,10 +581,10 @@ describe('the manifest directory is configured — the registry lives where the 
     assert.equal(got[0].session, '', 'synthesized, session empty by design');
   });
 
-  it('an absent configured directory reads as no dispatch, and synthesis still runs', () => {
+  it('an absent configured directory reads as no dispatch, and synthesis still runs', async () => {
     // The configured directory does not exist yet (no dispatch has written to it).
     // That is the empty-directory case, not a throw: synthesis proceeds.
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       manifestDir: path.join(root, 'never-created'),
       worktrees: worktrees([{ path: '/wt/orphan', branch: 'feature/orphan' }]),
       liveness: (wts) => wts.map(() => 'waiting'),
@@ -605,7 +605,7 @@ describe('gitWorktrees — the real porcelain, parsed', () => {
     repo = '';
   });
 
-  it('marks the primary checkout isMain, names branches, and leaves a detached worktree branchless', () => {
+  it('marks the primary checkout isMain, names branches, and leaves a detached worktree branchless', async () => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gitwt-'));
     const main = path.join(repo, 'main');
     const g = (dir: string, ...a: string[]) =>
@@ -619,7 +619,7 @@ describe('gitWorktrees — the real porcelain, parsed', () => {
     g(main, 'worktree', 'add', '-q', path.join(repo, 'side'), 'feature/side');
     g(main, 'worktree', 'add', '-q', '--detach', path.join(repo, 'loose'), 'HEAD');
 
-    const got = gitWorktrees(main);
+    const got = await gitWorktrees(main);
     const primary = got.find((w) => w.path === fs.realpathSync(main));
     const side = got.find((w) => w.branch === 'feature/side');
     const loose = got.find((w) => w.path === fs.realpathSync(path.join(repo, 'loose')));
@@ -652,7 +652,7 @@ describe('liveness through the REAL plot-worker-state.sh — the reuse, proven',
     return wt;
   }
 
-  it('reads `running` for a worktree whose pid is genuinely alive', () => {
+  it('reads `running` for a worktree whose pid is genuinely alive', async () => {
     // A real, live process — not a spawned assertion. `sleep 60` outlives the
     // test and is reaped in afterEach.
     live = spawn('sleep', ['60'], { stdio: 'ignore' });
@@ -660,11 +660,11 @@ describe('liveness through the REAL plot-worker-state.sh — the reuse, proven',
     const wt = worktree('wt-live', pid);
     manifest('a.json', { session: 'live', pid: String(pid), worktree: wt,
       startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
+    const [e] = await readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
     assert.equal(e.state, 'running');
   });
 
-  it('reads `finished` for a worktree whose pid exited tidily', () => {
+  it('reads `finished` for a worktree whose pid exited tidily', async () => {
     // A pid that cannot be alive (nothing this high is running here), plus the
     // exit record the wrapper leaves on a clean exit: `plot_worker_state`
     // refines a clean exit with no PR and no work on the floor to `finished`.
@@ -672,11 +672,11 @@ describe('liveness through the REAL plot-worker-state.sh — the reuse, proven',
     fs.writeFileSync(path.join(wt, '.plot-worker.exit'), '0');
     manifest('a.json', { session: 'done', pid: '999999', worktree: wt,
       startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
+    const [e] = await readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
     assert.equal(e.state, 'finished');
   });
 
-  it('maps a shell state outside the four onto `unknown`', () => {
+  it('maps a shell state outside the four onto `unknown`', async () => {
     // A dead pid with no exit record is `ended` to the shell — a real answer
     // about the process, but not one of the four the registry keeps. It becomes
     // `unknown` rather than being forced into `finished`: absent is not a guess.
@@ -685,17 +685,17 @@ describe('liveness through the REAL plot-worker-state.sh — the reuse, proven',
     const wt = worktree('wt-ended', 999998);
     manifest('a.json', { session: 'ended', pid: '999998', worktree: wt,
       startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
+    const [e] = await readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
     assert.equal(e.state, 'unknown');
   });
 
-  it('stays `unknown` with no scriptsDir — lists the agent it cannot classify', () => {
+  it('stays `unknown` with no scriptsDir — lists the agent it cannot classify', async () => {
     // The registry lists agents even where it cannot find the script. A bare
     // call (no resolver, no scriptsDir) never crashes and never guesses.
     const wt = worktree('wt-noscripts', 999997);
     manifest('a.json', { session: 'x', pid: '999997', worktree: wt,
       startedAt: '2026-08-20T10:00:00Z' });
-    const [e] = readAgentRegistry(root, home);
+    const [e] = await readAgentRegistry(root, home);
     assert.equal(e.state, 'unknown');
     assert.equal(e.session, 'x', 'still listed');
   });
@@ -719,12 +719,12 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
   const fakeCleanliness = (byWorktree: Record<string, boolean>) =>
     (worktrees: string[]): boolean[] => worktrees.map((wt) => byWorktree[wt] ?? false);
 
-  it('KEEPS a worker with a dirty worktree and an ended session — uncommitted work outstanding', () => {
+  it('KEEPS a worker with a dirty worktree and an ended session — uncommitted work outstanding', async () => {
     // Done when #7: A worker with a dirty worktree and an ended session is still
     // reported, with what it is holding.
     manifest('a.json', { session: 'dirty-ended', pid: '4242', worktree: '/wt/dirty',
       startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({ '/wt/dirty': 'finished' }),
       cleanliness: fakeCleanliness({ '/wt/dirty': false }), // dirty
     });
@@ -733,12 +733,12 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
     assert.equal(got[0].state, 'finished');
   });
 
-  it('KEEPS a worker with a clean worktree and a live session — still running', () => {
+  it('KEEPS a worker with a clean worktree and a live session — still running', async () => {
     // Done when #8: A worker with a clean worktree and a live session is still
     // reported.
     manifest('a.json', { session: 'clean-running', pid: '4242', worktree: '/wt/clean',
       startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({ '/wt/clean': 'running' }),
       cleanliness: fakeCleanliness({ '/wt/clean': true }), // clean — but running
     });
@@ -747,22 +747,22 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
     assert.equal(got[0].state, 'running');
   });
 
-  it('DROPS a worker with a clean worktree and an ended session — nothing outstanding', () => {
+  it('DROPS a worker with a clean worktree and an ended session — nothing outstanding', async () => {
     // Done when #9: A worker with a clean worktree and an ended session is absent.
     manifest('a.json', { session: 'clean-ended', pid: '4242', worktree: '/wt/clean',
       startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({ '/wt/clean': 'finished' }),
       cleanliness: fakeCleanliness({ '/wt/clean': true }), // clean AND ended
     });
     assert.equal(got.length, 0, 'the entry is dropped');
   });
 
-  it('KEEPS an entry with no worktree — nothing to check', () => {
+  it('KEEPS an entry with no worktree — nothing to check', async () => {
     // "Absent is not false": an entry with no worktree cannot be checked for
     // cleanliness, so it stays visible regardless of state.
     manifest('a.json', { session: 'no-wt', startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({}), // unknown state
       cleanliness: fakeCleanliness({}),
     });
@@ -770,7 +770,7 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
     assert.equal(got[0].session, 'no-wt');
   });
 
-  it('distinguishes ended states — only `running` is a live session', () => {
+  it('distinguishes ended states — only `running` is a live session', async () => {
     // All non-running states represent an ended session: finished, waiting,
     // stalled, unknown. Each should be dropped when clean.
     for (const state of ['finished', 'waiting', 'stalled', 'unknown'] as const) {
@@ -778,7 +778,7 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
       manifest(`${state}.json`, { session: state, pid: '4242', worktree: wt,
         startedAt: '2026-08-20T10:00:00Z' });
     }
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({
         '/wt/finished': 'finished',
         '/wt/waiting': 'waiting',
@@ -795,30 +795,30 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
     assert.equal(got.length, 0, 'all ended+clean entries are dropped');
   });
 
-  it('keeps entries when cleanliness resolver throws — fail open', () => {
+  it('keeps entries when cleanliness resolver throws — fail open', async () => {
     // If the cleanliness check fails, we keep all entries rather than dropping
     // any. An entry invisible during an outage is one that gets overlooked.
     manifest('a.json', { session: 'x', pid: '4242', worktree: '/wt/x',
       startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({ '/wt/x': 'finished' }),
       cleanliness: () => { throw new Error('boom'); },
     });
     assert.equal(got.length, 1, 'the entry is kept when check fails');
   });
 
-  it('keeps entries when cleanliness returns wrong count — fail open', () => {
+  it('keeps entries when cleanliness returns wrong count — fail open', async () => {
     // A resolver that returns the wrong number of answers cannot be trusted.
     manifest('a.json', { session: 'x', pid: '4242', worktree: '/wt/x',
       startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({ '/wt/x': 'finished' }),
       cleanliness: () => [], // wrong count
     });
     assert.equal(got.length, 1, 'the entry is kept when resolver misbehaves');
   });
 
-  it('mixes kept and dropped in the same pass', () => {
+  it('mixes kept and dropped in the same pass', async () => {
     // A realistic scenario: some workers still running, some ended but dirty,
     // some ended and clean (to be dropped).
     manifest('running.json', { session: 'running', pid: '1', worktree: '/wt/running',
@@ -827,7 +827,7 @@ describe('dropping settled workers — only when BOTH conditions hold', () => {
       startedAt: '2026-08-20T11:00:00Z' });
     manifest('clean.json', { session: 'clean', pid: '3', worktree: '/wt/clean',
       startedAt: '2026-08-20T10:00:00Z' });
-    const got = readAgentRegistry(root, home, {
+    const got = await readAgentRegistry(root, home, {
       liveness: fakeLiveness({
         '/wt/running': 'running',
         '/wt/dirty': 'finished',

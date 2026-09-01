@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -49,8 +49,12 @@ const KNOWN_STATES = new Set<AgentState>(['running', 'finished', 'waiting', 'sta
  * 5 s timer and a fork per agent would put the scan's cost back — the exact
  * thing the "count in one pass" criterion guards against. Injected in tests so
  * they need not spawn a live process to assert on `running`.
+ *
+ * Awaited, so the fork runs OFF the event loop. A resolver that answers
+ * synchronously satisfies this type unchanged — a plain array is an accepted
+ * `Promise<string[]>` — so an injected test double needs no `async`.
  */
-export type LivenessResolver = (worktrees: string[]) => string[];
+export type LivenessResolver = (worktrees: string[]) => string[] | Promise<string[]>;
 
 /**
  * The processes one dispatch started, beside the agent itself.
@@ -190,12 +194,63 @@ export const AGENT_MANIFEST_DIR_KEY = 'Agent registry';
  * `drop.ts` imports this rather than re-joining {@link AGENT_MANIFEST_DIR}. The
  * parameter is narrowed to the two fields resolution actually reads, so a caller
  * that is not the reader need not carry the reader's whole options shape.
+ *
+ * ## Still synchronous, and the split is deliberate
+ *
+ * This is the ONE spawn in this file that serves both a read and a write. The
+ * reader calls {@link resolveManifestDirAsync}; the two WRITE callers —
+ * `drop.ts`'s `POST /api/registry/drop` and `manifest-stamp.ts` — keep this
+ * one, because a synchronous spawn on a write route blocks the loop for the
+ * operator who clicked, while one on the registry read blocked it for every
+ * viewer on the fleet's 5 s pulse. Same defect, different blast radius, and
+ * only the second one is this plan's subject.
+ *
+ * The two share {@link joinManifestDir}, so *where is the registry* still has
+ * one answer and the read and write halves cannot drift apart.
  */
 export function resolveManifestDir(
   repoRoot: string,
   opts: { manifestDir?: string; scriptsDir?: string },
 ): string {
-  const configured = opts.manifestDir ?? readManifestDirConfig(repoRoot, opts.scriptsDir);
+  return joinManifestDir(
+    repoRoot,
+    opts.manifestDir ?? readManifestDirConfig(repoRoot, opts.scriptsDir),
+  );
+}
+
+/**
+ * The same resolution, awaited — what the registry READ calls.
+ *
+ * `plot-config.sh` is spawned through `execFile` rather than `execFileSync`, so
+ * the event loop keeps serving while it runs. That is the whole difference and
+ * it is the whole point.
+ *
+ * @param repoRoot - the repository the registry belongs to.
+ * @param opts - an already-resolved directory, or the scripts to ask.
+ * @returns the absolute manifest directory.
+ */
+export async function resolveManifestDirAsync(
+  repoRoot: string,
+  opts: { manifestDir?: string; scriptsDir?: string },
+): Promise<string> {
+  return joinManifestDir(
+    repoRoot,
+    opts.manifestDir ?? (await readManifestDirConfigAsync(repoRoot, opts.scriptsDir)),
+  );
+}
+
+/**
+ * Anchor a configured directory against the repository.
+ *
+ * A relative result (the common case — `.plot/agents`, or a repo-relative
+ * override) is joined against `repoRoot`; an absolute result is taken as-is, so
+ * a project may name a registry outside its own tree.
+ *
+ * @param repoRoot - the repository to join relative paths against.
+ * @param configured - what the config or the caller named.
+ * @returns the absolute directory.
+ */
+function joinManifestDir(repoRoot: string, configured: string): string {
   return path.isAbsolute(configured) ? configured : path.join(repoRoot, configured);
 }
 
@@ -217,6 +272,55 @@ function readManifestDirConfig(repoRoot: string, scriptsDir?: string): string {
   } catch {
     return AGENT_MANIFEST_DIR;
   }
+}
+
+/**
+ * The same lookup, off the event loop.
+ *
+ * An unreadable config answers {@link AGENT_MANIFEST_DIR}, matching the
+ * synchronous twin: `plot-config.sh` returns the fallback for an absent key, so
+ * *absent* is an answer here rather than a failure to report.
+ */
+async function readManifestDirConfigAsync(
+  repoRoot: string,
+  scriptsDir?: string,
+): Promise<string> {
+  if (!scriptsDir) return AGENT_MANIFEST_DIR;
+  const out = await run(
+    'bash',
+    [path.join(scriptsDir, 'plot-config.sh'), 'get', AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR],
+    { cwd: repoRoot },
+  );
+  return out === null ? AGENT_MANIFEST_DIR : out.trim() || AGENT_MANIFEST_DIR;
+}
+
+/**
+ * Runs a command off the event loop and answers its stdout, or null.
+ *
+ * The process helper this file's read path uses, for the three spawns that
+ * are not questions any existing port answers in the shape the registry needs:
+ * `plot-config.sh`, `plot-worker-state.sh` in BATCH, and the batched
+ * cleanliness program. Each caller says below what an absent answer means for
+ * it — `null` is never silently read as a value.
+ *
+ * @param command - the executable to run.
+ * @param args - its arguments.
+ * @param options - where to run it.
+ * @returns stdout, or null for any failure.
+ */
+function run(
+  command: string,
+  args: string[],
+  options: { cwd?: string } = {},
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      { cwd: options.cwd, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 },
+      (error, stdout) => resolve(error ? null : stdout),
+    );
+  });
 }
 
 /**
@@ -403,8 +507,13 @@ export interface WorktreeInfo {
   isMain: boolean;
 }
 
-/** Enumerate the repo's worktrees. Injected in tests; default {@link gitWorktrees}. */
-export type WorktreeLister = () => WorktreeInfo[];
+/**
+ * Enumerate the repo's worktrees. Injected in tests; default {@link gitWorktrees}.
+ *
+ * Awaited like {@link LivenessResolver}, and a synchronous lister still
+ * satisfies it.
+ */
+export type WorktreeLister = () => WorktreeInfo[] | Promise<WorktreeInfo[]>;
 
 /**
  * Resolve whether each worktree in a batch is "clean", in the same order.
@@ -419,8 +528,11 @@ export type WorktreeLister = () => WorktreeInfo[];
  * Returns `true` for clean, `false` for dirty/unpushed. A worktree that cannot
  * be checked (no git, no upstream) returns `false` — the entry stays visible
  * rather than being silently dropped.
+ *
+ * Awaited like {@link LivenessResolver}, and a synchronous resolver still
+ * satisfies it.
  */
-export type CleanlinessResolver = (worktrees: string[]) => boolean[];
+export type CleanlinessResolver = (worktrees: string[]) => boolean[] | Promise<boolean[]>;
 
 /**
  * Metadata about the registry read — the facts that make a synthesized fleet
@@ -444,12 +556,12 @@ export interface RegistryResult {
   info: RegistryInfo;
 }
 
-export function readAgentRegistry(
+export async function readAgentRegistry(
   repoRoot: string,
   home?: string,
   opts: ReadRegistryOptions = {},
-): AgentEntry[] {
-  return readAgentRegistryWithInfo(repoRoot, home, opts).entries;
+): Promise<AgentEntry[]> {
+  return (await readAgentRegistryWithInfo(repoRoot, home, opts)).entries;
 }
 
 /**
@@ -461,12 +573,12 @@ export function readAgentRegistry(
  * is missing because nothing is broken or because the board is reading an
  * empty directory.
  */
-export function readAgentRegistryWithInfo(
+export async function readAgentRegistryWithInfo(
   repoRoot: string,
   home?: string,
   opts: ReadRegistryOptions = {},
-): RegistryResult {
-  const dir = resolveManifestDir(repoRoot, opts);
+): Promise<RegistryResult> {
+  const dir = await resolveManifestDirAsync(repoRoot, opts);
   let names: string[];
   try {
     names = fs.readdirSync(dir);
@@ -522,7 +634,7 @@ export function readAgentRegistryWithInfo(
     const lister = opts.worktrees ?? (() => gitWorktrees(repoRoot));
     let worktrees: WorktreeInfo[] = [];
     try {
-      worktrees = lister();
+      worktrees = await lister();
     } catch {
       worktrees = []; // The listing failed; synthesize nothing rather than throw.
     }
@@ -534,10 +646,10 @@ export function readAgentRegistryWithInfo(
       synthesizedCount++;
     }
   }
-  refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir));
+  await refreshStates(out, opts.liveness ?? defaultLiveness(opts.scriptsDir));
   // Drop settled workers: session ended AND worktree clean. A worker with either
   // condition outstanding — live session OR dirty/unpushed — stays visible.
-  const filtered = dropSettledWorkers(
+  const filtered = await dropSettledWorkers(
     out,
     opts.cleanliness ?? defaultCleanliness(),
   );
@@ -597,12 +709,12 @@ function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
  * the wrong number of answers, leaves every entry `unknown`: the registry must
  * list its agents even when it cannot classify them.
  */
-function refreshStates(entries: AgentEntry[], liveness: LivenessResolver): void {
+async function refreshStates(entries: AgentEntry[], liveness: LivenessResolver): Promise<void> {
   const checkable = entries.filter((e) => e.worktree !== '');
   if (checkable.length === 0) return;
   let answers: string[];
   try {
-    answers = liveness(checkable.map((e) => e.worktree));
+    answers = await liveness(checkable.map((e) => e.worktree));
   } catch {
     return; // Every entry stays `unknown`.
   }
@@ -622,7 +734,7 @@ function refreshStates(entries: AgentEntry[], liveness: LivenessResolver): void 
  */
 function defaultLiveness(scriptsDir?: string): LivenessResolver {
   if (!scriptsDir) return () => [];
-  return (worktrees) => bashLiveness(scriptsDir, worktrees);
+  return (worktrees: string[]) => bashLiveness(scriptsDir, worktrees);
 }
 
 /**
@@ -641,20 +753,38 @@ function defaultLiveness(scriptsDir?: string): LivenessResolver {
  * only and lets `finished`-vs-`stalled` be the honest local answer.
  *
  * A failure — bash absent, the script unreadable, a worktree path that upsets
- * it — throws, and `refreshStates` catches it into `unknown` for the batch. The
- * listing is never at risk.
+ * it — answers an empty array, and `refreshStates` reads the length mismatch
+ * into `unknown` for the batch. The listing is never at risk.
+ *
+ * ## Why this stays a batch rather than becoming one `Processes.workerState`
+ * ## call per entry
+ *
+ * The plan's second Open Question asks whether per-item port calls trade one
+ * blocking spawn for many awaited ones. **Measured here on 2026-09-01, 20
+ * worktrees:** the batch answers in 210 ms and 20 separate `bash -c` calls in
+ * 290 ms — 1.4×, not 20×, because the cost is the work INSIDE each call rather
+ * than the fork around it. So per-item would be affordable.
+ *
+ * It stays a batch anyway, for a reason that is not performance: the batch is
+ * what makes ONE fork's failure ONE answer. `refreshStates` treats a wrong
+ * answer count as *every entry unknown*, and that contract only reads cleanly
+ * while there is a single call to succeed or fail. Twenty independent calls
+ * would each have their own outcome, and the honest reading of a partial
+ * result — nine states and eleven failures — is a question this registry has
+ * never had to answer.
  */
-function bashLiveness(scriptsDir: string, worktrees: string[]): string[] {
+async function bashLiveness(scriptsDir: string, worktrees: string[]): Promise<string[]> {
   const script = path.join(scriptsDir, 'plot-worker-state.sh');
   // Source the helper, then loop the worktrees passed as positional arguments,
   // emitting only the state field (the first tab-separated column) NUL-delimited.
   const program =
     `. "$1"; shift; for wt in "$@"; do ` +
     `printf '%s\\0' "$(plot_worker_state "$wt" '' | cut -f1)"; done`;
-  const out = execFileSync('bash', ['-c', program, 'bash', script, ...worktrees], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
+  const out = await run('bash', ['-c', program, 'bash', script, ...worktrees]);
+  // An absent answer is NOT an empty batch: it is a batch nobody could read.
+  // Returning [] hands `refreshStates` a length mismatch, which is exactly the
+  // "leave every entry `unknown`" path the old throw took.
+  if (out === null) return [];
   // Trailing NUL leaves an empty final element; drop it. One answer per worktree.
   const parts = out.split('\0');
   if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
@@ -670,16 +800,15 @@ function bashLiveness(scriptsDir: string, worktrees: string[]): string[] {
  * exclusion git itself hands us; a block with no `branch` line is branchless and
  * carries `branch: ''`, the other exclusion.
  *
- * Throws on any git failure (no repo, git absent), and `readAgentRegistry`
- * catches it into "synthesize nothing": the worktree list is an enrichment, never
- * a dependency the listing can fail on.
+ * Answers `[]` on any git failure (no repo, git absent), which
+ * `readAgentRegistry` renders as "synthesize nothing": the worktree list is an
+ * enrichment, never a dependency the listing can fail on. It used to throw and
+ * be caught into the same outcome; awaited, the failure is a value rather than
+ * a control-flow jump, and the outcome is unchanged.
  */
-export function gitWorktrees(repoRoot: string): WorktreeInfo[] {
-  const out = execFileSync('git', ['worktree', 'list', '--porcelain'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
+export async function gitWorktrees(repoRoot: string): Promise<WorktreeInfo[]> {
+  const out = await run('git', ['worktree', 'list', '--porcelain'], { cwd: repoRoot });
+  if (out === null) return [];
   const infos: WorktreeInfo[] = [];
   let cur: { path: string; branch: string } | null = null;
   let first = true;
@@ -723,10 +852,10 @@ export function gitWorktrees(repoRoot: string): WorktreeInfo[] {
  * and "clean" requires evidence of cleanliness — which an absent worktree
  * cannot provide. The same "absent is not false" rule as everywhere else.
  */
-function dropSettledWorkers(
+async function dropSettledWorkers(
   entries: AgentEntry[],
   cleanliness: CleanlinessResolver,
-): AgentEntry[] {
+): Promise<AgentEntry[]> {
   // First pass: find entries that MIGHT be dropped — session ended AND has a
   // worktree to check. Running entries stay; entries with no worktree stay.
   const candidates: AgentEntry[] = [];
@@ -743,7 +872,7 @@ function dropSettledWorkers(
   // Second pass: check cleanliness of the candidates in one batch call.
   let isClean: boolean[];
   try {
-    isClean = cleanliness(candidates.map((e) => e.worktree));
+    isClean = await cleanliness(candidates.map((e) => e.worktree));
   } catch {
     // If cleanliness check fails, keep all entries — fail open rather than
     // dropping entries we cannot verify.
@@ -792,8 +921,26 @@ function defaultCleanliness(): CleanlinessResolver {
  *
  * **Exported for use by fleet.ts**, where the board enables dropping of settled
  * workers. The registry itself defaults to keeping all entries.
+ *
+ * ## Why not `Trees.isClean`
+ *
+ * The port exists and this looks like its question, but the two answer
+ * DIFFERENTLY and the difference drops work off the board. `trees-git.ts`
+ * reads `git status --porcelain` alone: no exclusions and no unpushed-commit
+ * check. Against this definition that is wrong twice —
+ *
+ * - **A tree holding only `.plot-worker.pid` reads dirty**, so a settled worker
+ *   never drops and the panel keeps clutter forever. Measured 2026-09-01: 1 of
+ *   20 worktrees on this estate differs on exactly this.
+ * - **A tree with unpushed commits reads clean**, so an agent whose work exists
+ *   only in its local reflog drops OUT of the listing — the one failure the
+ *   whole drop rule is written around.
+ *
+ * So this batch stays, awaited rather than blocking. Widening `Trees.isClean`
+ * to carry the exclusions and the upstream check is a change to a port two
+ * other slices read, which is a write this read-path plan does not own.
  */
-export function bashCleanliness(worktrees: string[]): boolean[] {
+export async function bashCleanliness(worktrees: string[]): Promise<boolean[]> {
   if (worktrees.length === 0) return [];
   // The script checks each worktree and prints "clean" or "dirty" NUL-separated.
   // It applies the same exclusion patterns as plot-worker-state.sh to be consistent.
@@ -825,10 +972,11 @@ export function bashCleanliness(worktrees: string[]): boolean[] {
       esac
     done
   `;
-  const out = execFileSync('bash', ['-c', program, 'bash', ...worktrees], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
+  const out = await run('bash', ['-c', program, 'bash', ...worktrees]);
+  // An unreadable batch drops NOBODY. `dropSettledWorkers` takes a length
+  // mismatch as "keep every entry", which is the fail-open this resolver has
+  // always had — an entry we cannot verify is an entry that stays visible.
+  if (out === null) return [];
   // Trailing NUL leaves an empty final element; drop it.
   const parts = out.split('\0');
   if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();

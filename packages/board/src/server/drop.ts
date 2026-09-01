@@ -134,15 +134,21 @@ function worktreeIsGone(entry: AgentEntry): boolean {
  * code path the registry uses and calling it keeps the classification in one
  * place. An entry with no worktree stays `unknown` — there is nothing to look
  * in, and the drop is refused.
+ *
+ * Awaited because {@link LivenessResolver} became awaitable when the registry
+ * moved off the event loop. This is a WRITE route, so the await buys it
+ * nothing it needed — it is the shared resolver's shape, followed rather than
+ * forked. A synchronous injected resolver still satisfies the type, so every
+ * caller's double works unchanged.
  */
-function classifyState(
+async function classifyState(
   entry: AgentEntry,
   liveness: LivenessResolver | undefined,
-): AgentEntry['state'] {
+): Promise<AgentEntry['state']> {
   if (!entry.worktree) return 'unknown';
   if (!liveness) return 'unknown';
   try {
-    const [answer] = liveness([entry.worktree]);
+    const [answer] = await liveness([entry.worktree]);
     if (answer === 'running' || answer === 'finished' || answer === 'waiting' || answer === 'stalled') {
       return answer;
     }
@@ -210,7 +216,7 @@ export async function handleDrop(
   }
 
   // 2. Classify the state — refuse live workers.
-  const state = classifyState(entry, opts.liveness);
+  const state = await classifyState(entry, opts.liveness);
   if (LIVE_STATES.has(state)) {
     json(200, {
       session,
