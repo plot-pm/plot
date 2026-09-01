@@ -33,7 +33,7 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
-import { workingTreeSprints, planStatusBySlug, readConfigAsync, treesFor, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, readConfigAsync, scriptsFor, treesFor, type BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -755,6 +755,34 @@ async function measureEstate(opts: BuildBoardOptions): Promise<EstateMeasurement
  * stdout only. The scan writes its notes to stderr and its document to stdout,
  * and mixing them would put prose through `JSON.parse`.
  */
+/** The scan Plot ships, streamed one plan at a time. */
+const FLEET_SCAN = 'plot-fleet-scan.sh';
+
+/**
+ * The scan's budget, SET FROM MEASUREMENT — and the measurement moved.
+ *
+ * 30 s was right when the scan was ~10 s. After #262 batched the per-plan reads
+ * it is 34-52 s on this repo — 84 s before that change — and the spread is the
+ * machine rather than the code: measured 2026-08-20 with 12 worktrees and a load
+ * average of 8.35, a BARE `git` spawn cost 63 ms against 31 ms on a quiet
+ * machine, and the same `rev-list` timed 14 ms, 85 ms and 111 ms on three
+ * consecutive runs. 203 spawns at 63 ms is ~13 s of process launch before any
+ * work.
+ *
+ * So a fixed budget below the loaded cost fails INTERMITTENTLY, which is the
+ * worst shape: 60 correct rows arrived and the pulse was killed before its
+ * terminal line, so `pulseComplete` stayed false, the banner never cleared, and
+ * the footer read `60 branches across 20 plans SO FAR` — accurate, and
+ * indistinguishable from a broken board.
+ *
+ * 90 s is HEADROOM over a 34-52 s cost, not cover for a 279 s one. It was
+ * refused twice while the scan was 279 s, because a budget raised to fit a 9x
+ * overrun hides the next regression instead of reporting it. The remaining
+ * per-branch `rev-list` block (64 calls) is the next thing to batch, and when it
+ * lands this can come back down.
+ */
+const FLEET_SCAN_BUDGET_MS = 90_000;
+
 export function runStreaming(
   cmd: string,
   args: string[],
@@ -1136,9 +1164,9 @@ async function approvalDates(
   const planDir = await planDirectory(opts);
   const files = pulse.plans.map((p) => path.join(opts.repoRoot, planDir, p.file));
   try {
-    const out = await run('bash',
-      [path.join(opts.scriptsDir, 'plot-plan-meta.sh'), ...files], opts.repoRoot);
-    for (const line of out.split('\n')) {
+    const answer = await scriptsFor(opts).planMeta(files);
+    if (!answer.ok) return dates;
+    for (const line of answer.value.split('\n')) {
       if (!line.trim()) continue;
       const meta = JSON.parse(line) as { file?: string; approved_raw?: string };
       if (!meta.file || !meta.approved_raw) continue;
@@ -1169,10 +1197,9 @@ async function approvalDates(
  */
 async function planDirectory(opts: BuildBoardOptions): Promise<string> {
   try {
-    const out = await run('bash',
-      [path.join(opts.scriptsDir, 'plot-config.sh'), 'get', 'Plan directory', 'docs/plans/'],
-      opts.repoRoot);
-    return out.trim() || 'docs/plans/';
+    const answer = await scriptsFor(opts).config('Plan directory', 'docs/plans/');
+    if (!answer.ok) return 'docs/plans/';
+    return answer.value.trim() || 'docs/plans/';
   } catch {
     return 'docs/plans/';
   }
@@ -1572,12 +1599,11 @@ export async function refreshRuns(
   }
   for (const [branch] of failing) {
     try {
-      const out = await run('bash',
-        [path.join(opts.scriptsDir, 'plot-host.sh'), 'runs', branch,
-          '--limit', String(RUN_HISTORY_LIMIT)],
-        opts.repoRoot);
+      const answer = await scriptsFor(opts).host(['runs', branch,
+        '--limit', String(RUN_HISTORY_LIMIT)]);
+      if (!answer.ok) throw new Error('runs unavailable');
       const list: StuckRun[] = [];
-      for (const line of out.split('\n')) {
+      for (const line of answer.value.split('\n')) {
         if (!line.trim()) continue;
         const r = JSON.parse(line) as Partial<StuckRun>;
         list.push({
@@ -1639,9 +1665,9 @@ async function referencedIssues(opts: BuildBoardOptions): Promise<Set<number> | 
   if (files.length === 0) return new Set();
   const referenced = new Set<number>();
   try {
-    const out = await run('bash',
-      [path.join(opts.scriptsDir, 'plot-plan-meta.sh'), ...files], opts.repoRoot);
-    for (const line of out.split('\n')) {
+    const answer = await scriptsFor(opts).planMeta(files);
+    if (!answer.ok) return null;
+    for (const line of answer.value.split('\n')) {
       if (!line.trim()) continue;
       const meta = JSON.parse(line) as { issues?: number[] };
       // Absent on an older parser, which is a repo whose plans cannot reference
@@ -1660,30 +1686,27 @@ async function referencedIssues(opts: BuildBoardOptions): Promise<Set<number> | 
  * Runs on the PR timer beside `refreshPrs`, because it asks the same host at the
  * same cadence and its cost belongs to the same budget.
  *
- * THE THREE OUTCOMES STAY APART, and this function is where the adapter's exit
- * codes become them: 4 is `unsupported` (bb has no issue listing), any other
- * failure is `failed`, and only a clean exit yields `answered`. A failed lookup
- * KEEPS the last good list, the same rule `refreshPrs` follows — a row vanishing
- * on a fetch error looks like someone planned the issue.
+ * THE THREE OUTCOMES STAY APART, and the port is where they are decided: it
+ * answers `unaskable` for a host with no issue listing at all, `failed` for an
+ * attempt that broke, and `answered` only on a clean exit. This function maps
+ * those three words onto its own three, and reads no exit code to do it. A
+ * failed lookup KEEPS the last good list, the same rule `refreshPrs` follows —
+ * a row vanishing on a fetch error looks like someone planned the issue.
  */
 export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
-  let raw: string;
-  try {
-    raw = await run('bash',
-      [path.join(opts.scriptsDir, 'plot-host.sh'), 'issue-list', '--limit', String(ISSUE_LIMIT)],
-      opts.repoRoot);
-  } catch (err) {
-    // Exit 4 is the adapter saying THIS HOST CANNOT BE ASKED — a standing fact
-    // about Bitbucket, not an outage. It clears any stale error and empties the
-    // list, because there is nothing to keep and nothing failed.
-    const code = (err as { code?: number | string }).code;
-    if (code === 4) {
-      entry.issues = [];
-      entry.issueAnswer = 'unsupported';
-      entry.issueError = null;
-      return;
-    }
-    const message = err instanceof Error ? err.message : String(err);
+  const said = await scriptsFor(opts).hostSaid(['issue-list', '--limit', String(ISSUE_LIMIT)]);
+  // `unaskable` is the adapter saying THIS HOST CANNOT BE ASKED — a standing
+  // fact about Bitbucket, not an outage. It clears any stale error and empties
+  // the list, because there is nothing to keep and nothing failed. The adapter
+  // read the exit code; this reads the word.
+  if (said.answer === 'unaskable') {
+    entry.issues = [];
+    entry.issueAnswer = 'unsupported';
+    entry.issueError = null;
+    return;
+  }
+  if (said.answer === 'failed') {
+    const message = said.said;
     entry.issueAnswer = 'failed';
     entry.issueError = message; // `entry.issues` keeps its last good value on purpose
     // The issue poll is the neighbour the PR refresh's backoff never reached. It
@@ -1710,6 +1733,7 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     }
     return;
   }
+  const raw = said.stdout;
   const open: { number: number; title: string; url: string; createdAt: string }[] = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
@@ -1778,10 +1802,8 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
 async function resolveBackend(opts: BuildBoardOptions, entry: CacheEntry): Promise<string> {
   if (entry.backend !== null) return entry.backend;
   try {
-    const out = await run('bash',
-      [path.join(opts.scriptsDir, 'plot-host.sh'), 'backend'], opts.repoRoot);
-    const be = out.trim();
-    entry.backend = be || 'github';
+    const answer = await scriptsFor(opts).host(['backend']);
+    entry.backend = (answer.ok ? answer.value.trim() : '') || 'github';
   } catch {
     entry.backend = 'github';
   }
@@ -1805,10 +1827,14 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // first refresh and nothing on any later one.
   const backend = await resolveBackend(opts, entry);
   try {
-    const out = await run('bash',
-      [path.join(opts.scriptsDir, 'plot-host.sh'), 'pr-list', '--rich',
-        '--state', 'all', '--limit', String(PR_LIMIT)],
-      opts.repoRoot);
+    const said = await scriptsFor(opts).hostSaid(['pr-list', '--rich',
+      '--state', 'all', '--limit', String(PR_LIMIT)]);
+    // A refusal is thrown so the catch below keeps owning the backoff. It is one
+    // policy — keep the last good map, wait where the host named a wait — and
+    // the two paths that reach it (a refused call, and a map that came back all
+    // `unknown`) must not grow two copies of it.
+    if (said.answer !== 'answered') throw new Error(said.said);
+    const out = said.stdout;
     const map = new Map<string, PrRecord>();
     const byNumber = new Map<number, PrRecord>();
     const byHead = new Map<string, PrRecord>();
@@ -2112,8 +2138,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // partial map would quietly drop the branches it never reached — turning
     // a slow pulse into a cold cache on the pulse after it.
     let learned = '';
-    await runStreaming('bash',
-      [path.join(opts.scriptsDir, 'plot-fleet-scan.sh'), '--stream'], opts.repoRoot,
+    await scriptsFor(opts).stream(FLEET_SCAN, ['--stream'],
       (line) => {
         // A line that does not parse is DROPPED, not fatal. The scan writes its
         // document to stdout and its notes to stderr, but a helper that ever
@@ -2134,33 +2159,12 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
         // The terminal line: the scan finished and this is the whole document.
         parsed = msg.reading;
       },
-      // THE BUDGET IS SET FROM MEASUREMENT, and the measurement moved.
-      //
-      // 30 s was right when the scan was ~10 s. After #262 batched the
-      // per-plan reads it is 34-52 s on this repo — 84 s before that change —
-      // and the spread is the machine rather than the code: measured
-      // 2026-08-20 with 12 worktrees and a load average of 8.35, a BARE `git`
-      // spawn cost 63 ms against 31 ms on a quiet machine, and the same
-      // `rev-list` timed 14 ms, 85 ms and 111 ms on three consecutive runs.
-      // 203 spawns at 63 ms is ~13 s of process launch before any work.
-      //
-      // So a fixed budget below the loaded cost fails INTERMITTENTLY, which is
-      // the worst shape: 60 correct rows arrived and the pulse was killed
-      // before its terminal line, so `pulseComplete` stayed false, the banner
-      // never cleared, and the footer read `60 branches across 20 plans SO
-      // FAR` — accurate, and indistinguishable from a broken board.
-      //
-      // 90 s is HEADROOM over a 34-52 s cost, not cover for a 279 s one. It was
-      // refused twice while the scan was 279 s, because a budget raised to fit
-      // a 9x overrun hides the next regression instead of reporting it. The
-      // remaining per-branch `rev-list` block (64 calls) is the next thing to
-      // batch, and when it lands this can come back down.
-      90_000,
       {
+        timeoutMs: FLEET_SCAN_BUDGET_MS,
         // The map this pulse starts from. `''` on the first pulse after a
         // restart, which is what makes a restart re-derive everything.
         env: { PLOT_TERMINAL_CACHE: entry.terminal },
-        onErrLine: (line) => {
+        onErrorLine: (line) => {
           // Only the tagged notes are read; everything else on stderr is the
           // scan's ordinary prose and stays discarded.
           if (line.startsWith('terminal:')) {

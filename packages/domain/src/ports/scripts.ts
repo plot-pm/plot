@@ -14,6 +14,25 @@ export interface StartedRun {
   started: boolean;
 }
 
+/**
+ * What the host answered, with the evidence a refusal carries.
+ *
+ * `unaskable` is exit 4 — this backend has no such capability at all — and
+ * `failed` is anything else non-zero. The distinction is made once, inside the
+ * adapter, so no caller reads a number; what a caller still needs is the
+ * SENTENCE, because a rate limit and a DNS blip are both `failed` and only one
+ * of them is worth waiting for.
+ *
+ * So the classification and the evidence travel together. Collapsing them was
+ * the measured defect either way round: dropping the sentence makes every
+ * failure look alike, and handing back the code makes exit 4 look like an
+ * outage a caller should retry.
+ */
+export type HostAnswer =
+  | { answer: 'answered'; stdout: string }
+  | { answer: 'failed'; said: string }
+  | { answer: 'unaskable'; said: string };
+
 /** How to run one script. */
 export interface ScriptOptions {
   /** How long to wait before killing it, in milliseconds. */
@@ -110,6 +129,20 @@ export interface Scripts {
    * @returns the script's stdout.
    */
   host(args: readonly string[], options?: ScriptOptions): Promise<PortResult<string>>;
+
+  /**
+   * Asks `plot-host.sh` one question, keeping what it said on a refusal.
+   *
+   * The same call as {@link Scripts.host} for a caller that must tell a rate
+   * limit from a DNS failure. Both are `failed`; only the first is worth
+   * backing off from, and the host's own sentence is the only evidence either
+   * way.
+   *
+   * @param args - the subcommand and its arguments.
+   * @param options - how to run it.
+   * @returns which of the three answers this was, with stdout or the sentence.
+   */
+  hostSaid(args: readonly string[], options?: ScriptOptions): Promise<HostAnswer>;
 
   /**
    * Runs `plot-dispatch.sh` and waits for it.

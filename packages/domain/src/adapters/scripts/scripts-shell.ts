@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 
 import type { PortResult } from '../../port-result.js';
-import type { ScriptOptions, Scripts, StartedRun } from '../../ports/scripts.js';
+import type { HostAnswer, ScriptOptions, Scripts, StartedRun } from '../../ports/scripts.js';
 import { runProcess, runScript, runScriptSync } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -76,6 +76,22 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       ),
 
     host: (args, options) => ask(HOST, args, options),
+
+    hostSaid: async (args, options): Promise<HostAnswer> => {
+      const run = await runProcess(
+        'bash',
+        [scriptPath(context, HOST), ...args],
+        withRepo(options),
+      );
+      // THE CODE IS READ EXACTLY ONCE, HERE, and what leaves is a word. `4` is
+      // the host having no such capability at all, which no caller may retry;
+      // every other non-zero exit is an attempt that failed, which some callers
+      // should wait before repeating. The sentence travels because that is the
+      // only thing separating a rate limit from a DNS blip.
+      if (run.code === 0) return { answer: 'answered', stdout: run.stdout };
+      const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
+      return run.code === 4 ? { answer: 'unaskable', said } : { answer: 'failed', said };
+    },
 
     dispatch: async (args, options) => {
       // THE ONE ASK WHOSE STDOUT IS WORTH READING BESIDE A NON-ZERO EXIT.
