@@ -98,7 +98,7 @@ tests claims against the code, which the skill's question-generation does not.
 
 ### Noticing
 
-- `bug/a-questioned-plan-says-how-often` — `plot-reconcile-scan.sh` reports a Draft plan that has been amended since its last recorded round, the way it already reports index drift: convenience, not a gate. **A missing round is not a defect** — a plan nobody has questioned is honestly unquestioned — so this reports the *disagreement* between a plan's edit history and its stated rounds, which is the case the badge gets wrong.
+- `bug/a-questioned-plan-says-how-often` — `plot-reconcile-scan.sh` reports a Draft plan that has been amended since its last recorded round, the way it already reports index drift: convenience, not a gate. **A missing round is not a defect** — a plan nobody has questioned is honestly unquestioned — so this reports the *disagreement* between a plan's edit history and its stated rounds, which is the case the badge gets wrong. → #634
 
 ## Done when
 
