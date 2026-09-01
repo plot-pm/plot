@@ -16,6 +16,7 @@
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
+- **Started:** 2026-09-01, Jan Wloka, `feature/a-branch-names-what-it-waits-on`
 -->
 
 ## Changelog
