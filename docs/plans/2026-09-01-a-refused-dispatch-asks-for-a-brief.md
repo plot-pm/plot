@@ -5,13 +5,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -73,6 +73,19 @@ find them.
 and not one of them names a branch that still exists.** Those refs were deleted
 after their PRs merged, so the residue harms nothing today — the *"fix the six"*
 framing an earlier draft used is cleanup, not a blocker.
+
+**And the writer's defect is in the DOCUMENTATION.** Found while briefing the
+Naming slice: three readers already agree on the last path segment —
+`plot-dispatch.sh:336` (`${1##*/}`), `auto-dispatch.ts:549` and
+`attention.ts:55` (both `branch.split('/').pop()`). **`/plot-implement` step 4
+instructs the opposite:** *"the branch name with `/` flattened to `-`"*. Under
+that instruction `feature/the-refusals-are-domain-rules` becomes
+`feature-the-refusals-…`, which no reader computes.
+
+So the skill tells its author to write a file the gate cannot see, and three
+briefs were written that way on 2026-09-01 by an agent following it. **Fixing
+the code without fixing that sentence leaves the defect generating new cases**,
+which is why the skill edit is in the Naming slice rather than deferred.
 
 **The defect that matters is in the writer, not the residue.** Three briefs were
 written by hand that day under names the gate cannot read, which means a
