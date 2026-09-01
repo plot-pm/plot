@@ -161,9 +161,84 @@ empty cache and asks everything.
 
 ### One budget, on disk, per account
 
-The spender that matters is the **account**, so the record lives where every
-process on the machine can find it — under `.plot/state/`, keyed by host and
-account, holding what has been spent, against which bucket, and when.
+The spender that matters is the **account**, so the record must live where every
+process on the machine can find it, keyed by host and account, holding what has
+been spent, against which bucket, and when.
+
+**`.plot/state/` is NOT that place, and an earlier draft of this section said it
+was.** That directory is per CHECKOUT. Measured 2026-09-01 on this computer:
+
+| checkout | remote | `.plot/state/` |
+|---|---|---|
+| `Agentic-Tools/plot` | github | its own |
+| `Agentic-Tools/agent-skills` | github | its own |
+| `EKZ.Webportal/ekzweb` | bitbucket | its own |
+
+**Two checkouts, one GitHub account (`jwloka`), two budget files** — and each
+would read a full 5000 while the other spent it. That is precisely the
+over-spend this plan exists to prevent, reproduced by its own storage choice.
+
+**The third checkout sharpens it rather than softening it.** `ekzweb` is on
+bitbucket, so it shares no bucket with the other two. A per-checkout record makes
+the `host` half of the key do no work — every file has exactly one host in it —
+while the `account` half, the half that actually needs to be shared, cannot be.
+The key is right and the location contradicts it.
+
+**And the title is wrong in a way the storage flaw hides: there is no ONE
+budget.** Every connector has its own limit, its own buckets and its own way of
+reporting them — or none at all. Measured 2026-09-01 across
+`skills/plot/scripts/*.sh`:
+
+| connector | call sites | limit model |
+|---|---:|---|
+| `bb` (Bitbucket) | **102** | its own scheme; no `X-RateLimit-Resource` |
+| `gh` (GitHub) | 59 | REST + GraphQL, 5000/hr each, plus an undocumented secondary limit |
+| `jen` (Jenkins) | 9 | typically none |
+| `jira` | 8 | its own |
+
+**Bitbucket is the most-called connector in this repo, and the plan mentions a
+non-GitHub host three times.** Its entire mechanism — reading
+`X-RateLimit-Resource`, `Remaining` and `Used` from a response header — is a
+GitHub convention. Bitbucket does not send those headers, and Jenkins has no
+limit to send.
+
+**The spending entity is therefore `(connector, account, bucket)`, not `account`.**
+The plan's key already carries `host` and `account`; what it lacks is that
+*what a limit means* is connector-specific, so the record has to hold a
+connector's own vocabulary rather than GitHub's.
+
+**This is already a live defect, not only a design gap.** `graphql_budget_spent()`
+runs `gh api rate_limit` with **no branch on backend** — so on a Bitbucket
+project it asks GitHub about a budget the project never spends, and on Jenkins
+it asks about a limit that does not exist. `plot-host.sh` resolves
+`backend=github|bitbucket` at the top and the budget gate ignores it.
+
+**So the design must state what it does where a connector reports nothing.** The
+honest answer is *unknown*, and `unknown` must not collapse into *spent* or
+*free* — the same `PortResult` distinction the rest of this repo keeps
+re-learning. A connector with no limit needs no budget; a connector with an
+unreadable one needs a refusal that says which.
+
+**So the record belongs outside any checkout**, somewhere every Plot instance on
+the computer resolves identically — the same distinction
+[`a-machine-is-an-instance`](2026-08-30-a-machine-is-an-instance.md) draws
+between the Machine (one per Plot project, keyed by `repoRoot + scriptsDir`) and
+the Computer (one, and the owner of anything hardware- or account-shaped). **A
+rate limit is an account fact, so it is the Computer's**, not the instance's.
+
+**A shared file does NOT reopen the lock question**, and it is worth saying why
+rather than leaving the reader to worry. The design is already append-only —
+*"each spender appends what it spent, with a timestamp; a board derives its
+cadence from the observed rate across the whole file"* — which is the shape that
+tolerates several writers: there is no read-modify-write to interleave. Moving
+the file from a checkout to the computer changes who appends, not how.
+
+**The one assumption that becomes load-bearing is the line length.** Concurrent
+`O_APPEND` writes are atomic only below `PIPE_BUF` (4096 bytes on Linux and
+macOS). A budget line — timestamp, host, account, bucket, count — is two orders
+of magnitude under that, so the property holds; but it holds *because* the line
+is short, and a future field that carries a response body or an error message
+would break it silently. **State the cap where the record is defined.**
 
 Every host call goes through `plot-host.sh` already, which is the one place that
 appends to it.
