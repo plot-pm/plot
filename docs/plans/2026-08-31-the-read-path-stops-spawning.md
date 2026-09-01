@@ -19,6 +19,7 @@
 - **Started:** 2026-08-31, Jan Wloka, `feature/the-board-reads-through-the-port`
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-fleet-reads-through-the-port`
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-registry-reads-through-the-port`
+- **Started:** 2026-09-01, Jan Wloka, `feature/a-read-route-spawns-nothing`
 -->
 
 ## Changelog
