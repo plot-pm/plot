@@ -182,11 +182,15 @@ jobs:
       # in a diff, and that line is the decision.
       #
       # The count moved 65 -> 54 between this slice being written and being
-      # built, entirely through `production-calls` and `the-read-path` work.
-      # The gate records the migration; it does not perform it.
+      # built, entirely through `production-calls` and `the-read-path` work,
+      # then 54 -> 28 when `one-place-reaches-a-script` moved every `plot-*.sh`
+      # invocation behind the `Scripts` port. What is left is `git`, `ps`, one
+      # `tailscale`, and the `sh -c` starts for a project's configured command —
+      # different tools reached through different contracts, and the next slice's
+      # scope. The gate records the migration; it does not perform it.
       - name: One place reaches a process
         run: |
-          allowed=54
+          allowed=28
           hits=$(grep -rEn '^[^*/]*\b(spawn|spawnSync|execFile|execFileSync)\s*\(' \
                    --include='*.ts' packages/board/src packages/domain/src \
                  | grep -v '/adapters/' || true)
@@ -201,6 +205,44 @@ jobs:
           if [ "$count" -lt "$allowed" ]; then
             echo "::notice::the ratchet can tighten — $count sites, allowed still $allowed."
           fi
+
+      # PLOT'S OWN SCRIPTS, AND THIS ONE IS A REFUSAL RATHER THAN A RATCHET.
+      #
+      # The ratchet above counts every process the board starts and walks the
+      # number down, because 54 tools reached through four contracts cannot be
+      # fixed at once. `plot-*.sh` is the population that CAN be finished in one
+      # branch and was — so it gets the gate its `Done when` asks for, at zero,
+      # and a new invocation fails the build rather than raising a budget.
+      #
+      # The exit-code contract is why this population is different. Plot's
+      # scripts answer `4` for *this host cannot be asked at all* and `1` or `3`
+      # for *this attempt failed*, and a second reading of that difference turns
+      # a permanent configuration fact into a transient incident — a caller then
+      # retries something that will never work. `runScript()` maps it once.
+      #
+      # A NAME IS NOT AN INVOCATION. The board still holds eight `const`s
+      # carrying filenames, handed to the port to run — so the gate matches a
+      # `plot-*.sh` that appears in an ARGUMENT LIST or a path join, which is
+      # what a caller building a command does, and not a bare string constant.
+      #
+      # IT IS SCOPED TO PLOT'S OWN SCRIPTS AND NOT TO `bash` AT ALL. The board
+      # still runs `bash -c` over a git program in `registry.ts` — a different
+      # tool through a different contract, with no exit-code mapping to collapse
+      # — and that belongs to the slice beside this one. A gate that failed on it
+      # would be asserting something this branch did not do.
+      - name: One place reaches a script
+        run: |
+          hits=$(grep -rEn "(execFile|execFileSync|spawn|spawnSync)\([^)]*plot-[a-z-]+\.sh|(join|resolve)\([^)]*'plot-[a-z-]+\.sh'" \
+                   --include='*.ts' packages/board/src || true)
+          count=$(printf '%s' "$hits" | grep -c . || true)
+          if [ "$count" -gt 0 ]; then
+            echo "::error::the board invoked a script directly — $count sites, allowed 0."
+            echo "Every plot-*.sh call belongs behind the Scripts port, which maps"
+            echo "the exit codes once: 0 -> ok, 1|3 -> failed, 4 -> unaskable."
+            printf '%s\n' "$hits"
+            exit 1
+          fi
+          echo "One place reaches a script: clean."
 
       # TWO-SIDED, BECAUSE ONE SIDE PASSES ON NOTHING.
       #
