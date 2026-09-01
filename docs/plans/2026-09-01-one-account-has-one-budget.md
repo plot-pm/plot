@@ -373,6 +373,46 @@ candidate.
 **Where REST is not a fallback but the only answer**, the routing must say so
 too: a feature GraphQL lacks is a routing input exactly like a spent budget.
 
+### A connector is a kind of adapter, and only one exists today
+
+**Settled 2026-09-01.** Not every adapter is a connector. A **connector** reaches
+a remote service across a network — it has an account, credentials, a rate limit,
+and a transport choice. Every other adapter reaches the local machine, where none
+of those apply.
+
+**Measured across `packages/domain/src/adapters/`:**
+
+| adapter | shells to | remote CLI calls |
+|---|---|---:|
+| **`host`** | `plot-host.sh` | **11** (`gh`, `bb`, `jen`, `jira`) |
+| `refs` | `plot-fleet-scan.sh` | 0 |
+| `processes` | `plot-worker-state.sh` | 0 |
+| `plan-store` | `plot-config.sh`, `plot-plan-meta.sh` | 0 |
+| `performer` | `plot-reconcile-scan.sh` | 0 |
+| `machine`, `trees`, `clock`, `channel` | — | 0 |
+
+**Exactly one adapter is a connector.** The rest read git, the process table, the
+filesystem and a socket — free, unmetered, and answerable without an account.
+`refs` carries **12 ops** against `host`'s 6 precisely because nothing charges for
+`git rev-parse`.
+
+**So the rate-limit contract belongs to the connector kind, not to `Adapter`.**
+Only a connector answers *what is your limit, and how well do you know it?*; only
+a connector records what a call spent; only a connector chooses a transport. A
+future filesystem port must not be made to implement any of it, and a future
+GitLab connector must implement all of it.
+
+**And the port stays the domain's, unchanged.** `Host` names six questions and no
+transport, no account, no bucket — which is what lets the connector hide all
+three. **The connector-ness is on the adapter side of the port**, invisible to
+every caller, which is the property that makes adding GitLab an adapter change
+rather than a domain change.
+
+**This is also why `Git host`, `Tracker` and `CI` are three axes and not one
+setting.** Each names a connector independently: this repo is GitHub + Actions,
+`ekzweb` is Bitbucket + Jenkins. Three axes, one kind, and a budget per
+`(connector, account, bucket)` falls out of that rather than being imposed on it.
+
 ### The transport is the connector's business, not the caller's
 
 **Settled 2026-09-01, and it inverts the section below.** REST-versus-GraphQL is

@@ -323,6 +323,25 @@ controller  →  domain  →  port  ←  adapter  →  script / git / process
   world. `machine-system.ts` imports `ports/machine.js`; `ports/machine.ts`
   names `adapters/` zero times. **The dependency points inward.**
 - **Scripts can only be called from an adapter implementation.**
+- **A connector is a kind of adapter, and the distinction is load-bearing.** A
+  connector reaches a **remote service**: it has an account, credentials, a rate
+  limit and a transport choice. Every other adapter reaches the local machine,
+  where none of those exist. Measured 2026-09-01: of nine adapters, **one** is a
+  connector — `host` shells to `plot-host.sh` and its 11 `gh`/`bb`/`jen`/`jira`
+  calls, while `refs`, `processes`, `plan-store` and `performer` shell to scripts
+  that make **zero**. `refs` carries 12 ops to `host`'s 6 precisely because
+  nothing charges for `git rev-parse`.
+
+  **The rate-limit contract therefore belongs to the connector kind, not to
+  every adapter.** Only a connector answers *what is your limit and how well do
+  you know it*, records what a call spent, and chooses REST versus GraphQL. A
+  filesystem port must not be made to implement any of that.
+
+  **And it stays on the adapter side of the port.** `Host` names six questions
+  and no transport, no account, no bucket — which is what lets a connector hide
+  all three, and what makes adding GitLab or Trello an adapter change rather
+  than a domain change. See
+  [`one-account-has-one-budget`](docs/plans/2026-09-01-one-account-has-one-budget.md).
 - **No domain-specific code or behaviour lives outside the domain.**
 
 **Half of this is enforced.** The purity gate holds the inner boundary: outside
