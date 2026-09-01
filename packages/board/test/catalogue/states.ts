@@ -451,7 +451,7 @@ const anEmptyEstate = (): Scenario => ({ board: board(), fleet: fleet() });
  *
  *   fix-leaky-hose        Approved, startable  — the Start work subject
  *   plant-tomatoes        Draft                — the Approve subject
- *   rebuild-raised-beds   Approved, waved      — the multi-wave subject
+ *   raised-beds           Approved, waved      — the multi-wave subject
  */
 const aBoardThatCanAct = (): Scenario => ({
   board: board({
@@ -477,8 +477,8 @@ const aBoardThatCanAct = (): Scenario => ({
             phase: 'Development', path: 'docs/plans/2026-03-05-fix-leaky-hose.md',
           }),
           card({
-            slug: 'rebuild-raised-beds', title: 'Rebuild the raised beds', type: 'feature',
-            phase: 'Development', path: 'docs/plans/2026-08-19-rebuild-raised-beds.md',
+            slug: 'raised-beds', title: 'Rebuild the raised beds', type: 'feature',
+            phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
           }),
         ],
       }),
@@ -492,7 +492,7 @@ const aBoardThatCanAct = (): Scenario => ({
         group: 'not-started', verdict: 'eligible', wave: 'Sealing',
       }),
       row({
-        plan: 'rebuild-raised-beds', planFile: '2026-08-19-rebuild-raised-beds.md',
+        plan: 'raised-beds', planFile: '2026-08-17-raised-beds.md',
         branch: 'feature/raised-beds', branchUrl: `${GH}feature/raised-beds`,
         group: 'not-started', verdict: 'eligible', wave: 'Framing',
       }),
@@ -503,7 +503,7 @@ const aBoardThatCanAct = (): Scenario => ({
         branches: ['bug/leaky-hose'], verdict: 'eligible', complete: false,
       }),
       wave({
-        plan: 'rebuild-raised-beds', name: 'Framing', section: 'not-started',
+        plan: 'raised-beds', name: 'Framing', section: 'not-started',
         branches: ['feature/raised-beds'], verdict: 'eligible', complete: false,
       }),
     ],
