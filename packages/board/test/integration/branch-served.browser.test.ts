@@ -15,59 +15,42 @@
 // and simply has NO render sites: `UnreachableOverlay` reads only
 // `restartCommand` and `port`.
 //
-// `/api/board` is stubbed at the network boundary so `server.branch` is a
-// known input. That the SERVER reads its branch from its worktree is pinned
-// by `test/unit/branch-served.test.ts` — this test pins the RENDER.
+// The state is SERVED BY NAME rather than read from a repo, so `server.branch`
+// is a stated input and no board process starts. That the SERVER reads its
+// branch from its worktree is pinned by `test/unit/branch-served.test.ts` —
+// this test pins the RENDER.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
-
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
-
-/** A minimal board payload; only `server.branch` varies between cases. */
-function boardBody(branch: string): string {
-  return JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    columns: [], checklist: [], sprints: [], stories: [],
-    dispatch: { available: false, reason: '' },
-    approve: { available: false, reason: '' },
-    continue: { available: false, reason: '' },
-    idea: { available: false, reason: '' },
-    commission: { available: false, reason: '' },
-    server: { restartCommand: '', port: 0, branch },
-  });
-}
+import type { Page } from 'playwright';
+import { openCatalogue, board, type Catalogue } from '../catalogue/index.js';
 
 describe('server.branch is never rendered in the header', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
-  async function open(branch: string): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    const page = await context.newPage();
-    await page.route('**/api/board', (route) =>
-      route.fulfill({ contentType: 'application/json', body: boardBody(branch) }));
-    await page.goto(baseURL);
+  /**
+   * An empty board whose ONLY interesting field is `server.branch`.
+   *
+   * `an-empty-estate` carries no cards, which is what this subject wants: the
+   * claim is about the HEADER, and cards would only add rows nothing here
+   * reads. The override is one field deep — the catalogue's `board()` states
+   * the rest of `server` the way a real one does.
+   */
+  const open = async (branch: string): Promise<Page> => {
+    const page = await cat.open('an-empty-estate', {
+      over: { board: board({ server: { restartCommand: 'pnpm board', port: 4711, branch, repo: 'garden' } }) },
+    });
     // The header's own title is always present; waiting on it means the header
     // has rendered before either assertion reads it.
     await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
     return page;
-  }
+  };
 
   // The locator that USED to find the branch chip — same selector, now expected
   // to match nothing.
