@@ -1,6 +1,13 @@
 import type { Issue } from '../../entities/issue.js';
+import { correctForRefusal, type LimitReading } from '../../entities/limit.js';
 import type { Pr } from '../../entities/pr.js';
-import type { Host, HostBackend, MergedAnswer, PrLookup } from '../../ports/host.js';
+import type {
+  Host,
+  HostBackend,
+  LimitObservation,
+  MergedAnswer,
+  PrLookup,
+} from '../../ports/host.js';
 import { answered, type PortResult } from '../../port-result.js';
 
 /** The host a fixture answers as. */
@@ -13,6 +20,14 @@ export interface HostFixture {
   prs?: readonly Pr[];
   /** The issues `issueList` reports, and `issueView` looks up by id. */
   issues?: readonly Issue[];
+  /**
+   * The limit readings `limit` reports, before any correction.
+   *
+   * Empty by default, and that is an ANSWER: a fixture told nothing about
+   * limits stands for a connector that meters nothing. It is not `free`, and a
+   * caller reading it gets no reading rather than a reassuring number.
+   */
+  limits?: readonly LimitReading[];
 }
 
 /**
@@ -36,6 +51,10 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
   const merged = new Set(fixture.merged ?? []);
   const prs = fixture.prs ?? [];
   const issues = fixture.issues ?? [];
+  // Mutable, because the correction rule is behaviour rather than a value and
+  // the fixture must be able to show it. A fixture that always answered the
+  // literal input could not stand in for an adapter that learns.
+  let limits: readonly LimitReading[] = fixture.limits ?? [];
   return {
     backend: async (): Promise<PortResult<HostBackend>> =>
       answered(fixture.backend ?? 'github'),
@@ -57,6 +76,12 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
       return found
         ? answered(found)
         : answered({ ...(issues[0] ?? ({} as Issue)), id: String(id) });
+    },
+
+    limit: async (): Promise<PortResult<readonly LimitReading[]>> => answered(limits),
+
+    observe: (observed: LimitObservation): void => {
+      limits = limits.map((reading) => correctForRefusal(reading, observed));
     },
   };
 };

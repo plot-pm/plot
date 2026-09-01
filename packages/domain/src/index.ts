@@ -23,6 +23,7 @@ export * from './entities/build.js';
 export * from './entities/story.js';
 export * from './entities/sprint.js';
 export * from './entities/issue.js';
+export * from './entities/limit.js';
 export * from './entities/wave.js';
 export * from './entities/finding.js';
 export * from './entities/subscription.js';
