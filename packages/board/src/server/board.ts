@@ -828,12 +828,13 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetPulse | null): Wa
 }
 
 /**
- * The deliverable rule now lives in `@plot-pm/domain` as `allSlicesMerged`.
+ * The deliverable rule, re-exported from `@plot-pm/domain`.
  *
- * TEMPORARY ALIAS: the call sites still say `allWavesMerged`, and renaming them
- * is a separable change. Remove it once they read the domain name.
+ * Re-exported rather than imported directly by each caller so this module stays
+ * the one place the board names the rule — the same shape `deriveWaves` and
+ * `planStatus` beside it already have.
  */
-export { allSlicesMerged as allWavesMerged, type Landed } from '@plot-pm/domain';
+export { allSlicesMerged, type Landed } from '@plot-pm/domain';
 
 /**
  * Whether the pulse shows a claim ref on any of this plan's branches — the
@@ -845,7 +846,7 @@ export { allSlicesMerged as allWavesMerged, type Landed } from '@plot-pm/domain'
  * `approved` on EITHER signal — a `Started:` record OR a claim the scan saw —
  * because both mean the same thing and either can arrive first.
  *
- * Joined on basename, the same key `allWavesMerged` uses. Absent plan, cold
+ * Joined on basename, the same key `allSlicesMerged` uses. Absent plan, cold
  * cache, or an unmatched name all read as *no claim*, which is the honest
  * answer: the scan has said nothing to the contrary.
  */
@@ -862,7 +863,7 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetPulse | null): boolean {
  *
  * Composed from the plan file (`meta`: phase, review channel, `Started:` count)
  * and the pulse (merge state, claim refs). It returns a string and touches
- * nothing — no phase is flipped, no record written — exactly as `allWavesMerged`
+ * nothing — no phase is flipped, no record written — exactly as `allSlicesMerged`
  * returns a boolean and `deriveWaves` returns waves.
  *
  * The phase is read FIRST, and three of the seven are read straight off it:
@@ -873,7 +874,7 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetPulse | null): boolean {
  *
  * Only within `approved` does the measurement matter, and it splits three ways
  * in a fixed order:
- *   - `deliverable` first — every non-deferred branch merged (`allWavesMerged`),
+ *   - `deliverable` first — every non-deferred branch merged (`allSlicesMerged`),
  *     the decision outstanding. It is the value that earns the field, so it is
  *     tested before the two that would otherwise also hold.
  *   - `in-progress` — a `Started:` record OR a claim ref: someone picked it up.

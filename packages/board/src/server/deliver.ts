@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
 import { execFileSync, spawn } from 'node:child_process';
-import { readConfig, allWavesMerged, type BuildBoardOptions } from './board.js';
+import { readConfig, allSlicesMerged, type BuildBoardOptions } from './board.js';
 import { pulseFor, pulseCompleteFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { PlanMetaSchema } from '../contract/schema.js';
@@ -178,7 +178,7 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
  *  - `already-delivered` — the plan's own phase is `delivered` or past it; the
  *    decision was already made, and re-making it is not what the button does.
  *  - `not-merged` — a non-deferred branch has not merged, or the plan has no
- *    landed work at all. `allWavesMerged`'s own `merged > 0` guard folds the
+ *    landed work at all. `allSlicesMerged`'s own `merged > 0` guard folds the
  *    empty case in here: a plan nobody built is not deliverable.
  *  - `scan-incomplete` — the scan did not finish, so the pulse holds only the
  *    plans that arrived before it was cut short. A FIFTH verdict rather than a
@@ -218,7 +218,7 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
     return { verdict: 'not-found' };
   }
   // The plan's own phase decides `already-delivered` FIRST — a delivered plan
-  // has every wave merged too, so `allWavesMerged` alone would read it as
+  // has every wave merged too, so `allSlicesMerged` alone would read it as
   // deliverable. `delivered`/`released` are the phases past Development where
   // the decision is already recorded.
   const phase = meta.phase.toLowerCase();
@@ -228,7 +228,7 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
   // THREE ANSWERS FROM THE MEASUREMENT, mapped one-to-one onto verdicts. The
   // `unknown` arm is the one that earns this shape: it is the scan not having
   // finished, which is not a statement about any branch.
-  switch (allWavesMerged(meta, pulseFor(opts), pulseCompleteFor(opts))) {
+  switch (allSlicesMerged(meta, pulseFor(opts), pulseCompleteFor(opts))) {
     case 'merged':
       return { verdict: 'deliverable' };
     case 'unknown':

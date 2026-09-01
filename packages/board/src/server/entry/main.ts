@@ -12,6 +12,7 @@ import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
  * ```
  * node skills/plot/scripts/board/plot-ask.mjs board
  * node skills/plot/scripts/board/plot-ask.mjs fleet
+ * node skills/plot/scripts/board/plot-ask.mjs deliverable <slug> <plan-file>
  * ```
  *
  * **A SECOND artifact rather than a flag on the board's.** `index.ts` binds a
@@ -82,7 +83,7 @@ export const contextFrom = (here: string): EntryContext => {
  */
 export const questionFrom = (argv: string[]): Question | null => {
   const asked = argv[0];
-  return asked === 'board' || asked === 'fleet' ? asked : null;
+  return asked === 'board' || asked === 'fleet' || asked === 'deliverable' ? asked : null;
 };
 
 /**
@@ -106,7 +107,16 @@ export const run = (
 ): number => {
   const question = questionFrom(argv);
   if (!question) {
-    process.stderr.write('usage: plot-ask.mjs <board|fleet>\n');
+    process.stderr.write('usage: plot-ask.mjs <board|fleet> | deliverable <slug> <plan-file>\n');
+    return 2;
+  }
+  // The plan is named by the CALLER rather than resolved here. `plot-deliver.sh`
+  // has already found the file — across three configured directories, with its
+  // own refusal when none matches — and re-deriving it would be a second
+  // implementation of a lookup that has one, free to disagree about which plan
+  // the gate is even about.
+  if (question === 'deliverable' && (!argv[1] || !argv[2])) {
+    process.stderr.write('usage: plot-ask.mjs deliverable <slug> <plan-file>\n');
     return 2;
   }
   const { opts, planDir } = contextFrom(here);
@@ -114,7 +124,14 @@ export const run = (
   // for the reason it works there: the variable chooses adapters once, and
   // nothing above them can tell which it got.
   const { source } = estateFromEnv(opts);
-  const answer = askOnce({ question, opts, estate: source, planDir });
+  const answer = askOnce({
+    question,
+    opts,
+    estate: source,
+    planDir,
+    slug: argv[1],
+    planFile: argv[2],
+  });
   write(`${JSON.stringify(answer.value)}\n`);
   return 0;
 };

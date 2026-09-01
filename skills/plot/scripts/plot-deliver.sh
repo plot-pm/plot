@@ -10,7 +10,7 @@
 #         run did the work or found it already done); 1 on a refusal or a
 #         failure, with the reason on stderr.
 #
-# WHY THIS EXISTS. The board computes `allWavesMerged` — exactly the condition
+# WHY THIS EXISTS. The board computes `allSlicesMerged` — exactly the condition
 # that says a plan is ready to deliver — but the transition itself lives only in
 # `/plot-deliver`'s prose. So `Delivered` in the board asked for a caller with
 # nothing safe to call, and an implementer reaching that point would have
@@ -116,117 +116,64 @@ case "$phase" in
 esac
 
 # ---------------------------------------------------------------------------
-# Step 2 — verify all non-deferred branches are merged
+# Step 2 — ask whether every non-deferred branch has merged
 # ---------------------------------------------------------------------------
 #
-# This is one of Plot's four phase guardrails. We call plot-impl-status.sh to
-# check the merge state of all branches. Any branch that is not MERGED and not
-# deferred is a refusal.
-
-# Parse branches from the plan file, respecting deferred annotations.
-# Read the plan's branches section (from ANY of the three spellings —
-# ## Branches, ## Waves or ## Slices).
-plan_content=$(cat "$plan_file")
-
-# Extract branch lines from the branches section, whichever heading names it.
+# This is one of Plot's four phase guardrails, and it is NO LONGER DECIDED HERE.
 #
-# `## Slices` is the spelling DESIGN-slice.md settles on, and `plot-plan-meta.sh`
-# has read it since the migration began — this script had not, so a plan written
-# in the current vocabulary parsed to ZERO branches here. That is the worst
-# possible shape for the failure: no error, an empty list, and a delivery gate
-# that passes because it found nothing to check. Measured 2026-08-30, two
-# approved plans were in exactly that state.
+# THE SCRIPT USED TO PARSE THE PLAN ITSELF. Ninety-odd lines of `sed` and `grep`
+# re-derived the branches section, re-derived which lines named a branch, and
+# re-derived which of those were deferred — a second implementation of a job
+# `plot-plan-meta.sh` already owns, with its own bug history. The measured ones:
+# a `## Changelog` bullet read as a branch (four fully-merged plans undeliverable,
+# 2026-08-27), and a `## Slices` section that parsed to ZERO branches so the gate
+# passed having checked nothing (two approved plans, 2026-08-30).
 #
-# All three arms share one range for the same reason plot-plan-meta.sh shares
-# one: the section's SHAPE is identical whichever word heads it, and a second
-# range would be a second implementation of a re-spelling, free to drift.
-branches_section=$(printf '%s' "$plan_content" | sed -nE '/^## *([Bb]ranches|[Ww]aves|[Ss]lices)/,/^## /p')
-
-# A BRANCH LINE CARRIES A BRANCH PREFIX, and without that test a changelog
-# bullet is read as a branch. The section range above closes at the next `## `,
-# but a plan whose `## Changelog` bullet mentions a backticked identifier —
-# `impl`, `pr_ready`, `--migrate`, `/api/story` were the four measured on
-# 2026-08-27 — hands one of those to the merge check, which then refuses
-# delivery over a branch that does not exist and never will.
+# A THIRD was measured while this block was being removed, and it is the one
+# that argues hardest for the removal. On
+# `docs/plans/2026-08-21-waves-name-themselves.md` the old range matched a
+# `## Waves` heading that opens DESIGN PROSE — the plan argues for that spelling
+# and illustrates it — and closed at the next `## `, never reaching the real
+# `## Branches` section a hundred lines below. It read three branch names out of
+# the illustration, one of them `bug/one` from inside a code fence, and reported
+# none of the plan's actual work. `plot-plan-meta.sh` reads the same file
+# correctly. That plan was delivered by hand.
 #
-# Four fully-merged plans were undeliverable for this reason. The prefixes come
-# from `Branch prefixes` rather than a hardcoded list, the same derivation
-# `plot-fleet-scan.sh:187` uses, so a project with its own prefixes is read
-# correctly and one with none falls back to Plot's defaults.
-prefix_re=$(bash "$script_dir/plot-config.sh" get "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" \
-  | tr -d ' ' | tr ',' '\n' | sed 's#/$##' | grep -v '^$' | paste -sd'|' - )
-[ -n "$prefix_re" ] || prefix_re="idea|feature|bug|docs|infra"
+# So the reading stays in the scripts and the DECISION moves inside:
+# `plot-plan-meta.sh` says which branches the plan names and which it gave up,
+# `plot-impl-status.sh` says which the host merged, and the domain's `deliver`
+# rule says whether that makes the plan deliverable. Manifesto Principle 3 —
+# scripts collect and report — with the line drawn where the design plan draws
+# it: parsing a plan is adaptation, "these branches make the plan deliverable"
+# is a decision.
+#
+# THE REFUSAL SENTENCE COMES BACK FROM THE DOMAIN, unchanged in wording, so the
+# two cannot describe one rule differently.
 
-# Parse branches from old-style ## Branches section (backtick-quoted on list lines)
-old_style_branches=$(printf '%s' "$branches_section" \
-  | grep -oE "^- \`($prefix_re)/[A-Za-z0-9_./-]+\`" 2>/dev/null \
-  | sed 's/^- `//; s/`$//' \
-  | sort -u || true)
+ask_mjs="$script_dir/board/plot-ask.mjs"
+if [ ! -f "$ask_mjs" ]; then
+  die "cannot find $ask_mjs — run 'pnpm build:board' to build it."
+fi
 
-# Parse branches from a new-style ## Waves / ## Slices section (Branch: in ### headings)
-new_style_branches=$(printf '%s' "$branches_section" \
-  | grep -oE "### .*\(Branch: ($prefix_re)/[A-Za-z0-9_./-]+" 2>/dev/null \
-  | sed 's/.*Branch: //' \
-  | sort -u || true)
+verdict=$(PLOT_REPO_ROOT="$repo_root" PLOT_SCRIPTS_DIR="$script_dir" \
+  node "$ask_mjs" deliverable "$slug" "$plan_file" 2>/dev/null) || verdict=""
+[ -n "$verdict" ] || die "cannot determine deliverability of '$slug' — refusing rather than guessing."
 
-# Combine both styles
-all_branches=$(printf '%s\n%s' "$old_style_branches" "$new_style_branches" | grep -v '^$' | sort -u || true)
+vfield() { printf '%s' "$verdict" | jq -r "$1" 2>/dev/null; }
 
-if [ -z "$all_branches" ]; then
+if [ "$(vfield '.deliverable')" != "true" ]; then
+  die "$(vfield '.refusal')"
+fi
+
+merged_count=$(vfield '.merged')
+deferred_count=$(vfield '.deferred')
+# Empty rather than `0`, so the suffix below stays absent where the old block
+# left it absent — `${x:+...}` fires on any non-empty value, and "0 deferred"
+# is a line no run has ever printed.
+[ "$deferred_count" = "0" ] && deferred_count=""
+if [ "$merged_count" = "0" ] && [ -z "$deferred_count" ]; then
   echo "step: no branches found in plan — proceeding (nothing to verify)"
 else
-  # Check which branches are deferred. A deferred branch has `<!-- deferred:` on its line.
-  deferred_branches=""
-  non_deferred_branches=""
-
-  for br in $all_branches; do
-    # Check both spellings: old style has branch on a `- \`branch\`` line,
-    # new style has branch in a `### ... (Branch: branch ...)` heading.
-    if printf '%s' "$branches_section" | grep -F "\`$br\`" | grep -q '<!-- *deferred' 2>/dev/null; then
-      deferred_branches="${deferred_branches}${br}
-"
-    elif printf '%s' "$branches_section" | grep "Branch: $br" | grep -q '<!-- *deferred' 2>/dev/null; then
-      deferred_branches="${deferred_branches}${br}
-"
-    else
-      non_deferred_branches="${non_deferred_branches}${br}
-"
-    fi
-  done
-
-  # Trim trailing newlines
-  non_deferred_branches=$(printf '%s' "$non_deferred_branches" | grep -v '^$' || true)
-  deferred_branches=$(printf '%s' "$deferred_branches" | grep -v '^$' || true)
-
-  # Get implementation status for all branches
-  impl_status=$(bash "$script_dir/plot-impl-status.sh" "$slug" 2>/dev/null) || impl_status='{"prs":[]}'
-
-  # Check each non-deferred branch is merged
-  unmerged_branches=""
-  for br in $non_deferred_branches; do
-    [ -z "$br" ] && continue
-    # Look for this branch in the impl status. A branch is merged if its PR state is MERGED.
-    pr_state=$(printf '%s' "$impl_status" | jq -r --arg br "$br" '.prs[] | select(.branch == $br) | .state' 2>/dev/null || true)
-    if [ "$pr_state" != "MERGED" ]; then
-      unmerged_branches="${unmerged_branches}${br}
-"
-    fi
-  done
-
-  unmerged_branches=$(printf '%s' "$unmerged_branches" | grep -v '^$' || true)
-
-  if [ -n "$unmerged_branches" ]; then
-    unmerged_count=$(printf '%s\n' "$unmerged_branches" | wc -l | tr -d ' ')
-    unmerged_list=$(printf '%s' "$unmerged_branches" | tr '\n' ', ' | sed 's/, $//')
-    die "cannot deliver: $unmerged_count branch(es) not merged: $unmerged_list
-  Merge them first, or mark them deferred with \`<!-- deferred: <reason> -->\`."
-  fi
-
-  deferred_count=0
-  [ -n "$deferred_branches" ] && deferred_count=$(printf '%s\n' "$deferred_branches" | wc -l | tr -d ' ')
-  merged_count=$(printf '%s\n' "$non_deferred_branches" | wc -l | tr -d ' ')
-  [ -z "$non_deferred_branches" ] && merged_count=0
-
   echo "step: verified $merged_count branch(es) merged${deferred_count:+, $deferred_count deferred}"
 fi
 

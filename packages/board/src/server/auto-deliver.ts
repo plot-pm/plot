@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { readConfig, allWavesMerged, type BuildBoardOptions } from './board.js';
+import { readConfig, allSlicesMerged, type BuildBoardOptions } from './board.js';
 import { usableCommand } from './idea.js';
 import { deliverLogPath } from './deliver.js';
 import type { PlanMeta, FleetPulse } from '../contract/schema.js';
@@ -9,7 +9,7 @@ import type { PlanMeta, FleetPulse } from '../contract/schema.js';
 /**
  * A finished plan delivers itself, and its desks are cleared behind it.
  *
- * The measurement already existed and acted on nothing. `allWavesMerged`
+ * The measurement already existed and acted on nothing. `allSlicesMerged`
  * (`board.ts`) computes the exact condition — every non-deferred branch of a
  * plan has merged — and `planStatus` renders it as `deliverable`, and both
  * deliberately touch nothing. That restraint is right for a measurement. What
@@ -144,7 +144,7 @@ export interface PlanAutoDeliverInput {
   /**
    * Whether the scan that produced this pulse FINISHED.
    *
-   * Threaded in because `allWavesMerged` needs it to tell *not merged* from
+   * Threaded in because `allSlicesMerged` needs it to tell *not merged* from
    * *not yet known* (#491), and neither is a reason to deliver — but only one
    * of them is a reason to give up on a plan. Defaults to `true`: a caller
    * that does not know is a test with a hand-built pulse, where the pulse IS
@@ -157,7 +157,7 @@ export interface PlanAutoDeliverInput {
    * every branch, which is the whole input this decision takes.
    *
    * Read from the pulse rather than from plan files, and that is the same
-   * choice `allWavesMerged` documents for merge state, extended to the phase.
+   * choice `allSlicesMerged` documents for merge state, extended to the phase.
    * The scan has just walked the estate; re-reading 150 plan files to learn what
    * it already reported would put this actor on a different clock from the
    * measurement it acts on, and the two could then disagree about which plans
@@ -170,9 +170,9 @@ export interface PlanAutoDeliverInput {
 }
 
 /**
- * The join key `allWavesMerged` takes, built from a pulse plan.
+ * The join key `allSlicesMerged` takes, built from a pulse plan.
  *
- * `allWavesMerged` finds its plan by `path.basename(meta.file)`, and a pulse
+ * `allSlicesMerged` finds its plan by `path.basename(meta.file)`, and a pulse
  * plan's `file` is ALREADY that basename — so this is the identity mapping plus
  * the fields the signature requires. Building it here rather than reading the
  * plan file again is what keeps this actor on the pulse's clock: the function is
@@ -196,14 +196,14 @@ function joinKey(file: string): PlanMeta {
  *    `delivered` one is already answered; `plot-deliver.sh` refuses both, and
  *    spawning it to be refused would put a failure in a log every five seconds.
  *
- *  - **Every non-deferred branch has merged** — `allWavesMerged`, CALLED and not
+ *  - **Every non-deferred branch has merged** — `allSlicesMerged`, CALLED and not
  *    reimplemented. This is the gate `/plot-deliver` applies by hand, and an
  *    auto-deliverer that skips it ships the exact refusal Plot exists to
  *    enforce. Calling the shared function rather than re-deriving it is also
  *    what lets a fix to the gate reach this actor without anyone remembering to
  *    copy it.
  *
- *  - **At least one branch actually merged.** `allWavesMerged`'s own `merged > 0`
+ *  - **At least one branch actually merged.** `allSlicesMerged`'s own `merged > 0`
  *    guard, and the reason a plan whose remaining waves are ALL `deferred` is not
  *    delivered here. Shelved is not finished: delivering it would record a
  *    completion nobody decided, and that call stays with a person.
@@ -225,14 +225,14 @@ export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] 
     if (plan.phase.toLowerCase() !== 'approved') continue;
     const slug = planSlug(plan.file);
     if (inFlight.has(slug)) continue;
-    // The measurement, unmodified. `allWavesMerged` returns false for a plan the
+    // The measurement, unmodified. `allSlicesMerged` returns false for a plan the
     // pulse does not know, for any unmerged non-deferred branch, and for a plan
     // with no merged branch at all — the all-deferred case included.
     // , not truthiness: since #491 this returns
     // 'merged' | 'not-merged' | 'unknown', and 'unknown' means the scan could
     // not answer. Auto-delivery acts only on a definite yes — delivering on an
     // unanswered question is the defect #491 removes, one layer up.
-    if (allWavesMerged(joinKey(plan.file), pulse, complete) !== 'merged') continue;
+    if (allSlicesMerged(joinKey(plan.file), pulse, complete) !== 'merged') continue;
     out.push({ slug, file: plan.file });
   }
   return out;
@@ -266,7 +266,7 @@ export function pruneDelivering(
     // Same rule, and the distinction matters here: only a definite answer
     // confirms anything. 'unknown' confirms nothing, so the plan stays in
     // flight rather than being pruned on silence.
-    if (allWavesMerged(joinKey(plan.file), pulse, complete) !== 'merged') continue;
+    if (allSlicesMerged(joinKey(plan.file), pulse, complete) !== 'merged') continue;
     stillPending.add(slug);
   }
   return stillPending;

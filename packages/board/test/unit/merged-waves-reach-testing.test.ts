@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allWavesMerged } from '../../src/server/board.js';
+import { allSlicesMerged } from '../../src/server/board.js';
 import { toBoardPhase, PlanMetaSchema, type FleetPulse } from '../../src/contract/schema.js';
 
 // A plan whose every non-deferred branch has merged reaches the phase after
@@ -48,7 +48,7 @@ const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetPulse => ({
   },
 });
 
-describe('allWavesMerged — every non-deferred branch has landed', () => {
+describe('allSlicesMerged — every non-deferred branch has landed', () => {
   it('is true when every branch of every wave has merged', () => {
     // The positive case: multi-wave, all merged. This is the plan whose column
     // should move without a person acting.
@@ -68,7 +68,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
       wave('Reached', 'complete', [['feature/a', 'merged']]),
       wave('Verified', 'complete', [['feature/b', 'merged'], ['feature/c', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('merged');
+    expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
 
   it('is true with a deferred branch among merged ones — the scan exempts it', () => {
@@ -87,7 +87,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'complete', [['feature/a', 'merged'], ['feature/shelved', 'deferred']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('merged');
+    expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
 
   it('is FALSE when one branch is still open — assert the negative directly', () => {
@@ -109,7 +109,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
       wave('Reached', 'complete', [['feature/a', 'merged']]),
       wave('Verified', 'eligible', [['feature/b', 'merged'], ['feature/c', 'open']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('not-merged');
+    expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
 
   it('is false for a claimed-but-unmerged branch — a claim is not a landing', () => {
@@ -121,7 +121,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'eligible', [['feature/a', 'claimed']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('not-merged');
+    expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
 
   it('is false when the plan has only deferred branches — nothing landed to testify to', () => {
@@ -138,7 +138,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'blocked', [['feature/shelved', 'deferred']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('not-merged');
+    expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
 
   it('is UNKNOWN without a pulse — a cold cache is not "all merged" and not "unmerged"', () => {
@@ -149,7 +149,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const m = meta({
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
     });
-    expect(allWavesMerged(m, null, true)).toBe('unknown');
+    expect(allSlicesMerged(m, null, true)).toBe('unknown');
   });
 
   it('is not-merged when a COMPLETE pulse does not know this plan', () => {
@@ -163,7 +163,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-01-01-some-other-plan.md', [
       wave('Reached', 'complete', [['feature/z', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('not-merged');
+    expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
 
   it('is UNKNOWN on the MEASURED shape: a plan missing from a timed-out scan', () => {
@@ -192,9 +192,9 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
       plans: [],
       summary: { plans: 0, waves: 52, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
     };
-    expect(allWavesMerged(m, timedOut, false)).toBe('unknown');
+    expect(allSlicesMerged(m, timedOut, false)).toBe('unknown');
     // And emphatically not the word that produced the refusal.
-    expect(allWavesMerged(m, timedOut, false)).not.toBe('not-merged');
+    expect(allSlicesMerged(m, timedOut, false)).not.toBe('not-merged');
   });
 
   it('is UNKNOWN on an incomplete scan even when the plan IS present and merged', () => {
@@ -209,9 +209,9 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'complete', [['feature/a', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p, false)).toBe('unknown');
+    expect(allSlicesMerged(m, p, false)).toBe('unknown');
     // The SAME pulse, once the scan finishes, is a measurement.
-    expect(allWavesMerged(m, p, true)).toBe('merged');
+    expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
 
   it('STILL REFUSES a genuinely unmerged branch on a complete pulse', () => {
@@ -229,8 +229,8 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
       wave('Reached', 'complete', [['feature/a', 'merged']]),
       wave('Pending', 'eligible', [['feature/unfinished', 'open']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('not-merged');
-    expect(allWavesMerged(m, p, true)).not.toBe('merged');
+    expect(allSlicesMerged(m, p, true)).toBe('not-merged');
+    expect(allSlicesMerged(m, p, true)).not.toBe('merged');
   });
 
   it('a DELETED branch does not change the answer — the refuted hypothesis, pinned', () => {
@@ -249,7 +249,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Told', 'complete', [['bug/an-unreachable-host-says-so', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('merged');
+    expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
 
   it('reads the wave VERDICT, not a second walk of the branch states — one derivation', () => {
@@ -268,7 +268,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'eligible', [['feature/a', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('not-merged');
+    expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
 
   it('joins on basename — meta.file is absolute, the pulse names it short', () => {
@@ -282,14 +282,14 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'complete', [['feature/a', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('merged');
+    expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
 
   it('does not depend on the plan file recording anything — the pulse is the source', () => {
     // The plan is `approved` in every fixture here, its branches merged only in
     // the pulse. No `Delivered:` record, no phase flip in the file: reaching the
     // later column is a MEASUREMENT the board computes, never a decision it
-    // writes. `allWavesMerged` returns a boolean and touches nothing.
+    // writes. `allSlicesMerged` returns a boolean and touches nothing.
     const m = meta({
       phase: 'approved',
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
@@ -297,7 +297,7 @@ describe('allWavesMerged — every non-deferred branch has landed', () => {
     const p = pulse('2026-08-21-done-means-delivered.md', [
       wave('Reached', 'complete', [['feature/a', 'merged']]),
     ]);
-    expect(allWavesMerged(m, p, true)).toBe('merged');
+    expect(allSlicesMerged(m, p, true)).toBe('merged');
     // The file still says Approved — the function read it, the pulse said merged,
     // and nobody delivered. That gap is the whole point: a person acts from here.
     expect(m.phase).toBe('approved');
