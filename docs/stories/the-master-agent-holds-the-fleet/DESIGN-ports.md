@@ -215,10 +215,20 @@ implement:
 - a **transport choice** — REST versus GraphQL is a GitHub distinction; Bitbucket
   has no such split and Jenkins has neither
 
-**It stays on the adapter side of the port.** `Host` names six questions and no
-transport, no account and no bucket. That is what lets a connector hide all
-three — and what makes adding GitLab or Trello an **adapter** change rather than
-a domain change.
+**It stays on the adapter side of the port — except for one thing that does
+not.** `Host` names six questions and no transport, no account and no bucket,
+which is what lets a connector hide all three. **But the port also declares the
+connector list, and it is closed:**
+
+```ts
+export type HostBackend = 'github' | 'bitbucket';   // ports/host.ts:6
+```
+
+and `adapters/host/host-shell.ts:110` throws on anything else. **So adding
+GitLab is not yet an adapter-only change** — it needs a type widened in the
+domain, which is the one place this section says a vendor should not be known.
+Recorded as a target rather than a description; see
+[Budget § 7](DESIGN-budget.md).
 
 **Three axes name connectors independently.** `Git host`, `Tracker` and `CI` are
 separate settings because a project mixes them: this repo is GitHub + Actions,
@@ -228,17 +238,24 @@ another is Bitbucket + Jenkins. One kind, three axes, and a budget per
 ### Where they live, and how to find them
 
 ```
-packages/board/src/domain/          pure — the gate forbids node:fs here
-packages/board/src/domain/ports/    one file per port, interface only
-packages/board/src/adapters/        one directory per port
+packages/domain/src/                pure — the gate forbids node:fs here
+packages/domain/src/ports/          one file per port, interface only
+packages/domain/src/adapters/       one directory per port
 skills/plot/scripts/plot-<port>.sh  the shell adapter for that port
 ```
+
+**Corrected 2026-09-01.** These paths read `packages/board/src/domain/` until
+the domain moved to its own package, and **both documented globs returned zero
+entries** while the real ones return 8 ports and 12 adapters. The section's own
+argument — *"a list in a document goes stale; a directory cannot"* — was true of
+the list and silent about the path above it. **A glob is only self-maintaining
+where it resolves.**
 
 **The enumeration is a glob, not a list somebody maintains:**
 
 ```bash
-ls packages/board/src/domain/ports/     # every port
-ls packages/board/src/adapters/         # every adapter
+ls packages/domain/src/ports/     # every port
+ls packages/domain/src/adapters/  # every adapter
 ```
 
 **A list in a document goes stale; a directory cannot.** This is the same

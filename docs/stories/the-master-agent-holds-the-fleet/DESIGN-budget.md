@@ -166,10 +166,40 @@ Computer ──owns──►  Budget  ◄──reads/appends── Connector (an
                       └── the cadence divides by the rate it observes
 ```
 
-**The port names no budget.** `Host` asks six questions and mentions no
-transport, no account and no bucket — which is what lets a connector hide all
-three, and what makes adding GitLab an adapter change rather than a domain
-change.
+**The port names no budget**, and that half is verified: `Host`'s six operations
+mention no transport, no account and no bucket. The four `limit` occurrences in
+`ports/host.ts` are pagination — *"how many to ask for"* — not rate limits.
+
+**But the port DOES name the connector list, and it is closed.** Challenged
+2026-09-01 against the code:
+
+```ts
+export type HostBackend = 'github' | 'bitbucket';   // ports/host.ts:6
+backend(): Promise<PortResult<HostBackend>>;
+```
+
+and `adapters/host/host-shell.ts:110` **throws** on anything else:
+*"plot-host: unrecognised backend"*.
+
+**So *"adding GitLab is an adapter change rather than a domain change"* is not
+true today.** It would require editing a type in the domain and a guard in an
+adapter, and the type is the one that matters: the domain currently knows the
+connector list.
+
+**The claim stands as a target, not as a description**, and the difference is
+worth stating plainly. Two ways to reach it:
+
+- **Widen the enum per connector.** Cheap, honest, and each new connector is one
+  line — but it keeps the domain knowing a list it has no reason to know.
+- **Make the backend a string the domain does not validate**, the way `CI` and
+  `Tracker` already are. The adapter still refuses what it cannot drive; the
+  domain stops holding an enumeration of vendors.
+
+**The second is what this specification implies**, and it is not free: `backend()`
+exists so a caller can branch on the host, and every such branch is a place the
+compiler currently helps. **Neither is chosen here** — the choice belongs to
+whoever adds the third connector, and it should be made deliberately rather than
+discovered by a `gitlab` string throwing in an adapter.
 
 ## 8. What it is not
 

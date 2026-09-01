@@ -337,10 +337,13 @@ controller  →  domain  →  port  ←  adapter  →  script / git / process
   you know it*, records what a call spent, and chooses REST versus GraphQL. A
   filesystem port must not be made to implement any of that.
 
-  **And it stays on the adapter side of the port.** `Host` names six questions
-  and no transport, no account, no bucket — which is what lets a connector hide
-  all three, and what makes adding GitLab or Trello an adapter change rather
-  than a domain change. See
+  **It stays on the adapter side of the port, with one exception that is not
+  yet fixed.** `Host` names six questions and no transport, no account, no
+  bucket. **But `ports/host.ts:6` declares `HostBackend = 'github' |
+  'bitbucket'`** — a closed list of vendors, in the domain — and
+  `host-shell.ts:110` throws on anything else. So adding GitLab is **not** an
+  adapter-only change today; it needs that type widened. Treat the adapter-only
+  property as the target, not the current state. See
   [`one-account-has-one-budget`](docs/plans/2026-09-01-one-account-has-one-budget.md).
 - **No domain-specific code or behaviour lives outside the domain.**
 
