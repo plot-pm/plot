@@ -47,4 +47,23 @@ export interface Trees {
    * @returns the matching filenames, without their directory.
    */
   markers(path: string, prefix: string): Promise<PortResult<readonly string[]>>;
+
+  /**
+   * Names the branch a checkout is on.
+   *
+   * `''` for a detached HEAD, and the emptiness is an ANSWER rather than a
+   * failure: several worktrees here are detached, and a reader shown a short
+   * sha where a branch name belongs reads it as a branch. A caller that must
+   * tell *detached* from *could not be read* reads the result's `ok` — which
+   * is the distinction the old `execFileSync` collapsed into one empty string.
+   *
+   * Distinct from {@link list}, whose entries also carry a branch: this asks
+   * about ONE checkout and needs no path comparison to find it. Matching a
+   * caller's own root against a listing costs a symlink resolution on every
+   * platform where a temporary directory is one.
+   *
+   * @param path - the checkout's absolute path.
+   * @returns the branch name, or `''` where HEAD is detached.
+   */
+  currentBranch(path: string): Promise<PortResult<string>>;
 }
