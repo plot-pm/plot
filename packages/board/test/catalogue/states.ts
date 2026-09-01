@@ -1,4 +1,4 @@
-import { board, card, column, fleet, row, story, wave } from './build.js';
+import { board, card, column, fleet, row, sprint, story, wave } from './build.js';
 import {
   BOARD_PHASES, ELIGIBLE_NOTE, RowKindSchema,
   type Board, type Fleet, type RowKind,
@@ -664,6 +664,144 @@ const aStoryWithAndWithoutAFile = (): Scenario => ({
   fleet: fleet(),
 });
 
+/**
+ * A WHOLE SMALL ESTATE — eight cards, four sprints, every phase represented.
+ *
+ * `tiny-garden.browser.test.ts` is the file whose subject IS an estate: mobile
+ * layout against real badge content, the sprint filter's per-option counts, and
+ * which card earns a Start work button. Those counts are facts about the
+ * population, so the population is stated rather than counted from a directory.
+ *
+ * | card | sprint | why it is here |
+ * |---|---|---|
+ * | `plant-tomatoes` | spring-planting | **Draft** — carries NO Start work button |
+ * | `fix-leaky-hose` | spring-planting | **approved, unstarted** — the one that DOES |
+ * | `drip-irrigation` | summer-harvest | the long slug's card |
+ * | `strawberry-netting` | — | no sprint |
+ * | `compost-guide` | — | no sprint |
+ * | `pumpkin-patch` | — | no sprint |
+ * | `harvest-apples` | autumn-tidy | released |
+ * | `lettuce-bolted` | autumn-tidy | rejected |
+ *
+ * So `Spring planting` counts **2** and `No sprint` counts **3**, which is what
+ * the dropdown asserts, and selecting the sprint leaves **2** of the **8**.
+ *
+ * The long slug is a badge-width case, not a name: at 390 px it must WRAP rather
+ * than push the document wider than the viewport, and the bug it was added for
+ * was horizontal page scroll on a phone.
+ */
+const LONG_SPRINT = 'the-great-heirloom-tomato-and-zucchini-overplanting-recovery-initiative';
+
+const aWholeSmallEstate = (): Scenario => ({
+  board: board({
+    dispatch: { available: true, reason: '' },
+    // THE FILTER'S OPTIONS COME FROM HERE. A sprint with no entry is not
+    // offered however many cards name it, which is the union the board dropped:
+    // a plan's `Sprint:` field is history and does not clear when its sprint
+    // closes.
+    sprints: [
+      // `members` IS WHAT THE COUNTS JOIN ON, not `card.sprint`. The board
+      // measured that once: 19 plans in a sprint, only 5 carrying the
+      // back-reference, so joining on the card's field showed 5 of 19. A sprint
+      // with a file is authoritative about who is in it.
+      sprint({
+        slug: 'spring-planting', title: 'Spring planting', phase: 'active',
+        members: [
+          { slug: 'plant-tomatoes', tier: 'must', checked: false },
+          { slug: 'fix-leaky-hose', tier: 'must', checked: false },
+        ],
+      }),
+      sprint({
+        slug: LONG_SPRINT, title: LONG_SPRINT, phase: 'active',
+        members: [{ slug: 'drip-irrigation', tier: 'should', checked: false }],
+      }),
+      sprint({ slug: 'summer-harvest', title: 'Summer harvest', phase: 'active' }),
+      sprint({
+        slug: 'autumn-tidy', title: 'Autumn tidy', phase: 'closed',
+        members: [
+          { slug: 'harvest-apples', tier: 'must', checked: true },
+          { slug: 'lettuce-bolted', tier: 'must', checked: true },
+        ],
+      }),
+    ],
+    columns: [
+      column({
+        phase: 'Discovery',
+        cards: [
+          // DRAFT: `plot-dispatch.sh` refuses every phase but approved, so a
+          // Start work button here could only fail.
+          card({
+            slug: 'plant-tomatoes', title: 'Plant heirloom tomatoes', type: 'feature',
+            phase: 'Discovery', path: `docs/plans/${TOMS_FILE}`,
+            sprint: 'spring-planting', story: 'berry-patch',
+          }),
+          card({
+            slug: 'pumpkin-patch', title: 'Start a pumpkin patch', type: 'feature',
+            phase: 'Discovery', path: 'docs/plans/2026-06-10-pumpkin-patch.md',
+          }),
+        ],
+      }),
+      column({
+        phase: 'Development',
+        cards: [
+          // APPROVED AND UNSTARTED, which is what the Start button keys on —
+          // never the column. `waveSummary.eligible` opens the action menu.
+          card({
+            slug: 'fix-leaky-hose', title: 'Fix the leaky soaker hose', type: 'bug',
+            phase: 'Development', path: 'docs/plans/2026-03-05-fix-leaky-hose.md',
+            sprint: 'spring-planting',
+            waveSummary: { waves: 1, branches: 1, claimed: 0, eligible: 1, deferred: 0 },
+          }),
+          // The long badge's card, at the width the mobile bug was about.
+          card({
+            slug: 'drip-irrigation', title: 'Install drip-irrigation timers', type: 'infra',
+            phase: 'Development', path: 'docs/plans/2026-05-01-drip-irrigation.md',
+            sprint: LONG_SPRINT, story: 'orphan-bed',
+          }),
+          card({
+            slug: 'strawberry-netting', title: 'Net the strawberry bed', type: 'feature',
+            phase: 'Development', path: 'docs/plans/2026-04-01-strawberry-netting.md',
+            story: 'berry-patch',
+          }),
+        ],
+      }),
+      column({
+        phase: 'Testing',
+        cards: [
+          card({
+            slug: 'compost-guide', title: 'Write a compost-turning guide', type: 'docs',
+            phase: 'Testing', path: 'docs/plans/2026-04-15-compost-guide.md',
+            story: 'berry-patch',
+          }),
+        ],
+      }),
+      column({
+        phase: 'Released',
+        cards: [
+          card({
+            slug: 'harvest-apples', title: 'Harvest the apples', type: 'feature',
+            phase: 'Released', path: 'docs/plans/2026-06-01-harvest-apples.md',
+            sprint: 'autumn-tidy', story: 'orchard',
+          }),
+          card({
+            slug: 'lettuce-bolted', title: 'The lettuce bolted', type: 'feature',
+            phase: 'Released', path: 'docs/plans/2026-02-20-lettuce-bolted.md',
+            sprint: 'autumn-tidy',
+          }),
+        ],
+      }),
+    ],
+    stories: [
+      story({ slug: 'berry-patch', title: 'Pick the berry patch', status: 'active',
+        path: 'docs/stories/berry-patch/STORY-berry-patch.md' }),
+      story({ slug: 'orphan-bed', title: 'orphan-bed', status: 'draft', path: '' }),
+      story({ slug: 'orchard', title: 'Mind the orchard', status: 'done',
+        path: 'docs/stories/orchard/STORY-orchard.md' }),
+    ],
+  }),
+  fleet: fleet(),
+});
+
 const anEmptyEstate = (): Scenario => ({ board: board(), fleet: fleet() });
 
 /**
@@ -779,6 +917,7 @@ export const SCENARIOS = {
   'a-board-of-plans': aBoardOfPlans,
   'ten-rows-one-kind-each': tenRowsOneKindEach,
   'a-story-with-and-without-a-file': aStoryWithAndWithoutAFile,
+  'a-whole-small-estate': aWholeSmallEstate,
   'an-empty-estate': anEmptyEstate,
 } satisfies Record<string, () => Scenario>;
 
