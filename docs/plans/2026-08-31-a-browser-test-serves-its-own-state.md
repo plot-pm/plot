@@ -22,6 +22,7 @@
 - **Started:** 2026-09-01, Jan Wloka, `infra/the-catalogue-names-the-states-the-suite-needs`
 - **Started:** 2026-09-01, Jan Wloka, `infra/every-browser-test-serves-its-own-state`
 - **Delivered:** 2026-09-01
+- **Delivered:** 2026-09-01
 -->
 
 ## Changelog
