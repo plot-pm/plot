@@ -33,6 +33,12 @@ export { treesGit } from './trees/trees-git.js';
 export { treesFixture, type TreesFixture } from './trees/trees-fixture.js';
 
 export {
+  startChannel,
+  type ChannelOptions,
+  type RunningChannel,
+} from './channel/channel-socket.js';
+
+export {
   subscribe,
   findingsIn,
   type SubscribeOptions,

@@ -78,8 +78,16 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     backend: async (): Promise<PortResult<HostBackend>> =>
       answered(fixture.backend ?? 'github'),
 
+    // BY NUMBER **OR BY BRANCH**, which is what the port says it takes. The
+    // number half was the only one implemented until 2026-09-01, so a fixture
+    // holding an open PR answered `null` when asked about its own branch —
+    // and every branch-keyed assertion against it passed vacuously. Found by
+    // the acting slice, whose whole claim is that a branch WITH a PR gets no
+    // second one.
     prState: async (ref): Promise<PortResult<PrLookup>> =>
-      answered(prs.find((pr) => String(pr.number) === String(ref)) ?? null),
+      answered(
+        prs.find((pr) => String(pr.number) === String(ref) || pr.head === String(ref)) ?? null,
+      ),
 
     prMerged: async (branch): Promise<PortResult<MergedAnswer>> =>
       answered(merged.has(branch) ? 'merged' : 'not-merged'),
