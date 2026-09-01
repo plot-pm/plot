@@ -1,4 +1,5 @@
-import { isClaimable, sliceVerdicts, type BranchState, type SliceReadings } from '@plot-pm/domain/rules/eligible';
+import { isClaimable, sliceVerdicts, type SliceReadings } from '@plot-pm/domain/rules/eligible';
+import type { BranchState } from '@plot-pm/domain';
 
 /**
  * The `node` entry point `plot-fleet-scan.sh` runs, once per plan.
