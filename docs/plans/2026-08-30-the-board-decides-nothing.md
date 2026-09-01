@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Started:** 2026-09-01, Jan Wloka, `feature/a-verdict-is-a-domain-rule`
 - **Started:** 2026-09-01, Jan Wloka, `feature/a-phase-is-a-domain-rule`
+- **Started:** 2026-09-01, Jan Wloka, `feature/the-pulse-derives-in-the-domain`
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 
@@ -216,7 +217,7 @@ defect.
 gives the same answer the board gave** for every plan in `docs/plans/` — asserted
 against the real estate, not a fixture.
 
-### The pulse (Branch: feature/the-pulse-derives-in-the-domain)
+### The pulse (Branch: feature/the-pulse-derives-in-the-domain, PR: #587)
 
 `deriveWaves` and `doubleClaimedBranches` move. `pulseShrink` is **argued in the
 PR** and moved only if the argument holds.
