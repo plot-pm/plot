@@ -15,8 +15,8 @@ made four diagnoses wrong.
 > **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
 >
 > **Companions:** [Entities](DESIGN-entities.md) · [Agent](DESIGN-agent.md) ·
-> [Worktree](DESIGN-worktree.md) · [Build](DESIGN-build.md) ·
-> [Budget](DESIGN-budget.md)
+> [Pulse](DESIGN-pulse.md) · [Worktree](DESIGN-worktree.md) ·
+> [Build](DESIGN-build.md) · [Budget](DESIGN-budget.md)
 
 ## Contents
 
@@ -346,6 +346,7 @@ never written.
 | relation | mechanism |
 |---|---|
 | **Computer → Machine** | **one computer hosts several instances** — three measured (§3) |
+| Machine → **Pulse** | **it owns its clock** — one per instance ([Pulse §8](DESIGN-pulse.md#8-scope)) |
 | Machine → Computer | it reads headroom; it does not own it |
 | Machine → **everything in it** | every entity's derivation runs on this instance |
 | Agent → Machine **at death** | `machineAtDeath` (Agent §3) |

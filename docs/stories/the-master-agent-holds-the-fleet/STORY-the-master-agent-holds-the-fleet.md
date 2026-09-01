@@ -95,6 +95,10 @@ and a shell subprocess to parse it back.
 - **[Machine](DESIGN-machine.md)** — the resource every other entity competes
   for, and the only one that does not exist: its symptoms land on whatever *is*
   modelled, which is how `exit 124` came to mean *the worker failed*.
+- **[Pulse](DESIGN-pulse.md)** — the clock a Machine beats on: one per
+  instance, and every subscriber names a divisor rather than a frequency —
+  1 / 6 / 12 against 5 s, three numbers chosen independently in two languages
+  whose every remainder is zero. It ticks nothing that must outlive it.
 - **[Agent](DESIGN-agent.md)** — a participant with an identity that outlives
   the branch it works on: eight states across three models that disagree, and an
   estate where **every agent row is synthesized** (0 manifests, 13 worktrees).
