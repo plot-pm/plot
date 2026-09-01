@@ -241,7 +241,7 @@ running against the live estate for two branches' worth of time.
 
 ## Slices
 
-### Delivering (Branch: feature/the-shell-stops-parsing-plans)
+### Delivering (Branch: feature/the-shell-stops-parsing-plans, PR: #577)
 
 **The board half of this moved into plan 1**, which relocates `allWavesMerged`
 rather than copying it. What remains is the shell: `plot-deliver.sh`'s ~95-line
