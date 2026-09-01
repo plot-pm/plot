@@ -283,12 +283,9 @@ async function readManifestDirConfigAsync(
   scriptsDir?: string,
 ): Promise<string> {
   if (!scriptsDir) return AGENT_MANIFEST_DIR;
-  const out = await run(
-    'bash',
-    [path.join(scriptsDir, 'plot-config.sh'), 'get', AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR],
-    { cwd: repoRoot },
-  );
-  return out === null ? AGENT_MANIFEST_DIR : out.trim() || AGENT_MANIFEST_DIR;
+  const answer = await scriptsShell({ repoRoot, scriptDir: scriptsDir })
+    .config(AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR);
+  return (answer.ok ? answer.value.trim() : '') || AGENT_MANIFEST_DIR;
 }
 
 /**
