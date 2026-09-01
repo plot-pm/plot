@@ -246,7 +246,12 @@ describe('runProcess and runBytes read their options', () => {
   });
 
   it('honours an explicit maxBuffer', async () => {
-    const run = await runProcess('sh', ['-c', 'printf %0.sx {1..4000}'], { maxBuffer: 64 });
+    // POSIX, NOT BASH. `{1..4000}` is brace expansion: macOS `/bin/sh` is bash
+    // in POSIX mode and expands it to 4000 bytes, while a Linux runner's `sh`
+    // is dash and does not — it printed the literal, 9 bytes, comfortably under
+    // the cap, so `run.code` was 0 and this failed on CI while passing on every
+    // developer machine. `%01000d` is POSIX and pads without a shell feature.
+    const run = await runProcess('sh', ['-c', 'printf "%01000d" 0'], { maxBuffer: 64 });
     // Over the cap, `execFile` errors; the adapter answers with a code rather
     // than an exception, which is what keeps a large read from taking a route down.
     expect(run.code).not.toBe(0);
