@@ -434,7 +434,7 @@ that gate exists.
 - `feature/the-gates-read-what-was-left-behind` — the gate interface and the
   five gates above, each wrapping a script that already exists. Pure functions
   over a desk; a gate returns `null` or a failure string, and the string is
-  written to be pasted into a prompt.
+  written to be pasted into a prompt. → #629
 
 ### Remembering
 
