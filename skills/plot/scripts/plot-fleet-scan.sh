@@ -3219,7 +3219,11 @@ for plan in "${plans[@]}"; do
   # domain's, asked once for the whole plan in pass 2b.
   wave_ids=$(printf '%s' "$states" | cut -f1 | sort -un)
   wave_readings=""
-  declare -A wave_degraded=()
+  # ONE LINE PER SLICE, in the order `wave_ids` yields them — the same shape as
+  # `wave_readings` above and `wave_verdicts` below, walked by the same index.
+  # NOT an associative array: macOS ships bash 3.2, which has none, and
+  # `test/reconcile/mergequeue.test.mjs` refuses one.
+  wave_degraded_list=""
   for wid in $wave_ids; do
     outstanding=0
     _loose_degraded_branches=""
@@ -3251,7 +3255,7 @@ for plan in "${plans[@]}"; do
       esac
     done <<< "$states"
     wave_readings+="$outstanding	$plan_phase	$wave_states"$'\n'
-    wave_degraded[$wid]="$_loose_degraded_branches"
+    wave_degraded_list+="$_loose_degraded_branches"$'\n'
   done
 
   # Pass 2b: THE DECISION, and it is not made here.
@@ -3283,7 +3287,7 @@ for plan in "${plans[@]}"; do
     IFS=$'\t' read -r verdict wave_claimable \
       <<< "$(printf '%s\n' "$wave_verdicts" | sed -n "${verdict_i}p")"
     branch_i=0
-    _loose_degraded_branches="${wave_degraded[$wid]}"
+    _loose_degraded_branches=$(printf '%s' "$wave_degraded_list" | sed -n "${verdict_i}p")
     wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $6; exit}')
     [ "$wname" = "-" ] && wname=""
 
