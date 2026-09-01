@@ -93,7 +93,7 @@ tests claims against the code, which the skill's question-generation does not.
 
 ### Recording
 
-- `docs/an-interrogation-writes-its-round` — **the skill's Phase 5b already writes the field correctly; do not rewrite it.** What it lacks is one sentence saying the record is owed by anyone who interrogates, skill or not. The plan format's own documentation gains `Rounds:` where `Phase:` and `Review:` are described — `plot-plan-meta.sh` reads it from three sources and only the docs are silent, which is why a hand interrogation does not know it exists.
+- `docs/an-interrogation-writes-its-round` — **the skill's Phase 5b already writes the field correctly; do not rewrite it.** What it lacks is one sentence saying the record is owed by anyone who interrogates, skill or not. The plan format's own documentation gains `Rounds:` where `Phase:` and `Review:` are described — `plot-plan-meta.sh` reads it from three sources and only the docs are silent, which is why a hand interrogation does not know it exists. → #599
 
 ### Noticing
 
