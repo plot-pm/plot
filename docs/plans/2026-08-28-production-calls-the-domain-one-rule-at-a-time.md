@@ -264,6 +264,38 @@ output must not change** — same words, same footer counts, on the same estate.
 **Done when** the scan's output is byte-identical before and after **against a
 frozen clone**, and `test/reconcile/` passes unedited.
 
+**Measured 2026-09-01, and the byte-identical gate held: 61451 bytes from both
+scans over a clone frozen at `f75ff199`, 188 plans and 428 refs.** The
+comparison was made discriminating before it was believed — gutting
+`plot-verdicts.mjs` made the scan exit 2 with no output, so the domain entry
+decides the verdicts rather than sitting inert beside a shell that still does.
+
+**`test/reconcile/` was NOT passed unedited, and this is the exception with its
+reason.** `hostShim` copies the real scripts into a temporary directory so a
+stubbed `plot-host.sh` sits beside them, and it copied `*.sh` only. The migrated
+scan resolves `board/plot-verdicts.mjs` from its own `BASH_SOURCE`, so the
+bundle was absent and 17 fleet tests plus 3 dispatch tests exited 2. The eight
+copies of that loop became one `shimScripts` helper that also copies
+`board/*.mjs`.
+
+**What the rule protects is the scan's OUTPUT, and that is untouched** — the
+byte-identical result above is the evidence. What changed is the scan's
+DEPLOYMENT SHAPE: it now needs a built artifact beside it, which is a new fact
+about its environment rather than about its verdicts. A rule read so literally
+that no script may ever gain a dependency would forbid the adoption it exists to
+protect.
+
+**And the sandbox found a defect the frozen clone structurally could not.** The
+entry point's main-module guard compared `import.meta.url` against
+`` `file://${process.argv[1]}` ``. The first is realpath-resolved and
+percent-encoded; the second is neither. On macOS `/tmp` is a symlink, so from a
+sandbox the block never ran and **the process exited 0 having written nothing** —
+a failure no `||` can catch, because exit 0 is not a failure. The count guard
+beside the call caught it (`readings=2, verdicts=0`), which is the whole argument
+for having written that guard at all. A full clone has no symlink in the path,
+so the clone comparison could only ever exercise the environment that already
+worked.
+
 **The clone is what makes the comparison mean anything.** The scan reads the
 live estate, and this repository runs `parallelAgents: 11` — between two runs a
 PR merges, a worker commits, a ref moves, and the diff would be full of changes
