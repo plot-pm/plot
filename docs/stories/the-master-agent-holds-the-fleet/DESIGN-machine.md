@@ -15,7 +15,8 @@ made four diagnoses wrong.
 > **Story:** [The master agent holds the fleet](STORY-the-master-agent-holds-the-fleet.md)
 >
 > **Companions:** [Entities](DESIGN-entities.md) · [Agent](DESIGN-agent.md) ·
-> [Worktree](DESIGN-worktree.md) · [Build](DESIGN-build.md)
+> [Worktree](DESIGN-worktree.md) · [Build](DESIGN-build.md) ·
+> [Budget](DESIGN-budget.md)
 
 ## Contents
 

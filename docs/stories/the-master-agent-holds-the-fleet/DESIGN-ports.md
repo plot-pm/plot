@@ -184,6 +184,47 @@ any two…"* — because a Bitbucket repo with no issue tracker is permanently
 unaskable, while an expired token is temporarily unanswerable. **One is a
 config fact, the other an incident.**
 
+### A connector is a kind of adapter
+
+**Not every adapter is a connector.** A **connector** reaches a remote service:
+it has an account, credentials, a rate limit and a transport choice. Every other
+adapter reaches the local machine, where none of those exist.
+
+**Measured 2026-09-01 across `packages/domain/src/adapters/`:**
+
+| adapter | shells to | remote CLI calls |
+|---|---|---:|
+| **`host`** | `plot-host.sh` | **11** (`gh`, `bb`, `jen`, `jira`) |
+| `refs` | `plot-fleet-scan.sh` | 0 |
+| `processes` | `plot-worker-state.sh` | 0 |
+| `plan-store` | `plot-config.sh`, `plot-plan-meta.sh` | 0 |
+| `performer` | `plot-reconcile-scan.sh` | 0 |
+| `machine`, `trees`, `clock`, `channel` | — | 0 |
+
+**Exactly one adapter is a connector**, and the asymmetry shows in the
+interfaces: `refs` carries **12** operations to `host`'s **6**, precisely because
+nothing charges for `git rev-parse`. Cheapness shapes what a port is willing to
+ask.
+
+**What only a connector has**, and what a local adapter must never be made to
+implement:
+
+- a **[Budget](DESIGN-budget.md)** — *what will you still answer, and how well do
+  you know it?*
+- a record of what each call spent, in the connector's own bucket name
+- a **transport choice** — REST versus GraphQL is a GitHub distinction; Bitbucket
+  has no such split and Jenkins has neither
+
+**It stays on the adapter side of the port.** `Host` names six questions and no
+transport, no account and no bucket. That is what lets a connector hide all
+three — and what makes adding GitLab or Trello an **adapter** change rather than
+a domain change.
+
+**Three axes name connectors independently.** `Git host`, `Tracker` and `CI` are
+separate settings because a project mixes them: this repo is GitHub + Actions,
+another is Bitbucket + Jenkins. One kind, three axes, and a budget per
+`(connector, account, bucket)` falls out of that rather than being imposed on it.
+
 ### Where they live, and how to find them
 
 ```

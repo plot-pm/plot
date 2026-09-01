@@ -28,6 +28,12 @@
 Board impact: this IS the board, plus `plot-host.sh` as the one place that talks
 to the host. The plan format, template and `docs/plans` layout are untouched.
 
+> **Design spec:** [Budget](../stories/the-master-agent-holds-the-fleet/DESIGN-budget.md)
+> — the entity, its identity, its provenance and where it lives. The connector
+> kind it rests on is [Ports § A connector is a kind of adapter](../stories/the-master-agent-holds-the-fleet/DESIGN-ports.md).
+> **The specs are the model; this plan is the work.** Where they disagree, the
+> spec is what a later reader will trust.
+
 ## Motivation
 
 **The banner is the symptom:**
