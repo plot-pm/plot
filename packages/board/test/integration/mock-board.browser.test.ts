@@ -147,7 +147,16 @@ describe('the mock board serves named states', () => {
     // mock" but "reused the real server pointed at a fixture", which a check for
     // `startServer` alone would pass.
     const dir = path.resolve(here, '../catalogue');
-    for (const file of fs.readdirSync(dir)) {
+    // SOURCE FILES ONLY. `readdirSync` lists directories too, and a tool that
+    // drops one in here (`.omc/`, measured 2026-09-01) made this gate throw
+    // EISDIR — a failure that says nothing about whether the catalogue spawns
+    // and stops it from answering the question it exists for.
+    const sources = fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
+      .map((entry) => entry.name);
+    expect(sources.length, 'no catalogue sources found — has it moved?').toBeGreaterThan(0);
+    for (const file of sources) {
       const source = fs.readFileSync(path.join(dir, file), 'utf8');
       // Comments explain WHY the artifact is absent, so the grep reads code
       // only — otherwise this file's own explanation would fail it.

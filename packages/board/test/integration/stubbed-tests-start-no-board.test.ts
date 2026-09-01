@@ -300,4 +300,15 @@ describe('a browser test that stubs its own state starts no board', () => {
  * arithmetic on a stale one. Both times the tripwire fired it was correct to.
  */
 const EXPECTED_FILES = 44;
-const EXPECTED_TESTS = 454;
+/**
+ * 454 → 457 ON 2026-09-01, and this slice DID add three tests.
+ *
+ * The Naming slice took the catalogue from 3 named scenarios to 8, and
+ * `mock-board.browser.test.ts` gained one test per new shape it serves — which
+ * is the deliverable rather than a side effect: a scenario nothing asserts
+ * against is a payload nobody has shown the board can render.
+ *
+ * Raised deliberately, in the commit that adds them, which is the whole
+ * mechanism this pair exists for.
+ */
+const EXPECTED_TESTS = 457;
