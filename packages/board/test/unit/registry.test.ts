@@ -20,6 +20,7 @@ import {
 } from '../../src/server/registry.js';
 import { execFileSync } from 'node:child_process';
 import { projectSlug } from '../../src/server/transcript.js';
+import { rmTree } from '../helpers.mjs';
 
 /** The real helper scripts, so the integration block can source the shell. */
 const SCRIPTS_DIR = path.resolve(
@@ -37,7 +38,7 @@ beforeEach(() => {
   fs.mkdirSync(path.join(root, AGENT_MANIFEST_DIR), { recursive: true });
 });
 afterEach(() => {
-  for (const d of [root, home]) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of [root, home]) rmTree(d);
 });
 
 function manifest(name: string, body: Record<string, unknown>): void {
@@ -108,7 +109,7 @@ describe('readAgentRegistry — an agent is not a branch', () => {
   });
 
   it('returns [] when no dispatch has ever run', () => {
-    fs.rmSync(path.join(root, AGENT_MANIFEST_DIR), { recursive: true, force: true });
+    rmTree(path.join(root, AGENT_MANIFEST_DIR));
     assert.deepEqual(readAgentRegistry(root, home), []);
   });
 
@@ -600,7 +601,7 @@ describe('gitWorktrees — the real porcelain, parsed', () => {
   // the porcelain format fails here rather than silently in production.
   let repo = '';
   afterEach(() => {
-    if (repo) fs.rmSync(repo, { recursive: true, force: true });
+    if (repo) rmTree(repo);
     repo = '';
   });
 

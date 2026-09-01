@@ -13,6 +13,7 @@ import { briefGapNote, needsBrief } from '../../src/app/lib/agent-rows/row-ident
 import {
   AgentRowSchema, ELIGIBLE_NOTE, type AgentRow, type FleetReading,
 } from '../../src/contract/schema.js';
+import { rmTree } from '../helpers.mjs';
 
 /**
  * A NOT STARTED row distinguishes *ready* from *needs a brief*.
@@ -51,7 +52,7 @@ afterEach(() => {
   // run rather than this one.
   const dir = path.join(root, '.plot/briefs');
   if (fs.existsSync(dir)) fs.chmodSync(dir, 0o755);
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 /** `.plot/briefs`, and a brief in it for `branch` when one is asked for. */

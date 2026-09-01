@@ -47,7 +47,7 @@ function stubScan(pulse) {
     `#!/usr/bin/env bash\ncat ${JSON.stringify(json)}\n`,
     { mode: 0o755 },
   );
-  return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+  return { dir, cleanup: () => rmTree(dir) };
 }
 
 /** The pulse shape `plot-fleet-scan.sh --json` really emits. */

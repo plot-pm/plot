@@ -151,7 +151,7 @@ afterEach(async () => {
   while (dirs.length) {
     const dir = dirs.pop()!;
     await settle(dir);
-    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmTree(dir);
   }
 });
 
@@ -278,7 +278,7 @@ describe('answering UPDATES the manifest — the path that produced the defect',
 
   const roots: string[] = [];
   afterEach(() => {
-    while (roots.length) fs.rmSync(roots.pop()!, { recursive: true, force: true });
+    while (roots.length) rmTree(roots.pop()!);
   });
 
   async function postTo(root: string, body: unknown, d: ContinueDeps) {

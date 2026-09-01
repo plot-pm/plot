@@ -13,10 +13,11 @@ import {
   unchanged,
   worktreesSignal,
 } from '../../src/server/signals.js';
+import { rmTree } from '../helpers.mjs';
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) rmTree(d);
 });
 
 function repo(): string {

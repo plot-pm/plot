@@ -27,6 +27,7 @@ import { Readable } from 'node:stream';
 
 import { handleDrop, type DropOptions, type DropResult } from '../../src/server/drop.js';
 import { AGENT_MANIFEST_DIR, type LivenessResolver } from '../../src/server/registry.js';
+import { rmTree } from '../helpers.mjs';
 
 /** The real helper scripts, so a test can resolve the directory through the shell. */
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
@@ -35,7 +36,7 @@ const made: string[] = [];
 afterEach(() => {
   while (made.length) {
     const dir = made.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    if (dir) rmTree(dir);
   }
 });
 
