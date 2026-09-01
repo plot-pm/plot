@@ -1606,6 +1606,25 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // The staged copies exist only for the duration of that one parse. Removed
     // in a `finally` so a parser failure cannot leave temp directories behind
     // on a path the server walks every few seconds.
+    //
+    // READ 2026-09-01, by `a-teardown-does-not-fail-a-suite`, which fixed the
+    // same shape of call in the test tree and deliberately left this one. It is
+    // recorded rather than changed, so a later plan starts from a reading:
+    //
+    //   - The only writer into `stageDir` is THIS function, synchronously,
+    //     before the parse. No child is given the path to write to.
+    //   - `readPlanMeta` awaits `run`, which resolves in `execFile`'s exit
+    //     callback. So `plot-plan-meta.sh` has EXITED before this line runs, and
+    //     it only ever read these files.
+    //   - That makes it unlike the test failure: there the doomed child was a
+    //     `git` process still writing into the tree being removed.
+    //
+    // So the race the tests hit is not reachable here on the evidence above.
+    // What is NOT established is behaviour under an external writer — a backup
+    // agent or an editor indexing `os.tmpdir()` — and a throw here escapes into
+    // a request the board serves every few seconds. If that is judged worth
+    // closing, `rmTree`'s bounded retry is the shape; it lives in the test tree
+    // today and would have to move to be used from `src/`.
     if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
   }
   for (const meta of metas) {
@@ -1901,6 +1920,9 @@ export async function planStatusBySlug(
       bySlug.set(planSlug(relPath), planStatus(meta, pulse, complete));
     }
   } finally {
+    // Same removal, same reading — see the longer note on the other stage-dir
+    // `finally` above. This function is also the only writer into `stageDir`,
+    // and it also awaits the parser before reaching this line.
     if (stageDir) fs.rmSync(stageDir, { recursive: true, force: true });
   }
   return bySlug;

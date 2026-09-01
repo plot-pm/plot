@@ -25,6 +25,7 @@ import {
   type Finding,
   type FleetPulse,
 } from '../../src/contract/schema.js';
+import { rmTree } from '../helpers.mjs';
 
 const QUIET = 30;
 
@@ -37,7 +38,7 @@ beforeAll(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-findings-'));
 });
 afterAll(() => {
-  fs.rmSync(root, { recursive: true, force: true });
+  rmTree(root);
 });
 
 /**
