@@ -1,5 +1,5 @@
 import { RELEASE_BRANCH } from '../contract/schema.js';
-import { execFile, execFileSync, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -33,7 +33,7 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
-import { workingTreeSprints, planStatusBySlug, readConfig, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, readConfigAsync, treesFor, type BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -196,11 +196,14 @@ const ISSUE_LIMIT = 50;
 /**
  * How long the master agent branch reading stands before re-asking git.
  *
- * The same 5 s TTL as `server-info.ts` (#410) and for the same reasons: the
- * fork stays off the per-request path (fleet renders every 4 s), and a branch
- * switch shows up within seconds. The per-request concern is amplified here
- * because TWO git spawns are needed — one for `git worktree list`, one for
- * `git branch --show-current` in the main checkout.
+ * The same 5 s TTL as `server-info.ts` (#410) and for the same reasons: a
+ * branch switch shows up within seconds, and the read stays off the
+ * per-request path (fleet renders every 4 s).
+ *
+ * The TTL was worth more when the read was two synchronous spawns. It is one
+ * awaited port call now, so what it saves is a process launch rather than a
+ * blocked event loop — kept because the saving is real and the staleness it
+ * costs is bounded at five seconds, not because the board still depends on it.
  *
  * DISTINCT FROM `server-info.ts` DELIBERATELY. That file caches
  * `server.branch`, which is the branch the SERVER'S worktree is on. This is
@@ -225,38 +228,6 @@ const MASTER_AGENT_BRANCH_TTL_MS = 5_000;
 let masterAgentBranchCache: { branch: string; at: number } | null = null;
 
 /**
- * The main checkout's path, from the first entry of `git worktree list`.
- *
- * `git worktree list` outputs lines like:
- *   /path/to/repo  abc1234 [main]
- *   /path/to/repo-wt-branch  def5678 [feature/foo]
- *
- * The first entry is always the main worktree (the original clone); linked
- * worktrees follow. Verified 2026-08-25 on this machine.
- */
-function mainCheckoutPath(repoRoot: string): string | null {
-  let out: string;
-  try {
-    out = execFileSync('git', ['worktree', 'list'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    }) as string;
-  } catch (err) {
-    // Failure to RUN git — not a repo, git absent, spawn error. Distinct from
-    // "git ran and reported nothing usable" below, which returns null cleanly.
-    // A silent null here is what let a bundling error read as a detached HEAD.
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[fleet] git worktree list failed in ${repoRoot}: ${message}`);
-    return null;
-  }
-  const firstLine = out.split('\n')[0];
-  if (!firstLine) return null;
-  // The path ends at the first whitespace before the commit SHA.
-  const match = firstLine.match(/^(\S+)\s/);
-  return match ? match[1] : null;
-}
-
-/**
  * The branch the MAIN CHECKOUT is on — the operator's branch, where a person
  * and the master agent do the concept work.
  *
@@ -264,40 +235,47 @@ function mainCheckoutPath(repoRoot: string): string | null {
  * the main checkout; naming the board's own tree was considered and rejected
  * because that is `server.branch` again.
  *
- * Returns `''` for every failure: detached HEAD, not a git repo, unresolvable
- * main checkout. The schema's default is `''`, and the renderer shows NO ROW
- * rather than a placeholder.
+ * ONE PORT CALL, WHERE THERE WERE TWO SPAWNS. `git worktree list` was run to
+ * find the main checkout's path and `git branch --show-current` was then run
+ * inside it, and both were synchronous — a stack sampled on a wedged board
+ * caught `SyncProcessRunner::Spawn` under the request handler in 4258 of 4262
+ * main-thread samples, and a synchronous spawn cannot yield, so a static file
+ * timed out at 15 s beside it. `Trees.list()` reports every worktree WITH its
+ * branch, so the second question was already answered by the first listing.
  *
- * The empty value is not silent, though: a genuine detached HEAD returns `''`
- * quietly (git ran and reported no branch), while a FAILURE to run git is
- * logged before it collapses to `''`. The two are the same value but not the
- * same event — conflating them silently is what let a bundling error read as a
- * detached HEAD and hid a one-line bug through a full investigation.
+ * Returns `''` for every failure: detached HEAD, not a git repo, no main
+ * checkout in the listing. The schema's default is `''`, and the renderer
+ * shows NO ROW rather than a placeholder.
+ *
+ * The empty value is not silent, though. A genuine detached HEAD returns `''`
+ * quietly — the port answered, and `''` is what it answered — while a port that
+ * could not answer at all is logged before it collapses to `''`. The two are
+ * the same value but not the same event, and conflating them silently is what
+ * let a bundling error read as a detached HEAD and hid a one-line bug through a
+ * full investigation. That distinction cost a `try`/`catch` when the call
+ * spawned; the port carries it in `ok`.
  */
-function readMasterAgentBranch(repoRoot: string): string {
+async function readMasterAgentBranch(opts: BuildBoardOptions): Promise<string> {
   const now = Date.now();
   if (masterAgentBranchCache && now - masterAgentBranchCache.at < MASTER_AGENT_BRANCH_TTL_MS) {
     return masterAgentBranchCache.branch;
   }
 
   let branch = '';
-  const mainPath = mainCheckoutPath(repoRoot);
-  if (mainPath) {
-    try {
-      const out = execFileSync('git', ['branch', '--show-current'], {
-        cwd: mainPath,
-        encoding: 'utf8',
-      }) as string;
-      // git ran. An empty result here is a genuine detached HEAD — the
-      // renderer shows no row, which is correct for that case.
-      branch = out.trim();
-    } catch (err) {
-      // git FAILED to run. That is not a detached HEAD; it is an unreadable
-      // checkout, and it must not silently masquerade as one. Log it so the
-      // empty answer is distinguishable from the legitimate empty above.
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[fleet] git branch --show-current failed in ${mainPath}: ${message}`);
-      branch = '';
+  const trees = await treesFor(opts).list();
+  if (!trees.ok) {
+    // The port could not answer — not a repo, git absent, a listing it could
+    // not parse. Distinct from "it answered and no tree is the main one", and
+    // distinct again from a detached HEAD, which is an answer of `''`.
+    console.warn(`[fleet] worktree listing unavailable in ${opts.repoRoot}: ${trees.why}`);
+  } else {
+    const main = trees.value.find((tree) => tree.isMain);
+    if (main === undefined) {
+      console.warn(`[fleet] no main checkout in the worktree listing for ${opts.repoRoot}`);
+    } else {
+      // The listing answered. An empty branch here is a genuine detached HEAD
+      // — the renderer shows no row, which is correct for that case.
+      branch = main.branch;
     }
   }
 
@@ -2307,7 +2285,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     entry.autoInFlight = maybeAutoDispatch(
       opts,
       complete,
-      readFleetSettings(opts),
+      await readFleetSettings(opts),
       entry.agents,
       entry.autoInFlight,
       machine,
@@ -5580,8 +5558,13 @@ const EMPTY_SUMMARY = {
  * train); the field records one, and the control that renders both is a later
  * wave's concern.
  */
-export function sprintMembership(opts: BuildBoardOptions): Map<string, string> {
-  const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
+export async function sprintMembership(opts: BuildBoardOptions): Promise<Map<string, string>> {
+  // The CONFIG read is awaited; the directory walk below is not, and the split
+  // is the whole of it. `workingTreeSprints` is a `readdirSync`, which is not a
+  // spawn — `board.ts` says so where it is defined, and wave 1 kept it
+  // synchronous deliberately. What blocked the loop here was the `bash
+  // plot-config.sh` fork this line used to make.
+  const sprintDir = await readConfigAsync(opts, 'Sprint directory', 'docs/sprints/');
   const map = new Map<string, string>();
   for (const sprint of workingTreeSprints(opts.repoRoot, sprintDir)) {
     if (sprint.phase !== 'Active') continue;
@@ -5631,7 +5614,7 @@ export async function activeSprints(
   pulse: FleetReading | null,
   complete: boolean,
 ): Promise<FleetSprint[]> {
-  const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
+  const sprintDir = await readConfigAsync(opts, 'Sprint directory', 'docs/sprints/');
   const active = workingTreeSprints(opts.repoRoot, sprintDir).filter((s) => s.phase === 'Active');
   if (active.length === 0) return [];
   const statusBySlug = await planStatusBySlug(opts, pulse, complete);
@@ -5734,14 +5717,26 @@ export async function buildFleet(
   const repo = path.basename(opts.repoRoot);
   const now = Date.now();
   const ageSeconds = entry.at === null ? 0 : Math.round((now - entry.at) / 1000);
-  // THE TWO PLAN-STATUS READS, ASKED TOGETHER and hoisted above the literal.
-  // Both go through `planStatusBySlug`, which reads the plan estate from the
-  // ref — an await, where until 2026-08-31 it was a synchronous spawn. Awaiting
-  // them in sequence would serialise two identical reads for nothing; they are
-  // asked concurrently and the object below stays a literal.
-  const [sprints, totals] = await Promise.all([
+  // THE FIVE READS, ASKED TOGETHER and hoisted above the literal. The two
+  // plan-status reads go through `planStatusBySlug`, which reads the plan estate
+  // from the ref — an await, where until 2026-08-31 it was a synchronous spawn.
+  // The other two became awaits on 2026-09-01 for the same reason: the main
+  // checkout's branch now comes from the worktree listing through the `Trees`
+  // port, and the sprint membership reads its directory from the config through
+  // `plot-config.sh` off the loop. Awaiting them in sequence would serialise
+  // five independent reads for nothing; they are asked concurrently and the
+  // object below stays a literal.
+  //
+  // The fleet controls join them for the same reason. `readFleetSettings` seeds
+  // its defaults from three `## Plot Config` keys, unconditionally, so the pulse
+  // paid three synchronous forks per render whether or not a state file existed
+  // to override them.
+  const [sprints, totals, masterAgentBranch, membership, settings] = await Promise.all([
     activeSprints(opts, entry.pulse, entry.pulseComplete),
     estateTotals(opts, entry.pulse, entry.pulseComplete),
+    readMasterAgentBranch(opts),
+    sprintMembership(opts),
+    readFleetSettings(opts),
   ]);
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
@@ -5755,7 +5750,9 @@ export async function buildFleet(
       // Which active sprint claims each plan — read on the render clock like the
       // brief above, and for the same reason: a sprint file edited between two
       // scans shows up on the next pulse. One dir read per pulse, no host call.
-      sprintMembership(opts),
+      // Awaited above rather than here, because `rowsFromPulse` is synchronous
+      // and a Promise handed to it would read as a Map that holds nothing.
+      membership,
       // WHICH BRANCHES STILL CARRY WORK. From the cache rather than read here:
       // this is a git question and the render path is synchronous, the same rule
       // the ages and versions above follow.
@@ -5854,7 +5851,7 @@ export async function buildFleet(
     // from disk on every refresh, and absence means no dispatch has run — a
     // fact, not an unreachable host.
     fleetControls: {
-      ...readFleetSettings(opts),
+      ...settings,
       working: entry.agents.filter((a) => isLiveState(a.state)).length,
     },
     // The Active sprints, each with release and four `status` counts, aggregated
@@ -5876,7 +5873,7 @@ export async function buildFleet(
     // Emitted unconditionally ('', which means "show nothing", on any failure)
     // because the client casts this payload and a Zod `.default('')` never
     // fires client-side.
-    masterAgentBranch: readMasterAgentBranch(opts.repoRoot),
+    masterAgentBranch,
     // The prefix for constructing the master agent row's branch URL. The
     // server already computes `branchUrl` for each row; this row is assembled
     // client-side, so the prefix must travel with it. Empty for any host the

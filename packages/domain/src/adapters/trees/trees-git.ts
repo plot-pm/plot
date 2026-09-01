@@ -1,7 +1,7 @@
 import type { Worktree } from '../../entities/worktree.js';
 import { answered, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
-import { asLines, runProcess, runScript } from '../run-script.js';
+import { asLines, asText, runProcess, runScript } from '../run-script.js';
 import type { ShellContext } from '../scripts.js';
 
 /**
@@ -72,6 +72,12 @@ export const treesGit = (context: ShellContext): Trees => {
       if (!all.ok) return all as PortResult<Worktree | null>;
       return answered(all.value.find((tree) => tree.branch === branch) ?? null);
     },
+
+    // `git -C <path>` rather than `cwd`, so an unreadable checkout is reported
+    // by git's own exit code instead of by `execFile` failing to chdir — the
+    // two arrive as different errors and only one of them says which path.
+    currentBranch: (path) =>
+      runScript('git', ['-C', path, 'branch', '--show-current'], asText, inRepo),
 
     markers: (path, prefix) =>
       runScript(
