@@ -39,6 +39,7 @@ export * from './rules/pulse.js';
 export * from './rules/verdict.js';
 export * from './rules/attention.js';
 export * from './rules/sample.js';
+export * from './rules/acting.js';
 /**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
  * which `## Status` line a lifecycle step writes.

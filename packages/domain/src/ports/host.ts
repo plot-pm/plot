@@ -34,6 +34,26 @@ export type MergedAnswer = 'merged' | 'not-merged' | 'unknown';
 export type LimitObservation = 'ok' | 'throttled';
 
 /**
+ * What opening a PR needs to be told.
+ *
+ * The base is optional because the host already knows its default branch, and a
+ * caller that had to name it would be a caller holding a fact the connector
+ * holds better. `draft` is likewise omitted rather than defaulted: a PR opened
+ * on a finding is asking to be read, and a draft is the one shape a reviewer
+ * will not be notified about.
+ */
+export interface PrCreateRequest {
+  /** The branch to open from; it must already exist on the host. */
+  head: string;
+  /** The PR's title. */
+  title: string;
+  /** The PR's body. */
+  body: string;
+  /** The branch to merge into; the host's default when `''`. */
+  base?: string;
+}
+
+/**
  * Reads the git host — the FOREIGN source of truth about PRs, builds, issues.
  *
  * Foreign state carries its askability apart from its answer, which is why
@@ -84,6 +104,24 @@ export interface Host {
    * @returns `merged`, `not-merged`, or `unknown` where the host could not say.
    */
   prMerged(branch: string): Promise<PortResult<MergedAnswer>>;
+
+  /**
+   * Opens a PR for a branch.
+   *
+   * THE ONE WRITE ON THIS PORT, and the reason it is allowed here while
+   * merging, reaping and killing are not is reversibility: a PR opened wrongly
+   * is closed by whoever disagrees, and the branch, the worktree and the work
+   * are untouched. Nothing else a fleet could do to a branch has that property.
+   *
+   * The head branch must already be pushed — this asks the host about refs the
+   * host can see, and a branch that exists only on the machine has nothing to
+   * open a PR from.
+   *
+   * @param request - the branch, the title and the body to open with.
+   * @returns the PR's URL as the host printed it; `''` where the host opened
+   *   one and said nothing about where it is.
+   */
+  prCreate(request: PrCreateRequest): Promise<PortResult<string>>;
 
   /**
    * Lists PRs.

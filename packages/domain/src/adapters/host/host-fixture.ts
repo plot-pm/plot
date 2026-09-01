@@ -6,9 +6,10 @@ import type {
   HostBackend,
   LimitObservation,
   MergedAnswer,
+  PrCreateRequest,
   PrLookup,
 } from '../../ports/host.js';
-import { answered, type PortResult } from '../../port-result.js';
+import { answered, failed, type PortResult } from '../../port-result.js';
 
 /** The host a fixture answers as. */
 export interface HostFixture {
@@ -28,6 +29,23 @@ export interface HostFixture {
    * caller reading it gets no reading rather than a reassuring number.
    */
   limits?: readonly LimitReading[];
+  /**
+   * Where every `prCreate` is recorded, in call order.
+   *
+   * A FIXTURE THAT ONLY ANSWERED COULD NOT PROVE IDEMPOTENCE. The whole claim
+   * of the acting slice is that a second finding opens NOTHING, and the only
+   * evidence for it is how many times the write was attempted — which a
+   * read-only fixture discards. The caller supplies the array so it can read it
+   * afterwards.
+   */
+  opened?: PrCreateRequest[];
+  /**
+   * Whether opening a PR fails.
+   *
+   * A host that refuses the write is a real case and a different one from a
+   * host that opened nothing because nothing asked. Default is to succeed.
+   */
+  prCreateFails?: boolean;
 }
 
 /**
@@ -51,6 +69,7 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
   const merged = new Set(fixture.merged ?? []);
   const prs = fixture.prs ?? [];
   const issues = fixture.issues ?? [];
+  const opened = fixture.opened ?? [];
   // Mutable, because the correction rule is behaviour rather than a value and
   // the fixture must be able to show it. A fixture that always answered the
   // literal input could not stand in for an adapter that learns.
@@ -59,11 +78,28 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     backend: async (): Promise<PortResult<HostBackend>> =>
       answered(fixture.backend ?? 'github'),
 
+    // BY NUMBER **OR BY BRANCH**, which is what the port says it takes. The
+    // number half was the only one implemented until 2026-09-01, so a fixture
+    // holding an open PR answered `null` when asked about its own branch —
+    // and every branch-keyed assertion against it passed vacuously. Found by
+    // the acting slice, whose whole claim is that a branch WITH a PR gets no
+    // second one.
     prState: async (ref): Promise<PortResult<PrLookup>> =>
-      answered(prs.find((pr) => String(pr.number) === String(ref)) ?? null),
+      answered(
+        prs.find((pr) => String(pr.number) === String(ref) || pr.head === String(ref)) ?? null,
+      ),
 
     prMerged: async (branch): Promise<PortResult<MergedAnswer>> =>
       answered(merged.has(branch) ? 'merged' : 'not-merged'),
+
+    prCreate: async (request): Promise<PortResult<string>> => {
+      opened.push(request);
+      // RECORDED BEFORE IT REFUSES. A failed write was still an attempt, and a
+      // test asserting that nothing asked twice must be able to see the second
+      // ask even when the first one broke.
+      if (fixture.prCreateFails === true) return failed();
+      return answered(`https://example.invalid/pr/${opened.length}`);
+    },
 
     prList: async (_state, limit): Promise<PortResult<readonly Pr[]>> =>
       answered(limit === undefined ? prs : prs.slice(0, limit)),
