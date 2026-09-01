@@ -732,11 +732,35 @@ section == "status" {
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**issue[:*]/ && canon_issue == "") canon_issue = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**review[:*]/ && canon_review == "") canon_review = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**impl[:*]/ && canon_impl == "") canon_impl = val_after_colon($0)
-  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**design[:*]/ && canon_design == "") canon_design = val_after_colon($0)
+  # EACH TAKES THE FIRST LINE THAT CARRIES A VALUE, NOT THE FIRST LINE.
+  #
+  # A plan may hold both a record and an unfilled placeholder for the same
+  # field, on either side of each other. Seven plans here write the placeholder
+  # as a per-line comment —
+  #
+  #     - **Delivered:** <!-- YYYY-MM-DD -->
+  #
+  # — beside a real `- **Delivered:** 2026-09-01`. `strip_placeholder` used to
+  # run in `emit_record`, AFTER first-wins had already chosen: the placeholder
+  # claimed the slot, was emptied a moment later, and the record it beat was
+  # gone. Whether a plan parsed correctly then depended on which line came
+  # first, and `append_delivered_line` decides that by where a `<!--` happens
+  # to stop its scan.
+  #
+  # A DELIVERED PLAN THAT READS `delivered_raw: ""` IS INVISIBLE TO THE SCAN,
+  # which reads its rolling window from that field — the same failure the
+  # comment-block fix addressed, reached by a different road. Measured
+  # 2026-09-01 on `a-machine-is-an-instance`: parsed correctly, but only
+  # because its record sat two lines above its placeholder.
+  #
+  # `started` never had this bug because it is a list and had to filter at
+  # capture to avoid storing empties. These four are scalars, and now do the
+  # same: a placeholder no longer counts as a value, so ORDER STOPS MATTERING.
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**design[:*]/ && canon_design == "") canon_design = strip_placeholder(val_after_colon($0))
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**rounds[:*]/ && canon_rounds == "") canon_rounds = val_after_colon($0)
-  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = val_after_colon($0)
-  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**released[:*]/ && canon_released == "") canon_released = val_after_colon($0)
-  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**delivered[:*]/ && canon_delivered == "") canon_delivered = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**approved[:*]/ && canon_approved == "") canon_approved = strip_placeholder(val_after_colon($0))
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**released[:*]/ && canon_released == "") canon_released = strip_placeholder(val_after_colon($0))
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**delivered[:*]/ && canon_delivered == "") canon_delivered = strip_placeholder(val_after_colon($0))
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**started[:*]/) {
     _s = strip_placeholder(val_after_colon($0))
     if (_s != "") started[++n_started] = _s

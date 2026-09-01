@@ -142,3 +142,66 @@ test('an empty placeholder outside a comment is FILLED, not duplicated', () => {
   const lines = text.split('\n').filter((l) => /^\s*[-*]\s*\*\*Delivered:\*\*/.test(l));
   assert.equal(lines.length, 1, 'the placeholder was appended to rather than filled');
 });
+
+// THE INLINE-COMMENT PLACEHOLDER, which is a different shape from both above.
+//
+// The template this repo ships ends `## Status` with a BLOCK comment, and the
+// tests above cover it. Seven plans here instead carry the placeholder as a
+// per-line comment:
+//
+//     - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
+//     - **Delivered:** <!-- YYYY-MM-DD -->
+//     - **Released:** <!-- YYYY-MM-DD, version -->
+//
+// Both are legal, and `append_delivered_line` cannot tell them apart: it stops
+// the moment it sees `<!--`, so on this shape it stops at the `Started:` line
+// and never reaches the `Delivered:` slot one line below. The record is
+// appended above the placeholders instead of filling one.
+//
+// THAT PART IS COSMETIC. What is not is the parser: `canon_delivered` takes the
+// FIRST `Delivered:` line and calls `strip_placeholder` afterwards, so which of
+// the two lines wins is decided by their ORDER. Today the record lands above
+// the placeholder and the plan reads correctly; a record landing below it reads
+// as `delivered_raw: ""` — a delivered plan the scan cannot see, which is the
+// exact failure the block-comment fix above was written for, reached by another
+// road.
+//
+// Measured 2026-09-01 on `a-machine-is-an-instance`: delivered, `Delivered:`
+// record on line 10, placeholder on line 12, parsed correctly ONLY because of
+// that ordering. Six more plans carry the shape and have not been delivered yet.
+test('an inline-comment placeholder does not claim the Delivered slot', () => {
+  const { parsed } = deliverAndRead(
+    '## Status\n\n- **Phase:** Approved\n- **Approved:** 2026-01-01, T, in-session\n'
+    + '- **Started:** <!-- YYYY-MM-DD, who, `branch` -->\n'
+    + '- **Delivered:** <!-- YYYY-MM-DD -->\n'
+    + '- **Released:** <!-- YYYY-MM-DD, version -->\n',
+  );
+  assert.equal(parsed.phase, 'delivered', 'the phase should flip');
+  assert.notEqual(parsed.delivered_raw, '',
+    'the plan reports no Delivered record — a placeholder took the slot, so a delivered '
+    + 'plan is invisible to the scan exactly as it is when the record lands in a comment');
+});
+
+test('the parser reads the record whichever side of the placeholder it lands on', () => {
+  // The ordering dependency stated directly, without going through the writer.
+  // `started` already filters placeholders AT CAPTURE and so has never had this
+  // bug; the scalar fields took the first line and stripped afterwards. This
+  // asserts the property rather than today's lucky ordering — a writer that
+  // ever appends below the placeholder must not silently empty the field.
+  const read = (status) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-meta-order-'));
+    const file = path.join(dir, '2026-01-01-ordering.md');
+    fs.writeFileSync(file, `# Ordering\n\n${status}\n## Changelog\n`);
+    const out = execFileSync(meta, [file], { encoding: 'utf8' });
+    fs.rmSync(dir, { recursive: true, force: true });
+    return JSON.parse(out);
+  };
+  const head = '- **Phase:** Delivered\n- **Type:** docs\n';
+  const hole = '- **Delivered:** <!-- YYYY-MM-DD -->\n';
+  const real = '- **Delivered:** 2026-09-01\n';
+
+  assert.equal(read(`## Status\n\n${head}${real}${hole}`).delivered_raw, '2026-09-01',
+    'record above the placeholder should be read');
+  assert.equal(read(`## Status\n\n${head}${hole}${real}`).delivered_raw, '2026-09-01',
+    'record below the placeholder is lost — the placeholder claimed the slot');
+});
