@@ -2,12 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
-import { expandAgentFolds, startServer } from '../helpers.mjs';
+import { expandAgentFolds } from '../helpers.mjs';
 import { openCatalogue, board as buildBoard, card as buildCard, column, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 
 /**
  * THE ROW SAYS WHAT IT KNOWS — the five display findings, measured in a browser.
@@ -127,46 +126,14 @@ describe('the row says what it knows', () => {
   // itself. The mock serves the same built client and answers both payloads by
   // name, so the test states its own input instead of inheriting an estate.
   let cat: Catalogue;
-  /**
-   * A REAL BOARD, for the one test whose subject is a CAPABILITY.
-   *
-   * The approval control is gated on the server reporting `approve:
-   * {available: true}`, and availability is a claim about a transport the mock
-   * does not have — `mock-board.ts` says as much about why
-   * `approve.browser.test.ts` stays real. A served state can state the card and
-   * the row; it cannot state that this board could run the approve script.
-   *
-   * Measured 2026-09-01: with the card and the fleet both served, the plan row
-   * rendered and `data-plan-actions` did not. The card was correct — probed at
-   * `/api/board` — so what was missing was the permission, not the payload.
-   *
-   * @see `offers approval on a DRAFT plan row`
-   */
-  let server: { port: number; kill: () => void };
-  let realURL: string;
 
   beforeAll(async () => {
     cat = await openCatalogue();
-    server = await startServer(FIXTURE);
-    realURL = `http://localhost:${server.port}/`;
   }, 60_000);
 
   afterAll(async () => {
     await cat?.close();
-    server?.kill();
   });
-
-  /** The real board, for the capability test only. */
-  async function openReal(width = 1480): Promise<Page> {
-    const ctx = await cat.browser.newContext({ viewport: { width, height: 1400 } });
-    const page = await ctx.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-    await page.goto(`${realURL}?tab=agents`);
-    await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
-    await expandAgentFolds(page);
-    return page;
-  }
 
   async function open(width = 1480): Promise<Page> {
     // THE BOARD IS SUPPLIED TOO, and it has to be: the plan-actions menu is
@@ -179,6 +146,11 @@ describe('the row says what it knows', () => {
       over: {
         fleet: fleet(),
         board: buildBoard({
+          // THE CAPABILITY IS PART OF THE STATE. `approve.available` gates the
+          // control, and `BoardSchema` defaults it to false — so a served board
+          // that does not say so renders the row and no menu. Stating it is not
+          // pretending the script exists: it is saying which board this is.
+          approve: { available: true, reason: '' },
           columns: [column({
             phase: 'Discovery',
             cards: [buildCard({
@@ -496,8 +468,7 @@ describe('the row says what it knows', () => {
   // ─── The plan row hosts the approval that belongs to a plan ──────────────
 
   it('offers approval on a DRAFT plan row', async () => {
-    // THE REAL BOARD: the control is gated on a capability, not on a payload.
-    const page = await openReal();
+    const page = await open();
     try {
       // Measured 2026-08-19: `ApproveButton` existed, the server reported
       // `approve: {available: true}`, the card read `phase: Discovery` — and the
