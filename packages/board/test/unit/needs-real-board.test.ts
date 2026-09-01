@@ -76,16 +76,29 @@ await page.getByRole('button', { name: 'Approve' }).click();
 expect(new URL(posts[0]).pathname).toBe('/api/approve');
 `;
 
-/** `dead-fetch.browser.test.ts`'s shape: a route accepted and never answered. */
-const ABANDONS_A_TRANSPORT = `
+/**
+ * `stuck-rows`'s and `double-click`'s shape: a board bound to the network.
+ *
+ * The Closing slice's arm. Both files migrated their whole body onto the
+ * catalogue and kept ONE server, because the subject is what the board refuses
+ * when `sitting at this machine` stops being true. A mock has no binding.
+ */
+const BINDS_NON_LOCALHOST = `
 import { chromium } from 'playwright';
 import { startServer } from '../helpers.mjs';
-// @needs-real-board: reproduces a socket accepted and then abandoned, which route.abort cannot
-const server = await startServer(FIXTURE);
-await page.route(PLAN_DOC, () => {
-  /* deliberately never fulfilled: this IS the defect's condition */
-});
-await expect(dialog.getByText('could not load')).toBeVisible();
+// @needs-real-board: one test asserts what the board refuses over a non-localhost binding
+const cat = await openCatalogue();
+const tailscale = await startServer(FIXTURE, { HOST: '0.0.0.0' });
+await page.route('**/api/fleet', (route) => route.fulfill({ json: fleet() }));
+`;
+
+/** The same shape with a LOCALHOST binding — a default said out loud earns nothing. */
+const BINDS_LOCALHOST = `
+import { chromium } from 'playwright';
+import { startServer } from '../helpers.mjs';
+// @needs-real-board: it is easier to start the real thing
+const server = await startServer(FIXTURE, { HOST: '127.0.0.1' });
+await page.route('**/api/board', (route) => route.fulfill({ json: board() }));
 `;
 
 /** `tiny-garden`'s shape: the page the SERVER assembles, opened in a new tab. */
@@ -105,10 +118,12 @@ expect(await back.getAttribute('href')).toBe('/');
 /**
  * A SERVED document, asserted through `srcdoc` — and it must NOT entitle.
  *
- * This arm was nearly keyed on `srcdoc`, on the reasoning that `renderPlanPage`
- * takes a `repoRoot`. A document is a `fetch`, so the mock can answer it, and
- * `story-overlay.browser.test.ts` asserts the attribute while starting no board.
- * Keying on it would license a spawn that file demonstrably does not need.
+ * `story-overlay.browser.test.ts`'s shape after `serveDoc`: it asserts the
+ * attribute the modal fills from a fetched document, and starts no board. This
+ * arm was first keyed on `srcdoc` for exactly the assertion below, on the
+ * reasoning that `renderPlanPage` takes a `repoRoot`. A document is a `fetch`,
+ * so the mock can answer it — and keying on the attribute would license a spawn
+ * this file demonstrably does not need.
  */
 const SERVES_A_DOCUMENT = `
 import { openCatalogue } from '../catalogue/index.js';
@@ -132,6 +147,33 @@ const [popup] = await Promise.all([
 ]);
 expect(await page.getByRole('dialog').count()).toBe(0);
 await popup.close();
+`;
+
+/**
+ * A file that NAMES a document route and asserts only its href.
+ *
+ * `agents-tab.browser.test.ts`'s shape, and the measurement that keyed the arm
+ * on the rendered content rather than on the path: it clicks through to a 404
+ * on purpose, because the claim is the honest fallback for a plan with no card.
+ */
+const NAMES_A_DOCUMENT_ROUTE = `
+import { openCatalogue } from '../catalogue/index.js';
+// @needs-real-board: it links to a plan document
+const link = page.getByRole('link', { name: 'ghost-plan' }).first();
+expect(await link.getAttribute('href')).toBe('/plan/2099-01-01-ghost-plan.md');
+await expect.poll(() => page.url()).toContain('/plan/2099-01-01-ghost-plan.md');
+`;
+
+/** `dead-fetch.browser.test.ts`'s shape: a route accepted and never answered. */
+const ABANDONS_A_TRANSPORT = `
+import { chromium } from 'playwright';
+import { startServer } from '../helpers.mjs';
+// @needs-real-board: reproduces a socket accepted and then abandoned, which route.abort cannot
+const server = await startServer(FIXTURE);
+await page.route(PLAN_DOC, () => {
+  /* deliberately never fulfilled: this IS the defect's condition */
+});
+await expect(dialog.getByText('could not load')).toBeVisible();
 `;
 
 describe('the marker declares and the structure verifies', () => {
@@ -206,6 +248,20 @@ describe('the marker declares and the structure verifies', () => {
       );
     });
 
+    it('entitles a board bound to a network interface', () => {
+      const j = judge(BINDS_NON_LOCALHOST);
+      expect(j.verdict).toBe('entitled');
+      expect(j.entitlements).toContain(
+        'a non-localhost binding — a board reachable from the network, which no mock has',
+      );
+    });
+
+    it('does not entitle a board that binds localhost out loud', () => {
+      // The default, written down. It is what every other board-starting file
+      // does implicitly, so entitling it would entitle the whole population.
+      expect(judge(BINDS_LOCALHOST).verdict).toBe('unsupported');
+    });
+
     it("entitles a file that asserts the server's own page assembly", () => {
       const j = judge(ASSERTS_PAGE_ASSEMBLY);
       expect(j.verdict).toBe('entitled');
@@ -225,6 +281,12 @@ describe('the marker declares and the structure verifies', () => {
       // Both halves of the signal are required because this half is common: a
       // meta-click test opens a tab to prove a modal did NOT open.
       expect(entitlementsHeld(OPENS_A_POPUP_ONLY)).toEqual([]);
+    });
+
+    it('does not entitle a file that only links to a document route', () => {
+      // The click lands on a 404 and that IS the assertion, so nothing renders
+      // and nothing needs a repo on disk.
+      expect(judge(NAMES_A_DOCUMENT_ROUTE).verdict).toBe('unsupported');
     });
 
     it('does not read an answering route as an abandoned one', () => {
@@ -300,6 +362,42 @@ await page.route('**/api/implement', (route) => route.fulfill({ json: {} }));
             'a real transport it can abandon — a route accepted and never answered',
           ));
       expect(holders).toContain('dead-fetch.browser.test.ts');
+    });
+
+    /**
+     * The two arms the Closing slice added, each held against its measured
+     * population. Both lists are exact rather than `toContain`, because both
+     * arms were written from four files and an arm that quietly widened to a
+     * fifth is the failure the entitlement mechanism exists to prevent.
+     */
+    it('finds exactly the two files that bind to the network', () => {
+      const holders = fs
+        .readdirSync(INTEGRATION)
+        .filter((f) => f.endsWith('.test.ts'))
+        .filter((f) =>
+          entitlementsHeld(sourceOf(f)).includes(
+            'a non-localhost binding — a board reachable from the network, which no mock has',
+          ));
+      // `approve` binds 0.0.0.0 too, and holds the write arm as well — an
+      // entitlement is a property, so a file may hold more than one.
+      expect(holders.sort()).toEqual([
+        'approve.browser.test.ts',
+        'double-click.browser.test.ts',
+        'stuck-rows.browser.test.ts',
+      ]);
+    });
+
+    it("finds exactly the one file that asserts the server's page assembly", () => {
+      // ONE, which is what "the signal separates" means for this arm. It was two
+      // when the arm was `a rendered document`; `serveDoc` retired the other.
+      const holders = fs
+        .readdirSync(INTEGRATION)
+        .filter((f) => f.endsWith('.test.ts'))
+        .filter((f) =>
+          entitlementsHeld(sourceOf(f)).includes(
+            "the server's own page assembly — a popup opened AND its page shell read",
+          ));
+      expect(holders.sort()).toEqual(['tiny-garden.browser.test.ts']);
     });
   });
 

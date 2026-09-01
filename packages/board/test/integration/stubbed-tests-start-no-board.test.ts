@@ -10,7 +10,7 @@ import {
 } from '../gate/needs-real-board.js';
 
 /**
- * NO FULLY-STUBBED BROWSER TEST STARTS A BOARD — the gate, not the claim.
+ * ONLY A CLASSIFIED EXCEPTION STARTS A BOARD — the gate, not the claim.
  *
  * `Done when` item 1 of `2026-08-28-a-ui-test-needs-data-not-a-board.md`, and
  * the reason it is a gate rather than a line in a README: the migration it
@@ -58,6 +58,19 @@ import {
  * therefore a function of source TEXT, `test/unit/needs-real-board.test.ts`
  * hands it invented sources, and this file applies it to real ones. One
  * implementation, so the two cannot drift.
+ *
+ * ## What the Closing slice changed: a population, not a rule
+ *
+ * The Deciding slice could apply declare-then-verify to the migrated files
+ * only — 28 files started a board then, and the intervening slices were what
+ * migrated them. They have, so the same rule now reads the whole suite. Measured
+ * 2026-09-01: **44 browser files, 461 tests, six starting a board**, each with a
+ * declaration its structure supports.
+ *
+ * The file's original subject survives underneath it. *A fully-stubbed file
+ * starts no board* is still asserted and is still not redundant: it refuses the
+ * START, where the mandate refuses an UNDECLARED start, and a file that dropped
+ * one stub would leave the first population while keeping its server.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -200,27 +213,72 @@ describe('a browser test that stubs its own state starts no board', () => {
   });
 
   /**
-   * A migrated file that starts a board again must declare why — the ratchet,
-   * on the population it has already been earned against.
+   * THE MANDATE, AND THE LINE THIS SLICE MOVED.
    *
-   * This is `starts no board` said the other way round, and it is not
-   * redundant: that test refuses the START, this one refuses an UNDECLARED
-   * start, and the difference is what the Closing slice widens from the stubbed
-   * set to the whole suite. Keeping both means the widening changes a
-   * population and not a rule.
+   * `2026-08-31-a-browser-test-serves-its-own-state.md`, the Closing slice: the
+   * population is now **every** browser test, not the fully-stubbed ones. The
+   * Deciding slice could only apply this to the migrated set, and said so — 28
+   * files started a board at the time and the later slices were what migrated
+   * them. They have. Measured 2026-09-01: 44 browser files, 461 tests, and
+   * **six** files start a board, each one declaring a reason its structure
+   * supports.
+   *
+   * So the rule did not change and the population did, which is exactly the
+   * shape the Deciding slice built for. The ratchet above still refuses a START
+   * from a file that serves its own state; this refuses an UNDECLARED start from
+   * anything, and the two are not redundant: a file could drop one stub, leave
+   * the gate above's population, and keep its server.
+   *
+   * **The exception population is DERIVED and never listed.** The list version
+   * fails open — a new test simply is not on it — which is the reasoning this
+   * file's own docblock already carries and which the mandate must not undo. The
+   * only way onto this list is to write a declaration the structure supports,
+   * and the only way off it is to stop starting a board.
    */
-  it('lets a migrated file start a board only with a declaration it can support', () => {
+  it('lets any browser test start a board only with a declaration it can support', () => {
     const undeclared = browserTests
-      .filter((t) => isFullyStubbed(t.code))
       .filter((t) => judge(t.source).verdict === 'undeclared')
       .map((t) => t.file);
     expect(
       undeclared,
-      'these files serve their own state and start a board anyway, declaring '
-      + 'nothing. Either drop the server, or say why with '
-      + '`// @needs-real-board: <reason>` — which the gate then verifies '
+      'these files start a board and declare nothing. Either serve the state — '
+      + '`openCatalogue()` from test/catalogue — or say why with '
+      + '`// @needs-real-board: <reason>`, which the gate then verifies '
       + 'structurally, so the comment alone will not do it',
     ).toEqual([]);
+  });
+
+  /**
+   * THE EXCEPTIONS, COUNTED AND NOT NAMED.
+   *
+   * A count rather than a list of files, for the reason the population is
+   * derived: naming them here would make this the list the gate exists to avoid,
+   * and every legitimate migration would have to edit it. A count fails the
+   * right way — it moves when the exception population moves, whichever
+   * direction, and the diff that moves it says why.
+   *
+   * Six on 2026-09-01, each with a structural entitlement:
+   *
+   * | file | entitled by |
+   * |---|---|
+   * | `approve` | a write reaches the configured `Approve command` |
+   * | `dead-fetch` | a transport it accepts and abandons |
+   * | `double-click` | a non-localhost binding |
+   * | `stuck-rows` | a non-localhost binding |
+   * | `tiny-garden` | `/plan/<file>` markdown rendered from a repo |
+   * | `story-overlay` | `/story/<slug>` markdown rendered from a repo |
+   *
+   * Lowering it is the interesting direction: a mock that could bind, or one
+   * that could render a document, would retire two arms and four files.
+   */
+  it('keeps the exception population small — and asserts the number, not the names', () => {
+    const entitled = browserTests.filter((t) => judge(t.source).verdict === 'entitled');
+    expect(
+      entitled.length,
+      'the number of browser tests entitled to a real board changed. That is a '
+      + 'decision about the suite, so it costs a line here: raise it with the '
+      + 'entitlement the new file holds, or lower it when a file stops needing one',
+    ).toBe(EXPECTED_EXCEPTIONS);
   });
 
   /**
@@ -324,3 +382,35 @@ const EXPECTED_FILES = 44;
  * mechanism this pair exists for.
  */
 const EXPECTED_TESTS = 462;
+
+/**
+ * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
+ *
+ * A third tripwire beside the two above, and it tracks the one quantity the
+ * plan is about: how many browser test files still need a board process. It
+ * started at 33 by the plan's estimate, 32 by the Survey's count, and lands
+ * at 5.
+ *
+ * **It is a count and not a list**, for the reason `EXPECTED_FILES` is derived
+ * and this file's docblock argues at length: a list of names fails open, and a
+ * list of exceptions fails open twice over — a file joins it by being added to
+ * it. The count moves only when the entitled population moves, and the diff
+ * that moves it has to say which file and which arm.
+ *
+ * **Lowering it is the interesting direction, and it has already happened
+ * once.** This slice was written at 6, against a suite where a RENDERED
+ * DOCUMENT was an entitlement: `renderPlanPage` takes a `repoRoot`, so a
+ * document looked like a repository on disk. It is a `fetch` — `DocModal`
+ * requests `<href>?embed=1` and injects the body — so the mock gained
+ * `serveDoc`, `story-overlay` migrated whole, and this number came down by one
+ * before the slice landed. The prediction was written here, the mock grew, the
+ * count fell. That is what writing it down is for.
+ *
+ * Two of the five are held by an arm a richer mock could still retire: one that
+ * could bind to a network interface would free `double-click` and `stuck-rows`.
+ * The other three are structural in a way no mock reaches — `approve` needs a
+ * POST that runs a real script, `dead-fetch` needs a real socket to abandon, and
+ * `tiny-garden` asserts the page the SERVER assembles, where the board is the
+ * thing under test rather than the thing serving the test.
+ */
+const EXPECTED_EXCEPTIONS = 5;

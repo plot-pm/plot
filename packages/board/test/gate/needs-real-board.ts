@@ -116,7 +116,7 @@ const routeHandlers = (code: string): string[] =>
     .map((after) => /^[^\n]*(\n[^\n]*){0,8}/.exec(after)?.[0] ?? '');
 
 /**
- * THE ENTITLEMENTS — three arms in the plan, two with a population here.
+ * THE ENTITLEMENTS — four arms, each with a file behind it.
  *
  * The Survey supplied one and corrected another, both by measurement:
  *
@@ -183,6 +183,26 @@ const routeHandlers = (code: string): string[] =>
  * `srcdoc` while starting no board. That predicate would have licensed a spawn
  * nothing requires, which is worse than no arm at all.
  */
+/**
+ * A NON-LOCALHOST BINDING — the third arm, and the one the Closing slice
+ * measured into existence.
+ *
+ * `stuck-rows` and `double-click` each migrated their whole body onto the
+ * catalogue and each kept ONE server, bound to `0.0.0.0`. The subject in both
+ * is what the board does when it is reachable from the network rather than from
+ * this machine: `sitting at this machine` stops being true, so an action is
+ * refused while its cue stays. The mock has no binding, so a served state can
+ * express the payload and not the property — which is what makes this
+ * structural rather than a preference.
+ *
+ * Keyed on the HOST option handed to the starter, because that is the property:
+ * a board bound to a network interface. `startServer` alone would entitle every
+ * board-starting file in the suite.
+ */
+export const bindsNonLocalhost = (code: string): boolean =>
+  /\bHOST\s*:\s*['"`](?!127\.0\.0\.1|localhost)[^'"`]+['"`]/.test(code);
+
+/** Both halves, per *The third arm* above: a popup opened AND its shell read. */
 export const assertsServerPageAssembly = (code: string): boolean =>
   /waitForEvent\(\s*['"]page['"]\s*\)/.test(code)
   && /plan-titlebar|plan-back/.test(code);
@@ -210,6 +230,10 @@ export const ENTITLEMENTS: readonly Entitlement[] = [
           handler.includes('=>')
           && !/\b(fulfill|abort|continue|fallback)\s*\(/.test(handler),
       ),
+  },
+  {
+    name: 'a non-localhost binding — a board reachable from the network, which no mock has',
+    holds: bindsNonLocalhost,
   },
   {
     name: "the server's own page assembly — a popup opened AND its page shell read",
