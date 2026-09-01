@@ -21,6 +21,7 @@
 - **Started:** 2026-08-30, Jan Wloka, `bug/a-monitor-ends-with-its-agent`
 - **Started:** 2026-08-31, Jan Wloka, `feature/the-build-monitor-follows-the-run`
 - **Started:** 2026-08-31, Jan Wloka, `feature/the-channel-carries-the-findings`
+- **Started:** 2026-09-01, Jan Wloka, `feature/the-findings-reach-attention`
 
 ## Approval
 
