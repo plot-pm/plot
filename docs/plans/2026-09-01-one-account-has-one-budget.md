@@ -115,6 +115,17 @@ FREE, measured 2026-08-27: three consecutive readings, all used=0"* — and
 `used=0` from this endpoint is not evidence that a call was free; it is the
 symptom.
 
+**Re-measured 2026-09-01 in a QUIET moment, and it is worse than a
+throttle-time artefact.** With no rate limiting in effect:
+
+    /rate_limit          graphql: 5000/5000   used 0
+    a real GraphQL call  X-Ratelimit-Remaining: 4854   Used: 146   Resource: graphql
+
+**146 calls spent, reported as zero.** The first measurement above could be read
+as the endpoint lagging under pressure; this one cannot. The endpoint is wrong
+when nothing is wrong, which means `graphql_budget_spent()` has never been able
+to fire — its `-eq 0` test is applied to a number that does not move.
+
 **So the authority must be the headers on a real response**, which report
 `X-RateLimit-Resource` naming the bucket the call actually spent, alongside
 `Limit`, `Remaining` and `Used`. A call that has to happen anyway carries its own
