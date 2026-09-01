@@ -212,6 +212,50 @@ let pinned = false;
 const git = (...args: string[]): string =>
   execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
 
+/**
+ * Every remote branch's tip, as one map from branch name to SHA.
+ *
+ * Taken twice — once before either scan and once after both — so the pair says
+ * which branches were the SAME COMMIT throughout, and which were two.
+ */
+const branchTips = (): Map<string, string> => {
+  const out = new Map<string, string>();
+  for (const line of git('for-each-ref', '--format=%(objectname) %(refname:short)', 'refs/remotes/origin').split('\n')) {
+    const at = line.indexOf(' ');
+    if (at < 0) continue;
+    out.set(line.slice(at + 1).replace(/^origin\//, ''), line.slice(0, at));
+  }
+  return out;
+};
+
+/**
+ * The branches whose tip changed while the two scans ran — asked about two
+ * commits, so compared for nothing that depends on which.
+ *
+ * THE PIN ABOVE FREEZES ONE ENDPOINT AND THIS COVERS THE OTHER. Every
+ * per-branch reading is taken from `origin/<main>...origin/<branch>`: the pin
+ * holds the left side still across both scans, and nothing can hold the right
+ * side, because any of this estate's branches may gain a commit at any moment
+ * and the two scans each fetch. Measured on CI 2026-09-01: PR #601 pushed its
+ * second commit at 16:21:38Z, the corpus job started at 16:21:39Z, and the two
+ * scans 36 s apart read that branch at its claim-only tip and then at its real
+ * tip — disagreeing on `changed_paths` by exactly the changeset file that
+ * landed between them.
+ *
+ * A MEASUREMENT, NOT AN EXEMPTION, and that distinction is the whole design.
+ * Adding `changed_paths` to the live-sample list would stop comparing the one
+ * field that carries file paths, on all 53 branches, to excuse the one that
+ * moved. This drops only branches proven to have moved, by SHA, and compares
+ * every field on every branch that did not — so an adapter that reported the
+ * wrong paths still fails here.
+ *
+ * It is deliberately BLIND TO THE FIELD: a branch that moved was asked about
+ * two commits, and every reading derived from the diff is suspect, not just the
+ * one that happened to differ. Naming fields here would be guessing which
+ * readings a commit can change.
+ */
+let moved = new Set<string>();
+
 beforeAll(async () => {
   // Freeze the ref before either scan runs, and tell the scan to use it.
   // NO `origin/HEAD` MEANS NO PIN, AND THAT IS NOT A FAILURE. On a checkout
@@ -226,6 +270,9 @@ beforeAll(async () => {
     pinned = true;
   }
 
+  // The right-side endpoint, before either scan reads it.
+  const tipsBefore = branchTips();
+
   // Adapter first, production second. The order matters only for the elapsed
   // field, and taking the adapter's reading first makes production's the LATER
   // one — so the tolerance below is one-sided in the direction time runs.
@@ -234,6 +281,16 @@ beforeAll(async () => {
   if (!isAnswered(read)) throw new Error(`the adapter could not read the pulse: ${read.why}`);
   pulse = read.value;
   raw = readFleetScan(estate);
+
+  // Anything that is not the same commit it was before both scans was asked
+  // about two worlds. An added ref counts too: a branch created mid-suite is
+  // absent from one reading and present in the other.
+  const tipsAfter = branchTips();
+  moved = new Set(
+    [...new Set([...tipsBefore.keys(), ...tipsAfter.keys()])].filter(
+      (name) => tipsBefore.get(name) !== tipsAfter.get(name),
+    ),
+  );
 });
 
 afterAll(() => {
@@ -297,6 +354,9 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
         compareField(found, where, 'branches.length', slice.branches.length, theirBranches.length);
 
         slice.branches.forEach((branch, position) => {
+          // A branch that gained a commit mid-suite was read at two tips; every
+          // field below derives from a diff against it. See `moved`.
+          if (moved.has(branch.branch)) return;
           const theirBranch = theirBranches[position] ?? {};
           const subject = `${where}.branch[${position}] ${branch.branch}`;
           for (const field of BRANCH_FIELDS) {
@@ -447,5 +507,15 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
     // The legacy spelling is what the scan emits, so the schema's rename is
     // load-bearing rather than defensive.
     expect(asArray(raw.plans).some((plan) => Array.isArray(plan.waves))).toBe(true);
+
+    // AND THE MID-SUITE SKIP MUST STAY A FEW BRANCHES, NEVER THE ESTATE. The
+    // field comparison passes over any branch in `moved`, so a `moved` that
+    // swallowed everything — an empty tip map, a drifted name normalisation —
+    // would leave the comparison green having compared nothing. This is the
+    // same floor the assertions above are: it fails loudly rather than passing
+    // vacuously. A handful move on a busy estate; a majority means the
+    // measurement itself broke.
+    const compared = branches.filter((branch) => !moved.has(branch.branch));
+    expect(compared.length).toBeGreaterThan(branches.length / 2);
   });
 });
