@@ -371,6 +371,28 @@ describe('the mock board changes what it serves', () => {
     expect((await fetch(`${mock.baseURL}api/fleet`)).status).toBe(200);
   });
 
+  it('serves a registered document, and 404s one it was never given', async () => {
+    mock.serveDoc('/plan/2026-04-01-strawberry-netting.md', '<h1>Net the strawberry bed</h1>');
+
+    // `DocModal` fetches `<href>?embed=1` and injects the body as the iframe's
+    // `srcDoc`, so a document is a ROUTE. The query is the component's business
+    // and the registration ignores it.
+    const served = await fetch(`${mock.baseURL}plan/2026-04-01-strawberry-netting.md?embed=1`);
+    expect(served.status).toBe(200);
+    expect(await served.text()).toContain('Net the strawberry bed');
+
+    // A PLAN WITH NO FILE IS A STATE, not a fixture that has to lack one. The
+    // board's own answer to it is a failed fetch, so the mock 404s rather than
+    // inventing an empty document — `story-overlay` asserts on exactly this
+    // case for a story nobody has written.
+    expect((await fetch(`${mock.baseURL}plan/2026-05-01-drip-irrigation.md?embed=1`)).status)
+      .toBe(404);
+    expect((await fetch(`${mock.baseURL}story/orphan-bed?embed=1`)).status).toBe(404);
+
+    // And the page is untouched — a mock with documents still serves the client.
+    expect((await fetch(mock.baseURL)).status).toBe(200);
+  });
+
   it('does not count a request it refused', async () => {
     const before = mock.served();
     mock.fail(true);

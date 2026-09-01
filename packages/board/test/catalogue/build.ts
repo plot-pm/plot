@@ -1,6 +1,8 @@
 import {
-  AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema, WaveSchema,
-  type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet, type Wave,
+  AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema,
+  StoryCardSchema, WaveSchema,
+  type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
+  type StoryCard, type Wave,
 } from '../../src/contract/schema.js';
 import type { z } from 'zod';
 
@@ -55,6 +57,7 @@ type ColumnInput = z.input<typeof ColumnSchema>;
 type FleetInput = z.input<typeof FleetSchema>;
 type BoardInput = z.input<typeof BoardSchema>;
 type AgentInput = z.input<typeof AgentEntrySchema>;
+type StoryInput = z.input<typeof StoryCardSchema>;
 
 /** A stable clock. A catalogue whose ages move is a catalogue that flakes. */
 const EPOCH = Date.parse('2026-08-30T12:00:00.000Z');
@@ -233,6 +236,24 @@ const BOARD_DEFAULTS: BoardInput = {
     repo: 'garden',
   },
 };
+
+/**
+ * One story card, as `/api/board` carries it.
+ *
+ * `path` defaults to a real-looking file because that is the ordinary case; a
+ * story nobody has written states `path: ''`, which is what `storyHref` reads as
+ * *no link at all*. The slug is both a directory name and a filename component,
+ * so the path is CARRIED rather than rebuilt.
+ */
+const STORY_DEFAULTS: StoryInput = {
+  slug: 'a-story',
+  title: 'A story',
+  status: 'active',
+  path: 'docs/stories/a-story/STORY-a-story.md',
+};
+
+export const story = (over: Partial<StoryInput> = {}): StoryCard =>
+  StoryCardSchema.parse({ ...STORY_DEFAULTS, ...over });
 
 export const board = (over: Partial<BoardInput> = {}): Board =>
   BoardSchema.parse({ ...BOARD_DEFAULTS, ...over });
