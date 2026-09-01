@@ -257,21 +257,18 @@ is indistinguishable from a suite that passes, right up to the moment somebody
 believes a red result. Tonight the red results were all spurious and all
 correctly ignored — which is the habit worth removing, not the failures.
 
-**A second straggler exists, and `rmTree` cannot reach it. Measured 2026-09-01 on
-#628, whose diff touches neither file:** `streaming-scan.test.ts:267` failed with
-`Command failed: git for-each-ref --format=%(refname:short) refs/remotes/origin/idea/* / fatal: not a git repository`, 1 of 2545, and passed on a re-run and locally 18 of 18.
+**A second failure exists and this plan does not cause or fix it. Measured
+2026-09-01 on #628, whose diff touches neither file:** `streaming-scan.test.ts`
+failed with `Command failed: git for-each-ref … fatal: not a git repository`,
+1 of 2545, green on a re-run and 18 of 18 locally.
 
-The direction is the opposite of this plan's. Here the removal is CORRECT and an
-async caller is late: `fleet.ts:1054` (`ideaPlanFiles`) runs `git for-each-ref` in
-`opts.repoRoot`, `stopFleetRefresh` clears the two `setInterval` timers
-(`fleet.ts:2501-2502`) and awaits nothing, so `afterEach` returns, `rmTree`
-removes the temp dir, and a call already in flight then reads a path that is gone.
-A bounded retry around the removal changes nothing about that — the directory was
-never the problem.
+It is not a teardown race at all. `fakeScan` stubs three helpers and creates its
+directory with `mkdtempSync`, which is **never a git repository** — so the refs
+adapter's `git for-each-ref` fails every time it runs there, and that stderr
+becomes `fleet.error`, which three assertions in the file read. The outcome
+depended on whether git was reached before the assertion, not on whether a
+directory still existed.
 
-So the two failures share a trigger (concurrency) and nothing else. Fixing this
-one means either awaiting in-flight work in `stopFleetRefresh`, or having
-`ideaPlanFiles` treat an unreadable ref list as empty the way the surrounding
-readers already do. Both are decisions, not substitutions, which is why neither
-belongs in this plan's mechanical slice — recorded here so the `runs-twice-green`
-slice is not read as having covered it.
+The fix is `git init` in the fixture, and it is #632's, not this plan's. Recorded
+here only so the `runs-twice-green` slice is not credited with it: `rmTree` is
+irrelevant to this one in both directions.
