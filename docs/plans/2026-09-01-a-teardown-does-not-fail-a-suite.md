@@ -6,13 +6,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-01, Jan Wloka, in-session
 
 ## Changelog
 
