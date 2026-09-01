@@ -91,7 +91,20 @@ export default defineConfig({
         // branches are reachable from a plain test. The gap is the failure paths
         // of a process that did not fail during the run.
         // Measured: 100 lines / 85 branches / 100 functions / 100 statements.
-        'src/adapters/run-script.ts': { lines: 95, branches: 80, functions: 95, statements: 95 },
+        //
+        // FUNCTIONS IS 94, NOT 95, BECAUSE ONE FUNCTION IS DECIDED BY A RACE.
+        // `runBytes` attaches `stdin.on('error', () => {})` for the EPIPE a
+        // process that exits before the write raises. Whether that empty arrow
+        // EXECUTES depends on whether the write loses the race, and the pipe
+        // buffer differs by platform. Measured 2026-09-01 on identical source,
+        // same 41 files and 712 tests, nothing skipped: macOS read 100 %
+        // functions twice, the Linux runner read 94.44 % — exactly 17 of 18.
+        //
+        // The 95 above it was measured on macOS and was never reachable on the
+        // platform that enforces it, so it failed main on commits that touched
+        // only markdown. A floor above the real reading is not a ratchet; it is
+        // a number nobody met. The test carries the same note beside the race.
+        'src/adapters/run-script.ts': { lines: 95, branches: 80, functions: 94, statements: 95 },
 
         // Reads load and process tables from the live machine. The uncovered
         // line is the branch taken when the OS reports a shape this machine did

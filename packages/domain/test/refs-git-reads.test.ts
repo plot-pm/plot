@@ -201,6 +201,19 @@ describe('runBytes: the stdin-fed reader `cat-file --batch` needs', () => {
     // EPIPE on stdin: `true` exits immediately, so the write has nowhere to go.
     // An unhandled error here takes the server down rather than reporting a
     // failed read, which is why the adapter attaches a handler.
+    //
+    // THIS ASSERTION CANNOT SEE THE HANDLER RUN, and that is a measured cost
+    // rather than an oversight. `run.code` is 0 whether EPIPE fired or the
+    // write simply landed first, so the race decides only whether the empty
+    // `stdin.on('error')` arrow EXECUTES — and v8 counts it as a function
+    // either way. Measured 2026-09-01 on identical source: macOS reported 100 %
+    // functions on two consecutive runs, the Linux runner reported 94.44 %,
+    // which is exactly 17 of 18. The coverage gate on this file therefore flaps
+    // by platform with nothing in the diff to explain it.
+    //
+    // Asserting the handler ran would need the adapter to report it, and that
+    // is a change to production shape for a test's benefit. Left as it is, with
+    // the cause written down.
     const run = await runBytes('true', [], 'x'.repeat(1024 * 128));
     expect(run.code).toBe(0);
   });
