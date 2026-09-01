@@ -180,7 +180,7 @@ useful before a clock exists to call it.
 
 ## Slices
 
-### Sampling (Branch: feature/a-monitor-is-a-pure-rule)
+### Sampling (Branch: feature/a-monitor-is-a-pure-rule, PR: #610)
 
 The WorkerMonitor's two-sample rule becomes a domain function; the script keeps
 its measurements and calls nothing.

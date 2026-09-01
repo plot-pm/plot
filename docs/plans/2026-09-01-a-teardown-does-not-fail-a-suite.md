@@ -194,7 +194,7 @@ be writing to, and they would keep failing after the helper was fixed.
 
 ### Every teardown, and the gate that keeps it that way
 
-- `bug/a-test-teardown-does-not-call-rmsync` — all 79 remaining sites under `packages/board/test/` converted to `rmTree`, plus a gate refusing a new raw recursive `fs.rmSync` in that directory (allowing only `rmTree`'s own implementation). Mechanical rather than judged: `rmTree`'s first attempt is the identical call, so a site that cannot race is converted at no cost, and the diff is reviewable as a substitution rather than as 79 decisions.
+- `bug/a-test-teardown-does-not-call-rmsync` — all 79 remaining sites under `packages/board/test/` converted to `rmTree`, plus a gate refusing a new raw recursive `fs.rmSync` in that directory (allowing only `rmTree`'s own implementation). Mechanical rather than judged: `rmTree`'s first attempt is the identical call, so a site that cannot race is converted at no cost, and the diff is reviewable as a substitution rather than as 79 decisions. → #616
 
 ### Knowing whether it worked
 

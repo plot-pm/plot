@@ -995,7 +995,7 @@ value; two is a channel. And silence-because-healthy versus silence-because-gone
 is the distinction the whole design rests on — if a subscriber cannot tell them
 apart, the monitor has the same blind spot as the agent it watches.
 
-### Attention (Branch: feature/the-findings-reach-attention)
+### Attention (Branch: feature/the-findings-reach-attention, PR: #612)
 
 The findings travel to the board and become attention entries.
 

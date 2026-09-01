@@ -422,7 +422,7 @@ that gate exists.
 
 ### Declaring
 
-- `feature/a-worker-declares-what-it-finished` — the envelope: worker writes
+- `feature/a-worker-declares-what-it-finished` — the envelope: worker writes → #609
   `.plot-worker.envelope.json`, a typed parse in the domain, `status: ok |
   blocked`, and the rule that **absence means incomplete**. Nothing consumes it
   yet — this slice is the contract and its parser, so the shape is settled
