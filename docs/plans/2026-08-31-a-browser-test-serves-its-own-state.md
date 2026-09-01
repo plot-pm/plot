@@ -204,7 +204,20 @@ sits on and not by arithmetic on a stale figure.
 
 ### Moving the plans
 
-- `infra/the-plan-tab-tests-serve-their-own-state` — migrate the board/Plans-tab files onto the new scenarios. The smaller half, and the one whose payload (`/api/board`) is simplest.
+- `infra/the-plan-tab-tests-serve-their-own-state` — migrate the board/Plans-tab files onto the new scenarios. The smaller half, and the one whose payload (`/api/board`) is simplest. → #585
+
+  Migrated the two files whose subject is the board PAYLOAD — `branch-served` and
+  `plan-source`, 11 tests, 4.95 s → 1.85 s. Override ratio **4.1 %** (1.82 of 44
+  payload fields, weighted over 11 tests), well inside the plan's 50 % gate.
+
+  `tiny-garden` and `story-overlay` did NOT migrate, and the gap is in the
+  catalogue rather than in them: `a-board-of-plans` carries `sprints: []` and
+  `stories: []` while naming a sprint and a story on its cards, so the sprint
+  filter has nothing to filter and the story overlay nothing to open. Both also
+  read the `/plan/<file>` and `/story/<slug>` DOCUMENT routes, which the mock
+  does not serve and cannot without reading a fixture repo — `renderPlanPage`
+  takes a `repoRoot`. A populated `sprints`/`stories` scenario and a decision
+  about document routes are Naming-slice work.
 
 ### Moving the agents
 
