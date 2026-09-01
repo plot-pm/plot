@@ -4,13 +4,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** docs
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
