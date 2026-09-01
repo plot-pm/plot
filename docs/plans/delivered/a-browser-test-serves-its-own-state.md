@@ -1,0 +1,1 @@
+../2026-08-31-a-browser-test-serves-its-own-state.md

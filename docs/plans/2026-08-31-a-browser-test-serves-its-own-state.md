@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
@@ -21,6 +21,7 @@
 - **Started:** 2026-08-31, Jan Wloka, `infra/the-gate-verifies-what-a-test-declares`
 - **Started:** 2026-09-01, Jan Wloka, `infra/the-catalogue-names-the-states-the-suite-needs`
 - **Started:** 2026-09-01, Jan Wloka, `infra/every-browser-test-serves-its-own-state`
+- **Delivered:** 2026-09-01
 -->
 
 ## Changelog
