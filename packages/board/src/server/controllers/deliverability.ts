@@ -1,9 +1,5 @@
-import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-
-import { PlanMetaSchema } from '../../contract/schema.js';
-import type { BuildBoardOptions } from '../board.js';
 import { deliver, refused, type DeliverBranchReading } from '@plot-pm/domain';
+import type { Host, PlanStore } from '@plot-pm/domain';
 
 /**
  * What the shell asks about, and the shape it gets back.
@@ -47,11 +43,11 @@ export interface DeliverabilityAnswer {
  * @returns one reading per branch, merge state left for the host to fill
  */
 const branchesOf = (
-  meta: { waves: { branches: { branch: string; deferred: boolean }[] }[] },
+  plan: { slices: readonly { branches: readonly { branch: string; deferred: boolean }[] }[] },
 ): { branch: string; deferred: boolean }[] => {
   const seen = new Map<string, boolean>();
-  for (const wave of meta.waves) {
-    for (const b of wave.branches) {
+  for (const slice of plan.slices) {
+    for (const b of slice.branches) {
       // A branch named twice is deferred only if EVERY mention defers it —
       // the same direction the script's per-line grep resolved to, and the
       // safe one: a branch still owed by any slice is outstanding work.
@@ -61,22 +57,27 @@ const branchesOf = (
   return [...seen].map(([branch, deferred]) => ({ branch, deferred }));
 };
 
-/** The PR states `plot-impl-status.sh` reports, by branch. */
-const mergedBranches = (opts: BuildBoardOptions, slug: string): Set<string> => {
+/**
+ * Which of these branches the host says merged, asked through the port.
+ *
+ * ONE CALL PER BRANCH, because `Host.prMerged` is the question the domain
+ * already owns: it reads the merge timestamp rather than the state (a merged PR
+ * reports `CLOSED`) and asks about every PR on the branch rather than the
+ * newest. `plot-impl-status.sh` answered the same question for a whole slug in
+ * one process, and trading that for N calls is deliberate — a controller may
+ * not spawn, and the adapter behind this port is the only thing that may.
+ *
+ * `unknown` counts as NOT merged, the direction `plot-pr-merged.sh` fails in:
+ * silence is never permission to deliver.
+ */
+const mergedBranches = async (
+  host: Host,
+  branches: readonly string[],
+): Promise<Set<string>> => {
   const merged = new Set<string>();
-  try {
-    const out = execFileSync(
-      'bash',
-      [path.join(opts.scriptsDir, 'plot-impl-status.sh'), slug],
-      { cwd: opts.repoRoot, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] },
-    );
-    const parsed = JSON.parse(out) as { prs?: { branch?: string; state?: string }[] };
-    for (const pr of parsed.prs ?? []) {
-      if (pr.branch && pr.state === 'MERGED') merged.add(pr.branch);
-    }
-  } catch {
-    // An unreachable host answers NOT MERGED, the same direction
-    // `plot-pr-merged.sh` fails in: silence is never permission to deliver.
+  for (const branch of branches) {
+    const answer = await host.prMerged(branch);
+    if (answer.ok && answer.value === 'merged') merged.add(branch);
   }
   return merged;
 };
@@ -100,24 +101,32 @@ const mergedBranches = (opts: BuildBoardOptions, slug: string): Set<string> => {
  * @param planFile the plan's path, already resolved by the caller
  * @returns the verdict, with the domain's own refusal sentence when it refuses
  */
-export const deliverabilityOf = (
-  opts: BuildBoardOptions,
+/** The readings this controller needs, each behind its own port. */
+export interface DeliverabilityPorts {
+  /** Reads the plan — which branches it names, and which it gave up. */
+  planStore: PlanStore;
+  /** Answers whether the host merged a branch. */
+  host: Host;
+}
+
+export const deliverabilityOf = async (
+  ports: DeliverabilityPorts,
   slug: string,
   planFile: string,
-): DeliverabilityAnswer => {
+): Promise<DeliverabilityAnswer> => {
   const empty = { slug, file: planFile, merged: 0, deferred: 0, unmerged: [] as string[] };
 
-  let meta;
-  try {
-    const out = execFileSync(
-      'bash',
-      [path.join(opts.scriptsDir, 'plot-plan-meta.sh'), planFile],
-      { cwd: opts.repoRoot, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
-    );
-    const line = out.split('\n').map((l) => l.trim()).find(Boolean);
-    if (!line) throw new Error('no output');
-    meta = PlanMetaSchema.parse(JSON.parse(line));
-  } catch {
+  // THE CONTROLLER ASKS PORTS AND NEVER SPAWNS. It ran `plot-plan-meta.sh` and
+  // `plot-impl-status.sh` itself until 2026-09-01, which is the layering rule
+  // inverted: a controller calls the domain, an adapter calls the script, and
+  // only an adapter may. Both readings already had ports — `PlanStore.readPlan`
+  // and `Host.prMerged` — so nothing was designed here, only rewired.
+  //
+  // Awaiting is what that costs, and it is why this function is async: every
+  // port method returns a Promise because the world is slow, and a controller
+  // that could not wait would be one that had to reach the world itself.
+  const read = await ports.planStore.readPlan(planFile);
+  if (!read.ok) {
     return {
       ...empty,
       deliverable: false,
@@ -125,9 +134,11 @@ export const deliverabilityOf = (
       refusal: `cannot parse '${planFile}' — refusing rather than guessing.`,
     };
   }
+  const plan = read.value;
 
-  const merged = mergedBranches(opts, slug);
-  const branches: DeliverBranchReading[] = branchesOf(meta).map((b) => ({
+  const named = branchesOf(plan);
+  const merged = await mergedBranches(ports.host, named.map((b) => b.branch));
+  const branches: DeliverBranchReading[] = named.map((b) => ({
     branch: b.branch,
     deferred: b.deferred,
     merged: merged.has(b.branch),

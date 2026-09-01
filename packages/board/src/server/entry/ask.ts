@@ -1,6 +1,7 @@
 import { boardState, fleetState, type EstateSource } from '../controllers/fleet-state.js';
 import { deliverabilityOf, type DeliverabilityAnswer } from '../controllers/deliverability.js';
 import type { BuildBoardOptions } from '../board.js';
+import { realEstate, type Estate } from '../estate.js';
 import type { Board, Fleet } from '../../contract/schema.js';
 import {
   estateFingerprint,
@@ -50,6 +51,15 @@ export interface Ask {
   opts: BuildBoardOptions;
   /** Where to read from. Defaults to the real repository, as the route's does. */
   estate?: EstateSource;
+  /**
+   * The ports, for the questions a controller answers by asking them.
+   *
+   * `deliverable` only. It travels beside `estate` rather than replacing it
+   * because the other two questions still read the synchronous source, and
+   * reshaping a type three questions share to serve one would move work this
+   * slice did not promise.
+   */
+  ports?: Estate;
   /** The configured plan directory, for the estate measurement. */
   planDir?: string;
   /** The plan asked about — `deliverable` only. */
@@ -100,7 +110,9 @@ export interface Answer<T> {
  * @param ask what to ask and where to read it from
  * @returns the controller's answer and the estate it was read from
  */
-export const askOnce = (ask: Ask): Answer<Board | Fleet | DeliverabilityAnswer> => {
+export const askOnce = async (
+  ask: Ask,
+): Promise<Answer<Board | Fleet | DeliverabilityAnswer>> => {
   // MEASURED BEFORE, NOT AFTER. A fingerprint taken after the read would
   // describe an estate the answer may not have come from: the scan runs for
   // minutes, and anything landing inside that window would be stamped onto an
@@ -108,9 +120,16 @@ export const askOnce = (ask: Ask): Answer<Board | Fleet | DeliverabilityAnswer> 
   // answer is at least as new as the estate it names, which is the direction
   // that fails safe.
   const estate = estateFingerprint(ask.opts, ask.planDir);
+  // A controller that asks ports needs them, and no default can invent one: a
+  // caller with no ports gets the refusal rather than a guess at its estate.
+  const ports = ask.ports ?? realEstate({ repoRoot: ask.opts.repoRoot, scriptsDir: ask.opts.scriptsDir });
   const value =
     ask.question === 'deliverable'
-      ? deliverabilityOf(ask.opts, ask.slug ?? '', ask.planFile ?? '')
+      ? await deliverabilityOf(
+          { planStore: ports.planStore, host: ports.host },
+          ask.slug ?? '',
+          ask.planFile ?? '',
+        )
       : ask.question === 'fleet'
         ? fleetState({ opts: ask.opts, estate: ask.estate })
         : boardState({ opts: ask.opts, estate: ask.estate });
@@ -173,16 +192,16 @@ export const newMemory = (): EstateMemory => ({});
  * @param ask what to ask
  * @returns the answer, `measured: false` when the previous one was re-used
  */
-export const askOncePerEstate = (
+export const askOncePerEstate = async (
   memory: EstateMemory,
   ask: Ask,
-): Answer<Board | Fleet | DeliverabilityAnswer> => {
+): Promise<Answer<Board | Fleet | DeliverabilityAnswer>> => {
   const estate = estateFingerprint(ask.opts, ask.planDir);
   const held = memory.last;
   if (held && held.question === ask.question && sameEstate(held.estate, estate)) {
     return { value: held.value, estate, measured: false };
   }
-  const fresh = askOnce(ask);
+  const fresh = await askOnce(ask);
   memory.last = { estate: fresh.estate, value: fresh.value, question: ask.question };
   return fresh;
 };

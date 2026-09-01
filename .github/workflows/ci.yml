@@ -163,6 +163,45 @@ jobs:
           fi
           echo "Domain purity gate: clean."
 
+      # THE OTHER HALF OF THE LAYER, and the half that was never enforced.
+      #
+      # The purity gate above stops the DOMAIN importing the world. Nothing
+      # stopped the BOARD reaching past the port — measured 2026-08-30, CI had
+      # zero path references to `packages/board/src` at all, while that tree
+      # held dozens of direct `spawn`/`execFile` calls.
+      #
+      # A RATCHET, NOT A REFUSAL, because 54 call sites cannot be fixed in one
+      # branch. It fails when the number GROWS and never when it falls, so the
+      # migration lowers `allowed` slice by slice and nothing silently adds a
+      # new one alongside. The target is zero and is stated here so a reader
+      # knows the number is a debt, not a budget.
+      #
+      # `allowed` IS A LITERAL ON PURPOSE. Deriving it from the estate would
+      # make the gate agree with whatever it found, which is a check you can
+      # answer "yes" to without doing the work. Raising it costs a visible line
+      # in a diff, and that line is the decision.
+      #
+      # The count moved 65 -> 54 between this slice being written and being
+      # built, entirely through `production-calls` and `the-read-path` work.
+      # The gate records the migration; it does not perform it.
+      - name: One place reaches a process
+        run: |
+          allowed=54
+          hits=$(grep -rEn '^[^*/]*\b(spawn|spawnSync|execFile|execFileSync)\s*\(' \
+                   --include='*.ts' packages/board/src packages/domain/src \
+                 | grep -v '/adapters/' || true)
+          count=$(printf '%s' "$hits" | grep -c . || true)
+          echo "direct spawns outside adapters/: $count (allowed $allowed, target 0)"
+          if [ "$count" -gt "$allowed" ]; then
+            echo "::error::a new direct spawn crossed the layer — $count sites, allowed $allowed."
+            echo "Every process call belongs behind a port. The sites:"
+            printf '%s\n' "$hits"
+            exit 1
+          fi
+          if [ "$count" -lt "$allowed" ]; then
+            echo "::notice::the ratchet can tighten — $count sites, allowed still $allowed."
+          fi
+
       # TWO-SIDED, BECAUSE ONE SIDE PASSES ON NOTHING.
       #
       # "Every ports/*.ts has a directory under adapters/" is a universal claim,
