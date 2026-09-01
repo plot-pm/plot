@@ -1,0 +1,1 @@
+../2026-08-30-the-sprint-proves-its-own-goal.md
