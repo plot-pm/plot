@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   MEASURABLE,
+  measurableConditions,
   absorb,
   admit,
   monitorLiveness,
@@ -239,5 +240,32 @@ describe('the wire carries one message per line', () => {
     expect(decode('   ')).toBeUndefined();
     expect(decode('not json at all')).toBeUndefined();
     expect(decode('{"type":"something-else"}')).toBeUndefined();
+  });
+});
+
+describe('what a refusal can teach', () => {
+  it('lists every condition a purpose may name', () => {
+    // The refusal names what it CANNOT serve and what it can; this is the
+    // second half, and a caller building a message reaches for it rather than
+    // re-deriving the set.
+    expect(measurableConditions()).toEqual([...MEASURABLE]);
+  });
+
+  it('echoes nothing when the REQUEST is not an object at all', () => {
+    // A peer that writes a bare string has said nothing to quote back. The
+    // guard is separate from the one below because the two failures differ:
+    // this one never named a purpose, that one named an unusable purpose.
+    const refused = admit('c8', 'nonsense');
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.asked).toBe('');
+  });
+
+  it('echoes nothing when the purpose is not an object at all', () => {
+    // `describeAsked` exists so a refusal quotes the phrase back. A purpose
+    // that is a bare string has no phrase to quote, and inventing one would
+    // teach the asker something it did not say.
+    const refused = admit('c9', { subscriber: 'agent', purpose: 'until-ci-is-green' });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.asked).toBe('');
   });
 });
