@@ -18,6 +18,7 @@ export * from './entities/machine.js';
 export * from './entities/worktree.js';
 export * from './entities/pr.js';
 export * from './entities/agent.js';
+export * from './entities/declaration.js';
 export * from './entities/release.js';
 export * from './entities/build.js';
 export * from './entities/story.js';

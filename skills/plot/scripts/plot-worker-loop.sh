@@ -118,6 +118,77 @@ update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree
   mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
+# THE DECLARATION FILE, per branch. `.plot-worker.exit`, `.plot-worker.pid`,
+# `.plot-worker.log` and `.plot-worker.monitor.*.jsonl` are already the
+# convention; this joins them rather than inventing a location.
+DECLARATION_FILE_NAME='.plot-worker.envelope.json'
+
+# Write the declaration for the branch that just finished.
+#
+# ONE PER BRANCH, NOT ONE PER WORKER, and the difference is the failure this
+# whole plan exists to fix, reproduced one level up. A worker HOPS: the loop
+# below asks `--next` for another branch of the same plan while `session` and
+# `pid` stay fixed, so one worker may finish branches A and B before dying on C.
+# A single end-of-life declaration would then be ABSENT, and A and B — genuinely
+# finished, PRs open — would read as incomplete.
+#
+# SO IT IS WRITTEN HERE, where a BRANCH finished, and not in the EXIT trap. The
+# trap fires when the WORKER ends, which is a different event and answers a
+# different question. A hopping worker leaves a trail of declarations and only
+# the branch it died on is missing one.
+#
+# ABSENCE IS LOAD-BEARING, so this runs on exactly one path: `run_bounded`
+# returned 0, meaning the agent's prompt finished on its own. A worker killed by
+# the `Worker bound` or ended by the WorkerMonitor exits above without reaching
+# this line, and its desk is left with no declaration — which is what says the
+# work did not complete, whatever the exit code says.
+#
+# THE AGENT MAY SPEAK FIRST. If the prompt already wrote the file, its
+# `artifacts`, `pr`, `summary` and `status` are kept: the agent is the only
+# party that knows what it produced, and Plot does not own the prompt that
+# writes it. This fills in only what the agent could not know it needed —
+# `branch`, which the loop knows and the agent may misname, and a `status` of
+# `ok` where none was declared.
+#
+# AN UNPARSEABLE FILE IS LEFT EXACTLY AS IT IS. Overwriting it would launder
+# bytes nobody can believe into a declaration that says the branch finished, and
+# the domain's parse deliberately keeps *unreadable* apart from *complete* for
+# that reason. A half-written file stays a half-written file, and a reader is
+# told so.
+seal_declaration() { # $1=worktree $2=branch
+  local worktree="$1" branch="$2" file
+  # NO BRANCH, NO DECLARATION. The declaration is ABOUT a branch, so one that
+  # names none cannot be attributed and the domain's parse refuses it. Writing
+  # an unattributable file would be worse than the absence it replaces.
+  [ -n "$branch" ] || return 0
+  [ -n "$worktree" ] || return 0
+  [ -d "$worktree" ] || return 0
+  file="$worktree/$DECLARATION_FILE_NAME"
+
+  # USES NODE for the same reason `update_manifest_on_hop` does: JSON in
+  # portable shell is brittle, and the Worker command already requires node.
+  # The write goes through a temp file and a rename, so a reader never sees a
+  # partial declaration — the one shape this file must never produce, since its
+  # own contract says a file that exists and does not parse is not absent.
+  local tmp="$file.plot-seal-tmp"
+  node -e '
+    const fs = require("fs");
+    const [file, tmp, branch] = process.argv.slice(1);
+    let declared = {};
+    if (fs.existsSync(file)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) process.exit(3);
+        declared = parsed;
+      } catch { process.exit(3); }
+    }
+    const envelope = { ...declared, branch, status: declared.status || "ok" };
+    fs.writeFileSync(tmp, JSON.stringify(envelope, null, 2) + "\n");
+  ' "$file" "$tmp" "$branch" 2>/dev/null || { rm -f "$tmp"; return 0; }
+
+  mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
 # Read the prompt from the dedicated file. A file rather than a config key
 # because plot-config.sh strips `(...)` as prose, and the prompt legitimately
 # contains shell constructs like ${PLOT_BRANCH##*/}.
@@ -460,6 +531,12 @@ while true; do
     esac
     exit 124
   fi
+
+  # THE BRANCH FINISHED, so declare it — before `--next` is asked and before any
+  # hop moves `$PLOT_BRANCH`. Both orderings matter: a declaration written after
+  # the hop would name the branch the worker moved TO, and one written after the
+  # loop ends would never exist for any branch but the last.
+  seal_declaration "${PLOT_WORKTREE:-$PWD}" "${PLOT_BRANCH:-}"
 
   # Ask for the next claimable branch of the same plan.
   #
