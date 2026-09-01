@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Started:** 2026-09-01, Jan Wloka, `feature/a-verdict-is-a-domain-rule`
+- **Started:** 2026-09-01, Jan Wloka, `feature/a-phase-is-a-domain-rule`
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 
@@ -207,7 +208,7 @@ package's threshold; `fleet.ts` holds no copy; and **the board payload is
 unchanged byte for byte** — everything here is a move, so any difference is a
 defect.
 
-### Phases (Branch: feature/a-phase-is-a-domain-rule)
+### Phases (Branch: feature/a-phase-is-a-domain-rule, PR: #586)
 
 `rowPhase` and the plan-status derivations follow.
 
