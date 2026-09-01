@@ -136,6 +136,20 @@ export interface MockBoard {
    * replaces.
    */
   fail: (on: boolean) => void;
+  /**
+   * Serve a rendered document at `/plan/<file>` or `/story/<slug>`, for a test
+   * whose subject is the modal that embeds one.
+   *
+   * `DocModal` fetches `<href>?embed=1` and injects the response as the
+   * iframe's `srcDoc`, so a document is a ROUTE and not a file — the mock needs
+   * no fixture on disk, only an answer. A path this map does not name 404s like
+   * anything else, which is what makes *no story file* a state a scenario can
+   * state rather than a fixture it has to lack.
+   *
+   * Keyed by the path WITHOUT the query, since `?embed=1` is the component's
+   * business and every caller would otherwise have to spell it.
+   */
+  serveDoc: (path: string, html: string) => void;
   /** Stop listening. Resolves once the server is closed. */
   stop: () => Promise<void>;
   /** Synchronous stop, for an `afterAll` that does not await. */
@@ -169,6 +183,7 @@ export const startMockBoard = async (
   let current = scenario(name, over);
   let failing = false;
   const counts = { board: 0, fleet: 0 };
+  const docs = new Map<string, string>();
   // Read the client BEFORE listening, so a missing artifact fails with the
   // message above rather than as a blank page in a browser.
   const html = clientHtml();
@@ -182,6 +197,19 @@ export const startMockBoard = async (
       const which = url.pathname === '/api/board' ? 'board' : 'fleet';
       counts[which] += 1;
       return json(res, current[which]);
+    }
+    // A DOCUMENT, if one was registered for this path. Checked before the
+    // page, and only for the two viewer prefixes, so a mock with no documents
+    // behaves exactly as it did.
+    if (url.pathname.startsWith('/plan/') || url.pathname.startsWith('/story/')) {
+      const html = docs.get(url.pathname);
+      if (html !== undefined) {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        return res.end(html);
+      }
+      // FALLS THROUGH to the 404 below, deliberately: a plan whose file does
+      // not exist is a state these tests are about, and the board's own answer
+      // to it is a failed fetch.
     }
     if (url.pathname === '/' || url.pathname === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -210,6 +238,7 @@ export const startMockBoard = async (
     baseURL: `http://localhost:${port}/`,
     serve: (next, nextOver) => { current = scenario(next, nextOver); },
     served: () => ({ ...counts }),
+    serveDoc: (docPath, html) => { docs.set(docPath, html); },
     fail: (on) => { failing = on; },
     stop: () => new Promise<void>((resolve) => { server.close(() => resolve()); }),
     kill: () => { server.close(); },

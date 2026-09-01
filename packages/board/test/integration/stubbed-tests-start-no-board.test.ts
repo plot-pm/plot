@@ -315,7 +315,12 @@ const EXPECTED_FILES = 44;
  * a refused request is not counted. A capability the migration is about to
  * depend on across 111 tests is worth four of its own first.
  *
+ * 461 → 462 is `serveDoc`, one test for one capability: a registered document
+ * serves, an unregistered one 404s, and the page is untouched. The 404 is the
+ * point — a plan with no file is a state `story-overlay` asserts on, and the
+ * mock answering it means that file needs no fixture on disk.
+ *
  * Raised deliberately, in the commit that adds them, which is the whole
  * mechanism this pair exists for.
  */
-const EXPECTED_TESTS = 461;
+const EXPECTED_TESTS = 462;
