@@ -37,7 +37,7 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
-import { collectSprints, planStatusBySlug, readConfig, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, readConfig, type BuildBoardOptions } from './board.js';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -5686,7 +5686,7 @@ const EMPTY_SUMMARY = {
 export function sprintMembership(opts: BuildBoardOptions): Map<string, string> {
   const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
   const map = new Map<string, string>();
-  for (const sprint of collectSprints(opts.repoRoot, sprintDir)) {
+  for (const sprint of workingTreeSprints(opts.repoRoot, sprintDir)) {
     if (sprint.phase !== 'Active') continue;
     for (const member of sprint.members) {
       if (!map.has(member.slug)) map.set(member.slug, sprint.slug);
@@ -5729,15 +5729,15 @@ export function sprintMembership(opts: BuildBoardOptions): Map<string, string> {
  * plus one plan-meta parse per render, no host call — so a sprint file or a
  * plan edited between two scans shows on the next poll.
  */
-export function activeSprints(
+export async function activeSprints(
   opts: BuildBoardOptions,
   pulse: FleetPulse | null,
   complete: boolean,
-): FleetSprint[] {
+): Promise<FleetSprint[]> {
   const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
-  const active = collectSprints(opts.repoRoot, sprintDir).filter((s) => s.phase === 'Active');
+  const active = workingTreeSprints(opts.repoRoot, sprintDir).filter((s) => s.phase === 'Active');
   if (active.length === 0) return [];
-  const statusBySlug = planStatusBySlug(opts, pulse, complete);
+  const statusBySlug = await planStatusBySlug(opts, pulse, complete);
   return active.map((sprint) => {
     const counts = { total: 0, open: 0, wip: 0, done: 0 };
     for (const member of sprint.members) {
@@ -5790,12 +5790,12 @@ export function activeSprints(
  * {@link SprintCountsSchema} specifies, and the invariant `total = open + wip +
  * done` is maintained by construction.
  */
-export function estateTotals(
+export async function estateTotals(
   opts: BuildBoardOptions,
   pulse: FleetPulse | null,
   complete: boolean,
-): SprintCounts {
-  const statusBySlug = planStatusBySlug(opts, pulse, complete);
+): Promise<SprintCounts> {
+  const statusBySlug = await planStatusBySlug(opts, pulse, complete);
   const counts: SprintCounts = { total: 0, open: 0, wip: 0, done: 0 };
   for (const status of statusBySlug.values()) {
     switch (status) {
@@ -5829,11 +5829,23 @@ export function estateTotals(
  * `repoRoot` stays a parameter even while the UI shows one repo, so the second
  * one is an addition rather than a rebuild.
  */
-export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET_MINUTES): Fleet {
+export async function buildFleet(
+  opts: BuildBoardOptions,
+  quietMinutes = DEFAULT_QUIET_MINUTES,
+): Promise<Fleet> {
   const entry = ensureCache(opts);
   const repo = path.basename(opts.repoRoot);
   const now = Date.now();
   const ageSeconds = entry.at === null ? 0 : Math.round((now - entry.at) / 1000);
+  // THE TWO PLAN-STATUS READS, ASKED TOGETHER and hoisted above the literal.
+  // Both go through `planStatusBySlug`, which reads the plan estate from the
+  // ref — an await, where until 2026-08-31 it was a synchronous spawn. Awaiting
+  // them in sequence would serialise two identical reads for nothing; they are
+  // asked concurrently and the object below stays a literal.
+  const [sprints, totals] = await Promise.all([
+    activeSprints(opts, entry.pulse, entry.pulseComplete),
+    estateTotals(opts, entry.pulse, entry.pulseComplete),
+  ]);
   const rows = entry.pulse
     ? rowsFromPulse(entry.pulse, entry.ages, repo, quietMinutes, entry.prs,
       entry.branchUrlBase, entry.approvedAt, now, entry.ideaPlans, entry.versions,
@@ -5954,13 +5966,13 @@ export function buildFleet(opts: BuildBoardOptions, quietMinutes = DEFAULT_QUIET
     // poll. Emitted unconditionally (a cold cache passes `null`, which yields the
     // plan-only counts) because the client casts this payload and a Zod
     // `.default([])` never fires client-side.
-    sprints: activeSprints(opts, entry.pulse, entry.pulseComplete),
+    sprints,
     // Estate-wide counts over ALL plans, the same three buckets the sprint
     // counts use. Shown in the sprint control when the filter is OFF, so a
     // reader sees the effect of turning it on: "21 members" versus "112 plans".
     // Computed on the render clock for the same reason as `sprints`: a plan
     // whose status just moved shows on the next poll.
-    estateTotals: estateTotals(opts, entry.pulse, entry.pulseComplete),
+    estateTotals: totals,
     // The MAIN CHECKOUT's branch, read on the render clock with a TTL cache.
     // Not `server.branch`, which is the worktree the board server started in.
     // This is where the operator works — the first entry of `git worktree list`.

@@ -95,7 +95,10 @@ const MARKDOWN_ROUTES = [
   { prefix: '/design/', label: 'Design Doc', render: renderDesignDocPage },
 ] as const;
 
-function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+async function handleRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${HOST}:${boundPort}`);
 
   // Allow-listed AHEAD of the blanket 405 below, rather than by weakening it.
@@ -334,7 +337,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       // the same answer; one flag serving several capabilities is precisely
       // how they diverge when a later change makes only one of them local.
       const board = {
-        ...boardState({ opts, estate: estate.source }),
+        ...(await boardState({ opts, estate: estate.source })),
         dispatch: dispatchAvailability(HOST),
         server: serverInfo(opts, boundPort),
         approve: approveAvailability(HOST),
@@ -370,7 +373,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       // REPLACES the payload rather than adding to it — a mock beside real rows
       // is indistinguishable from a real estate behaving oddly, and the first
       // confused reading would cost more than the aid saves.
-      res.end(JSON.stringify(fleetState({ opts, estate: estate.source })));
+      res.end(JSON.stringify(await fleetState({ opts, estate: estate.source })));
     } catch (err) {
       console.error('Error building fleet:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -393,7 +396,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
     // doing it, and conflating the two would make a survey a mutation.
     try {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(buildAttention(opts)));
+      res.end(JSON.stringify(await buildAttention(opts)));
     } catch (err) {
       console.error('Error building attention:', err);
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -682,7 +685,7 @@ function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): voi
       // documents (plan basenames / story slugs), so traversal (`../`) cannot
       // escape the configured directory: it simply matches no entry and 404s.
       const name = decodeURIComponent(url.pathname.slice(markdownRoute.prefix.length));
-      const html = markdownRoute.render(opts, name, { embed });
+      const html = await markdownRoute.render(opts, name, { embed });
       if (html === null) {
         res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end(`${markdownRoute.label} not found`);
@@ -730,7 +733,24 @@ let lastRequestAt = Date.now();
 
 const server = http.createServer((req, res) => {
   lastRequestAt = Date.now();
-  return handleRequest(req, res);
+  // THE REJECTION IS CAUGHT HERE, and it is not optional. `handleRequest` is
+  // async now, so a throw past its own try/catch arrives as a rejected promise
+  // rather than as an exception this callback would have propagated. An
+  // unhandled rejection ends the process by default on Node — one bad request,
+  // no board, which is the failure the URIError catch below was written to
+  // prevent and would silently lose here.
+  //
+  // A response already begun is left alone: `writeHead` after `end` throws
+  // again, so `headersSent` decides between answering and simply logging.
+  handleRequest(req, res).catch((err) => {
+    console.error('Unhandled error serving request:', err);
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Internal Server Error');
+  });
 });
 
 /**

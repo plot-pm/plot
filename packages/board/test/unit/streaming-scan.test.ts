@@ -81,10 +81,19 @@ const HEAD = { main: 'main', head: 'abc1234', read_ref: 'abc1234', local_head: '
  * given. Failing by timeout rather than by a fixed sleep keeps it honest on a
  * slow machine — a sleep tuned on this laptop is a flake on CI.
  */
-async function until<T>(read: () => T, want: (v: T) => boolean, ms = 5_000): Promise<T> {
+async function until<T>(
+  read: () => T | Promise<T>,
+  want: (v: T) => boolean,
+  ms = 5_000,
+): Promise<T> {
   const stop = Date.now() + ms;
   for (;;) {
-    const v = read();
+    // AWAITED, because the reader became async when the read path moved onto
+    // the `Refs` port. A predicate handed a Promise reads `undefined` off it
+    // and answers false forever, so the poll would time out and return the
+    // Promise itself — which is how this surfaced: `f.rows` was undefined
+    // rather than empty.
+    const v = await read();
     if (want(v)) return v;
     if (Date.now() > stop) return v;
     await new Promise((r) => setTimeout(r, 10));

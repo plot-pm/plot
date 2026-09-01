@@ -61,11 +61,11 @@ const makeRepo = (): string => {
 };
 
 describe('the controller answers without a server', () => {
-  it('returns the estate from typed arguments alone', () => {
+  it('returns the estate from typed arguments alone', async () => {
     const dir = makeRepo();
     try {
       // No server, no port, no request object — just where to read from.
-      const answer = boardState({ opts: { repoRoot: dir, scriptsDir: SCRIPTS_DIR } });
+      const answer = await boardState({ opts: { repoRoot: dir, scriptsDir: SCRIPTS_DIR } });
 
       assert.ok(Array.isArray(answer.columns), 'the answer carries columns');
       const slugs = answer.columns.flatMap((c) => c.cards.map((card) => card.slug));
@@ -78,10 +78,10 @@ describe('the controller answers without a server', () => {
     }
   });
 
-  it('knows no transport fact, and says so in the placeholders', () => {
+  it('knows no transport fact, and says so in the placeholders', async () => {
     const dir = makeRepo();
     try {
-      const answer = boardState({ opts: { repoRoot: dir, scriptsDir: SCRIPTS_DIR } });
+      const answer = await boardState({ opts: { repoRoot: dir, scriptsDir: SCRIPTS_DIR } });
 
       // MEASURED, and not what this test first asserted: the ten flags and
       // `server` are not ABSENT from the controller's answer, they are EMPTY.

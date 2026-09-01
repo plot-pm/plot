@@ -131,8 +131,8 @@ export const askOnce = async (
           ask.planFile ?? '',
         )
       : ask.question === 'fleet'
-        ? fleetState({ opts: ask.opts, estate: ask.estate })
-        : boardState({ opts: ask.opts, estate: ask.estate });
+        ? await fleetState({ opts: ask.opts, estate: ask.estate })
+        : await boardState({ opts: ask.opts, estate: ask.estate });
   return { value, estate, measured: true };
 };
 
