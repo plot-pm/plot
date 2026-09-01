@@ -2,12 +2,6 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 
-//
-// READ BY THE GATE and then VERIFIED through `srcdoc`, the same entitlement
-// `tiny-garden.browser.test.ts` holds and for the same reason: the document
-// routes read markdown from a `repoRoot`, and the catalogue's mock serves `/`
-// and the two payloads only.
-
 // UI layer: a real browser against the shipped artifact. What a route test
 // cannot see is whether the ACTION is visible — a badge-only implementation
 // satisfies "a story can be opened" and leaves nothing to click for anyone
