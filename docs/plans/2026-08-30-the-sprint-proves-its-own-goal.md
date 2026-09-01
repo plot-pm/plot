@@ -197,7 +197,7 @@ has scheduled is a check that happens once, in the release, under time pressure.
 
 ## Slices
 
-### Layering (Branch: infra/only-an-adapter-reaches-a-script)
+### Layering (Branch: infra/only-an-adapter-reaches-a-script, PR: #579)
 
 A CI gate counting `spawn`/`execFile` outside `packages/domain/src/adapters/`,
 with `allowed` at today's 65 and the target stated as zero.
