@@ -186,21 +186,24 @@ let raw: Record<string, unknown>;
 /**
  * The branch `origin/HEAD` is restored to. Read before the pin replaces it.
  *
- * NOT `symbolic-ref`, WHICH THROWS ON A CHECKOUT THAT DOES NOT OWN ONE.
- * `origin/HEAD` is symbolic in a `git clone` and DIRECT in a checkout that
- * built its remote refs another way — `actions/checkout` among them, measured
- * 2026-09-01: `fatal: ref refs/remotes/origin/HEAD is not a symbolic ref`,
- * thrown at MODULE SCOPE, so the whole file reported `0 test` and the corpus
+ * `origin/HEAD` MAY NOT EXIST AT ALL, and that is the CI case rather than an
+ * edge one. `actions/checkout` fetches the ref it was asked for and creates no
+ * `origin/HEAD`, so on 2026-09-01 this suite failed twice for two different
+ * readings of the same missing ref:
+ *
+ *   git symbolic-ref --short refs/remotes/origin/HEAD  → exit 128, at module scope
+ *   git rev-parse origin/HEAD                          → exit 128, in beforeAll
+ *
+ * Both threw before a single test ran, so the file reported `0 test` and the
  * job failed with nothing to point at.
  *
- * It passed locally for the same reason it failed in CI: this working copy is a
- * clone and has a symbolic `origin/HEAD`. A reading whose answer depends on how
- * the checkout was created has to tolerate both shapes.
+ * It passes locally because a working copy made by `git clone` HAS the ref. A
+ * suite whose setup depends on how the checkout was created must not require
+ * the ref to be there — it must be able to establish what it needs.
  *
- * So the value is READ WITHOUT ASSUMING the shape, and its absence is not
- * fatal: `main` is the fallback, and `afterAll` restores whatever was found.
- * The restoration is best-effort by design — a test that cannot repair a ref it
- * never successfully read should still run.
+ * So `MAIN` falls back to `main`, and `beforeAll` resolves the pin from a
+ * branch rather than from `origin/HEAD`. The restoration stays best-effort: a
+ * suite that could not read a ref it never pinned should still run.
  */
 const readOriginHead = (): string => {
   try {
@@ -225,7 +228,13 @@ const git = (...args: string[]): string =>
 
 beforeAll(async () => {
   // Freeze the ref before either scan runs, and tell the scan to use it.
-  const head = git('rev-parse', 'origin/HEAD');
+  //
+  // RESOLVED FROM A BRANCH, NOT FROM `origin/HEAD`, which need not exist: the
+  // pin's whole job is to give the scan a ref that cannot move under it, and
+  // `origin/<MAIN>` is the ref the scan would have derived anyway. Asking
+  // `rev-parse origin/HEAD` first made the suite depend on the very ref it was
+  // about to replace.
+  const head = git('rev-parse', `refs/remotes/origin/${MAIN}`);
   git('update-ref', PIN_REF, head);
   git('symbolic-ref', 'refs/remotes/origin/HEAD', PIN_REF);
   pinned = true;
