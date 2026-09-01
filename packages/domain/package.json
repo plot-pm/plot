@@ -7,7 +7,8 @@
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./adapters": "./src/adapters/index.ts"
+    "./adapters": "./src/adapters/index.ts",
+    "./rules/*": "./src/rules/*.ts"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",

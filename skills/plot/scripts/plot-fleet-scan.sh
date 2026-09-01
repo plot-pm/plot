@@ -3212,17 +3212,29 @@ for plan in "${plans[@]}"; do
     states+="$idx	$br	$st	$deferred	$why	$wname	$claim"$'\n'
   done <<< "$wave_lines"
 
-  # Pass 2: wave verdicts. A wave is complete when none of its non-deferred
-  # branches is outstanding; eligible when all PRIOR waves are complete.
+  # Pass 2a: what each wave HOLDS — how many of its non-deferred branches have
+  # not settled. A reading, and the whole of what this script contributes to the
+  # verdict: which branches count as settled depends on `--loose` and on a host
+  # round trip, both of which are adaptation. What a wave therefore IS is the
+  # domain's, asked once for the whole plan in pass 2b.
   wave_ids=$(printf '%s' "$states" | cut -f1 | sort -un)
-  prior_ok=1
+  wave_readings=""
+  # ONE LINE PER SLICE, in the order `wave_ids` yields them — the same shape as
+  # `wave_readings` above and `wave_verdicts` below, walked by the same index.
+  # NOT an associative array: macOS ships bash 3.2, which has none, and
+  # `test/reconcile/mergequeue.test.mjs` refuses one.
+  wave_degraded_list=""
   for wid in $wave_ids; do
-    wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $6; exit}')
-    [ "$wname" = "-" ] && wname=""
     outstanding=0
     _loose_degraded_branches=""
+    wave_states=""
     while IFS=$'\t' read -r idx br st deferred why nm claim; do
       [ "$idx" = "$wid" ] || continue
+      # EVERY branch, including the deferred ones, and in the order the render
+      # loop below will walk them — the claimable flags come back positionally,
+      # so the two walks must agree. `outstanding` skips deferred branches; this
+      # does not, because a deferred branch still occupies a position.
+      wave_states+="${wave_states:+|}$st"
       [ "$st" = "deferred" ] && continue
       # strict (default): only a merged branch is settled.
       # loose: pushed work counts too — buys throughput, pays in rebase risk.
@@ -3242,43 +3254,42 @@ for plan in "${plans[@]}"; do
         *) outstanding=$((outstanding + 1)) ;;
       esac
     done <<< "$states"
+    wave_readings+="$outstanding	$plan_phase	$wave_states"$'\n'
+    wave_degraded_list+="$_loose_degraded_branches"$'\n'
+  done
 
-    # `eligible` IS A CLAIM ABOUT STARTABILITY, not about wave ordering alone.
-    #
-    # Measured 2026-08-27: every one-wave plan in `not-started` on the live
-    # board read `eligible`, and `plot-dispatch.sh` refused all six of them —
-    # *"plan '<slug>' is still Draft on <ref> — nothing may be dispatched."*
-    # Six of six. Both components were correct and they were answering
-    # different questions: this computed *no earlier wave blocks this one*,
-    # and the reader took it to mean *I can start this*. Those coincide only
-    # for an approved plan.
-    #
-    # THE PHASE IS ALREADY IN HAND. `$plan_phase` was parsed above for the
-    # terminal grouping, so consulting it here costs no read and no host call
-    # — the fix adds a test, not a lookup.
-    #
-    # AN ALLOWLIST OF ONE GOOD PHASE, mirroring `plot-dispatch.sh`'s own gate
-    # (`case "$gate_phase" in approved) ;;`) rather than testing for `draft`.
-    # A denylist is the blocklist-collapse shape this codebase keeps removing:
-    # `design` is documented as a phase whose work cannot yet be handed over,
-    # and `UNKNOWN`/`NONE` are unreadable answers. Under a `draft`-only test
-    # each of those would inherit the good word. The scan and the dispatcher
-    # now refuse the same set, which is the disagreement this removes.
-    #
-    # ORDERING IS STILL COMPUTED FIRST, and `complete` still outranks it: a
-    # wave whose branches have all merged IS complete whatever its plan says,
-    # because that is a statement about work that already landed, not an
-    # invitation to start any. Only the word a reader ACTS on is withheld.
-    #
-    # NOT `blocked`, deliberately. That word means *an earlier wave has not
-    # landed* — an ordering fact that resolves by merging work. This resolves
-    # by a person approving the plan. Folding both into one word would rebuild
-    # the ambiguity one level down, and `blocked by <wave> — 1 branch` is a
-    # sentence a row in this state cannot truthfully complete.
-    if [ "$outstanding" -eq 0 ]; then verdict="complete"
-    elif [ "$plan_phase" != "approved" ]; then verdict="unapproved"
-    elif [ "$prior_ok" -eq 1 ]; then verdict="eligible"
-    else verdict="blocked"; fi
+  # Pass 2b: THE DECISION, and it is not made here.
+  #
+  # `sliceVerdict` lives in `@plot-pm/domain` and this script asks it. The four
+  # words and the order they are decided in — `complete` outranking everything,
+  # approval being part of `eligible`, `unapproved` kept apart from `blocked`
+  # because they resolve differently — are all one implementation now, shared
+  # with every other component that has to agree about what may be started.
+  #
+  # ONE CALL PER PLAN, not per wave. The verdicts of a plan's waves are a FOLD:
+  # each depends on whether every wave before it is complete, so the whole
+  # ordered list is the unit the rule takes. That also keeps the cost at one
+  # process per plan on a path the board polls every five seconds.
+  #
+  # A MISSING OR SILENT ARTIFACT REFUSES. There is no shell fallback: a second
+  # implementation kept "just in case" is the duplication this adoption removes,
+  # and it would be the copy nobody tests. `plot-deliver.sh` fails the same way
+  # for the same reason.
+  wave_verdicts=$(printf '%s' "$wave_readings" \
+    | node "$script_dir/board/plot-verdicts.mjs" 2>/dev/null) \
+    || { echo "error: cannot read slice verdicts — run 'pnpm build:board'." >&2; exit 2; }
+  [ "$(printf '%s\n' "$wave_verdicts" | grep -c .)" = "$(printf '%s' "$wave_readings" | grep -c .)" ] \
+    || { echo "error: slice verdicts did not answer for every slice of $plan_base." >&2; exit 2; }
+
+  verdict_i=0
+  for wid in $wave_ids; do
+    verdict_i=$((verdict_i + 1))
+    IFS=$'\t' read -r verdict wave_claimable \
+      <<< "$(printf '%s\n' "$wave_verdicts" | sed -n "${verdict_i}p")"
+    branch_i=0
+    _loose_degraded_branches=$(printf '%s' "$wave_degraded_list" | sed -n "${verdict_i}p")
+    wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $6; exit}')
+    [ "$wname" = "-" ] && wname=""
 
     [ "$quiet" = 1 ] || echo "  ${wname:-(unnamed)} — $verdict"
     # A degradation that says nothing is indistinguishable from a bug.
@@ -3313,7 +3324,14 @@ for plan in "${plans[@]}"; do
         unknown)  note="unknown — PR could not be read ($HOST_VERDICT host)" ;;
         *)        note="open" ;;
       esac
-      if [ "$verdict" = "eligible" ] && [ "$st" = "open" ]; then
+      # WHETHER A WORKER MAY TAKE THIS BRANCH — the domain's answer, read
+      # positionally from the flags the same call returned. It was
+      # `[ "$verdict" = "eligible" ] && [ "$st" = "open" ]` here, a second
+      # statement of `isClaimable` sitting one loop away from the verdict it
+      # depends on. `--next` acts on this immediately by pushing a ref, so the
+      # two must not be free to disagree.
+      branch_i=$((branch_i + 1))
+      if [ "${wave_claimable:$((branch_i - 1)):1}" = "1" ]; then
         n_eligible=$((n_eligible + 1))
         claimable+=("$br")
       fi
@@ -3512,7 +3530,10 @@ for plan in "${plans[@]}"; do
     fi
 
     n_waves=$((n_waves + 1))
-    [ "$verdict" = "complete" ] || prior_ok=0
+    # `prior_ok` used to be carried here — the ordering half of the verdict,
+    # threaded through the render loop. It moved with the rule: `sliceVerdicts`
+    # folds the plan's waves in order, so nothing downstream has to remember
+    # what the wave before it decided.
     [ "$verdict" = "blocked" ] && n_blocked=$((n_blocked + 1))
   done
   if [ "$as_json" = 1 ]; then

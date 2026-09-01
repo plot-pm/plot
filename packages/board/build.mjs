@@ -66,6 +66,32 @@ await esbuild.build({
 fs.copyFileSync(askArtifact, shippedAsk);
 fs.chmodSync(shippedAsk, 0o755);
 
+// The eligibility rule, reachable from the scan that needs it.
+//
+// A THIRD artifact rather than a verb on plot-ask.mjs, because plot-ask.mjs
+// answers `board` and `fleet` by RUNNING plot-fleet-scan.sh — the script that
+// would be asking. Separated, the scan calls a bundle that spawns nothing.
+//
+// It is also ~40x per scan on the 5 s pulse path, so the import cost is paid
+// per plan; this entry pulls in the rule and its schema rather than the board.
+const verdictsArtifact = path.join(here, 'dist/plot-verdicts.mjs');
+const shippedVerdicts = path.join(here, '../../skills/plot/scripts/board/plot-verdicts.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/verdicts.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: verdictsArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(verdictsArtifact, shippedVerdicts);
+fs.chmodSync(shippedVerdicts, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -112,6 +138,8 @@ for (const name of vendoredScripts) {
 
 const kb = (fs.statSync(shippedArtifact).size / 1024).toFixed(1);
 const askKb = (fs.statSync(shippedAsk).size / 1024).toFixed(1);
+const verdictsKb = (fs.statSync(shippedVerdicts).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+var l="approved",d=(t,e)=>t.outstanding===0?"complete":t.phase!==l?"unapproved":e?"eligible":"blocked",c=t=>{let e=!0;return t.map(r=>{let s=d(r,e);return e&&=s==="complete",s})},a=(t,e)=>t==="eligible"&&e==="open";import{realpathSync as u}from"node:fs";import{pathToFileURL as m}from"node:url";var f=t=>t.split(`
+`).filter(e=>e!=="").map((e,r)=>{let[s,o,i]=e.split("	"),n=Number(s);if(!Number.isInteger(n)||n<0||o===void 0||i===void 0)throw new Error(`line ${r+1}: expected '<count>\\t<phase>\\t<states>', got '${e}'`);return{outstanding:n,phase:o,states:i===""?[]:i.split("|")}}),g=t=>{let e=f(t),r=c(e);return e.map((s,o)=>{let i=r[o],n=s.states.map(p=>a(i,p)?"1":"0").join("");return`${i}	${n}
+`}).join("")},S=(t,e=r=>process.stdout.write(r))=>{try{return e(g(t)),0}catch(r){return process.stderr.write(`plot-verdicts: ${r.message}
+`),2}};if(process.argv[1]&&import.meta.url===m(u(process.argv[1])).href){let t=[];for await(let e of process.stdin)t.push(e);process.exit(S(Buffer.concat(t).toString("utf8")))}export{g as answer,S as run,f as slicesFrom};
