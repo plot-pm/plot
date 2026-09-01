@@ -40,22 +40,7 @@ import {
 } from '../contract/index.js';
 import { type BuildBoardOptions } from './board.js';
 import { buildFleet } from './fleet.js';
-
-/**
- * Where a branch's hand-off brief lives, by the convention `/plot-implement`
- * writes and every worker prompt reads: `.plot/briefs/<slug>.md`, where the
- * slug is the branch name after its last `/`.
- *
- * A CONVENTION PLOT ITSELF WRITES, not a guess about one — the same standing
- * this file's `idea/<slug>` handling has in `fleet.ts`. The path is reported
- * whether or not the file is there, because it is where a caller should LOOK
- * and where `/plot-implement` will put it; `briefExists` is what says which of
- * the two situations it is.
- */
-function briefPath(branch: string): string {
-  const slug = branch.split('/').pop() ?? branch;
-  return path.join('.plot/briefs', `${slug}.md`);
-}
+import { briefPath } from './brief-path.js';
 
 /**
  * Does the brief exist? Answered by looking, and answered `false` on any error.

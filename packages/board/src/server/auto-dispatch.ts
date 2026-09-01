@@ -13,6 +13,9 @@ import {
 } from '@plot-pm/domain';
 import type { AgentEntry } from './registry.js';
 import { dispatchLogPath } from './dispatch.js';
+import { briefPath } from './brief-path.js';
+
+export { briefPath };
 
 /**
  * WAVE 3: the switch does something.
@@ -539,16 +542,6 @@ export function dispatchCandidates(pulse: FleetPulse, inFlight: Set<string>): st
     }
   }
   return out;
-}
-
-/**
- * The brief path for a branch — `.plot/briefs/<slug>.md`, where slug is the
- * branch name after its last `/`. This is the convention `/plot-implement`
- * writes and the `Worker command` reads.
- */
-export function briefPath(branch: string): string {
-  const slug = branch.split('/').pop() ?? branch;
-  return `.plot/briefs/${slug}.md`;
 }
 
 /**
