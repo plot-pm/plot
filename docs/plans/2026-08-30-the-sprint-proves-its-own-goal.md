@@ -16,6 +16,7 @@
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `infra/only-an-adapter-reaches-a-script`
 - **Started:** 2026-09-01, Jan Wloka, `infra/the-gate-counts-what-production-keeps`
+- **Started:** 2026-09-01, Jan Wloka, `infra/the-board-says-how-far-adoption-got`
 
 ## Approval
 
@@ -230,7 +231,7 @@ rather than the alias. The three call sites are consequences of one
 `export { … as … }`, and a gate that counts consequences goes red on a refactor
 that touches call sites without changing the seam.
 
-### Reporting (Branch: infra/the-board-says-how-far-adoption-got)
+### Reporting (Branch: infra/the-board-says-how-far-adoption-got, PR: #605)
 
 A CI step printing how many board files reach the domain, **failing on nothing**.
 

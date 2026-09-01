@@ -43,6 +43,7 @@ import { readAgentRegistryWithInfo, bashCleanliness } from './registry.js';
 import type { RegistryInfo } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
+import { briefPath as briefPathOf } from './brief-path.js';
 
 /**
  * How long a branch may sit without a commit before it reads as quiet rather
@@ -4538,28 +4539,6 @@ export function compareWithinGroup(a: AgentRow, b: AgentRow): number {
     return (a.waitingDays ?? -1) - (b.waitingDays ?? -1);
   }
   return (b.ageMinutes ?? -1) - (a.ageMinutes ?? -1);
-}
-
-/** Flatten a pulse into rows, grouped by what each one asks of you. */
-/**
- * WHERE A BRANCH'S HAND-OFF BRIEF LIVES — `.plot/briefs/<slug>.md`, the slug
- * being the branch name after its last `/`.
- *
- * A CONVENTION PLOT ITSELF WRITES, not a guess about one: `/plot-implement`
- * writes exactly this path and the `Worker command` in `CLAUDE.md` opens by
- * telling the agent to read it.
- *
- * A THIRD READER of that convention rather than an import, and deliberately so
- * — the choice `continue.ts`'s `briefPathFor` made first and records at length.
- * `attention.ts` derives the path to REPORT it to an agent; `continue.ts` to
- * READ a file; this one to answer a yes/no about a row. Sharing a helper across
- * a server-module boundary to save two lines would couple the render path to an
- * advisory endpoint for no gain, and if the convention ever moves all three fail
- * the same way — loudly, on a missing file — rather than one of them silently.
- */
-function briefPathOf(branch: string): string {
-  const slug = branch.split('/').pop() ?? branch;
-  return path.join('.plot/briefs', `${slug}.md`);
 }
 
 /**
