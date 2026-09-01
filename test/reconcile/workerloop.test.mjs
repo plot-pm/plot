@@ -698,3 +698,157 @@ test('worker-loop: no stray sleeps after an idle ending', serial, async () => {
     discard(dir);
   }
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// THE DECLARATION — `.plot-worker.envelope.json`, written when a BRANCH
+// finishes rather than when the worker exits.
+//
+// Measured 2026-08-31: three dispatched workers hit the 8 h `Worker bound`,
+// died at `exit 124`, and had committed and pushed real work with no PR.
+// Nothing reported it, because every worker exits 0 and Plot inferred
+// completion from a process ending. `plot-worker-state.sh:46` states the
+// defect; these tests state the replacement.
+//
+// ASSERTED FROM THE FILE ON DISK, never from the loop's source. A test that
+// greps the script for a call it hopes fires is what a green suite over a dead
+// path looks like — the shape this repo already shipped once.
+// ───────────────────────────────────────────────────────────────────────────
+
+const DECLARATION = '.plot-worker.envelope.json';
+
+/** Read a desk's declaration, or null when it has none. */
+function declarationOf(dir) {
+  const file = path.join(dir, DECLARATION);
+  if (!fs.existsSync(file)) return null;
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+test('worker-loop: a finished branch leaves a declaration naming it', serial, async () => {
+  // The bare minimum the contract promises: the agent's prompt returned on its
+  // own, so the branch is finished and the desk says so.
+  const dir = fixture('declare-ok', 60, 'echo working\n');
+  try {
+    const r = await runLoop(dir, { env: { PLOT_BRANCH: 'feature/declared' } });
+    assert.equal(r.code, 0, 'an honest pass exits 0 once --next has nothing');
+    const declared = declarationOf(dir);
+    assert.ok(declared, 'a finished branch must leave a declaration');
+    assert.equal(declared.branch, 'feature/declared',
+      'the declaration names the branch the loop knows it finished');
+    assert.equal(declared.status, 'ok', 'a branch that finished is ok by default');
+  } finally {
+    discard(dir);
+  }
+});
+
+test('worker-loop: a killed worker leaves NO declaration', serial, async () => {
+  // ABSENCE IS THE LOAD-BEARING CASE. A worker killed by the bound never
+  // reaches the write, so its desk is silent — and silence means incomplete,
+  // whatever the exit code says.
+  const secs = 53;
+  reap(secs);
+  const dir = fixture('declare-killed', 1, `sleep ${secs}\n`);
+  try {
+    const r = await runLoop(dir, { env: { PLOT_BRANCH: 'feature/killed' } });
+    assert.equal(r.code, 124, 'the bound fired');
+    assert.equal(declarationOf(dir), null,
+      'a worker the bound killed must leave no declaration');
+  } finally {
+    reap(secs);
+    discard(dir);
+  }
+});
+
+test('worker-loop: the same desk declares when the prompt returns and not when it is killed',
+  serial, async () => {
+    // THE DISCRIMINATING FORM, and the reason both halves are asserted in ONE
+    // test. A write that never fired would pass the absence test above while
+    // proving nothing. Here the SAME fixture body runs twice — once fast enough
+    // to finish, once not — and the verdict must differ.
+    const secs = 59;
+    reap(secs);
+    const finished = fixture('declare-both-ok', 60, 'echo done\n');
+    const killed = fixture('declare-both-killed', 1, `sleep ${secs}\n`);
+    try {
+      await runLoop(finished, { env: { PLOT_BRANCH: 'feature/same' } });
+      await runLoop(killed, { env: { PLOT_BRANCH: 'feature/same' } });
+      assert.notEqual(declarationOf(finished), null, 'the finished desk declares');
+      assert.equal(declarationOf(killed), null, 'the killed desk does not');
+    } finally {
+      reap(secs);
+      discard(finished);
+      discard(killed);
+    }
+  });
+
+test('worker-loop: the agent’s own account survives, and the branch is the loop’s', serial, async () => {
+  // PLOT DOES NOT OWN THE PROMPT. `.plot/worker-prompt.sh` belongs to the
+  // adopting project, and the agent is the only party that knows what it
+  // produced — so `artifacts`, `pr` and `summary` are kept verbatim. `branch`
+  // is not: the loop knows which branch it ran, and an agent may misname it.
+  const body = `cat > "$PLOT_WORKTREE/${DECLARATION}" <<'JSON'
+{ "branch": "feature/wrong", "status": "ok",
+  "artifacts": ["packages/domain/src/rules/reap.ts"],
+  "pr": 571, "summary": "one sentence" }
+JSON
+`;
+  const dir = fixture('declare-agent', 60, body);
+  try {
+    await runLoop(dir, { env: { PLOT_BRANCH: 'feature/right' } });
+    const declared = declarationOf(dir);
+    assert.equal(declared.branch, 'feature/right', 'the loop’s branch wins');
+    assert.deepEqual(declared.artifacts, ['packages/domain/src/rules/reap.ts'],
+      'the agent’s artifacts survive');
+    assert.equal(declared.pr, 571, 'the agent’s PR number survives');
+    assert.equal(declared.summary, 'one sentence', 'the agent’s summary survives');
+  } finally {
+    discard(dir);
+  }
+});
+
+test('worker-loop: a blocked declaration is not rewritten to ok', serial, async () => {
+  // An agent reporting that it CANNOT proceed is information, and different
+  // from silence. Overwriting it would turn a report into a completion.
+  const body = `printf '%s' '{"branch":"feature/b","status":"blocked","summary":"needs a person"}' \\
+  > "$PLOT_WORKTREE/${DECLARATION}"
+`;
+  const dir = fixture('declare-blocked', 60, body);
+  try {
+    await runLoop(dir, { env: { PLOT_BRANCH: 'feature/b' } });
+    const declared = declarationOf(dir);
+    assert.equal(declared.status, 'blocked', 'a declared block stays blocked');
+    assert.equal(declared.summary, 'needs a person');
+  } finally {
+    discard(dir);
+  }
+});
+
+test('worker-loop: a half-written declaration is left exactly as it is', serial, async () => {
+  // OVERWRITING IT WOULD LAUNDER bytes nobody can believe into a declaration
+  // that says the branch finished. The domain's parse keeps *unreadable* apart
+  // from *complete* for that reason, and this is the write side of the same
+  // rule: a file that does not parse stays a file that does not parse.
+  const half = '{ "branch": "feature/half", "status": "o';
+  const body = `printf '%s' '${half}' > "$PLOT_WORKTREE/${DECLARATION}"\n`;
+  const dir = fixture('declare-half', 60, body);
+  try {
+    await runLoop(dir, { env: { PLOT_BRANCH: 'feature/half' } });
+    assert.equal(fs.readFileSync(path.join(dir, DECLARATION), 'utf8'), half,
+      'the loop must not rewrite a declaration it could not read');
+  } finally {
+    discard(dir);
+  }
+});
+
+test('worker-loop: no declaration is written for a branch the loop cannot name', serial, async () => {
+  // A declaration is ABOUT a branch. One that names none cannot be attributed
+  // to anything, and an unattributable file is worse than the absence it
+  // replaces — a reader would count it and learn nothing.
+  const dir = fixture('declare-nobranch', 60, 'echo working\n');
+  try {
+    await runLoop(dir, { env: { PLOT_BRANCH: '' } });
+    assert.equal(declarationOf(dir), null,
+      'no branch means no declaration, not a declaration with an empty branch');
+  } finally {
+    discard(dir);
+  }
+});
