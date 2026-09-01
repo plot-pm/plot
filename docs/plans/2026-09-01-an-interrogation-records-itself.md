@@ -17,6 +17,7 @@
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-09-01, Jan Wloka, `docs/an-interrogation-writes-its-round`
+- **Started:** 2026-09-01, Jan Wloka, `bug/a-questioned-plan-says-how-often`
 -->
 
 ## Changelog
