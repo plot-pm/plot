@@ -15,6 +15,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Started:** 2026-09-01, Jan Wloka, `bug/a-test-teardown-does-not-call-rmsync`
+- **Started:** 2026-09-01, Jan Wloka, `bug/the-board-suite-runs-twice-green`
 
 ## Changelog
 
