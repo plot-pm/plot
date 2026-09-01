@@ -32,8 +32,6 @@ import type { Fleet, AgentRow } from '../../src/contract/schema.js';
 import { expandAgentFolds } from '../helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(here, '../../../..');
-const ARTIFACT = path.join(REPO_ROOT, 'skills/plot/scripts/board/board-server.mjs');
 
 // A realistic worker command: the dispatcher launches `claude -p` with a prose
 // brief that spans lines and names the brief path. This is the value that, once

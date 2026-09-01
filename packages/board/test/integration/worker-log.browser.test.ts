@@ -17,8 +17,6 @@ import type { Fleet, AgentRow } from '../../src/contract/schema.js';
 import { expandAgentFolds } from '../helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(here, '../../../..');
-const ARTIFACT = path.join(REPO_ROOT, 'skills/plot/scripts/board/board-server.mjs');
 
 function row(over: Partial<AgentRow> = {}): AgentRow {
   return {
