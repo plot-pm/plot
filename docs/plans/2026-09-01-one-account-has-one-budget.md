@@ -7,14 +7,15 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
+- **Approved:** 2026-09-01, Jan Wloka, in-session
 
 ## Changelog
 
@@ -78,6 +79,21 @@ and stands; the bucket reading beside it does not. Whether 2026-08-27 was purely
 concurrency or partly an exhausted GraphQL quota is now unknown — which is
 itself a reason to budget by bucket and read the headers, since the same
 ambiguity will otherwise recur at every diagnosis.
+
+**And the cap of seven inherits that same uncertainty.** The number appears
+twice in `plot-host.sh` (lines 242 and 514) and both citations are the same
+2026-08-27 incident; it has no independent source — not GitHub's documentation,
+not a second observation. **Seven was never measured.** What was observed is
+that eight failed, and seven is the inference from it.
+
+**So the concurrency slice must discover its bound rather than hard-code one.**
+`bug/the-budget-bounds-simultaneous-calls` says *"sized against the measured
+seven"*, and that phrasing should not survive: a cap compiled in from one
+incident is a guess wearing a measurement's clothes, and it is wrong in the
+direction that hurts — too high and it never fires, too low and it throttles work
+that would have succeeded. **The bound belongs with the connector's predicted
+limit**, corrected by the refusals it causes, which is the mechanism this plan
+already has.
 
 ### The buckets are separate, and the board budgets neither of them by name
 
@@ -652,7 +668,7 @@ comes first**, because five branches write to it.
 
 ### Bounding concurrency
 
-- `bug/the-budget-bounds-simultaneous-calls` — a cap on in-flight host requests per account, sized against the measured seven. Last, because it needs the record from slice 1 and the reporting from slice 3 to show it is working rather than merely quiet.
+- `bug/the-budget-bounds-simultaneous-calls` — a cap on in-flight host requests per account. **Discovered, not hard-coded:** seven has no independent source — `plot-host.sh:242` and `:514` both cite the one 2026-08-27 incident, where eight failed and seven is the inference. The bound starts as the connector's `predicted` value and is corrected by the refusals it causes, the same mechanism the limit itself uses. Last, because it needs the record from slice 1 and the reporting from slice 3 to show it is working rather than merely quiet.
 
 ## Done when
 
