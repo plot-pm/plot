@@ -206,11 +206,11 @@ sits on and not by arithmetic on a stale figure.
 
 - `infra/the-plan-tab-tests-serve-their-own-state` — migrate the board/Plans-tab files onto the new scenarios. The smaller half, and the one whose payload (`/api/board`) is simplest. → #585 → #588
 
-  **Split in two while running.** The Plans-tab payload pair landed as #585;
-  the fifteen agent-tab files landed as #588 on
-  `infra/the-plan-tab-tests-serve-their-own-state-b`, a branch this plan never
-  named. Both PRs are recorded here because the delivery gate reads branch
-  lines, and work behind an unnamed branch is work it cannot check.
+  **Split in two while running.** The Plans-tab payload pair landed as #585, and
+  the fifteen agent-tab files landed as #588 on a sibling branch carrying the
+  suffix `-b`, which this plan never named. Both PRs are recorded on this line
+  because the delivery gate reads branch lines, and work behind an unnamed
+  branch is work it cannot check.
 
   Migrated the two files whose subject is the board PAYLOAD — `branch-served` and
   `plan-source`, 11 tests, 4.95 s → 1.85 s. Override ratio **4.1 %** (1.82 of 44
