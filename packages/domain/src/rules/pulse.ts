@@ -1,4 +1,4 @@
-import type { FleetPulse } from '../entities/fleet.js';
+import type { FleetReading } from '../entities/fleet.js';
 
 /**
  * A plan's slug, from the dated filename the estate stores it under.
@@ -14,7 +14,7 @@ import type { FleetPulse } from '../entities/fleet.js';
 export const planSlugOf = (file: string): string =>
   file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
 
-/** One slice of one plan, as the pulse describes it and a reader acts on it. */
+/** One slice of one plan, as the reading describes it and a reader acts on it. */
 export interface SliceReading {
   /** The plan's slug. */
   plan: string;
@@ -31,7 +31,7 @@ export interface SliceReading {
 }
 
 /**
- * Every slice in a pulse, flattened, with the one judgement each carries.
+ * Every slice in a reading, flattened, with the one judgement each carries.
  *
  * **`complete` is the rule and the rest is transcription.** A slice is complete
  * when every branch is merged or deferred — deferred counts because a branch
@@ -42,12 +42,12 @@ export interface SliceReading {
  * name the view groups by, and a rule that named sections would be deciding
  * where a row is drawn.
  *
- * @param pulse - the fleet's pulse.
- * @returns one reading per slice, in the pulse's own order.
+ * @param reading - the fleet's reading.
+ * @returns one entry per slice, in the reading's own order.
  */
-export const sliceReadings = (pulse: FleetPulse): SliceReading[] => {
+export const sliceReadings = (reading: FleetReading): SliceReading[] => {
   const readings: SliceReading[] = [];
-  for (const plan of pulse.plans) {
+  for (const plan of reading.plans) {
     const slug = planSlugOf(plan.file);
     for (const slice of plan.slices) {
       readings.push({
@@ -71,12 +71,12 @@ export const sliceReadings = (pulse: FleetPulse): SliceReading[] => {
  * plans rather than counting them — a reader who is told *2* has to open a
  * terminal to find out which two.
  *
- * @param pulse - the fleet's pulse.
+ * @param reading - the fleet's reading.
  * @returns branch to the plans naming it, sorted, for branches named more than once.
  */
-export const doubleClaimedBranches = (pulse: FleetPulse): Map<string, string[]> => {
+export const doubleClaimedBranches = (reading: FleetReading): Map<string, string[]> => {
   const byBranch = new Map<string, Set<string>>();
-  for (const plan of pulse.plans) {
+  for (const plan of reading.plans) {
     const slug = planSlugOf(plan.file);
     for (const slice of plan.slices) {
       for (const branch of slice.branches) {
@@ -93,21 +93,21 @@ export const doubleClaimedBranches = (pulse: FleetPulse): Map<string, string[]> 
   return collisions;
 };
 
-/** What a pulse lost between two readings — plans and branches that vanished. */
-export interface PulseLoss {
-  /** The plan files the previous pulse held and this one does not, sorted. */
+/** What the fleet stopped seeing between two readings — plans and branches. */
+export interface ReadingLoss {
+  /** The plan files the previous reading held and this one does not, sorted. */
   plans: string[];
-  /** The branches the previous pulse held and this one does not, sorted. */
+  /** The branches the previous reading held and this one does not, sorted. */
   branches: string[];
-  /** When the previous pulse was read. */
+  /** When the previous reading was read. */
   previousAt: number;
 }
 
-const branchNamesOf = (pulse: FleetPulse): Set<string> =>
-  new Set(pulse.plans.flatMap((p) => p.slices.flatMap((s) => s.branches.map((b) => b.branch))));
+const branchNamesOf = (reading: FleetReading): Set<string> =>
+  new Set(reading.plans.flatMap((p) => p.slices.flatMap((s) => s.branches.map((b) => b.branch))));
 
 /**
- * What the fleet stopped seeing between two consecutive pulses.
+ * What the fleet stopped seeing between two consecutive readings.
  *
  * **A SHRINK IS A STATEMENT ABOUT THE ESTATE, NOT A TRANSPORT DECISION**, and
  * the name invites the opposite reading. Nothing is dropped here: this compares
@@ -119,18 +119,18 @@ const branchNamesOf = (pulse: FleetPulse): Set<string> =>
  * became 2 makes the reader open a terminal to find out which"*. Composing that
  * sentence is the view's job; deciding what was lost is this one's.
  *
- * @param previous - the pulse read before, or `null` on the first reading.
- * @param incoming - the pulse just read.
- * @param previousAt - when the previous pulse was read, or `null` with none.
+ * @param previous - the reading taken before, or `null` on the first one.
+ * @param incoming - the reading just taken.
+ * @param previousAt - when the previous reading was taken, or `null` with none.
  * @returns what was lost, or `null` when nothing was — including the first read.
  */
-export const pulseLoss = (
-  previous: FleetPulse | null,
-  incoming: FleetPulse,
+export const readingLoss = (
+  previous: FleetReading | null,
+  incoming: FleetReading,
   previousAt: number | null,
-): PulseLoss | null => {
-  // A FIRST READING LOSES NOTHING. With no previous pulse every plan would look
-  // new, and reporting that as a shrink would announce a loss on every start.
+): ReadingLoss | null => {
+  // A FIRST READING LOSES NOTHING. With no previous reading every plan would
+  // look new, and reporting that as a shrink announces a loss on every start.
   if (previous === null || previousAt === null) return null;
 
   const wasPlans = new Set(previous.plans.map((p) => p.file));

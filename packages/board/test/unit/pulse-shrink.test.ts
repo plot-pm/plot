@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { pulseShrink } from '../../src/server/fleet.js';
 import { shrinkNote } from '../../src/app/lib/agent-rows/actions.js';
-import { FleetSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { FleetSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // The defect, measured 2026-08-18: rows vanished from the Agents tab and came
 // back seconds later — including WORKING rows for agents that were demonstrably
@@ -17,9 +17,9 @@ import { FleetSchema, type FleetPulse } from '../../src/contract/schema.js';
 // plumbing.
 
 const branch = (name: string, state = 'wip') =>
-  ({ branch: name, state, deferred: false, claimed: '' }) as FleetPulse['plans'][0]['waves'][0]['branches'][0];
+  ({ branch: name, state, deferred: false, claimed: '' }) as FleetReading['plans'][0]['waves'][0]['branches'][0];
 
-const pulseOf = (plans: { file: string; branches: string[] }[]): FleetPulse => ({
+const pulseOf = (plans: { file: string; branches: string[] }[]): FleetReading => ({
   main: 'main',
   head: 'abc1234',
   plans: plans.map((p) => ({

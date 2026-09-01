@@ -5,7 +5,7 @@ import path from 'node:path';
 import {
   BRIDGE_MAX_AGE_MS, bridgePath, readBridge, writeBridge,
 } from '../../src/server/pulse-bridge.js';
-import type { FleetPulse } from '../../src/contract/schema.js';
+import type { FleetReading } from '../../src/contract/schema.js';
 
 // The rules the bridge lives by, as pure reads and writes. The restart itself
 // is asserted across two real processes in `test/bridge.test.mjs` — this file
@@ -21,7 +21,7 @@ import type { FleetPulse } from '../../src/contract/schema.js';
  * is compared WHOLE against a parsed pulse, so a second key here would fail the
  * round trip rather than merely duplicate it.
  */
-const SLICES: FleetPulse['plans'][number]['slices'] = [{
+const SLICES: FleetReading['plans'][number]['slices'] = [{
   name: 'One',
   verdict: 'eligible',
   branches: [{
@@ -48,7 +48,7 @@ const SLICES: FleetPulse['plans'][number]['slices'] = [{
   }],
 }];
 
-const PULSE: FleetPulse = {
+const PULSE: FleetReading = {
   main: 'main',
   head: 'abc1234',
   plans: [{
@@ -176,7 +176,7 @@ describe('the bridge refuses anything it cannot trust', () => {
   });
 
   it('returns null for a pulse that no longer validates', () => {
-    // Re-parsed through `FleetPulseSchema` rather than trusted, because the
+    // Re-parsed through `FleetReadingSchema` rather than trusted, because the
     // file may have been written by a build that is not this one. The board's
     // rule for host data — parse, do not assume — is not weaker for data it
     // wrote itself.

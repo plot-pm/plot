@@ -18,7 +18,7 @@ import {
   type SprintMember,
   type StoryCard,
   type StoryCardInput,
-  type FleetPulse,
+  type FleetReading,
   type PlanMeta,
   type WaveSummary } from '../contract/schema.js';
 import {
@@ -729,7 +729,7 @@ const collectBranchPlans = async (
  * open branches are outstanding work but not startable work, and conflating
  * them would answer a different question than the one a tile is asked.
  */
-export function summariseFromPulse(meta: PlanMeta, pulse: FleetPulse | null): WaveSummary {
+export function summariseFromPulse(meta: PlanMeta, pulse: FleetReading | null): WaveSummary {
   let branches = 0, deferred = 0;
   for (const w of meta.waves) {
     for (const b of w.branches) {
@@ -779,7 +779,7 @@ export { allSlicesMerged, type Landed } from '@plot-pm/domain';
  * cache, or an unmatched name all read as *no claim*, which is the honest
  * answer: the scan has said nothing to the contrary.
  */
-function anyBranchClaimed(meta: PlanMeta, pulse: FleetPulse | null): boolean {
+function anyBranchClaimed(meta: PlanMeta, pulse: FleetReading | null): boolean {
   const plan = pulse?.plans.find((p) => p.file === path.basename(meta.file));
   if (!plan) return false;
   return plan.slices.some((w) => w.branches.some((b) => b.state === 'claimed'));
@@ -822,7 +822,7 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetPulse | null): boolean {
  * THE READINGS ARE TAKEN HERE, THE DECISION IS NOT. `planStatus` in
  * `packages/domain/src/rules/phase.ts` takes values and returns a status; this
  * runs the two pulse queries it needs and hands them over. That split is why
- * the rule is testable without a `FleetPulse` and why this function has nothing
+ * the rule is testable without a `FleetReading` and why this function has nothing
  * left to get wrong except which pulse it read.
  *
  * `anyBranchClaimed` stays here rather than moving with the rule: it is a
@@ -830,7 +830,7 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetPulse | null): boolean {
  */
 export function planStatus(
   meta: PlanMeta,
-  pulse: FleetPulse | null,
+  pulse: FleetReading | null,
   complete: boolean,
 ): PlanStatus {
   return decidePlanStatus({
@@ -858,7 +858,7 @@ export function planStatus(
  */
 export function worktreesFromPulse(
   meta: PlanMeta,
-  pulse: FleetPulse | null,
+  pulse: FleetReading | null,
 ): { branch: string; path: string }[] {
   // Same join key as `summariseFromPulse`: the pulse names plans by basename
   // (symlink-resolved), while meta.file is an absolute real path.
@@ -1844,7 +1844,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
  */
 export async function planStatusBySlug(
   opts: BuildBoardOptions,
-  pulse: FleetPulse | null,
+  pulse: FleetReading | null,
   complete: boolean,
 ): Promise<Map<string, PlanStatus>> {
   const refs = refsFor(opts);

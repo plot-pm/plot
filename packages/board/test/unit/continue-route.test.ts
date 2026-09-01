@@ -29,7 +29,7 @@ import {
   type ContinueRefusal,
 } from '../../src/server/continue.js';
 import type { ContinueDeps } from '../../src/server/continue.js';
-import type { FleetPulse } from '../../src/contract/schema.js';
+import type { FleetReading } from '../../src/contract/schema.js';
 
 const BRANCH = 'feature/continue-with-an-answer';
 
@@ -66,7 +66,7 @@ function worktree(opts: { marker?: boolean; pid?: string } = {}): string {
   return dir;
 }
 
-function pulseWith(wt: string): FleetPulse {
+function pulseWith(wt: string): FleetReading {
   return {
     main: 'main',
     head: 'abc',
@@ -86,7 +86,7 @@ function pulseWith(wt: string): FleetPulse {
         ],
       },
     ],
-  } as unknown as FleetPulse;
+  } as unknown as FleetReading;
 }
 
 /** A request carrying a JSON body, as the handler reads one. */
@@ -351,7 +351,7 @@ describe('answering UPDATES the manifest — the path that produced the defect',
 });
 
 /** A pulse whose worker_pid is the given previous pid — for the second relaunch. */
-function pulseWith2(wt: string, previousPid: string): FleetPulse {
+function pulseWith2(wt: string, previousPid: string): FleetReading {
   return {
     main: 'main',
     head: 'abc',
@@ -371,7 +371,7 @@ function pulseWith2(wt: string, previousPid: string): FleetPulse {
         ],
       },
     ],
-  } as unknown as FleetPulse;
+  } as unknown as FleetReading;
 }
 
 describe('the prompt that reaches the worker', () => {

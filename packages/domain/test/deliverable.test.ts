@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { allSlicesMerged, type FleetPulse, type BranchState, type SliceVerdict } from '../src/index.js';
+import { allSlicesMerged, type FleetReading, type BranchState, type SliceVerdict } from '../src/index.js';
 
 /**
  * The deliverable rule, tested at the domain boundary.
@@ -36,7 +36,7 @@ const slice = (
   })),
 });
 
-const pulse = (file: string, slices: ReturnType<typeof slice>[]): FleetPulse => ({
+const pulse = (file: string, slices: ReturnType<typeof slice>[]): FleetReading => ({
   main: 'main',
   head: 'abc1234',
   plans: [{ file, slices }],
@@ -46,7 +46,7 @@ const pulse = (file: string, slices: ReturnType<typeof slice>[]): FleetPulse => 
     plans: 1, waves: slices.length, branches: 0, claimed: 0,
     eligible: 0, blocked: 0, deferred: 0,
   },
-} as FleetPulse);
+} as FleetReading);
 
 const PLAN = '/repo/docs/plans/2026-08-21-done-means-delivered.md';
 const BASE = '2026-08-21-done-means-delivered.md';

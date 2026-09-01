@@ -16,7 +16,7 @@ import {
   type BranchState,
   type BriefState,
   type Fleet,
-  type FleetPulse,
+  type FleetReading,
   type FleetSprint,
   type IssueAnswer,
   type IssueRow,
@@ -422,7 +422,7 @@ export interface CacheEntry {
    * is discarded the moment it disagrees.
    */
   terminal: string;
-  pulse: FleetPulse | null;
+  pulse: FleetReading | null;
   ages: Map<string, number | null>;
   at: number | null;
   error: string | null;
@@ -871,7 +871,7 @@ export function runStreaming(
  * Replacement rather than append keeps a re-scan of the same plan idempotent,
  * so a scan that emits a plan twice cannot double a card's wave count.
  */
-export function mergePlan(plans: FleetPulse['plans'], plan: FleetPulse['plans'][number]): FleetPulse['plans'] {
+export function mergePlan(plans: FleetReading['plans'], plan: FleetReading['plans'][number]): FleetReading['plans'] {
   const at = plans.findIndex((p) => p.file === plan.file);
   if (at === -1) return [...plans, plan];
   const next = plans.slice();
@@ -895,7 +895,7 @@ export function mergePlan(plans: FleetPulse['plans'], plan: FleetPulse['plans'][
  * no other source, and deriving it here means it cannot disagree with the plans
  * it is derived from.
  */
-export function partialSummary(plans: FleetPulse['plans']): FleetPulse['summary'] {
+export function partialSummary(plans: FleetReading['plans']): FleetReading['summary'] {
   let waves = 0, branches = 0, claimed = 0, eligible = 0, blocked = 0, deferred = 0;
   for (const plan of plans) {
     for (const wave of plan.slices) {
@@ -951,7 +951,7 @@ export function partialSummary(plans: FleetPulse['plans']): FleetPulse['summary'
  * What the fleet stopped seeing, in the shape the payload carries.
  *
  * THE SHRINK IS A DOMAIN RULE, and the name argues against itself. It drops
- * nothing: `pulseLoss` compares two consecutive readings and reports what the
+ * nothing: `readingLoss` compares two consecutive readings and reports what the
  * second no longer holds. That is a statement about the ESTATE — *the scan used
  * to see these and does not now* — which is a question about a Plan and a
  * Branch, not about a payload's size.
@@ -962,11 +962,11 @@ export function partialSummary(plans: FleetPulse['plans']): FleetPulse['summary'
  * the note composes what a reader sees.
  */
 export function pulseShrink(
-  previous: FleetPulse | null,
-  incoming: FleetPulse,
+  previous: FleetReading | null,
+  incoming: FleetReading,
   previousAt: number | null,
 ): PulseShrink | null {
-  return pulseLoss(previous, incoming, previousAt);
+  return readingLoss(previous, incoming, previousAt);
 }
 
 
@@ -1150,7 +1150,7 @@ async function releaseVersions(opts: BuildBoardOptions): Promise<Map<string, str
 
 async function approvalDates(
   opts: BuildBoardOptions,
-  pulse: FleetPulse,
+  pulse: FleetReading,
 ): Promise<Map<string, number>> {
   const dates = new Map<string, number>();
   if (pulse.plans.length === 0) return dates;
@@ -1543,7 +1543,7 @@ const RUN_FETCH_MAX = 8;
  * @param pr the branch's PR as the host reports it, or undefined where none is
  */
 export function branchIsWatched(
-  branch: string, pulse: FleetPulse | null, pr: PrRecord | undefined,
+  branch: string, pulse: FleetReading | null, pr: PrRecord | undefined,
 ): boolean {
   // The PR side: landed work cannot change. `MERGED` only — see above.
   if (pr && pr.state === 'MERGED') return false;
@@ -1998,7 +1998,7 @@ async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Prom
  */
 function maybeRepair(
   opts: BuildBoardOptions,
-  pulse: FleetPulse,
+  pulse: FleetReading,
   prs: Map<string, PrRecord> | null,
 ): void {
   for (const plan of pulse.plans) {
@@ -2074,7 +2074,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // partial write below goes through `entry`, never through this — the
     // difference between "the scan finished and said this" and "this much has
     // arrived so far" is the one this whole function is organised around.
-    let parsed: FleetPulse | null = null;
+    let parsed: FleetReading | null = null;
     // What has arrived THIS scan, accumulated apart from `entry.pulse`.
     //
     // Starts empty rather than from the last pulse, because a plan that has
@@ -2082,7 +2082,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // previous answer would make deletion impossible and turn the cache into a
     // record. It is COMPOSED with the previous pulse on each write (see
     // `renderable`), which is what lets rows stay on screen meanwhile.
-    let arrived: FleetPulse['plans'] = [];
+    let arrived: FleetReading['plans'] = [];
     // The previous scan's plans, held for exactly as long as this scan is
     // partial. A plan the new scan has not reached yet keeps rendering from
     // this; one the new scan HAS reached is overwritten by what it said.
@@ -2144,7 +2144,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
           return;
         }
         // The terminal line: the scan finished and this is the whole document.
-        parsed = msg.pulse;
+        parsed = msg.reading;
       },
       // THE BUDGET IS SET FROM MEASUREMENT, and the measurement moved.
       //
@@ -2192,7 +2192,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // merges. Merging would be the bug the plan names: an entry no scan
     // re-derived would survive on nothing but its own age.
     entry.terminal = learned;
-    const complete: FleetPulse = parsed;
+    const complete: FleetReading = parsed;
     // Against `before`, captured at the top of this function — because
     // `entry.pulse` stopped being the previous answer the moment this scan
     // published its first plan. That capture is what keeps the sentence below
@@ -2480,7 +2480,7 @@ export function prsByNumber(opts: BuildBoardOptions): Map<number, PrRecord> | nu
  * is claimed" are different answers, and rendering them alike is the defect
  * this export was added to remove.
  */
-export function pulseFor(opts: BuildBoardOptions): FleetPulse | null {
+export function pulseFor(opts: BuildBoardOptions): FleetReading | null {
   return ensureCache(opts).pulse;
 }
 
@@ -2488,7 +2488,7 @@ export function pulseFor(opts: BuildBoardOptions): FleetPulse | null {
  * Whether the cached pulse is EVERY plan the scan found, or only what had
  * arrived before it was cut short.
  *
- * The companion `pulseFor` needs and cannot carry: a `FleetPulse` describes the
+ * The companion `pulseFor` needs and cannot carry: a `FleetReading` describes the
  * plans in it and says nothing about the ones missing from it, so completeness
  * lives beside the pulse on the cache entry (`pulseComplete`) and travels as its
  * own answer. `/api/board` already publishes it as `complete`; this is the same
@@ -2760,7 +2760,7 @@ export function waitingOnFor(
 // imports would make a move look like a rename.
 import {
   doubleClaimedBranches,
-  pulseLoss,
+  readingLoss,
   rowPhase,
   sliceReadings,
   startabilityVerdict,
@@ -2800,7 +2800,7 @@ export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
  * and this maps that onto the `Wave` the view groups and renders. A rule that
  * named sections would be deciding where a row is drawn.
  */
-export function deriveWaves(pulse: FleetPulse): Wave[] {
+export function deriveWaves(pulse: FleetReading): Wave[] {
   return sliceReadings(pulse).map((slice) => ({
     plan: slice.plan,
     name: slice.name,
@@ -4609,7 +4609,7 @@ export { doubleClaimedBranches };
 
 
 export function rowsFromPulse(
-  pulse: FleetPulse,
+  pulse: FleetReading,
   ages: Map<string, number | null>,
   repo: string,
   quietMinutes: number,
@@ -5628,7 +5628,7 @@ export function sprintMembership(opts: BuildBoardOptions): Map<string, string> {
  */
 export async function activeSprints(
   opts: BuildBoardOptions,
-  pulse: FleetPulse | null,
+  pulse: FleetReading | null,
   complete: boolean,
 ): Promise<FleetSprint[]> {
   const sprintDir = readConfig(opts, 'Sprint directory', 'docs/sprints/');
@@ -5689,7 +5689,7 @@ export async function activeSprints(
  */
 export async function estateTotals(
   opts: BuildBoardOptions,
-  pulse: FleetPulse | null,
+  pulse: FleetReading | null,
   complete: boolean,
 ): Promise<SprintCounts> {
   const statusBySlug = await planStatusBySlug(opts, pulse, complete);

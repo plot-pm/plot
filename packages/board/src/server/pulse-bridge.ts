@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { FleetPulseSchema, type FleetPulse } from '../contract/schema.js';
+import { FleetReadingSchema, type FleetReading } from '../contract/schema.js';
 
 /**
  * The last good pulse, on disk, so a restart does not serve an empty board.
@@ -80,7 +80,7 @@ const BRIDGE_VERSION = 1;
 export interface BridgedPulse {
   /** Epoch ms the scan that produced this completed — NOT when it was written. */
   at: number;
-  pulse: FleetPulse;
+  pulse: FleetReading;
   /** Branch → minutes since its tip commit, or null. */
   ages: Map<string, number | null>;
   branchUrlBase: string;
@@ -177,7 +177,7 @@ export function writeBridge(repoRoot: string, data: BridgedPulse): void {
  * {@link BRIDGE_MAX_AGE_MS}. Each ends in the same place — the board says it is
  * waiting for its first scan, which is true.
  *
- * The pulse is re-validated through `FleetPulseSchema` rather than trusted: the
+ * The pulse is re-validated through `FleetReadingSchema` rather than trusted: the
  * file is written by a build that may not be this one, and the board's rule for
  * host data (parse, do not assume) is not weaker for data it wrote itself.
  */
@@ -198,7 +198,7 @@ export function readBridge(repoRoot: string, now = Date.now()): BridgedPulse | n
     // as freshly written. Rejected rather than clamped.
     const age = now - at;
     if (age < 0 || age > BRIDGE_MAX_AGE_MS) return null;
-    const pulse = FleetPulseSchema.parse(parsed.pulse);
+    const pulse = FleetReadingSchema.parse(parsed.pulse);
     return {
       at,
       pulse,

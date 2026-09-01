@@ -316,11 +316,16 @@ test('an empty estate is a complete answer, not a partial one', () => {
     // The stream's terminal line is the whole contract: it is what says the
     // scan finished. A closed pipe does not, because a killed scan closes it
     // too.
+    //
+    // ITS KIND IS `reading`, renamed from `pulse` with the type. The CONTRACT is
+    // unchanged — a consumer that sees no terminal line still reads the scan as
+    // unfinished, which is what `fleet.ts` throws on — and only the word moved,
+    // in step with `FleetScanLineSchema`'s literal and the scan's own printf.
     const streamed = execFileSync('bash', [scan, '--stream', '--offline'], {
       encoding: 'utf8', cwd: repo,
     }).trim().split('\n');
     const last = JSON.parse(streamed[streamed.length - 1]);
-    assert.equal(last.kind, 'pulse', 'the stream ends with its terminal pulse line');
+    assert.equal(last.kind, 'reading', 'the stream ends with its terminal reading line');
 
     // The human path is UNCHANGED and deliberately so: a person reading an
     // empty estate wants the sentence, not an empty JSON document.

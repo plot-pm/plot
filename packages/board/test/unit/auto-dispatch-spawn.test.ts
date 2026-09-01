@@ -17,7 +17,7 @@ import path from 'node:path';
 import {
   maybeAutoDispatch,
 } from '../../src/server/auto-dispatch.js';
-import { FleetPulseSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
 import type { AgentEntry } from '../../src/server/registry.js';
 import type { FleetSettings } from '../../src/server/fleet-settings.js';
 
@@ -83,7 +83,7 @@ function fixture(briefBranches: string[] = []): {
 const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * One wave, in the FleetPulse branch shape.
+ * One wave, in the FleetReading branch shape.
  *
  * Each branch is [name, state, ref_held?]. When `ref_held` is not given, it
  * defaults to false — but a `wip` state implies a ref (the scan derives `wip`
@@ -105,8 +105,8 @@ const wave = (
   })),
 });
 
-const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): FleetPulse =>
-  FleetPulseSchema.parse({
+const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): FleetReading =>
+  FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
     plans: plans.map(([file, phase, waves]) => ({ file, phase, slices: waves })),

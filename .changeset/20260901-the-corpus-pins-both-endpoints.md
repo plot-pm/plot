@@ -1,0 +1,5 @@
+---
+'@plot-pm/board': patch
+---
+
+The Refs corpus tier stops failing when a branch other than its own gains a commit while it runs. Its pin already froze `origin/HEAD`, the left endpoint of every `origin/<main>...origin/<branch>` diff both scans take; the right endpoint was unpinned and unpinnable, because any of the estate's branches may be pushed to at any moment and the two scans each fetch. Measured on CI 2026-09-01: PR #601 pushed its second commit at 16:21:38Z, this job started at 16:21:39Z, and the two scans 36 s apart read that branch at its claim-only tip and then at its real tip, disagreeing on `changed_paths` by exactly the changeset file that landed between them. Every remote tip is now recorded before the first scan and after the second, and a branch whose SHA differs is skipped — a measurement rather than an exemption, so `changed_paths` stays compared on every branch that held still, and a floor in the non-vacuity test fails loudly if the skip ever swallows more than half the estate.

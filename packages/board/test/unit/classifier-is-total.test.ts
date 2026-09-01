@@ -26,7 +26,7 @@
 import { describe, it, expect } from 'vitest';
 import { classify, rowsFromPulse } from '../../src/server/fleet.js';
 import type { PrRecord } from '../../src/server/fleet.js';
-import type { AgentRow, BranchState, FleetPulse, WaitingGroup, WaveVerdict, WorkerState } from '../../src/contract/schema.js';
+import type { AgentRow, BranchState, FleetReading, WaitingGroup, WaveVerdict, WorkerState } from '../../src/contract/schema.js';
 // WHERE THE WAVE'S SECTION NOW LIVES. `classify` answers per BRANCH and still
 // does — a merged branch of an eligible wave is `done` to it, correctly, for a
 // branch. The wave's ONE section is decided a layer up, by `waveSection` reading
@@ -442,7 +442,7 @@ describe('the six failing rules — three still fail, three were fixed a layer a
     // The plan, run through the render path, contributes NO row — so no released
     // wave reaches DONE any more. A released plan is all-merged, all-complete by
     // construction (the domain model measures 41/41), so this is its own shape.
-    const releasedPlan: FleetPulse = {
+    const releasedPlan: FleetReading = {
       main: 'main', head: 'abc1234',
       plans: [{
         file: '2026-08-01-shipped-plan.md', phase: 'released',

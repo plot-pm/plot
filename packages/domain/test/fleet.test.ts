@@ -7,7 +7,7 @@ import {
   SourceBranchSchema,
   PlanSliceSchema,
   PlanSchema,
-  FleetPulseSchema,
+  FleetReadingSchema,
 } from '../src/index.js';
 
 /**
@@ -224,7 +224,7 @@ describe('a plan parses under either spelling', () => {
   });
 
   it('parses a whole pulse in the legacy spelling, nested', () => {
-    const pulse = FleetPulseSchema.parse({
+    const pulse = FleetReadingSchema.parse({
       main: 'main', head: 'abc1234',
       plans: [{ file: 'docs/plans/x.md', waves: [slice] }],
       summary: bareSummary,
@@ -237,14 +237,14 @@ describe('the pulse is the whole document', () => {
   const barePulse = { main: 'main', head: 'abc1234', plans: [], summary: bareSummary };
 
   it('validates a pulse carrying only what every scan has always emitted', () => {
-    expect(FleetPulseSchema.safeParse(barePulse).success).toBe(true);
+    expect(FleetReadingSchema.safeParse(barePulse).success).toBe(true);
   });
 
   it('leaves read_ref and local_head absent rather than substituting head', () => {
     // THE PRECISE BUG THIS PAIR EXISTS TO END. `head` is the local checkout;
     // `read_ref` is `origin/<main>`, the ref the scan actually read. Mapping
     // one onto the other is the defect, so absent must stay absent.
-    const p = FleetPulseSchema.parse(barePulse);
+    const p = FleetReadingSchema.parse(barePulse);
     expect(p.read_ref).toBeUndefined();
     expect(p.local_head).toBeUndefined();
     expect(p.head).toBe('abc1234');
@@ -254,17 +254,17 @@ describe('the pulse is the whole document', () => {
     // A said-so-explicitly absence, deliberately NOT rewritten to the local
     // head — substituting there reintroduces the defect where it is hardest
     // to notice.
-    expect(FleetPulseSchema.parse({ ...barePulse, read_ref: 'unknown' }).read_ref).toBe('unknown');
+    expect(FleetReadingSchema.parse({ ...barePulse, read_ref: 'unknown' }).read_ref).toBe('unknown');
   });
 
   it('requires every counter of the summary', () => {
     const { deferred, ...short } = bareSummary;
     expect(deferred).toBe(0);
-    expect(FleetPulseSchema.safeParse({ ...barePulse, summary: short }).success).toBe(false);
+    expect(FleetReadingSchema.safeParse({ ...barePulse, summary: short }).success).toBe(false);
   });
 
   it('composes the whole graph in one parse', () => {
-    const p = FleetPulseSchema.parse({
+    const p = FleetReadingSchema.parse({
       ...barePulse,
       plans: [{ file: 'docs/plans/x.md', waves: [{ name: 'Moving', verdict: 'complete', branches: [bareBranch] }] }],
       summary: { ...bareSummary, plans: 1, waves: 1, branches: 1 },
@@ -277,6 +277,6 @@ describe('the pulse is the whole document', () => {
   it('refuses a pulse whose plans are not an array', () => {
     // The shape `readBridge` is defending against: a payload written by a
     // build that is not this one.
-    expect(FleetPulseSchema.safeParse({ ...barePulse, plans: 'not an array' }).success).toBe(false);
+    expect(FleetReadingSchema.safeParse({ ...barePulse, plans: 'not an array' }).success).toBe(false);
   });
 });

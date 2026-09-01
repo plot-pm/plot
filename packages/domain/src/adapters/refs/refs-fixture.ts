@@ -1,4 +1,4 @@
-import type { FleetPulse } from '../../entities/fleet.js';
+import type { FleetReading } from '../../entities/fleet.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type { BranchTip, MergeStatus, Refs, TreeBlob } from '../../ports/refs.js';
 
@@ -57,7 +57,7 @@ export interface RefsFixture {
    * with nothing — an estate with no pulse is `unaskable`, which is what stops
    * a fixture that forgot to state one from reading as an empty fleet.
    */
-  pulse?: FleetPulse;
+  pulse?: FleetReading;
 }
 
 /** What a fixture reports when it was not told a default branch. */
@@ -133,7 +133,7 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
     changedFiles: async (branch) => answered(changedFiles[branch] ?? []),
 
     pulse: async () =>
-      fixture.pulse === undefined ? unaskable<FleetPulse>() : answered(fixture.pulse),
+      fixture.pulse === undefined ? unaskable<FleetReading>() : answered(fixture.pulse),
 
     listBlobs: async (ref, dir) =>
       answered((trees[ref] ?? []).filter((blob) => blob.path.startsWith(dir))),

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
 import type { FleetSettings } from './fleet-settings.js';
-import { LIVE_STATES, type SourceBranch, type FleetPulse } from '../contract/schema.js';
+import { LIVE_STATES, type SourceBranch, type FleetReading } from '../contract/schema.js';
 import {
   isFree,
   dispatchDefers,
@@ -113,7 +113,7 @@ export function planSlug(file: string): string {
  * (bug/the-loop-bounds-its-child) is what makes hung agents exit; excluding them
  * from the count only hid them from the cap while they held their machines.
  */
-export function liveAgentCount(agents: AgentEntry[], _pulse?: FleetPulse): number {
+export function liveAgentCount(agents: AgentEntry[], _pulse?: FleetReading): number {
   return agents.filter((a) => LIVE_STATES.has(a.state)).length;
 }
 
@@ -129,7 +129,7 @@ export function liveAgentCount(agents: AgentEntry[], _pulse?: FleetPulse): numbe
  * The refusal message explains the number. See bug/a-landed-branch-still-holds-
  * a-slot plan requirement #10.
  */
-export function liveAgentBranches(agents: AgentEntry[], _pulse?: FleetPulse): string[] {
+export function liveAgentBranches(agents: AgentEntry[], _pulse?: FleetReading): string[] {
   return agents
     .filter((a) => LIVE_STATES.has(a.state))
     .map((a) => a.branch)
@@ -150,7 +150,7 @@ export function liveAgentBranches(agents: AgentEntry[], _pulse?: FleetPulse): st
  * `false` for it — an agent on a branch nothing reports as merged is treated as
  * still holding it. Silence is never taken as landed.
  */
-export function mergedBranches(pulse: FleetPulse): Set<string> {
+export function mergedBranches(pulse: FleetReading): Set<string> {
   const merged = new Set<string>();
   for (const plan of pulse.plans) {
     for (const wave of plan.slices) {
@@ -181,7 +181,7 @@ export function mergedBranches(pulse: FleetPulse): Set<string> {
  * `waiting` is not free: it is live and blocked on a person, so it holds a slot
  * and can take nothing. That rule lives in `isFree` and is not restated here.
  */
-export function freeAgentCount(agents: AgentEntry[], pulse: FleetPulse): number {
+export function freeAgentCount(agents: AgentEntry[], pulse: FleetReading): number {
   return freeAgents(agents, pulse).length;
 }
 
@@ -197,7 +197,7 @@ export function freeAgentCount(agents: AgentEntry[], pulse: FleetPulse): number 
  * An agent between slices holds no branch, so it contributes `(between slices)`
  * rather than an empty string — the reason a slot is reusable is worth reading.
  */
-export function freeAgentLabels(agents: AgentEntry[], pulse: FleetPulse): string[] {
+export function freeAgentLabels(agents: AgentEntry[], pulse: FleetReading): string[] {
   return freeAgents(agents, pulse).map((a) => a.branch || '(between slices)');
 }
 
@@ -205,7 +205,7 @@ export function freeAgentLabels(agents: AgentEntry[], pulse: FleetPulse): string
  * The live agents that can take a slice — the one place `isFree` is asked, so
  * the count and the names cannot answer differently.
  */
-function freeAgents(agents: AgentEntry[], pulse: FleetPulse): AgentEntry[] {
+function freeAgents(agents: AgentEntry[], pulse: FleetReading): AgentEntry[] {
   const merged = mergedBranches(pulse);
   // `isFree` reads `state` and `branch` only, and an `AgentEntry` carries both
   // with the same meanings — so the registry entry answers the domain's
@@ -273,7 +273,7 @@ function dispatchable(branch: SourceBranch): boolean {
 
 export interface PlanAutoDispatchInput {
   controls: FleetSettings;
-  pulse: FleetPulse;
+  pulse: FleetReading;
   /**
    * This pulse's machine reading, for the OTHER question a dispatch asks: not
    * *is an agent free* but *has the machine room*. See {@link machineDefers}.
@@ -470,7 +470,7 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
  * has pushed their refs.
  */
 export function startableBranches(
-  pulse: FleetPulse,
+  pulse: FleetReading,
   slug: string,
   inFlight: Set<string>,
   missingBriefs: Set<string> = new Set(),
@@ -509,7 +509,7 @@ export function startableBranches(
  * can act on. Skips branches already in flight — those are this board's own
  * dispatches, not a claim it is declining.
  */
-export function skippedClaimedBranches(pulse: FleetPulse, inFlight: Set<string>): string[] {
+export function skippedClaimedBranches(pulse: FleetReading, inFlight: Set<string>): string[] {
   const out: string[] = [];
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
@@ -530,7 +530,7 @@ export function skippedClaimedBranches(pulse: FleetPulse, inFlight: Set<string>)
  * Returns every dispatchable branch across approved plans' eligible waves, minus
  * those already in flight. The result is the set `findMissingBriefs` checks.
  */
-export function dispatchCandidates(pulse: FleetPulse, inFlight: Set<string>): string[] {
+export function dispatchCandidates(pulse: FleetReading, inFlight: Set<string>): string[] {
   const out: string[] = [];
   for (const plan of pulse.plans) {
     if (plan.phase !== 'approved') continue;
@@ -596,7 +596,7 @@ export function findMissingBriefs(repoRoot: string, candidates: string[]): Set<s
  */
 export function pruneInFlight(
   inFlight: Set<string>,
-  pulse: FleetPulse,
+  pulse: FleetReading,
   agents: AgentEntry[],
 ): Set<string> {
   if (inFlight.size === 0) return inFlight;
@@ -643,7 +643,7 @@ export function pruneInFlight(
  */
 export function runAutoDispatch(
   opts: BuildBoardOptions,
-  pulse: FleetPulse,
+  pulse: FleetReading,
   plans: AutoDispatchPlan[],
   inFlight: Set<string>,
   missingBriefs: Set<string> = new Set(),
@@ -693,7 +693,7 @@ export function runAutoDispatch(
  */
 export function maybeAutoDispatch(
   opts: BuildBoardOptions,
-  pulse: FleetPulse,
+  pulse: FleetReading,
   controls: FleetSettings,
   agents: AgentEntry[],
   inFlight: Set<string>,

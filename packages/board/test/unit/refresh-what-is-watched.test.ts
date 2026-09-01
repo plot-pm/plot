@@ -6,7 +6,7 @@ import {
   refreshRuns, branchIsWatched, freshCacheEntry,
   type PrRecord, type CacheEntry,
 } from '../../src/server/fleet.js';
-import type { FleetPulse } from '../../src/contract/schema.js';
+import type { FleetReading } from '../../src/contract/schema.js';
 
 // The measurement this file exists for, taken on this repo 2026-08-27 after the
 // scan batching (#486) landed: the scan reads 24.2 % CPU — 6.61 s of work inside
@@ -88,7 +88,7 @@ function failingPr(head: string, over: Partial<PrRecord> = {}): PrRecord {
 }
 
 /** A pulse placing `branch` in a plan at `phase`, the way the scan reports it. */
-function pulseWith(branch: string, phase: string): FleetPulse {
+function pulseWith(branch: string, phase: string): FleetReading {
   return {
     main: 'main', head: 'abc', plans: [{
       file: `docs/plans/2026-08-27-${phase}.md`,
@@ -97,11 +97,11 @@ function pulseWith(branch: string, phase: string): FleetPulse {
         name: 'Watched', verdict: 'eligible', branches: [{
           branch, state: 'open', deferred: false, deferred_reason: '',
           claimed: '', local_dirty: false, local_locked: false,
-        } as FleetPulse['plans'][number]['waves'][number]['branches'][number]],
+        } as FleetReading['plans'][number]['waves'][number]['branches'][number]],
       }],
     }],
     summary: { plans: 1, waves: 1, branches: 1 },
-  } as FleetPulse;
+  } as FleetReading;
 }
 
 /** Run `refreshRuns` the way `refreshPrs` does, over one PR map. */

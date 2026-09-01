@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { FleetPulse } from '../contract/schema.js';
+import type { FleetReading } from '../contract/schema.js';
 
 /**
  * The prefix of the marker file a stopped-to-ask worker writes into its tree.
@@ -141,7 +141,7 @@ export function firstMarkerLine(out: string, max = QUESTION_MAX): string {
  * its marker, this one has nowhere to look, and looking anyway is how a path
  * gets guessed.
  */
-export function waitingWorktrees(pulse: FleetPulse): Map<string, string> {
+export function waitingWorktrees(pulse: FleetReading): Map<string, string> {
   const found = new Map<string, string>();
   for (const plan of pulse.plans) {
     for (const wave of plan.slices) {
@@ -174,7 +174,7 @@ export function waitingWorktrees(pulse: FleetPulse): Map<string, string> {
  * on the board. The panel, which can afford more words, is where that
  * distinction earns its keep.
  */
-export async function workerQuestions(pulse: FleetPulse): Promise<Map<string, string>> {
+export async function workerQuestions(pulse: FleetReading): Promise<Map<string, string>> {
   const targets = [...waitingWorktrees(pulse)];
   if (targets.length === 0) return new Map();
   const found = await Promise.all(targets.map(([, wt]) => markerIn(wt)));

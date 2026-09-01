@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { allSlicesMerged } from '../../src/server/board.js';
-import { toBoardPhase, PlanMetaSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { toBoardPhase, PlanMetaSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // A plan whose every non-deferred branch has merged reaches the phase after
 // Development on its own — detection the scan already does, now read by the
@@ -38,7 +38,7 @@ const wave = (
   })),
 });
 
-const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetPulse => ({
+const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetReading => ({
   main: 'main',
   head: 'abc1234',
   plans: [{ file, slices: waves }],
@@ -186,7 +186,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
     const m = meta({
       waves: [{ name: 'Told', branches: [{ branch: 'bug/an-unreachable-host-says-so', deferred: false, claimed: '' }] }],
     });
-    const timedOut: FleetPulse = {
+    const timedOut: FleetReading = {
       main: 'main',
       head: 'abc1234',
       plans: [],

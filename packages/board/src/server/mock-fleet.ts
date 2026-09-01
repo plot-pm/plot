@@ -1,5 +1,5 @@
 import { planRecord } from '@plot-pm/domain/adapters';
-import type { FleetPulse, PlanRecord } from '@plot-pm/domain';
+import type { FleetReading, PlanRecord } from '@plot-pm/domain';
 
 import { FleetSchema, RowKindSchema } from '../contract/schema.js';
 import type { Fleet, AgentRow, Card, Column } from '../contract/schema.js';
@@ -531,7 +531,7 @@ export function mockPlans(): PlanRecord[] {
  *
  * @returns the pulse a mock scan would emit.
  */
-export function mockPulse(): FleetPulse {
+export function mockPulse(): FleetReading {
   return {
     main: 'main',
     head: 'mock',

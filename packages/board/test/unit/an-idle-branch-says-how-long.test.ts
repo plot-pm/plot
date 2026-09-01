@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { rowsFromPulse } from '../../src/server/fleet.js';
 import { tupleAgeText, tupleFromRow } from '../../src/app/lib/tuple-row.js';
 import { ageLabel } from '../../src/app/lib/agent-rows/row-identity.js';
-import type { FleetPulse } from '../../src/contract/schema.js';
+import type { FleetReading } from '../../src/contract/schema.js';
 
 // AN IDLE BRANCH SAYS HOW LONG — wave 2 of `a-branch-with-work-is-visible`.
 //
@@ -147,7 +147,7 @@ describe('the row still lands where wave 1 put it', () => {
 
 const QUIET = 30;
 
-const pulse: FleetPulse = {
+const pulse: FleetReading = {
   main: 'main',
   head: 'abc1234',
   plans: [],

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import type { FleetPulse } from '../contract/schema.js';
+import type { FleetReading } from '../contract/schema.js';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { pulseFor } from './fleet.js';
 import { transcriptFacts, type TranscriptFacts } from './transcript.js';
@@ -73,7 +73,7 @@ export type AgentPanelMiss =
  * as null rather than as a read attempt.
  */
 export function branchFromPulse(
-  pulse: FleetPulse | null,
+  pulse: FleetReading | null,
   branch: string,
 ): { worktree: string; plan: string; wave: string; worker: string; pid: string } | null {
   if (!pulse) return null;

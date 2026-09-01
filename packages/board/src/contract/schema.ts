@@ -5,7 +5,7 @@ import {
   WorkerStateSchema,
   WorkerActivitySchema,
   PlanSchema,
-  FleetPulseSchema,
+  FleetReadingSchema,
 } from '@plot-pm/domain';
 
 /**
@@ -1514,7 +1514,7 @@ export const PR_UNKNOWN_NOTE = 'cannot read the PR — the host could not be ask
 /**
  * The entity graph is `@plot-pm/domain`'s, and is re-exported here unchanged.
  *
- * `SourceBranch`, `PlanSlice`, `Plan` and `FleetPulse` — with the enums
+ * `SourceBranch`, `PlanSlice`, `Plan` and `FleetReading` — with the enums
  * they are built from — moved out of this file into the domain package. They
  * were never the board's: they are what a branch, a wave and a plan ARE, and
  * they lived here only because the board was the first thing to need a name for
@@ -1530,7 +1530,7 @@ export {
   WorkerStateSchema,
   WorkerActivitySchema,
   PlanSchema,
-  FleetPulseSchema,
+  FleetReadingSchema,
 };
 export {
   SourceBranchSchema,
@@ -1540,7 +1540,7 @@ export type {
   WorkerState,
   WorkerActivity,
   SourceBranch,
-  FleetPulse,
+  FleetReading,
 } from "@plot-pm/domain";
 
 /**
@@ -1568,13 +1568,13 @@ export type {
  *
  * The scan takes 18 s on 84 branches and a board that renders nothing for that
  * long looks broken, so the same derivation is emitted as it resolves: one
- * `plan` line per plan the moment that plan is fully derived, then one `pulse`
- * line carrying the identical document `--json` prints whole.
+ * `plan` line per plan the moment that plan is fully derived, then one
+ * `reading` line carrying the identical document `--json` prints whole.
  *
- * The terminal `pulse` line is what says the scan FINISHED. A consumer that has
- * seen plan lines and no pulse line holds a partial answer and must say so —
- * and it cannot infer completion from the pipe closing, because a killed scan
- * closes it too.
+ * The terminal `reading` line is what says the scan FINISHED. A consumer that
+ * has seen plan lines and no reading line holds a partial answer and must say
+ * so — and it cannot infer completion from the pipe closing, because a killed
+ * scan closes it too.
  *
  * A discriminated union rather than two optional fields: `kind` is what a
  * reader switches on, and an object carrying neither (or both) should fail to
@@ -1582,7 +1582,7 @@ export type {
  */
 export const FleetScanLineSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('plan'), plan: PlanSchema }),
-  z.object({ kind: z.literal('pulse'), pulse: FleetPulseSchema }),
+  z.object({ kind: z.literal('reading'), reading: FleetReadingSchema }),
 ]);
 export type FleetScanLine = z.infer<typeof FleetScanLineSchema>;
 
@@ -3200,7 +3200,7 @@ export const FleetSchema = z.object({
    * included — so a live server never leaves it off.
    */
   waves: z.array(WaveSchema).default([]),
-  summary: FleetPulseSchema.shape.summary,
+  summary: FleetReadingSchema.shape.summary,
   /**
    * How many branches cannot move, and in which of the four ways.
    *

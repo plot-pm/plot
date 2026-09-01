@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { summariseFromPulse, worktreesFromPulse } from '../../src/server/board.js';
-import { PlanMetaSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { PlanMetaSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // The defect these tests exist for: a card's `claimed` count was read from
 // `b.claimed`, a plan-file annotation nobody writes — claims are pushed as git
@@ -38,7 +38,7 @@ const wave = (
   })),
 });
 
-const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetPulse => ({
+const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetReading => ({
   main: 'main',
   head: 'abc1234',
   plans: [{ file, slices: waves }],
