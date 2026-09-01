@@ -329,6 +329,20 @@ anything. A difference is a refusal that changed its mind.
 **This runs before the slice's PR is opened, not after it merges.** The point is
 to find a wrong refusal while it is still inert.
 
+**Attempted 2026-09-01, and the baseline was hollow — take it with care.** A bare
+`plot-reap.sh --dry-run` reported `reapable=0` (the estate had just been reaped),
+and `plot-dispatch.sh --dry-run` with no slug printed `need a plan slug` and
+exercised no refusal at all. Both would have compared byte-identical afterwards
+while testing nothing, which is the vacuous shape this plan's own gates keep
+catching elsewhere.
+
+**So the baseline belongs to whoever implements the slice**, taken against the
+estate as it stands at that moment, with a slug that actually reaches the
+refusals — and it is worth confirming the capture is non-empty before trusting
+a later match. The 22 worktrees this section cites are the argument for the
+comparison; they are also why a baseline taken on a different day is not
+transferable.
+
 ### Spawning the scripts (Branch: feature/one-place-reaches-a-script)
 
 The board's calls to `plot-*.sh` give way to the adapter layer's single
