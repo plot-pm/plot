@@ -374,6 +374,57 @@ jobs:
           fi
           echo "Domain alias gate: $count alias(es), none added."
 
+      # A REPORT, AND IT FAILS ON NOTHING. Every neighbour of this step is a
+      # gate; this one exits 0 whatever it reads, and the reason is that the
+      # number cannot carry a threshold honestly.
+      #
+      # IT MEASURES FILE LAYOUT, NOT ADOPTION. Two ways a threshold would lie:
+      # a refactor that MERGES two importing files lowers the count and improves
+      # the code, and a file that IMPORTS WITHOUT CALLING raises it and proves
+      # nothing. So there is no floor, no warning band, and no failure path —
+      # any of those would make the number mean something it does not.
+      #
+      # ITS OWN STEP, DELIBERATELY NOT APPENDED TO THE ALIAS GATE ABOVE. A
+      # report sharing a step with a gate teaches a reader that the number is
+      # enforced, and the next person to watch it fall will go looking for the
+      # regression that did not happen.
+      #
+      # WHAT IT IS FOR: a trend a human reads. The sprint moves rules out of
+      # `packages/board/src/server/` and into the domain, and this is the one
+      # line in the log that says how far that has got. It was 2 of 36 on
+      # 2026-08-30, when the plan was written.
+      #
+      # COUNTED OVER THE WHOLE SUBTREE, not just its top level. That tree gained
+      # `controllers/` and `entry/` after the baseline was taken, and a top-level
+      # count would report a file moving into a subdirectory as adoption going
+      # backwards — the same class of lie the threshold was rejected for.
+      # `|| true` ON EVERY READ, and it is not defensive noise. `grep -l` exits 1
+      # when it matches nothing, and GitHub runs each `run:` block under
+      # `bash -e`. A zero count is the most interesting number this step can
+      # print — a migration that has not started, or one whose files all moved —
+      # and without these the step would FAIL on exactly that reading. That is
+      # the "slightly a gate" trap the plan names, arrived at by accident rather
+      # than by decision.
+      #
+      # The degenerate cases pass today only because a command substitution
+      # masks the exit code and the last line happens to be a `sort`. Both are
+      # facts about where a line sits, not about what the step promises, so the
+      # promise is written down instead. Probed 2026-09-01: zero importers, and
+      # the directory absent entirely, both exit 0.
+      - name: Report — how far the board reaches the domain
+        run: |
+          tree=packages/board/src/server
+          total=$(find "$tree" -name '*.ts' 2>/dev/null | wc -l | tr -d ' ' || true)
+          reachers=$(grep -rl '@plot-pm/domain' "$tree" --include='*.ts' 2>/dev/null | sort || true)
+          reaching=$(printf '%s' "$reachers" | grep -c . || true)
+          echo "board server files importing @plot-pm/domain: $reaching of $total"
+          echo "This is a REPORT, not a gate: it measures file layout, not adoption,"
+          echo "so it has no threshold and never fails. Read it for trend."
+          echo "Baseline 2 of 36, measured 2026-08-30, when the plan was written."
+          echo "The files that reach it:"
+          printf '%s\n' "$reachers"
+          exit 0
+
       - name: Domain typecheck
         run: pnpm --filter @plot-pm/domain typecheck
 
