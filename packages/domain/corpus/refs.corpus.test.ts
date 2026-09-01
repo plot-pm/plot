@@ -202,6 +202,30 @@ const MAIN = (() => {
       { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
       .trim().replace(/^origin\//, '');
   } catch {
+    // NO `origin/HEAD` IS THE RUNNER'S NORMAL STATE, NOT AN ODD ONE, so falling
+    // back to '' here left the pin inert on EVERY CI run — the one environment
+    // where the race actually bites, because a runner clones while the estate
+    // is being merged into.
+    //
+    // Measured 2026-09-01 on PR #610, which already carried the branch-tip fix:
+    // six disagreements, all one cause. `read_ref` read `e0705bd9` against
+    // `4194d300` — two consecutive main commits — `eligible` differed by one,
+    // and four branches reported `conflicts: adapter=[] production=[the two
+    // board artifacts]`, which is exactly the window in which #608 merged and
+    // made them conflict. A working pin makes that impossible by construction.
+    //
+    // So ask the same question a second way rather than giving up on it. The
+    // scan itself falls back to `main` (`plot-fleet-scan.sh:204`), and the
+    // remote-tracking refs a checkout DOES have answer it directly.
+    for (const guess of ['main', 'master']) {
+      try {
+        execFileSync('git', ['rev-parse', '--verify', `refs/remotes/origin/${guess}`],
+          { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+        return guess;
+      } catch {
+        // Not this one; try the next.
+      }
+    }
     return '';
   }
 })();
@@ -494,6 +518,25 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
     }
 
     expect([...unexpected].sort()).toEqual([]);
+  });
+
+  it('pinned the ref, so the two scans were asked about one estate', () => {
+    // THE PIN'S FAILURE MODE IS SILENCE, which is why it needs its own
+    // assertion. `MAIN` resolving to '' skips the whole pin block, `pinned`
+    // stays false, and every test below still runs — against two moments
+    // instead of one. Nothing reports it; the suite simply becomes flaky in
+    // proportion to how busy the estate is.
+    //
+    // It was inert on EVERY CI run until 2026-09-01, because `actions/checkout`
+    // never creates `origin/HEAD` and the lookup fell back to ''. PR #610
+    // measured the cost: six disagreements in one run, all of them main moving
+    // between the two scans.
+    //
+    // Asserted rather than merely logged, because a warning in a green run is
+    // a warning nobody reads.
+    expect(MAIN).not.toBe('');
+    expect(pinned).toBe(true);
+    expect(git('symbolic-ref', 'refs/remotes/origin/HEAD')).toBe(PIN_REF);
   });
 
   it('carries the readings the estate actually populates, so this is not vacuous', () => {

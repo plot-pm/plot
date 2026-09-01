@@ -38,6 +38,16 @@ const SERVER_DIR = path.resolve(here, '../../src/server');
 const REFS_ADAPTER = path.resolve(
   here, '../../../domain/src/adapters/refs/refs-git.ts',
 );
+/**
+ * Where the two BRANCH reads went, on 2026-09-01.
+ *
+ * A branch reading is a question about a CHECKOUT rather than about a ref,
+ * which is why it landed on `Trees` and not on `Refs` — and why `refs-git.ts`
+ * is still swept below as a file that must not ask it.
+ */
+const TREES_ADAPTER = path.resolve(
+  here, '../../../domain/src/adapters/trees/trees-git.ts',
+);
 
 /**
  * Comments are stripped before matching. The whole point of this file is to
@@ -64,6 +74,9 @@ const sources = [
   // ref reads live now, so a `ls-remote` introduced there would be exactly the
   // regression this file exists to catch.
   read('refs-git.ts', REFS_ADAPTER),
+  // Swept for the same reason, and holding the branch reads the server used to
+  // make itself.
+  read('trees-git.ts', TREES_ADAPTER),
 ];
 
 describe('the board never reaches the network to read refs', () => {
@@ -100,41 +113,62 @@ describe('the board never reaches the network to read refs', () => {
     expect(adapter!.code).toMatch(/'show'/);
   });
 
-  it('reads branch names only in memoised helpers, never on a bare request path', () => {
-    // Two branch reads happen in the server, each with its own TTL cache:
+  it('reads branch names through the port, never on a bare request path', () => {
+    // TWO BRANCH READINGS HAPPEN IN THE SERVER, and neither spawns any more.
     //
-    // 1. `server-info.ts`: The branch the SERVER serves from. Memoised at
-    //    module level, TTL 5 s. Answers `server.branch` in the /api/board
-    //    payload, which is no longer drawn in the header but still travels
-    //    with the payload for UnreachableOverlay's sake.
+    // 1. `server-info.ts`: the branch the SERVER serves from, answering
+    //    `server.branch` in the /api/board payload — no longer drawn in the
+    //    header, but still travelling with the payload for
+    //    UnreachableOverlay's sake. Reads `Trees.currentBranch(repoRoot)`.
     //
-    // 2. `fleet.ts`: The branch the MAIN CHECKOUT is on — where the operator
+    // 2. `fleet.ts`: the branch the MAIN CHECKOUT is on — where the operator
     //    actually works, as distinct from whichever worktree the board server
-    //    started in. Also TTL-memoised (5 s), because the main tree's branch
-    //    can change while the server runs (the operator `git checkout`).
+    //    started in. Reads `Trees.list()` and takes the `isMain` entry, which
+    //    is one call where it used to be two spawns.
     //
-    // Both are acceptable here because the fork stays OFF THE REQUEST PATH:
-    // `git branch --show-current` fires at most once per TTL window, not once
-    // per poll. The cost this test pins is the 4 s poll-loop × 8 ms fork ≈ 20%
-    // blocking; a 5 s TTL cuts that to ≤ one fork per window and keeps the
-    // rest of the polls from blocking at all.
+    // Both keep their 5 s TTL, and the TTL now saves a process launch rather
+    // than a blocked event loop: `execFileSync` cannot yield, so until
+    // 2026-09-01 a static file could time out at 15 s beside one of these.
     //
-    // What is NOT acceptable: the call appearing in `index.ts` (the request
-    // handler), `board.ts` (the per-request walker) or anywhere else that runs
-    // on every poll. Those files remain forbidden.
-    const allowed = new Set(['server-info.ts', 'fleet.ts']);
-    // `refs-git.ts` is not allowed either, and is swept with the rest: the
-    // adapter answers ref questions, and "which branch is checked out" is a
-    // question about this WORKING TREE that no board read asks.
+    // THE GUARD FOLLOWS THE CALLS. `git branch --show-current` lives in
+    // `trees-git.ts`, so that is the only file allowed to name it, and every
+    // server file is forbidden — including `server-info.ts` and `fleet.ts`,
+    // which held it until this migration. Leaving them on the allowlist would
+    // be a check that passes when the spawn comes back.
     const offenders = sources.filter(
-      (s) => !allowed.has(s.file) && /--show-current/.test(s.code),
+      (s) => s.file !== 'trees-git.ts' && /--show-current/.test(s.code),
     );
     expect(offenders.map((s) => s.file)).toEqual([]);
-    // The positive half: both expected files contain the call — deleting either
-    // would pass the negative check while breaking the feature.
+    // The positive half: the adapter holds the call, and each server file holds
+    // the port question it asks — otherwise deleting the feature would pass too.
+    const trees = sources.find((s) => s.file === 'trees-git.ts');
     const info = sources.find((s) => s.file === 'server-info.ts');
     const fleet = sources.find((s) => s.file === 'fleet.ts');
-    expect(info!.code).toMatch(/--show-current/);
-    expect(fleet!.code).toMatch(/--show-current/);
+    expect(trees!.code).toMatch(/'--show-current'/);
+    expect(info!.code).toMatch(/currentBranch\(opts\.repoRoot\)/);
+    expect(fleet!.code).toMatch(/treesFor\(opts\)\.list\(\)/);
+  });
+
+  it('runs no synchronous spawn in the two files this wave migrated', () => {
+    // THE MEASUREMENT THAT FOUND THE DEFECT, pinned as a call. `sample <pid> 5`
+    // on a wedged board caught `node::SyncProcessRunner::Spawn` under the
+    // request handler in 4258 of 4262 main-thread samples, and a synchronous
+    // spawn cannot yield — the event loop serves nothing while one runs, so a
+    // static file timed out at 15 s beside it.
+    //
+    // A latency threshold would not catch its return: contention flatters and
+    // spoils a number, while the call either is `execFileSync` or is not.
+    //
+    // `agent-log.ts` IS NOT HERE, and its absence is the measurement rather
+    // than an oversight. It keeps one synchronous read for the write routes
+    // that cannot await — 27 call sites across ten modules — and the read path
+    // never reaches it, because `primeWorktreeRoot` fills the cache through the
+    // port before anything serves. Pinning it would pin the migration
+    // `production-calls-the-domain-one-rule-at-a-time` owns.
+    const migrated = new Set(['fleet.ts', 'server-info.ts']);
+    const offenders = sources.filter(
+      (s) => migrated.has(s.file) && /execFileSync/.test(s.code),
+    );
+    expect(offenders.map((s) => s.file)).toEqual([]);
   });
 });
