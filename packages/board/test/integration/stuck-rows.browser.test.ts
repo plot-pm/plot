@@ -9,6 +9,14 @@ import {
   BOARD_ARTIFACT_PATH, type AgentRow, type Fleet, type Stuck,
 } from '../../src/contract/schema.js';
 
+// @needs-real-board: one test asserts what the board refuses over a non-localhost binding, and the mock binds nothing
+//
+// The declaration is READ BY THE GATE (`stubbed-tests-start-no-board.test.ts`)
+// and then VERIFIED against this file's structure: it earns the exception by
+// handing `startServer` a `HOST` that is not localhost. Every other test here
+// serves its own state through the catalogue — the exception is one server, for
+// one property, and the file says which.
+
 /**
  * WHAT A STUCK BRANCH SAYS IN ITS ROW — in a real browser, against the shipped
  * artifact.

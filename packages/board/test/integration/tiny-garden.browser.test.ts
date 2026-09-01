@@ -9,6 +9,13 @@ import { openCatalogue, scenario, board as buildBoard, type Catalogue } from '..
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 
+//
+// READ BY THE GATE and then VERIFIED. The entitlement is the PAGE, not the
+// document: a popup opened and its page shell read. `srcdoc` was the first
+// answer here and it is `serveDoc`'s now — `story-overlay` asserts the
+// attribute against a served document and starts no board, so keying on it
+// would license a spawn nothing requires.
+
 // UI layer: drive a REAL browser against the shipped artifact's served page, so
 // pixel-level assertions (bug a: no horizontal page scroll) and inline-sprint
 // filter behaviour (bug b) are validated on exactly what plot ships — not on

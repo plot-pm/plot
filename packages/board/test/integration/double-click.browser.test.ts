@@ -7,6 +7,13 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { startServer } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 
+// @needs-real-board: the last test asserts that both buttons refuse over a non-localhost binding, which no mock can be
+//
+// READ BY THE GATE and then VERIFIED: the entitlement is the `HOST` handed to
+// `startServer`, not the fact that a server is started. The rest of the file
+// serves its own state; `blocked` carries refusals the payload cannot state,
+// and a binding is one of them.
+
 /**
  * THE ACTING BUTTONS, CLICKED TWICE INSIDE ONE TICK.
  *
