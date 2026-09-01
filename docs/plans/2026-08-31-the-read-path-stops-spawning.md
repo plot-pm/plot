@@ -7,13 +7,14 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-31, Jan Wloka, in-session
+- **Delivered:** 2026-09-01
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-08-31, Jan Wloka, `feature/the-board-reads-through-the-port`
