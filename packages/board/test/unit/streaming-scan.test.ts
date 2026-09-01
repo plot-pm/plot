@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,6 +60,20 @@ function fakeScan(lines: string[], { exitCode = 0, delayMs = 0 } = {}): string {
     fs.writeFileSync(path.join(dir, helper), '#!/usr/bin/env bash\nexit 0\n');
   }
   fs.chmodSync(path.join(dir, 'plot-fleet-scan.sh'), 0o755);
+  // A REAL REPOSITORY, because `refresh()` asks git as well as the scan.
+  //
+  // `repoRoot` is this directory, and the refs adapter runs `git for-each-ref`
+  // in it. A bare temp directory is not a repository, so that call FAILS and
+  // its stderr becomes `fleet.error` — which is what the three assertions on
+  // `error` being null are reading. Measured 2026-09-01: `drops a line it
+  // cannot parse` failed on CI with `Command failed: git for-each-ref` while
+  // passing 18 of 18 locally, so the assertion's outcome depended on whether
+  // git lost the race rather than on anything the test is about.
+  //
+  // `init` alone is enough. The adapter needs a repository to answer in, not
+  // any particular ref: an empty `refs/heads` is a valid answer and the scan
+  // output is what supplies the plans.
+  execFileSync('git', ['init', '--quiet'], { cwd: dir });
   temps.push(dir);
   return dir;
 }
