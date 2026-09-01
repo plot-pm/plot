@@ -126,7 +126,7 @@ test('dispatch: the script never invokes a skill', () => {
 // named escape, in the tradition of `--allow-local`.
 
 /** A repo whose plan has a real `Worker command`, with control over the brief. */
-function repoForBrief(label, { brief } = {}) {
+function repoForBrief(label, { brief, briefCommand } = {}) {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-brief-${label}-`));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
@@ -139,9 +139,14 @@ function repoForBrief(label, { brief } = {}) {
   // A real Worker command, so a start is genuinely ATTEMPTED — it drops a
   // sentinel and exits, letting a test tell a launched worker from a refused one.
   const sentinel = path.join(t, 'worker-ran');
+  // `Brief command` is what a refused dispatch calls. Like the worker command
+  // it is a real command that leaves a sentinel, so a test can tell "asked" from
+  // "said it asked" — and it writes the brief the second dispatch must find.
+  const briefRan = path.join(t, 'brief-ran');
   fs.writeFileSync(path.join(r, 'CLAUDE.md'),
     '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n'
-    + `- **Worker command:** touch ${sentinel}\n`);
+    + `- **Worker command:** touch ${sentinel}\n`
+    + (briefCommand === undefined ? '' : `- **Brief command:** ${briefCommand}\n`));
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-b.md'),
     '# B\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/needs` — one\n');
   fs.symlinkSync('../2026-01-01-b.md', path.join(r, 'plans', 'active', 'b.md'));
@@ -162,7 +167,14 @@ function repoForBrief(label, { brief } = {}) {
   if (typeof brief === 'object' && brief.mode !== undefined) fs.chmodSync(briefFile, brief.mode);
   const wt = path.join(path.dirname(r), 'plot-wt-feature-needs');
   return {
-    tmp: t, repo: r, sentinel, worktree: wt,
+    tmp: t, repo: r, sentinel, worktree: wt, briefRan,
+    // The brief command is detached, so a test must wait for it exactly as it
+    // waits for a worker.
+    briefCommandRan: () => {
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline && !fs.existsSync(briefRan)) execFileSync('sleep', ['0.1']);
+      return fs.existsSync(briefRan);
+    },
     // Give the detached worker a moment to touch its sentinel, if it was started.
     workerStarted: () => {
       const deadline = Date.now() + 5_000;
@@ -282,6 +294,219 @@ test('dispatch: the footer agrees with what happened', () => {
   const footerEscape = outEscape.split('\n').find((l) => l.startsWith('summary: ')) ?? '';
   assert.match(footerEscape, /started=1/, `--no-brief must let the start count:\n${footerEscape}`);
   escape.cleanup();
+});
+
+// ---------------------------------------------------------------------------
+// What the gate does AFTER it fires: `Brief command`
+// ---------------------------------------------------------------------------
+//
+// The gate above refuses and stops. That refusal is correct and stays; what it
+// never had is a next step, which is why every brief on this estate was written
+// by hand. `Brief command` is the next step — one config key, the shape
+// `Idea command`, `Story command` and `Approve command` already use, asked to
+// run `/plot-implement <slug>` because that skill already owns brief
+// authorship.
+//
+// Two arms, and BOTH must name themselves in the log. A dispatch that refused
+// for a missing brief must say what it did about it, or the operator is back to
+// inferring — the exact failure the key exists to remove.
+
+test('dispatch: a refused dispatch calls the configured Brief command', () => {
+  // The first arm. The gate refuses as before — the worktree and claim stand,
+  // no worker runs — and the run then SAYS what it did next, naming the command
+  // it called. The stand-in command drops a sentinel, so the test can tell
+  // "asked" from "said it asked".
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-briefcmd-'));
+  const ran = path.join(t, 'brief-ran');
+  const f = repoForBrief('ask', { briefCommand: `sh -c 'touch ${ran}' plot-brief` });
+  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  // The refusal is unchanged: prepared, not started.
+  assert.match(out, /prepared, not started/, `the gate must still refuse:\n${out}`);
+  assert.equal(f.workerStarted(), false, 'asking for a brief must not start a worker');
+  assert.match(out, /summary: .*started=0/, `nothing may be counted as started:\n${out}`);
+
+  // And now it says what it did about it.
+  assert.match(out, /Brief command/, `the run must name what it called:\n${out}`);
+  const footer = out.split('\n').find((l) => l.startsWith('summary: ')) ?? '';
+  assert.match(footer, /brief_asked=1/, `the ask must be counted:\n${footer}`);
+
+  // The command really ran — detached, so wait for it.
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline && !fs.existsSync(ran)) execFileSync('sleep', ['0.1']);
+  assert.equal(fs.existsSync(ran), true, 'the Brief command must actually be invoked');
+
+  f.cleanup();
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('dispatch: with no Brief command it refuses by name and calls nothing', () => {
+  // The second arm, and the reason `absent` is modelled as a named refusal
+  // rather than an error. A project that has never set the key behaves exactly
+  // as it did before — prepared, not started, no worker. What is new is that the
+  // log says WHY nothing was called, instead of leaving the operator to notice
+  // that nothing happened.
+  const f = repoForBrief('unconfigured');
+  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  assert.match(out, /no-brief-command/,
+    `the refusal must name itself, the way commission.ts names no-idea-command:\n${out}`);
+  assert.match(out, /Brief command/, `it must name the key that is the fix:\n${out}`);
+  assert.equal(f.workerStarted(), false, 'no brief still means no worker');
+  const footer = out.split('\n').find((l) => l.startsWith('summary: ')) ?? '';
+  assert.match(footer, /brief_asked=0/, `nothing was asked, so the footer counts zero:\n${footer}`);
+  f.cleanup();
+});
+
+test('dispatch: `Brief command: none` is an answer, not a missing key', () => {
+  // `none` reads the way it does for `Worker command`: asked, and answered "we
+  // write them by hand". Running it would spawn `none: command not found` once
+  // per briefless branch — a deliberate answer turned into N crashed processes.
+  const f = repoForBrief('declined', { briefCommand: 'none' });
+  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  assert.match(out, /no-brief-command/, `none must refuse, never run:\n${out}`);
+  const footer = out.split('\n').find((l) => l.startsWith('summary: ')) ?? '';
+  assert.match(footer, /brief_asked=0/, `none asks nothing:\n${footer}`);
+  f.cleanup();
+});
+
+test('dispatch: a brief written by the callback lands where the gate reads it', () => {
+  // THE PROPERTY THE WHOLE KEY RESTS ON. A callback writing to a path the gate
+  // does not read would produce a file, report success, and refuse the same
+  // branch again on every pass — a loop that writes a brief per dispatch and
+  // never starts a worker. That is exactly the failure the Naming slice found:
+  // three briefs written under `feature-…` names no reader computes.
+  //
+  // The proof is not that a file appeared. It is that DISPATCHING THE SAME
+  // BRANCH AGAIN STARTS IT. The gate reads `origin/<main>`, so only a brief
+  // committed and pushed there can flip the second run.
+  //
+  // The stand-in command writes the brief itself rather than invoking an agent.
+  // What is under test is the plumbing — the command runs, the path a writer
+  // following the gate's own rule produces is the path the gate reads, and the
+  // second dispatch starts. It also asserts the PROMPT arrived whole: a prompt
+  // that word-split would make `$1` a fragment, and this test would otherwise
+  // pass while the real command received garbage.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-brieflands-'));
+  const writer = path.join(t, 'write-brief.sh');
+  // The writer takes NO repo path: `request_brief` runs it with the repository
+  // root as its cwd, and relying on that is the point — a command configured by
+  // a project cannot be handed a path this script computed.
+  fs.writeFileSync(writer, `#!/bin/sh
+case "$1" in
+  *'/plot-implement b'*) : ;;
+  *) echo "prompt did not arrive whole: [$1]" >&2; exit 1 ;;
+esac
+mkdir -p .plot/briefs || exit 1
+printf 'A real specification, written by the callback.\\n' > .plot/briefs/needs.md || exit 1
+git add .plot/briefs/needs.md || exit 1
+git -c user.email=t@e.invalid -c user.name=T -c commit.gpgsign=false commit -qm brief || exit 1
+git push -q origin main || exit 1
+`, { mode: 0o755 });
+
+  const f = repoForBrief('lands', { briefCommand: `sh ${writer}` });
+
+  // Pass one: refused, and the callback asked.
+  const out1 = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+  assert.equal(f.workerStarted(), false, 'the refusal stands — asking does not start a worker');
+  assert.match(out1, /summary: .*started=0/, `nothing may start on the first pass:\n${out1}`);
+
+  // The callback is detached, so wait for the brief to reach the ref the gate
+  // reads. That ref — not the working tree — is the whole assertion.
+  const briefOnRef = () => {
+    const p = spawnSync('git', ['-C', f.repo, 'cat-file', '-s', 'origin/main:.plot/briefs/needs.md'],
+      { encoding: 'utf8' });
+    return p.status === 0 && Number(p.stdout.trim()) > 0;
+  };
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline && !briefOnRef()) execFileSync('sleep', ['0.2']);
+  assert.equal(briefOnRef(), true,
+    'the callback must land the brief on origin/main, where the gate reads it');
+
+  // Return the branch to the state a SECOND dispatcher meets it in. Pass one
+  // claimed it, and a claimed branch is never offered to `--next` again — that
+  // lock is the fleet's mutual exclusion and holds regardless of the brief. So
+  // the claim is released here, exactly as reconciling an abandoned claim
+  // releases it, leaving the one difference this test is about: the same
+  // briefless branch, now with a brief on the ref the gate reads.
+  git(f.repo, 'push', '-q', 'origin', '--delete', 'feature/needs');
+  git(f.repo, 'worktree', 'remove', '--force', f.worktree);
+  git(f.repo, 'branch', '-qD', 'feature/needs');
+
+  const out2 = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+  assert.equal(f.workerStarted(), true,
+    `dispatching again after the callback wrote the brief must start the worker:\n${out2}`);
+  assert.match(out2, /summary: .*started=1/, `the second pass must count the start:\n${out2}`);
+
+  f.cleanup();
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('dispatch: a brief older than its plan is reported, never refused', () => {
+  // STALENESS REPORTS AND NEVER GATES, and the measurement is why. Compared
+  // 2026-09-01, all three live briefs were older than their plans and all three
+  // were CORRECT — every plan edit between them was bookkeeping. A timestamp
+  // gate would have refused 3 of 3 on the day it shipped, and a gate that
+  // refuses everything is one people disable in its first week.
+  //
+  // It would also have missed the real case: the teardown brief was written
+  // AFTER its plan and was still wrong, citing 80 `fs.rmSync` sites where the
+  // tree held 76. The CODE moved, not the plan — so freshness against the plan
+  // is the wrong input, and this is a hint that says it is a hint.
+  const f = repoForBrief('stale', { brief: 'A brief, written before the plan moved.\n' });
+
+  // Move the plan AFTER the brief, so the brief is strictly older. Sleep one
+  // second: git commit timestamps have one-second resolution, and two commits
+  // in the same second compare equal rather than older.
+  execFileSync('sleep', ['1.1']);
+  fs.appendFileSync(path.join(f.repo, 'plans', '2026-01-01-b.md'),
+    '\n<!-- bookkeeping: a PR annotation, exactly the edit that made 3 of 3 look stale -->\n');
+  git(f.repo, 'add', '-A');
+  git(f.repo, '-c', 'user.email=t@e.invalid', '-c', 'user.name=T', '-c', 'commit.gpgsign=false',
+    'commit', '-qm', 'plan bookkeeping');
+  git(f.repo, 'push', '-q', 'origin', 'main');
+  const planSha = git(f.repo, 'rev-parse', 'HEAD').trim();
+
+  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+
+  // NEVER REFUSES. The worker starts, exactly as it would with a fresh brief.
+  assert.equal(f.workerStarted(), true, 'staleness must not block the start');
+  assert.match(out, /summary: .*started=1/, `a stale brief still starts:\n${out}`);
+
+  // AND IT IS REPORTED, naming the plan commit it compared against so the
+  // reader can look at that commit rather than guess which edit moved the plan.
+  assert.match(out, /older than the plan/i, `the age must be reported:\n${out}`);
+  assert.match(out, /hint/i, `the report must say it is a hint, not a verdict:\n${out}`);
+  assert.ok(out.includes(planSha),
+    `the report must name the plan commit it compared against (${planSha}):\n${out}`);
+  f.cleanup();
+});
+
+test('dispatch: a brief NEWER than its plan says nothing', () => {
+  // The report is printed only when there is something to report. A note on
+  // every dispatch is a note the reader learns to skip, and then it is worth
+  // nothing on the day the plan really did move.
+  const f = repoForBrief('fresh');
+  fs.mkdirSync(path.join(f.repo, '.plot', 'briefs'), { recursive: true });
+  execFileSync('sleep', ['1.1']);
+  fs.writeFileSync(path.join(f.repo, '.plot', 'briefs', 'needs.md'), 'Written after the plan.\n');
+  git(f.repo, 'add', '-A');
+  git(f.repo, '-c', 'user.email=t@e.invalid', '-c', 'user.name=T', '-c', 'commit.gpgsign=false',
+    'commit', '-qm', 'brief');
+  git(f.repo, 'push', '-q', 'origin', 'main');
+
+  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
+    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  assert.doesNotMatch(out, /older than the plan/i,
+    `a brief newer than its plan must draw no note:\n${out}`);
+  assert.equal(f.workerStarted(), true, 'a fresh brief starts as before');
+  f.cleanup();
 });
 
 test('dispatch: creates one worktree per eligible branch and claims each ref', () => {
