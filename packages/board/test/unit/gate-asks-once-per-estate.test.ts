@@ -261,7 +261,7 @@ describe("the gate's answer is identical to the board's", () => {
       // The controller as the ROUTE calls it, and as the ENTRY POINT calls it.
       // The same function, so the claim is that the entry point adds nothing
       // and subtracts nothing on the way past.
-      const viaRoute = boardState({ opts });
+      const viaRoute = await boardState({ opts });
       const viaEntry = await askOnce({ question: 'board', opts, planDir: 'docs/plans' });
 
       // EXCEPT `generatedAt`, and the exception is measured rather than
