@@ -39,6 +39,13 @@ export interface Catalogue {
       over?: Partial<Scenario>;
       tab?: 'agents' | 'board';
       viewport?: { width: number; height: number };
+      /**
+       * The context's `prefers-reduced-motion`, for a test whose subject is an
+       * animation. `activity-mark.browser.test.ts` asserts both halves — that a
+       * mark travels, and that it does not when motion is reduced — so the
+       * setting has to be a page-open parameter rather than a fixed default.
+       */
+      reducedMotion?: 'reduce' | 'no-preference';
     },
   ) => Promise<Page>;
   /** Close the browser and stop the mock. */
@@ -86,7 +93,10 @@ export const openCatalogue = async (): Promise<Catalogue> => {
 
   const open: Catalogue['open'] = async (name, opts = {}) => {
     mock.serve(name, opts.over);
-    const context = await browser.newContext({ viewport: opts.viewport ?? DEFAULT_VIEWPORT });
+    const context = await browser.newContext({
+      viewport: opts.viewport ?? DEFAULT_VIEWPORT,
+      ...(opts.reducedMotion ? { reducedMotion: opts.reducedMotion } : {}),
+    });
     const page = await context.newPage();
     const tab = opts.tab ? `?tab=${opts.tab}` : '';
     await page.goto(`${mock.baseURL}${tab}`);

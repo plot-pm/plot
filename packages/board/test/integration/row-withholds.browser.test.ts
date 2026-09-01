@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds, startServer } from '../helpers.mjs';
+import { openCatalogue, board as buildBoard, card as buildCard, column, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 
 /**
  * THE ROW SAYS WHAT IT KNOWS — the five display findings, measured in a browser.
@@ -20,8 +24,6 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../s
  * a menu that opens on a plan nobody may approve. So each finding is asserted
  * from both sides.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden/tree/';
 
 /** WCAG 2.2's floor for a pointer target. Apple asks 44, Google 48. */
@@ -118,29 +120,77 @@ function fleet(): Fleet {
 }
 
 describe('the row says what it knows', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture only to
+  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
+  // itself. The mock serves the same built client and answers both payloads by
+  // name, so the test states its own input instead of inheriting an estate.
+  let cat: Catalogue;
+  /**
+   * A REAL BOARD, for the one test whose subject is a CAPABILITY.
+   *
+   * The approval control is gated on the server reporting `approve:
+   * {available: true}`, and availability is a claim about a transport the mock
+   * does not have — `mock-board.ts` says as much about why
+   * `approve.browser.test.ts` stays real. A served state can state the card and
+   * the row; it cannot state that this board could run the approve script.
+   *
+   * Measured 2026-09-01: with the card and the fleet both served, the plan row
+   * rendered and `data-plan-actions` did not. The card was correct — probed at
+   * `/api/board` — so what was missing was the permission, not the payload.
+   *
+   * @see `offers approval on a DRAFT plan row`
+   */
+  let server: { port: number; kill: () => void };
+  let realURL: string;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
+    cat = await openCatalogue();
     server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    realURL = `http://localhost:${server.port}/`;
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
+    await cat?.close();
     server?.kill();
   });
 
-  async function open(width = 1480): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width, height: 1400 } });
-    const page = await context.newPage();
-    // SYNCHRONOUS fulfil. A route callback that awaits anything (`route.fetch()`
-    // among them) fails suites that already passed on this machine.
+  /** The real board, for the capability test only. */
+  async function openReal(width = 1480): Promise<Page> {
+    const ctx = await cat.browser.newContext({ viewport: { width, height: 1400 } });
+    const page = await ctx.newPage();
     await page.route('**/api/fleet', (route) =>
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    await page.goto(`${realURL}?tab=agents`);
+    await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
+    await expandAgentFolds(page);
+    return page;
+  }
+
+  async function open(width = 1480): Promise<Page> {
+    // THE BOARD IS SUPPLIED TOO, and it has to be: the plan-actions menu is
+    // built from a board CARD matching the fleet row's plan, so a fleet-only
+    // state renders the row and no menu. The real server used to answer
+    // `/api/board` from the tiny-garden fixture, which is where the Draft
+    // `plant-tomatoes` card came from — stated here instead.
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: {
+        fleet: fleet(),
+        board: buildBoard({
+          columns: [column({
+            phase: 'Discovery',
+            cards: [buildCard({
+              slug: 'plant-tomatoes', title: 'Plant tomatoes', type: 'feature',
+              phase: 'Discovery', path: 'docs/plans/2026-03-01-plant-tomatoes.md',
+              prs: [], phaseDate: '2026-03-01',
+            })],
+          })],
+        }),
+      },
+      viewport: { width, height: 1400 },
+    });
     await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
     await expandAgentFolds(page);
     return page;
@@ -446,7 +496,8 @@ describe('the row says what it knows', () => {
   // ─── The plan row hosts the approval that belongs to a plan ──────────────
 
   it('offers approval on a DRAFT plan row', async () => {
-    const page = await open();
+    // THE REAL BOARD: the control is gated on a capability, not on a payload.
+    const page = await openReal();
     try {
       // Measured 2026-08-19: `ApproveButton` existed, the server reported
       // `approve: {available: true}`, the card read `phase: Discovery` — and the
