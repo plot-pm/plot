@@ -1,0 +1,1 @@
+../2026-08-30-two-monitors-watch-the-agent.md
