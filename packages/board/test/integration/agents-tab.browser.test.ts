@@ -1,187 +1,84 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import {
+  openCatalogue, scenario, agent, row as buildRow, wave,
+  fleet as buildFleet, type Catalogue,
+} from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type Wave } from '../../src/contract/schema.js';
 
 /**
  * The Agents tab, driven in a REAL browser against the shipped artifact.
  *
- * `/api/fleet` is stubbed at the network boundary rather than by building a git
- * fixture: every claim here is about what the tab RENDERS from a pulse — which
- * links exist and where they point, how rows are grouped, whether a countdown
- * appears — and a synthetic pulse states the awkward cases (a merged branch, a
- * row with no PR, a server that reports no PR interval) exactly. The server's
+ * Every claim here is about what the tab RENDERS from a pulse — which links
+ * exist and where they point, how rows are grouped, whether a countdown appears
+ * — so the state is SERVED by name and never read from a repository. The server's
  * half of the same contract is pinned in test/unit/fleet.test.ts against the
  * real `rowsFromPulse`.
+ *
+ * ## The state is served, not spawned and stubbed
+ *
+ * This file used to start `board-server.mjs` over the tiny-garden fixture and
+ * then stub `/api/fleet` in all fourteen of its routes. The server was there to
+ * answer two things the stub did not: `index.html`, and `/api/board`'s cards for
+ * the twelve menu tests — which reached them by clicking to the Plans tab and
+ * back, waiting on a real git scan for a card the test could simply have stated.
+ *
+ * The catalogue's mock serves the same built client and answers both payloads by
+ * name. `ten-rows-one-kind-each` IS this file's old default `fleet()`, lifted
+ * whole and tabulated where a reader will find it, with the `plant-tomatoes`
+ * card and `dispatch: available` beside it.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
-
 const GH = 'https://github.com/tiny/garden/tree/';
 
-const row = (over: Partial<AgentRow> = {}): AgentRow => ({
-  repo: 'garden', branch: 'feature/x', plan: 'plant-tomatoes',
-  planFile: '2026-03-01-plant-tomatoes.md', wave: 'w', state: 'wip',
-  phase: 'Development', group: 'working', ageMinutes: 3, note: 'last commit 3 min ago',
-  pr: null, branchUrl: `${GH}feature/x`, waitingDays: null,
-  // Default: wip state → someone-is-on-it. Startable rows override to start-work.
-  startability: 'someone-is-on-it' as const,
-  ...over,
-});
+/**
+ * THE BUILDERS ARE THE CATALOGUE'S.
+ *
+ * This file carried its own `row()`, `agent()` and `fleet()` — 145 lines that
+ * had drifted from `test/catalogue/build.ts` while asserting the same contract.
+ * Reconciling them was the migration; there is one set now, and it PARSES
+ * through the Zod schemas rather than casting, so a field the schema does not
+ * admit fails here instead of rendering `undefined` in a browser.
+ */
+const row = buildRow;
 
 /**
- * A registry entry, the source of a WORKING row since
- * `the-working-section-shows-every-worker`. WORKING renders one row per
- * REGISTRY entry, joined to a branch row by `branch`; a WORKING branch that
- * names no agent no longer renders, so every branch this fixture puts in
- * `working` needs an entry here for its row to appear.
+ * The default pulse — `ten-rows-one-kind-each`, by name.
+ *
+ * The ten rows and what each one carries are tabulated on the scenario itself.
+ * `fleet({ rows: … })` still works exactly as it did: an override lands on the
+ * named state, and the catalogue re-derives `agents` and `summary` from the
+ * final rows, so a test that reroutes the working rows gets the agents its rows
+ * imply rather than a hand-listed set that leaks.
  */
-const agent = (over: Partial<AgentEntry> = {}): AgentEntry => ({
-  session: 'sess0000', branch: 'feature/x', worktree: '/wt/plot-wt-x',
-  command: '', startedAt: '', pid: '', previousPid: '', relaunches: 0,
-  state: 'running', ...over,
-});
-
-/** A pulse carrying the cases the plan's *Done when* list names. */
 function fleet(over: Partial<Fleet> = {}): Fleet {
-  const rows: AgentRow[] = [
-    // Two plans in `working`, so the group earns sub-headings. `beans` holds the
-    // older row, so it must be the first plan shown.
-    row({ branch: 'feature/beans-a', plan: 'beans', ageMinutes: 200 }),
-    row({ branch: 'feature/beans-b', plan: 'beans', ageMinutes: 10 }),
-    row({ branch: 'feature/toms-a', plan: 'plant-tomatoes', ageMinutes: 50 }),
-    // A branch WITH a PR: the two links must differ, each landing where its own
-    // text points. The PR carries its condition as FIELDS — the row's cell is
-    // built from these, never from the sentence in `note`.
-    row({
-      branch: 'feature/reviewed', plan: 'beans', group: 'waiting-on-you',
-      ageMinutes: 20, note: 'PR #130 green',
-      pr: {
-        number: 130, url: 'https://github.com/tiny/garden/pull/130',
-        draft: false, state: 'green',
-      },
-      branchUrl: `${GH}feature/reviewed`,
-    }),
-    // A not-started row: no PR at all, and exactly the class the rejected
-    // PR-URL derivation would have left unlinked. `state: 'open'` and the
-    // eligible note make it the one row a person can actually pick up, so it
-    // is also the row that carries the Start work button.
-    row({
-      branch: 'feature/untaken', plan: 'plant-tomatoes', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
-      branchUrl: `${GH}feature/untaken`, waitingDays: 22,
-      startability: 'start-work' as const,
-    }),
-    // The other half of `not-started`, and the one that must NOT get a button:
-    // a branch an earlier wave still blocks. plot-dispatch.sh refuses it, so a
-    // button here would invite an action the tool declines.
-    row({
-      branch: 'feature/blocked', plan: 'plant-tomatoes', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null,
-      // THE FIELD, not the sentence. This row carried `note: 'blocked by Truth'`
-      // and the assertions below read the prose — what `AgentRowSchema` forbids:
-      // *"Nothing new may be built on matching this prose — `verdict` on the row
-      // is what a consumer reads, and `blockedBy` carries the name."* The server
-      // has populated `blockedBy` all along.
-      //
-      // It mattered once the row joined a wave group: a grouped row drops its
-      // note by design, so the sentence was the sole carrier of *blocked by which
-      // wave* and it vanished. The field is carried by the wave row heading the
-      // group, which is where a reader looks.
-      waitingOn: 'time' as const, blockedBy: 'Truth',
-      branchUrl: `${GH}feature/blocked`,
-      waitingDays: 22,
-      startability: null, // blocked, so not startable
-    }),
-    // A branch handed back: real commits inside the quiet window, under an
-    // APPROVED plan. Both halves must show — the phase has fallen back to
-    // Design (nobody is working on it) AND the badge says why (someone gave it
-    // up, rather than never having begun). Either alone is the wrong answer.
-    row({
-      branch: 'feature/shelved', plan: 'beans', group: 'not-started',
-      state: 'deferred', phase: 'Design', ageMinutes: 2,
-      note: 'last commit 2 min ago', branchUrl: `${GH}feature/shelved`,
-      startability: null, // deferred, so not startable
-    }),
-    // A not-started row whose plan records no approval date — every plan
-    // predating the `Approved:` field. It must show no waiting age at all.
-    row({
-      branch: 'feature/undated', plan: 'beans', group: 'not-started',
-      state: 'open', phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
-      branchUrl: `${GH}feature/undated`, waitingDays: null,
-      startability: 'start-work' as const,
-    }),
-    // A merged branch: its remote page is gone, so no branch link.
-    row({
-      branch: 'feature/landed', plan: 'plant-tomatoes', group: 'done',
-      state: 'merged', ageMinutes: 300, note: 'merged', branchUrl: '',
-      startability: null, // merged, so not startable
-    }),
-    // A plan with no board card — tiny-garden has no such plan file, so the row
-    // must keep its plain /plan/ link rather than open an empty modal.
-    row({
-      branch: 'feature/ghost', plan: 'ghost-plan', planFile: '2099-01-01-ghost-plan.md',
-      group: 'quiet', ageMinutes: 999, note: 'no commit for 16 hours',
-      branchUrl: `${GH}feature/ghost`,
-    }),
-    // The same missing card, on a row that is otherwise perfectly startable.
-    // `StartWorkButton` takes a Card, and a row is not one — so this row gets
-    // NO button rather than a broken one.
-    row({
-      branch: 'feature/ghost-ready', plan: 'ghost-plan',
-      planFile: '2099-01-01-ghost-plan.md', group: 'not-started', state: 'open',
-      phase: 'Design', ageMinutes: null, waitingOn: 'click' as const, note: ELIGIBLE_NOTE,
-      branchUrl: `${GH}feature/ghost-ready`,
-      startability: 'start-work' as const,
-    }),
-  ];
-  // WORKING RENDERS FROM THE REGISTRY — one row per agent, joined to its branch
-  // row. So a fixture's WORKING branches each need an entry, and a fixture with
-  // none needs none. DERIVED FROM THE FINAL ROWS (after `over`) rather than
-  // hand-listed, so a test that reroutes the working rows to another section, or
-  // supplies its own row set, gets exactly the agents its rows imply — no
-  // hand-listed set leaks a beans agent into a fixture that never mentions it.
-  //
-  // An explicit `over.agents` wins, for the fixtures that need a specific
-  // session id or order (`waveFleet`); everything else takes the derivation.
-  const finalRows = (over.rows ?? rows);
-  const agents: AgentEntry[] = over.agents ?? finalRows
-    .filter((r) => r.group === 'working')
-    .map((r) => agent({ session: `s-${r.branch}`, branch: r.branch }));
-  return {
-    generatedAt: new Date().toISOString(),
-    ageSeconds: 1,
-    ready: true,
-    error: null,
-    rows,
-    agents,
-    summary: {
-      plans: 3, waves: 3, branches: rows.length,
-      claimed: 0, eligible: 1, blocked: 0, deferred: 0,
-    },
-    prAgeSeconds: 74,
-    prNextInSeconds: 46,
-    scanNextInSeconds: 3,
-    prError: null,
-    ...over,
-  };
+  const base = scenario('ten-rows-one-kind-each');
+  if (Object.keys(over).length === 0) return base.fleet;
+  /**
+   * REBUILT FROM THE SCENARIO'S INPUT, not spread over its OUTPUT.
+   *
+   * `buildFleet` derives `agents` and `summary` from the rows and lets an
+   * explicit `over` win — which is right, and is exactly why the base cannot be
+   * spread in as an override. A spread carries the base's already-derived
+   * `agents` and `summary` into `over`, so they would win over the derivation
+   * every time and a test that reroutes the rows would keep the old estate's
+   * agents. The default's own rows go in as ROWS and its envelope — the PR and
+   * scan countdowns tests assert on — comes with them; only `agents` and
+   * `summary` are withheld, because those two are the derivation's own output.
+   * The caller's `over` is applied on top and the derivation runs once.
+   */
+  const { agents: _a, summary: _s, rows: _r, ...envelope } = base.fleet;
+  return buildFleet({ ...envelope, rows: base.fleet.rows, ...over } as Partial<Fleet>);
 }
 
 describe('tiny-garden: the Agents tab (real browser renders the shipped artifact)', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
+    cat = await openCatalogue();
+  }, 60_000);
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   /**
@@ -194,10 +91,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    * with its own suite.
    */
   async function openAgents(payload: Fleet = fleet()): Promise<Page> {
-    const page = await browser.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('ten-rows-one-kind-each', {
+      tab: 'agents', over: { fleet: payload },
+    });
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await expandPlans(page);
@@ -212,11 +108,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    * emulating it after first paint tests a transition nobody performs.
    */
   async function openAgentsReducedMotion(payload: Fleet = fleet()): Promise<Page> {
-    const context = await browser.newContext({ reducedMotion: 'reduce' });
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('ten-rows-one-kind-each', {
+      tab: 'agents', over: { fleet: payload }, reducedMotion: 'reduce',
+    });
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await expandPlans(page);
@@ -228,19 +122,26 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    *
    * A plan row's click needs the board's cards to find its own, and until they
    * land the app deliberately swallows the click rather than navigating away
-   * from a live view for a plan it is about to have. Visiting the board tab is
-   * how a real reader waits for that.
+   * from a live view for a plan it is about to have.
+   *
+   * ## The round trip is gone, and the wait is now for the card
+   *
+   * This used to click to the Plans tab, wait for a card the real fixture's git
+   * scan produced, and come back — twelve tests each paying a scan to learn a
+   * title. The scenario states the `plant-tomatoes` card, so the wait is for the
+   * client to have FETCHED it: a menu appears on a row whose plan has a card,
+   * and that is the same fact the round trip was establishing, asserted where it
+   * is used rather than two tabs away.
    */
   async function openAgentsWithBoard(payload: Fleet = fleet()): Promise<Page> {
     const page = await openAgents(payload);
-    await page.getByRole('button', { name: 'Plans' }).click();
-    await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
-    await page.getByRole('button', { name: 'Agents' }).click();
-    await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
-    // Re-opened, because leaving the tab and returning remounts the list and the
-    // inner fold is per-mount state — deliberately not persisted, unlike the
-    // section-level collapse.
-    await expandPlans(page);
+    // The cards have LANDED when the plan's action menu exists. `PlanActions` is
+    // gated on the card, so its presence is exactly the fact the round trip used
+    // to establish — and the menu is a PLAN-level control, so the wait names the
+    // plan rather than a row. Polling the DOM rather than the network, because
+    // what the tests need is the render and a fetch resolving is not yet one.
+    await page.locator('[data-plan-actions="plant-tomatoes"]').first()
+      .waitFor({ timeout: 10_000 });
     return page;
   }
 
@@ -260,12 +161,20 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     payload: Fleet = fleet(),
   ): Promise<{ page: Page; fail: () => void; recover: () => void }> {
     let failing = false;
-    const page = await browser.newPage();
-    await page.route('**/api/fleet', (route) =>
-      failing
-        ? route.abort('connectionrefused')
-        : route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('ten-rows-one-kind-each', {
+      tab: 'agents',
+      over: { fleet: payload },
+      // INSTALLED BEFORE THE FIRST NAVIGATION and reading a mutable flag, so a
+      // poll in flight at the moment of the switch cannot slip past an unrouted
+      // window and land a success the test did not intend. The route wins over
+      // the mock for this one path; everything else, `index.html` included,
+      // still comes from the server.
+      route: {
+        '**/api/fleet': (route) => (failing
+          ? route.abort('connectionrefused')
+          : route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) })),
+      },
+    });
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await expandPlans(page);
@@ -276,26 +185,29 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    * Open the tab, then hand back a `push` that swaps what `/api/fleet` answers
    * with — so a test can watch a status ARRIVE mid-session.
    *
-   * The route reads a mutable `current` rather than being re-registered, the
-   * same way the fail-switch reads a mutable flag: a poll in flight at the
-   * moment of the swap cannot slip past an unrouted window. `push` waits a
-   * poll's length so the app has fetched the new payload before the test looks.
+   * A route reading a mutable `current`, for the same reason the fail switch
+   * reads a mutable flag: a poll in flight at the moment of the swap cannot slip
+   * past an unrouted window. `push` waits for the next fetch to be SERVED rather
+   * than for a duration — the served count is the event, and a fixed sleep can
+   * only assume it happened.
    */
   async function openAgentsPushable(
     initial: Fleet = fleet(),
   ): Promise<{ page: Page; push: (next: Fleet) => Promise<void> }> {
     let current = initial;
-    // SERVED COUNT, so `push` can wait for the EVENT rather than for a duration.
-    // The route already passes through this test, so the fetch that matters is
-    // observable — waiting 4.5s for a 4s poll spends the difference on every
-    // call and still only assumes the payload arrived.
     let served = 0;
-    const page = await browser.newPage();
-    await page.route('**/api/fleet', (route) => {
-      served += 1;
-      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) });
+    const page = await cat.open('ten-rows-one-kind-each', {
+      tab: 'agents',
+      over: { fleet: initial },
+      route: {
+        '**/api/fleet': (route) => {
+          served += 1;
+          return route.fulfill({
+            contentType: 'application/json', body: JSON.stringify(current),
+          });
+        },
+      },
     });
-    await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await expandPlans(page);
@@ -305,10 +217,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         const before = served;
         current = next;
         // The app polls every 4s. Wait for the NEXT fetch to be served, which is
-        // the fact this needs — a fixed sleep can only assume it. The bound stays
-        // generous because the poll's period is the app's business, not this
-        // helper's: it returns as soon as the fetch lands, so a slow poll costs
-        // patience and a fast one costs nothing.
+        // the fact this needs. The bound stays generous because the poll's period
+        // is the app's business, not this helper's: it returns as soon as the
+        // fetch lands, so a slow poll costs patience and a fast one costs
+        // nothing.
         await expect.poll(() => served, { timeout: 10_000 }).toBeGreaterThan(before);
         // AND ONE RENDER PAST IT. The fetch resolving is not the DOM changing;
         // React still has to commit. `requestAnimationFrame` fires after the next
@@ -1557,12 +1469,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // renders no button — the empty `⋯` in its purest form, on a page that
     // knows nothing yet. The claim the old dimmed control made (*this is where
     // actions would be*) is exactly the claim this page cannot support.
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     try {
       await page.route('**/api/board', (route) => route.abort('connectionrefused'));
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // This test builds its own page rather than going through `openAgents`, so
@@ -1776,12 +1688,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // One context for both loads, deliberately: `browser.newPage()` gives each
     // page its own storage, which is the isolation every other test here wants
     // and precisely what this test must not have.
-    const context = await browser.newContext();
+    const context = await cat.browser.newContext();
     try {
       const page = await context.newPage();
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // The default, on a context that has stored nothing.
@@ -1839,14 +1751,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         }),
       ],
     });
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     try {
       await page.route('**/api/fleet', (route) =>
         route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify(extra ? two : one),
         }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await expect.poll(() => heading(page, 'Quiet').textContent()).toContain('(1)');
@@ -1875,14 +1787,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           ? { ...r, group: 'quiet' as const, note: 'no commit for 3 hours', ageMinutes: 200 }
           : r),
     });
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     try {
       await page.route('**/api/fleet', (route) =>
         route.fulfill({
           contentType: 'application/json',
           body: JSON.stringify(quietened ? after : before),
         }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // The reader opens QUIET deliberately.
@@ -1932,7 +1844,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           })),
       ],
     });
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     try {
       // 1100px, and the height is part of the fixture rather than a detail of
       // it. It was 800, then 900 for a ~4px font-metric spread between CI's
@@ -1956,7 +1868,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await page.setViewportSize({ width: 1280, height: 1100 });
       await page.route('**/api/fleet', (route) =>
         route.fulfill({ contentType: 'application/json', body: JSON.stringify(many) }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // The header counts the PLAN HEADS the reader sees, not the rows folded
@@ -2355,10 +2267,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // Never-had-an-answer is a different statement from no-longer-trusted, and
     // merging them would let an empty view claim staleness it cannot have. A
     // tab whose very first fetch fails has nothing to be stale ABOUT.
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     try {
       await page.route('**/api/fleet', (route) => route.abort('connectionrefused'));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Loading…').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // No pulse ever arrived, so there is no "last heard" moment to report.
@@ -2482,9 +2394,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('?plan=<slug> survives a reload and lands on the same highlighted card', async () => {
     // Naming it in the URL rather than passing it as state is what makes the
     // landing shareable and survivable.
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     try {
-      await page.goto(`${baseURL}?plan=plant-tomatoes`);
+      await page.goto(`${cat.mock.baseURL}?plan=plant-tomatoes`);
       const card = page.locator('#plan-plant-tomatoes');
       await card.waitFor({ state: 'visible', timeout: 10_000 });
       await expect.poll(() => card.getAttribute('data-highlighted')).toBe('true');
@@ -2997,7 +2909,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // than as truncation, and is worse than no truncation at all.
     const suffixes = ['challenge-budget', 'longhorizon', 'tool-budget', 'retry-policy'];
     const branches = suffixes.map((s) => `feature/opus5-hardening-${s}`);
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     try {
       await page.setViewportSize({ width: 900, height: 800 });
       await page.route('**/api/fleet', (route) => route.fulfill({
@@ -3009,7 +2921,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           })),
         })),
       }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await expect.poll(() => group(page, 'Waiting on you')
@@ -3276,12 +3188,12 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     opts: { reducedMotion?: 'reduce' | 'no-preference' } = {},
   ): Promise<{ page: Page; swap: (next: Fleet) => void }> {
     let current = first;
-    const context = await browser.newContext(
+    const context = await cat.browser.newContext(
       opts.reducedMotion ? { reducedMotion: opts.reducedMotion } : {});
     const page = await context.newPage();
     await page.route('**/api/fleet', (route) =>
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(current) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    await page.goto(`${cat.mock.baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return { page, swap: (next: Fleet) => { current = next; } };
@@ -3479,11 +3391,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   /** The agents tab at one viewport width. */
   async function openAgentsAt(width: number, payload: Fleet = fleet()): Promise<Page> {
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     await page.setViewportSize({ width, height: 900 });
     await page.route('**/api/fleet', (route) =>
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    await page.goto(`${cat.mock.baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
@@ -3726,12 +3638,19 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // A stale link, or a plan since delivered out of the filtered set. An empty
     // filtered column would read as "this story has no plans", which is a
     // different and false statement.
-    const page = await browser.newPage();
+    // A BOARD OF PLANS, one card per phase — the claim is that the filter takes
+    // nothing away, so what matters is that there is a countable set of cards
+    // and that all of them survive. The count is read from the payload rather
+    // than written down, because a fixed number is a second fact to maintain and
+    // this test is not about how many plans a board has.
+    const expected = scenario('a-board-of-plans').board.columns
+      .reduce((n, c) => n + c.cards.length, 0);
+    const page = await cat.open('a-board-of-plans');
     try {
-      await page.goto(`${baseURL}?plan=no-such-plan`);
-      await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+      await page.goto(`${cat.mock.baseURL}?plan=no-such-plan`);
+      await page.locator('article').first().waitFor({ timeout: 10_000 });
       // Every card the board has, exactly as with no parameter at all.
-      expect(await page.locator('article').count()).toBe(8);
+      await expect.poll(() => page.locator('article').count()).toBe(expected);
       expect(await page.locator('article[data-highlighted="true"]').count()).toBe(0);
     } finally {
       await page.close();
@@ -3936,7 +3855,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   // A shrink payload, so a scan that exited 0 and lost work is one of the
   // statuses without needing the network fail-switch.
-  const SHRINK = { plans: ['c.md'], branches: ['bug/gone'], previousAt: '2026-08-20T00:00:00.000Z' };
+  // `previousAt` is EPOCH MS, which is what `pulseLoss` produces and what
+  // `PulseShrinkSchema` requires. This fixture carried the ISO string until the
+  // builders were reconciled: the old local `fleet()` cast rather than parsed,
+  // so five tests asserted against a shrink payload the server cannot send.
+  const SHRINK = {
+    plans: ['c.md'], branches: ['bug/gone'],
+    previousAt: Date.parse('2026-08-20T00:00:00.000Z'),
+  };
 
   it('gathers two conditions into ONE panel, not a frame each', async () => {
     // The defect the panel removes: two independent failures used to stack as
