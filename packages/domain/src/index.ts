@@ -24,8 +24,12 @@ export * from './entities/story.js';
 export * from './entities/sprint.js';
 export * from './entities/issue.js';
 export * from './entities/wave.js';
+export * from './entities/finding.js';
+export * from './entities/subscription.js';
+export * from './entities/channel-message.js';
 export * from './rules/deliverable.js';
 export * from './rules/reapable.js';
+export * from './rules/channel.js';
 export * from './rules/verdict.js';
 /**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
