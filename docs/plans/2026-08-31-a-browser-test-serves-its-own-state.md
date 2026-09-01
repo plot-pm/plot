@@ -197,11 +197,11 @@ sits on and not by arithmetic on a stale figure.
 
 ### Deciding
 
-- `infra/the-gate-verifies-what-a-test-declares` — settle the two mechanisms the Survey's table implies, as a small code change: the declare-then-verify marker above, and whether the count assertion survives a file moving between directories. Separate from the Survey because a decision hidden inside a read-only report is one nobody reviewed; separate from Closing because the later slices move files and need the answer first.
+- `infra/the-gate-verifies-what-a-test-declares` — settle the two mechanisms the Survey's table implies, as a small code change: the declare-then-verify marker above, and whether the count assertion survives a file moving between directories. Separate from the Survey because a decision hidden inside a read-only report is one nobody reviewed; separate from Closing because the later slices move files and need the answer first. → #576
 
 ### Naming
 
-- `infra/the-catalogue-names-the-states-the-suite-needs` — add the scenarios the classification calls for, each with a name that says what state it is. No file moves; the deliverable is a catalogue that can express the suite.
+- `infra/the-catalogue-names-the-states-the-suite-needs` — add the scenarios the classification calls for, each with a name that says what state it is. No file moves; the deliverable is a catalogue that can express the suite. → #582
 
 ### Moving the plans
 
@@ -228,15 +228,46 @@ sits on and not by arithmetic on a stale figure.
 
 ### Moving the agents
 
-- `infra/the-agents-tab-tests-serve-their-own-state` — the fleet-side files, excluding `agents-tab` itself. `/api/fleet` carries rows, waves, agents and summary, so this is where the scenarios are exercised hardest.
+- `infra/the-agents-tab-tests-serve-their-own-state` — the fleet-side files, excluding `agents-tab` itself. `/api/fleet` carries rows, waves, agents and summary, so this is where the scenarios are exercised hardest. → #591
 
 ### The big one
 
-- `infra/the-agents-tab-test-serves-its-own-state` — `agents-tab.browser.test.ts` alone, 117 tests, on a catalogue proven by everything above.
+- `infra/the-agents-tab-test-serves-its-own-state` — `agents-tab.browser.test.ts` alone, 117 tests, on a catalogue proven by everything above. → #592
+
+### The last two
+
+- `infra/the-last-two-browser-tests-serve-their-own-state` — teach the mock to serve a document, and migrate `story-overlay`. → #593
+- `infra/the-last-file-serves-its-own-state` — `tiny-garden`, twelve of thirteen tests, plus the entitlement the thirteenth declares. → #594
+
+  **A wave this plan did not name, added while running.** The Survey judged both
+  files un-migratable and *"Moving the plans"* above records the reason: they
+  read the `/plan/<file>` and `/story/<slug>` DOCUMENT routes, which *"the mock
+  does not serve and cannot without reading a fixture repo — `renderPlanPage`
+  takes a `repoRoot`."*
+
+  That reasoning was wrong, and the correction is the wave. A document is a
+  **fetch**: `DocModal` requests `<href>?embed=1` and injects the response as
+  the iframe's `srcDoc`, so the mock needed an answer rather than a repository.
+  `serveDoc` supplies it, and its 404 is as much of the feature as its 200 — a
+  plan whose story nobody has written is a state `story-overlay` asserts on, and
+  a mock inventing an empty document would make that state unstatable.
+
+  `tiny-garden` then split rather than migrating whole, and the split is the
+  finding: its subject is an estate, which was true of exactly ONE of its
+  thirteen tests. `a-whole-small-estate` states the eight cards and four sprints
+  the other twelve count, because a count is a fact about a population and a
+  population read from a directory is one nobody stated. The thirteenth opens
+  the plan page in a new tab and asserts the `plan-back` titlebar
+  `renderPlanPage` adds only when `embed` is false — that flag IS the assertion,
+  so a mock serving a handed-over document can fail neither direction.
+
+  Both branches are recorded here because the delivery gate reads branch lines,
+  and work behind an unnamed branch is work it cannot check — the same reason
+  *"Moving the plans"* records its own split.
 
 ### Closing
 
-- `infra/every-browser-test-serves-its-own-state` — extend the gate from *"a fully-stubbed file must not start a board"* to *"only the classified exceptions may"*, with the exception list derived from the Sorting slice rather than hand-maintained.
+- `infra/every-browser-test-serves-its-own-state` — extend the gate from *"a fully-stubbed file must not start a board"* to *"only the classified exceptions may"*, with the exception list derived from the Sorting slice rather than hand-maintained. → #595
 
 ## Done when
 
