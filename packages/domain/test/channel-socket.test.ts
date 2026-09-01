@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { startChannel, type RunningChannel } from '../src/adapters/channel/channel-socket.js';
-import { decode, encode, type ChannelMessage } from '../src/entities/channel-message.js';
+import { decode, type ChannelMessage } from '../src/entities/channel-message.js';
 import type { Finding } from '../src/entities/finding.js';
 
 /**
@@ -33,6 +33,18 @@ const finding = (over: Partial<Finding> = {}): Finding => ({
   measuredAt: '2026-08-31T10:00:00Z',
   ...over,
 });
+
+/**
+ * One publish line, as a monitor writes it.
+ *
+ * NOT `encode`, and the difference is the protocol rather than a convenience.
+ * `ChannelMessage` is what the channel SENDS; `publish` is what a monitor says
+ * to it, parsed from raw JSON by `isPublish` and never modelled as a message.
+ * Casting one to the other typechecks locally under vitest, which transpiles
+ * without checking, and fails `tsc --noEmit` — measured 2026-09-01.
+ */
+const publishLine = (f: Finding): string =>
+  `${JSON.stringify({ type: 'publish', finding: f })}\n`;
 
 /** A client that collects whole messages, so a test never races a partial line. */
 const peer = (address: string) => {
@@ -94,7 +106,7 @@ describe('the channel socket — the boundary, not the protocol', () => {
     channel = await startChannel({ address: addressIn() });
     const monitor = peer(channel.address);
     await monitor.ready;
-    monitor.say(encode({ type: 'publish', finding: finding() } as ChannelMessage));
+    monitor.say(publishLine(finding()));
 
     for (let tries = 0; tries < 200 && channel.findings().length === 0; tries += 1) {
       await new Promise((r) => setTimeout(r, 10));
@@ -113,7 +125,7 @@ describe('the channel socket — the boundary, not the protocol', () => {
 
     const monitor = peer(channel.address);
     await monitor.ready;
-    monitor.say(encode({ type: 'publish', finding: finding() } as ChannelMessage));
+    monitor.say(publishLine(finding()));
 
     const delivered = await board.nth(2);
     expect(delivered.type).toBe('finding');
