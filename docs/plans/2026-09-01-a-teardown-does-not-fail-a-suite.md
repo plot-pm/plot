@@ -214,6 +214,34 @@ be writing to, and they would keep failing after the helper was fixed.
   proving `cleanup()` itself survives a regrowing directory.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm build:board`, changeset.
 
+## The corpus tier has the same shape of problem, and it is not this plan's
+
+**Measured 2026-09-01.** `refs.corpus.test.ts` compares the adapter's pulse
+against `plot-fleet-scan.sh` over the LIVE estate, and both readings fetch. It
+pins `origin/HEAD` for exactly this reason, and the pin covers the default
+branch only:
+
+    branch pushed          07:03:19 UTC
+    582's corpus ran       07:03:05 → 07:03:47 UTC
+
+A push landed **14 seconds into the run**, so `changed_paths` for
+`infra/only-an-adapter-reaches-a-script` disagreed by one file — the adapter
+read the branch before the push, the scan after. The same tree passed 13/13
+locally minutes later.
+
+The file's own docblock already records two earlier instances (`conflicts` on
+2026-08-31, `read_ref` on 2026-09-01) and the fix that did not work
+(`--no-fetch`, which gave the two readings different worlds rather than one).
+The pin freezes `origin/main`; **a feature ref the comparison touches is not
+frozen at all**, and a fleet pushing continuously will keep splitting it.
+
+**Not fixed here, and not by excluding the field.** `changed_paths` is a real
+reading and dropping it weakens the tier. Pinning every ref the comparison
+resolves — or resolving the branch list once and pinning each — is a design
+question with the same shape as this plan's subject: a green suite that a
+concurrent writer can turn red. It belongs in its own plan, and this section
+exists so the measurement is not lost.
+
 ## Notes
 
 **This is a plan about a helper being unused, not about a bug being unknown.**
