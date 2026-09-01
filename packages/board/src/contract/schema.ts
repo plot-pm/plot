@@ -1055,36 +1055,11 @@ export type Board = z.infer<typeof BoardSchema>;
  * can drift, and so the seam is already in place the day a phase forks on
  * `started` again. Callers pass the real value; this function ignores it.
  */
-export function toBoardPhase(helperPhase: string, _started = false): Phase | null {
-  switch (helperPhase) {
-    case 'draft':
-      // Draft IS discovery: a plan under review is the investigation deciding
-      // whether there is a commitment at all, and approval is the moment that
-      // investigation ends. Mapping it to Design put unfinished designs beside
-      // finished ones and left Discovery a column nothing could ever reach.
-      return 'Discovery';
-    case 'design':
-      // Design is now a phase Plot has, not a state the board infers. A plan
-      // enters it when it is written but a question stands that approval cannot
-      // answer — a spike, a tracer bullet, a spec completed against reality —
-      // and leaves toward Approved when the answer holds or back to Draft when
-      // it does not. Human-led work someone performs, not the absence of work.
-      return 'Design';
-    case 'approved':
-      // Approved is Development, whether or not a branch has started. An
-      // approved-but-unstarted plan is work waiting for an agent — it belongs
-      // in Development beside the Start button that offers it, not in Design,
-      // whose name means the approach is still open. This is the fork the board
-      // used to manufacture the Design column with; removing it is the change.
-      return 'Development';
-    case 'delivered':
-      return 'Testing';
-    case 'released':
-      return 'Released';
-    default:
-      return null;
-  }
-}
+// THE PHASE MAPPING IS A DOMAIN RULE, RE-EXPORTED HERE. A phase is a rule about
+// a Plan; this file is the contract the view reads. Moved to
+// `packages/domain/src/rules/phase.ts` — see that file for the argument.
+export { toBoardPhase } from '@plot-pm/domain';
+
 
 // --- Fleet: what agents are doing, and what they wait for -------------------
 //

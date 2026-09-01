@@ -21,7 +21,11 @@ import {
   type FleetPulse,
   type PlanMeta,
   type WaveSummary } from '../contract/schema.js';
-import { allSlicesMerged, type Refs } from '@plot-pm/domain';
+import {
+  allSlicesMerged,
+  planStatus as decidePlanStatus,
+  type Refs,
+} from '@plot-pm/domain';
 import { refsGit } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
@@ -812,33 +816,32 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetPulse | null): boolean {
  * path, not an error, and the reason this reads the channel rather than probing
  * for a PR that a whole class of plans never has.
  */
+/**
+ * A plan's status, gathered from the estate and decided in the domain.
+ *
+ * THE READINGS ARE TAKEN HERE, THE DECISION IS NOT. `planStatus` in
+ * `packages/domain/src/rules/phase.ts` takes values and returns a status; this
+ * runs the two pulse queries it needs and hands them over. That split is why
+ * the rule is testable without a `FleetPulse` and why this function has nothing
+ * left to get wrong except which pulse it read.
+ *
+ * `anyBranchClaimed` stays here rather than moving with the rule: it is a
+ * lookup into a payload, not a judgement about a Plan.
+ */
 export function planStatus(
   meta: PlanMeta,
   pulse: FleetPulse | null,
   complete: boolean,
 ): PlanStatus {
-  switch (meta.phase) {
-    case 'released':
-      return 'released';
-    case 'delivered':
-      return 'delivered';
-    case 'approved':
-      // `unknown` is not `deliverable` and not a reason to call the plan
-      // in-progress either — it is the scan having said nothing. The card falls
-      // through to the claim/`Started:` reading below, which is a fact about the
-      // plan FILE and survives a partial pulse; a plan the scan never reached
-      // keeps whatever those say rather than being told its work is unfinished.
-      if (allSlicesMerged(meta, pulse, complete) === 'merged') return 'deliverable';
-      if (meta.started_raw.length > 0 || anyBranchClaimed(meta, pulse)) return 'in-progress';
-      return 'approved';
-    default:
-      // Draft, Design, and anything the mapper does not advance past the
-      // draft side. `open` is the plan's own PR being up — `Review: pr` — and
-      // everything else is `draft`. An in-session plan has no plan PR, so it is
-      // `draft` here and `approved` above, never `open` between them.
-      return meta.review === 'pr' ? 'open' : 'draft';
-  }
+  return decidePlanStatus({
+    phase: meta.phase,
+    review: meta.review,
+    started: meta.started_raw.length > 0,
+    landed: allSlicesMerged(meta, pulse, complete),
+    anyClaimed: anyBranchClaimed(meta, pulse),
+  });
 }
+
 
 /**
  * Where this plan's branches are checked out on THIS machine, from the pulse.
