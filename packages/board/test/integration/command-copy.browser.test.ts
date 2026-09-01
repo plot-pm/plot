@@ -22,8 +22,8 @@
 // asserted against a known input. That the SERVER assembles this panel from a
 // worktree is `test/agent-panel.test.mjs`'s assertion, not this one.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { chromium, type Browser, type Page } from 'playwright';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type Page } from 'playwright';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -143,46 +143,28 @@ async function boxOf(page: Page, selector: string) {
 }
 
 describe('the command can be read in full: one line, then the whole thing, copied exactly', () => {
-  let browser: Browser;
-  let server: ChildProcess;
-  let baseURL: string;
-  let tmp: string;
+  // THE STATE IS SERVED. This spawned `board-server.mjs` by hand over an EMPTY
+  // temp dir and scraped a port out of its stdout — all to serve `index.html`,
+  // since every payload the test reads is routed below. The mock serves the
+  // same built client, so the spawn, the temp dir and the stdout parsing go.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-cmd-ui-'));
-    fs.mkdirSync(path.join(tmp, 'docs/plans'), { recursive: true });
-    browser = await chromium.launch();
-    server = spawn('node', [ARTIFACT], {
-      cwd: tmp,
-      env: { ...process.env, PORT: '0', PLOT_REPO_ROOT: tmp, PLOT_EXIT_WITH_PARENT: '1' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    baseURL = await new Promise((resolve, reject) => {
-      let out = '';
-      const timer = setTimeout(() => reject(new Error('server did not start')), 10_000);
-      server.stdout!.on('data', (c) => {
-        out += String(c);
-        const m = /http:\/\/localhost:(\d+)/.exec(out);
-        if (m) {
-          clearTimeout(timer);
-          resolve(`http://localhost:${m[1]}`);
-        }
-      });
-    });
-  }, 40_000);
+    cat = await openCatalogue();
+  }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill('SIGTERM');
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    await cat?.close();
   });
 
   // The Agents tab with a canned fleet, a canned panel, and an empty log — the
   // log's content is another wave's concern. Clipboard permission is granted so
   // the Copy assertion can read back what was written.
   async function openPanel(): Promise<Page> {
-    const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
-    const page = await context.newPage();
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     await page.route('**/api/fleet', (r) =>
       r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet([row()])) }));
     await page.route('**/api/agent-panel*', (r) =>
@@ -192,7 +174,6 @@ describe('the command can be read in full: one line, then the whole thing, copie
         ok: true, branch: BRANCH, path: '/tmp/wt/.plot-worker.log',
         text: '', bytes: 0, truncated: false, modifiedAt: new Date().toISOString(),
       }) }));
-    await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     await page.locator('[data-row-actions]').first().click();
@@ -334,8 +315,10 @@ describe('the command can be read in full: one line, then the whole thing, copie
     // `command: ""` is the shape a fleet with no `Worker command` takes. The
     // omission rule holds: no preview, no Show more, no Copy — there is nothing
     // to read.
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    // A PAGE OF ITS OWN, because this test serves a DIFFERENT panel — one whose
+    // `command` is empty. The routes are registered before the navigation, so
+    // the page's first load already sees them.
+    const page = await cat.browser.newPage();
     try {
       await page.route('**/api/fleet', (r) =>
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet([row()])) }));
@@ -346,7 +329,7 @@ describe('the command can be read in full: one line, then the whole thing, copie
           ok: true, branch: BRANCH, path: '/tmp/wt/.plot-worker.log',
           text: '', bytes: 0, truncated: false, modifiedAt: new Date().toISOString(),
         }) }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await page.locator('[data-row-actions]').first().click();
@@ -354,7 +337,7 @@ describe('the command can be read in full: one line, then the whole thing, copie
       await page.locator('[data-worker-log]').waitFor({ timeout: 5_000 });
       expect(await page.locator('[data-command-fact]').count()).toBe(0);
     } finally {
-      await context.close();
+      await page.close();
     }
   });
 });
