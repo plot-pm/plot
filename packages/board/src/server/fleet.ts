@@ -44,6 +44,7 @@ import type { RegistryInfo } from './registry.js';
 import type { AgentEntry } from './registry.js';
 import { workerQuestions } from './worker-question.js';
 import { briefPath as briefPathOf } from './brief-path.js';
+import { findingsFor } from './findings.js';
 
 /**
  * How long a branch may sit without a commit before it reads as quiet rather
@@ -5138,6 +5139,19 @@ export function rowsFromPulse(
           // one. Same argument the wave verdict settled by computing at one
           // exit.
           processes: machineProcesses(b.worker, b.worker_pid, pr),
+          // WHAT THE MONITORS FOUND, forwarded onto the row exactly as
+          // `worker` above is. Read from the desk the finding was written on —
+          // `b.local_worktree` — so a branch checked out nowhere here reports
+          // [] and claims nothing about a machine it cannot see.
+          //
+          // READ HERE RATHER THAN THREADED AS A MAP, the choice `briefState` a
+          // few lines up makes and for its reason: this is a `readFileSync`
+          // per watched worktree, not a subprocess, and the freshness is the
+          // point. An `owes a review` entry must disappear on the pulse after
+          // the PR is opened — the monitor publishes `clear` and the next read
+          // sees it — where a map built on the scan's clock would hold the
+          // stale debt for as long as the scan's cadence.
+          findings: findingsFor(b.local_worktree, b.branch),
         });
       }
     }
@@ -5359,6 +5373,10 @@ export function rowsFromPulse(
       // host is still a machine working and still belongs in the section, which
       // is the entry it does produce.
       processes: machineProcesses('elsewhere', '', pr),
+      // NO DESK WAS READ, so no monitor can have found anything about this
+      // branch here. [] is *nothing was looked for*, which is exactly true —
+      // this row is built from the PR map and no worktree was inspected for it.
+      findings: [],
     });
   }
 
@@ -5516,6 +5534,10 @@ export function rowsFromPulse(
       // `elsewhere` says the local side was never looked at, and a null PR
       // supplies no pending check. An empty list is what both facts add up to.
       processes: machineProcesses('elsewhere', '', null),
+      // NO DESK WAS READ — see the row above. This branch reached the board
+      // from the ref list, not from a worktree, so nothing looked for a
+      // monitor's log and [] claims nothing about one.
+      findings: [],
     });
     // Guards the ONE-ROW-PER-BRANCH rule against the set itself: a duplicate ref
     // name cannot produce a second row. `unmerged` is a Set so this cannot fire

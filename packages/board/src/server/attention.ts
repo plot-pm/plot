@@ -32,11 +32,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  findingReading,
+  monitorSubject,
   type AgentRow,
   type Attention,
   type AttentionItem,
   type AttentionVerdict,
   type Claimable,
+  type Finding,
 } from '../contract/index.js';
 import { type BuildBoardOptions } from './board.js';
 import { buildFleet } from './fleet.js';
@@ -319,6 +322,76 @@ export function isClaimable(row: AgentRow): boolean {
 }
 
 /**
+ * The entries one row's monitor findings produce.
+ *
+ * A SECOND SOURCE OF VERDICTS, BESIDE `readingFor` AND NEVER INSTEAD OF IT.
+ * That function renames what the SCAN reports about a row; this renames what a
+ * MONITOR published about the same branch, and the two answer different
+ * questions. `owes a review` is the case that forced the split: its row reads
+ * `finished` or `none` on `worker` and carries no PR, which is exactly the
+ * shape of a branch nobody has started — so the scan alone could not report it,
+ * and finished work sat invisible twice in one session.
+ *
+ * SO A ROW CAN PRODUCE BOTH, and that is correct rather than duplication. A
+ * stalled worker on a desk that also owes an answer is two facts about one
+ * branch, measured by two components on two cadences, and each names a
+ * different move. Collapsing them would make the reader pick one without being
+ * told the other existed.
+ *
+ * THE ENTRY SAYS WHICH MONITOR SPOKE. `monitor` is the value a caller branches
+ * on and `subject` is the phrase it shows a person — the same split `verdict`
+ * and `action` already make, for the same reason: a rewording must never change
+ * a consumer's behaviour.
+ *
+ * NOTHING CLEARS AN ENTRY. A finding that stopped holding is absent from
+ * `row.findings`, because the monitor published `clear` and the domain's
+ * `currentFindings` dropped it — so the entry disappears by not being derived
+ * again. There is no event, no acknowledgement and no state here to go stale.
+ */
+export function findingItems(row: AgentRow): { item: AttentionItem; list: Reading['list'] }[] {
+  const out: { item: AttentionItem; list: Reading['list'] }[] = [];
+  for (const finding of row.findings) {
+    const reading = findingReading(finding.finding);
+    if (!reading) continue;
+    out.push({
+      item: {
+        branch: row.branch,
+        verdict: reading.verdict,
+        action: reading.action,
+        // THE MONITOR'S OWN EVIDENCE, verbatim — the CPU delta, the missing
+        // PR, the marker path. The audit rule this endpoint rests on is
+        // unchanged: a verdict names the measurement it came from, and here
+        // the measurement was taken by the monitor rather than read off a row.
+        evidence: finding.evidence,
+        pr: row.pr?.number ?? null,
+        planFile: row.planFile,
+        note: row.note,
+        monitor: finding.monitor,
+        subject: monitorSubject(finding.monitor),
+        // HOW LONG NOBODY NOTICED. The AgentMonitor samples every five minutes
+        // and publishes only on change, so `since` is the field that separates
+        // a debt first seen at the last pass from one that has held for an
+        // hour.
+        since: finding.since,
+      },
+      list: reading.list,
+    });
+  }
+  return out;
+}
+
+/**
+ * Every finding on a row, whatever it asks — for a caller reading state rather
+ * than errands.
+ *
+ * Exported for test: the assertion that `build passed` reaches the ROW and
+ * earns no ENTRY needs both halves visible, and they are different claims.
+ */
+export function findingsOn(row: AgentRow): readonly Finding[] {
+  return row.findings;
+}
+
+/**
  * What needs attention right now, from one cached scan.
  *
  * NO SCAN OF ITS OWN. This reads `buildFleet`, which reads a cache a timer
@@ -353,6 +426,17 @@ export async function buildAttention(opts: BuildBoardOptions): Promise<Attention
       continue;
     }
 
+    // THE MONITORS' FINDINGS FIRST, and they are additive: a row can produce a
+    // finding entry AND a scan entry, because two components measured two
+    // different things about it. The claimable arm above is the only `continue`
+    // — a branch nobody has taken has no monitor and no worker by
+    // construction.
+    for (const { item, list } of findingItems(row)) {
+      if (list === 'needsAgent') needsAgent.push(item);
+      else if (list === 'waiting') waiting.push(item);
+      else needsHuman.push(item);
+    }
+
     const reading = readingFor(row);
     if (!reading) continue;
 
@@ -367,6 +451,12 @@ export async function buildAttention(opts: BuildBoardOptions): Promise<Attention
       // verdict, and free — it is already on the row. Never parsed, by anyone:
       // `verdict` is the value a caller branches on.
       note: row.note,
+      // NULL, AND NOT "NO MONITOR". This verdict was read off a row field the
+      // scan produced; naming a monitor for it would claim a reading nobody
+      // took.
+      monitor: null,
+      subject: '',
+      since: '',
     };
 
     if (reading.list === 'needsAgent') needsAgent.push(item);

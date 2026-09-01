@@ -5,7 +5,9 @@ import {
   WorkerStateSchema,
   WorkerActivitySchema,
   PlanSchema,
+  FindingSchema,
   FleetReadingSchema,
+  MonitorNameSchema,
 } from '@plot-pm/domain';
 
 /**
@@ -1544,6 +1546,20 @@ export type {
 } from "@plot-pm/domain";
 
 /**
+ * THE MONITORS' VOCABULARY — what the three monitors publish, re-exported here
+ * for the same reason the pulse schemas are: a consumer reading a row's
+ * `findings` needs the shape, and every board import path stays as it was.
+ */
+export { FindingSchema, MonitorNameSchema };
+export { FindingNameSchema, currentFindings, findingReading, isErrand, monitorSubject } from "@plot-pm/domain";
+export type { FindingReading, FindingVerdict } from "@plot-pm/domain";
+export type {
+  Finding,
+  FindingName,
+  MonitorName,
+} from "@plot-pm/domain";
+
+/**
  * THE SLICE ENTITY — a Slice belongs to one plan, a Wave is the fleet's cohort
  * and is persisted nowhere (`DESIGN-slice.md`).
  *
@@ -2654,6 +2670,36 @@ export const AgentRowSchema = z.object({
    * nothing was looked for.
    */
   processes: z.array(MachineProcessSchema).default([]),
+  /**
+   * What the three monitors currently find about this branch — [] when they
+   * find nothing, and when no monitor has ever run.
+   *
+   * FORWARDED ONTO THE ROW UNCHANGED, the rule `worker` and `worker_activity`
+   * already follow. A monitor measured it; this carries that reading outward
+   * and forms no second opinion about it. The `evidence` string a monitor
+   * publishes travels with the finding, so a verdict derived from it stays
+   * auditable in the same way `AttentionItem.evidence` is.
+   *
+   * THE ROW IS WHERE THEY HAVE TO ARRIVE, and that is what makes this a field
+   * rather than a protocol. `/api/attention` derives from `AgentRow` —
+   * `readingFor(row)` takes a row — so a finding that reached the board and not
+   * the row would be a finding nothing could act on.
+   *
+   * CURRENT STATE, NOT HISTORY. At most one finding per monitor per branch: a
+   * second reading REPLACES the first, and a `clear` removes it entirely rather
+   * than adding an entry saying nothing is wrong. `currentFindings` in the
+   * domain is the one place that reduction happens.
+   *
+   * EMPTY MEANS *NOTHING FOUND*, which includes *nothing looked*. A branch with
+   * no dispatched worktree has no monitor and reports [] exactly as a healthy
+   * watched branch does — the same absent-is-not-false shape `processes` has,
+   * and the reason a finding carries its own `measuredAt`.
+   *
+   * Defaults to [] so a client talking to an older server still validates, and
+   * because [] is the honest reading of a payload that predates the monitors:
+   * nothing was looked for.
+   */
+  findings: z.array(FindingSchema).default([]),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 
@@ -3497,6 +3543,30 @@ export const AttentionVerdictSchema = z.enum([
   'review',
   'unpushed',
   'eligible',
+  // ---------------------------------------------------------------------
+  // THE MONITORS' VERDICTS — read from a finding rather than from a row field
+  // ---------------------------------------------------------------------
+  //
+  // The nine above rename something the SCAN reports. These nine rename
+  // something a MONITOR published, and they are separate values rather than a
+  // mapping onto the first nine because the two say different things about the
+  // same branch. `owes-review` is the case in point: its row reads `finished`
+  // or `none` on `worker` and carries no PR — indistinguishable from a branch
+  // nobody has started, which is exactly why the scan alone could not report
+  // it, and why finished work sat invisible twice in one session.
+  //
+  // The `evidence` rule holds unchanged. A monitor publishes its own evidence
+  // string — the CPU delta, the missing PR, the marker path — and it travels
+  // onto the entry, so a verdict here is as auditable as one read off a row.
+  'idle',
+  'gone',
+  'owes-review',
+  'owes-answer',
+  'owes-gate',
+  'unlanded',
+  'build-failed',
+  'build-approval',
+  'head-moved',
 ]);
 export type AttentionVerdict = z.infer<typeof AttentionVerdictSchema>;
 
@@ -3541,6 +3611,38 @@ export const AttentionItemSchema = z.object({
   planFile: z.string().default(''),
   /** The row's own note, verbatim — the fuller sentence the board renders. */
   note: z.string().default(''),
+  /**
+   * Which monitor found this, or null where the verdict was read off the row.
+   *
+   * AN ENTRY MUST SAY WHICH MONITOR SPOKE. A WorkerMonitor `idle` and an
+   * AgentMonitor finding call for different responses — one is a process to
+   * look at, the other a debt to discharge — and an entry that flattened them
+   * would make every reader re-derive which, from the verdict, by hand.
+   *
+   * NULL IS NOT "NO MONITOR", it is *this verdict did not come from one*. The
+   * nine scan-derived verdicts are read from row fields the fleet scan
+   * produces, and naming a monitor for them would claim a reading nobody took.
+   */
+  monitor: MonitorNameSchema.nullable().default(null),
+  /**
+   * Which subject the monitor was watching — *the process*, *the desk*, *the
+   * run* — or "" where no monitor found it.
+   *
+   * PROSE BESIDE THE VALUE, the split `action` and `verdict` already make.
+   * `monitor` is what a caller branches on; this is the phrase it shows a
+   * person, so a rewording never changes a consumer's behaviour.
+   */
+  subject: z.string().default(''),
+  /**
+   * When this finding first held, ISO-8601, or "" where it came from a row.
+   *
+   * A MONITOR'S FINDING HAS AN AGE THE ROW CANNOT GIVE IT. The AgentMonitor
+   * samples every five minutes and publishes only on change, so a debt held for
+   * an hour and one first seen at the last pass carry the same `measuredAt` and
+   * very different `since`. On a slow cadence this is the field that says how
+   * long nobody noticed.
+   */
+  since: z.string().default(''),
 });
 export type AttentionItem = z.infer<typeof AttentionItemSchema>;
 
