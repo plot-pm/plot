@@ -22,6 +22,7 @@
 - **Started:** 2026-08-31, Jan Wloka, `feature/the-build-monitor-follows-the-run`
 - **Started:** 2026-08-31, Jan Wloka, `feature/the-channel-carries-the-findings`
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-findings-reach-attention`
+- **Started:** 2026-09-01, Jan Wloka, `feature/a-report-can-open-the-pr`
 
 ## Approval
 
