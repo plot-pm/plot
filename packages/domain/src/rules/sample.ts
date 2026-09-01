@@ -30,8 +30,8 @@ export type CommitReading = 'yes' | 'no' | 'unanswerable';
  *
  * The fingerprint is a cheap stand-in for "the tree as it is right now",
  * compared between passes. It is composed from `Refs.resolve('HEAD')` and
- * `Trees.markers`, so it goes through the same prefix filter the shell applies:
- * a fingerprint over a raw status would see the monitor's own findings file
+ * `Trees.dirtyPaths`, which applies the exclusions the shell applies: a
+ * fingerprint over a raw status would see the monitor's own findings file
  * appear, and `idle` could never hold across two passes.
  */
 export interface MonitorReading {

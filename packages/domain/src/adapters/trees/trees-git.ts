@@ -2,7 +2,7 @@ import type { Worktree } from '../../entities/worktree.js';
 import { answered, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
 import { asLines, asText, runProcess, runScript } from '../run-script.js';
-import type { ShellContext } from '../scripts.js';
+import { scriptPath, type ShellContext } from '../scripts.js';
 
 /**
  * Reads `git worktree list --porcelain` into worktrees.
@@ -54,6 +54,7 @@ const worktreesOf = (stdout: string): Worktree[] => {
  */
 export const treesGit = (context: ShellContext): Trees => {
   const inRepo = { cwd: context.repoRoot };
+  const workerState = scriptPath(context, 'plot-worker-state.sh');
 
   const isClean = async (path: string): Promise<PortResult<boolean>> => {
     const run = await runProcess('git', ['-C', path, 'status', '--porcelain'], inRepo);
@@ -83,6 +84,20 @@ export const treesGit = (context: ShellContext): Trees => {
       runScript(
         'bash',
         ['-c', 'ls -1 "$1" 2>/dev/null | grep "^$2" || true', 'bash', path, prefix],
+        asLines,
+        inRepo,
+      ),
+
+    // `plot_worker_dirty` is SOURCED and called, never reimplemented here. The
+    // three exclusion patterns it applies are stated once in
+    // `plot-worker-state.sh`, where `plot-fleet-scan.sh` and
+    // `plot-worker-monitor.sh` already read them; a second copy in TypeScript
+    // is a second thing to keep in step, and the drift would show up as a
+    // monitor that reads its own findings file as the agent working.
+    dirtyPaths: (path) =>
+      runScript(
+        'bash',
+        ['-c', '. "$1" && plot_worker_dirty "$2"', 'bash', workerState, path],
         asLines,
         inRepo,
       ),
