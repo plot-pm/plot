@@ -225,6 +225,70 @@ worth knowing before reading it as a regression.
 - The static-git and config caches are **deleted**, and their tests with them.
 - `pnpm run test:board`, `pnpm run typecheck`, `pnpm build:board`, changeset.
 
+## The measurement after
+
+**Measured 2026-09-01 with `sample <pid> 5`, on the board serving this
+repository's own estate under continuous `/api/board` + `/api/fleet` load.**
+The same instrument as the Motivation's reading, on the same kind of target,
+which is what makes the two comparable at all.
+
+| main thread, samples under | before | after |
+|---|---|---|
+| **`node::SyncProcessRunner::Spawn`** | **4258 of 4262** | **0 of 4012** |
+| `node::ProcessWrap::Spawn` (`uv_spawn`, asynchronous) | — | 139 |
+
+**The first `Done when` is met, and the second row is why rather than an
+aside.** The board still spawns roughly as many processes; they are simply on
+the asynchronous path now, where `uv_spawn` hands the work to libuv and the
+loop keeps serving. The migration moved the calls, it did not remove them —
+which is precisely what the plan asked for.
+
+### The request profile, before and after
+
+Stated as the profile rather than as a win, because the two differ:
+
+| | before (2026-08-31) | after (2026-09-01) |
+|---|---|---|
+| `/api/board`, warm | ~770 ms | 429–616 ms |
+| `/api/fleet`, warm | — | 444–531 ms |
+| `/`, idle | — | 2–3 ms |
+| **`/` while both read routes are in flight** | **timed out at 15 000 ms** | **3–28 ms** |
+
+**The board did not get much faster, and the last row is the whole change.**
+`/api/board` moved from ~770 ms to ~450–500 ms, and that is not this slice's
+claim: the caches shipped on 2026-08-31 account for most of it, contention
+moves a number like this either way, and the plan's third Open Question says
+plainly that async makes the board RESPONSIVE at the same latency. Whether
+~500 ms per request is acceptable is still a separate question this plan does
+not answer.
+
+What changed by three orders of magnitude is what a *second* request costs
+while the first is running: a static file went from timing out at 15 s to
+answering in single-digit milliseconds. That was always the defect.
+
+### A finding: the read path still blocks, on the filesystem rather than on a spawn
+
+**Not fixed here — the Proving slice is the gate and the report.** With the
+spawns gone, the top of the main-thread profile is `buildBoard`'s plan staging:
+
+| main thread, samples under | of 4012 |
+|---|---|
+| `node::fs::WriteFileUtf8` | 449 |
+| `node::fs::RmSync` (recursive `remove_all` → `unlinkat`) | 445 |
+| `node::fs::MKDirpSync` | 218 |
+
+`board.ts:1577-1637` writes each branch-sourced plan into a per-plan temp
+directory so `plot-plan-meta.sh` can parse it, then `fs.rmSync(stageDir,
+{ recursive: true })` in a `finally`. All three calls are synchronous, all
+three run per `/api/board`, and together they are ~28 % of the main thread —
+which is what the 25–28 ms spikes in the last table's final row are.
+
+This is the same defect class the plan names and a different instance of it:
+a synchronous call on the request thread. It is a smaller one — 28 ms against
+15 000 ms, because a directory unlink is not a process launch — and the fix is
+its own change (`fs.promises`, or staging once per scan rather than per
+request), so it is recorded here rather than slipped into a gate's slice.
+
 ## Notes
 
 **This is the read half of `feature/one-place-reaches-a-process`.** That slice
