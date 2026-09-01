@@ -1,0 +1,1 @@
+../2026-08-30-the-board-decides-nothing.md

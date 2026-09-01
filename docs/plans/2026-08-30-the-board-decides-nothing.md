@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
@@ -14,7 +14,7 @@
 - **Started:** 2026-09-01, Jan Wloka, `feature/a-verdict-is-a-domain-rule`
 - **Started:** 2026-09-01, Jan Wloka, `feature/a-phase-is-a-domain-rule`
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-pulse-derives-in-the-domain`
-- **Delivered:** <!-- YYYY-MM-DD -->
+- **Delivered:** 2026-09-01
 - **Released:** <!-- YYYY-MM-DD, version -->
 
 ## Changelog
