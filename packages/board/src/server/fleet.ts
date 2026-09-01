@@ -919,16 +919,6 @@ export function partialSummary(plans: FleetPulse['plans']): FleetPulse['summary'
   };
 }
 
-/** Every branch name in a pulse, across all plans and waves. */
-function branchNames(pulse: FleetPulse): Set<string> {
-  const names = new Set<string>();
-  for (const plan of pulse.plans) {
-    for (const wave of plan.slices) {
-      for (const b of wave.branches) names.add(b.branch);
-    }
-  }
-  return names;
-}
 
 /**
  * What an incoming pulse LOST relative to the cached one, or null if it lost
@@ -956,34 +946,28 @@ function branchNames(pulse: FleetPulse): Set<string> {
  * that can only be exercised through an async refresh and a subprocess is a
  * judgment that does not get tested.
  */
+/**
+ * What the fleet stopped seeing, in the shape the payload carries.
+ *
+ * THE SHRINK IS A DOMAIN RULE, and the name argues against itself. It drops
+ * nothing: `pulseLoss` compares two consecutive readings and reports what the
+ * second no longer holds. That is a statement about the ESTATE — *the scan used
+ * to see these and does not now* — which is a question about a Plan and a
+ * Branch, not about a payload's size.
+ *
+ * What stays here is the SHAPE, and `shrinkNote` in the view keeps the
+ * sentence. Three layers, and each says less than the one below it: the rule
+ * decides what was lost, this names the field the payload carries it in, and
+ * the note composes what a reader sees.
+ */
 export function pulseShrink(
   previous: FleetPulse | null,
   incoming: FleetPulse,
   previousAt: number | null,
 ): PulseShrink | null {
-  // Nothing to compare against is not a shrink. The first scan of a process —
-  // and the first after a bridge miss — legitimately arrives with no
-  // predecessor, and calling that a loss would flag every cold start.
-  if (previous === null || previousAt === null) return null;
-
-  const wasPlans = new Set(previous.plans.map((p) => p.file));
-  const nowPlans = new Set(incoming.plans.map((p) => p.file));
-  const lostPlans = [...wasPlans].filter((f) => !nowPlans.has(f));
-
-  const wasBranches = branchNames(previous);
-  const nowBranches = branchNames(incoming);
-  const lostBranches = [...wasBranches].filter((b) => !nowBranches.has(b));
-
-  if (lostPlans.length === 0 && lostBranches.length === 0) return null;
-  // Sorted so the same loss renders identically on every poll: the sets are
-  // built from iteration order, and a message that reshuffles itself while the
-  // condition holds steady reads as new information arriving.
-  return {
-    plans: lostPlans.sort(),
-    branches: lostBranches.sort(),
-    previousAt,
-  };
+  return pulseLoss(previous, incoming, previousAt);
 }
+
 
 /**
  * Minutes since each branch's tip commit. Read from local refs in one batch —
@@ -2773,7 +2757,14 @@ export function waitingOnFor(
 // that this file holds no COPY, and a re-export is not one — it is the same
 // function, named here for the callers that already import it. Changing forty
 // imports would make a move look like a rename.
-import { rowPhase, startabilityVerdict, waveVerdict } from '@plot-pm/domain';
+import {
+  doubleClaimedBranches,
+  pulseLoss,
+  rowPhase,
+  sliceReadings,
+  startabilityVerdict,
+  waveVerdict,
+} from '@plot-pm/domain';
 
 export { startabilityVerdict, waveVerdict };
 export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
@@ -2800,42 +2791,26 @@ export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
  * `.md` stripped — the exact spelling `rowsFromPulse` writes into a row's
  * `plan`, so a consumer joining a wave to its rows reads one string from both.
  */
+/**
+ * The waves the payload carries, from the domain's readings.
+ *
+ * THE JUDGEMENT IS THE DOMAIN'S AND THE SECTION IS THIS FILE'S. `sliceReadings`
+ * decides what a slice IS — its branches, its verdict, whether it is complete —
+ * and this maps that onto the `Wave` the view groups and renders. A rule that
+ * named sections would be deciding where a row is drawn.
+ */
 export function deriveWaves(pulse: FleetPulse): Wave[] {
-  const waves: Wave[] = [];
-  for (const plan of pulse.plans) {
-    const planName = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
-    // THE PLAN'S DECLARED WAVE COUNT — how many `### ` headings it has, not how
-    // many remain unfinished. A plan with exactly one wave renders that wave's
-    // status on the plan row, suppressing the separate wave row beneath it.
-    const planWaveCount = plan.slices.length;
-    for (const wave of plan.slices) {
-      // COMPLETE = every NON-DEFERRED branch merged. A deferred branch is exempt
-      // — `plot-deliver` skips it in its own completeness gate — so {merged,
-      // deferred} is complete and {merged, open} is not. A wave with only
-      // deferred branches has nothing left to merge and is complete.
-      const complete = wave.branches.every((b) => b.deferred || b.state === 'merged');
-      // ONE SECTION, derived from completeness rather than from the verdict: a
-      // wave with a merged branch and an open one cannot read `done` however its
-      // verdict aggregates. A wave never reaches `working` or `waiting-on-machine`
-      // — an agent works and a build runs, a wave does neither — so the only two
-      // homes are `done` and `not-started`, and where it is not done it is where
-      // its unfinished work is: not-started.
-      const section: WaitingGroup = complete ? 'done' : 'not-started';
-      waves.push({
-        plan: planName,
-        // `(unnamed)` where the plan named no wave — the same substitution the
-        // row makes, so both spell an unnamed wave one way.
-        name: wave.name || '(unnamed)',
-        branches: wave.branches.map((b) => b.branch),
-        verdict: waveVerdict(wave.verdict),
-        section,
-        complete,
-        planWaveCount,
-      });
-    }
-  }
-  return waves;
+  return sliceReadings(pulse).map((slice) => ({
+    plan: slice.plan,
+    name: slice.name,
+    branches: [...slice.branches],
+    verdict: waveVerdict(slice.verdict),
+    section: (slice.complete ? 'done' : 'not-started') as WaitingGroup,
+    complete: slice.complete,
+    planWaveCount: slice.planSliceCount,
+  }));
 }
+
 
 /**
  * What `plot-dispatch.sh` names the worker's log inside the worktree it made.
@@ -4648,24 +4623,11 @@ export function briefState(repoRoot: string, branch: string): BriefState {
  * every branch would be a map nobody reads — the same rule `stuckState` follows
  * in returning null for a branch that is not stuck.
  */
-export function doubleClaimedBranches(pulse: FleetPulse): Map<string, string[]> {
-  const byBranch = new Map<string, Set<string>>();
-  for (const plan of pulse.plans) {
-    const slug = plan.file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
-    for (const wave of plan.slices) {
-      for (const b of wave.branches) {
-        const seen = byBranch.get(b.branch) ?? new Set<string>();
-        seen.add(slug);
-        byBranch.set(b.branch, seen);
-      }
-    }
-  }
-  const collisions = new Map<string, string[]>();
-  for (const [branch, plans] of byBranch) {
-    if (plans.size > 1) collisions.set(branch, [...plans].sort());
-  }
-  return collisions;
-}
+// A DOUBLE CLAIM IS A DOMAIN RULE — a branch belongs to one plan, and two
+// naming it means one of the two plan files is wrong. Moved to
+// `packages/domain/src/rules/pulse.ts`; re-exported for this file's callers.
+export { doubleClaimedBranches };
+
 
 export function rowsFromPulse(
   pulse: FleetPulse,

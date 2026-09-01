@@ -31,6 +31,7 @@ export * from './rules/deliverable.js';
 export * from './rules/reapable.js';
 export * from './rules/channel.js';
 export * from './rules/phase.js';
+export * from './rules/pulse.js';
 export * from './rules/verdict.js';
 /**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
