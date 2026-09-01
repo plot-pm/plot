@@ -44,12 +44,22 @@ it cannot be the one to take it:
 > interpretation (which alternatives a plan rejected, which measurement killed
 > them) and bash cannot reach one at all.
 
-### The silent half is the expensive one
+### The silent half, stated precisely
 
 A hand dispatch refused for a missing brief prints a refusal an operator reads.
-**Auto-dispatch prints nothing** — the branch is filtered out of the candidate
-list, so an eligible slice with no brief is never picked up and nothing says why.
-It sits eligible while the fleet works on other plans.
+**Auto-dispatch prints nothing about its own decision** — `auto-dispatch.ts:442`
+drops the branch from `startable` and the plan is skipped with no reason
+recorded.
+
+**The branch itself is NOT invisible, and an earlier draft of this plan said it
+was.** `BriefStateSchema` carries `present` / `missing` / `unknown` per branch,
+and `WaitingOnSchema` has `needs-brief` as a row verdict — both rendered. A
+person reading the board can already see that a branch needs a brief.
+
+**So what is missing is one step narrower:** the row says *this branch needs a
+brief*; nothing says *auto-dispatch skipped this plan for that reason*. An
+operator watching the fleet make no progress on an eligible plan has to infer
+the connection from a row hint they may not be looking at.
 
 ### Measured 2026-09-01, and the failure this plan does NOT fix
 
@@ -59,9 +69,17 @@ dropped — so the gate could not see any of them. **271 of the 280 briefs on ma
 are unprefixed**; the 9 exceptions were all invisible to the gate that exists to
 find them.
 
-**That is a naming defect, not a missing-callback defect, and it argues for this
-plan rather than against it:** a `Brief command` writes through one code path
-that computes the name the gate reads, so the two cannot disagree.
+**Measured again before approval: 6 of the 278 briefs on main carry a prefix,
+and not one of them names a branch that still exists.** Those refs were deleted
+after their PRs merged, so the residue harms nothing today — the *"fix the six"*
+framing an earlier draft used is cleanup, not a blocker.
+
+**The defect that matters is in the writer, not the residue.** Three briefs were
+written by hand that day under names the gate cannot read, which means a
+`Brief command` writing through the same wrong convention would produce a file
+the gate then reports as missing — and it would do so on every call, silently.
+**One function computing the name for writer and reader is what makes the
+callback safe**, and that is why it lands first.
 
 ### And the failure a callback cannot catch
 
@@ -101,10 +119,30 @@ interpretation lives, and a second author would drift from it.
 | **absent** | `git cat-file -s` on `origin/<main>` — already implemented | **gates**: refuse, then call |
 | **stale** | brief's last commit older than the plan's | **reports**: never refuses |
 
-**Staleness must not gate.** A brief can be older than its plan and still
-correct — the plan may have gained a Note that changes nothing an implementer
-does. Refusing on that would stop the fleet for a false positive, and a gate
-people learn to force past has stopped being one.
+**Staleness must not gate, and the measurement is unambiguous.** Compared on
+2026-09-01, every one of the three live briefs was older than its plan:
+
+| brief | brief commit | plan commit |
+|---|---|---|
+| `a-test-teardown-does-not-call-rmsync` | 12:34 | 12:36 |
+| `the-refusals-are-domain-rules` | 12:34 | 12:19 → later edits |
+| `a-machine-has-an-identity` | earlier | 12:26 |
+
+**All three are correct**, and all three plan edits were bookkeeping — a PR
+annotation, a measurement note, a re-measure before approval. **A timestamp gate
+would have refused 3 of 3**, every one a false positive, on the day it shipped.
+A gate that refuses everything is one people disable in its first week.
+
+**And it would still have missed the real case.** The teardown brief was written
+AFTER its plan and was nonetheless wrong: it cited 80 `fs.rmSync` sites where the
+tree held 76, because **the code moved, not the plan**. Freshness relative to the
+plan is the wrong input — the brief's claims are about the repository, and
+nothing compares those to the repository.
+
+**So a gate here is not merely weak, it is aimed at the wrong thing.** What would
+actually gate is a brief whose *stated measurements* disagree with the tree, and
+that requires understanding which numbers in a paragraph are claims — judgement,
+not grep. Hence: report, and say plainly that the report is a hint.
 
 ### Not chosen: have the script write a stub
 
@@ -123,7 +161,7 @@ and reported**, and the operator or the next pass acts on it — the same postur
 
 ### Naming
 
-- `feature/a-brief-has-one-name` — one function computes the brief path from a branch, used by `plot-dispatch.sh`, `auto-dispatch.ts` and `/plot-implement`. Fixes the 9 misnamed briefs on main and adds a test that every brief in `.plot/briefs/` matches a name the gate would read. First, because the callback is pointless while a written brief can land where nothing looks.
+- `feature/a-brief-has-one-name` — one function computes the brief path from a branch, used by `plot-dispatch.sh`, `auto-dispatch.ts` and `/plot-implement`, with a test that every brief in `.plot/briefs/` matches a name the gate would read. **First because of the WRITER, not the residue:** a `Brief command` writing under the wrong convention produces a file the gate then reports as missing, on every call, silently. The 6 prefixed briefs on main name no branch that still exists and are cleanup carried along, not the reason.
 
 ### Asking
 
@@ -131,7 +169,7 @@ and reported**, and the operator or the next pass acts on it — the same postur
 
 ### Reporting
 
-- `feature/the-fleet-says-which-briefs-are-missing` — `auto-dispatch.ts` stops silently filtering: the branches it skipped for a missing brief reach the payload, and the board shows them.
+- `feature/auto-dispatch-says-why-it-skipped` — **the skip REASON, not the brief state.** `BriefStateSchema` and `needs-brief` already carry per-branch brief presence to the row, and both render; what nothing records is that `auto-dispatch.ts:442` dropped a plan from its candidates for that reason. The smallest of the three, and it was over-scoped in the plan's first draft.
 
 ## Done when
 
@@ -140,9 +178,12 @@ and reported**, and the operator or the next pass acts on it — the same postur
 - **A brief written by the callback lands where the gate reads it**, proven by
   dispatching the same branch again and having it start.
 - **Every brief in `.plot/briefs/` matches its branch under the gate's own
-  rule**, asserted by a test rather than by review — the 9 exceptions are the
-  reason.
-- **Auto-dispatch reports a briefless eligible branch** rather than dropping it.
+  rule**, asserted by a test rather than by review — and the writer computes its
+  name through the same function the gate reads, which is the property the test
+  protects.
+- **Auto-dispatch records why it skipped a plan**, where today it silently
+  reduces `startable`. The per-branch `briefState` already reaches the row; this
+  is the plan-level decision.
 - Staleness is reported and **never refuses**; the report names the plan commit
   it compared against.
 - `pnpm run test:reconcile`, `pnpm run test:board`, `pnpm run typecheck`,
