@@ -1,4 +1,4 @@
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type Page, type Route } from 'playwright';
 import { startMockBoard, type MockBoard } from './mock-board.js';
 import type { Scenario, ScenarioName } from './states.js';
 
@@ -52,6 +52,25 @@ export interface Catalogue {
        * driver refuses without `clipboard-read`.
        */
       permissions?: readonly string[];
+      /**
+       * Routes installed BEFORE the first navigation, for a state no payload
+       * can express.
+       *
+       * A served payload is an answer; some tests are about the server not
+       * answering at all — an aborted `/api/fleet` is what an unreachable board
+       * looks like, and `fleet.error` is the opposite, a server saying its scan
+       * failed. Two facts, and only one of them is a payload.
+       *
+       * Installed here rather than by the caller because a route added to an
+       * open page cannot catch a poll already in flight: between the test
+       * deciding and the route existing there is a window a fetch can land in,
+       * and a success arriving in it reads as the assertion failing. A handler
+       * closing over a mutable flag is the shape that has no such window.
+       *
+       * The route wins over the mock for the paths it names. Everything else,
+       * `index.html` included, still comes from the server.
+       */
+      route?: Record<string, (route: Route) => unknown>;
     },
   ) => Promise<Page>;
   /** Close the browser and stop the mock. */
@@ -105,6 +124,10 @@ export const openCatalogue = async (): Promise<Catalogue> => {
       ...(opts.permissions ? { permissions: [...opts.permissions] } : {}),
     });
     const page = await context.newPage();
+    // BEFORE `goto`, so the first fetch the client makes is already covered.
+    for (const [pattern, handler] of Object.entries(opts.route ?? {})) {
+      await page.route(pattern, handler);
+    }
     const tab = opts.tab ? `?tab=${opts.tab}` : '';
     await page.goto(`${mock.baseURL}${tab}`);
     return page;
