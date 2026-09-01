@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { git, rmTree } from './helpers.mjs';
+import { git, rmTree, makeStubScripts } from './helpers.mjs';
 
 /** A scratch repo with one commit, so `git` has something real to do. */
 function makeGitRepo() {
@@ -183,5 +183,63 @@ describe('the teardown helper outlasts a process still writing into the tree', (
     });
     assert.equal(calls, 4, 'retries + 1 attempts, then the real error');
     fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
+/**
+ * THE FIXTURE'S OWN TEARDOWN, which is the line that actually failed.
+ *
+ * `rmTree` was written on 2026-08-31 with the two tests above, and
+ * `helpers.mjs` went on calling `fs.rmSync` directly in the one place every
+ * server test tears down through — so the absorption existed and the failure
+ * kept happening. Six `test:board` runs died there on 2026-08-31, in
+ * `port.test.mjs` and `write-gate.test.mjs` alternately.
+ *
+ * A test on `rmTree` cannot catch that; only a test on the CALLER can. This
+ * asserts the wiring rather than the retry: that `cleanup()` absorbs a
+ * transient failure, which is only true if it goes through the helper.
+ */
+describe('the stub fixture tears down through the retry', () => {
+  const withFailingRm = (times, code, body) => {
+    const real = fs.rmSync;
+    let calls = 0;
+    fs.rmSync = (...args) => {
+      calls++;
+      if (calls <= times) {
+        const err = new Error(`${code}: injected, '${args[0]}'`);
+        err.code = code;
+        throw err;
+      }
+      return real.apply(fs, args);
+    };
+    try {
+      return { result: body(), calls };
+    } finally {
+      fs.rmSync = real;
+    }
+  };
+
+  it("absorbs a transient ENOTEMPTY in the fixture's own cleanup", () => {
+    const stub = makeStubScripts();
+    // One injected failure: a plain `fs.rmSync` would throw it straight out of
+    // the `after()` hook and fail a test that had already passed.
+    const { calls } = withFailingRm(1, 'ENOTEMPTY', () => {
+      stub.cleanup();
+    });
+    assert.equal(calls, 2, 'the first attempt failed and the second succeeded');
+    assert.equal(fs.existsSync(stub.dir), false, 'and the tree is gone');
+  });
+
+  it('still surfaces an error patience cannot fix', () => {
+    const stub = makeStubScripts();
+    try {
+      assert.throws(
+        () => withFailingRm(1, 'EACCES', () => stub.cleanup()),
+        /EACCES/,
+        'a permission error is not transient and must not be retried away',
+      );
+    } finally {
+      fs.rmSync(stub.dir, { recursive: true, force: true });
+    }
   });
 });

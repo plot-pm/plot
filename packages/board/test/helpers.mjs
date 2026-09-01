@@ -243,7 +243,25 @@ export function makeStubScripts() {
       fs.existsSync(implementMarker)
         ? fs.readFileSync(implementMarker, 'utf8').split('\n').filter(Boolean)
         : [],
-    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+    /**
+     * THROUGH `rmTree`, not `fs.rmSync`, and the difference is measured.
+     *
+     * This line failed `test:board` six times on 2026-08-31 with
+     * `ENOTEMPTY` — from `port.test.mjs` and `write-gate.test.mjs`
+     * alternately, always in an `after()` hook, so the output blamed a test
+     * that had passed. A stub server's child outlives the SIGTERM sent to its
+     * parent and can create a file between `rmSync`'s walk and its `rmdir`.
+     *
+     * `force: true` does not cover it: that suppresses the absence of
+     * something expected, and this is the presence of something unexpected.
+     * `rmTree` retries a bounded number of times on exactly the transient
+     * codes and rethrows everything else on the first attempt, so a fixture
+     * that is genuinely wrong still fails fast.
+     *
+     * The control, same tree and commit: `--test-concurrency=1` exits 0 while
+     * the suite's own `=4` failed 5 of 5. Concurrency is the whole trigger.
+     */
+    cleanup: () => rmTree(dir),
   };
 }
 
