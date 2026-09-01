@@ -1,0 +1,15 @@
+classDiagram
+  direction LR
+
+  class Computer
+  class Machine
+  class Pulse
+  class Subscriber
+  class Watchdog
+  class Client
+
+  Computer "1" --> "*" Machine : hosts
+  Machine "1" --> "1" Pulse : owns its clock
+  Pulse "1" --> "*" Subscriber : ticks, by divisor
+  Pulse ..> Watchdog : never ticks
+  Pulse ..> Client : never ticks

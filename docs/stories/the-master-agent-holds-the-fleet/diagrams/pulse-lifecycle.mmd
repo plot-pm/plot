@@ -1,0 +1,17 @@
+stateDiagram-v2
+  [*] --> stopped
+  stopped --> beating : first subscriber, or the board starts
+  beating --> beating : a beat, every 5 s
+  beating --> stopped : the machine's process exits
+
+  note right of beating
+    beatCount only rises. A divisor is
+    beatCount % everyNthBeat == 0, so a
+    subscriber that joins late is never
+    owed the beats it missed.
+  end note
+
+  note right of stopped
+    A watchdog keeps checking here.
+    exitWithParent is not a subscriber.
+  end note
