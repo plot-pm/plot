@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import type { Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -50,23 +51,17 @@ function detachedGarden(): string {
 }
 
 describe('the acting buttons carry a spinner while they act', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
-  let garden: string;
-  const contexts: BrowserContext[] = [];
+  // THE STATE IS SERVED. This copied the garden to a temp directory and
+  // started a real board over it so the acting buttons would be available;
+  // `a-board-that-can-act` says which board this is, and the write routes stay
+  // intercepted below, which is where a click's effect belongs.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    garden = detachedGarden();
-    server = await startServer(garden);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
+    cat = await openCatalogue();
+  }, 60_000);
   afterAll(async () => {
-    for (const c of contexts) await c.close().catch(() => {});
-    await browser?.close();
-    server?.kill();
-    if (garden) fs.rmSync(garden, { recursive: true, force: true });
+    await cat?.close();
   });
 
   /**
@@ -81,12 +76,10 @@ describe('the acting buttons carry a spinner while they act', () => {
    * own context rather than its own server.
    */
   async function openBoard(opts: { reducedMotion?: 'reduce' } = {}): Promise<Page> {
-    const context = await browser.newContext({
+    const page = await cat.open('a-board-that-can-act', {
       viewport: VIEWPORT,
       ...(opts.reducedMotion ? { reducedMotion: opts.reducedMotion } : {}),
     });
-    contexts.push(context);
-    const page = await context.newPage();
     await page.route('**/api/dispatch', (route) =>
       route.fulfill({
         status: 202,
@@ -107,7 +100,6 @@ describe('the acting buttons carry a spinner while they act', () => {
         contentType: 'application/json',
         body: JSON.stringify({ state: 'running' }),
       }));
-    await page.goto(baseURL);
     await page.getByText(STARTABLE).waitFor({ timeout: 10_000 });
     return page;
   }

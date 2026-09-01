@@ -7,8 +7,8 @@
 // emptiness" that lives on screen. A server that tells three answers apart and
 // a panel that paints them all blank has fixed nothing.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { chromium, type Browser, type Page } from 'playwright';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type Page } from 'playwright';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,8 +17,6 @@ import type { Fleet, AgentRow } from '../../src/contract/schema.js';
 import { expandAgentFolds } from '../helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(here, '../../../..');
-const ARTIFACT = path.join(REPO_ROOT, 'skills/plot/scripts/board/board-server.mjs');
 
 function row(over: Partial<AgentRow> = {}): AgentRow {
   return {
@@ -56,38 +54,17 @@ function fleet(rows: AgentRow[]): Fleet {
 }
 
 describe('the worker log panel: offered by a WORKING row, four outcomes, four answers', () => {
-  let browser: Browser;
-  let server: ChildProcess;
-  let baseURL: string;
-  let tmp: string;
+  // THE STATE IS SERVED. This spawned `board-server.mjs` by hand over an empty
+  // temp dir and scraped a port from its stdout, purely to serve `index.html`:
+  // every payload it reads is routed per page below.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-log-ui-'));
-    fs.mkdirSync(path.join(tmp, 'docs/plans'), { recursive: true });
-    browser = await chromium.launch();
-    server = spawn('node', [ARTIFACT], {
-      cwd: tmp,
-      env: { ...process.env, PORT: '0', PLOT_REPO_ROOT: tmp, PLOT_EXIT_WITH_PARENT: '1' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    baseURL = await new Promise((resolve, reject) => {
-      let out = '';
-      const timer = setTimeout(() => reject(new Error('server did not start')), 10_000);
-      server.stdout!.on('data', (c) => {
-        out += String(c);
-        const m = /http:\/\/localhost:(\d+)/.exec(out);
-        if (m) {
-          clearTimeout(timer);
-          resolve(`http://localhost:${m[1]}`);
-        }
-      });
-    });
-  }, 40_000);
+    cat = await openCatalogue();
+  }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill('SIGTERM');
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    await cat?.close();
   });
 
   /**
@@ -100,12 +77,12 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
    * one — two layers, each tested where it lives.
    */
   async function open(logBody: unknown, status = 200, rows = [row()]): Promise<Page> {
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     await page.route('**/api/fleet', (r) =>
       r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
     await page.route('**/api/worker-log*', (r) =>
       r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(logBody) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    await page.goto(`${cat.mock.baseURL}?tab=agents`);
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
@@ -281,14 +258,14 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
   });
 
   it('copies the exact path when Copy is clicked', async () => {
-    const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
-    const page = await context.newPage();
+    const page = await cat.browser.newPage();
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     try {
       await page.route('**/api/fleet', (r) =>
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet([row()])) }));
       await page.route('**/api/worker-log*', (r) =>
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok()) }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await openPanel(page);
@@ -299,7 +276,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
       expect(copied).toBe('/tmp/wt/.plot-worker.log');
     } finally {
       await page.close();
-      await context.close();
+      await page.close();
     }
   });
 
@@ -310,7 +287,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
   // the reader does not close and reopen to see the agent's newest output.
 
   it('shows an appended line within one poll, without reopening', async () => {
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     let text = 'first line\n';
     try {
       await page.route('**/api/fleet', (r) =>
@@ -318,7 +295,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
       // The log GROWS between polls, as a live worker's does.
       await page.route('**/api/worker-log*', (r) =>
         r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok({ text })) }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       await openPanel(page);
@@ -337,7 +314,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
   // ── ON DEMAND, AND ONLY WHILE OPEN ────────────────────────────────────────
 
   it('fetches no log until asked, and stops when the panel closes', async () => {
-    const page = await browser.newPage();
+    const page = await cat.browser.newPage();
     let calls = 0;
     try {
       await page.route('**/api/fleet', (r) =>
@@ -346,7 +323,7 @@ describe('the worker log panel: offered by a WORKING row, four outcomes, four an
         calls++;
         return r.fulfill({ contentType: 'application/json', body: JSON.stringify(ok()) });
       });
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
       // THE POINT OF SERVING ON DEMAND: the board has been open and polling,

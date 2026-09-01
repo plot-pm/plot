@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   openCatalogue, expandAgentFolds, board, row, wave, fleet, scenario, SCENARIOS,
-  type Catalogue, type Scenario,
+  startMockBoard, type Catalogue, type MockBoard, type Scenario,
 } from '../catalogue/index.js';
 import { AgentRowSchema, FleetSchema } from '../../src/contract/schema.js';
 
@@ -306,5 +306,80 @@ describe('a named scenario is one place', () => {
           .toContain(r.branch);
       }
     }
+  });
+});
+
+/**
+ * A SERVED STATE THAT CHANGES — the two capabilities a static payload cannot
+ * express, which `agents-tab.browser.test.ts` needs before it can migrate.
+ *
+ * Both are switches on the SERVER rather than routes in the page, and that is
+ * the point of testing them here: a Playwright route installed mid-session
+ * cannot catch a poll already in flight, so the window between "the test
+ * decided" and "the route exists" is a window the old helpers lost tests to.
+ * A server that changes its own answer has no such window.
+ */
+describe('the mock board changes what it serves', () => {
+  let mock: MockBoard;
+
+  beforeAll(async () => {
+    mock = await startMockBoard('an-empty-estate');
+  });
+
+  afterAll(async () => {
+    await mock?.stop();
+  });
+
+  it('counts what it served, so a test waits for the answer and not a duration', async () => {
+    const before = mock.served();
+    await fetch(`${mock.baseURL}api/fleet`);
+    await fetch(`${mock.baseURL}api/fleet`);
+    await fetch(`${mock.baseURL}api/board`);
+
+    const after = mock.served();
+    expect(after.fleet - before.fleet).toBe(2);
+    expect(after.board - before.board).toBe(1);
+  });
+
+  it('serves the new state on the next request, not the current one', async () => {
+    const first = await (await fetch(`${mock.baseURL}api/fleet`)).json() as Scenario['fleet'];
+    mock.serve('an-empty-estate', { fleet: fleet({ error: 'the scan could not run' }) });
+    const second = await (await fetch(`${mock.baseURL}api/fleet`)).json() as Scenario['fleet'];
+
+    expect(first.error).not.toBe('the scan could not run');
+    expect(second.error).toBe('the scan could not run');
+  });
+
+  it('refuses the API when failing, and keeps serving the page', async () => {
+    mock.fail(true);
+    try {
+      // A REJECTION, not a status. `fetch` against a destroyed socket throws,
+      // which is what the client's own `fetch` does when the board is gone — a
+      // 500 would be an answer, and the client renders answers.
+      await expect(fetch(`${mock.baseURL}api/fleet`)).rejects.toThrow();
+      await expect(fetch(`${mock.baseURL}api/board`)).rejects.toThrow();
+
+      // The page still loads, so a test can assert what a reload shows against
+      // a dead API rather than against a dead port.
+      const page = await fetch(mock.baseURL);
+      expect(page.status).toBe(200);
+    } finally {
+      mock.fail(false);
+    }
+
+    // And it recovers, so one mock can serve both halves of a reconnect test.
+    expect((await fetch(`${mock.baseURL}api/fleet`)).status).toBe(200);
+  });
+
+  it('does not count a request it refused', async () => {
+    const before = mock.served();
+    mock.fail(true);
+    await fetch(`${mock.baseURL}api/fleet`).catch(() => undefined);
+    mock.fail(false);
+
+    // The count answers *did the client get this state?* — a refused request
+    // delivered nothing, so counting it would make a `poll` on the count pass
+    // while the page still showed the old payload.
+    expect(mock.served().fleet).toBe(before.fleet);
   });
 });

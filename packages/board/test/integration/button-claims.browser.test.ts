@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Board } from '../../src/contract/schema.js';
 
@@ -62,21 +62,17 @@ function gardenWithWaves(): string {
 }
 
 describe('the button claims only what it knows', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
-  let garden: string;
+  // THE STATE IS SERVED, capabilities included. This wrote a waved plan into a
+  // temp garden and started a real board so the buttons would be available at
+  // all; `a-board-that-can-act` states the card and the capability, and the
+  // write routes stay intercepted, which is where a click's effect belongs.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    garden = gardenWithWaves();
-    server = await startServer(garden);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
+    cat = await openCatalogue();
+  }, 60_000);
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
-    if (garden) fs.rmSync(garden, { recursive: true, force: true });
+    await cat?.close();
   });
 
   const cardFor = (page: Page, title: string) => page.locator('article', { hasText: title });
@@ -86,7 +82,7 @@ describe('the button claims only what it knows', () => {
     // on a WAVED plan (it cannot know which wave is eligible). A plan with NO
     // waves gets no summary and is left to `plot-dispatch.sh` — so that row's
     // button acts, which is the one this test needs.
-    const page = await browser.newPage({ viewport: VIEWPORT });
+    const page = await cat.open('a-board-that-can-act', { viewport: VIEWPORT });
     // 202 like a real dispatch, carrying the `log` path the server still sends —
     // the button must NOT surface it as transient text any more.
     await page.route('**/api/dispatch', (route) =>
@@ -96,7 +92,6 @@ describe('the button claims only what it knows', () => {
         body: JSON.stringify({ slug: 'fix-leaky-hose', log: '/tmp/plot-dispatch-fix-leaky-hose.log' }),
       }));
     try {
-      await page.goto(baseURL);
       const card = cardFor(page, 'Fix the leaky soaker hose');
       const button = card.getByRole('button', { name: 'Start work' });
       await button.waitFor({ timeout: 10_000 });
@@ -121,7 +116,7 @@ describe('the button claims only what it knows', () => {
   it('the reassurance is not a failure colour', async () => {
     // Neutral (slate), not amber: an amber warning would re-assert the very
     // failure the old *no change* message wrongly implied.
-    const page = await browser.newPage({ viewport: VIEWPORT });
+    const page = await cat.open('a-board-that-can-act', { viewport: VIEWPORT });
     await page.route('**/api/dispatch', (route) =>
       route.fulfill({
         status: 202,
@@ -129,7 +124,6 @@ describe('the button claims only what it knows', () => {
         body: JSON.stringify({ slug: 'fix-leaky-hose', log: 'x' }),
       }));
     try {
-      await page.goto(baseURL);
       const card = cardFor(page, 'Fix the leaky soaker hose');
       const button = card.getByRole('button', { name: 'Start work' });
       await button.waitFor({ timeout: 10_000 });

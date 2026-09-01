@@ -46,6 +46,12 @@ export interface Catalogue {
        * setting has to be a page-open parameter rather than a fixed default.
        */
       reducedMotion?: 'reduce' | 'no-preference';
+      /**
+       * Context permissions, for a test that reads what a control wrote.
+       * `command-copy` asserts the Copy button's clipboard contents, which the
+       * driver refuses without `clipboard-read`.
+       */
+      permissions?: readonly string[];
     },
   ) => Promise<Page>;
   /** Close the browser and stop the mock. */
@@ -96,6 +102,7 @@ export const openCatalogue = async (): Promise<Catalogue> => {
     const context = await browser.newContext({
       viewport: opts.viewport ?? DEFAULT_VIEWPORT,
       ...(opts.reducedMotion ? { reducedMotion: opts.reducedMotion } : {}),
+      ...(opts.permissions ? { permissions: [...opts.permissions] } : {}),
     });
     const page = await context.newPage();
     const tab = opts.tab ? `?tab=${opts.tab}` : '';

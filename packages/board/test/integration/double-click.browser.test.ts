@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startServer } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 
 /**
  * THE ACTING BUTTONS, CLICKED TWICE INSIDE ONE TICK.
@@ -55,20 +56,19 @@ function detachedGarden(): string {
 
 describe('the acting buttons refuse a second click inside the same tick', () => {
   let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
-  let garden: string;
+  // THE STATE IS SERVED. This copied the garden to a temp directory and started
+  // a real board over it for two reasons, and only one was the payload: the
+  // other was the CAPABILITY. `dispatch` and `approve` gate both buttons here,
+  // and BoardSchema defaults them to false — `a-board-that-can-act` says which
+  // board this is. The write routes stay intercepted below, which is where a
+  // click's effect belongs.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    garden = detachedGarden();
-    server = await startServer(garden);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
+    cat = await openCatalogue();
+  }, 60_000);
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
-    if (garden) fs.rmSync(garden, { recursive: true, force: true });
+    await cat?.close();
   });
 
   /**
@@ -79,7 +79,7 @@ describe('the acting buttons refuse a second click inside the same tick', () => 
    * an error path that would refuse a second click for the wrong reason.
    */
   async function openBoard(): Promise<{ page: Page; posts: string[] }> {
-    const page = await browser.newPage({ viewport: VIEWPORT });
+    const page = await cat.open('a-board-that-can-act', { viewport: VIEWPORT });
     const posts: string[] = [];
     page.on('request', (req) => {
       if (req.method() === 'POST') posts.push(new URL(req.url()).pathname);
@@ -104,7 +104,6 @@ describe('the acting buttons refuse a second click inside the same tick', () => 
         contentType: 'application/json',
         body: JSON.stringify({ state: 'running' }),
       }));
-    await page.goto(baseURL);
     await page.getByText(STARTABLE).waitFor({ timeout: 10_000 });
     return { page, posts };
   }

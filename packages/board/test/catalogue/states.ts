@@ -432,6 +432,85 @@ const aBoardOfPlans = (): Scenario => ({
 const anEmptyEstate = (): Scenario => ({ board: board(), fleet: fleet() });
 
 /**
+ * A board whose controls can act: cards to click, and the capabilities that
+ * gate the clicking.
+ *
+ * The acting tests — `spinner`, `double-click`, `button-claims`,
+ * `start-work-refusal` — copied the garden to a temp directory and started a
+ * real board over it for two reasons, and only one was the payload. The other
+ * was the CAPABILITY: `dispatch` and `approve` gate every control they assert
+ * on, and `BoardSchema` defaults both to `{available: false}`, so a served
+ * board that does not say otherwise renders the cards and no buttons.
+ *
+ * Stating a capability is not pretending the script exists. It says WHICH board
+ * this is — the same thing the fleet payload does for a row — and the write
+ * routes stay intercepted by the tests, which is where a click's effect belongs.
+ *
+ * The three cards are the fixture's own, titles included, so an assertion that
+ * reads a title still reads the garden's words:
+ *
+ *   fix-leaky-hose        Approved, startable  — the Start work subject
+ *   plant-tomatoes        Draft                — the Approve subject
+ *   raised-beds           Approved, waved      — the multi-wave subject
+ */
+const aBoardThatCanAct = (): Scenario => ({
+  board: board({
+    dispatch: { available: true, reason: '' },
+    approve: { available: true, reason: '' },
+    columns: [
+      column({
+        phase: 'Discovery',
+        cards: [card({
+          slug: 'plant-tomatoes', title: 'Plant heirloom tomatoes', type: 'feature',
+          phase: 'Discovery', path: `docs/plans/${TOMS_FILE}`,
+          // PR #146 is the fixture plan's own, and the armed Approve button
+          // names it — `merges PR #146` is what a test waits for, so the card
+          // has to carry the number rather than merely be approvable.
+          prs: [{ number: 146, url: 'https://github.com/tiny/garden/pull/146' }],
+        })],
+      }),
+      column({
+        phase: 'Development',
+        cards: [
+          card({
+            slug: 'fix-leaky-hose', title: 'Fix the leaky soaker hose', type: 'bug',
+            phase: 'Development', path: 'docs/plans/2026-03-05-fix-leaky-hose.md',
+          }),
+          card({
+            slug: 'raised-beds', title: 'Rebuild the raised beds', type: 'feature',
+            phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
+          }),
+        ],
+      }),
+    ],
+  }),
+  fleet: fleet({
+    rows: [
+      row({
+        plan: 'fix-leaky-hose', planFile: '2026-03-05-fix-leaky-hose.md',
+        branch: 'bug/leaky-hose', branchUrl: `${GH}bug/leaky-hose`,
+        group: 'not-started', verdict: 'eligible', wave: 'Sealing',
+      }),
+      row({
+        plan: 'raised-beds', planFile: '2026-08-17-raised-beds.md',
+        branch: 'feature/raised-beds', branchUrl: `${GH}feature/raised-beds`,
+        group: 'not-started', verdict: 'eligible', wave: 'Framing',
+      }),
+    ],
+    waves: [
+      wave({
+        plan: 'fix-leaky-hose', name: 'Sealing', section: 'not-started',
+        branches: ['bug/leaky-hose'], verdict: 'eligible', complete: false,
+      }),
+      wave({
+        plan: 'raised-beds', name: 'Framing', section: 'not-started',
+        branches: ['feature/raised-beds'], verdict: 'eligible', complete: false,
+      }),
+    ],
+  }),
+});
+
+/**
  * The catalogue itself.
  *
  * Each entry is a FUNCTION, so every `open()` gets a fresh payload and one
@@ -461,6 +540,7 @@ export const SCENARIOS = {
   'an-estate-that-cannot-act': anEstateThatCannotAct,
   'a-plan-in-waves': aPlanInWaves,
   'one-row-per-kind': oneRowPerKind,
+  'a-board-that-can-act': aBoardThatCanAct,
   'a-board-of-plans': aBoardOfPlans,
   'an-empty-estate': anEmptyEstate,
 } satisfies Record<string, () => Scenario>;

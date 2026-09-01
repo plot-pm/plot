@@ -3,8 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { openCatalogue, fleet, board as buildBoard, card as buildCard, column, type Catalogue } from '../catalogue/index.js';
 
 /**
  * WHAT THE START BUTTON SAYS BEFORE THE CLICK, IN A REAL BROWSER.
@@ -69,28 +69,48 @@ function gardenWithWaves(): string {
 }
 
 describe('Start work refuses before the click when it cannot know', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
-  let garden: string;
+  // THE STATE IS SERVED, and the refusal is on the CARD.
+  //
+  // `startRefusal` reads `card.waveSummary`: a summary whose `claimed` and
+  // `eligible` are ABSENT is a plan no pulse has reached, which is what
+  // *waiting for the first fleet scan* means. `WaveSummarySchema` makes exactly
+  // those two optional for this reason — its own words: *`claimed: 0` and "no
+  // pulse has landed yet" must not render identically*.
+  //
+  // The real server reached that state by accident of the fixture: the temp
+  // garden is not a git repo, so no pulse landed. Stating it is the same
+  // reading without the accident.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    garden = gardenWithWaves();
-    server = await startServer(garden);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
+    cat = await openCatalogue();
+  }, 60_000);
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
-    if (garden) fs.rmSync(garden, { recursive: true, force: true });
+    await cat?.close();
   });
 
   const cardFor = (page: Page, title: string) => page.locator('article', { hasText: title });
 
   async function openBoard(): Promise<Page> {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(baseURL);
+    const page = await cat.open('a-board-that-can-act', {
+      viewport: VIEWPORT,
+      over: {
+        board: buildBoard({
+          dispatch: { available: true, reason: '' },
+          approve: { available: true, reason: '' },
+          columns: [column({
+            phase: 'Development',
+            cards: [buildCard({
+              slug: 'raised-beds', title: WAVED_TITLE, type: 'feature',
+              phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
+              // `claimed` and `eligible` absent: no pulse has reached this plan.
+              waveSummary: { waves: 2, branches: 2, deferred: 0 },
+            })],
+          })],
+        }),
+        fleet: fleet({ ready: false, rows: [], waves: [] }),
+      },
+    });
     await page.getByText(WAVED_TITLE).waitFor({ timeout: 10_000 });
     return page;
   }
@@ -131,7 +151,24 @@ describe('Start work refuses before the click when it cannot know', () => {
     // so a button that only looked refused would still dispatch. The click is
     // forced past the driver's actionability check to assert the HANDLER
     // declines.
-    const page = await browser.newPage({ viewport: VIEWPORT });
+    const page = await cat.open('a-board-that-can-act', {
+      viewport: VIEWPORT,
+      over: {
+        board: buildBoard({
+          dispatch: { available: true, reason: '' },
+          approve: { available: true, reason: '' },
+          columns: [column({
+            phase: 'Development',
+            cards: [buildCard({
+              slug: 'raised-beds', title: WAVED_TITLE, type: 'feature',
+              phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
+              waveSummary: { waves: 2, branches: 2, deferred: 0 },
+            })],
+          })],
+        }),
+        fleet: fleet({ ready: false, rows: [], waves: [] }),
+      },
+    });
     const posts: string[] = [];
     page.on('request', (req) => {
       if (req.method() === 'POST') posts.push(new URL(req.url()).pathname);
@@ -143,7 +180,6 @@ describe('Start work refuses before the click when it cannot know', () => {
         body: JSON.stringify({ slug: 'raised-beds', log: 'stubbed' }),
       }));
     try {
-      await page.goto(baseURL);
       const button = cardFor(page, WAVED_TITLE).getByRole('button', { name: /Start work/ });
       await button.waitFor({ timeout: 10_000 });
       await button.click({ force: true });
@@ -164,7 +200,13 @@ describe('Start work refuses before the click when it cannot know', () => {
     // must NOT do is advance the card itself: the row travels when the pulse
     // re-reads git, and an optimistic update would make the board display
     // something it does not know.
-    const page = await browser.newPage({ viewport: VIEWPORT });
+    const page = await cat.open('a-board-that-can-act', {
+      viewport: VIEWPORT,
+      // THE SCENARIO'S OWN BOARD, unmodified: this test clicks the button and
+      // asserts the card DOES NOT MOVE, so the click has to be ALLOWED — the
+      // opposite of its three siblings. `a-board-that-can-act` already serves
+      // a startable leaky-hose card, which is this test's subject.
+    });
     await page.route('**/api/dispatch', (route) =>
       route.fulfill({
         status: 202,
@@ -172,7 +214,6 @@ describe('Start work refuses before the click when it cannot know', () => {
         body: JSON.stringify({ slug: 'fix-leaky-hose', log: 'stubbed' }),
       }));
     try {
-      await page.goto(baseURL);
       const card = cardFor(page, 'Fix the leaky soaker hose');
       const button = card.getByRole('button', { name: 'Start work' });
       await button.waitFor({ timeout: 10_000 });

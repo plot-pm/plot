@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import type { AgentRow, Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -65,18 +66,16 @@ async function sectionOf(page: Page, selector: string): Promise<string> {
 }
 
 describe('the two fleet controls (real browser renders the shipped artifact)', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
+  // THE STATE IS SERVED. The board was started only to serve `index.html`:
+  // this file routes `/api/fleet` and `/api/fleet-controls` itself, so the
+  // server answered nothing the test read.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
+    cat = await openCatalogue();
+  }, 60_000);
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   /**
@@ -86,7 +85,7 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
    * that already passed.
    */
   async function open(payload: Fleet): Promise<{ page: Page; posts: unknown[] }> {
-    const page = await browser.newPage();
+    const page = await cat.open('an-empty-estate', { tab: 'agents' });
     const posts: unknown[] = [];
     await page.route('**/api/fleet', (route) =>
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
@@ -96,7 +95,6 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
       const merged = { ...payload.fleetControls, ...patch };
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(merged) });
     });
-    await page.goto(`${baseURL}?tab=agents`);
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return { page, posts };

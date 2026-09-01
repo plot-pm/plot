@@ -301,14 +301,21 @@ describe('a browser test that stubs its own state starts no board', () => {
  */
 const EXPECTED_FILES = 44;
 /**
- * 454 → 457 ON 2026-09-01, and this slice DID add three tests.
+ * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
  * The Naming slice took the catalogue from 3 named scenarios to 8, and
  * `mock-board.browser.test.ts` gained one test per new shape it serves — which
  * is the deliverable rather than a side effect: a scenario nothing asserts
  * against is a payload nobody has shown the board can render.
  *
+ * 457 → 461 is the same argument one layer down. The mock gained `served()` and
+ * `fail()`, the two behaviours `agents-tab.browser.test.ts` needs that a static
+ * payload cannot express, and four tests assert them: the count advances, a
+ * swap lands on the next request, a refusal rejects while `/` still serves, and
+ * a refused request is not counted. A capability the migration is about to
+ * depend on across 111 tests is worth four of its own first.
+ *
  * Raised deliberately, in the commit that adds them, which is the whole
  * mechanism this pair exists for.
  */
-const EXPECTED_TESTS = 457;
+const EXPECTED_TESTS = 461;
