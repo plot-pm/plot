@@ -373,6 +373,42 @@ candidate.
 **Where REST is not a fallback but the only answer**, the routing must say so
 too: a feature GraphQL lacks is a routing input exactly like a spent budget.
 
+### The transport is the connector's business, not the caller's
+
+**Settled 2026-09-01, and it inverts the section below.** REST-versus-GraphQL is
+a **GitHub** distinction. Bitbucket has no such split; Jenkins has neither
+transport; GitLab and Trello will each have their own. **A routing rule lifted
+above the adapters would model a fork that exists for exactly one connector**,
+and every future adapter would implement an interface shaped by GitHub's
+accident.
+
+**So routing goes down, into the connector.** A caller asks *"is this branch
+merged?"* — `prMerged(branch)` — and the GitHub adapter decides whether that is
+cheaper as REST or GraphQL given what each bucket has left. The choice, the
+budget reading, and the bucket the call spent are all **hidden implementation
+detail of the adapter that owns them**.
+
+**The `Host` port already has this shape and names no transport.** `prState`,
+`prMerged`, `prList`, `issueList`, `issueView` are questions, not routes. Nothing
+in the port would change; what changes is that the adapter stops leaking the
+decision to its caller.
+
+**This is the layering rule applied rather than a new idea** — *"the domain owns
+the port; an adapter implements it and is the only place that may reach the
+world."* A router above the adapters is domain-specific code outside the domain,
+which the rule forbids in as many words.
+
+**And it makes the count below an argument for descending, not ascending.** 14
+backend branches consulting 3 budgets is what routing scattered *inside*
+`plot-host.sh`'s github branches looks like. Gathering it into one place per
+connector fixes that; gathering it into one place for all connectors fixes it and
+then charges every other connector for the privilege.
+
+**What the budget still needs from the adapter is the RECORD, not the decision:**
+which bucket the call spent, in the connector's own word. That is the tag
+`bug/the-budget-knows-which-bucket-it-spent` writes, and it is an observation
+after the fact rather than a choice made before it.
+
 ### The routing decision belongs where every adapter can reuse it
 
 **This is the plan's structural gap, and it is bigger than the budget.** The
@@ -552,7 +588,7 @@ comes first**, because five branches write to it.
 
 ### One router, reused
 
-- `bug/one-router-chooses-the-path` — extract the path choice from `pr-state`'s github branch into one routing rule asked by every op: given the question, the per-bucket record and what each API can answer, which path (or neither). Expressed so the `Host` port can carry it, since 14 backend branches consult 3 budgets today and a second copy of the rule would drift permissive. No new capability — the deliverable is that eleven paths stop spending blind.
+- `bug/one-router-chooses-the-path` — the GitHub adapter chooses REST or GraphQL for itself, and no caller learns which. Today the choice is made inside `pr-state`'s github branch under *"THE ROUTE IS CHOSEN ONCE, HERE"* — once for `pr-state`, and nowhere else, while 14 backend branches consult 3 budgets. **Gather it into one place PER CONNECTOR, not one place for all of them:** REST-versus-GraphQL is a GitHub distinction, and a shared router would make every future adapter implement a fork that exists for one vendor. The `Host` port already names no transport, so nothing in it changes. No new capability — the deliverable is that eleven paths stop spending blind and the transport stops being the caller's business.
 
 ### Budgeting each bucket by name
 
