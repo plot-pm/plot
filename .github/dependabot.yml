@@ -9,3 +9,17 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+    ignore:
+      # changesets/action v2 requires Changesets CLI v3 and refuses v2 with a
+      # hard error, while this repo declares @changesets/cli ^2.30.0. v2 also
+      # renamed every input the release workflow passes — version, publish,
+      # commit and title became version-script, publish-script, commit-message
+      # and pr-title — so a SHA-only bump silently ignores all four before the
+      # CLI check even runs. Measured 2026-09-01: the bump landed on main and
+      # the Release job failed on every commit after it, which stops the
+      # release PR regenerating with nothing else reporting why.
+      #
+      # Lifting this bound means migrating the CLI to v3 and renaming the four
+      # inputs in the same change.
+      - dependency-name: changesets/action
+        versions: ['>= 2']
