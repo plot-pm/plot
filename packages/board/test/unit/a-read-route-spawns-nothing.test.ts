@@ -147,20 +147,22 @@ describe('a read route spawns nothing', () => {
   /**
    * THE SURVIVORS, COUNTED WHERE THEY ARE — behind an await, on a later tick.
    *
-   * Three synchronous spawns are still reachable from a read route if `await` is
-   * ignored, and each one is a documented decision of the wave that left it:
+   * ONE synchronous spawn is still reachable from a read route if `await` is
+   * ignored, and it is a documented decision of the wave that left it:
    *
    * | trail ends in | left by |
    * |---|---|
-   * | `agent-log.ts:readWorktreeRoot` | primed at startup through the port; this call is for the write routes and the tests that build a fixture repo mid-process |
    * | `auto-dispatch.ts:findMissingBriefs` | the automatic write, on the SCAN's clock inside its success path |
-   * | `auto-deliver.ts:deliverCommand` → `board.ts:readConfig` | the same, and the same clock |
    *
-   * All three sit after many awaits in `fleet.ts:refresh`, which `ensureCache`
-   * STARTS and never awaits. That is why they are not the gate above — and why
-   * they are counted at all: the failure this number catches is one of them
-   * MOVING onto the prefix, or a fourth appearing, either of which is a finding
-   * for a reviewer rather than a silent change.
+   * Two more were counted here until 2026-09-02, and both are now migrated:
+   * `agent-log.ts:readWorktreeRoot` and `auto-deliver.ts:deliverCommand` →
+   * `board.ts:readConfig`. Neither file holds a synchronous spawn any more.
+   *
+   * It sits after many awaits in `fleet.ts:refresh`, which `ensureCache` STARTS
+   * and never awaits. That is why it is not the gate above — and why it is
+   * counted at all: the failure this number catches is it MOVING onto the
+   * prefix, or a second appearing, either of which is a finding for a reviewer
+   * rather than a silent change.
    *
    * A count and not a list of names, for the reason the population is walked
    * rather than listed: a list is a second place to update and it fails open.
@@ -180,11 +182,15 @@ describe('a read route spawns nothing', () => {
 });
 
 /**
- * Three on 2026-09-01, and lowering it is the interesting direction.
+ * One on 2026-09-02, down from three, and lowering it is the interesting
+ * direction.
  *
- * Each is owned by a plan that is not this one:
- * `production-calls-the-domain-one-rule-at-a-time` takes the 27 write-route call
- * sites that keep `agent-log.ts:readWorktreeRoot` synchronous, and the two
- * automatic writes follow the same migration.
+ * `production-calls-the-domain-one-rule-at-a-time` migrated the write-route call
+ * sites that kept `agent-log.ts:readWorktreeRoot` synchronous, and
+ * `auto-deliver.ts:deliverCommand` followed. The survivor is owned by the same
+ * plan.
+ *
+ * A RATCHET, so this number goes down and never up. Raising it to accommodate a
+ * new synchronous spawn is the change this test exists to refuse.
  */
-const SPAWNS_BEHIND_AN_AWAIT = 3;
+const SPAWNS_BEHIND_AN_AWAIT = 1;

@@ -28,6 +28,9 @@ export {
 export { hostShell } from './host/host-shell.js';
 export { hostFixture, type HostFixture } from './host/host-fixture.js';
 
+export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
+export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
+
 export { refsGit } from './refs/refs-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 
