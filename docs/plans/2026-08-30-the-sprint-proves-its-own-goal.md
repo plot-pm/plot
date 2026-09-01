@@ -15,6 +15,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-08-30, Jan Wloka, `infra/only-an-adapter-reaches-a-script`
+- **Started:** 2026-09-01, Jan Wloka, `infra/the-gate-counts-what-production-keeps`
 
 ## Approval
 
