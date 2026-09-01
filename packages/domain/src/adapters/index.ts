@@ -33,6 +33,13 @@ export { treesGit } from './trees/trees-git.js';
 export { treesFixture, type TreesFixture } from './trees/trees-fixture.js';
 
 export {
+  subscribe,
+  findingsIn,
+  type SubscribeOptions,
+  type Subscribed,
+} from './channel/channel-client.js';
+
+export {
   machineSystem,
   DEFAULT_SAMPLE_BUDGET_MS,
   type MachineSystemOptions,

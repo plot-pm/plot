@@ -222,6 +222,30 @@ export const hostShell = (context: ShellContext): Host => {
       });
     },
 
+    prCreate: async (request): Promise<PortResult<string>> => {
+      // THE BODY GOES THROUGH ARGV, not a heredoc or a temp file. It is
+      // markdown holding backticks and newlines, and `plot-host.sh` passes
+      // `--body` straight to `gh`/`bb` — so quoting is the shell's problem only
+      // if a shell is involved, and `runProcess` spawns without one.
+      const args = [
+        host,
+        'pr-create',
+        '--title',
+        request.title,
+        '--body',
+        request.body,
+        '--head',
+        request.head,
+      ];
+      if (request.base !== undefined && request.base !== '') args.push('--base', request.base);
+      const run = await runProcess('bash', args, inRepo);
+      // The URL is what `gh pr create` prints and the only thing it prints. A
+      // host that opened one and said nothing about where answers `''` — the
+      // PR exists either way, and a caller that treated silence as failure
+      // would ask for a second one.
+      return resultOf(run, (stdout) => asText(stdout));
+    },
+
     prList: (state, limit) =>
       ask(
         ['pr-list', '--state', state, ...(limit === undefined ? [] : ['--limit', String(limit)])],
