@@ -951,7 +951,7 @@ sha; a green result for code nobody will merge is worse than no result.
 Measured this session: two merge waiters reported on superseded runs and had to
 be stopped and re-armed.
 
-### The channel (Branch: feature/the-channel-carries-the-findings)
+### The channel (Branch: feature/the-channel-carries-the-findings, PR: #584)
 
 The channel itself: monitors publish, subscribers connect with a purpose.
 
