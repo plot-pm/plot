@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import type { AgentRow, Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -30,8 +28,6 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  * `kind: 'wave'` row the way the server emits one (`carriesWave` — the plan has
  * waves) — a route that awaits anything fails suites that already passed here.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 
 // The two wave names, on this repo's estate, so slot 3 can be asserted BY NAME.
 const WORKING_WAVE = 'Named';
@@ -160,29 +156,33 @@ describe('a wave row is a wave row in every section', () => {
   // Retiring the first without keeping these three would drop live regression
   // cover along with the obsolete assertion. `working-shows-every-agent.browser
   // .test.ts` owns what WORKING renders now; this file owns what survived.
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture for one
+  // reason: to serve `index.html`. It never read `/api/board` — the fleet was
+  // always `page.route`d — so the whole server was a static file host with a
+  // git scan attached. The mock serves the same client from the same built
+  // artifact and answers both payloads by name.
+  //
+  // The fleet stays this file's own: the defect is a placement decision in
+  // `AgentList`, so the payload has to be the exact shape the server emits for
+  // a `kind: 'wave'` row, and `over` states it directly.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1480, height: 1400 } });
-    const page = await context.newPage();
-    // SYNCHRONOUS fulfil — a route callback that awaits anything fails suites
-    // that already passed on this machine.
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: { fleet: fleet() },
+      viewport: { width: 1480, height: 1400 },
+    });
     await page.locator(`[data-wave-row="${NOT_STARTED_WAVE}"]`).first().waitFor({ timeout: 15_000 });
     return page;
   }

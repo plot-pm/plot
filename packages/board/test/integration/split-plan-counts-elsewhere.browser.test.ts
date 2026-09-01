@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Wave } from '../../src/contract/schema.js';
 
 /**
@@ -95,27 +96,28 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 }
 
 describe('a split plan counts what is elsewhere', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture only to
+  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
+  // itself. The mock serves the same built client and answers both payloads by
+  // name, so the test states its own input instead of inheriting an estate.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: { fleet: fleet() },
+      viewport: { width: 1400, height: 1200 },
+    });
     await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
     return page;
   }
@@ -230,7 +232,7 @@ describe('a split plan counts what is elsewhere', () => {
             summary: { plans: 1, waves: 2, branches: 2, claimed: 0, eligible: 1, blocked: 1, deferred: 0 },
           })),
         }));
-      await page.goto(`${baseURL}?tab=agents`);
+      await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
       const summary = planHead(notStarted(page), 'whole-plan').locator('[data-wave-summary]');
       await expect.poll(() => summary.textContent(), { timeout: 10_000 })
