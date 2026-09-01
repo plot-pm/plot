@@ -546,7 +546,7 @@ async function handleRequest(
       return;
     }
     try {
-      const panel = agentPanel(opts, branch);
+      const panel = await agentPanel(opts, branch);
       // 404 only for a branch this server cannot answer for, matching
       // /api/worker-log: the status says whether there was anything to look at,
       // and `reason` carries the distinction the client renders.

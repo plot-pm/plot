@@ -2034,7 +2034,16 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // count, synthesized count — so a synthesized fleet is legible. A reader seeing
     // `0 manifests, 12 synthesized` knows immediately that the drop menu is absent
     // because the board is reading an empty directory, not because nothing is broken.
-    const registryResult = readAgentRegistryWithInfo(opts.repoRoot, undefined, {
+    //
+    // AWAITED, and the await is the wave's point rather than a detail. This
+    // call sits FIRST in `refresh`, before any other, and `refresh` is started
+    // — never awaited — by `ensureCache`, which every `/api/fleet` request goes
+    // through. An async function runs synchronously up to its first `await`, so
+    // while this was `execFileSync` its three forks (`plot-config.sh`,
+    // `plot-worker-state.sh`, the cleanliness batch) ran ON the request thread
+    // of whichever poll first warmed the cache. `void refresh(...)` reads like
+    // fire-and-forget and was not one.
+    const registryResult = await readAgentRegistryWithInfo(opts.repoRoot, undefined, {
       scriptsDir: opts.scriptsDir,
       cleanliness: bashCleanliness,
     });
