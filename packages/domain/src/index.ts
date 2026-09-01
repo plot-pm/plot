@@ -34,6 +34,7 @@ export * from './rules/deliverable.js';
 export * from './rules/reapable.js';
 export * from './rules/channel.js';
 export * from './rules/eligible.js';
+export * from './rules/gates.js';
 export * from './rules/movable.js';
 export * from './rules/phase.js';
 export * from './rules/pulse.js';
