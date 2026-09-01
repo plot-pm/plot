@@ -19,7 +19,16 @@ import {
  * are the ones about what is NOT declared.
  */
 
-const declared = (over: Partial<Declaration> = {}) => JSON.stringify({
+/**
+ * A declaration as JSON, with any field overridden — INCLUDING an invalid one.
+ *
+ * The override is deliberately wider than `Partial<Declaration>`: several tests
+ * here exist to prove a malformed declaration is REFUSED, and `status: 'failed'`
+ * is the case the enum's own docblock argues about. Typing the parameter to the
+ * valid shape makes the invalid case unwritable, so the test that asserts the
+ * refusal cannot compile — which is what broke this file's typecheck.
+ */
+const declared = (over: Record<string, unknown> = {}) => JSON.stringify({
   branch: 'feature/x',
   status: 'ok',
   artifacts: ['packages/domain/src/rules/reap.ts'],
