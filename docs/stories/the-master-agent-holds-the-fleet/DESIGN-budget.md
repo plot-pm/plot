@@ -24,7 +24,7 @@ What a connector will still answer, and how well anyone knows it.
 | 2 | Identity | *which budget is this?* |
 | 3 | The domain object | *what does it hold?* |
 | 4 | Provenance | *how well is the limit known?* |
-| 4b | Lifecycle | *when does budgeting happen?* |
+| 4b | Lifecycle | *when does budgeting happen — created, updated, renewed, consumed?* |
 | 5 | Where it lives | *whose record is it?* |
 | 6 | Reacting to a refusal | *what happens when it runs out?* |
 | 7 | Relations | *what does it touch?* |
@@ -140,6 +140,61 @@ rate_limit` was measured 2026-09-01 reporting `graphql 5000/5000, used 0` while 
 real call's header on the same account read `Remaining 4854, Used 146`. A
 question about the budget spends budget and misreports it; a call that was
 happening anyway does neither.
+
+### The record's own life: created, updated, renewed, consumed
+
+**The section above describes the READING. This one describes the FILE**, and
+they are not the same object — a reading is a moment, the record is an artefact
+that grows.
+
+**Created — by the first append, never by a setup step.** No file is written at
+adoption; the first spender to append creates it, and a missing file is an empty
+record rather than an error. **`unknown` and *absent* are the same answer**, which
+is what lets a fresh checkout work without ceremony and what keeps a deleted
+record from being a fault.
+
+**Updated — one line per call, appended by the connector that made it.** Two
+facts travel together and neither is useful alone:
+
+| appended | from | why |
+|---|---|---|
+| **the spend** — one call, against which bucket | the caller knows it made a call | the rate is derived from these |
+| **the reading** — `limit`, `remaining`, `reset`, `source` | the response headers | the cadence needs what is left, not only what was used |
+
+**A spend without a reading cannot say what is left; a reading without a spend
+cannot say how fast it is going.** Both go in the same line, which is also what
+keeps the line short enough for the atomic-append property in § 5.
+
+**Renewed — by the connector's own clock, which Plot does not model.** GitHub
+sends `X-RateLimit-Reset` (measured 2026-09-01: a Unix timestamp, 44 minutes
+out). **Plot never computes a window**; it records the reset the connector
+stated, and a reading whose reset has passed is stale rather than spent. A
+connector that sends no reset renews on nothing knowable, so its `predicted`
+value simply persists.
+
+**Consumed — over a WINDOW, and the window is not optional.**
+
+**Measured 2026-09-01:** one board at 5 s plus eleven scripts at 90 s is
+**~1,160 appends an hour** — 28,000 a day, **15 MB a week** at 80 bytes a line.
+Two consequences, and both are load-bearing:
+
+- **A rate derived over the whole file approaches zero.** Divide a fixed spend by
+  an ever-growing span and the cadence relaxes forever, which is the opposite of
+  what the record is for.
+- **Every reader parses the file.** At a 5 s cadence that is a 15 MB parse twelve
+  times a minute by the end of a week.
+
+**So a reader consumes only lines newer than the current window**, and the window
+is the connector's reset interval — the one it already tells us. **Older lines
+are dead** the moment the reset passes: they describe a bucket that no longer
+exists.
+
+**Pruned by the reader that already read it.** A reader holding the file open has
+just established which lines are dead; a separate cleaner would re-read
+everything to learn the same thing, and would need a lock the append-only design
+exists to avoid. **Truncation is the one write that is not an append**, so it
+happens once per reset at most, and a failed truncation costs disk rather than
+correctness — the window filter is what makes the answer right, not the pruning.
 
 ### The state is a moment, not a transition
 

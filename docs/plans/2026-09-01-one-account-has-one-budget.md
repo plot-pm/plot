@@ -14,7 +14,7 @@
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 4
+- **Rounds:** 5
 - **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Started:** 2026-09-01, Jan Wloka, `bug/a-connector-answers-for-its-limit`
 
@@ -647,7 +647,7 @@ comes first**, because five branches write to it.
 
 ### Naming the record
 
-- `bug/a-budget-belongs-to-the-computer` — where the record lives and what it is keyed by, before anything appends to it. Outside any checkout, since two GitHub checkouts on this machine share one account and each `.plot/state/` would read a full 5000. Keyed by connector, account and bucket, with the **connector carried as a string the record does not validate** — `Tracker` already names `linear` without an adapter, and a third closed enum is an edit that gets forgotten when GitLab arrives. Append-only with a stated line cap, since concurrent `O_APPEND` is atomic only below `PIPE_BUF`. Deliverables: the location, the key, the format, and what a connector that reports no limit records — which is `unknown`, never `free`.
+- `bug/a-budget-belongs-to-the-computer` — where the record lives and what it is keyed by, before anything appends to it. Outside any checkout, since two GitHub checkouts on this machine share one account and each `.plot/state/` would read a full 5000. Keyed by connector, account and bucket, with the **connector carried as a string the record does not validate** — `Tracker` already names `linear` without an adapter, and a third closed enum is an edit that gets forgotten when GitLab arrives. Append-only with a stated line cap, since concurrent `O_APPEND` is atomic only below `PIPE_BUF`. Deliverables: the location, the key, the format, and what a connector that reports no limit records — which is `unknown`, never `free`. **Plus the window and the pruning**, which the design spec settles and which cannot be deferred: measured 2026-09-01, one board at 5 s and eleven scripts at 90 s append **~1,160 lines an hour, 15 MB a week**, so a rate derived over the whole file approaches zero and every reader parses megabytes. A reader consumes only lines newer than the connector's own reset window and truncates what it has just proven dead — the one write that is not an append, at most once per reset.
 
 ### Counting what is spent
 
