@@ -20,6 +20,7 @@ import { storyLogPath, storyPromptPath } from '../../src/server/story.js';
 import { commissionLogPath, commissionPromptPath } from '../../src/server/commission.js';
 import { resliceLogPath } from '../../src/server/reslice.js';
 import { repairLogPath } from '../../src/server/resolver.js';
+import { rmTree } from '../helpers.mjs';
 
 /**
  * ONE PLACE DECIDES WHERE AN AGENT LOG LIVES, AND NOW IT DECIDES DIFFERENTLY.
@@ -176,7 +177,7 @@ describe('the configured worktree root', () => {
     if (previousScriptsDir === undefined) delete process.env.PLOT_SCRIPTS_DIR;
     else process.env.PLOT_SCRIPTS_DIR = previousScriptsDir;
     forgetWorktreeRoot();
-    fs.rmSync(tmp, { recursive: true, force: true });
+    rmTree(tmp);
   });
 
   it('puts a dispatch log under the configured root', () => {
@@ -287,7 +288,7 @@ describe('migrateAgentLogs', () => {
     if (previousScriptsDir === undefined) delete process.env.PLOT_SCRIPTS_DIR;
     else process.env.PLOT_SCRIPTS_DIR = previousScriptsDir;
     forgetWorktreeRoot();
-    fs.rmSync(tmp, { recursive: true, force: true });
+    rmTree(tmp);
   });
 
   const write = (dir: string, name: string, body = 'x') => {
@@ -377,7 +378,7 @@ describe('migrateAgentLogs', () => {
       '# Fixture\n\n## Plot Config\n\n- **Worktree root:** .worktrees\n',
     );
     forgetWorktreeRoot();
-    fs.rmSync(path.dirname(orphan), { recursive: true, force: true });
+    rmTree(path.dirname(orphan));
 
     expect(() => migrateAgentLogs(orphan)).not.toThrow();
   });

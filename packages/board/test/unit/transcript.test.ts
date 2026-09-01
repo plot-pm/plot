@@ -19,6 +19,7 @@ import {
   transcriptFacts,
   transcriptFile,
 } from '../../src/server/transcript.js';
+import { rmTree } from '../helpers.mjs';
 
 /** An assistant line shaped exactly as the runtime writes one. */
 function assistantLine(over: Record<string, unknown> = {}) {
@@ -44,7 +45,7 @@ function withFile(contents: string, run: (file: string) => void) {
   try {
     run(file);
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmTree(dir);
   }
 }
 
@@ -210,7 +211,7 @@ describe('an unreadable or unrecognised transcript omits rather than guesses', (
     try {
       assert.deepEqual(readTranscriptFacts(dir), {});
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -239,7 +240,7 @@ describe('choosing which transcript to read', () => {
     try {
       assert.equal(transcriptFile(dir, 'sess-9'), path.join(dir, 'sess-9.jsonl'));
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -250,7 +251,7 @@ describe('choosing which transcript to read', () => {
     try {
       assert.equal(transcriptFile(dir, 'sess-missing'), null);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -261,7 +262,7 @@ describe('choosing which transcript to read', () => {
     try {
       assert.equal(transcriptFile(dir, undefined), path.join(dir, 'sess-1.jsonl'));
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -270,7 +271,7 @@ describe('choosing which transcript to read', () => {
     try {
       assert.equal(transcriptFile(dir, undefined), null);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 });

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, rmTree } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 
 // @needs-real-board: the last test asserts that both buttons refuse over a non-localhost binding, which no mock can be
@@ -237,7 +237,7 @@ describe('a board that cannot act refuses both clicks for its OWN reasons', () =
   afterAll(async () => {
     await browser?.close();
     server?.kill();
-    if (garden) fs.rmSync(garden, { recursive: true, force: true });
+    if (garden) rmTree(garden);
   });
 
   it('neither button posts, however many times it is clicked', async () => {

@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   refreshIssues, freshCacheEntry, prNextDueAt, prRefreshMsFor,
 } from '../../src/server/fleet.js';
+import { rmTree } from '../helpers.mjs';
 
 // The defect this file exists for, measured on this repo 2026-08-20: GraphQL
 // 0/5000. The PR refresh recognised the rate limit and backed off; the issue
@@ -46,7 +47,7 @@ function host(message: string, exitCode: number): string {
   return dir;
 }
 afterEach(() => {
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) rmTree(dir);
 });
 
 const RATE_LIMIT = 'GraphQL: API rate limit already exceeded for user ID 870334';

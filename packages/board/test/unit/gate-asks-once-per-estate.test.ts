@@ -37,6 +37,7 @@ import { estateFingerprint, sameEstate } from '../../src/server/entry/estate-fin
 import { boardState } from '../../src/server/controllers/fleet-state.js';
 import type { Board, Column } from '../../src/contract/schema.js';
 import type { EstateSource } from '../../src/server/controllers/fleet-state.js';
+import { rmTree } from '../helpers.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const SCRIPTS_DIR = path.join(REPO_ROOT, 'skills/plot/scripts');
@@ -124,7 +125,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       expect(state.reads, 'the estate was read once, not twice').toBe(1);
       expect(second.value, 'the re-used answer is the same answer').toBe(first.value);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -149,7 +150,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       expect(after.measured, 'a plan edit is an estate change').toBe(true);
       expect(state.reads, 'the changed estate was measured again').toBe(2);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -178,7 +179,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       expect(after.measured, 'a moved ref is an estate change').toBe(true);
       expect(state.reads, 'the changed estate was measured again').toBe(2);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -222,7 +223,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
         'but measured three times — one per DISTINCT estate, not one per ask',
       ).toBe(3);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -247,7 +248,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       await askOncePerEstate(memory, ask);
       expect(state.reads, 'so every ask measures').toBe(2);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 });
@@ -284,7 +285,7 @@ describe("the gate's answer is identical to the board's", () => {
       expect(typeof entryAt, 'the entry point still stamps the answer').toBe('string');
       expect(typeof routeAt, 'and so does the route').toBe('string');
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -321,7 +322,7 @@ describe("the gate's answer is identical to the board's", () => {
         'a stated refusal is not an absence',
       ).toBe(false);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 });

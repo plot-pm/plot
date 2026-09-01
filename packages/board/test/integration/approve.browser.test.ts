@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { startServer, rmTree } from '../helpers.mjs';
 
 // @needs-real-board: the second click's POST leaves the browser and runs the configured `Approve command`, and the card asserts that script's own sentence
 //
@@ -77,7 +77,7 @@ describe('approve: a Draft card can act, behind one confirmation', () => {
   afterAll(async () => {
     await browser?.close();
     server?.kill();
-    if (garden) fs.rmSync(garden, { recursive: true, force: true });
+    if (garden) rmTree(garden);
   });
 
   async function openBoard(): Promise<Page> {
@@ -290,7 +290,7 @@ describe('approve: a board that cannot approve says so instead of offering', () 
   afterAll(async () => {
     await browser?.close();
     server?.kill();
-    if (garden) fs.rmSync(garden, { recursive: true, force: true });
+    if (garden) rmTree(garden);
   });
 
   it('renders Approve disabled, carrying the binding\'s own reason', async () => {

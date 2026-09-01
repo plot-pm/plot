@@ -17,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import type { BuildBoardOptions } from '../../src/server/board.js';
+import { rmTree } from '../helpers.mjs';
 
 const dirs: string[] = [];
 
@@ -55,7 +56,7 @@ async function serverInfoIn(repoRoot: string) {
 }
 
 afterEach(() => {
-  for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) rmTree(d);
 });
 
 describe('the server names the repository it is serving', () => {

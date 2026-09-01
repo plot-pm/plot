@@ -20,6 +20,7 @@ import {
   makeStubScripts,
   writeImplementCommand,
   request,
+  rmTree,
 } from './helpers.mjs';
 
 const APPROVED = `# Ship the widget
@@ -71,7 +72,7 @@ describe('PORT=0 binds zero and reports what the OS gave', () => {
 
   after(() => {
     server?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('reports a real port, not the zero it asked for', () => {
@@ -104,7 +105,7 @@ describe('the BOUND port reaches the same-origin check', () => {
   after(() => {
     server?.kill();
     stub?.cleanup();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('accepts a same-origin browser request under PORT=0', async () => {
@@ -151,7 +152,7 @@ describe('the default port is unchanged', () => {
   });
 
   after(() => {
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('starting without PORT still binds 7777', async (t) => {
@@ -192,7 +193,7 @@ describe('a second board names the first and exits', () => {
 
   after(() => {
     first?.kill();
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('reports the running address and exits 0 without starting a second', async () => {

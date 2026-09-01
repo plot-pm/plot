@@ -56,7 +56,7 @@ describe('the test helper retries a held index.lock', () => {
     repo = makeGitRepo();
   });
   after(() => {
-    fs.rmSync(repo, { recursive: true, force: true });
+    rmTree(repo);
   });
 
   it('survives a lock held by another process and released mid-flight', () => {
@@ -172,7 +172,7 @@ describe('the teardown helper outlasts a process still writing into the tree', (
       assert.throws(() => rmTree(root, { retries: 10, delayMs: 1 }), /EACCES/);
     });
     assert.equal(calls, 1, 'a non-transient error must not be retried even once');
-    fs.rmSync(root, { recursive: true, force: true });
+    rmTree(root);
   });
 
   it('exhausts a bounded budget rather than looping forever', () => {
@@ -182,7 +182,7 @@ describe('the teardown helper outlasts a process still writing into the tree', (
       assert.throws(() => rmTree(root, { retries: 3, delayMs: 1 }), /ENOTEMPTY/);
     });
     assert.equal(calls, 4, 'retries + 1 attempts, then the real error');
-    fs.rmSync(root, { recursive: true, force: true });
+    rmTree(root);
   });
 });
 
@@ -239,7 +239,7 @@ describe('the stub fixture tears down through the retry', () => {
         'a permission error is not transient and must not be retried away',
       );
     } finally {
-      fs.rmSync(stub.dir, { recursive: true, force: true });
+      rmTree(stub.dir);
     }
   });
 });

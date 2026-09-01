@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { rmTree } from '../helpers.mjs';
 import {
   buildFleet, mergePlan, partialSummary, pulseShrink, runStreaming, stopFleetRefresh,
 } from '../../src/server/fleet.js';
@@ -65,7 +66,7 @@ function fakeScan(lines: string[], { exitCode = 0, delayMs = 0 } = {}): string {
 const temps: string[] = [];
 afterEach(() => {
   stopFleetRefresh();
-  for (const d of temps.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of temps.splice(0)) rmTree(d);
 });
 
 const planLine = (p: unknown) => JSON.stringify({ kind: 'plan', plan: p });

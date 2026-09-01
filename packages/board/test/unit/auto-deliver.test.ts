@@ -23,6 +23,7 @@ import { afterEach, describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { rmTree } from '../helpers.mjs';
 import {
   planAutoDeliver,
   pruneDelivering,
@@ -36,7 +37,7 @@ const made: string[] = [];
 afterEach(() => {
   while (made.length) {
     const dir = made.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    if (dir) rmTree(dir);
   }
 });
 

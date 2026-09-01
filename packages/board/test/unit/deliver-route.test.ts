@@ -32,6 +32,7 @@ import {
   type DeliverDeps,
   type DeliverRefusal,
 } from '../../src/server/deliver.js';
+import { rmTree } from '../helpers.mjs';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
 
@@ -42,7 +43,7 @@ afterEach(() => {
   // race and `maxRetries` is not being asked to win anything.
   while (made.length) {
     const dir = made.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    if (dir) rmTree(dir);
   }
 });
 
