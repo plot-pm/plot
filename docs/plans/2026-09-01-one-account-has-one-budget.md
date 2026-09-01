@@ -16,6 +16,7 @@
 - **Impl:** own branches
 - **Rounds:** 4
 - **Approved:** 2026-09-01, Jan Wloka, in-session
+- **Started:** 2026-09-01, Jan Wloka, `bug/a-connector-answers-for-its-limit`
 
 ## Changelog
 
