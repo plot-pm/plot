@@ -4,7 +4,7 @@ import type { Scenario, ScenarioName } from './states.js';
 
 export { startMockBoard, type MockBoard } from './mock-board.js';
 export { SCENARIOS, scenario, type Scenario, type ScenarioName } from './states.js';
-export { agent, board, card, column, fleet, row, wave, generatedAt } from './build.js';
+export { agent, board, card, column, fleet, row, story, wave, generatedAt } from './build.js';
 
 /**
  * A browser and a mock, opened together and closed together.

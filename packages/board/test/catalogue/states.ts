@@ -1,4 +1,4 @@
-import { board, card, column, fleet, row, wave } from './build.js';
+import { board, card, column, fleet, row, story, wave } from './build.js';
 import {
   BOARD_PHASES, ELIGIBLE_NOTE, RowKindSchema,
   type Board, type Fleet, type RowKind,
@@ -592,6 +592,78 @@ const tenRowsOneKindEach = (): Scenario => ({
   }),
 });
 
+/**
+ * THREE PLANS, THREE ANSWERS ABOUT A STORY — what `story-overlay` is about.
+ *
+ * | plan | story | the rule it proves |
+ * |---|---|---|
+ * | `strawberry-netting` | `raised-beds`, with a file | `Open story` is a real BUTTON, not only a badge |
+ * | `drip-irrigation` | `orphan-bed`, `path: ''` | no button, and the badge NAMES it without linking |
+ * | `pumpkin-patch` | none | no story control at all |
+ *
+ * `path` is the whole mechanism: `storyHref` reads it as the yes/no of *is
+ * there a file*, and `''` renders as no link rather than a link that 404s. A
+ * story nobody has written is therefore a STATE this scenario declares, not a
+ * fixture that has to be missing one.
+ *
+ * `compost-guide` is the second plan in `raised-beds`, so the overlay's *Plans
+ * in this story* list has two entries to derive and two phases to show. Their
+ * phases are Development and Testing deliberately: the list must show the CARD's
+ * live phase, and Design must be absent — the board manufactured that column
+ * once by forking approved on started, and asserting Design here would pin the
+ * defect its removal fixed.
+ */
+const aStoryWithAndWithoutAFile = (): Scenario => ({
+  board: board({
+    stories: [
+      story({
+        slug: 'berry-patch', title: 'Pick the berry patch', status: 'active',
+        path: 'docs/stories/berry-patch/STORY-berry-patch.md',
+      }),
+      // NAMED AND UNWRITTEN. The card keeps its title and status, which are true
+      // regardless; only the link goes away.
+      story({ slug: 'orphan-bed', title: 'orphan-bed', status: 'draft', path: '' }),
+    ],
+    columns: [
+      column({
+        phase: 'Development',
+        cards: [
+          card({
+            slug: 'strawberry-netting', title: 'Net the strawberry bed', type: 'feature',
+            phase: 'Development', path: 'docs/plans/2026-04-01-strawberry-netting.md',
+            story: 'berry-patch',
+          }),
+          card({
+            slug: 'drip-irrigation', title: 'Install drip-irrigation timers', type: 'feature',
+            phase: 'Development', path: 'docs/plans/2026-05-01-drip-irrigation.md',
+            story: 'orphan-bed',
+          }),
+        ],
+      }),
+      column({
+        phase: 'Testing',
+        cards: [
+          card({
+            slug: 'compost-guide', title: 'Write a compost-turning guide', type: 'docs',
+            phase: 'Testing', path: 'docs/plans/2026-04-15-compost-guide.md',
+            story: 'berry-patch',
+          }),
+        ],
+      }),
+      column({
+        phase: 'Discovery',
+        cards: [
+          card({
+            slug: 'pumpkin-patch', title: 'Start a pumpkin patch', type: 'feature',
+            phase: 'Discovery', path: 'docs/plans/2026-06-10-pumpkin-patch.md',
+          }),
+        ],
+      }),
+    ],
+  }),
+  fleet: fleet(),
+});
+
 const anEmptyEstate = (): Scenario => ({ board: board(), fleet: fleet() });
 
 /**
@@ -706,6 +778,7 @@ export const SCENARIOS = {
   'a-board-that-can-act': aBoardThatCanAct,
   'a-board-of-plans': aBoardOfPlans,
   'ten-rows-one-kind-each': tenRowsOneKindEach,
+  'a-story-with-and-without-a-file': aStoryWithAndWithoutAFile,
   'an-empty-estate': anEmptyEstate,
 } satisfies Record<string, () => Scenario>;
 

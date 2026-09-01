@@ -1,36 +1,50 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 
 // UI layer: a real browser against the shipped artifact. What a route test
 // cannot see is whether the ACTION is visible — a badge-only implementation
 // satisfies "a story can be opened" and leaves nothing to click for anyone
 // scanning the header for something to do.
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
+//
+// THE STATE IS SERVED, NOT SPAWNED. `a-story-with-and-without-a-file` states
+// three plans and three answers about a story, and the fileless one is the
+// point: `storyHref` reads `path` as the yes/no of *is there a file*, so a story
+// nobody has written is a STATE rather than a fixture that has to lack one.
+//
+// The rendered documents are served too. `DocModal` fetches `<href>?embed=1` and
+// injects the body as the iframe's `srcDoc`, so a document is a route — which is
+// what lets the story document's prose DISAGREE with the derived plan list on
+// purpose, and lets the missing one 404 the way the board's own answer does.
 const VIEWPORT = { width: 1280, height: 900 };
 
+/** The story document, whose hand-written prose is deliberately stale. */
+const STORY_DOC = `<h1>Pick the berry patch</h1>
+<h2>Current Plan</h2>
+<p>Dig the second bed</p>`;
+
 describe('story overlay: opening a story from the board', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
+    cat = await openCatalogue();
+    // The two plans that HAVE files, and the story that has one. Everything
+    // else 404s, which is the state `Open story` must decline to offer.
+    cat.mock.serveDoc('/plan/2026-04-01-strawberry-netting.md',
+      '<h1>Net the strawberry bed</h1>');
+    cat.mock.serveDoc('/plan/2026-05-01-drip-irrigation.md',
+      '<h1>Install drip-irrigation timers</h1>');
+    cat.mock.serveDoc('/plan/2026-06-10-pumpkin-patch.md',
+      '<h1>Start a pumpkin patch</h1>');
+    cat.mock.serveDoc('/story/berry-patch', STORY_DOC);
+  }, 60_000);
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function openBoard(): Promise<Page> {
-    const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.goto(baseURL);
-    await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    const page = await cat.open('a-story-with-and-without-a-file', { viewport: VIEWPORT });
+    await page.getByText('Net the strawberry bed').waitFor({ timeout: 10_000 });
     return page;
   }
 
