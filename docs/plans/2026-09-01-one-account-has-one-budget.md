@@ -14,6 +14,7 @@
 - **Story:** plot-board
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 3
 
 ## Changelog
 

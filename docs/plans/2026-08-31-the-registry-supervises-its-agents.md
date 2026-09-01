@@ -13,6 +13,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 2
 - **Approved:** 2026-09-01, Jan Wloka, in-session
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
