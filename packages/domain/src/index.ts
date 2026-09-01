@@ -26,6 +26,7 @@ export * from './entities/issue.js';
 export * from './entities/wave.js';
 export * from './rules/deliverable.js';
 export * from './rules/reapable.js';
+export * from './rules/verdict.js';
 /**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
  * which `## Status` line a lifecycle step writes.

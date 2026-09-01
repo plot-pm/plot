@@ -13,7 +13,6 @@ import {
   PR_UNKNOWN_NOTE,
   toBoardPhase,
   unknownPhaseNote,
-  SliceVerdictSchema,
   type AgentRow,
   type BranchState,
   type BriefState,
@@ -26,7 +25,6 @@ import {
   type Phase,
   type PulseShrink,
   type RowKind,
-  type StartabilityVerdict,
   type StuckRun,
   type WaitingGroup,
   type WaitingOn,
@@ -2767,42 +2765,6 @@ export function waitingOnFor(
  *
  * @returns One of the four verdicts, or null where none applies.
  */
-export function startabilityVerdict(
-  state: BranchState,
-  planPhase: string,
-  verdict: string,
-  brief: BriefState,
-): StartabilityVerdict | null {
-  // --- state gates the whole function ---
-  // `wip` and `claimed` mean someone has it. Merged is finished. Deferred was
-  // shelved. Only `open` can be started.
-  if (state === 'wip' || state === 'claimed') return 'someone-is-on-it';
-  if (state === 'merged' || state === 'deferred') return null;
-  // state === 'open' from here on.
-
-  // --- plan phase decides most of the answer ---
-  // A Draft plan is not yours to start — approve it or leave it.
-  if (planPhase === 'draft') return 'waiting-on-approval';
-
-  // --- wave ordering must be satisfied ---
-  // A branch blocked by an earlier wave cannot be started whatever the brief.
-  if (verdict !== 'eligible') return null;
-
-  // --- the brief is the final gate ---
-  // An eligible branch of an approved plan with no brief is not startable.
-  // `/plot-implement` writes the brief; `plot-dispatch.sh` refuses to start
-  // without one; and before this field existed, 9 rows read `eligible` on
-  // 2026-08-19 with zero briefs between them.
-  //
-  // `unknown` is treated as `present` — the board has nothing to tell the
-  // reader when it cannot determine whether the brief exists. A caller passing
-  // no root has not looked, and a pulse from an older server validates to
-  // `unknown` by default. Making that `needs-brief` would claim a gap nobody
-  // measured.
-  if (brief === 'missing') return 'needs-brief';
-
-  return 'start-work';
-}
 
 /**
  * The wave verdict as a VALUE, or null where the scan did not report one this
@@ -2818,10 +2780,20 @@ export function startabilityVerdict(
  * reported no verdict licenses no claim about a wave, and a row with null here
  * renders exactly as the board did before the field existed.
  */
-export function waveVerdict(verdict: string): SliceVerdict | null {
-  const parsed = SliceVerdictSchema.safeParse(verdict);
-  return parsed.success ? parsed.data : null;
-}
+// THE VERDICTS ARE DOMAIN RULES, RE-EXPORTED HERE. `startabilityVerdict` and
+// `waveVerdict` moved to `packages/domain/src/rules/verdict.ts`: a verdict
+// answers a question about a Slice, which is a judgement rather than a
+// rendering concern, and this file is the view layer.
+//
+// Re-exported rather than repointed at every call site. The plan's condition is
+// that this file holds no COPY, and a re-export is not one — it is the same
+// function, named here for the callers that already import it. Changing forty
+// imports would make a move look like a rename.
+import { startabilityVerdict, waveVerdict } from '@plot-pm/domain';
+
+export { startabilityVerdict, waveVerdict };
+export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
+
 
 /**
  * The one WAVE ENTITY, assembled from the pulse where the verdicts already are.
