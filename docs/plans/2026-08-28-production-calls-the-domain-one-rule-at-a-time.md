@@ -305,7 +305,7 @@ off. So: clone the estate once, run both scans against that clone with
 `--offline` (the flag already exists), and any difference is necessarily the
 adoption.
 
-### Refusing (Branch: feature/the-refusals-are-domain-rules)
+### Refusing (Branch: feature/the-refusals-are-domain-rules, PR: #614)
 
 `plot-reap.sh`'s five and `plot-dispatch.sh`'s four become domain predicates
 returning a named `Refusal`. **The scripts keep their exit codes and their
