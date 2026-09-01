@@ -34,6 +34,17 @@ import { z } from "zod";
  *
  * It is therefore a state no consumer may treat as a merge verdict. `open` and
  * `merged` are readings; this is the absence of one.
+ *
+ * `waiting` and `blocked` come from a branch's `waits:` annotation rather than
+ * from git. `waiting` means the prerequisite branch has not merged — a wait with
+ * an end. `blocked` means the host has never seen a PR for it — a typo in the
+ * plan, which resolves by editing the plan and not by waiting. Both replace
+ * `open` or `unknown` only, so a branch carrying work keeps the state its work
+ * earned.
+ *
+ * `blocked` here is a BRANCH state and shares only its spelling with
+ * {@link SliceVerdictSchema}'s `blocked`, which is about wave ordering. The two
+ * travel in different fields and are counted separately.
  */
 export const BranchStateSchema = z.enum([
   'open',
@@ -42,6 +53,8 @@ export const BranchStateSchema = z.enum([
   'claimed',
   'deferred',
   'unknown',
+  'waiting',
+  'blocked',
 ]);
 export type BranchState = z.infer<typeof BranchStateSchema>;
 
@@ -121,6 +134,19 @@ export const SourceBranchSchema = z.object({
    * before the field existed.
    */
   deferred_reason: z.string().default(''),
+  /**
+   * The branch this one waits on, as the plan's `waits:` annotation names it —
+   * "" where it declares nothing.
+   *
+   * THE DECLARATION, NOT THE VERDICT. It is present whatever `state` says, so a
+   * branch whose prerequisite has merged still reports it: the plan still
+   * declares the dependency, and a reader who sees a cleared one learns why the
+   * slice became startable. `state` is what says whether the wait is live.
+   *
+   * Defaulted, so a pulse from a scan predating the field still validates — the
+   * same reason `deferred_reason` is.
+   */
+  waits_on: z.string().default(''),
   /** Claim note from the plan, or "" — never null (house style). */
   claimed: z.string(),
   /**
@@ -628,6 +654,20 @@ export const FleetReadingSchema = z.object({
     eligible: z.number(),
     blocked: z.number(),
     deferred: z.number(),
+    /**
+     * Branches held by a `waits:` annotation — `waiting` where the prerequisite
+     * has not merged, `prereq_missing` where the host has never seen a PR for
+     * it.
+     *
+     * BRANCH counters beside `blocked`, which counts WAVES. Nothing is in both.
+     *
+     * Defaulted rather than required, because the board BUILDS this object as
+     * well as parsing it (`partialSummary`, `EMPTY_SUMMARY`): a required counter
+     * would make every producer here a compile error for a number they do not
+     * have, and 0 is what a scan predating the field honestly reported.
+     */
+    waiting: z.number().default(0),
+    prereq_missing: z.number().default(0),
     /**
      * Whether the git host answered when the scan asked it about PRs.
      *
