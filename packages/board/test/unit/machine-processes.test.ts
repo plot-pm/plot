@@ -8,7 +8,7 @@ import { classify,
 import { inMachineSection, machineNote } from '../../src/app/lib/agent-rows/host-notes.js';
 import { GROUPS } from '../../src/app/lib/agent-rows/sections.js';
 import {
-  AgentRowSchema, WorkerStateSchema, type AgentRow, type FleetPulse,
+  AgentRowSchema, WorkerStateSchema, type AgentRow, type FleetReading,
 } from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
@@ -210,7 +210,7 @@ describe('the two entities, on the rows a pulse produces', () => {
    * `phase: 'approved'` throughout: a terminal phase outranks everything the
    * `open` arm could say, and this suite is about branches that exist.
    */
-  const pulseWith = (branch: Record<string, unknown>): FleetPulse => ({
+  const pulseWith = (branch: Record<string, unknown>): FleetReading => ({
     generated: new Date().toISOString(),
     root: '/repo',
     main: 'main',

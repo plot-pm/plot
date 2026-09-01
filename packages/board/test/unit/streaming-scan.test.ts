@@ -6,7 +6,7 @@ import {
   buildFleet, mergePlan, partialSummary, pulseShrink, runStreaming, stopFleetRefresh,
 } from '../../src/server/fleet.js';
 import { summariseFromPulse } from '../../src/server/board.js';
-import { FleetSchema, PlanMetaSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { FleetSchema, PlanMetaSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // The measurement this file exists for, taken on this repo 2026-08-19: the
 // board refreshes every 5 s and a full scan takes 18.3 s, of which git alone is
@@ -69,7 +69,7 @@ afterEach(() => {
 });
 
 const planLine = (p: unknown) => JSON.stringify({ kind: 'plan', plan: p });
-const pulseLine = (p: unknown) => JSON.stringify({ kind: 'pulse', pulse: p });
+const pulseLine = (p: unknown) => JSON.stringify({ kind: 'reading', reading: p });
 
 const HEAD = { main: 'main', head: 'abc1234', read_ref: 'abc1234', local_head: 'abc1234' };
 
@@ -126,7 +126,7 @@ describe('a row renders from plan facts before any git fact exists', () => {
     // pulse is real, it simply does not mention this plan yet. Rendering that
     // as "0 claimed" would be a fresh, confident, wrong answer — where the
     // cold-cache case at least looked empty.
-    const partial: FleetPulse = {
+    const partial: FleetReading = {
       ...HEAD,
       plans: [plan('2026-08-19-something-else.md', [wave('One', 'eligible', [['feature/z', 'open']])])],
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
@@ -141,7 +141,7 @@ describe('a row renders from plan facts before any git fact exists', () => {
   it('gains the git counts once the pulse names this plan', () => {
     // The other half of the same rule: once the source HAS arrived, the badge
     // is present — including at zero, which is now a real measurement.
-    const arrived: FleetPulse = {
+    const arrived: FleetReading = {
       ...HEAD,
       plans: [plan('2026-08-19-streams.md',
         [wave('One', 'eligible', [['feature/a', 'claimed'], ['feature/b', 'open']])])],
@@ -277,7 +277,7 @@ describe('a completed scan renders identically to a batch one', () => {
       wave('Two', 'eligible', [['feature/b', 'open'], ['feature/c', 'claimed']])]),
     plan('b.md', [wave('One', 'blocked', [['bug/x', 'wip'], ['bug/y', 'deferred']])]),
   ];
-  const whole: FleetPulse = {
+  const whole: FleetReading = {
     ...HEAD,
     plans,
     // `host` joined the summary with the throttled-host reading; a fixture
@@ -401,7 +401,7 @@ describe('the shrink baseline is the last COMPLETE answer', () => {
     plan('b.md', [wave('One', 'eligible', [['feature/b', 'open']])]),
   ];
   const one = [two[0]];
-  const pulseOf = (plans: ReturnType<typeof plan>[]): FleetPulse => ({
+  const pulseOf = (plans: ReturnType<typeof plan>[]): FleetReading => ({
     ...HEAD, plans, summary: partialSummary(plans),
   });
 

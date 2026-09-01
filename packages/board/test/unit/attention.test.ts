@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 import { readingFor, isClaimable } from '../../src/server/attention.js';
 import { rowsFromPulse } from '../../src/server/fleet.js';
-import { AttentionSchema, type AgentRow, type FleetPulse } from '../../src/contract/schema.js';
+import { AttentionSchema, type AgentRow, type FleetReading } from '../../src/contract/schema.js';
 
 const QUIET = 30;
 
@@ -26,7 +26,7 @@ const QUIET = 30;
  * inside the quiet window so nothing here reaches `quiet` for a reason
  * unrelated to its worker.
  */
-const workerPulse = (): FleetPulse => ({
+const workerPulse = (): FleetReading => ({
   main: 'main',
   head: 'abc1234',
   plans: [{
@@ -59,12 +59,12 @@ const workerPulse = (): FleetPulse => ({
 } as never);
 
 /** Every branch dated one minute ago — inside the quiet window, by design. */
-const freshAges = (pulse: FleetPulse): Map<string, number | null> =>
+const freshAges = (pulse: FleetReading): Map<string, number | null> =>
   new Map(pulse.plans.flatMap((p) => p.slices.flatMap((w) => w.branches.map(
     (b) => [b.branch, 1] as [string, number | null],
   ))));
 
-const rowsOf = (pulse: FleetPulse): Map<string, AgentRow> => {
+const rowsOf = (pulse: FleetReading): Map<string, AgentRow> => {
   const rows = rowsFromPulse(pulse, freshAges(pulse), 'plot', QUIET);
   return new Map(rows.map((r) => [r.branch, r]));
 };
@@ -276,7 +276,7 @@ describe('a live worker does not hide its PR\'s errand', () => {
 });
 
 describe('claimable is the same predicate the Start button uses', () => {
-  const openPulse = (): FleetPulse => ({
+  const openPulse = (): FleetReading => ({
     main: 'main',
     head: 'abc1234',
     plans: [{
@@ -338,7 +338,7 @@ describe('unpushed commits are read from the stuck detector, not counted again',
       ] }],
     }],
     summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
-  } as never as FleetPulse);
+  } as never as FleetReading);
 
   it('reports commits nobody else can see as a person\'s errand', () => {
     const rows = rowsOf(aheadPulse('none'));
@@ -374,7 +374,7 @@ describe('finished work is nobody\'s errand', () => {
         ] }],
       }],
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
-    } as never as FleetPulse;
+    } as never as FleetReading;
     const rows = rowsOf(pulse);
     expect(readingFor(rows.get('feature/it-landed')!)).toBe(null);
   });

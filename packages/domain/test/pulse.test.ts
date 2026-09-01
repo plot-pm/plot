@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { FleetPulseSchema, type FleetPulse } from '../src/entities/fleet.js';
+import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js';
 import {
   doubleClaimedBranches,
   planSlugOf,
-  pulseLoss,
+  readingLoss,
   sliceReadings,
 } from '../src/rules/pulse.js';
 
@@ -19,11 +19,11 @@ const branch = (name: string, over: Record<string, unknown> = {}) => ({
   branch: name, state: 'open', deferred: false, claimed: '', ...over,
 });
 
-const pulse = (plans: unknown[]): FleetPulse =>
+const pulse = (plans: unknown[]): FleetReading =>
   // `main` and `head` are required and irrelevant here: every rule under test
   // reads `plans` alone. Stated once rather than per test, so a fixture change
   // is a fixture change and not thirteen of them.
-  FleetPulseSchema.parse({
+  FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
     summary: { plans: plans.length, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
@@ -145,24 +145,24 @@ describe('doubleClaimedBranches — a branch belongs to one plan', () => {
   });
 });
 
-describe('pulseLoss — what the fleet stopped seeing', () => {
+describe('readingLoss — what the fleet stopped seeing', () => {
   const withPlans = (...files: string[]) =>
     pulse(files.map((f) => plan(f, [slice('S', [branch(`feature/${f[0]}`)])])));
 
   it('loses nothing on a first reading, however full the pulse', () => {
     // With no previous pulse every plan looks new, and reporting that as a
     // shrink would announce a loss on every start.
-    expect(pulseLoss(null, withPlans('2026-01-01-a.md'), 100)).toBeNull();
-    expect(pulseLoss(withPlans('2026-01-01-a.md'), withPlans('2026-01-01-a.md'), null)).toBeNull();
+    expect(readingLoss(null, withPlans('2026-01-01-a.md'), 100)).toBeNull();
+    expect(readingLoss(withPlans('2026-01-01-a.md'), withPlans('2026-01-01-a.md'), null)).toBeNull();
   });
 
   it('reports nothing when the estate did not shrink', () => {
     const same = withPlans('2026-01-01-a.md');
-    expect(pulseLoss(same, same, 100)).toBeNull();
+    expect(readingLoss(same, same, 100)).toBeNull();
   });
 
   it('names the plan that vanished, and when it was last seen', () => {
-    const loss = pulseLoss(
+    const loss = readingLoss(
       withPlans('2026-01-01-a.md', '2026-01-02-b.md'),
       withPlans('2026-01-01-a.md'),
       1700,
@@ -174,7 +174,7 @@ describe('pulseLoss — what the fleet stopped seeing', () => {
   it('names a branch that vanished from a plan that did not', () => {
     const before = pulse([plan('2026-01-01-a.md', [slice('S', [branch('feature/a'), branch('feature/b')])])]);
     const after = pulse([plan('2026-01-01-a.md', [slice('S', [branch('feature/a')])])]);
-    const loss = pulseLoss(before, after, 1700);
+    const loss = readingLoss(before, after, 1700);
     expect(loss?.branches).toEqual(['feature/b']);
     expect(loss?.plans).toEqual([]);
   });
@@ -182,12 +182,12 @@ describe('pulseLoss — what the fleet stopped seeing', () => {
   it('reports nothing when the estate GREW', () => {
     // Growth is not loss, and a rule that fired on any difference would report
     // every new plan as a vanished one.
-    expect(pulseLoss(withPlans('2026-01-01-a.md'), withPlans('2026-01-01-a.md', '2026-01-02-b.md'), 100))
+    expect(readingLoss(withPlans('2026-01-01-a.md'), withPlans('2026-01-01-a.md', '2026-01-02-b.md'), 100))
       .toBeNull();
   });
 
   it('sorts what it lost, so two readings of one loss agree', () => {
-    const loss = pulseLoss(
+    const loss = readingLoss(
       withPlans('2026-01-03-c.md', '2026-01-01-a.md', '2026-01-02-b.md'),
       withPlans('2026-01-01-a.md'),
       1700,

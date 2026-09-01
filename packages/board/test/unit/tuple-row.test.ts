@@ -22,7 +22,7 @@ import {
   type AgentRow, type IssueRow, type RowKind,
 } from '../../src/contract/schema.js';
 import { rowKind, rowsFromPulse, RELEASE_BRANCH } from '../../src/server/fleet.js';
-import type { FleetPulse } from '../../src/contract/schema.js';
+import type { FleetReading } from '../../src/contract/schema.js';
 
 /**
  * A ROW IS A TUPLE — the shape half.
@@ -134,7 +134,7 @@ describe('the contract carries all eight kinds', () => {
 });
 
 describe('the server decides the kind, and the renderer reads it', () => {
-  const pulse: FleetPulse = {
+  const pulse: FleetReading = {
     main: 'main', head: 'abc', plans: [{
       file: '2026-08-20-a-plan.md', phase: 'approved',
       slices: [{

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { refsGit } from '../src/adapters/refs/refs-git.js';
 import { shellContext } from '../src/adapters/scripts.js';
-import type { FleetPulse } from '../src/entities/fleet.js';
+import type { FleetReading } from '../src/entities/fleet.js';
 import { isAnswered } from '../src/port-result.js';
 import { compareField, describeDisagreement, type Disagreement } from './compare.js';
 import { readFleetScan, type Estate } from './production.js';
@@ -14,7 +14,7 @@ import { readFleetScan, type Estate } from './production.js';
  * readings `plot-fleet-scan.sh` reports, over this repository's real branches?
  *
  * "IDENTICAL" MEANS IDENTICAL READINGS, NOT AN IDENTICAL DOCUMENT, and the
- * difference is by design rather than a weakening. `FleetPulseSchema` is a
+ * difference is by design rather than a weakening. `FleetReadingSchema` is a
  * narrowing, renaming view of the wire: it rewrites `waves` to `slices`,
  * defaults absent fields, and carries a subset of the 21 keys the scan reports
  * per branch. Asserting the parsed pulse deep-equals the raw JSON would fail on
@@ -151,7 +151,7 @@ const asArray = (value: unknown): Record<string, unknown>[] =>
 const wireSlices = (plan: Record<string, unknown>): Record<string, unknown>[] =>
   Array.isArray(plan.slices) ? asArray(plan.slices) : asArray(plan.waves);
 
-let pulse: FleetPulse;
+let pulse: FleetReading;
 let raw: Record<string, unknown>;
 
 /**

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSprintFile, planStatusBySlug } from '../../src/server/board.js';
 import { activeSprints } from '../../src/server/fleet.js';
-import { FleetSprintSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { FleetSprintSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // The `Counted` wave: the fleet payload carries each Active sprint with its
 // target release and three exhaustive counts (open/wip/done), aggregated
@@ -54,7 +54,7 @@ const DELIVERED = `- **Phase:** Delivered\n- **Type:** feature\n- **Review:** in
 const RELEASED = `- **Phase:** Released\n- **Type:** feature\n- **Review:** in-session`;
 
 /** A pulse whose single plan file has one merged wave — makes a Started plan `deliverable`. */
-const mergedPulse = (planBasename: string): FleetPulse => ({
+const mergedPulse = (planBasename: string): FleetReading => ({
   main: 'main',
   head: 'abc1234',
   plans: [{

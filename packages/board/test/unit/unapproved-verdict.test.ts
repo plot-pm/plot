@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  FleetPulseSchema, PlanSliceSchema, SliceVerdictSchema,
+  FleetReadingSchema, PlanSliceSchema, SliceVerdictSchema,
 } from '../../src/contract/schema.js';
 import { classify, waveVerdict } from '../../src/server/fleet.js';
 import { tupleFromWave, statusTone } from '../../src/app/lib/tuple-row.js';
@@ -11,7 +11,7 @@ import { tupleFromWave, statusTone } from '../../src/app/lib/tuple-row.js';
 // that the row renders it without promoting it to an action.
 
 describe('the fleet payload accepts the unapproved verdict', () => {
-  // THE ONE THAT MATTERS MOST. `readBridge` runs `FleetPulseSchema.parse`
+  // THE ONE THAT MATTERS MOST. `readBridge` runs `FleetReadingSchema.parse`
   // inside a try/catch that returns null on any failure — so a single
   // unrecognised verdict does not drop one wave, it discards the WHOLE pulse
   // and the board falls back to "waiting for its first scan". Shipping the
@@ -24,7 +24,7 @@ describe('the fleet payload accepts the unapproved verdict', () => {
   });
 
   it('keeps a whole pulse rather than discarding it for the new word', () => {
-    const parsed = FleetPulseSchema.safeParse({
+    const parsed = FleetReadingSchema.safeParse({
       main: 'main',
       head: 'abc1234',
       plans: [{

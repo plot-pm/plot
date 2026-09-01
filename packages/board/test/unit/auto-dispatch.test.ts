@@ -15,7 +15,7 @@ import {
   type AutoDispatchPlan,
 } from '../../src/server/auto-dispatch.js';
 import { measureMachine, type Machine as MachineEntity } from '@plot-pm/domain';
-import { FleetPulseSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
 import type { AgentEntry } from '../../src/server/registry.js';
 import type { FleetSettings } from '../../src/server/fleet-settings.js';
 
@@ -30,7 +30,7 @@ import type { FleetSettings } from '../../src/server/fleet-settings.js';
 // 2N the way `--max N` per pulse would.
 
 /**
- * One wave, in the FleetPulse branch shape.
+ * One wave, in the FleetReading branch shape.
  *
  * Each branch is [name, state, ref_held?]. When `ref_held` is not given, it
  * defaults to false — but a `wip` state implies a ref (the scan derives `wip`
@@ -55,8 +55,8 @@ const wave = (
 /** A parsed pulse of the given plans; each plan is [file, phase, waves]. */
 const pulse = (
   plans: Array<[string, string, ReturnType<typeof wave>[]]>,
-): FleetPulse =>
-  FleetPulseSchema.parse({
+): FleetReading =>
+  FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
     plans: plans.map(([file, phase, waves]) => ({ file, phase, slices: waves })),

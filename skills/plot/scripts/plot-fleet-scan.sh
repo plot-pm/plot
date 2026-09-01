@@ -27,9 +27,9 @@
 #   --stream    --json, emitted as it resolves rather than as one document at
 #               the end. One `{"kind":"plan","plan":{...}}` line per plan the
 #               moment that plan is fully derived, then one
-#               `{"kind":"pulse","pulse":{...}}` line carrying the SAME
+#               `{"kind":"reading","reading":{...}}` line carrying the SAME
 #               document --json prints. A consumer that has seen plan lines and
-#               no pulse line holds a PARTIAL answer — the scan takes 18 s on
+#               no reading line holds a PARTIAL answer — the scan takes 18 s on
 #               84 branches and a board that renders nothing for that long
 #               looks broken. The terminal line is what says the scan finished;
 #               a closed pipe does not, because a killed scan closes it too.
@@ -2715,9 +2715,9 @@ if [ ${#plans[@]} -eq 0 ]; then
   # A MACHINE CONSUMER FALLS THROUGH. An empty estate is a COMPLETE answer, and
   # this branch used to end the run before the emitter — so `--json` and
   # `--stream` were ignored entirely here and a consumer got human prose on
-  # stdout. Under `--stream` that meant no terminal `pulse` line, and the
+  # stdout. Under `--stream` that meant no terminal `reading` line, and the
   # board's contract (":3407": *"a consumer that has seen `plan` lines and no
-  # `pulse` line has a PARTIAL answer and must say so"*) made it report a
+  # `reading` line has a PARTIAL answer and must say so"*) made it report a
   # complete answer as a scan failure — forever, because the next scan said the
   # same. Measured 2026-08-28 against a board installed from npm: *"fleet scan
   # ended without a terminal pulse line"*, `ready:false`, every pulse.
@@ -3556,7 +3556,7 @@ for plan in "${plans[@]}"; do
     # THE STREAM'S POINT: this plan is fully derived, so a consumer can render
     # it now rather than when the eighty-fourth branch resolves. Emitted as one
     # line so a reader can split on newlines without parsing incrementally, and
-    # tagged so the terminal `pulse` line cannot be mistaken for another plan.
+    # tagged so the terminal `reading` line cannot be mistaken for another plan.
     #
     # Flushed by `printf` on a line of its own: a consumer reading this stream
     # is reading it BECAUSE the whole document takes 18 s, so buffering the
@@ -3611,11 +3611,11 @@ fi
 if [ "$as_json" = 1 ]; then
   # --stream wraps the SAME document in one tagged line rather than emitting a
   # second, smaller one. The terminal object is what proves the scan finished:
-  # a consumer that has seen `plan` lines and no `pulse` line has a PARTIAL
+  # a consumer that has seen `plan` lines and no `reading` line has a PARTIAL
   # answer and must say so — which is the whole distinction this mode adds, and
   # the reason the end is marked rather than inferred from the pipe closing.
   # A killed scan closes the pipe too.
-  [ "$stream" = 1 ] && printf '{"kind":"pulse","pulse":'
+  [ "$stream" = 1 ] && printf '{"kind":"reading","reading":'
   # `read_ref` is the ref this document was derived from; `local_head` is the
   # checkout it was derived ON. A consumer needs both to tell "the board is
   # current" from "the board is current about an old world".

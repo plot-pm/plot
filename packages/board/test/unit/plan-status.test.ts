@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import { planStatus } from '../../src/server/board.js';
-import { PlanMetaSchema, PlanStatusSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { PlanMetaSchema, PlanStatusSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // `status` is the plan's MEASURED state — derived every scan from its waves,
 // stored nowhere — beside `phase`, the DECISION a human writes into the file.
@@ -41,7 +41,7 @@ const wave = (
   })),
 });
 
-const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetPulse => ({
+const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetReading => ({
   main: 'main',
   head: 'abc1234',
   plans: [{ file, slices: waves }],
@@ -189,7 +189,7 @@ describe('planStatus on a partial pulse — the CARD, not just the button', () =
     // facts about the plan FILE — which, for a plan with no `Started:` record and
     // no claim, is `approved`. Not a guess in either direction.
     const m = meta({ phase: 'approved', started_raw: [] });
-    const timedOut: FleetPulse = {
+    const timedOut: FleetReading = {
       main: 'main',
       head: 'abc1234',
       plans: [],
@@ -204,7 +204,7 @@ describe('planStatus on a partial pulse — the CARD, not just the button', () =
     // reads the same whether the scan finished or not. A plan mid-flight keeps
     // looking mid-flight instead of flickering as the pulse arrives.
     const m = meta({ phase: 'approved', started_raw: ['2026-08-23, jwloka'] });
-    const timedOut: FleetPulse = {
+    const timedOut: FleetReading = {
       main: 'main',
       head: 'abc1234',
       plans: [],
@@ -245,7 +245,7 @@ describe('deliverable is exactly status === deliverable — the one word', () =>
   // one read a missing plan as `false` (*not merged*), and refusing to read a
   // negative out of a scan that never reached the plan is the whole of the
   // 2026-08-27 fix. That divergence is asserted in its own tests, not here.
-  const oldDeliverable = (m: ReturnType<typeof meta>, p: FleetPulse | null) =>
+  const oldDeliverable = (m: ReturnType<typeof meta>, p: FleetReading | null) =>
     m.phase === 'approved'
     && p !== null
     && (() => {
@@ -260,7 +260,7 @@ describe('deliverable is exactly status === deliverable — the one word', () =>
       return merged > 0;
     })();
 
-  const cases: Array<[string, ReturnType<typeof meta>, FleetPulse | null]> = [
+  const cases: Array<[string, ReturnType<typeof meta>, FleetReading | null]> = [
     ['approved+all-merged', meta({ phase: 'approved' }), oneMerged],
     ['approved+one-open', meta({ phase: 'approved' }), oneOpen],
     ['approved+started', meta({ phase: 'approved', started_raw: ['x'] }), oneOpen],

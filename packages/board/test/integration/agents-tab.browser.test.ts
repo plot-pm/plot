@@ -3855,7 +3855,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
 
   // A shrink payload, so a scan that exited 0 and lost work is one of the
   // statuses without needing the network fail-switch.
-  // `previousAt` is EPOCH MS, which is what `pulseLoss` produces and what
+  // `previousAt` is EPOCH MS, which is what `readingLoss` produces and what
   // `PulseShrinkSchema` requires. This fixture carried the ISO string until the
   // builders were reconciled: the old local `fleet()` cast rather than parsed,
   // so five tests asserted against a shrink payload the server cannot send.

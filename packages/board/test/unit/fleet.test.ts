@@ -16,7 +16,7 @@ import {
 } from '../../src/server/fleet.js';
 import {
   AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, PR_UNKNOWN_NOTE, toBoardPhase, unknownPhaseNote,
-  type AgentRow, type FleetPulse,
+  type AgentRow, type FleetReading,
 } from '../../src/contract/schema.js';
 import { showsWorkerLog } from '../../src/app/components/AgentList.js';
 import type { PrRecord } from '../../src/server/fleet.js';
@@ -1308,7 +1308,7 @@ describe('a deferred row answers to the phase too', () => {
     // The wiring `classify` alone cannot reach: the phase must travel from the
     // PLAN onto a deferred row, and the row's group must follow it. Same fixture
     // shape as the open-row wiring test, differing only in the branch state.
-    const pulseWith = (phase: string): FleetPulse => ({
+    const pulseWith = (phase: string): FleetReading => ({
       main: 'main',
       head: 'abc1234',
       plans: [{
@@ -1320,7 +1320,7 @@ describe('a deferred row answers to the phase too', () => {
         }],
       }],
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 1 },
-    } as FleetPulse);
+    } as FleetReading);
     const rowsFor = (phase: string) =>
       rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET);
     const rowFor = (phase: string) =>
@@ -1346,7 +1346,7 @@ describe('a deferred row answers to the phase too', () => {
 describe('the section follows the plan through rowsFromPulse', () => {
   // The wiring `classify` alone cannot reach: the phase must travel from the
   // PLAN onto each of its rows, and the row's own group must follow it.
-  const pulseWith = (phase: string): FleetPulse => ({
+  const pulseWith = (phase: string): FleetReading => ({
     main: 'main',
     head: 'abc1234',
     plans: [{
@@ -1358,7 +1358,7 @@ describe('the section follows the plan through rowsFromPulse', () => {
       }],
     }],
     summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
-  } as FleetPulse);
+  } as FleetReading);
 
   const rowsFor = (phase: string) =>
     rowsFromPulse(pulseWith(phase), new Map(), 'plot', QUIET);
@@ -1687,7 +1687,7 @@ describe('draftNote — a draft PR that is red must say so', () => {
 });
 
 describe('rowsFromPulse', () => {
-  const pulse: FleetPulse = {
+  const pulse: FleetReading = {
     main: 'main',
     head: 'abc1234',
     plans: [{
@@ -1722,7 +1722,7 @@ describe('rowsFromPulse', () => {
   // travel from the PLAN onto each of its rows. `classify` answering correctly
   // is worth nothing if `rowsFromPulse` never hands it the phase.
   it('carries the PLAN phase onto its own rows', () => {
-    const drafted: FleetPulse = {
+    const drafted: FleetReading = {
       ...pulse,
       plans: [{ ...pulse.plans[0], phase: 'draft' }],
     };
@@ -2128,7 +2128,7 @@ describe('rowsFromPulse', () => {
   it('escapes a branch name into the URL without mangling its slashes', () => {
     // `feature/a b` is legal in git and illegal in a raw URL. The slash is a
     // path separator on both hosts and must survive; everything else is encoded.
-    const odd: FleetPulse = {
+    const odd: FleetReading = {
       ...pulse,
       plans: [{
         file: '2026-08-15-example-plan.md',
@@ -2145,7 +2145,7 @@ describe('rowsFromPulse', () => {
   describe('the phase reaches the row', () => {
     // The plumbing, asserted separately from the derivation: a phase computed
     // and not carried is a phase nobody reads.
-    const withPhase = (phase: string): FleetPulse => ({
+    const withPhase = (phase: string): FleetReading => ({
       ...pulse,
       plans: [{ ...pulse.plans[0], phase }],
     });
@@ -2205,7 +2205,7 @@ describe('rowsFromPulse', () => {
       // an approved plan, git ignored), and `state` still says `deferred` so the
       // badge has something to render from. The phase alone cannot say a branch
       // was shelved — `state` carries that, and the row renders a badge from it.
-      const shelved: FleetPulse = {
+      const shelved: FleetReading = {
         ...pulse,
         plans: [{
           file: '2026-08-15-example-plan.md', phase: 'approved',
@@ -2237,7 +2237,7 @@ describe('rowsFromPulse', () => {
     //
     // A released plan is all-merged, all-complete by construction (the domain
     // model measures 41/41), so this fixture is the estate's own shape.
-    const released: FleetPulse = {
+    const released: FleetReading = {
       ...pulse,
       plans: [{
         file: '2026-08-01-shipped-plan.md', phase: 'released',
@@ -2263,7 +2263,7 @@ describe('rowsFromPulse', () => {
       // unreleased — the core of the release scope — and it stays. Only the
       // version shipping removes it, which is what makes DONE a queue that
       // drains rather than an archive that decays.
-      const delivered: FleetPulse = {
+      const delivered: FleetReading = {
         ...released,
         plans: [{ ...released.plans[0], phase: 'delivered' }],
       };
@@ -2386,7 +2386,7 @@ describe('rowsFromPulse', () => {
       // The comparator is only right if the row builder actually uses it.
       const DAY = 86_400_000;
       const NOW = Date.parse('2026-08-16T12:00:00Z');
-      const threeUnstarted: FleetPulse = {
+      const threeUnstarted: FleetReading = {
         ...pulse,
         plans: [
           {
@@ -2429,7 +2429,7 @@ describe('rowsFromPulse', () => {
   describe('a dirty local worktree reaches the row', () => {
     // The plumbing, asserted separately from the classifier: a field the scan
     // reports and nothing carries is a field nobody reads.
-    const dirty = (branch: string): FleetPulse => ({
+    const dirty = (branch: string): FleetReading => ({
       ...pulse,
       plans: [{
         file: '2026-08-15-example-plan.md',
@@ -2464,7 +2464,7 @@ describe('rowsFromPulse', () => {
   describe('unpushed commits reach the row', () => {
     // The same plumbing assertion for the second signal: a field the scan
     // reports and nothing carries is a field nobody reads.
-    const ahead = (branch: string, n: number, dirty = false): FleetPulse => ({
+    const ahead = (branch: string, n: number, dirty = false): FleetReading => ({
       ...pulse,
       plans: [{
         file: '2026-08-15-example-plan.md',
@@ -2512,7 +2512,7 @@ describe('rowsFromPulse', () => {
         | 'failed' | 'ended' | 'none' | 'elsewhere',
       exit = '', pid = '',
       dirtyPaths: string[] = [],
-    ): FleetPulse => ({
+    ): FleetReading => ({
       ...pulse,
       plans: [{
         file: '2026-08-15-example-plan.md',
@@ -3292,7 +3292,7 @@ describe('prStates', () => {
 });
 
 describe('the row carries the PR condition as fields', () => {
-  const pulse: FleetPulse = {
+  const pulse: FleetReading = {
     generatedAt: '2026-08-17T00:00:00Z',
     plans: [{
       file: '2026-08-17-p.md', slug: 'p', title: 'P', phase: 'approved', story: '',
@@ -3482,7 +3482,7 @@ describe('rowsFromPulse carries stuck detection onto the row', () => {
     ...over,
   }) as never;
 
-  const pulseWith = (over: Record<string, unknown> = {}): FleetPulse => ({
+  const pulseWith = (over: Record<string, unknown> = {}): FleetReading => ({
     main: 'main',
     head: 'abc1234',
     plans: [{
@@ -4024,7 +4024,7 @@ describe('the row carries its verdict', () => {
 
   // The fixture the wiring tests read: two waves, and the second is blocked by
   // the first. Named waves, because the blocker's NAME is half of what travels.
-  const pulse: FleetPulse = {
+  const pulse: FleetReading = {
     main: 'main',
     head: 'abc1234',
     plans: [{
@@ -4047,7 +4047,7 @@ describe('the row carries its verdict', () => {
     }],
     summary: { plans: 1, waves: 2, branches: 2, claimed: 0, eligible: 1, blocked: 1, deferred: 0 },
   } as never;
-  const rowFor = (branch: string, p: FleetPulse = pulse) =>
+  const rowFor = (branch: string, p: FleetReading = pulse) =>
     rowsFromPulse(p, new Map(), 'plot', QUIET).find((r) => r.branch === branch)!;
 
   it('puts the wave verdict on the row, for each of the three values', () => {
@@ -4181,9 +4181,9 @@ describe('an eligible wave is not a blocker', () => {
       })),
     }],
     summary: { plans: 1, waves: waves.length, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
-  }) as never as FleetPulse;
+  }) as never as FleetReading;
 
-  const rowsOf = (p: FleetPulse) => rowsFromPulse(p, new Map(), 'plot', QUIET);
+  const rowsOf = (p: FleetReading) => rowsFromPulse(p, new Map(), 'plot', QUIET);
 
   it('names the ELIGIBLE wave as the blocker, not merely the first unfinished one', () => {
     // Both predicates pick this wave, and that agreement is the danger rather
@@ -4402,9 +4402,9 @@ describe('a blocked wave names how many branches are outstanding', () => {
       })),
     }],
     summary: { plans: 1, waves: waves.length, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
-  }) as never as FleetPulse;
+  }) as never as FleetReading;
 
-  const rowsOf = (p: FleetPulse) => rowsFromPulse(p, new Map(), 'plot', QUIET);
+  const rowsOf = (p: FleetReading) => rowsFromPulse(p, new Map(), 'plot', QUIET);
 
   it('names the eligible blocker AND its outstanding count', () => {
     // The sentence the board owes: which wave, and how many branches remain in
@@ -4497,7 +4497,7 @@ describe('the deferral reason travels from the plan to the row', () => {
   // `deferred` beside `no commits` as two unrelated facts, when the first is the
   // reason for the second — and the explanation stayed in a file the reader of
   // the board may not have.
-  const pulseWith = (reason: string): FleetPulse => ({
+  const pulseWith = (reason: string): FleetReading => ({
     main: 'main',
     head: 'abc1234',
     plans: [{
@@ -4512,7 +4512,7 @@ describe('the deferral reason travels from the plan to the row', () => {
       }],
     }],
     summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 0, blocked: 0, deferred: 1 },
-  } as unknown as FleetPulse);
+  } as unknown as FleetReading);
 
   const rowFor = (reason: string) =>
     rowsFromPulse(pulseWith(reason), new Map(), 'plot', QUIET)

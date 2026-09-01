@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { classify, rowsFromPulse, whereToLook } from '../../src/server/fleet.js';
 import { inMachineSection } from '../../src/app/lib/agent-rows/host-notes.js';
-import { WorkerStateSchema, type AgentRow, type FleetPulse } from '../../src/contract/schema.js';
+import { WorkerStateSchema, type AgentRow, type FleetReading } from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
 // A BROKEN AGENT NEEDS YOU. NO OTHER AGENT DOES.
@@ -262,7 +262,7 @@ describe('every other agent state stays out of WAITING ON YOU', () => {
 
 describe('no row that is not an agent moves', () => {
   /** One plan, one wave, one branch — the real row builder, shaped per case. */
-  const pulseWith = (branch: Record<string, unknown>): FleetPulse => ({
+  const pulseWith = (branch: Record<string, unknown>): FleetReading => ({
     generated: new Date().toISOString(),
     root: '/repo',
     main: 'main',
@@ -351,7 +351,7 @@ describe("#300's rule still holds: no worker state reaches WAITING ON A MACHINE"
   // that way. Asserted from THIS side because this is the wave that gave agents a
   // reason to be routed anywhere at all: a future change that surfaced a broken
   // agent by pushing a process entry would re-create #300's duplicate exactly.
-  const pulseWith = (branch: Record<string, unknown>): FleetPulse => ({
+  const pulseWith = (branch: Record<string, unknown>): FleetReading => ({
     generated: new Date().toISOString(),
     root: '/repo',
     main: 'main',

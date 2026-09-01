@@ -5,7 +5,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { pulseFor } from './fleet.js';
-import type { FleetPulse } from '../contract/schema.js';
+import type { FleetReading } from '../contract/schema.js';
 import { branchFromPulse } from './agent-panel.js';
 import { markerIn } from './worker-question.js';
 import { manifestForWorktree, writeManifestStamp } from './manifest-stamp.js';
@@ -131,7 +131,7 @@ export interface ContinueOptions extends BuildBoardOptions {
  */
 export interface ContinueDeps {
   /** The cached pulse — where the branch → worktree lookup comes from. */
-  pulse?: (opts: BuildBoardOptions) => FleetPulse | null;
+  pulse?: (opts: BuildBoardOptions) => FleetReading | null;
   /** The configured `Worker command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
 }

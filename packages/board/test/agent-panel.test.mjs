@@ -39,7 +39,7 @@ function stubScan(pulse) {
   const json = path.join(dir, 'pulse.json');
   const lines = [
     ...pulse.plans.map((plan) => JSON.stringify({ kind: 'plan', plan })),
-    JSON.stringify({ kind: 'pulse', pulse }),
+    JSON.stringify({ kind: 'reading', reading: pulse }),
   ];
   fs.writeFileSync(json, `${lines.join('\n')}\n`);
   fs.writeFileSync(

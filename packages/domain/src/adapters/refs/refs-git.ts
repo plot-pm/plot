@@ -1,4 +1,4 @@
-import { FleetPulseSchema } from '../../entities/fleet.js';
+import { FleetReadingSchema } from '../../entities/fleet.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { BranchTip, MergeStatus, Refs, TreeBlob } from '../../ports/refs.js';
 import { asJson, asLines, asText, runBytes, runProcess, runScript, resultOf } from '../run-script.js';
@@ -124,7 +124,7 @@ export const refsGit = (context: ShellContext): Refs => {
         ...inRepo,
         timeoutMs: PULSE_TIMEOUT_MS,
       });
-      return resultOf(run, (stdout) => FleetPulseSchema.parse(asJson(stdout)));
+      return resultOf(run, (stdout) => FleetReadingSchema.parse(asJson(stdout)));
     },
 
 

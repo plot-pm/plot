@@ -572,7 +572,7 @@ export const PlanSchema = z.preprocess(readEitherSpelling, z.object({
 }));
 
 /** The raw `plot-fleet-scan.sh --json` document, parsed. */
-export const FleetPulseSchema = z.object({
+export const FleetReadingSchema = z.object({
   main: z.string(),
   /**
    * The LOCAL CHECKOUT, and only ever that — despite the name.
@@ -616,8 +616,8 @@ export const FleetPulseSchema = z.object({
    * BUILDS (`partialSummary`, `EMPTY_SUMMARY`), so its counter moves with those
    * producers rather than ahead of them.
    *
-   * `FleetPulseSchema` is a plain `z.object` for a reason: the board's Fleet
-   * view reuses this field through `FleetPulseSchema.shape.summary`, and a
+   * `FleetReadingSchema` is a plain `z.object` for a reason: the board's Fleet
+   * view reuses this field through `FleetReadingSchema.shape.summary`, and a
    * preprocessed or transformed schema exposes no `.shape`.
    */
   summary: z.object({
@@ -656,4 +656,4 @@ export const FleetPulseSchema = z.object({
     host: z.enum(['ok', 'throttled', 'failed', 'unknown']).catch('unknown').default('unknown'),
   }),
 });
-export type FleetPulse = z.infer<typeof FleetPulseSchema>;
+export type FleetReading = z.infer<typeof FleetReadingSchema>;

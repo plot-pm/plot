@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { readConfig, allSlicesMerged, type BuildBoardOptions } from './board.js';
 import { usableCommand } from './idea.js';
 import { deliverLogPath } from './deliver.js';
-import type { PlanMeta, FleetPulse } from '../contract/schema.js';
+import type { PlanMeta, FleetReading } from '../contract/schema.js';
 
 /**
  * A finished plan delivers itself, and its desks are cleared behind it.
@@ -164,7 +164,7 @@ export interface PlanAutoDeliverInput {
    * exist. `PlanSchema.phase` is `plot-plan-meta.sh`'s own normalization,
    * so it is the same parser's answer either way.
    */
-  pulse: FleetPulse | null;
+  pulse: FleetReading | null;
   /** Slugs a delivery has already been started for and not yet confirmed. */
   inFlight: Set<string>;
 }
@@ -250,7 +250,7 @@ export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] 
  */
 export function pruneDelivering(
   inFlight: Set<string>,
-  pulse: FleetPulse | null,
+  pulse: FleetReading | null,
   complete = true,
 ): Set<string> {
   if (inFlight.size === 0) return inFlight;
@@ -487,7 +487,7 @@ function releaseRefs(opts: BuildBoardOptions, slug: string): void {
  */
 export function maybeAutoDeliver(
   opts: BuildBoardOptions,
-  pulse: FleetPulse | null,
+  pulse: FleetReading | null,
   inFlight: Set<string>,
 ): Set<string> {
   // COMPLETENESS IS THE PULSE'S OWN, not a cache lookup.  calls this

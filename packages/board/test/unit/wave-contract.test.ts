@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { deriveWaves } from '../../src/server/fleet.js';
-import { FleetPulseSchema, FleetSchema, WaveSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { FleetReadingSchema, FleetSchema, WaveSchema, type FleetReading } from '../../src/contract/schema.js';
 
 // The wave the contract now carries. `the-wave-is-a-thing-the-board-can-hold`
 // settles that a wave is a THING with identity, branches, a verdict, ONE
@@ -30,9 +30,9 @@ const wave = (
 });
 
 /** A pulse carrying one plan and its waves, PARSED — so the fixture proves the
- *  contract accepts it and deriveWaves gets a properly-typed FleetPulse. */
-const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetPulse =>
-  FleetPulseSchema.parse({
+ *  contract accepts it and deriveWaves gets a properly-typed FleetReading. */
+const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetReading =>
+  FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
     plans: [{ file, slices: waves }],
@@ -103,7 +103,7 @@ describe('deriveWaves — the verdict is the scan\'s, unchanged', () => {
         ] },
       ] }],
       summary: { plans: 1, waves: 1, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
-    } as unknown as FleetPulse;
+    } as unknown as FleetReading;
     const [w] = deriveWaves(raw);
     expect(w.verdict).toBeNull();
   });

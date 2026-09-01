@@ -9,7 +9,7 @@ import {
   workerQuestions,
   QUESTION_MAX,
 } from '../../src/server/worker-question.js';
-import type { FleetPulse, WorkerState } from '../../src/contract/schema.js';
+import type { FleetReading, WorkerState } from '../../src/contract/schema.js';
 
 // WHAT A WAITING AGENT IS WAITING ON — read from the marker FILE the worker
 // wrote, not grepped from the contents of every file in the tree.
@@ -49,7 +49,7 @@ function treeWith(files: Record<string, string>): string {
 }
 
 /** A pulse whose one wave holds the branches given. */
-function pulse(branches: { branch: string; worker: WorkerState; local_worktree: string }[]): FleetPulse {
+function pulse(branches: { branch: string; worker: WorkerState; local_worktree: string }[]): FleetReading {
   return {
     main: 'main',
     read_ref: 'abc123',
@@ -80,7 +80,7 @@ function pulse(branches: { branch: string; worker: WorkerState; local_worktree: 
       }],
     }],
     summary: { plans: 1, waves: 1, branches: branches.length },
-  } as unknown as FleetPulse;
+  } as unknown as FleetReading;
 }
 
 describe('firstMarkerLine — the whole formatting judgement, tested directly', () => {

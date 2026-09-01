@@ -1,5 +1,5 @@
 import type { PortResult } from '../port-result.js';
-import type { FleetPulse } from '../entities/fleet.js';
+import type { FleetReading } from '../entities/fleet.js';
 
 /**
  * Whether a branch's work is on the default branch.
@@ -95,7 +95,7 @@ export interface Refs {
    *
    * @returns the pulse, as the scan derives it.
    */
-  pulse(): Promise<PortResult<FleetPulse>>;
+  pulse(): Promise<PortResult<FleetReading>>;
 
 
   /**

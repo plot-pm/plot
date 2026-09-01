@@ -30,7 +30,7 @@ import {
   planSlug,
   DELIVER_COMMAND_KEY,
 } from '../../src/server/auto-deliver.js';
-import { FleetPulseSchema, type FleetPulse } from '../../src/contract/schema.js';
+import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
 
 const made: string[] = [];
 afterEach(() => {
@@ -178,8 +178,8 @@ const wave = (
   })),
 });
 
-const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): FleetPulse =>
-  FleetPulseSchema.parse({
+const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): FleetReading =>
+  FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
     plans: plans.map(([file, phase, waves]) => ({ file, phase, slices: waves })),

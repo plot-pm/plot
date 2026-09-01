@@ -77,7 +77,7 @@ export const rowPhase = (planPhase: string, state: BranchState): Phase | null =>
  *
  * Readings rather than the sources they came from: the caller runs the pulse
  * queries and this decides, which is what keeps the rule callable without a
- * `FleetPulse` in scope and testable without one.
+ * `FleetReading` in scope and testable without one.
  */
 export interface PlanReadings {
   /** The phase the plan file states, lowercased. */

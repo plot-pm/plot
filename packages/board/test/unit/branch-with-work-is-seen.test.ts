@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { rowsFromPulse } from '../../src/server/fleet.js';
-import type { FleetPulse } from '../../src/contract/schema.js';
+import type { FleetReading } from '../../src/contract/schema.js';
 import type { PrRecord } from '../../src/server/fleet.js';
 
 // A BRANCH THAT CARRIES COMMITS IS VISIBLE, whether or not anyone opened a pull
@@ -21,7 +21,7 @@ import type { PrRecord } from '../../src/server/fleet.js';
 
 const QUIET = 30;
 
-const pulse: FleetPulse = {
+const pulse: FleetReading = {
   main: 'main',
   head: 'abc1234',
   plans: [{

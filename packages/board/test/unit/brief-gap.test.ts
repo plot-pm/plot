@@ -11,7 +11,7 @@ import { briefState,
   rowsFromPulse } from '../../src/server/fleet.js';
 import { briefGapNote, needsBrief } from '../../src/app/lib/agent-rows/row-identity.js';
 import {
-  AgentRowSchema, ELIGIBLE_NOTE, type AgentRow, type FleetPulse,
+  AgentRowSchema, ELIGIBLE_NOTE, type AgentRow, type FleetReading,
 } from '../../src/contract/schema.js';
 
 /**
@@ -65,7 +65,7 @@ function writeBriefs(branch?: string) {
 }
 
 /** One approved plan, one eligible wave, one open branch — the reported shape. */
-const pulse = (branch = BRANCH): FleetPulse => ({
+const pulse = (branch = BRANCH): FleetReading => ({
   plans: [{
     file: '2026-08-19-the-row-says-what-it-knows.md',
     phase: 'approved',
@@ -76,7 +76,7 @@ const pulse = (branch = BRANCH): FleetPulse => ({
     }],
   }],
   summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
-} as unknown as FleetPulse);
+} as unknown as FleetReading);
 
 const rowFor = (repoRoot: string, branch = BRANCH): AgentRow =>
   rowsFromPulse(
@@ -179,7 +179,7 @@ describe('the row carries whether it can be started', () => {
             }],
           }],
         }],
-      } as unknown as FleetPulse,
+      } as unknown as FleetReading,
       new Map(), 'plot', QUIET,
       null, '', null, Date.now(), null, null, null, null, null, root,
     ).find((r) => r.branch === BRANCH)!;

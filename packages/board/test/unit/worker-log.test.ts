@@ -14,7 +14,7 @@ import {
   EMPTY_LOG_WORD,
 } from '../../src/app/components/WorkerLogModal.js';
 import { showsWorkerLog } from '../../src/app/components/AgentList.js';
-import { AgentRowSchema, type AgentRow, type FleetPulse } from '../../src/contract/schema.js';
+import { AgentRowSchema, type AgentRow, type FleetReading } from '../../src/contract/schema.js';
 
 // THE PATH IS DERIVED, NEVER SUPPLIED — and most of these tests are refusals
 // aimed at an implementation that reads the log correctly and reaches the wrong
@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 /** A pulse holding exactly the branches given, each with its worktree or "". */
-function pulse(branches: { branch: string; local_worktree: string }[]): FleetPulse {
+function pulse(branches: { branch: string; local_worktree: string }[]): FleetReading {
   return {
     main: 'main',
     read_ref: 'abc123',
@@ -72,7 +72,7 @@ function pulse(branches: { branch: string; local_worktree: string }[]): FleetPul
       },
     ],
     summary: { plans: 1, waves: 1, branches: branches.length },
-  } as unknown as FleetPulse;
+  } as unknown as FleetReading;
 }
 
 describe('worktreeForBranch — a lookup, which is why there is no traversal', () => {

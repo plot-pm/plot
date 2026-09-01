@@ -1,4 +1,4 @@
-import type { FleetPulse } from '../entities/fleet.js';
+import type { FleetReading } from '../entities/fleet.js';
 
 /**
  * The join key this rule needs from a plan — its file path, and nothing else.
@@ -61,7 +61,7 @@ export type Landed = 'merged' | 'not-merged' | 'unknown';
  */
 export const allSlicesMerged = (
   meta: PlanFile,
-  pulse: FleetPulse | null,
+  pulse: FleetReading | null,
   complete: boolean,
 ): Landed => {
   // Asked before the lookup: on a partial pulse an absent plan is one the scan
