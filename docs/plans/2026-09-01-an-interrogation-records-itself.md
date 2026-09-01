@@ -60,9 +60,19 @@ front matter and above the block. So a plan can carry its own count without any
 skill involvement — which is what makes a hand-run interrogation recordable at
 all.
 
-**So the fix is a convention with a home, not a new field.** The field exists;
-what is missing is that nothing tells an interrogator to write it, and nothing
-notices when they do not.
+**The instruction exists too, and is complete.** Checked 2026-09-01:
+`skills/challenge-the-plan/SKILL.md` Phase 5b step 3 already says *"write
+`- **Rounds:** N` to `## Status`"*, specifies replace-or-insert-after-`Impl:`,
+and warns against a greedy match that would destroy the transition records.
+**Both writes, one value — they cannot disagree by construction.**
+
+**So the defect is narrower than a missing convention.** The field parses, the
+skill writes it, and the instruction is careful. What is missing is that
+**nothing addresses the interrogator who is not running the skill**, and nothing
+notices when the record is absent. An interrogation conducted directly — reading
+the plan, measuring its claims against the code, weaving the answers back — is
+exactly the path that leaves no trace, and it is also the path that produces the
+findings a question-generator cannot.
 
 ### Not chosen: infer rounds from git history
 
@@ -81,7 +91,7 @@ tests claims against the code, which the skill's question-generation does not.
 
 ### Recording
 
-- `docs/an-interrogation-writes-its-round` — `challenge-the-plan`'s instructions gain the `Rounds:` field beside the metadata block it already writes, and say that an interrogation run without the skill must increment it by hand. The plan format's own documentation gains the field where `Phase:` and `Review:` are described, since `plot-plan-meta.sh` already reads it and only the docs are silent.
+- `docs/an-interrogation-writes-its-round` — **the skill's Phase 5b already writes the field correctly; do not rewrite it.** What it lacks is one sentence saying the record is owed by anyone who interrogates, skill or not. The plan format's own documentation gains `Rounds:` where `Phase:` and `Review:` are described — `plot-plan-meta.sh` reads it from three sources and only the docs are silent, which is why a hand interrogation does not know it exists.
 
 ### Noticing
 
