@@ -429,6 +429,133 @@ const aBoardOfPlans = (): Scenario => ({
 });
 
 /** An empty estate — no plans, no rows. What the board shows a fresh repo. */
+/**
+ * TEN ROWS, ONE PER DISTINGUISHABLE CASE — the estate `agents-tab` was built on.
+ *
+ * This is `agents-tab.browser.test.ts`'s own default `fleet()`, lifted whole.
+ * Every row earns its place by being the only one of its kind, and the plan's
+ * survey tabulates them for exactly that reason: the file has 117 tests and this
+ * one payload is what nearly all of them read.
+ *
+ * | row | group | carries |
+ * |---|---|---|
+ * | `beans-a`, `beans-b` | working | two plans in one group → sub-headings; ages 200 / 10 fix the order |
+ * | `toms-a` | working | the second plan |
+ * | `reviewed` | waiting-on-you | a PR as FIELDS, never as prose in `note` |
+ * | `untaken` | not-started | the only startable row |
+ * | `blocked` | not-started | `blockedBy` as a FIELD — a grouped row drops its note |
+ * | `shelved` | not-started | `deferred` with recent commits: phase fell back, badge says why |
+ * | `undated` | not-started | `waitingDays: null` — a plan predating `Approved:` |
+ * | `landed` | done | `merged`, `branchUrl: ''` → no branch link |
+ * | `ghost` | quiet | a plan with no board card → plain `/plan/` link |
+ * | `ghost-ready` | not-started | startable AND cardless → no button rather than a broken one |
+ *
+ * The board half carries the `plant-tomatoes` card and `dispatch: available`,
+ * which is what the menu tests need: a plan row's action is built from a board
+ * CARD matching the row's plan, so a fleet-only state renders every row and no
+ * menu. `agents-tab` used to get that card from the real fixture, by clicking to
+ * the Plans tab and back to wait for `/api/board`. It is stated here instead.
+ *
+ * `ghost-plan` is deliberately absent from the columns — two tests are about a
+ * row whose plan has no card, and the absence is the state.
+ */
+const tenRowsOneKindEach = (): Scenario => ({
+  board: board({
+    dispatch: { available: true, reason: '' },
+    columns: [
+      column({
+        phase: 'Development',
+        cards: [
+          card({
+            slug: 'plant-tomatoes', title: 'Plant heirloom tomatoes', type: 'feature',
+            phase: 'Development', path: `docs/plans/${TOMS_FILE}`,
+          }),
+          card({
+            slug: 'beans', title: 'Train the runner beans', type: 'feature',
+            phase: 'Development', path: 'docs/plans/2026-04-02-beans.md',
+          }),
+        ],
+      }),
+    ],
+  }),
+  fleet: fleet({
+    rows: [
+      // Two plans in `working`, so the group earns sub-headings. `beans` holds
+      // the older row, so it must be the first plan shown.
+      row({ branch: 'feature/beans-a', plan: 'beans', planFile: 'p-beans.md', ageMinutes: 200, branchUrl: `${GH}feature/beans-a` }),
+      row({ branch: 'feature/beans-b', plan: 'beans', planFile: 'p-beans.md', ageMinutes: 10, branchUrl: `${GH}feature/beans-b` }),
+      row({ branch: 'feature/toms-a', plan: 'plant-tomatoes', planFile: TOMS_FILE, ageMinutes: 50, branchUrl: `${GH}feature/toms-a` }),
+      // A branch WITH a PR: the two links must differ, each landing where its
+      // own text points. The PR carries its condition as FIELDS — the row's
+      // cell is built from these, never from the sentence in `note`.
+      row({
+        branch: 'feature/reviewed', plan: 'beans', planFile: 'p-beans.md',
+        group: 'waiting-on-you', ageMinutes: 20, note: 'PR #130 green',
+        pr: { number: 130, url: 'https://github.com/tiny/garden/pull/130', draft: false, state: 'green' },
+        branchUrl: `${GH}feature/reviewed`,
+      }),
+      // No PR at all, `state: 'open'` and the eligible note: the one row a
+      // person can actually pick up, so also the one carrying Start work.
+      row({
+        branch: 'feature/untaken', plan: 'plant-tomatoes', planFile: TOMS_FILE,
+        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
+        branchUrl: `${GH}feature/untaken`, waitingDays: 22, startability: 'start-work',
+      }),
+      // The one that must NOT get a button: an earlier wave still blocks it, and
+      // `plot-dispatch.sh` would refuse. `blockedBy` is a FIELD, because a
+      // grouped row drops its note and the sentence was the sole carrier.
+      row({
+        branch: 'feature/blocked', plan: 'plant-tomatoes', planFile: TOMS_FILE,
+        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        waitingOn: 'time', blockedBy: 'Truth', verdict: 'blocked',
+        branchUrl: `${GH}feature/blocked`, waitingDays: 22, startability: null,
+      }),
+      // Handed back: real commits inside the quiet window under an approved
+      // plan. Both halves must show — the phase fell back to Design AND the
+      // badge says someone gave it up rather than never having begun.
+      row({
+        branch: 'feature/shelved', plan: 'beans', planFile: 'p-beans.md',
+        group: 'not-started', state: 'deferred', phase: 'Design', ageMinutes: 2,
+        note: 'last commit 2 min ago', branchUrl: `${GH}feature/shelved`,
+        startability: null,
+      }),
+      // A plan recording no approval date — every plan predating `Approved:`.
+      // It must show no waiting age at all.
+      row({
+        branch: 'feature/undated', plan: 'beans', planFile: 'p-beans.md',
+        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
+        branchUrl: `${GH}feature/undated`, waitingDays: null, startability: 'start-work',
+      }),
+      // Merged: its remote page is gone, so no branch link.
+      row({
+        branch: 'feature/landed', plan: 'plant-tomatoes', planFile: TOMS_FILE,
+        group: 'done', state: 'merged', ageMinutes: 300, note: 'merged',
+        branchUrl: '', startability: null,
+      }),
+      // A plan with NO board card, so the row keeps its plain `/plan/` link
+      // rather than opening an empty modal.
+      row({
+        branch: 'feature/ghost', plan: 'ghost-plan', planFile: GHOST_FILE,
+        group: 'quiet', ageMinutes: 999, note: 'no commit for 16 hours',
+        branchUrl: `${GH}feature/ghost`,
+      }),
+      // The same missing card on an otherwise perfectly startable row.
+      // `StartWorkButton` takes a Card and a row is not one, so: NO button.
+      row({
+        branch: 'feature/ghost-ready', plan: 'ghost-plan', planFile: GHOST_FILE,
+        group: 'not-started', state: 'open', phase: 'Design', ageMinutes: null,
+        waitingOn: 'click', note: ELIGIBLE_NOTE, verdict: 'eligible',
+        branchUrl: `${GH}feature/ghost-ready`, startability: 'start-work',
+      }),
+    ],
+    prAgeSeconds: 74,
+    prNextInSeconds: 46,
+    scanNextInSeconds: 3,
+  }),
+});
+
 const anEmptyEstate = (): Scenario => ({ board: board(), fleet: fleet() });
 
 /**
@@ -542,6 +669,7 @@ export const SCENARIOS = {
   'one-row-per-kind': oneRowPerKind,
   'a-board-that-can-act': aBoardThatCanAct,
   'a-board-of-plans': aBoardOfPlans,
+  'ten-rows-one-kind-each': tenRowsOneKindEach,
   'an-empty-estate': anEmptyEstate,
 } satisfies Record<string, () => Scenario>;
 
