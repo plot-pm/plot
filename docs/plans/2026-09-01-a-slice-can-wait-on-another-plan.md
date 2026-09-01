@@ -11,7 +11,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 0
+- **Rounds:** 1
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
@@ -81,15 +81,56 @@ finely enough, and a list invites a graph nobody wants to debug.
 
 ### The scan holds it; the dispatcher refuses it
 
-**`plot-fleet-scan.sh`** already asks the host whether a branch has merged, for
-every branch of every plan. **The waited-on branch is such a branch**, so the
-answer costs no new round trip — it is already in the terminal-state cache.
+**`plot-fleet-scan.sh`** already asks the host whether a branch has merged, and
+there are **two caches, not one** — a distinction that decides the cost and which
+an earlier draft of this section got wrong.
+
+| cache | scope | keyed by |
+|---|---|---|
+| `terminal_cached` | **per plan** | `TERMINAL_PLAN_OID` — *"the plan revision the answer was derived under"* |
+| the PR state word | **per run** | branch, *"cached once per branch per run"* |
+
+**The waited-on branch belongs to another plan, so the first cache cannot serve
+it**: its entry was derived under a different plan OID and `terminal_cached`
+returns nothing. The claim *"it is already in the terminal-state cache"* was
+wrong.
+
+**The second cache does serve it, and that is where the cost actually lands:**
+
+- the branch is visited elsewhere in the same run — **free**, its state word is
+  already in the run-scoped cache
+- it is not visited at all (its plan is delivered, or the ref is gone) — **one
+  host call, once per run**, never once per pass
+
+**So the honest cost is *usually zero, at most one call per run*.** That still
+makes this cheap on a scan the board polls every 5 s, and it is a different claim
+from *"no new round trip"* — an implementer who believes the stronger version
+will reach for `terminal_cached` and find it empty.
 
 - **waited-on branch merged** → the slice is eligible as it is today
 - **not merged** → verdict `waiting`, with the branch it waits on named
-- **not found at all** → **`blocked`, not eligible.** A typo'd or deleted
-  dependency is not permission; the same direction `plot-pr-merged.sh` takes when
-  a host is unreachable.
+- **not found at all** → **`blocked`, not eligible.** A typo'd dependency is not
+  permission; the same direction `plot-pr-merged.sh` takes when a host is
+  unreachable.
+
+**But *not found* must be asked of the HOST, never of the refs — and an earlier
+draft of this rule would have deadlocked on success.** `plot-release-refs.sh`
+deletes the remote refs of a delivered plan's merged branches. So a prerequisite
+that **completed** eventually has no ref, and a rule reading *"no ref → blocked"*
+would hold the waiting slice **forever, because its dependency succeeded.** That
+is the worst available failure: correct work producing a permanent block.
+
+**The escape is already in the repo.** `plot-pr-merged.sh:54` asks
+`gh pr list --head <branch> --state all` and reads `mergedAt` — **PRs, not
+refs** — and a merged PR outlives the branch it was cut from. So the question is
+*"did the host ever merge a PR for this branch?"*, which stays answerable after
+the ref is gone.
+
+**Which reduces `blocked` to one case:** the host answered, and it has never seen
+a PR for that branch — a typo, or a branch nobody created. **A host that cannot
+be reached is `unknown` and holds**, never `blocked`, for the same reason
+`plot-pr-merged.sh` treats silence as *not merged*: an unreachable host is not
+evidence of anything.
 
 **`plot-dispatch.sh`** refuses to start it, beside its four existing refusals,
 naming what it waits on. `--allow-waiting` is the named escape, in the tradition
@@ -127,7 +168,7 @@ one.**
 
 ### Holding
 
-- `feature/the-scan-holds-a-waiting-slice` — the scan reports `waiting` for a branch whose prerequisite has not merged, and `blocked` where the prerequisite cannot be found. Uses the merged answer it already has; no new host call. The fleet payload carries the branch name so a reader can see what it waits on.
+- `feature/the-scan-holds-a-waiting-slice` — the scan reports `waiting` for a branch whose prerequisite has not merged, and `blocked` where the prerequisite cannot be found. **Reads the RUN-scoped PR state cache, not `terminal_cached`** — the latter is keyed by plan OID and cannot answer about another plan's branch. Cost: free where the prerequisite is visited elsewhere in the run, one host call per run otherwise. The fleet payload carries the branch name so a reader can see what it waits on.
 
 ### Refusing
 
@@ -139,7 +180,12 @@ one.**
   `--next`**, and `plot-dispatch.sh` refuses it by name.
 - A branch annotated `waits:` on a **merged** branch behaves exactly as it does
   today — asserted, because a dependency that never clears is a deadlock.
-- A `waits:` naming a branch **no plan declares** reads `blocked`, not eligible.
+- A `waits:` naming a branch **the host has never seen a PR for** reads `blocked`.
+- **A prerequisite that merged and was then REAPED still clears**, asserted
+  directly — `plot-release-refs.sh` deletes merged refs, so this is the case
+  where correct work would otherwise produce a permanent block. Ask the host for
+  a merged PR, never the refs.
+- **An unreachable host holds the slice, and does not block it.**
 - **`deferred:` is untouched**, and a test asserts the two annotations do not
   interfere on one branch.
 - The two live cases carry the annotation and stop needing their prose:
