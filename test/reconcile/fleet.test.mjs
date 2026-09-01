@@ -19,6 +19,37 @@ const scan = path.join(here, '..', '..', 'skills', 'plot', 'scripts', 'plot-flee
 
 let tmp, repo, report;
 
+// Copies the real scripts into a shim directory, so a stubbed `plot-host.sh`
+// can sit beside them and be reached the way the scan reaches its siblings.
+//
+// THE BUNDLE TRAVELS WITH THE SCRIPTS. `plot-fleet-scan.sh` resolves
+// `board/plot-verdicts.mjs` from its own `BASH_SOURCE` directory and exits 2
+// when it is absent, so a shim holding only `*.sh` produces
+// `cannot read slice verdicts` rather than the verdict under test. One helper
+// rather than eight copies: the dependency is stated once, and the next script
+// to gain a bundled entry point has one place to add it.
+const shimScripts = (shim) => {
+  const realScripts = path.dirname(scan);
+  const dest = path.join(shim, 'scripts');
+  fs.mkdirSync(dest, { recursive: true });
+  for (const f of fs.readdirSync(realScripts)) {
+    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(dest, f));
+  }
+  const board = path.join(realScripts, 'board');
+  if (fs.existsSync(board)) {
+    fs.mkdirSync(path.join(dest, 'board'), { recursive: true });
+    for (const f of fs.readdirSync(board)) {
+      if (f.endsWith('.mjs')) {
+        const from = path.join(board, f);
+        const to = path.join(dest, 'board', f);
+        fs.copyFileSync(from, to);
+        fs.chmodSync(to, 0o755);
+      }
+    }
+  }
+  return dest;
+};
+
 function git(cwd, ...args) {
   return execFileSync('git', args, { encoding: 'utf8', cwd });
 }
@@ -470,11 +501,7 @@ test('fleet: --loose DOES open a wave when the host reports a ready PR', () => {
   // `pr-state`. So the signal lives in the `pr-list` reply here; `pr-state`
   // remains stubbed as a witness that it is NOT consulted on this path.
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
-  const realScripts = path.dirname(scan);
-  fs.mkdirSync(path.join(shim, 'scripts'));
-  for (const f of fs.readdirSync(realScripts)) {
-    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
-  }
+  shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'),
     '#!/usr/bin/env bash\ncase "$1" in\n  backend) echo github ;;\n  pr-state) echo \'{"number":1,"state":"OPEN","draft":false,"url":"x"}\' ;;\n  pr-list) echo \'{"number":1,"title":"t","state":"OPEN","head":"feature/first","draft":false,"checks":"green","mergeable":"mergeable","review":"","url":"x","failing_checks":[]}\' ;;\n  default-branch) echo main ;;\n  *) echo "{}" ;;\nesac\n');
   fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
@@ -1114,11 +1141,7 @@ test('fleet: --json carries the merged state and the detection source', () => {
 // reachable — the same shape the --loose host tests use.
 function hostShim(body) {
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sqhost-'));
-  const realScripts = path.dirname(scan);
-  fs.mkdirSync(path.join(shim, 'scripts'));
-  for (const f of fs.readdirSync(realScripts)) {
-    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
-  }
+  shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), body);
   fs.chmodSync(path.join(shim, 'scripts', 'plot-host.sh'), 0o755);
   return {
@@ -4126,11 +4149,7 @@ test('fleet: --loose rejects a failing PR and blocks the successor wave', () => 
 
   // Stub: pr-list --rich returns a failing build
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
-  const realScripts = path.dirname(scan);
-  fs.mkdirSync(path.join(shim, 'scripts'));
-  for (const f of fs.readdirSync(realScripts)) {
-    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
-  }
+  shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
   backend) echo github ;;
@@ -4180,11 +4199,7 @@ test('fleet: --loose rejects a pending PR and blocks the successor wave', () => 
   git(r, 'checkout', '-q', 'main');
 
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
-  const realScripts = path.dirname(scan);
-  fs.mkdirSync(path.join(shim, 'scripts'));
-  for (const f of fs.readdirSync(realScripts)) {
-    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
-  }
+  shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
   backend) echo github ;;
@@ -4234,11 +4249,7 @@ test('fleet: --loose rejects an unknown-rollup PR and announces the degradation'
   git(r, 'checkout', '-q', 'main');
 
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
-  const realScripts = path.dirname(scan);
-  fs.mkdirSync(path.join(shim, 'scripts'));
-  for (const f of fs.readdirSync(realScripts)) {
-    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
-  }
+  shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
   backend) echo bitbucket ;;
@@ -4289,11 +4300,7 @@ test('fleet: --loose rejects a none-rollup PR (no checks ran)', () => {
   git(r, 'checkout', '-q', 'main');
 
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
-  const realScripts = path.dirname(scan);
-  fs.mkdirSync(path.join(shim, 'scripts'));
-  for (const f of fs.readdirSync(realScripts)) {
-    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
-  }
+  shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
   backend) echo github ;;
@@ -4342,11 +4349,7 @@ test('fleet: --loose accepts a green PR and opens the successor wave', () => {
   git(r, 'checkout', '-q', 'main');
 
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
-  const realScripts = path.dirname(scan);
-  fs.mkdirSync(path.join(shim, 'scripts'));
-  for (const f of fs.readdirSync(realScripts)) {
-    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
-  }
+  shimScripts(shim);
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 case "$1" in
   backend) echo github ;;
@@ -4400,11 +4403,7 @@ test('fleet: --loose makes no per-branch host call with --rich cache', () => {
   }
 
   const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-hostshim-'));
-  const realScripts = path.dirname(scan);
-  fs.mkdirSync(path.join(shim, 'scripts'));
-  for (const f of fs.readdirSync(realScripts)) {
-    if (f.endsWith('.sh')) fs.copyFileSync(path.join(realScripts, f), path.join(shim, 'scripts', f));
-  }
+  shimScripts(shim);
   const calls = path.join(shim, 'calls.txt');
   fs.writeFileSync(path.join(shim, 'scripts', 'plot-host.sh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$PLOT_TEST_CALLS"

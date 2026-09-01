@@ -1,5 +1,7 @@
 import { isClaimable, sliceVerdicts, type SliceReadings } from '@plot-pm/domain/rules/eligible';
 import type { BranchState } from '@plot-pm/domain';
+import { realpathSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 /**
  * The `node` entry point `plot-fleet-scan.sh` runs, once per plan.
@@ -121,7 +123,15 @@ export const run = (
 };
 
 // Only when RUN, never when imported.
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+//
+// `pathToFileURL` RATHER THAN A TEMPLATE. `import.meta.url` is realpath-resolved
+// and percent-encoded; `process.argv[1]` is neither. On macOS `/tmp` is a
+// symlink to `/private/tmp`, so a bundle invoked from a sandbox directory
+// compared `file:///tmp/...` against `file:///private/tmp/...`, the block never
+// ran, and the process exited 0 having written nothing — a silent empty answer
+// the caller's `||` cannot catch, because exit 0 is not a failure. A path
+// holding a space fails the same way, unencoded.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   process.exit(run(Buffer.concat(chunks).toString('utf8')));
