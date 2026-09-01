@@ -140,7 +140,7 @@ to fire — its `-eq 0` test is applied to a number that does not move.
 accounting; a separate question about the budget is both an extra request and, as
 measured, wrong.
 
-### Twelve scripts share the same cap
+### Eleven scripts and the board share the same cap
 
 `plot-build-monitor.sh`, `plot-board-probe.sh`, `plot-approve.sh`,
 `plot-deliver.sh`, `plot-fleet-scan.sh`, `plot-dispatch.sh`,
@@ -148,6 +148,17 @@ measured, wrong.
 `plot-reconcile-scan.sh`, `plot-reap.sh` all reach the host through
 `plot-host.sh`. None of them knows a board is running, and a dispatched worker
 runs several of them in a loop.
+
+**Re-counted 2026-09-01: eleven, not twelve** — the heading said one thing and
+the list another, and the list was right. The twelfth is easy to reach for and
+wrong: `plot-host.sh` is the script being *called*, not a caller sharing the cap.
+
+**And the scripts are not the whole population.** Five files under
+`packages/board/src/server/` reach `plot-host.sh` directly, so the spenders are
+**eleven scripts, the board, and a person at a terminal** — which is exactly why
+the record is append-only and the cadence derives from an observed rate rather
+than a headcount. A count of scripts would have missed the board; a count of
+boards would miss the terminal.
 
 `plot-host.sh:222` already anticipates the shape of the answer:
 
