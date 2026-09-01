@@ -999,63 +999,69 @@ if [ "$mode" = "migrate" ]; then
       continue
     fi
 
-    # TWO INDEPENDENT CONDITIONS, because the brief names two: a worktree moves
-    # only with NO LIVE WORKER **AND** NO UNLANDED WORK. They are separate
-    # measurements, exactly as they are in plot-reap.sh, and folding them into
-    # one verdict is a hole: plot_worker_state answers "is a WORKER running or
-    # waiting here", and it is keyed on the worker RECORDS (`.plot-worker.pid`,
-    # `.plot-worker.exit`). A hand-made worktree that never ran a Plot worker has
-    # no records and reads `none` no matter how dirty its tree is — and the
-    # hand-made worktrees are precisely the estate this mode exists to tidy. So
-    # liveness and unlanded-work are asked as two questions below.
-
-    # REFUSAL 1 & 2 — a LIVE WORKER, from the ONE shared answer. The brief is
-    # explicit: plot_worker_state is the single answer to "is a worker running
-    # in this worktree", sourced by both dispatch and the fleet scan. It carries
-    # what a bare `ps` cannot — pid-reuse detection via the manifest's
-    # `startedAt`, and the `waiting` state a PLOT-BLOCKED* marker produces.
-    # Re-implementing either here is the drift the codebase fought to remove.
+    # FOUR READINGS, GATHERED HERE AND DECIDED ELSEWHERE. This block holds no
+    # `if` about whether a worktree may move; it collects what was measured and
+    # `plot-movable.mjs` returns the refusal. The four were shell `if`s until
+    # 2026-09-01, and nothing could trigger one in isolation — least of all the
+    # combinations this estate will not produce on demand, a live pid and a
+    # dirty tree at once.
+    #
+    # LIVENESS AND UNLANDED WORK STAY TWO SEPARATE MEASUREMENTS, exactly as they
+    # were: plot_worker_state answers "is a process running or waiting here" and
+    # is keyed on the records a dispatch writes (`.plot-worker.pid`,
+    # `.plot-worker.exit`). A hand-made worktree that never ran one reads `none`
+    # however dirty its tree is — and hand-made worktrees are precisely the
+    # estate this mode exists to tidy. The rule reads them as two fields for
+    # that reason.
+    #
+    # plot_worker_state is the ONE liveness answer, sourced by both this script
+    # and the fleet scan. It carries what a bare `ps` cannot — pid-reuse
+    # detection via the manifest's `startedAt`, and the `waiting` state a
+    # PLOT-BLOCKED* marker produces.
     wstate_row=$(plot_worker_state "$wt")
     state=$(printf '%s' "$wstate_row" | cut -f1)
-    case "$state" in
-      running)
-        pid=$(printf '%s' "$wstate_row" | cut -f2)
-        printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "worker alive (pid $pid)"
-        n_skipped=$((n_skipped + 1))
-        continue ;;
-      waiting)
-        # The shared classifier reports `waiting` when a blocked marker exists:
-        # a worker stopped to ask a person something. Moving it breaks the
-        # checkout the answer is owed to.
-        printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "blocked marker — needs a person"
-        n_skipped=$((n_skipped + 1))
-        continue ;;
-    esac
+    pid=$(printf '%s' "$wstate_row" | cut -f2)
 
-    # REFUSAL 3 — UNCOMMITTED WORK, measured independently of any worker record.
     # `plot_worker_dirty` applies the shared filter (editor leftovers and Plot's
-    # own bookkeeping do not count), so this fires on real work only.
+    # own bookkeeping do not count), so this reads real work only.
     dirty=$(plot_worker_dirty "$wt" | head -1 | cut -c1-40)
-    if [ -n "$dirty" ]; then
-      printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "uncommitted: $dirty"
-      n_skipped=$((n_skipped + 1))
-      continue
-    fi
 
-    # REFUSAL 4 — UNPUSHED COMMITS. Work that exists only on this machine.
-    # Only the branch's OWN upstream answers "pushed?"; an absent upstream leaves
-    # the question unanswerable, and an unanswered question is not a refusal —
-    # the same principle plot_worker_task_state reached the hard way (counting
-    # against origin/main marked every clean branch stalled in a remote-less
-    # repo). So no upstream falls through to "movable", not to "keep".
+    # Only the branch's OWN upstream answers "pushed?". An absent upstream
+    # leaves the field EMPTY, which the rule reads as unanswerable rather than
+    # as zero — and an unanswered question is not a refusal, the principle
+    # plot_worker_task_state reached the hard way when counting against
+    # origin/main marked every clean branch stalled in a remote-less repo.
+    ahead=""
     if [ -n "$br" ]; then
       ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null || echo "")
-      case "$ahead" in
-        ''|0|*[!0-9]*) ;;  # no upstream, or nothing ahead: not a refusal
-        *) printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "unpushed commits ($ahead ahead)"
-           n_skipped=$((n_skipped + 1))
-           continue ;;
+    fi
+
+    # THE DECISION. One call per tree, and the answer is a named refusal.
+    #
+    # A rule that cannot be asked REFUSES: a missing `node`, a missing bundle or
+    # a throwing module all leave `mv_verdict` empty, and an empty verdict keeps
+    # the worktree and says the rule could not be asked. Silence is never
+    # permission — and here the permissive direction moves a checkout an agent
+    # may be writing to, which `git worktree move` breaks mid-run.
+    mv_verdict=$(printf '%s\t%s\t%s\t%s' "$state" "$pid" "$dirty" "$ahead" \
+      | node "$script_dir/board/plot-movable.mjs" 2>/dev/null || true)
+    mv_refusal=${mv_verdict%%$'\t'*}
+    mv_detail=${mv_verdict#*$'\t'}
+
+    # RENDERING, not deciding. The rule named the measurement; this names what
+    # it means to someone reading the table, which is the caller's half because
+    # only the caller knows it is printing one.
+    if [ "$mv_refusal" != "move" ]; then
+      case "$mv_refusal" in
+        live-worker)         reason="worker alive (pid $mv_detail)" ;;
+        blocked-marker)      reason="blocked marker — needs a person" ;;
+        uncommitted-changes) reason="uncommitted: $mv_detail" ;;
+        unpushed-commits)    reason="unpushed commits ($mv_detail ahead)" ;;
+        *)                   reason="rule could not be asked — keeping" ;;
       esac
+      printf '%-8s %-52s %s\n' "keep" "$(basename "$wt")" "$reason"
+      n_skipped=$((n_skipped + 1))
+      continue
     fi
 
     # This worktree is idle — it can be moved.
