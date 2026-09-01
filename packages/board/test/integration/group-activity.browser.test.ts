@@ -2,8 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { chromium, type Browser, type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import type { AgentRow, Fleet } from '../../src/contract/schema.js';
 
 /**
@@ -32,7 +33,6 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  * it: every claim is about what the tab RENDERS from a pulse.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden/tree/';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
@@ -97,30 +97,28 @@ const FOLDED = [
 ];
 
 describe('a group heading carries the activity of the rows behind it', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
-  const contexts: BrowserContext[] = [];
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture only to
+  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
+  // itself. The mock serves the same built client and answers both payloads by
+  // name, so the test states its own input instead of inheriting an estate.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    for (const c of contexts) await c.close().catch(() => {});
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(rows: AgentRow[] = FOLDED): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    contexts.push(context);
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: { fleet: fleet(rows) },
+      viewport: { width: 1400, height: 900 },
+    });
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;
@@ -370,30 +368,28 @@ describe('a group heading carries the activity of the rows behind it', () => {
  * reader reads one vocabulary rather than two.
  */
 describe('a heading travels at the strongest pace its rows state', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
-  const contexts: BrowserContext[] = [];
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture only to
+  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
+  // itself. The mock serves the same built client and answers both payloads by
+  // name, so the test states its own input instead of inheriting an estate.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    for (const c of contexts) await c.close().catch(() => {});
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(rows: AgentRow[]): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
-    contexts.push(context);
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet(rows)) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: { fleet: fleet(rows) },
+      viewport: { width: 1400, height: 900 },
+    });
     await page.getByText('Working').first().waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;

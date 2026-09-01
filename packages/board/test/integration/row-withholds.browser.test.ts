@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { openCatalogue, board as buildBoard, card as buildCard, column, type Catalogue } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../src/contract/schema.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * THE ROW SAYS WHAT IT KNOWS — the five display findings, measured in a browser.
@@ -20,8 +23,6 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type IssueRow } from '../../s
  * a menu that opens on a plan nobody may approve. So each finding is asserted
  * from both sides.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const GH = 'https://github.com/tiny/garden/tree/';
 
 /** WCAG 2.2's floor for a pointer target. Apple asks 44, Google 48. */
@@ -118,29 +119,50 @@ function fleet(): Fleet {
 }
 
 describe('the row says what it knows', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture only to
+  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
+  // itself. The mock serves the same built client and answers both payloads by
+  // name, so the test states its own input instead of inheriting an estate.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(width = 1480): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width, height: 1400 } });
-    const page = await context.newPage();
-    // SYNCHRONOUS fulfil. A route callback that awaits anything (`route.fetch()`
-    // among them) fails suites that already passed on this machine.
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(fleet()) }));
-    await page.goto(`${baseURL}?tab=agents`);
+    // THE BOARD IS SUPPLIED TOO, and it has to be: the plan-actions menu is
+    // built from a board CARD matching the fleet row's plan, so a fleet-only
+    // state renders the row and no menu. The real server used to answer
+    // `/api/board` from the tiny-garden fixture, which is where the Draft
+    // `plant-tomatoes` card came from — stated here instead.
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: {
+        fleet: fleet(),
+        board: buildBoard({
+          // THE CAPABILITY IS PART OF THE STATE. `approve.available` gates the
+          // control, and `BoardSchema` defaults it to false — so a served board
+          // that does not say so renders the row and no menu. Stating it is not
+          // pretending the script exists: it is saying which board this is.
+          approve: { available: true, reason: '' },
+          columns: [column({
+            phase: 'Discovery',
+            cards: [buildCard({
+              slug: 'plant-tomatoes', title: 'Plant tomatoes', type: 'feature',
+              phase: 'Discovery', path: 'docs/plans/2026-03-01-plant-tomatoes.md',
+              prs: [], phaseDate: '2026-03-01',
+            })],
+          })],
+        }),
+      },
+      viewport: { width, height: 1400 },
+    });
     await page.getByText('Not started').first().waitFor({ timeout: 15_000 });
     await expandAgentFolds(page);
     return page;

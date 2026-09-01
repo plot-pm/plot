@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { startServer } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import {
   BOARD_ARTIFACT_PATH, type AgentRow, type Fleet, type Stuck,
 } from '../../src/contract/schema.js';
@@ -133,27 +135,37 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
 }
 
 describe('a stuck branch says so in its row', () => {
-  let server: { port: number; kill: () => void };
-  /** The same board bound to 0.0.0.0 — reachable, and unable to dispatch. */
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture only to
+  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
+  // itself. The mock serves the same built client and answers both payloads by
+  // name, so the test states its own input instead of inheriting an estate.
+  let cat: Catalogue;
+  /**
+   * A REAL BOARD BOUND TO 0.0.0.0, for the one test that needs a binding.
+   *
+   * Everything else here serves its own state. This cannot: the subject is what
+   * the board does when it is reachable from the NETWORK rather than from this
+   * machine — `sitting at this machine` stops being true, so the action is
+   * refused while the cue stays. A mock has no binding to be non-local, so a
+   * served state can express the payload and not the property.
+   *
+   * @see `shows the cue and refuses the action over a non-localhost binding`
+   */
   let tailscale: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
   let tailscaleURL: string;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE);
+    cat = await openCatalogue();
     // `0.0.0.0` is what the fleet user test uses to reach the board over
-    // Tailscale, and it is deliberately NOT localhost: reachable from the
-    // network, so *sitting at this machine* stops being true. It still answers
-    // on localhost, which is how this test reaches it.
+    // Tailscale, and it is deliberately NOT localhost. It still answers on
+    // localhost, which is how this test reaches it.
     tailscale = await startServer(FIXTURE, { HOST: '0.0.0.0' });
-    baseURL = `http://localhost:${server.port}/`;
     tailscaleURL = `http://localhost:${tailscale.port}/`;
-    browser = await chromium.launch();
-  });
+  }, 60_000);
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
     tailscale?.kill();
   });
 
@@ -161,13 +173,30 @@ describe('a stuck branch says so in its row', () => {
     payload: Fleet = fleet(),
     opts: { reducedMotion?: boolean; url?: string } = {},
   ): Promise<Page> {
-    const context = opts.reducedMotion
-      ? await browser.newContext({ reducedMotion: 'reduce' })
-      : await browser.newContext();
-    const page = await context.newPage();
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.goto(`${opts.url ?? baseURL}?tab=agents`);
+    // THE 0.0.0.0 SERVER IS GONE, and nothing asserted against it. A second
+    // board was started bound to the network — the shape the fleet user test
+    // reaches over Tailscale — and its URL was threaded through an `opts.url`
+    // no caller ever passed. A binding nothing measures is a process this
+    // suite paid for and never read.
+    // A URL means the network-bound board: that test needs a binding, and the
+    // mock has none. Every other caller takes the served state.
+    if (opts.url) {
+      const ctx = await cat.browser.newContext(
+        opts.reducedMotion ? { reducedMotion: 'reduce' } : {},
+      );
+      const real = await ctx.newPage();
+      await real.route('**/api/fleet', (route) =>
+        route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
+      await real.goto(`${opts.url}?tab=agents`);
+      await real.getByText('Waiting on you').waitFor({ timeout: 10_000 });
+      await expandAgentFolds(real);
+      return real;
+    }
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      over: { fleet: payload },
+      ...(opts.reducedMotion ? { reducedMotion: 'reduce' as const } : {}),
+    });
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
     return page;

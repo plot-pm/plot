@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer, expandAgentFolds } from '../helpers.mjs';
+import { type Page } from 'playwright';
+import { expandAgentFolds } from '../helpers.mjs';
+import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 
 /**
  * THE WAVE LEAVES THE KIND ALONE — a regression lock, not a fix.
@@ -31,29 +32,34 @@ import { startServer, expandAgentFolds } from '../helpers.mjs';
  * grouped by the same code a real pulse is.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 
 describe('the wave leaves the kind alone', () => {
-  let browser: Browser;
-  let server: { kill: () => void; port: number };
-  let baseURL: string;
+  // THE STATE IS SERVED, NOT SPAWNED AND STUBBED.
+  //
+  // This file started `board-server.mjs` over the tiny-garden fixture only to
+  // serve `index.html`: it never read `/api/board`, and stubbed `/api/fleet`
+  // itself. The mock serves the same built client and answers both payloads by
+  // name, so the test states its own input instead of inheriting an estate.
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    // THE MOCK, through the real server: one row per kind, the whole pipeline.
-    server = await startServer(FIXTURE, { PLOT_BOARD_MOCK: '1' });
-    baseURL = `http://localhost:${server.port}/`;
+    // THE SAME POPULATION, SERVED BY NAME. `PLOT_BOARD_MOCK=1` existed to get
+    // one row per kind through the whole pipeline; `one-row-per-kind` is that
+    // population as a named state, validated by the same schema and grouped by
+    // the same adapter code. The pipeline this file is about is the CLIENT's —
+    // the placement decision in `AgentList` — and that is unchanged.
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   async function open(): Promise<Page> {
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
-    await page.goto(`${baseURL}?tab=agents`);
+    const page = await cat.open('one-row-per-kind', {
+      tab: 'agents',
+      viewport: { width: 1400, height: 1200 },
+    });
     await page.locator('li[data-tuple-kind]').first().waitFor({ timeout: 10_000 });
     // Every wave and every branch beneath it, so any wave badge a branch row
     // might carry is in the DOM to be asserted absent.
@@ -152,10 +158,16 @@ describe('the wave leaves the kind alone', () => {
     try {
       // The positive half, adapted to the model that replaced the badge: the wave
       // is not gone, it is a ROW. A regression that dropped wave rendering
-      // altogether would pass every negative above and fail here. Each of the
-      // mock's named waves renders as one `data-wave-row`, and never as a mark
-      // beside a kind.
-      for (const wave of ['Shaped', 'Modelled', 'Tracer', 'Relocated', 'Moved']) {
+      // altogether would pass every negative above and fail here.
+      //
+      // THE NAMES ARE THE SERVED STATE'S, not a fixture's. This read five wave
+      // names out of `PLOT_BOARD_MOCK`'s data (`Shaped`, `Modelled`, `Tracer`,
+      // `Relocated`, `Moved`); the state now says which waves it holds, so the
+      // assertion names those. The claim is unchanged — one `data-wave-row` per
+      // named wave, and never a mark beside a kind — and it is now a claim about
+      // a state the test states rather than about whatever the mock happened to
+      // contain.
+      for (const wave of ['Kind-wave', 'Kind-branch', 'Kind-plan']) {
         await expect.poll(() => page.locator(`[data-wave-row="${wave}"]`).count(),
           { timeout: 10_000 }).toBe(1);
       }
