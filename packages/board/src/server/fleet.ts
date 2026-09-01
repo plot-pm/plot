@@ -11,7 +11,6 @@ import {
   FleetScanLineSchema,
   isLiveState,
   PR_UNKNOWN_NOTE,
-  toBoardPhase,
   unknownPhaseNote,
   type AgentRow,
   type BranchState,
@@ -22,7 +21,6 @@ import {
   type IssueAnswer,
   type IssueRow,
   type MachineProcess,
-  type Phase,
   type PulseShrink,
   type RowKind,
   type StuckRun,
@@ -2576,25 +2574,11 @@ export function stopFleetRefresh(): void {
  * indistinguishable from one an agent is on. `state` carries it, and the row
  * renders a badge from that.
  */
-export function rowPhase(planPhase: string, state: BranchState): Phase | null {
-  // A branch handed back returns to the plan's own phase, ignoring whatever its
-  // commits say — the one place intent outranks git. `toBoardPhase(_, false)`
-  // reads the plan's phase straight through, which is exactly "back to where it
-  // is decided whether this is wanted". (With the Design fork gone the `false`
-  // no longer changes the answer, but the intent is preserved for the day a
-  // phase forks on `started` again.)
-  if (state === 'deferred') return toBoardPhase(planPhase, false);
-  // The `started` flag is read from THIS branch, not from the plan's own
-  // `Started:` count — a row is a statement about one branch. It no longer
-  // moves an approved plan (approved is Development regardless), but it still
-  // feeds the one mapping so the row and the board card cannot disagree, and it
-  // is the seam a future `started`-forking phase would use.
-  //
-  // `merged` counts as started, `wip` counts; `claimed` does NOT — an empty
-  // claim marker is a dispatcher taking the branch, not an agent having built
-  // anything.
-  return toBoardPhase(planPhase, state === 'wip' || state === 'merged');
-}
+// A PHASE IS A DOMAIN RULE. `rowPhase` moved to
+// `packages/domain/src/rules/phase.ts`; imported for this file's own use and
+// re-exported for the callers that already look here.
+export { rowPhase };
+
 
 /**
  * Which group a branch belongs to, and why.
@@ -2789,7 +2773,7 @@ export function waitingOnFor(
 // that this file holds no COPY, and a re-export is not one — it is the same
 // function, named here for the callers that already import it. Changing forty
 // imports would make a move look like a rename.
-import { startabilityVerdict, waveVerdict } from '@plot-pm/domain';
+import { rowPhase, startabilityVerdict, waveVerdict } from '@plot-pm/domain';
 
 export { startabilityVerdict, waveVerdict };
 export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
