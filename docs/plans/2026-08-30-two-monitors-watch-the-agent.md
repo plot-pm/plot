@@ -920,6 +920,27 @@ The BuildMonitor: four findings about a run, sampled only while one is live.
   superseded run is never reported as current
 - **it polls nothing when no run is live** — asserted, because a monitor that
   keeps asking an idle host is the rate problem this design avoids
+
+**Its e2e test raced, and the MONITOR was not the fault. Fixed 2026-09-01.**
+`build-monitor-follows.test.mjs` captured the worker's head sha, rewrote its
+stub responder, then waited for any `build failed` finding. The monitor is
+already running at that point and the worker commits more than once — its claim,
+then `built.txt` — so a pass landing between them publishes a finding naming the
+EARLIER sha, and the predicate returned that one. The assertion then compared a
+stale sha against the head and failed with *"the evidence does not name the real
+sha the run was about"*.
+
+**That is this slice's third `Done when` item working exactly as specified.**
+The monitor is required never to report a superseded run as current, and it did
+not — it reported a finding that was current when it was published. The test
+asked a later question and read the earlier answer.
+
+Measured four times in one hour, on main and on two unrelated PRs. The predicate
+now requires the finding's evidence to name the head under test, so a stale
+finding cannot satisfy the wait; a monitor that never follows the build still
+fails through the timeout. **The cost was disproportionate:** e2e runs before
+every domain and board gate, so each failure marked eighteen later steps
+`skipped`.
 - `plot-host.sh` gains the one operation it needs and no more
 
 **A monitor is a domain object that calls an adapter, not a script that
