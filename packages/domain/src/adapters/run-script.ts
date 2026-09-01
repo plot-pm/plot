@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 
 import { answered, failed, unaskable, type PortResult } from '../port-result.js';
 
@@ -72,6 +72,47 @@ export const runProcess = (
     );
   });
 
+
+/**
+ * Runs a command on the CALLING THREAD and reports its exit code and output.
+ *
+ * The synchronous twin of {@link runProcess}, and it exists for the callers
+ * that are synchronous today. A blocked event loop serves nothing while it
+ * runs, so this belongs on a write route where one operator waits for their own
+ * click and never on a read path polled by every viewer.
+ *
+ * Never throws for a non-zero exit, matching {@link runProcess}: an exception
+ * would make the four contract codes indistinguishable from a missing binary.
+ *
+ * @param command - the executable to run.
+ * @param args - its arguments.
+ * @param options - where and how to run it.
+ * @returns the exit code and both output streams.
+ */
+export const runProcessSync = (
+  command: string,
+  args: readonly string[],
+  options: RunOptions = {},
+): ScriptRun => {
+  try {
+    const stdout = execFileSync(command, [...args], {
+      cwd: options.cwd,
+      env: options.env ? { ...process.env, ...options.env } : process.env,
+      timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      maxBuffer: options.maxBuffer ?? DEFAULT_MAX_BUFFER,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return { code: 0, stdout: stdout ?? '', stderr: '' };
+  } catch (error) {
+    const thrown = error as { status?: number | null; stdout?: string; stderr?: string };
+    return {
+      code: typeof thrown.status === 'number' ? thrown.status : 1,
+      stdout: thrown.stdout ?? '',
+      stderr: thrown.stderr ?? '',
+    };
+  }
+};
 
 /** What a finished process left behind, when its stdout is BYTES. */
 export interface ByteRun {
@@ -185,6 +226,28 @@ export const runScript = async <T>(
   parse: (stdout: string) => T,
   options: RunOptions = {},
 ): Promise<PortResult<T>> => resultOf(await runProcess(command, args, options), parse);
+
+/**
+ * Runs a script on the calling thread and maps its exit code into a
+ * `PortResult`.
+ *
+ * The synchronous composition of {@link runProcessSync} and {@link resultOf},
+ * and it maps through the SAME `resultOf` the async path uses. That is the
+ * point: two mappings would be two readings of 3-versus-4, and the second one
+ * is always the one that collapses them.
+ *
+ * @param command - the executable to run.
+ * @param args - its arguments.
+ * @param parse - turns the answered stdout into the value.
+ * @param options - where and how to run it.
+ * @returns the parsed value, or which kind of non-answer this was.
+ */
+export const runScriptSync = <T>(
+  command: string,
+  args: readonly string[],
+  parse: (stdout: string) => T,
+  options: RunOptions = {},
+): PortResult<T> => resultOf(runProcessSync(command, args, options), parse);
 
 /**
  * Parses stdout as a single JSON document.

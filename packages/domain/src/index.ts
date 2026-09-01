@@ -110,5 +110,6 @@ export type * from './ports/host.js';
 export type * from './ports/processes.js';
 export type * from './ports/trees.js';
 export type * from './ports/clock.js';
+export type * from './ports/scripts.js';
 export type { MachineReading } from './ports/machine.js';
 export type { Machine as MachinePort } from './ports/machine.js';
