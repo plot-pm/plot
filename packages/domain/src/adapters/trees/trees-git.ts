@@ -1,8 +1,11 @@
 import type { Worktree } from '../../entities/worktree.js';
-import { answered, type PortResult } from '../../port-result.js';
+import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
-import { asLines, asText, runProcess, runScript } from '../run-script.js';
+import { asLines, asText, runProcess, runScript, runScriptSync } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
+
+/** Thirty-two megabytes: 22 worktrees' porcelain and status in one reply. */
+const STATUS_MAX_BUFFER = 32 * 1024 * 1024;
 
 /**
  * Reads `git worktree list --porcelain` into worktrees.
@@ -101,5 +104,33 @@ export const treesGit = (context: ShellContext): Trees => {
         asLines,
         inRepo,
       ),
+    prune: async () => {
+      const run = await runProcess('git', ['worktree', 'prune'], inRepo);
+      return run.code === 0 ? answered(undefined) : failed<void>();
+    },
+
+    add: async (path, start) => {
+      const run = await runProcess(
+        'git',
+        ['worktree', 'add', '--detach', path, start],
+        inRepo,
+      );
+      return run.code === 0 ? answered(undefined) : failed<void>();
+    },
+
+    // `git -C <path>`, so an unreadable checkout is reported by git's own exit
+    // code rather than by the spawn failing to chdir — the two arrive as
+    // different errors and only one of them says which path.
+    statusSync: (path) =>
+      runScriptSync('git', ['-C', path, 'status', '--porcelain'], (stdout) => stdout, {
+        ...inRepo,
+        maxBuffer: STATUS_MAX_BUFFER,
+      }),
+
+    listSync: () =>
+      runScriptSync('git', ['worktree', 'list', '--porcelain'], worktreesOf, {
+        ...inRepo,
+        maxBuffer: STATUS_MAX_BUFFER,
+      }),
   };
 };

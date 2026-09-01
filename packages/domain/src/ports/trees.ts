@@ -91,4 +91,51 @@ export interface Trees {
    * @returns the branch name, or `''` where HEAD is detached.
    */
   currentBranch(path: string): Promise<PortResult<string>>;
+
+  /**
+   * Forgets the worktrees whose directories are gone.
+   *
+   * The one operation here that WRITES, and it writes only to git's own
+   * administrative records. A `git worktree add` at a path a stale record still
+   * claims is refused, so this runs before one — a caller that skipped it would
+   * see the refusal and read it as the path being in use.
+   *
+   * @returns nothing; a failure means git's records were not updated.
+   */
+  prune(): Promise<PortResult<void>>;
+
+  /**
+   * Creates a worktree at a path, checked out DETACHED.
+   *
+   * Detached is the contract rather than an option: a caller makes a tree for
+   * an agent that will create and check out its own branch there, and a tree
+   * already holding one would refuse it.
+   *
+   * @param path - where to create it, absolute.
+   * @param start - the revision to check out.
+   * @returns nothing; a failure carries no tree.
+   */
+  add(path: string, start: string): Promise<PortResult<void>>;
+
+  /**
+   * What a checkout reports as changed, VERBATIM.
+   *
+   * The porcelain text and not a boolean, unlike {@link Trees.isClean}: a
+   * caller that caches this compares two readings, and a boolean cannot say a
+   * tree changed while staying dirty.
+   *
+   * @param path - the checkout's absolute path.
+   * @returns `git status --porcelain`'s output as it stands.
+   */
+  statusSync(path: string): PortResult<string>;
+
+  /**
+   * Lists the worktrees, read on the CALLING THREAD.
+   *
+   * The synchronous twin, for the signal that gates a monitor's cache from a
+   * synchronous pulse.
+   *
+   * @returns the worktrees, the main checkout among them.
+   */
+  listSync(): PortResult<readonly Worktree[]>;
 }

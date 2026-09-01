@@ -63,4 +63,22 @@ export interface Processes {
    * @returns the start time; a failure where the process is gone.
    */
   startedAt(pid: number): Promise<PortResult<number>>;
+
+  /**
+   * How long a process has been up, in seconds.
+   *
+   * `null` where nothing is running under the pid, and that emptiness is the
+   * READING rather than a failure — which is what makes this a separate
+   * operation from {@link Processes.startedAt} instead of arithmetic on it.
+   * A start time reports `failed` for a dead pid; elapsed time reports
+   * *nothing is running*, and a panel renders the two differently.
+   *
+   * Deriving one from the other would also measure against the caller's own
+   * clock, adding a second source of error to an answer the process table
+   * already gives directly.
+   *
+   * @param pid - the process id to ask about.
+   * @returns the elapsed seconds, or null where the pid holds no process.
+   */
+  uptimeSeconds(pid: number): Promise<PortResult<number | null>>;
 }

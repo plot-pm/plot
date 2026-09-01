@@ -57,3 +57,5 @@ export {
   DEFAULT_SAMPLE_BUDGET_MS,
   type MachineSystemOptions,
 } from './machine/machine-system.js';
+
+export { processesShell, parseEtime } from './processes/processes-shell.js';

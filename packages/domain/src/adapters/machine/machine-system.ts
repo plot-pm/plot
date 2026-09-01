@@ -89,5 +89,18 @@ export const machineSystem = (context: ShellContext, options: MachineSystemOptio
     },
 
     hostname: async () => answered(hostname()),
+
+    privateAddress: async () => {
+      // `tailscale` is the mesh this machine may be on, and its ABSENCE is the
+      // common case: the binary is not installed, or it is installed and not
+      // logged in. Both exit non-zero, and both mean *there is no mesh address*
+      // rather than *the machine could not be asked* — so the empty answer is
+      // `answered('')` and never a failure a caller would report.
+      const run = await runProcess('tailscale', ['ip', '-4'], { cwd: context.repoRoot });
+      if (run.code !== 0) return answered('');
+      // The first line only: `ip -4` prints one address per interface, and a
+      // caller building a URL needs one.
+      return answered(run.stdout.trim().split('\n')[0]?.trim() ?? '');
+    },
   };
 };

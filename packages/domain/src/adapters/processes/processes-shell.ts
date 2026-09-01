@@ -18,6 +18,28 @@ const WORKER_STATES: readonly string[] = [
 const ACTIVITIES: readonly string[] = ['working', 'idle', ''];
 
 /**
+ * `ps -o etime=` output → seconds, or null for anything it does not recognise.
+ *
+ * The four shapes `etime` emits, all measured on macOS 2026-08-19: `MM:SS`,
+ * `HH:MM:SS`, `DD-HH:MM:SS`, and — for a dead pid — nothing at all. Linux adds
+ * no fifth shape. Anything else, a localised `ps` or a future format, yields
+ * null: an unparsed reading is an absent uptime and never a zero one.
+ *
+ * @param raw - what `ps` printed.
+ * @returns the elapsed seconds, or null where the shape is unrecognised.
+ */
+export const parseEtime = (raw: string): number | null => {
+  const text = raw.trim();
+  if (!text) return null;
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d{1,2}):(\d{2})$/.exec(text);
+  if (!m) return null;
+  const [, d, h, min, s] = m;
+  const days = d ? Number(d) : 0;
+  const hours = h ? Number(h) : 0;
+  return days * 86_400 + hours * 3_600 + Number(min) * 60 + Number(s);
+};
+
+/**
  * Reads the tab-separated fields `plot_worker_state` prints.
  *
  * An unrecognised state throws rather than degrading, because every value the
@@ -90,5 +112,18 @@ export const processesShell = (context: ShellContext): Processes => {
         },
         inRepo,
       ),
+
+    uptimeSeconds: async (pid) => {
+      // A pid at or below zero is refused before it reaches `ps`. `kill -0 0`
+      // signals the caller's whole process group, and the equivalent trap has
+      // been sprung in this repo before — so `0` answers null rather than being
+      // asked about.
+      if (!Number.isInteger(pid) || pid <= 0) return answered<number | null>(null);
+      const run = await runProcess('ps', ['-o', 'etime=', '-p', String(pid)], inRepo);
+      // A non-zero exit IS the reading: `ps` exits non-zero for a pid nobody is
+      // running, and *nothing is running under this pid* is the answer the
+      // panel renders as an absent uptime.
+      return answered<number | null>(run.code === 0 ? parseEtime(run.stdout) : null);
+    },
   };
 };

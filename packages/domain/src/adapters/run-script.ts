@@ -28,6 +28,15 @@ export interface RunOptions {
   timeoutMs?: number;
   /** How much stdout to keep, in bytes. */
   maxBuffer?: number;
+  /**
+   * What to write to the process's stdin, for the commands that read a LIST.
+   *
+   * An argument vector has a length limit that an unbounded list should never
+   * be able to reach — a plan estate holds hundreds of files — so the callers
+   * that hand over a set send it this way. Honoured by {@link runProcessSync}
+   * only; the async path has {@link runBytes}, which also answers in bytes.
+   */
+  stdin?: string;
 }
 
 /** Ten megabytes: the fleet scan's JSON over a large estate exceeds the default. */
@@ -101,7 +110,9 @@ export const runProcessSync = (
       timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       maxBuffer: options.maxBuffer ?? DEFAULT_MAX_BUFFER,
       encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(options.stdin === undefined
+        ? { stdio: ['ignore', 'pipe', 'pipe'] as const }
+        : { input: options.stdin, stdio: ['pipe', 'pipe', 'pipe'] as const }),
     });
     return { code: 0, stdout: stdout ?? '', stderr: '' };
   } catch (error) {
