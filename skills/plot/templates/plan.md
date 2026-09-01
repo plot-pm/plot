@@ -11,6 +11,7 @@
 - **Issue:** <!-- optional, tracker issue(s) this plan answers (`#228`, or `#226, #228`) — the board removes an issue from its inbox once a plan names it here -->
 - **Review:** <!-- pr | in-session | ballot — how is this plan reviewed & approved? -->
 - **Impl:** <!-- own branches | same branch | other repo | none — where does implementation happen? -->
+- **Rounds:** <!-- optional, how many rounds of interrogation this plan has had. Written by /challenge-the-plan, and by hand for an interrogation run without it — the board shows a rounds badge from this field. Absent means nobody has questioned the plan; `0` says it was questioned and nothing came of it, so leave the line out rather than writing zero -->
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
