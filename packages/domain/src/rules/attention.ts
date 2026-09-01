@@ -68,9 +68,17 @@ export type FindingVerdict =
   | 'owes-gate'
   | 'unlanded'
   | 'build-failed'
-  | 'build-passed'
   | 'build-approval'
   | 'head-moved';
+
+/**
+ * A finding that asks somebody to do something.
+ *
+ * `clear` retracts and `build passed` reports a thing going right; neither is
+ * an errand, and the type says so, so {@link READINGS} cannot be given an entry
+ * for either and {@link findingReading} cannot return one.
+ */
+export type Errand = Exclude<FindingName, 'clear' | 'build passed'>;
 
 /**
  * Which verdict, move and list each finding names.
@@ -80,7 +88,7 @@ export type FindingVerdict =
  * That is what the plan means by clearing being a derivation — nothing marks an
  * entry done; it stops being among the findings that hold.
  */
-const READINGS: Readonly<Record<Exclude<FindingName, 'clear'>, FindingReading>> = {
+const READINGS: Readonly<Record<Errand, FindingReading>> = {
   // A process burning no CPU over an unchanged tree. A machine's errand: the
   // move is to put a worker back on it, not to ask a person anything.
   idle: { verdict: 'idle', action: 'look at the worker, it is not moving', list: 'needsAgent' },
@@ -107,10 +115,6 @@ const READINGS: Readonly<Record<Exclude<FindingName, 'clear'>, FindingReading>> 
     action: 'look at the failing run',
     list: 'needsHuman',
   },
-  // A PASSING BUILD IS NEWS, NOT AN ERRAND — see {@link isErrand}. It is
-  // carried so a caller waiting on a run can read the answer, and it earns no
-  // attention entry.
-  'build passed': { verdict: 'build-passed', action: 'nothing', list: 'needsHuman' },
   'build needs approval': {
     verdict: 'build-approval',
     action: 'approve the workflow run',
@@ -130,11 +134,8 @@ const READINGS: Readonly<Record<Exclude<FindingName, 'clear'>, FindingReading>> 
  * @returns the reading, or `null` for `clear` and for findings nobody must act
  *   on.
  */
-export const findingReading = (finding: FindingName): FindingReading | null => {
-  if (finding === 'clear') return null;
-  if (!isErrand(finding)) return null;
-  return READINGS[finding];
-};
+export const findingReading = (finding: FindingName): FindingReading | null =>
+  isErrand(finding) ? READINGS[finding] : null;
 
 /**
  * Does this finding ask anybody to do anything?
@@ -145,7 +146,7 @@ export const findingReading = (finding: FindingName): FindingReading | null => {
  * field avoids by staying null. It still travels on the row: a caller waiting
  * on a run needs the answer, and only the errand half is filtered here.
  */
-export const isErrand = (finding: FindingName): boolean =>
+export const isErrand = (finding: FindingName): finding is Errand =>
   finding !== 'clear' && finding !== 'build passed';
 
 /**
