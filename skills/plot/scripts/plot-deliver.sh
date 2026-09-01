@@ -249,6 +249,25 @@ flip_phase() { # $1=file  → 0 if it changed the file, 1 if nothing to flip
 
 # Insert one `- **Delivered:** YYYY-MM-DD` line into the plan's `## Status` section.
 # Fills the placeholder first; falls back to appending after the last list item.
+#
+# IT STOPS AT AN HTML COMMENT, and that is the whole of the fix made 2026-09-01.
+# The plan template ends `## Status` with
+#
+#     <!-- Transition records — written by the workflow commands, not by hand:
+#     - **Started:** <date>, <who>, <branch>
+#     -->
+#
+# and those `- **Started:**` lines ARE list items. The scan tracked the last one
+# it saw, so on any plan whose `Started:` records had been filled in, the record
+# was appended INSIDE the comment — inert, and invisible to
+# `plot-plan-meta.sh`, which reported `delivered_raw: ""` for a plan that had
+# just been delivered. Measured on `a-browser-test-serves-its-own-state`: phase
+# flipped to Delivered, two `Delivered:` lines written into the comment (the
+# script is idempotent on the PHASE, so a second run wrote a second line), and
+# no readable record at all.
+#
+# A comment is where a plan keeps the shape of a record rather than a record, so
+# the insertion point is the last list item BEFORE one — never inside.
 append_delivered_line() { # $1=file $2=date
   local f="$1" line
   line="- **Delivered:** $2"
@@ -263,8 +282,11 @@ append_delivered_line() { # $1=file $2=date
       insert = start
       for (i = start + 1; i <= n; i++) {
         if (lines[i] ~ /^##[ \t]/) break
+        # An HTML comment ends the writable region. Checked BEFORE the
+        # placeholder arms so a commented-out `- **Delivered:**` template line
+        # is never mistaken for the slot to fill.
+        if (lines[i] ~ /<!--/) break
         if (lines[i] ~ /^[ \t]*[-*][ \t]*\*\*Delivered:\*\*[ \t]*$/) { slot = i; break }
-        if (lines[i] ~ /^[ \t]*[-*][ \t]*\*\*Delivered:\*\*[ \t]*<!--/) { slot = i; break }
         if (lines[i] ~ /^[ \t]*[-*][ \t]/) insert = i
       }
 

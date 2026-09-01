@@ -15,14 +15,13 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-31, Jan Wloka, in-session
+- **Delivered:** 2026-09-01, Jan Wloka
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-08-31, Jan Wloka, `infra/the-browser-tests-say-which-need-a-server`
 - **Started:** 2026-08-31, Jan Wloka, `infra/the-gate-verifies-what-a-test-declares`
 - **Started:** 2026-09-01, Jan Wloka, `infra/the-catalogue-names-the-states-the-suite-needs`
 - **Started:** 2026-09-01, Jan Wloka, `infra/every-browser-test-serves-its-own-state`
-- **Delivered:** 2026-09-01
-- **Delivered:** 2026-09-01
 -->
 
 ## Changelog
