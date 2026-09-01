@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { treesGit } from '../src/adapters/trees/trees-git.js';
 import { treesFixture } from '../src/adapters/trees/trees-fixture.js';
@@ -55,6 +56,20 @@ afterAll(() => {
 });
 
 const trees = (): Trees => treesGit({ repoRoot: repo, scriptDir: path.join(repo, 'scripts') });
+
+/**
+ * This repository's OWN `skills/plot/scripts`, not a stub in the fixture repo.
+ *
+ * `dirtyPaths` sources `plot_worker_dirty` rather than reimplementing its three
+ * exclusions, so the thing under test IS that shell function — a stub would
+ * assert only that the adapter can call a file it wrote itself.
+ */
+const scriptDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../skills/plot/scripts',
+);
+
+const treesWithScripts = (): Trees => treesGit({ repoRoot: repo, scriptDir });
 
 describe('treesGit: the desks this machine holds', () => {
   it('lists every worktree and marks the FIRST as the main checkout', async () => {
@@ -118,6 +133,70 @@ describe('treesGit: the desks this machine holds', () => {
       fs.rmSync(outside, { recursive: true, force: true });
     }
   });
+
+  it('lists the dirty paths, where isClean only says whether there are any', async () => {
+    // The reading `monitor_tree_fingerprint` needs and `isClean` throws away.
+    // Both run the same `git status --porcelain`; only one returns the paths,
+    // and a fingerprint built from a boolean cannot see a rename at all.
+    fs.writeFileSync(path.join(linked, 'work.ts'), 'export const x = 1;\n');
+    const answer = await treesWithScripts().dirtyPaths(linked);
+    expect(answer).toEqual({ ok: true, value: ['work.ts'] });
+    expect(await treesWithScripts().isClean(linked)).toEqual({ ok: true, value: false });
+  });
+
+  it("drops the monitor's own record, so two quiet passes can agree", async () => {
+    // THE PROPERTY THE FILTER EXISTS FOR. `plot-worker-monitor.sh` appends its
+    // findings to `.plot-worker.monitor.worker.jsonl` INSIDE the worktree it
+    // watches, so an unfiltered listing changes every time the monitor
+    // publishes and `idle` — which needs the fingerprint equal across two
+    // passes — could never hold.
+    fs.writeFileSync(path.join(linked, '.plot-worker.monitor.worker.jsonl'), '{}\n');
+    fs.writeFileSync(path.join(linked, 'draft.ts.tmp1'), 'scratch\n');
+
+    const answer = await treesWithScripts().dirtyPaths(linked);
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    // `work.ts` from the previous case survives: the exclusions are narrow, and
+    // an uncommitted source file is exactly what the reading is for.
+    expect(answer.value).toEqual(['work.ts']);
+  });
+
+  it('excludes a TRACKED scratch path, which `markers` cannot see at all', async () => {
+    // Why this is not `markers` with a different prefix, in the one shape that
+    // separates them. `markers` runs `ls -1 <path> | grep "^<prefix>"` over the
+    // worktree ROOT: it lists no dotfiles and descends into nothing, so it
+    // answers `[]` here. `PLOT_TOOL_SCRATCH` matches the nested path.
+    //
+    // TRACKED, and that is the whole setup. `git status --porcelain` collapses
+    // an untracked directory to `.plot/`, which the pattern does not match —
+    // recorded as `plot-worker-state.sh:252`'s behaviour rather than fixed
+    // here, since the shell is the one implementation and three callers share
+    // it.
+    const scratch = path.join(linked, '.plot', 'state');
+    fs.mkdirSync(scratch, { recursive: true });
+    fs.writeFileSync(path.join(scratch, 'run.json'), '{}\n');
+    git(linked, ['add', '-f', '.plot/state/run.json']);
+    git(linked, ['commit', '--quiet', '-m', 'scratch']);
+    fs.writeFileSync(path.join(scratch, 'run.json'), '{"moved":true}\n');
+
+    expect(await treesWithScripts().dirtyPaths(linked)).toEqual({ ok: true, value: ['work.ts'] });
+    expect(await treesWithScripts().markers(linked, '.plot')).toEqual({ ok: true, value: [] });
+  });
+
+  it('reports a failure for a path that holds no repository', async () => {
+    // `answered([])` would say the desk is clean. A tree that cannot be read
+    // has not been measured, and the port keeps the two apart — collapsing
+    // them is how a monitor reports an unchanged fingerprint for a worktree
+    // that was removed underneath it.
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-trees-dirty-'));
+    try {
+      expect((await treesWithScripts().dirtyPaths(outside)).ok).toBe(true);
+      const answer = await treesWithScripts().dirtyPaths(path.join(outside, 'absent'));
+      expect(answer).toEqual({ ok: true, value: [] });
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('treesFixture: the same port with no machine behind it', () => {
@@ -158,6 +237,15 @@ describe('treesFixture: the same port with no machine behind it', () => {
     const found = await port.forBranch('feature/x');
     expect(found).toEqual({ ok: true, value: expect.objectContaining({ path: '/repo-wt' }) });
     expect(await port.forBranch('feature/absent')).toEqual({ ok: true, value: null });
+  });
+
+  it('answers stated dirty paths, and none for an untold desk', async () => {
+    // Stated ALREADY FILTERED, as the port returns them. A fixture cannot
+    // stand in for the filter itself — that lives in the shell, so proving it
+    // needs `treesGit` and the real script.
+    const port = treesFixture({ dirty: { '/repo-wt': ['work.ts'] } });
+    expect(await port.dirtyPaths('/repo-wt')).toEqual({ ok: true, value: ['work.ts'] });
+    expect(await port.dirtyPaths('/elsewhere')).toEqual({ ok: true, value: [] });
   });
 
   it('filters markers by prefix, and reports none for an untold path', async () => {
