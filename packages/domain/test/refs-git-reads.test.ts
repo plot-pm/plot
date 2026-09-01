@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { refsGit } from '../src/adapters/refs/refs-git.js';
-import { runBytes, asText } from '../src/adapters/run-script.js';
+import { runBytes, runProcess, asText } from '../src/adapters/run-script.js';
 
 /**
  * The git adapter against a REAL repository, because that is the only thing it
@@ -209,5 +209,61 @@ describe('runBytes: the stdin-fed reader `cat-file --batch` needs', () => {
 describe('asText: the reader every single-value question shares', () => {
   it('trims the trailing newline git always writes', () => {
     expect(asText('main\n')).toBe('main');
+  });
+});
+
+/**
+ * The RunOptions branches, which no other test supplies.
+ *
+ * `runProcess` and `runBytes` each read four options with a fallback —
+ * `cwd`, `env`, `timeoutMs`, `maxBuffer` — and every existing caller takes the
+ * default for three of them. An untaken branch is a branch nobody specified,
+ * and the two that matter here are not cosmetic: `env` decides whether a script
+ * sees `PLOT_*` at all, and `timeoutMs` is what stops a hung git holding a
+ * request open.
+ *
+ * Added 2026-09-01 because CI measured 94.44% function coverage on this file
+ * against a 95% threshold while this machine measured 100% — v8's coverage is
+ * sensitive to which callbacks actually ran, so the honest fix is to run them
+ * rather than to lower the number.
+ */
+describe('runProcess and runBytes read their options', () => {
+  it('passes env through, merged over the parent environment', async () => {
+    const run = await runProcess('sh', ['-c', 'printf %s "$PLOT_TEST_TOKEN"'], {
+      env: { PLOT_TEST_TOKEN: 'seen' },
+    });
+    expect(run.code).toBe(0);
+    expect(run.stdout).toBe('seen');
+    // Merged, not replaced: the parent's PATH is what found `sh` at all.
+    expect(run.stdout).not.toBe('');
+  });
+
+  it('honours an explicit timeout by killing the child', async () => {
+    const run = await runProcess('sleep', ['5'], { timeoutMs: 150 });
+    // A killed child reports a non-zero code rather than throwing — the whole
+    // point of this adapter is that a failure is a value.
+    expect(run.code).not.toBe(0);
+  });
+
+  it('honours an explicit maxBuffer', async () => {
+    const run = await runProcess('sh', ['-c', 'printf %0.sx {1..4000}'], { maxBuffer: 64 });
+    // Over the cap, `execFile` errors; the adapter answers with a code rather
+    // than an exception, which is what keeps a large read from taking a route down.
+    expect(run.code).not.toBe(0);
+  });
+
+  it('reads a cwd it was given', async () => {
+    const run = await runProcess('sh', ['-c', 'pwd'], { cwd: repo });
+    expect(run.code).toBe(0);
+    expect(fs.realpathSync(run.stdout.trim())).toBe(fs.realpathSync(repo));
+  });
+
+  it('passes env and a timeout through runBytes too', async () => {
+    const seen = await runBytes('sh', ['-c', 'printf %s "$PLOT_TEST_TOKEN"'], '', {
+      env: { PLOT_TEST_TOKEN: 'bytes' },
+    });
+    expect(seen.stdout.toString('utf8')).toBe('bytes');
+    const killed = await runBytes('sleep', ['5'], '', { timeoutMs: 150 });
+    expect(killed.code).not.toBe(0);
   });
 });
