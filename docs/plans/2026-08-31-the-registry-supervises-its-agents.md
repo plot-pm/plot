@@ -295,6 +295,39 @@ plot-registryd   ── spawns   ──►  agents        ── run ──►  
 plot-registryd   ── asks     ──►  Machine (headroom, read-only)
 ```
 
+### The supervisor splits at the layering rule, and it splits now
+
+**Settled 2026-09-01, interrogating this plan.** `registry.ts` already holds
+**7** `spawn`/`execFile` calls while every one of its exports is a reader — so
+the module reaches the world today, and supervising adds spawning, judging and
+resuming on top of that.
+
+**The split is the one CLAUDE.md already mandates:** the supervisor's DECISIONS
+become domain rules taking readings — *is this envelope complete?*, *should this
+resume?*, *has this exceeded its bound?* — and only an adapter spawns. Deciding
+it now rather than later keeps this plan from adding an 8th spawn to a module
+`production-calls-the-domain-one-rule-at-a-time` will have to migrate anyway.
+
+**Readings as values, not ports.** `supervise(readings, input)`, matching
+`rules/reapable.ts` and `rules/eligible.ts`. The core stays synchronous and
+testable without mocks; the caller decides what to read.
+
+### This plan owns the birth guarantee once the pulse moves the monitors
+
+**`the-pulse-is-an-entity` settled 2026-09-01 that the pulse owns the monitors
+entirely** — machine-scoped subscribers keyed by worker, not children of the
+worker wrapper. That moves a property this plan then has to hold.
+
+Today `plot-dispatch.sh:558` enforces it structurally:
+
+> EVERY WORKER IS BORN MONITORED, AND THAT IS ENFORCED HERE OR NOWHERE.
+
+A wrapper that starts the monitors as its own children **cannot forget**; a
+registry that registers them **can**. So the replacement must be a gate with an
+objective check — *a registered agent with no live monitor subscription is a
+finding* — not a rule in prose. The pulse's Waiting slice must not land before
+that gate exists.
+
 ### What this does NOT change
 
 - **`plot-dispatch.sh` stays the spawner.** The daemon calls it rather than

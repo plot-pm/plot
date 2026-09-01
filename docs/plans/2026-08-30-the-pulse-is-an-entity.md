@@ -198,6 +198,39 @@ the numbers one owner; it does not retune them.**
 
 ## Slices
 
+### The pulse owns the monitors, and that moves a guarantee
+
+**Settled 2026-09-01, interrogating this plan against the code.** Today three
+monitors are born as children of the worker wrapper, and
+`plot-dispatch.sh:558` states the property that placement buys:
+
+> EVERY WORKER IS BORN MONITORED, AND THAT IS ENFORCED HERE OR NOWHERE.
+> Three monitors start INSIDE the wrapper, as its children, immediately before
+> the agent.
+
+**A monitor the pulse ticks is machine-scoped, so it cannot be a child of the
+worker it watches.** The decision is that the pulse owns them entirely —
+subscribers keyed by worker rather than processes parented to one.
+
+**What that costs, stated rather than discovered later:** the birth guarantee
+moves from a wrapper that *cannot* forget — no monitor start, no monitored
+worker, and a mutation test says so — to a registry that *can*. Whatever
+replaces it has to be a gate, not a rule, or the property is lost in the move.
+`the-registry-supervises-its-agents` is where that gate belongs, and this plan's
+Waiting slice must not land before it exists.
+
+**The sleep this replaces is in one place**, which is what makes the change
+tractable: `plot-monitor-subject.sh:189`'s `plot_monitor_wait`, not in the
+individual monitors. Three monitors share one harness, so one call site changes.
+
+### This plan lands before `monitoring-is-a-domain-concept`
+
+Both plans carried *"Not chosen: move the cadence in this plan"*, so the seam
+between them was unowned. **The pulse takes it.** One clock per machine is the
+more fundamental correction and the identity it needs was settled by
+`a-machine-is-an-instance`; monitoring adapts to a clock that exists rather than
+the two plans waiting on each other.
+
 ### Naming (Branch: docs/the-pulse-has-a-design)
 
 `DESIGN-pulse.md`: fields, lifecycle, its relation to `Machine`, and the divisor

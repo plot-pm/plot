@@ -140,6 +140,28 @@ A monitor holding its previous reading is the shape that forces it to own a
 loop — and owning a loop is what makes it untriggerable. **The statelessness is
 the point**, not an implementation preference.
 
+### The cadence belongs to `the-pulse-is-an-entity`, which lands first
+
+**Settled 2026-09-01.** Both plans carried the deferral below, so neither owned
+the seam. The pulse takes it: one clock per machine is the more fundamental
+correction, and `a-machine-is-an-instance` settled the identity it beats on.
+
+**This plan's first two slices need no clock at all** — a monitor becomes a pure
+function of two samples, and the ports learn to read activity and trees. Those
+can proceed while the pulse is built. Only *Asking* meets it.
+
+**And the sleep is not where this plan's premise implies.** Neither
+`plot-agent-monitor.sh` nor `plot-worker-monitor.sh` calls `sleep`: the wait
+lives once, in `plot-monitor-subject.sh:189` (`plot_monitor_wait`), shared by all
+three monitors. **That makes the change smaller than "rewrite three scripts"** —
+one harness function is what a tick replaces.
+
+**The lifetime consequence is the pulse's to carry**, and it is recorded there: a
+pulse-ticked monitor cannot be a child of the worker it watches, so
+`plot-dispatch.sh:558`'s *"every worker is born monitored, and that is enforced
+here or nowhere"* needs a replacement gate before the pulse's Waiting slice
+lands.
+
 ### Not chosen: move the cadence in this plan
 
 *When* a monitor samples is the pulse's question, and the pulse has no entity
