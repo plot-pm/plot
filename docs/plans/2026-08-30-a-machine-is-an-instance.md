@@ -177,6 +177,18 @@ Agentic-Tools/agent-skills  no fleet-controls.json
 EKZ.Webportal/ekzweb        no fleet-controls.json
 ```
 
+**Re-measured 2026-09-01, and the finding is unchanged where it matters.** All
+three still carry a `## Plot Config` and a `.plot/`, `hostname` is still `ani`
+for all three, and `fleet-controls.json` still exists for exactly one. Only the
+claimed number moved — `{"autoDispatch":false,"parallelAgents":4,"machineOverride":false}` —
+because an operator lowered it by hand so a second machine could take a wave
+unraced.
+
+**That is the argument, not an exception to it.** The share was changed for a
+reason that lives entirely outside this instance: what another machine was doing.
+An operator reached for a per-instance dial to solve a cross-instance problem,
+which is precisely what a model with no computer-level entity forces.
+
 **Only one instance has ever claimed a share.** The other two run on
 config-seeded defaults (`fleet-settings.ts:137`), which means **the share is
 currently implicit for two of the three machines**, not merely unreported.
@@ -213,8 +225,8 @@ ones**; and **`parallelAgents` is described as a claimed share of the computer
 rather than a count of wanted agents** — the same number, the question it
 answers restated.
 
-**The visibility gap is recorded, not solved:** three instances at 11 have
-claimed 33 slices of one computer and nothing reports the sum. Say so in the
+**The visibility gap is recorded, not solved:** nothing reports what the three
+instances have claimed between them, and two of them have never said. Say so in the
 fields table as a known blind spot.
 
 **Nothing in `packages/domain` changes in this slice.** If the correction implies
