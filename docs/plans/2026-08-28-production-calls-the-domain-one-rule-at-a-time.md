@@ -256,7 +256,7 @@ the code that had the bug stops existing.
 **Done when** `plot-deliver.sh` no longer parses a plan, `test/e2e/` passes
 unedited, and the delivery refusal still names every unmerged branch.
 
-### Eligible (Branch: feature/one-eligibility-rule-decides)
+### Eligible (Branch: feature/one-eligibility-rule-decides, PR: #590)
 
 `plot-fleet-scan.sh`'s slice verdicts computed by the domain. **The scan's
 output must not change** — same words, same footer counts, on the same estate.
