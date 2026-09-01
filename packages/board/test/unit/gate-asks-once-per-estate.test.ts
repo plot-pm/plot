@@ -102,7 +102,7 @@ const COLUMNS: Column[] = [
 ];
 
 describe("the delivery-landed gate measures once per unchanged estate", () => {
-  it('asks once when the fix changed nothing the scan reads', () => {
+  it('asks once when the fix changed nothing the scan reads', async () => {
     const dir = makeRepo();
     try {
       const { source, state } = countingSource(COLUMNS);
@@ -116,8 +116,8 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
 
       // The gate's loop: scan, grep, and — the grep having found nothing that
       // changed the estate — scan again.
-      const first = askOncePerEstate(memory, ask);
-      const second = askOncePerEstate(memory, ask);
+      const first = await askOncePerEstate(memory, ask);
+      const second = await askOncePerEstate(memory, ask);
 
       expect(first.measured, 'the first ask has nothing to re-use').toBe(true);
       expect(second.measured, 'the second ask reads an estate already measured').toBe(false);
@@ -128,7 +128,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
     }
   });
 
-  it('asks again when the fix edited a plan — the gate\'s own repair', () => {
+  it('asks again when the fix edited a plan — the gate\'s own repair', async () => {
     const dir = makeRepo();
     try {
       const { source, state } = countingSource(COLUMNS);
@@ -140,11 +140,11 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
         planDir: 'docs/plans',
       };
 
-      askOncePerEstate(memory, ask);
+      await askOncePerEstate(memory, ask);
       // EXACTLY what the gate's fix does: flip the phase and write the record.
       // No ref moved and no file was added — only the bytes the scan reads.
       writePlan(dir, 'Delivered');
-      const after = askOncePerEstate(memory, ask);
+      const after = await askOncePerEstate(memory, ask);
 
       expect(after.measured, 'a plan edit is an estate change').toBe(true);
       expect(state.reads, 'the changed estate was measured again').toBe(2);
@@ -153,7 +153,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
     }
   });
 
-  it('asks again when the fix pushed — a ref that moved', () => {
+  it('asks again when the fix pushed — a ref that moved', async () => {
     const dir = makeRepo();
     try {
       const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
@@ -166,14 +166,14 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
         planDir: 'docs/plans',
       };
 
-      askOncePerEstate(memory, ask);
+      await askOncePerEstate(memory, ask);
       // The other half of the gate's fix: the commit lands on the remote. The
       // plan files on disk are untouched, so ONLY the ref state differs.
       fs.writeFileSync(path.join(dir, 'unrelated.txt'), 'pushed\n');
       git('add', '-A');
       git('commit', '-qm', 'delivery');
       git('update-ref', 'refs/remotes/origin/main', 'HEAD');
-      const after = askOncePerEstate(memory, ask);
+      const after = await askOncePerEstate(memory, ask);
 
       expect(after.measured, 'a moved ref is an estate change').toBe(true);
       expect(state.reads, 'the changed estate was measured again').toBe(2);
@@ -182,7 +182,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
     }
   });
 
-  it('runs the gate\'s repeat-until-empty loop, measuring once per estate', () => {
+  it('runs the gate\'s repeat-until-empty loop, measuring once per estate', async () => {
     const dir = makeRepo();
     try {
       const { source, state } = countingSource(COLUMNS);
@@ -207,13 +207,13 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       const phases = ['Delivered', 'Released'];
       let asks = 0;
       for (let round = 0; round <= phases.length; round += 1) {
-        askOncePerEstate(memory, ask);
+        await askOncePerEstate(memory, ask);
         asks += 1;
         if (round < phases.length) writePlan(dir, phases[round]);
       }
       // A final confirming pass over the estate the last ask already saw — the
       // "repeat until the grep is empty" step that costs a full scan today.
-      askOncePerEstate(memory, ask);
+      await askOncePerEstate(memory, ask);
       asks += 1;
 
       expect(asks, 'the gate asked four times').toBe(4);
@@ -226,7 +226,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
     }
   });
 
-  it('never re-uses an answer it could not measure', () => {
+  it('never re-uses an answer it could not measure', async () => {
     // A directory that is not a repo: no refs, no plans. Two failed
     // measurements must not compare equal, or the cache would serve a stale
     // answer exactly where it knows least. Failing to a miss costs a scan;
@@ -243,8 +243,8 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
       const { source, state } = countingSource(COLUMNS);
       const memory = newMemory();
       const ask = { question: 'board' as const, opts, estate: source, planDir: 'docs/plans' };
-      askOncePerEstate(memory, ask);
-      askOncePerEstate(memory, ask);
+      await askOncePerEstate(memory, ask);
+      await askOncePerEstate(memory, ask);
       expect(state.reads, 'so every ask measures').toBe(2);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -253,7 +253,7 @@ describe("the delivery-landed gate measures once per unchanged estate", () => {
 });
 
 describe("the gate's answer is identical to the board's", () => {
-  it('returns what the route serialises, byte for byte', () => {
+  it('returns what the route serialises, byte for byte', async () => {
     const dir = makeRepo();
     try {
       const opts = { repoRoot: dir, scriptsDir: SCRIPTS_DIR };
@@ -262,7 +262,7 @@ describe("the gate's answer is identical to the board's", () => {
       // The same function, so the claim is that the entry point adds nothing
       // and subtracts nothing on the way past.
       const viaRoute = boardState({ opts });
-      const viaEntry = askOnce({ question: 'board', opts, planDir: 'docs/plans' }) ;
+      const viaEntry = await askOnce({ question: 'board', opts, planDir: 'docs/plans' });
 
       // EXCEPT `generatedAt`, and the exception is measured rather than
       // assumed: `buildBoard` stamps `new Date().toISOString()` on every
@@ -288,14 +288,14 @@ describe("the gate's answer is identical to the board's", () => {
     }
   });
 
-  it('names the absence of a transport rather than refusing', () => {
+  it('names the absence of a transport rather than refusing', async () => {
     const dir = makeRepo();
     try {
-      const answer = askOnce({
+      const answer = (await askOnce({
         question: 'board',
         opts: { repoRoot: dir, scriptsDir: SCRIPTS_DIR },
         planDir: 'docs/plans',
-      }).value as Board;
+      })).value as Board;
 
       // The discovery the Asking slice recorded and left to this one: a caller
       // with no server reads `available: false` on all ten flags, which is
