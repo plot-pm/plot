@@ -68,6 +68,7 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
      names itself in the log. -->
 
 - **Story command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
+- **Brief command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
 
 <!-- `Story command` runs `/story-tracking` on a tracker ticket for the board's
      `Create story` action — the twin of `Idea command`, and the same shape down

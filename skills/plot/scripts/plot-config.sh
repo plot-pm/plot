@@ -80,6 +80,15 @@
 #                       here can invoke a skill. Absent (or `none`) = the button
 #                       refuses and names this key as the fix, rather than
 #                       accepting the click and doing nothing.
+#   Brief command       how /plot-dispatch runs an agent headless to WRITE a
+#                       missing hand-off brief. The prompt is appended as one
+#                       argument and asks for `/plot-implement <slug>`, whose
+#                       step 4 owns brief authorship — this key adds no second
+#                       brief writer. Absent (or `none`) = the capability is
+#                       unavailable, never an error: the brief gate refuses as
+#                       it does today and names `no-brief-command` as the
+#                       reason, so a project that has never set the key behaves
+#                       exactly as before.
 # Plot 2 posture keys (repo-declared ceremony bounds; all optional):
 #   Plan PRs            required | never | optional   (never = hard gate)
 #   Implementation home this repo | <repo/path list> | none

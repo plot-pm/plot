@@ -48,7 +48,7 @@
 #         than dispatched — counted `skipped`, with the worktree path named,
 #         in `--dry-run` identically to a real run. See "THE HELD-BRANCH GATE".
 #             3 worktrees prepared, 0 workers started, no `Worker command` configured
-#             summary: dispatched=2 reused=0 skipped=1 started=2 brief=missing worker=unconfigured
+#             summary: dispatched=2 reused=0 skipped=1 started=2 brief=missing worker=unconfigured brief_asked=0
 #
 # THE CONSEQUENCE IS STATED IN THE SUMMARY, NOT PER BRANCH. start_worker has
 # always said "no 'Worker command' configured" beside the branch it could not
@@ -80,6 +80,15 @@
 # says what it left undone instead of leaving a claimed worktree looking handed
 # over. It does NOT refuse: --dry-run and --status are legitimate direct calls,
 # and a gate that blocks looking-before-leaping is a gate in the wrong place.
+#
+# `brief_asked=N` counts what the script did about it, and the distinction from
+# `brief=missing` is exact: this script still writes no brief, it ASKS one to be
+# written. `Brief command` names how to run an agent headless for one prompt,
+# and the prompt is `/plot-implement <slug>` — the skill that already owns brief
+# authorship. Absent key, or `none`: nothing is asked, the branch is refused as
+# before, and the per-branch line names `no-brief-command` so the log says which
+# arm ran. A project that never sets the key sees `brief_asked=0` and today's
+# behaviour exactly.
 #
 # THIS IS THE ONE SCRIPT IN THE FLEET THAT WRITES. Everything else
 # (plot-fleet-scan.sh, plot-reconcile-scan.sh) is read-only. Consequently every
@@ -339,6 +348,114 @@ brief_present() { # $1 = branch → 0 if a usable brief exists on origin/<main>
   local sz
   sz=$(git cat-file -s "$(brief_ref "$1")" 2>/dev/null) || return 1
   [ "${sz:-0}" -gt 0 ]
+}
+
+# WHAT HAPPENS AFTER THE GATE FIRES. The gate above is correct and stays: a
+# missing brief still prepares and still refuses to start. What it never had is
+# a next step — it named the file, and every brief on this estate was then
+# written by hand.
+#
+# `Brief command` is that step, and it is a CONFIG KEY rather than a new script
+# for one reason: `/plot-implement` step 4 already owns brief authorship. A
+# script here would be a SECOND brief writer, and two writers drift. So the key
+# names how to run an agent headless — the shape `Idea command`, `Story command`
+# and `Approve command` already use — and the prompt it is handed asks for
+# `/plot-implement <slug>` and nothing else.
+#
+# ABSENT IS NOT AN ERROR. A project with no `Brief command` behaves exactly as
+# it does today: the gate refuses, and the refusal now names WHY nothing was
+# called — `no-brief-command`, the shape `commission.ts` gives `no-idea-command`.
+# `none` reads the same way as it does for `Worker command`: asked, and answered
+# "we write them by hand".
+brief_command() { # → the usable `Brief command`, or empty
+  local cmd
+  cmd=$("$script_dir/plot-config.sh" get "Brief command" "")
+  case "$cmd" in none|NONE|None) cmd="" ;; esac
+  printf '%s' "$cmd"
+}
+
+# Run the brief command for one branch, detached, and say what was done.
+#
+# DETACHED AND NOT WAITED ON, for the reason `commission.ts` gives: this is a
+# `claude -p` session of unknown length, and a fan-out that blocks on one would
+# hold every later branch behind it. The dispatch run reports that it asked; the
+# brief lands in a later commit, and the NEXT dispatch of the same branch starts
+# it. That is the whole loop.
+#
+# The prompt travels as ONE argument through `"$@"`, never interpolated into the
+# command string — `Brief command` is a shell FRAGMENT run through `sh -c`, so
+# anything spliced into it would be shell source. The slug is the only value
+# that reaches it and it is a plan slug, but the rule holds regardless of the
+# value: the safety is in the shape, not in the input.
+# WHAT THE AGENT IS ASKED FOR, and the one thing it must not be asked for.
+#
+# It is asked to run `/plot-implement <slug>`, and it is NOT asked to write a
+# brief in its own words. `/plot-implement` step 4 owns brief authorship; a
+# prompt that described the brief here would be a second author, and two
+# authors drift. The branch and the path are named because the skill writes for
+# one branch and the gate reads one path — `brief_path` is the same function
+# `brief_present` reads with, so writer and reader cannot disagree.
+#
+# It is told to COMMIT AND PUSH, because the gate reads `origin/<main>`. A brief
+# written and left in a working tree is invisible to the gate that asked for it,
+# and the next dispatch would ask again — a loop that writes a file every pass
+# and never starts a worker.
+brief_prompt() { # $1 = branch, $2 = slug
+  printf '/plot-implement %s — write the hand-off brief for branch `%s` at %s, then commit and push it to %s. The dispatch gate reads that path on origin/%s, so a brief left uncommitted is invisible to it.' \
+    "$2" "$1" "$(brief_path "$1")" "$MAIN" "$MAIN"
+}
+
+request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
+  local branch="$1" bslug="$2" cmd log
+  cmd=$(brief_command)
+  if [ -z "$cmd" ]; then
+    echo "      no-brief-command — no \`Brief command\` in Plot Config, so nothing was asked to write it"
+    return 1
+  fi
+  log="$repo_root/.plot/brief-$(printf '%s' "${branch##*/}").log"
+  mkdir -p "$(dirname "$log")" 2>/dev/null || true
+  # `nohup ... &` inside a subshell, the same detachment `start_worker` uses:
+  # this outlives the dispatch run by design, because the fan-out must not block
+  # on a `claude -p` session of unknown length. `setsid` is not used — it does
+  # not exist on macOS, where most of this fleet runs.
+  ( cd "$repo_root" \
+    && PLOT_UNATTENDED=1 PLOT_PLAN_SLUG="$bslug" PLOT_BRIEF_BRANCH="$branch" \
+       nohup sh -c "$cmd \"\$@\"" plot-brief \
+       "$(brief_prompt "$branch" "$bslug")" \
+       >"$log" 2>&1 </dev/null & ) 2>/dev/null
+  echo "      asked the \`Brief command\` to write it — log: $log"
+  echo "      dispatch $bslug again once it lands; the gate reads $(brief_ref "$branch")"
+  return 0
+}
+
+# STALENESS REPORTS AND NEVER REFUSES, and the measurement says why.
+#
+# Compared 2026-09-01, all three live briefs were older than their plans and all
+# three were CORRECT — every plan edit between them was bookkeeping (a PR
+# annotation, a measurement note, a re-measure before approval). A timestamp
+# gate would have refused 3 of 3 on the day it shipped, and a gate that refuses
+# everything is one people disable in its first week.
+#
+# It would also have missed the real case. The teardown brief was written AFTER
+# its plan and was still wrong, citing 80 `fs.rmSync` sites where the tree held
+# 76 — the CODE moved, not the plan. Freshness against the plan is the wrong
+# input: a brief's claims are about the repository, and nothing here compares
+# those to the repository. What would actually gate is judgement about which
+# numbers in a paragraph are claims, which grep cannot reach.
+#
+# So this prints a hint and SAYS it is a hint, naming the plan commit it
+# compared against so the reader can look at that commit rather than guess.
+brief_staleness_note() { # $1 = branch → prints a hint, or nothing
+  local branch="$1" bc pc bs ps
+  [ -n "$gate_sha" ] || return 0        # nothing shared to compare against
+  [ -n "${plan_path:-}" ] || return 0
+  bc=$(git log -1 --format='%H %ct' "$gate_ref" -- "$(brief_path "$branch")" 2>/dev/null) || return 0
+  pc=$(git log -1 --format='%H %ct' "$gate_ref" -- "$plan_path" 2>/dev/null) || return 0
+  [ -n "$bc" ] && [ -n "$pc" ] || return 0
+  bs=${bc##* }; ps=${pc##* }
+  [ "$bs" -lt "$ps" ] 2>/dev/null || return 0
+  echo "    brief older than the plan — a HINT, not a gate: the plan may have moved, or the edit may have been bookkeeping"
+  echo "      plan commit ${pc%% *} touched $plan_path after the brief's last change; read it before trusting the brief"
 }
 
 start_worker() {
@@ -1321,6 +1438,7 @@ repo_root=$(git rev-parse --show-toplevel)
 resolve_wt_root "$repo_root"
 
 n_dispatched=0 n_reused=0 n_skipped=0 n_started=0
+n_brief_asked=0
 
 # Whether this run COULD have started anything, read once and up front.
 #
@@ -1379,7 +1497,7 @@ print_summary() { # $1=dispatched $2=reused $3=skipped $4=started
         echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started (--no-start)" ;;
     esac
   fi
-  echo "summary: dispatched=$1 reused=$2 skipped=$3 started=$4 brief=missing worker=$worker"
+  echo "summary: dispatched=$1 reused=$2 skipped=$3 started=$4 brief=missing worker=$worker brief_asked=${n_brief_asked:-0}"
 }
 
 # ---------------------------------------------------------------------------
@@ -2030,7 +2148,12 @@ if [ "$dry_run" = 1 ]; then
   # `skipped` is REAL here, not a constant. A dry run refuses held branches
   # exactly as the real run does, so its count is a fact about this fleet — and
   # it was hardcoded to 0 until the gate gave it something to count.
-  echo "summary: dispatched=$n_dispatched reused=0 skipped=$n_skipped started=0 brief=missing worker=$(worker_state_field)"
+  # `brief_asked=0` is a CONSTANT here and not a prediction. A dry run changes
+  # nothing, and asking the `Brief command` to write a brief spawns an agent
+  # that commits — the loudest write in this script. The field travels so the
+  # footer's shape does not depend on the mode a machine reader happened to
+  # call in.
+  echo "summary: dispatched=$n_dispatched reused=0 skipped=$n_skipped started=0 brief=missing worker=$(worker_state_field) brief_asked=0"
   exit 0
 fi
 
@@ -2142,6 +2265,10 @@ while :; do
     # message, and "no brief at .plot/briefs/x.md" would send them to look at a
     # file that is right there — the ref says where the WORKER will look.
     if brief_present "$branch"; then
+      # A brief that is present is never refused for age — see
+      # `brief_staleness_note`. The note is printed BEFORE the start so it sits
+      # with the branch it describes, and the start happens either way.
+      brief_staleness_note "$branch"
       start_worker "$branch" "$wt" && n_started=$((n_started + 1))
     elif [ "$no_brief" = 1 ]; then
       echo "    no brief at $(brief_ref "$branch") — starting anyway (--no-brief)"
@@ -2149,6 +2276,11 @@ while :; do
     else
       echo "    prepared, not started — no brief at $(brief_ref "$branch")"
       echo "      write one: /plot-implement $slug   (then push it, or pass --no-brief to start without it)"
+      # AND NOW SOMETHING IS DONE ABOUT IT. The refusal above stands unchanged;
+      # this line says what happened NEXT, which is the whole defect this
+      # addresses — the operator was told what was missing and nothing acted.
+      # Either arm names itself, so the log always records which one ran.
+      request_brief "$branch" "$slug" && n_brief_asked=$((n_brief_asked + 1))
     fi
   fi
 done
