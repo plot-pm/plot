@@ -183,9 +183,39 @@ let raw: Record<string, unknown>;
  * is per-checkout, untracked, and restored in `afterAll` — and a fetch does not
  * move either it or the pin.
  */
-/** The branch `origin/HEAD` is restored to. Read before the pin replaces it. */
-const MAIN = execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
-  { cwd: ROOT, encoding: 'utf8' }).trim().replace(/^origin\//, '');
+/**
+ * The branch `origin/HEAD` is restored to. Read before the pin replaces it.
+ *
+ * NOT `symbolic-ref`, WHICH THROWS ON A CHECKOUT THAT DOES NOT OWN ONE.
+ * `origin/HEAD` is symbolic in a `git clone` and DIRECT in a checkout that
+ * built its remote refs another way — `actions/checkout` among them, measured
+ * 2026-09-01: `fatal: ref refs/remotes/origin/HEAD is not a symbolic ref`,
+ * thrown at MODULE SCOPE, so the whole file reported `0 test` and the corpus
+ * job failed with nothing to point at.
+ *
+ * It passed locally for the same reason it failed in CI: this working copy is a
+ * clone and has a symbolic `origin/HEAD`. A reading whose answer depends on how
+ * the checkout was created has to tolerate both shapes.
+ *
+ * So the value is READ WITHOUT ASSUMING the shape, and its absence is not
+ * fatal: `main` is the fallback, and `afterAll` restores whatever was found.
+ * The restoration is best-effort by design — a test that cannot repair a ref it
+ * never successfully read should still run.
+ */
+const readOriginHead = (): string => {
+  try {
+    return execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .trim()
+      .replace(/^origin\//, '');
+  } catch {
+    return '';
+  }
+};
+const MAIN = readOriginHead() || 'main';
 const PIN = 'plot-corpus-pin';
 const PIN_REF = `refs/remotes/origin/${PIN}`;
 let pinned = false;
