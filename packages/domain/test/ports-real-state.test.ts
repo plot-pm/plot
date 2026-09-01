@@ -280,6 +280,33 @@ describe('Host reads the git host', () => {
       expect(['failed', 'unaskable']).toContain(answer.why);
     }
   });
+
+  it('answers for its own limit, and every reading says how it knows', async () => {
+    // AGAINST THE REAL HOST, so the header path is exercised rather than
+    // described. The numbers are the environment's and are not asserted; what
+    // is asserted is the contract every reading must satisfy — a basis from the
+    // closed set, and a null limit wherever the basis is `unknown`.
+    //
+    // A machine with no host credentials cannot read a header, and the port
+    // says `failed` rather than reporting a connector with no budget. Both
+    // outcomes are correct here depending on the machine; asserting a number
+    // would make this test about the environment.
+    const answer = await hostShell(context).limit();
+    if (!isAnswered(answer)) {
+      expect(['failed', 'unaskable']).toContain(answer.why);
+      return;
+    }
+    for (const reading of answer.value) {
+      expect(['actual', 'predicted', 'unknown']).toContain(reading.basis);
+      expect(typeof reading.connector).toBe('string');
+      // UNKNOWN IS NEVER A NUMBER, and never `free`. The repo has twice shipped
+      // a collapse of *cannot answer* into a value.
+      if (reading.basis === 'unknown') expect(reading.limit).toBeNull();
+      // A prediction is about the ceiling; a connector reporting no limit
+      // reports no spend against one either.
+      if (reading.basis === 'predicted') expect(reading.limit).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('the package exposes the ports and hides the adapters', () => {

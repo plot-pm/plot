@@ -183,6 +183,28 @@
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
 #   pr-body <number> --body B     replace the PR description
+#   rate-limit                    both GitHub budgets from `gh api rate_limit`.
+#                                 SUPERSEDED BY `limit`, and kept only because
+#                                 its callers have not moved: that endpoint was
+#                                 measured 2026-09-01 reporting graphql
+#                                 5000/5000 used=0 while a real call's header
+#                                 read Remaining 1236, Used 3764. Prefer `limit`.
+#   limit                         what is this connector's limit, and how well
+#                                 does it know it? One JSON line per metered
+#                                 bucket: {"connector","bucket","limit",
+#                                 "remaining","reset","basis"} with `basis` one
+#                                 of actual|predicted|unknown, and the three
+#                                 numbers null where unreported. Reads the
+#                                 RESPONSE HEADERS of a real call, never
+#                                 `gh api rate_limit`. No output at all means
+#                                 this connector meters nothing — which is not
+#                                 the same fact as a limit of zero, and not
+#                                 `free` either.
+#   ci-limit                      the same question of the CI connector, which
+#                                 is a separate axis: this repo is GitHub +
+#                                 Actions, ekzweb is Bitbucket + Jenkins.
+#                                 Jenkins reports no limit, so it answers
+#                                 `predicted`.
 #
 # Backend resolution: $PLOT_HOST (github|bitbucket) wins — useful for tests —
 # else the `Git host` key from `## Plot Config` (via plot-config.sh), default
@@ -1991,7 +2013,124 @@ case "$op" in
     fi
     ;;
 
+  limit)
+    # WHAT IS THIS CONNECTOR'S LIMIT, AND HOW WELL DOES IT KNOW IT?
+    #
+    # One JSON line per bucket the connector meters:
+    #   {"connector":"github","bucket":"graphql","limit":5000,
+    #    "remaining":1236,"reset":1788269670,"basis":"actual"}
+    #
+    # `basis` is `actual` where the connector reported the numbers, `predicted`
+    # where this adapter supplied them from experience, and `unknown` where it
+    # reports nothing and there is nothing to predict. `limit`, `remaining` and
+    # `reset` are numbers or null; `reset` is epoch SECONDS.
+    #
+    # NOT `gh api rate_limit`, AND THAT IS THE WHOLE POINT OF THIS OP. Measured
+    # 2026-09-01 in a quiet moment, same account, seconds apart:
+    #
+    #   gh api rate_limit    graphql: 5000/5000, used 0
+    #   a real call's header X-Ratelimit-Remaining: 1236, Used: 3764
+    #
+    # 3764 calls spent, reported as zero. The endpoint is wrong when nothing is
+    # wrong, so `graphql_budget_spent()` above — which reads it and tests
+    # `-eq 0` — has never been able to fire. The authority is the header on a
+    # response that actually came back.
+    #
+    # THIS CALL SPENDS ONE REQUEST, AND SAYS SO. The design wants the headers of
+    # a call that was going to happen anyway, and the hot call is `gh pr list`,
+    # which is `gh`'s own GraphQL wrapper and exposes no headers. Rewriting it
+    # as `gh api graphql` is the transport choice, which belongs to
+    # `bug/one-router-chooses-the-path`. Until then this asks the cheapest real
+    # question there is — `{viewer{login}}` — and reports what its response
+    # carried. One request against the bucket it reports is an honest cost; a
+    # free reading of the wrong number is not.
+    #
+    # ONE BUCKET, NOT TWO. A response reports the bucket IT spent, in
+    # `X-RateLimit-Resource`. Reporting `core` from a GraphQL response would be
+    # inventing a reading nobody took — the mistake `rate_limit` makes by
+    # answering for both at once.
+    if [ "$be" = "github" ]; then
+      _hdr_tmp="/tmp/plot-host-limit.$$"
+      if gh api graphql -f query='{viewer{login}}' --include >"$_hdr_tmp" 2>/dev/null; then
+        # `--include` prints the headers, then a blank line, then the body.
+        # Header names are matched case-insensitively: `gh` prints
+        # `X-Ratelimit-Limit` while GitHub documents `X-RateLimit-Limit`, and a
+        # case-sensitive match reads a present header as absent.
+        _hv() { LC_ALL=C grep -im1 "^$1:" "$_hdr_tmp" | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r'; }
+        _lim="$(_hv 'X-RateLimit-Limit')"
+        _rem="$(_hv 'X-RateLimit-Remaining')"
+        _rst="$(_hv 'X-RateLimit-Reset')"
+        _res="$(_hv 'X-RateLimit-Resource')"
+        rm -f "$_hdr_tmp"
+        # A number or null — never a quoted "unknown", and never 0 standing in
+        # for absent. `jq -n` with `--argjson` refuses a non-number, so each
+        # value is tested first and passed as the literal `null` otherwise.
+        _num() { [[ "$1" =~ ^[0-9]+$ ]] && echo "$1" || echo null; }
+        if [ -n "$_lim" ]; then
+          jq -cn \
+            --arg bucket "${_res:-graphql}" \
+            --argjson limit "$(_num "$_lim")" \
+            --argjson remaining "$(_num "$_rem")" \
+            --argjson reset "$(_num "$_rst")" \
+            '{connector:"github",bucket:$bucket,limit:$limit,remaining:$remaining,reset:$reset,basis:"actual"}'
+        else
+          # The call answered and carried no limit header. GitHub always sends
+          # them, so this is a proxy or an enterprise instance that strips them:
+          # unknown, and never free.
+          echo '{"connector":"github","bucket":"","limit":null,"remaining":null,"reset":null,"basis":"unknown"}'
+        fi
+      else
+        rm -f "$_hdr_tmp"
+        # The host could not be asked. Exit 3 rather than printing `unknown`:
+        # *could not ask* and *asked, and it reports no limit* are different
+        # facts, and the port keeps them apart as `failed` versus an answered
+        # `unknown` reading.
+        die3 "limit: could not read the host's rate-limit headers"
+      fi
+    elif [ "$be" = "bitbucket" ]; then
+      # Bitbucket meters, and sends no `X-RateLimit-*`. So the number is this
+      # adapter's, from experience — 1000 requests/hour for an authenticated
+      # account — and it is tagged `predicted` because that is what it is.
+      #
+      # A PREDICTION IS NOT A LIE AND NOT A FAILURE. It is answered: the adapter
+      # is telling the truth about what it knows. A caller reads the basis and
+      # decides how much to trust it; a `throttled` observed during the session
+      # is what corrects it.
+      echo '{"connector":"bitbucket","bucket":"api","limit":1000,"remaining":null,"reset":null,"basis":"predicted"}'
+    else
+      echo "{\"connector\":\"$be\",\"bucket\":\"\",\"limit\":null,\"remaining\":null,\"reset\":null,\"basis\":\"unknown\"}"
+    fi
+    ;;
+
+  ci-limit)
+    # The CI connector's limit, which is a THIRD axis and does not follow the
+    # git host. This repo runs GitHub Actions on a GitHub remote; `ekzweb` runs
+    # Jenkins against Bitbucket. `ci_backend()` already resolves it separately.
+    #
+    # JENKINS IS THE `predicted` CASE THE DESIGN NAMES. A Jenkins instance
+    # reports no rate limit — there is no header and no endpoint to ask — so the
+    # ceiling is this adapter's estimate of what a shared controller tolerates,
+    # tagged for what it is. It is NOT unlimited: a Jenkins that is hammered
+    # refuses, and the refusal is what corrects the estimate.
+    _ci="$(ci_backend)"
+    case "$_ci" in
+      jenkins)
+        echo '{"connector":"jenkins","bucket":"","limit":60,"remaining":null,"reset":null,"basis":"predicted"}'
+        ;;
+      '' | none)
+        # No CI connector configured, so there is nothing to meter. An empty
+        # answer, not a limit of zero.
+        ;;
+      *)
+        # `ci_backend()` validates nothing, and neither does this — the list is
+        # open, and GitLab and Trello are named as next. A connector nobody has
+        # written an estimate for answers `unknown`, which is the honest word.
+        echo "{\"connector\":\"$_ci\",\"bucket\":\"\",\"limit\":null,\"remaining\":null,\"reset\":null,\"basis\":\"unknown\"}"
+        ;;
+    esac
+    ;;
+
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|pr-body|rate-limit)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|pr-body|rate-limit|limit|ci-limit)"
     ;;
 esac

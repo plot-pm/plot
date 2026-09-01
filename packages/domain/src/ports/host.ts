@@ -1,6 +1,7 @@
 import type { PortResult } from '../port-result.js';
 import type { Pr } from '../entities/pr.js';
 import type { Issue } from '../entities/issue.js';
+import type { LimitReading } from '../entities/limit.js';
 
 /** Which host CLI answers — the backend `plot-host.sh` resolved. */
 export type HostBackend = 'github' | 'bitbucket';
@@ -24,6 +25,15 @@ export type PrLookup = Pr | null;
 export type MergedAnswer = 'merged' | 'not-merged' | 'unknown';
 
 /**
+ * What a call observed about the host's willingness to answer.
+ *
+ * `throttled` is the word `plot-host.sh` already classifies stderr into — a
+ * rate limit, primary or secondary. It is evidence about the real ceiling, and
+ * the only evidence a connector with no limit API ever gets.
+ */
+export type LimitObservation = 'ok' | 'throttled';
+
+/**
  * Reads the git host — the FOREIGN source of truth about PRs, builds, issues.
  *
  * Foreign state carries its askability apart from its answer, which is why
@@ -33,6 +43,18 @@ export type MergedAnswer = 'merged' | 'not-merged' | 'unknown';
  *
  * The issue operations read and never write. Plot's record of an issue is the
  * plan that references it; a copy of tracker state ages into a lie.
+ *
+ * THIS PORT IS THE ONE CONNECTOR. Of nine adapters exactly one reaches a remote
+ * service with an account, credentials and a rate limit behind it; the rest
+ * read git, the process table and the filesystem, where none of those exist. So
+ * the limit question below belongs here and must not be lifted onto every
+ * adapter — a filesystem port has no budget to report.
+ *
+ * AND IT STILL NAMES NO TRANSPORT, NO ACCOUNT AND NO BUCKET. Every operation is
+ * a question; which API answers it, under whose credentials, against which
+ * bucket, is the adapter's own business. That is the property that makes adding
+ * GitLab an adapter change rather than a domain change, and `limit` keeps it:
+ * it does not take a bucket, it reports the ones the connector has.
  */
 export interface Host {
   /**
@@ -95,4 +117,43 @@ export interface Host {
    * @returns the issue; `unaskable` where the host has no tracker at all.
    */
   issueView(id: string): Promise<PortResult<Issue>>;
+
+  /**
+   * What is this connector's limit, and how well does it know it?
+   *
+   * One reading per bucket the connector meters, each tagged `actual` where the
+   * connector reported it, `predicted` where the adapter supplied a value from
+   * experience, and `unknown` where it reports nothing and has nothing to
+   * predict. **The adapter is the only place that could know**, which is what
+   * removes the need for a connector table in Plot or a probe at setup.
+   *
+   * A `predicted` reading is `answered`, not `failed`. The adapter is not
+   * breaking; it is telling the truth about what it knows.
+   *
+   * An empty list is an answer — this connector meters nothing. It is not
+   * `free`: a caller reads the basis, and there is no reading to read.
+   *
+   * @returns one reading per bucket; `unaskable` where the connector cannot be
+   *   asked at all.
+   */
+  limit(): Promise<PortResult<readonly LimitReading[]>>;
+
+  /**
+   * Records what a call observed, so a wrong prediction corrects itself.
+   *
+   * THE PIECE A STATIC DEFAULT CANNOT HAVE. A `throttled` refusal is evidence
+   * the prediction was too high, and it lowers the value `limit` reports for
+   * the rest of the session. A number shipped in Plot is stale the moment a
+   * vendor changes it; a number corrected by the refusal it caused cannot be.
+   *
+   * Only a `predicted` reading moves. An `actual` one is what the connector
+   * itself said, and overwriting a measurement with an inference from a burst
+   * refusal would lose the measurement.
+   *
+   * The correction is the SESSION's — held in the adapter, gone when the
+   * process ends. Where it is persisted is another slice's question.
+   *
+   * @param observed - what the call saw: `throttled` is the refusal.
+   */
+  observe(observed: LimitObservation): void;
 }

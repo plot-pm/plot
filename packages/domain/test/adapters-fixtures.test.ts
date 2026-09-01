@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { refsFixture, planStoreFixture, planRecord } from '../src/adapters/index.js';
-import { isAnswered, type PortResult } from '../src/index.js';
+import { refsFixture, planStoreFixture, planRecord, hostFixture } from '../src/adapters/index.js';
+import {
+  actualLimit,
+  isAnswered,
+  predictedLimit,
+  type LimitReading,
+  type PortResult,
+} from '../src/index.js';
 
 /**
  * The fixture adapters, asserted as adapters.
@@ -138,5 +144,70 @@ describe('planStoreFixture: plans are addressed by file, and a miss is a failure
     expect(bare.format).toBe('canonical');
     expect(bare.branches).toEqual([]);
     expect(bare.startedRaw).toEqual([]);
+  });
+});
+
+/**
+ * `hostFixture` answering the connector's limit question.
+ *
+ * THE FIXTURE HAS TO LEARN, or it is not a stand-in. The correction rule is
+ * BEHAVIOUR rather than a value: an adapter that always answered the literal
+ * input would substitute for `hostShell` on every op but this one, and a mock
+ * board built on it would show a prediction that never moves.
+ */
+describe('hostFixture: a connector answers for its limit', () => {
+  it('answers an empty list where it was told nothing — an answer, not free', async () => {
+    // A fixture with no limits stands for a connector that meters nothing. It
+    // is not a full budget, and a caller gets no reading rather than 5000.
+    expect(answer<readonly LimitReading[]>(await hostFixture().limit())).toEqual([]);
+  });
+
+  it('serves the readings it was given, basis and all', async () => {
+    const host = hostFixture({
+      limits: [
+        actualLimit({
+          connector: 'github',
+          bucket: 'graphql',
+          limit: 5000,
+          remaining: 1236,
+          resetAt: 1_788_269_670_000,
+        }),
+        predictedLimit('jenkins', '', 60),
+      ],
+    });
+    const readings = answer<readonly LimitReading[]>(await host.limit());
+    expect(readings.map((r) => [r.connector, r.basis])).toEqual([
+      ['github', 'actual'],
+      ['jenkins', 'predicted'],
+    ]);
+  });
+
+  it('LOWERS a prediction on a throttled observation', async () => {
+    // The discriminating assertion, the same one `hostShell` gets: the number
+    // must move. Checking that the basis is still `predicted` would pass
+    // against a fixture that learns nothing.
+    const host = hostFixture({ limits: [predictedLimit('jenkins', '', 60)] });
+    host.observe('throttled');
+    const [reading] = answer<readonly LimitReading[]>(await host.limit());
+    expect(reading?.limit).toBe(30);
+  });
+
+  it('leaves an actual reading and a successful call alone', async () => {
+    const measured = actualLimit({
+      connector: 'github',
+      bucket: 'graphql',
+      limit: 5000,
+      remaining: 0,
+      resetAt: null,
+    });
+    const host = hostFixture({ limits: [measured, predictedLimit('jenkins', '', 60)] });
+    host.observe('ok');
+    expect(answer<readonly LimitReading[]>(await host.limit()).map((r) => r.limit)).toEqual([
+      5000, 60,
+    ]);
+    host.observe('throttled');
+    expect(answer<readonly LimitReading[]>(await host.limit()).map((r) => r.limit)).toEqual([
+      5000, 30,
+    ]);
   });
 });
