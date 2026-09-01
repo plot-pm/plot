@@ -256,3 +256,22 @@ for the `fs.rmSync` calls it replaces."* One call site out of 82.
 is indistinguishable from a suite that passes, right up to the moment somebody
 believes a red result. Tonight the red results were all spurious and all
 correctly ignored — which is the habit worth removing, not the failures.
+
+**A second straggler exists, and `rmTree` cannot reach it. Measured 2026-09-01 on
+#628, whose diff touches neither file:** `streaming-scan.test.ts:267` failed with
+`Command failed: git for-each-ref --format=%(refname:short) refs/remotes/origin/idea/* / fatal: not a git repository`, 1 of 2545, and passed on a re-run and locally 18 of 18.
+
+The direction is the opposite of this plan's. Here the removal is CORRECT and an
+async caller is late: `fleet.ts:1054` (`ideaPlanFiles`) runs `git for-each-ref` in
+`opts.repoRoot`, `stopFleetRefresh` clears the two `setInterval` timers
+(`fleet.ts:2501-2502`) and awaits nothing, so `afterEach` returns, `rmTree`
+removes the temp dir, and a call already in flight then reads a path that is gone.
+A bounded retry around the removal changes nothing about that — the directory was
+never the problem.
+
+So the two failures share a trigger (concurrency) and nothing else. Fixing this
+one means either awaiting in-flight work in `stopFleetRefresh`, or having
+`ideaPlanFiles` treat an unreadable ref list as empty the way the surrounding
+readers already do. Both are decisions, not substitutions, which is why neither
+belongs in this plan's mechanical slice — recorded here so the `runs-twice-green`
+slice is not read as having covered it.
