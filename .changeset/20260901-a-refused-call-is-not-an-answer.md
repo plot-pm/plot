@@ -1,0 +1,5 @@
+---
+'plot': patch
+---
+
+`plot-host.sh pr-state` falls through to REST when GraphQL refuses the call for rate. The adapter already held both paths and chose between them on `graphql_budget_spent()`, which reads `.resources.graphql.remaining -eq 0` — and its own docblock named the gap that leaves: *"`rate_limit` does not report the secondary limit and cannot, so this gate would have read 5000 available at the exact moment nothing worked. Backing off on the 403 itself is a separate change and is not this one."* This is that change. Measured 2026-09-01: a polling burst tripped GitHub's secondary limit on GraphQL while both buckets read 5000/5000, so the cheap path was chosen and then declined, and every caller read the host as unreachable while REST answered normally throughout. The cheap path stays the default — the trade is one GraphQL call against ~186 REST calls for a 93-branch scan — and this only says that a call refused for rate has not been answered, so the second path is worth trying before reporting an outage. `is_rate_refusal` matches under `LC_ALL=C` for the reason `is_lookup_miss` gives.

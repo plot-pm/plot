@@ -491,6 +491,31 @@ is_lookup_miss() {
   LC_ALL=C grep -qiE 'no (pull request|pullrequest)s? (found|match)|could not find.*pull request|not found' <<<"$1"
 }
 
+# Did the host refuse this call for RATE, rather than answer it?
+#
+# The gap `graphql_budget_spent` names in its own docblock: *"`rate_limit` does
+# not report the secondary limit and cannot, so this gate would have read 5000
+# available at the exact moment nothing worked. Backing off on the 403 itself is
+# a separate change and is not this one."* This is that change.
+#
+# Measured 2026-09-01. A polling burst tripped GitHub's secondary limit on
+# GraphQL while BOTH buckets read `5000/5000`, so `graphql_budget_spent` was
+# false, the cheap path was chosen, and every `gh pr` call returned
+# `API rate limit already exceeded`. REST answered the same questions normally
+# throughout. The estate's whole reap stalled on it — 18 worktrees read
+# `rule could not be asked` and every one was kept.
+#
+# THE CHEAP PATH STAYS THE DEFAULT. This does not prefer REST; the trade is
+# measured at one GraphQL call against ~186 REST calls for a 93-branch scan. It
+# only says that a call REFUSED for rate has not been answered, so the second
+# path is worth trying before reporting an outage.
+#
+# `LC_ALL=C` for the reason `is_lookup_miss` gives: the CLI localises, and an
+# English-only matcher would misread every other locale.
+is_rate_refusal() {
+  LC_ALL=C grep -qiE 'rate limit|secondary rate|abuse detection|403.*forbidden' <<<"$1"
+}
+
 # Emits the miss payload on a genuine miss and exits non-zero on anything else,
 # after putting the CLI's own words on stderr. Callers get: stdout parseable or
 # empty, exit code decisive.
@@ -1070,7 +1095,7 @@ case "$op" in
       # `graphql_budget_spent` above for why REST is the exception rather than
       # the rule (~186 calls versus one for a 93-branch scan) and for what this
       # fallback honestly does and does not buy.
-      if graphql_budget_spent; then
+      if [ "${PLOT_HOST_FORCE_REST:-0}" = "1" ] || graphql_budget_spent; then
         # THE GRAPHQL PATH IS NOT ATTEMPTED FIRST once its budget is known to be
         # gone. Trying it anyway would spend a call that is already refused, to
         # learn what was just read for free.
@@ -1118,6 +1143,14 @@ case "$op" in
         jq -c '{number:.number,state:.state,draft:.isDraft,url:.url,mergeCommit:(.mergeCommit.oid // "")}' <<<"$out"
       else
         err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        # REFUSED FOR RATE IS NOT ANSWERED. The budget gate above could not see
+        # this coming — `rate_limit` does not report the secondary limit — so the
+        # cheap path was chosen and then declined. The second path is the one
+        # thing left to try before calling the host unreachable, and re-entering
+        # the op is how it is reached without a second copy of the REST code.
+        if is_rate_refusal "$err"; then
+          PLOT_HOST_FORCE_REST=1 "$0" pr-state "$ref" ${repo_args[@]+"${repo_args[@]}"} && exit 0
+        fi
         host_miss_or_fail "$err" \
           '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}' || exit $?
       fi
