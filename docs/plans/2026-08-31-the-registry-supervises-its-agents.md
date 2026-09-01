@@ -19,6 +19,7 @@
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-09-01, Jan Wloka, `feature/a-worker-declares-what-it-finished`
+- **Started:** 2026-09-01, Jan Wloka, `feature/the-gates-read-what-was-left-behind`
 -->
 
 ## Changelog
