@@ -4,13 +4,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-- **Approved:** <!-- YYYY-MM-DD, who, channel -->
+- **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
@@ -27,6 +27,18 @@ functions. The board keeps the fetching, the caching and the rendering.
 > *We need to make sure the board is using the domain and that **all decision
 > making, all stage changes, all updates, even the pulse** happens in the domain,
 > and the board is simply the view of things, or the controller.*
+
+> **Re-measured 2026-09-01, before approval. The premise has not decayed — it
+> has grown.** `fleet.ts` is **5,977 lines and 57 exports** against the 5,953
+> and 49 recorded below, and all nine named judgements are still in
+> `fleet.ts`. A month of work on adjacent plans moved none of them out, which
+> is the argument for a plan that takes them one at a time.
+>
+> **All five functions the slices name are PURE** — `startabilityVerdict`,
+> `waveVerdict`, `rowPhase`, `deriveWaves`, `doubleClaimedBranches` take values
+> and return values, reaching no port. So this plan carries none of the async
+> ripple that `the-read-path-stops-spawning` manages: a move here changes an
+> import, not a signature.
 
 ### The domain knows the pulse's SHAPE and none of its meaning
 
