@@ -199,7 +199,7 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
   const run = dispatchOne('agent-has-pr', {
     stub,
     monitorInterval: '3',
-    workerCommand: "sh -c 'mkdir -p .changeset && echo work > done.txt && printf -- '\\''---\\n\"plot\": patch\\n---\\n\\nA real description of a real change.\\n'\\'' > .changeset/thing.md && git add -A && git commit -qm work && git push -q -u origin HEAD'",
+    workerCommand: "sh -c 'mkdir -p .changeset && echo work > done.txt && printf -- '\\''---\\n\"plot\": patch\\n---\\n\\nA real description of a real change.\\n'\\'' > .changeset/thing.md && git add -A && git commit -qm work && git push -q -u origin HEAD && sleep 20'",
   });
   try {
     // WAIT FOR THE POLL, DO NOT GUESS AT IT. The two assertions below want
@@ -216,9 +216,32 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
     // markdown, and passed on the commits between them.
     //
     // Polling for the event is strictly stronger than the sleep it replaces:
-    // the positive becomes deterministic rather than probable, and the negative
-    // gets AT LEAST the old five seconds, usually more — the loop only stops
-    // once a poll has actually happened.
+    // the negative gets AT LEAST the old five seconds, usually more, and the
+    // positive stops being a guess at a duration.
+    //
+    // BUT THE POLL ALONE CANNOT MAKE THE POSITIVE DETERMINISTIC, and measured on
+    // CI 2026-09-01 it did not: the assertion failed after burning all 30 s,
+    // on three PRs at once.
+    //
+    // THE HOST IS ASKED LAST. `sample_finding` returns at the `blocked`,
+    // `dirty` and `unpushed` arms before it ever reaches `gh pr list`
+    // (`plot-agent-monitor.sh:391-413`), so the only pass that asks the host is
+    // one that runs on an already-clean, already-pushed desk.
+    //
+    // A worker that exits AT the push leaves exactly one such pass: the
+    // deliberate final `monitor_pass` after the wait loop
+    // (`plot-agent-monitor.sh:503`), which exists precisely to catch an agent
+    // that committed everything and opened nothing. One pass is enough for the
+    // assertion and not enough for the clock — on a loaded runner that single
+    // pass and the poll's 30 s deadline are not ordered, and the poll cannot
+    // widen a window that has already closed.
+    //
+    // `sleep 20` after the push is what orders them. It holds the agent alive,
+    // and therefore the monitor's LOOP, through several 3 s intervals with the
+    // desk already in the state under test — turning one racing pass into many.
+    // The sleep is not a guess at how long a sample takes: the poll below still
+    // decides when to stop, and it stops on the first sample rather than at the
+    // end of the sleep.
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline
       && !stub.calls().some((c) => c.startsWith('gh pr list'))) {
@@ -236,7 +259,7 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
     // slice's `nothing measured yet` no-op existed to remove, and which this
     // slice removed the no-op from.
     assert.ok(stub.calls().some((c) => c.startsWith('gh pr list')),
-      'the monitor never asked the host, so this silence proves nothing — it may never have sampled at all');
+      `the monitor never asked the host, so this silence proves nothing — it may never have sampled a clean, pushed desk before its agent exited: ${JSON.stringify(stub.calls())}`);
   } finally {
     run.sb.cleanup();
   }
