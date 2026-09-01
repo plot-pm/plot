@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
-import { execFileSync, spawn } from 'node:child_process';
-import { readConfig, allSlicesMerged, type BuildBoardOptions } from './board.js';
+import { spawn } from 'node:child_process';
+import { readConfig, allSlicesMerged, scriptsFor, type BuildBoardOptions } from './board.js';
 import { pulseFor, pulseCompleteFor } from './fleet.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { PlanMetaSchema } from '../contract/schema.js';
@@ -207,11 +207,9 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
   if (!file) return { verdict: 'not-found' };
   let meta;
   try {
-    const out = execFileSync('bash', [path.join(opts.scriptsDir, 'plot-plan-meta.sh'), file], {
-      encoding: 'utf8',
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    const line = out.split('\n').map((l) => l.trim()).find(Boolean);
+    const answer = scriptsFor(opts).planMetaSync([file], { maxBuffer: 8 * 1024 * 1024 });
+    if (!answer.ok) return { verdict: 'not-found' };
+    const line = answer.value.split('\n').map((l) => l.trim()).find(Boolean);
     if (!line) return { verdict: 'not-found' };
     meta = PlanMetaSchema.parse(JSON.parse(line));
   } catch {

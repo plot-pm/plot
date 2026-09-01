@@ -5,6 +5,7 @@ import { readConfig, allSlicesMerged, type BuildBoardOptions } from './board.js'
 import { usableCommand } from './idea.js';
 import { deliverLogPath } from './deliver.js';
 import type { PlanMeta, FleetReading } from '../contract/schema.js';
+import { scriptsFor } from './board.js';
 
 /**
  * A finished plan delivers itself, and its desks are cleared behind it.
@@ -337,33 +338,8 @@ export function runAutoDeliver(
     // file's own basename rather than from a request, so this is defence in
     // depth — which is precisely when it is worth keeping. The script case
     // builds no shell string at all.
-    const child = command
-      ? spawn(
-          'sh',
-          ['-c', `${command} "$@"`, 'plot-deliver', deliverPrompt(plan.slug)],
-          {
-            cwd: opts.repoRoot,
-            detached: true,
-            stdio: ['ignore', out, out],
-            env: {
-              ...process.env,
-              // THE DECLARATION, not a switch. An unattended /plot-deliver must
-              // STOP at a branch it cannot confirm merged rather than delivering
-              // anyway; setting this makes a skipped check name itself in the log
-              // rather than the agent improvising past it.
-              PLOT_UNATTENDED: '1',
-              PLOT_PLAN_SLUG: plan.slug,
-            },
-          },
-        )
-      : spawn('bash', [path.join(opts.scriptsDir, DELIVER_SCRIPT), plan.slug], {
-          cwd: opts.repoRoot,
-          detached: true,
-          stdio: ['ignore', out, out],
-        });
-
     // THE ORDERING, and it is this listener rather than a second spawn below.
-    child.on('exit', (code, signal) => {
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
       if (signal || code !== 0) {
         console.log(
           `auto-deliver: ${plan.slug} exited ${signal ? `on ${signal}` : code}; ` +
@@ -373,8 +349,33 @@ export function runAutoDeliver(
       }
       console.log(`auto-deliver: delivered ${plan.slug}; reaping its worktrees`);
       reap(opts, plan.slug);
-    });
-    child.on('error', (err) => console.error('auto-deliver failed to spawn:', err));
+    };
+    const onError = (err: Error): void =>
+      console.error('auto-deliver failed to spawn:', err);
+    if (command) {
+      const child = spawn(
+        'sh',
+        ['-c', `${command} "$@"`, 'plot-deliver', deliverPrompt(plan.slug)],
+        {
+          cwd: opts.repoRoot,
+          detached: true,
+          stdio: ['ignore', out, out],
+          env: {
+            ...process.env,
+            // THE DECLARATION, not a switch. An unattended /plot-deliver must
+            // STOP at a branch it cannot confirm merged rather than delivering
+            // anyway; setting this makes a skipped check name itself in the log
+            // rather than the agent improvising past it.
+            PLOT_UNATTENDED: '1',
+            PLOT_PLAN_SLUG: plan.slug,
+          },
+        },
+      );
+      child.on('exit', onExit);
+      child.on('error', onError);
+    } else {
+      scriptsFor(opts).start(DELIVER_SCRIPT, [plan.slug], { log: out, onExit, onError });
+    }
     // No `unref`: the EXIT CODE is what the reap is waiting for, and dropping
     // the handle would drop the listener above with it — every delivery would
     // land and nothing would ever be reaped. `detached` still keeps a Ctrl-C in
@@ -406,12 +407,6 @@ function reap(opts: BuildBoardOptions, slug: string): void {
     console.error(`auto-deliver could not open ${log} for the reap:`, err);
     return;
   }
-  const child = spawn('bash', [path.join(opts.scriptsDir, REAP_SCRIPT), '--yes'], {
-    cwd: opts.repoRoot,
-    detached: true,
-    stdio: ['ignore', out, out],
-  });
-
   // THE SECOND ORDERING, and the same mechanism as the first: a listener on the
   // exit, never a spawn beside it. The refs go after the desks are cleared,
   // because a worktree must not outlive the ref it tracks.
@@ -423,8 +418,11 @@ function reap(opts: BuildBoardOptions, slug: string): void {
   // host about each branch and checks the worktree list again. A reap that
   // failed halfway leaves a worktree in place, which the release then SEES and
   // refuses on. The guards are the gate here, not the exit code.
-  child.on('exit', () => releaseRefs(opts, slug));
-  child.on('error', (err) => console.error('auto-deliver reap failed to spawn:', err));
+  scriptsFor(opts).start(REAP_SCRIPT, ['--yes'], {
+    log: out,
+    onExit: () => releaseRefs(opts, slug),
+    onError: (err) => console.error('auto-deliver reap failed to spawn:', err),
+  });
   // No `unref`, since 2026-08-28: the ref release is chained to THIS exit code
   // now, and dropping the handle would drop the listener with it — every plan
   // would be reaped and no ref would ever be deleted. This is the same reason
@@ -461,14 +459,10 @@ function releaseRefs(opts: BuildBoardOptions, slug: string): void {
     console.error(`auto-deliver could not open ${log} for the ref release:`, err);
     return;
   }
-  const child = spawn(
-    'bash',
-    [path.join(opts.scriptsDir, RELEASE_REFS_SCRIPT), '--yes', slug],
-    { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
-  );
-  child.on('error', (err) =>
-    console.error('auto-deliver ref release failed to spawn:', err));
-  child.unref();
+  scriptsFor(opts).start(RELEASE_REFS_SCRIPT, ['--yes', slug], {
+    log: out,
+    onError: (err) => console.error('auto-deliver ref release failed to spawn:', err),
+  });
   fs.closeSync(out);
 }
 

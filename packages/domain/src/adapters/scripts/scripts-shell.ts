@@ -14,9 +14,6 @@ const CONFIG = 'plot-config.sh';
 /** The one connector — every `gh`/`bb` call in Plot goes through it. */
 const HOST = 'plot-host.sh';
 
-/** The fan-out. */
-const DISPATCH = 'plot-dispatch.sh';
-
 /** Stdout verbatim, because the scripts ARE the contracts and a parse here would be a second one. */
 const verbatim = (stdout: string): string => stdout;
 
@@ -93,15 +90,16 @@ export const scriptsShell = (context: ShellContext): Scripts => {
       return run.code === 4 ? { answer: 'unaskable', said } : { answer: 'failed', said };
     },
 
-    dispatch: async (args, options) => {
-      // THE ONE ASK WHOSE STDOUT IS WORTH READING BESIDE A NON-ZERO EXIT.
+    awaited: async (script, args, options) => {
+      // THE ASKS WHOSE OUTPUT IS WORTH READING BESIDE A NON-ZERO EXIT.
       // `plot-dispatch.sh` refuses for reasons of its own — a phase gate, an
       // unresolvable `origin/<main>` — and still reports on stdout which
-      // branches it claimed. Folding that into a `PortResult` would discard
-      // either the claim or the reason, so both travel with the code.
+      // branches it claimed; `plot-approve.sh` explains its refusal across
+      // several stderr lines. Folding either into a `PortResult` would discard
+      // the claim or the reason, so both streams travel with the code.
       const run = await runProcess(
         'bash',
-        [scriptPath(context, DISPATCH), ...args],
+        [scriptPath(context, script), ...args],
         withRepo(options),
       );
       return { stdout: run.stdout, stderr: run.stderr, code: run.code };
@@ -116,8 +114,11 @@ export const scriptsShell = (context: ShellContext): Scripts => {
         stdio,
       });
       if (options.onError) child.on('error', options.onError);
-      if (options.onExit) child.on('exit', (code) => options.onExit?.(code));
-      child.unref();
+      if (options.onExit) child.on('exit', (code, signal) => options.onExit?.(code, signal));
+      // A CALLER CHAINED TO THE EXIT KEEPS THE HANDLE. Unreferencing it drops
+      // what that caller is waiting for, and the measured shape of that is
+      // every delivery landing and nothing ever being reaped.
+      if (!(options.keepAlive ?? options.onExit !== undefined)) child.unref();
       // A pid of `undefined` is the spawn having failed before the process
       // existed. `started: false` is the fact a caller needs — logging a start
       // it did not get would report a worker nobody can find.
@@ -192,6 +193,14 @@ export const scriptsShell = (context: ShellContext): Scripts => {
           else reject(new Error(`exited ${code}`));
         });
       }),
+
+    sourced: (script, program, args, options) =>
+      runScriptSync(
+        'bash',
+        ['-c', program, 'bash', scriptPath(context, script), ...args],
+        verbatim,
+        withRepo(options),
+      ),
 
     pathOf: (script) => scriptPath(context, script),
   };

@@ -1,9 +1,7 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
-import { spawn } from 'node:child_process';
 import { BOARD_ARTIFACT_PATH, type Repair, type Stuck } from '../contract/schema.js';
-import type { BuildBoardOptions } from './board.js';
+import { scriptsFor, type BuildBoardOptions } from './board.js';
 
 /**
  * The ONE automatic write this system grants: an artifact-only merge conflict
@@ -224,6 +222,9 @@ function readOutcome(log: string): { outcome: Repair['outcome']; reason: string 
   return null;
 }
 
+/** The one automatic write Plot licenses — see `plot-resolve-artifact.sh`. */
+const REPAIR_SCRIPT = 'plot-resolve-artifact.sh';
+
 export interface ResolveOptions extends BuildBoardOptions {
   /**
    * Whether the pulse may repair at all. Absent means YES.
@@ -318,7 +319,9 @@ export function startRepair(
   if (notObserved.get(branch) === fingerprint) return false;
 
   const log = repairLogPath(opts.repoRoot, branch);
-  const script = path.join(opts.scriptsDir, 'plot-resolve-artifact.sh');
+  const scripts = scriptsFor(opts);
+  // The PATH, for the test seam alone — which takes one and never runs it here.
+  const script = scripts.pathOf(REPAIR_SCRIPT);
 
   const record: Repair = { branch, state: 'running', outcome: '', reason: '', at: now, log };
   inFlight.set(branch, record);
@@ -361,17 +364,18 @@ export function startRepair(
     // merge, a rebuild and a five-minute suite; awaiting it on this
     // single-threaded server would freeze every viewer's board for the duration
     // — and the pulse that started it is a 5 s timer.
-    const child = spawn('bash', [script, branch], {
-      cwd: opts.repoRoot,
-      detached: true,
-      stdio: ['ignore', out, out],
+    scripts.start(REPAIR_SCRIPT, [branch], {
+      log: out,
+      onError: (err) => {
+        console.error('artifact repair failed to spawn:', err);
+        settle(null);
+      },
+      onExit: (code) => settle(code),
+      // UNREFERENCED DESPITE THE LISTENER, unlike the approval's. The repair
+      // must outlive this board process — it pushes on green — and what the
+      // listener updates is an in-memory record no closing board keeps anyway.
+      keepAlive: false,
     });
-    child.on('error', (err) => {
-      console.error('artifact repair failed to spawn:', err);
-      settle(null);
-    });
-    child.on('exit', (code) => settle(code));
-    child.unref();
     fs.closeSync(out);
     return true;
   } catch (err) {

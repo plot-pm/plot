@@ -47,10 +47,25 @@ export interface ScriptOptions {
 export interface StartOptions {
   /** An open file descriptor both stdout and stderr are written to. */
   log?: number;
-  /** Called when the child exits, with its code; never called when it never started. */
-  onExit?: (code: number | null) => void;
+  /**
+   * Called when the child exits, with its code and the signal that killed it.
+   *
+   * Passing this implies {@link StartOptions.keepAlive}: a caller waiting on an
+   * exit needs the process to still be there when it arrives.
+   */
+  onExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
   /** Called when the child could not be spawned. */
   onError?: (error: Error) => void;
+  /**
+   * Whether the handle stays referenced — set by passing {@link StartOptions.onExit}.
+   *
+   * A detached start is normally unreferenced, because the script outlives the
+   * request and nothing waits for it. A caller CHAINED to the exit code is the
+   * exception: dropping the handle drops what it is waiting for, and the
+   * measured shape of that is every delivery landing and nothing ever being
+   * reaped.
+   */
+  keepAlive?: boolean;
 }
 
 /** How to stream a script's output. */
@@ -145,19 +160,27 @@ export interface Scripts {
   hostSaid(args: readonly string[], options?: ScriptOptions): Promise<HostAnswer>;
 
   /**
-   * Runs `plot-dispatch.sh` and waits for it.
+   * Runs a script to completion and hands back everything it said.
    *
-   * The only ask whose stdout is worth reading beside a non-zero exit: the
-   * script exits non-zero for refusals of its own — a phase gate, an
-   * unresolvable `origin/<main>` — while still reporting on stdout which
-   * branches it claimed. So both streams and the code travel, and the caller
-   * decides what a partial claim means.
+   * FOR THE SCRIPTS THAT EXPLAIN THEMSELVES ON THE WAY OUT, and only those.
+   * `plot-dispatch.sh` exits non-zero for refusals of its own — a phase gate,
+   * an unresolvable `origin/<main>` — while still reporting on stdout which
+   * branches it claimed, and `plot-approve.sh` writes its refusal across
+   * several stderr lines whose continuation is the part that says what to do.
+   * A `PortResult` would discard one of those in each case.
    *
-   * @param args - the script's arguments.
+   * The exit code is here because a caller of THIS operation is reading a
+   * script Plot itself ships and whose refusals Plot itself wrote. It is not
+   * the host contract: no caller may read `4` off it and conclude anything —
+   * that reading is {@link Scripts.hostSaid}'s, and it is made once.
+   *
+   * @param script - the script's filename.
+   * @param args - its arguments.
    * @param options - how to run it.
    * @returns stdout, stderr and the exit code.
    */
-  dispatch(
+  awaited(
+    script: string,
     args: readonly string[],
     options?: ScriptOptions,
   ): Promise<{ stdout: string; stderr: string; code: number }>;
@@ -191,6 +214,31 @@ export interface Scripts {
     onLine: (line: string) => void,
     options?: StreamOptions,
   ): Promise<void>;
+
+  /**
+   * Sources a script and runs a shell program that calls its functions.
+   *
+   * FOR THE SCRIPTS THAT ARE SOURCED RATHER THAN RUN. `plot-worker-state.sh`
+   * defines `plot_worker_state` and both `plot-dispatch.sh` and
+   * `plot-fleet-scan.sh` source it, which is how one computation stays one
+   * implementation — so a caller here does the same rather than reimplementing
+   * eight states.
+   *
+   * The script's path arrives as `$1` and the caller's arguments follow it, so
+   * the program begins `. "$1"; shift`.
+   *
+   * @param script - the script's filename.
+   * @param program - the shell program to run with the script sourced.
+   * @param args - positional arguments after the script's path.
+   * @param options - how to run it.
+   * @returns the program's stdout.
+   */
+  sourced(
+    script: string,
+    program: string,
+    args: readonly string[],
+    options?: ScriptOptions,
+  ): PortResult<string>;
 
   /**
    * The absolute path of one helper script.

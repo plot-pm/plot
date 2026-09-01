@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
+import { scriptsShell } from '@plot-pm/domain/adapters';
 
 /**
  * What the registry can say about an agent's liveness — one fact, computed once
@@ -260,18 +261,14 @@ function joinManifestDir(repoRoot: string, configured: string): string {
  * Returns {@link AGENT_MANIFEST_DIR} when no `scriptsDir` is known (a bare call
  * never shells out) or when the shell-out fails for any reason.
  */
+/** The ONE answer to *is a worker running in this worktree?*, sourced not run. */
+const WORKER_STATE_SCRIPT = 'plot-worker-state.sh';
+
 function readManifestDirConfig(repoRoot: string, scriptsDir?: string): string {
   if (!scriptsDir) return AGENT_MANIFEST_DIR;
-  try {
-    const out = execFileSync(
-      'bash',
-      [path.join(scriptsDir, 'plot-config.sh'), 'get', AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR],
-      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    );
-    return out.trim() || AGENT_MANIFEST_DIR;
-  } catch {
-    return AGENT_MANIFEST_DIR;
-  }
+  const answer = scriptsShell({ repoRoot, scriptDir: scriptsDir })
+    .configSync(AGENT_MANIFEST_DIR_KEY, AGENT_MANIFEST_DIR);
+  return (answer.ok ? answer.value.trim() : '') || AGENT_MANIFEST_DIR;
 }
 
 /**
@@ -773,20 +770,23 @@ function defaultLiveness(scriptsDir?: string): LivenessResolver {
  * result — nine states and eleven failures — is a question this registry has
  * never had to answer.
  */
-async function bashLiveness(scriptsDir: string, worktrees: string[]): Promise<string[]> {
-  const script = path.join(scriptsDir, 'plot-worker-state.sh');
+function bashLiveness(scriptsDir: string, worktrees: string[]): string[] {
   // Source the helper, then loop the worktrees passed as positional arguments,
   // emitting only the state field (the first tab-separated column) NUL-delimited.
   const program =
     `. "$1"; shift; for wt in "$@"; do ` +
     `printf '%s\\0' "$(plot_worker_state "$wt" '' | cut -f1)"; done`;
-  const out = await run('bash', ['-c', program, 'bash', script, ...worktrees]);
-  // An absent answer is NOT an empty batch: it is a batch nobody could read.
-  // Returning [] hands `refreshStates` a length mismatch, which is exactly the
-  // "leave every entry `unknown`" path the old throw took.
-  if (out === null) return [];
+  // THIS PROCESS'S DIRECTORY, as before: the worktree paths are absolute, so
+  // the helper never resolves anything against the working directory and no
+  // caller of this function has a repository root to give it.
+  const answer = scriptsShell({ repoRoot: process.cwd(), scriptDir: scriptsDir })
+    .sourced(WORKER_STATE_SCRIPT, program, worktrees);
+  // A refusal THROWS, which `refreshStates` catches into `unknown` for the
+  // batch. Its length-mismatch arm reaches the same place, so the two refusal
+  // shapes this function has carried are one answer to its caller.
+  if (!answer.ok) throw new Error('plot-worker-state could not be asked');
   // Trailing NUL leaves an empty final element; drop it. One answer per worktree.
-  const parts = out.split('\0');
+  const parts = answer.value.split('\0');
   if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop();
   return parts;
 }

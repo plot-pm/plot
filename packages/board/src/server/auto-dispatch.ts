@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
-import type { BuildBoardOptions } from './board.js';
+import { spawnSync } from 'node:child_process';
+import { scriptsFor, type BuildBoardOptions } from './board.js';
 import type { FleetSettings } from './fleet-settings.js';
 import { LIVE_STATES, type SourceBranch, type FleetReading } from '../contract/schema.js';
 import {
@@ -14,6 +14,7 @@ import {
 import type { AgentEntry } from './registry.js';
 import { dispatchLogPath } from './dispatch.js';
 import { briefPath } from './brief-path.js';
+import { DISPATCH_SCRIPT } from './dispatch.js';
 
 export { briefPath };
 
@@ -658,13 +659,10 @@ export function runAutoDispatch(
       console.error(`auto-dispatch could not open ${log}:`, err);
       continue;
     }
-    const child = spawn(
-      'bash',
-      [path.join(opts.scriptsDir, 'plot-dispatch.sh'), '--max', String(plan.max), plan.slug],
-      { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
-    );
-    child.on('error', (err) => console.error('auto-dispatch failed to spawn:', err));
-    child.unref();
+    scriptsFor(opts).start(DISPATCH_SCRIPT, ['--max', String(plan.max), plan.slug], {
+      log: out,
+      onError: (err) => console.error('auto-dispatch failed to spawn:', err),
+    });
     fs.closeSync(out);
 
     // Mark the branches this invocation may claim so the next pulse counts them

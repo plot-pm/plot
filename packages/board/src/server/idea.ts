@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
-import { execFile, execFileSync, spawn } from 'node:child_process';
-import { readConfig, type BuildBoardOptions } from './board.js';
+import { execFileSync, spawn } from 'node:child_process';
+import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 import { localCapability } from './controllers/caller.js';
 
@@ -191,19 +191,19 @@ export function readIssue(
   number: number,
 ): Promise<IssueDetail> {
   return new Promise((resolve, reject) => {
-    execFile(
-      'bash',
-      [path.join(opts.scriptsDir, 'plot-host.sh'), 'issue-view', String(number)],
-      { cwd: opts.repoRoot, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          const e = new Error(
-            (stderr || '').trim() || err.message,
-          ) as Error & { code?: number | string };
-          e.code = (err as { code?: number | string }).code;
+    void scriptsFor(opts)
+      .hostSaid(['issue-view', String(number)], { maxBuffer: 8 * 1024 * 1024 })
+      .then((said) => {
+        if (said.answer !== 'answered') {
+          // THE WORD, not the number. `unaskable` is a host with no tracker at
+          // all and `failed` is an attempt that broke; the caller reads which,
+          // and the sentence the host wrote travels either way.
+          const e = new Error(said.said) as Error & { unaskable?: boolean };
+          e.unaskable = said.answer === 'unaskable';
           reject(e);
           return;
         }
+        const stdout = said.stdout;
         try {
           const raw = JSON.parse(stdout) as Partial<IssueDetail>;
           resolve({
@@ -218,8 +218,7 @@ export function readIssue(
           // error this repo keeps removing.
           reject(new Error('the host returned something that is not an issue'));
         }
-      },
-    );
+      });
   });
 }
 
@@ -424,27 +423,19 @@ export async function referencedIssues(
     return null;
   }
   if (files.length === 0) return new Set();
-  return new Promise((resolve) => {
-    execFile(
-      'bash',
-      [path.join(opts.scriptsDir, 'plot-plan-meta.sh'), ...files],
-      { cwd: opts.repoRoot, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
-      (err, stdout) => {
-        if (err) { resolve(null); return; }
-        const referenced = new Set<number>();
-        for (const line of stdout.split('\n')) {
-          if (!line.trim()) continue;
-          try {
-            const meta = JSON.parse(line) as { issues?: number[] };
-            for (const n of meta.issues ?? []) referenced.add(n);
-          } catch {
-            /* one unparseable record is not a reason to discard the rest */
-          }
-        }
-        resolve(referenced);
-      },
-    );
-  });
+  const answer = await scriptsFor(opts).planMeta(files, { maxBuffer: 32 * 1024 * 1024 });
+  if (!answer.ok) return null;
+  const referenced = new Set<number>();
+  for (const line of answer.value.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const meta = JSON.parse(line) as { issues?: number[] };
+      for (const n of meta.issues ?? []) referenced.add(n);
+    } catch {
+      /* one unparseable record is not a reason to discard the rest */
+    }
+  }
+  return referenced;
 }
 
 /** The two facts this route reads from outside itself, injectable for test. */

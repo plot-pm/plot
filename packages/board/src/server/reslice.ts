@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { agentLogPath } from './agent-log.js';
-import { execFileSync, spawn } from 'node:child_process';
-import { readConfig, type BuildBoardOptions } from './board.js';
+import { spawn } from 'node:child_process';
+import { readConfig, scriptsFor, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { PlanMetaSchema } from '../contract/schema.js';
 import {
@@ -175,11 +175,9 @@ export function maxLiveWaveWidth(opts: BuildBoardOptions, slug: string): number 
   const file = resolvePlanBySlug(opts, slug);
   if (!file) return null;
   try {
-    const out = execFileSync('bash', [path.join(opts.scriptsDir, 'plot-plan-meta.sh'), file], {
-      encoding: 'utf8',
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    const line = out.split('\n').map((l) => l.trim()).find(Boolean);
+    const answer = scriptsFor(opts).planMetaSync([file], { maxBuffer: 8 * 1024 * 1024 });
+    if (!answer.ok) return null;
+    const line = answer.value.split('\n').map((l) => l.trim()).find(Boolean);
     if (!line) return null;
     const meta = PlanMetaSchema.parse(JSON.parse(line));
     let widest = 0;

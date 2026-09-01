@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { execFile, execFileSync } from 'node:child_process';
 import {
   PlanMetaSchema,
   TransitionSchema,
@@ -11,6 +10,7 @@ import {
 import { readConfig, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
 import { APPROVE_SCRIPT } from './approve.js';
+import { scriptsFor } from './board.js';
 
 /**
  * `POST /api/transition` — apply one phase transition, and say what resulted.
@@ -134,11 +134,9 @@ export function readPhase(opts: BuildBoardOptions, slug: string): string | null 
   const file = resolvePlanBySlug(opts, slug);
   if (!file) return null;
   try {
-    const out = execFileSync('bash', [path.join(opts.scriptsDir, 'plot-plan-meta.sh'), file], {
-      encoding: 'utf8',
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    const line = out.split('\n').map((l) => l.trim()).find(Boolean);
+    const answer = scriptsFor(opts).planMetaSync([file], { maxBuffer: 8 * 1024 * 1024 });
+    if (!answer.ok) return null;
+    const line = answer.value.split('\n').map((l) => l.trim()).find(Boolean);
     if (!line) return null;
     return PlanMetaSchema.parse(JSON.parse(line)).phase || null;
   } catch {
@@ -200,38 +198,30 @@ export async function handleTransition(
   }
   const transition = parsed.data;
 
-  const result = await new Promise<TransitionResult>((resolve) => {
-    execFile(
-      'bash',
-      [path.join(opts.scriptsDir, TRANSITION_SCRIPT[transition]), slug],
-      { cwd: opts.repoRoot, timeout: TRANSITION_TIMEOUT_MS, encoding: 'utf8' },
-      (err, stdout, stderr) => {
-        // THE PHASE IS RE-READ FROM THE FILE, always, and on the refusal path
-        // too. On success it proves the write landed rather than trusting the
-        // exit code; on a refusal it tells the caller where the plan actually
-        // stands, which is usually the thing it needs in order to do something
-        // useful next. Inferring it from `exit 0` would be the same act of
-        // hoping this endpoint exists to replace.
-        const phase = readPhase(opts, slug);
-        const applied = phase === TRANSITION_TARGET[transition];
-        if (!err) {
-          resolve({ slug, transition, applied, phase, reason: lastSaid(stdout) });
-          return;
-        }
-        // The script's OWN sentence — "Plan is still a draft PR (#N). Mark it
-        // ready for review first." — forwarded rather than replaced. It is
-        // written on the way out, so stderr's tail is the reason; stdout's is
-        // the fallback for a failure that explained itself there instead.
-        resolve({
-          slug,
-          transition,
-          applied,
-          phase,
-          reason: lastSaid(stderr) || lastSaid(stdout) || 'the transition failed without a reason',
-        });
-      },
-    );
-  });
+  const said = await scriptsFor(opts).awaited(
+    TRANSITION_SCRIPT[transition], [slug], { timeoutMs: TRANSITION_TIMEOUT_MS },
+  );
+  // THE PHASE IS RE-READ FROM THE FILE, always, and on the refusal path too. On
+  // success it proves the write landed rather than trusting the exit code; on a
+  // refusal it tells the caller where the plan actually stands, which is usually
+  // the thing it needs in order to do something useful next. Inferring it from
+  // `exit 0` would be the same act of hoping this endpoint exists to replace.
+  const phase = readPhase(opts, slug);
+  const applied = phase === TRANSITION_TARGET[transition];
+  const result: TransitionResult = said.code === 0
+    ? { slug, transition, applied, phase, reason: lastSaid(said.stdout) }
+    // The script's OWN sentence — "Plan is still a draft PR (#N). Mark it ready
+    // for review first." — forwarded rather than replaced. It is written on the
+    // way out, so stderr's tail is the reason; stdout's is the fallback for a
+    // failure that explained itself there instead.
+    : {
+      slug,
+      transition,
+      applied,
+      phase,
+      reason: lastSaid(said.stderr) || lastSaid(said.stdout)
+        || 'the transition failed without a reason',
+    };
 
   // 200 on a refusal as well as on a success, and `applied` carries which it
   // was. The request was well formed and the server did exactly what was asked

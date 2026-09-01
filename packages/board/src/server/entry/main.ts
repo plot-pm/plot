@@ -1,8 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
 
-import type { BuildBoardOptions } from '../board.js';
+import { scriptsFor, type BuildBoardOptions } from '../board.js';
 import { estateFromEnv } from '../estate.js';
 import { askOnce, askOncePerEstate, newMemory, type Question } from './ask.js';
 
@@ -35,21 +34,14 @@ const scriptsDirFor = (here: string): string =>
 /**
  * The configured plan directory, read the way every other helper reads config.
  *
- * Through `plot-config.sh` rather than a second parser: the key has a default
+ * Through the `Scripts` port rather than a second parser: the key has a default
  * and an override, and a duplicate reader is how the two drift. A repo that
  * cannot be asked falls back to the same default the script does.
  */
 const planDirFor = (opts: BuildBoardOptions): string => {
-  try {
-    const out = execFileSync(
-      'bash',
-      [path.join(opts.scriptsDir, 'plot-config.sh'), 'get', 'Plan directory', 'docs/plans/'],
-      { cwd: opts.repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
-    return (out || 'docs/plans/').replace(/\/$/, '');
-  } catch {
-    return 'docs/plans';
-  }
+  const answer = scriptsFor(opts).configSync('Plan directory', 'docs/plans/');
+  if (!answer.ok) return 'docs/plans';
+  return (answer.value.trim() || 'docs/plans/').replace(/\/$/, '');
 };
 
 /** Everything the entry point needs, assembled from the environment. */
