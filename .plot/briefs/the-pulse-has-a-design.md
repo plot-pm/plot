@@ -11,15 +11,22 @@
 
 **The story defines `Machine`, `Agent`, `Slice`, `Worktree`, `Plan` — and says
 nothing about the clock they all live under.** The domain exports
-`FleetPulseSchema` and a type: a shape. The beat is `setInterval` at
+`FleetReadingSchema` and a type: a shape. The beat is `setInterval` at
 `fleet.ts:2447`.
+
+**THE WORD `Pulse` IS NOW FREE, AND THAT IS WHY THIS SLICE UNBLOCKED.** PR #600
+(`the-scan-reads-a-fleet-reading`, merged 2026-09-01) renamed `FleetPulse` to
+`FleetReading` across the estate, including the `--stream` protocol's terminal
+line. A reading is what a scan produces at a moment; the pulse is the clock that
+asks for one. Do not reintroduce `FleetPulse` — the rename is the seam this
+document names.
 
 ### The divisor ladder, measured
 
 ```
-pulse          5 s    1x     fleet.ts:67
+pulse          5 s    1x     fleet.ts:65    REFRESH_MS
 monitor       30 s    6x     plot-worker-monitor.sh:165
-PR refresh    60 s   12x     fleet.ts:83   (2x monitor)
+PR refresh    60 s   12x     fleet.ts:81    PR_REFRESH_MS   (2x monitor)
 
 30 % 5 = 0     60 % 5 = 0     60 % 30 = 0
 ```
@@ -74,3 +81,22 @@ Plus: `pnpm test` green — this is a document.
 The document. **No code**, no cadence change, no subscriber. The numbers
 5 / 30 / 60 stay exactly as they are; this plan gives them one owner, it does
 not retune them.
+
+
+---
+
+## Re-verified 2026-09-01, after #600 merged
+
+The three cadences and every remainder still hold; only line numbers moved, and
+they are corrected above. Measured on `main` at `5432df32`:
+
+- `fleet.ts:65` `const REFRESH_MS = 5_000;`
+- `fleet.ts:81` `const PR_REFRESH_MS = 60_000;`
+- `plot-worker-monitor.sh:165` `interval="${PLOT_MONITOR_INTERVAL:-30}"`
+- both timers armed at `fleet.ts:2447` and `fleet.ts:2452`
+
+`FleetPulseSchema` returns **zero** matches across `packages/domain/src` and
+`packages/board/src`; the schema is `FleetReadingSchema`, in
+`packages/domain/src/entities/fleet.ts`. A brief written before #600 would send
+a reader looking for a symbol that no longer exists, which is the one error this
+check exists to prevent.
