@@ -138,6 +138,14 @@ complete, **whatever the exit code says**. A worker killed by the `Worker bound`
 never gets to write one — which is precisely tonight's three, and precisely why
 absence has to mean incomplete rather than unknown.
 
+**The hop is implemented; whether it has ever fired is unverified.**
+`plot-worker-loop.sh:114` increments `wavesCount`, so the mechanism is real and
+the envelope design below is justified by the code rather than by a scenario.
+Whether any worker has actually hopped cannot be answered from this checkout —
+`.plot/agents/` is empty, so `wavesCount > 1` is unobservable here. The pulse
+plan's *"no worker in this repo has ever hopped"* is a claim about firing, not
+about the mechanism; both are true and they are not in conflict.
+
 **ONE ENVELOPE PER BRANCH, NOT PER WORKER — and the difference is this plan's
 own failure reproduced one level up.** A worker HOPS: `plot-worker-loop.sh` asks
 `--next` for another branch of the same plan, and *"the `session` and `pid` stay
@@ -271,6 +279,49 @@ read .plot/agents/*.json  +  the desks they name
 
 **It holds nothing in memory that it cannot re-read**, so `kill -9` costs one
 tick.
+
+**One daemon per repo supervises only the agents THAT repo registered, and on
+this estate that is not all of them.** Measured 2026-09-01: four branches of
+this repository were claimed and working — `the-scan-reads-a-fleet-reading`,
+`a-monitor-is-a-pure-rule`, `the-refusals-are-domain-rules`,
+`a-machine-has-an-identity` — while `.plot/agents/` on this checkout held **zero
+manifests**, no worker loop ran here, and no worktree existed for any of them.
+They were dispatched from a second machine, into its own registry.
+
+**That is not a defect in the dispatch gate**, which is emphatic
+(`plot-dispatch.sh:431` — *"THE GATE: NO MANIFEST, NO WORKER"* — and it refuses
+rather than launching). It is the `Agent registry` config key doing exactly what
+it is for: a directory that several checkouts may share, or may not.
+
+**So the daemon's reach is the reach of its registry directory, and the plan
+must say which.** Two readings, and they differ in what the supervisor can
+promise:
+
+- **Per checkout** — the daemon supervises what this machine started. An agent
+  the other machine dispatched dies unsupervised, and *"an agent whose worker
+  dies still owes its work"* holds only locally.
+- **Shared directory** — one registry for every checkout, and the daemon
+  supervises agents whose worktrees it cannot see. Reaping a desk on another
+  machine is not something a local `kill` can do.
+
+**Settled 2026-09-01: per checkout, and the plan says so.** A daemon supervises
+the agents its own machine registered, because that is the set whose desks it
+can actually act on — a local `kill` reaches a local pid, and reaping a
+worktree requires the worktree. A supervisor that can observe a failure and not
+repair it is a reporter, and this plan exists to replace reporting with
+supervision.
+
+**The cost is stated rather than hidden: an agent dispatched from another
+machine dies unsupervised by this daemon.** On 2026-09-01 that was all four live
+claims. *"An agent whose worker dies still owes its work"* therefore holds per
+machine, and the estate's answer is one daemon per checkout rather than one that
+reaches across them.
+
+**A shared `Agent registry` directory does not change this, and the plan should
+not pretend otherwise.** Several checkouts may point at one directory — the
+config key allows it — but a daemon reading a manifest whose worktree is on
+another machine can detect the death and cannot reap the desk. Sharing the
+directory widens what is *seen*, never what can be *done*.
 
 **Who supervises the supervisor is answered by the Machine — the real one.**
 `launchd` on macOS, `systemd` on Linux. That is the correct owner because *"is a

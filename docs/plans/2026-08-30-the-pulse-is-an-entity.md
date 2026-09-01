@@ -325,6 +325,13 @@ instead of ending.
 blocker merges; a worker with **no** next slice still ends cleanly; and the
 first case is asserted end to end — **no worker in this repo has ever hopped.**
 
+**That is a claim about FIRING, not about the mechanism.**
+`plot-worker-loop.sh:114` increments `wavesCount`, so hopping is implemented and
+`the-registry-supervises-its-agents` builds its per-branch envelope on it.
+Whether it has ever fired is unobservable from a checkout whose `.plot/agents/`
+is empty — which it was on 2026-09-01, with four branches of this repository
+claimed by another machine.
+
 **This slice does not land until the registry's monitor gate exists.** It carries
 two risks the other two do not: behaviour with no precedent here, and the birth
 guarantee that moves when the pulse takes the monitors off the worker wrapper.
