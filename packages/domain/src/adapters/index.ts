@@ -50,6 +50,8 @@ export {
   type Subscribed,
 } from './channel/channel-client.js';
 
+export { clockSystem, clockFixed, clockManual } from './clock/clock-system.js';
+
 export {
   machineSystem,
   DEFAULT_SAMPLE_BUDGET_MS,

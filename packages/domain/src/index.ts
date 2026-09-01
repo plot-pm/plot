@@ -29,6 +29,7 @@ export * from './entities/budget.js';
 export * from './entities/wave.js';
 export * from './entities/finding.js';
 export * from './entities/subscription.js';
+export * from './entities/pulse.js';
 export * from './entities/channel-message.js';
 export * from './rules/deliverable.js';
 export * from './rules/reapable.js';
