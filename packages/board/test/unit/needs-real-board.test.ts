@@ -88,6 +88,52 @@ await page.route(PLAN_DOC, () => {
 await expect(dialog.getByText('could not load')).toBeVisible();
 `;
 
+/** `tiny-garden`'s shape: the page the SERVER assembles, opened in a new tab. */
+const ASSERTS_PAGE_ASSEMBLY = `
+import { chromium } from 'playwright';
+import { startServer } from '../helpers.mjs';
+// @needs-real-board: one test asserts the plan-back titlebar renderPlanPage adds only when embed is false
+const server = await startServer(FIXTURE);
+const [popup] = await Promise.all([
+  page.context().waitForEvent('page'),
+  page.getByRole('link', { name: 'Open in new tab' }).click(),
+]);
+const back = popup.locator('a.plan-back');
+expect(await back.getAttribute('href')).toBe('/');
+`;
+
+/**
+ * A SERVED document, asserted through `srcdoc` — and it must NOT entitle.
+ *
+ * This arm was nearly keyed on `srcdoc`, on the reasoning that `renderPlanPage`
+ * takes a `repoRoot`. A document is a `fetch`, so the mock can answer it, and
+ * `story-overlay.browser.test.ts` asserts the attribute while starting no board.
+ * Keying on it would license a spawn that file demonstrably does not need.
+ */
+const SERVES_A_DOCUMENT = `
+import { openCatalogue } from '../catalogue/index.js';
+const cat = await openCatalogue();
+cat.mock.serveDoc('/story/berry-patch', '<h1>Pick the berry patch</h1>');
+const iframe = page.locator('iframe');
+await expect.poll(async () => ((await iframe.getAttribute('srcdoc')) ?? '').includes('berry-patch')).toBe(true);
+`;
+
+/**
+ * A file that opens a POPUP and asserts nothing about its page shell.
+ *
+ * `tiny-garden`'s meta-click test: the tab exists to prove the modal did NOT
+ * open. `waitForEvent('page')` alone therefore cannot be the signal.
+ */
+const OPENS_A_POPUP_ONLY = `
+import { openCatalogue } from '../catalogue/index.js';
+const [popup] = await Promise.all([
+  page.context().waitForEvent('page'),
+  page.getByRole('link', { name: 'Open' }).click({ modifiers: ['Meta'] }),
+]);
+expect(await page.getByRole('dialog').count()).toBe(0);
+await popup.close();
+`;
+
 describe('the marker declares and the structure verifies', () => {
   describe('a board-starting file without a valid declaration fails', () => {
     it('refuses a start with no marker at all', () => {
@@ -143,7 +189,7 @@ describe('the marker declares and the structure verifies', () => {
     });
   });
 
-  describe('the two arms that do hold, each with a file behind it', () => {
+  describe('the three arms that do hold, each with a file behind it', () => {
     it('entitles a write that reaches a script', () => {
       const j = judge(WRITE_REACHES_A_SCRIPT);
       expect(j.verdict).toBe('entitled');
@@ -158,6 +204,27 @@ describe('the marker declares and the structure verifies', () => {
       expect(j.entitlements).toContain(
         'a real transport it can abandon — a route accepted and never answered',
       );
+    });
+
+    it("entitles a file that asserts the server's own page assembly", () => {
+      const j = judge(ASSERTS_PAGE_ASSEMBLY);
+      expect(j.verdict).toBe('entitled');
+      expect(j.entitlements).toContain(
+        "the server's own page assembly — a popup opened AND its page shell read",
+      );
+    });
+
+    it('does not entitle a file that asserts a SERVED document', () => {
+      // What this arm was nearly keyed on. `serveDoc` answers the fetch, so the
+      // file needs no board — and an entitlement that licenses an unnecessary
+      // spawn is worse than none.
+      expect(entitlementsHeld(SERVES_A_DOCUMENT)).toEqual([]);
+    });
+
+    it('does not entitle a popup nobody reads the page shell of', () => {
+      // Both halves of the signal are required because this half is common: a
+      // meta-click test opens a tab to prove a modal did NOT open.
+      expect(entitlementsHeld(OPENS_A_POPUP_ONLY)).toEqual([]);
     });
 
     it('does not read an answering route as an abandoned one', () => {

@@ -383,5 +383,11 @@ describe('tiny-garden: the standalone plan page (the server assembles it)', () =
     } finally {
       await page.close();
     }
-  });
+    // 60s, because this is the ONE test in the suite that waits on a real board
+    // to answer `/api/board` from a git scan. Measured 2026-09-01: it passed in
+    // 1.1s locally and timed out at the 30s default on a CI runner — the first
+    // board request now lands after 400s of other tests rather than at the top
+    // of a warm file, so the scan is cold and the runner is slower than a
+    // laptop by more than the default's margin.
+  }, 60_000);
 });
