@@ -172,7 +172,7 @@ pretending to be an optimisation.
 
 ### Proving
 
-- `feature/a-read-route-spawns-nothing` — the gate: a test asserting no synchronous spawn occurs while a read route is served, and a `sample`-based measurement in the plan showing the profile after. Last, because a gate over unfinished work is a gate nobody can pass.
+- `feature/a-read-route-spawns-nothing` — the gate: a test asserting no synchronous spawn occurs while a read route is served, and a `sample`-based measurement in the plan showing the profile after. Last, because a gate over unfinished work is a gate nobody can pass. → #630
 
 ### The async ripple is wider than `buildBoard`, and it lands in the tests
 
