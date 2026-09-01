@@ -213,6 +213,35 @@ project it asks GitHub about a budget the project never spends, and on Jenkins
 it asks about a limit that does not exist. `plot-host.sh` resolves
 `backend=github|bitbucket` at the top and the budget gate ignores it.
 
+**Four today, and the list is open — GitLab and Trello are named as next.** That
+settles the shape rather than merely widening the table: **a design keyed to four
+connectors is one that breaks on the fifth.** The budget record must carry a
+connector as a STRING it does not validate.
+
+**Plot's own config already splits on exactly this, inconsistently.**
+
+| key | shape | on an unknown value |
+|---|---|---|
+| `Git host` | closed enum `github\|bitbucket` | `plot-host.sh:1006` **dies** |
+| `Tracker` | `plot \| jira \| github-issues \| linear` | tolerated |
+
+`Tracker` already names `linear`, a connector Plot has no adapter for, and
+`plot-plan-meta.sh:276` branches on it for BEHAVIOUR (`jira|linear` enable the
+key form) without the identity being closed. **That is the pattern to copy: the
+connector names itself; the code branches only where behaviour genuinely
+differs.**
+
+**A third closed enum is the failure mode to avoid.** If the budget validates
+its connector, adding GitLab means editing the budget as well as the host
+adapter — and the edit that gets forgotten is the one that turns an unknown
+connector into a refusal or, worse, into GitHub's defaults.
+
+**What each connector must supply, and nothing more:** its own name, the bucket
+a call spent, and how to read what remains — or an honest *unknown*. GitHub
+reads `X-RateLimit-Resource` from a response header; Bitbucket answers
+differently; Jenkins has no limit at all. **The adapter knows; the budget only
+records.**
+
 **So the design must state what it does where a connector reports nothing.** The
 honest answer is *unknown*, and `unknown` must not collapse into *spent* or
 *free* — the same `PortResult` distinction the rest of this repo keeps
@@ -381,6 +410,16 @@ closing a board rather than waiting for GitHub.
       behaviour, and a workflow command a person is waiting for is not a poll.
 
 ## Branches
+
+**Every slice below says *per account* and now means *per `(connector, account,
+bucket)`*, in a record outside any checkout.** The two findings that changed
+this — `.plot/state/` being per checkout, and the connector list being open —
+are recorded in the Design above. **Naming the record is a slice of its own and
+comes first**, because five branches write to it.
+
+### Naming the record
+
+- `bug/a-budget-belongs-to-the-computer` — where the record lives and what it is keyed by, before anything appends to it. Outside any checkout, since two GitHub checkouts on this machine share one account and each `.plot/state/` would read a full 5000. Keyed by connector, account and bucket, with the **connector carried as a string the record does not validate** — `Tracker` already names `linear` without an adapter, and a third closed enum is an edit that gets forgotten when GitLab arrives. Append-only with a stated line cap, since concurrent `O_APPEND` is atomic only below `PIPE_BUF`. Deliverables: the location, the key, the format, and what a connector that reports no limit records — which is `unknown`, never `free`.
 
 ### Counting what is spent
 
