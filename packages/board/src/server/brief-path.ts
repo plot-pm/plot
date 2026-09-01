@@ -20,9 +20,13 @@ export const BRIEFS_DIR = '.plot/briefs';
  * computes, so a brief written that way is invisible to the dispatch gate and
  * the branch reads as having none.
  *
- * The shell holds the same rule as `${1##*/}` in `plot-dispatch.sh`; it cannot
- * import this, so `test/reconcile/briefpath.test.mjs` asserts the two agree on
- * the same inputs.
+ * The shell holds the same rule in `plot-dispatch.sh`, as a parameter expansion
+ * that strips everything up to the last slash. It is not quoted here: the
+ * expansion ends in a star-slash, which closes a block comment wherever it
+ * appears — including inside one. That is what broke this file's typecheck.
+ *
+ * The shell cannot import this, so `test/reconcile/briefpath.test.mjs` asserts
+ * the two agree on the same inputs.
  *
  * @param branch A branch name, with or without a `/` prefix.
  * @returns The brief's path, relative to the repository root.
