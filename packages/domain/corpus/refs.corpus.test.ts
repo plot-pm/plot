@@ -1,4 +1,6 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { refsGit } from '../src/adapters/refs/refs-git.js';
 import { shellContext } from '../src/adapters/scripts.js';
@@ -152,15 +154,73 @@ const wireSlices = (plan: Record<string, unknown>): Record<string, unknown>[] =>
 let pulse: FleetPulse;
 let raw: Record<string, unknown>;
 
+/**
+ * A frozen ref both readings resolve, so they are asked about ONE estate.
+ *
+ * THE TWO SCANS EACH FETCH, so `origin/main` can move between them — and this
+ * suite runs them back to back. Measured twice: 2026-08-31 the `conflicts`
+ * field disagreed because a six-commit burst touching the `-merge` board
+ * artifacts landed mid-suite, and 2026-09-01 `read_ref` itself reported
+ * `adapter="cf937747" production="f55402a3"` — two consecutive main commits,
+ * pushed minutes apart. Neither reading was wrong; they were asked about two
+ * moments.
+ *
+ * `--no-fetch` on the second reading is NOT the fix and was tried: it does not
+ * pin the two to one world, it gives them DIFFERENT worlds — production then
+ * reads stale local refs and reports `open` where the adapter reads `merged`.
+ * One failure became three (2026-08-31, reverted).
+ *
+ * So both still fetch, and both are pointed at a ref a fetch cannot move. The
+ * pin is a real remote-tracking ref at a SHA resolved once here; nothing
+ * upstream is named `plot-corpus-pin`, so `git fetch` leaves it alone. The
+ * scan takes its branch from `origin/HEAD` when no `Main branch` key is set
+ * (`plot-fleet-scan.sh` line 202), and the adapter's `pulse()` shells out to
+ * that same script — so repointing that ONE symbolic ref serves both readings.
+ *
+ * `origin/HEAD` rather than the config key, deliberately: the key lives in the
+ * repo-root `CLAUDE.md`, and editing a TRACKED file for the duration of a test
+ * run would leave the repository misconfigured if the run died. `origin/HEAD`
+ * is per-checkout, untracked, and restored in `afterAll` — and a fetch does not
+ * move either it or the pin.
+ */
+/** The branch `origin/HEAD` is restored to. Read before the pin replaces it. */
+const MAIN = execFileSync('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+  { cwd: ROOT, encoding: 'utf8' }).trim().replace(/^origin\//, '');
+const PIN = 'plot-corpus-pin';
+const PIN_REF = `refs/remotes/origin/${PIN}`;
+let pinned = false;
+
+const git = (...args: string[]): string =>
+  execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
+
 beforeAll(async () => {
-  // Production first, adapter second. The order matters only for the elapsed
-  // field, and taking production's reading first makes the adapter's the LATER
+  // Freeze the ref before either scan runs, and tell the scan to use it.
+  const head = git('rev-parse', 'origin/HEAD');
+  git('update-ref', PIN_REF, head);
+  git('symbolic-ref', 'refs/remotes/origin/HEAD', PIN_REF);
+  pinned = true;
+
+  // Adapter first, production second. The order matters only for the elapsed
+  // field, and taking the adapter's reading first makes production's the LATER
   // one — so the tolerance below is one-sided in the direction time runs.
-  raw = readFleetScan(estate);
   const refs = refsGit(shellContext(ROOT));
   const read = await refs.pulse();
   if (!isAnswered(read)) throw new Error(`the adapter could not read the pulse: ${read.why}`);
   pulse = read.value;
+  raw = readFleetScan(estate);
+});
+
+afterAll(() => {
+  // The pin is this suite's, and it must not outlive it: a stray
+  // `origin/plot-corpus-pin` would show up in every later `for-each-ref`.
+  if (pinned) {
+    try {
+      git('symbolic-ref', 'refs/remotes/origin/HEAD', `refs/remotes/origin/${MAIN}`);
+      git('update-ref', '-d', PIN_REF);
+    } catch {
+      // Already gone. Nothing downstream reads it, so there is nothing to repair.
+    }
+  }
 });
 
 describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
@@ -264,12 +324,20 @@ describe('the Refs adapter agrees with plot-fleet-scan.sh', () => {
               `${plan.file} ${branch.branch}: adapter=${ours} production=${theirs} drift=${drift}s`,
             );
           }
-          // The adapter's scan runs SECOND, so its reading of "how long ago"
-          // may only be the same or larger. A smaller one means the field is
-          // not measuring elapsed time.
-          if (ours < theirs - 1) {
+          // THE LATER READING MUST BE THE LARGER ONE, and which reading is later
+          // is now a property of this file rather than an assumption: the pin in
+          // `beforeAll` runs the adapter FIRST so the frozen ref is in place
+          // before either scan, which makes PRODUCTION the later of the two.
+          //
+          // Asserted against the order rather than hardcoding a side. This used
+          // to read `ours < theirs - 1` beside a comment saying "the adapter's
+          // scan runs SECOND"; when the pin swapped that order the assertion
+          // reported every branch as running backwards while the field was
+          // correct — measured 2026-09-01, adapter=1830 production=1862 on
+          // three branches at once.
+          if (theirs < ours - 1) {
             offenders.push(
-              `${plan.file} ${branch.branch}: elapsed ran backwards — adapter=${ours} production=${theirs}`,
+              `${plan.file} ${branch.branch}: elapsed ran backwards — the later reading is smaller: adapter=${ours} production=${theirs}`,
             );
           }
         });
