@@ -82,7 +82,38 @@ function dispatchOne(name, { workerCommand, stub, monitorInterval = '1' } = {}) 
     },
   });
   const wt = path.join(path.dirname(sb.work), 'plot-wt-feature-watched-desk');
-  return { sb, worktree: wt, findingsFile: path.join(wt, '.plot-worker.monitor.agent.jsonl') };
+  return {
+    sb,
+    worktree: wt,
+    findingsFile: path.join(wt, '.plot-worker.monitor.agent.jsonl'),
+    /**
+     * The host calls THIS MONITOR made, told apart from dispatch's by CONTENT.
+     *
+     * A test that asserts "the monitor asked the host" cannot read the whole
+     * log. `plot-dispatch.sh:715` asks `plot-host.sh pr-state` as part of its
+     * eligibility check, and that spends its own `gh pr list` against the same
+     * stub on the same PATH — measured 2026-09-01, six were already logged
+     * before dispatch returned. An assertion over every call therefore passes
+     * on a monitor that never ran.
+     *
+     * POSITION CANNOT SEPARATE THEM. A high-water mark taken when dispatch
+     * returns looks right and is a race: the monitor is a detached grandchild
+     * whose first `monitor_pass` runs before any sleep, so its call can land
+     * before the mark and be discarded with dispatch's. Measured — that form
+     * failed CI with an empty list while the monitor had demonstrably asked,
+     * because its one call sat below the mark.
+     *
+     * CONTENT does separate them, and the two scripts already differ:
+     * `plot-host.sh:1240` requests `--json mergedAt`, while
+     * `plot-agent-monitor.sh:239` requests `--json mergedAt,number`. The
+     * monitor needs the number and dispatch does not, so the field list is the
+     * discriminator — and it is one the monitor would have to stop needing for
+     * this filter to go wrong.
+     */
+    monitorCalls: () => (stub
+      ? stub.calls().filter((c) => c.includes('mergedAt,number'))
+      : []),
+  };
 }
 
 /** Poll until a predicate over the published findings holds, or time runs out. */
@@ -165,13 +196,17 @@ test('a real dispatched agent that commits and opens nothing is reported owes a 
     // whose `gh` lookup never resolved — it would answer `unaskable`, publish
     // nothing, and the assertion above would have caught it; but the reverse
     // (a finding published without asking) is what this pins down.
-    const asked = stub.calls().filter((c) => c.startsWith('gh pr list'));
+    // THE MONITOR'S CALLS, not dispatch's — separated by the `--json` field
+    // list rather than by position; see `dispatchOne`.
+    const asked = run.monitorCalls().filter((c) => c.startsWith('gh pr list'));
     assert.ok(asked.length > 0,
-      `the monitor published owes a review without asking the host: ${JSON.stringify(stub.calls())}`);
+      `the monitor published owes a review without asking the host: ${JSON.stringify(run.monitorCalls())}`);
     assert.ok(asked.some((c) => c.includes('feature/watched-desk')),
       'the host was asked about the wrong branch');
     // `mergedAt`, never `state`: a merged PR reports CLOSED, and squash-merge
-    // leaves a branch ahead of main forever.
+    // leaves a branch ahead of main forever. Now implied by `monitorCalls`,
+    // which selects on that field list — kept because it is the PROPERTY, and a
+    // future filter that stopped selecting on content would silently drop it.
     assert.ok(asked.some((c) => c.includes('mergedAt')),
       'the PR question does not read mergedAt');
 
@@ -219,9 +254,17 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
     // the positive becomes deterministic rather than probable, and the negative
     // gets AT LEAST the old five seconds, usually more — the loop only stops
     // once a poll has actually happened.
+    //
+    // AND IT POLLS THE MONITOR'S CALLS, NOT THE WHOLE LOG, which is what the
+    // 2026-09-01 CI failure was really about. `plot-dispatch.sh:715` spends its
+    // own `gh pr list` on the same stub, so `stub.calls()` is already non-empty
+    // when this loop starts: the poll returned on its first iteration, the
+    // assertion below passed on dispatch's call, and the monitor was never
+    // measured at all. `run.monitorCalls()` selects the monitor's calls by
+    // their `--json` field list, so the loop now waits for the event it names.
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline
-      && !stub.calls().some((c) => c.startsWith('gh pr list'))) {
+      && !run.monitorCalls().some((c) => c.startsWith('gh pr list'))) {
       execFileSync('sleep', ['0.25']);
     }
     const records = fs.existsSync(run.findingsFile)
@@ -235,8 +278,8 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
     // the same empty file — which is precisely the ambiguity the Attaching
     // slice's `nothing measured yet` no-op existed to remove, and which this
     // slice removed the no-op from.
-    assert.ok(stub.calls().some((c) => c.startsWith('gh pr list')),
-      'the monitor never asked the host, so this silence proves nothing — it may never have sampled at all');
+    assert.ok(run.monitorCalls().some((c) => c.startsWith('gh pr list')),
+      `the monitor never asked the host, so this silence proves nothing — it may never have sampled at all: ${JSON.stringify(run.monitorCalls())}`);
   } finally {
     run.sb.cleanup();
   }
