@@ -4,7 +4,7 @@ story: the-master-agent-holds-the-fleet
 author: jwloka
 status: draft
 created: 2026-08-28
-updated: 2026-08-29
+updated: 2026-09-01
 ---
 
 # Machine — domain object specification
@@ -23,13 +23,13 @@ made four diagnoses wrong.
 | § | section | answers |
 |---|---|---|
 | 1 | [What a Machine is](#1-what-a-machine-is) | why it must exist |
-| 2 | [Posture](#2-posture) | none — it is the hardware |
+| 2 | [Posture](#2-posture) | none — it reads the hardware |
 | 3 | [The domain object](#3-the-domain-object) | **the normative spec** |
 | 4 | [Lifecycle](#4-lifecycle) | a state that is a moment |
 | 5 | [Direction](#5-direction) | none |
 | 6 | [Relations](#6-relations) | Agent · Worktree · everything |
 | 7 | [Actions](#7-actions) | measure — and nothing else |
-| 8 | [Scope](#8-scope) | one machine, and what shares it |
+| 8 | [Scope](#8-scope) | several machines, one computer, and what shares it |
 | 9 | [The collaborators](#9-the-collaborators) | a Monitor, and why not a Manager |
 | 10 | [Fleet control](#10-fleet-control) | the ceiling on the operator's dial |
 | 11 | [Views](#11-views) | headroom beside the stepper |
@@ -41,8 +41,9 @@ made four diagnoses wrong.
 
 ## 1. What a Machine is
 
-**A Machine is the resource every other entity competes for**, and nothing
-models it.
+**A Machine is a Plot instance, and the resource every other entity competes for
+is the computer under it** — the CPU, its cores, the cost of a fork. Nothing
+models either.
 
 **So its symptoms land on whatever entity *is* modelled**, which is the whole
 reason it must exist:
@@ -67,17 +68,24 @@ fix is the same: model the thing the value is really about.
 
 ## 2. Posture
 
-**None.** A Machine is hardware. No tracker, no host, no config changes what it
-is — and it is the only entity here whose truth is neither git, a file, a host
-nor a process, but **the operating system**.
+**None.** A Machine reads hardware. No tracker, no host, no config changes what
+it reads — and it is the only entity here whose truth is neither git, a file, a
+host nor a process, but **the operating system**.
+
+**Its identity is not read from the operating system**, though (§3): `hostname()`
+returns the same string for the three instances measured on this laptop. The
+readings come from the OS; the key comes from where the instance was started.
 
 ---
 
 ## 3. The domain object
 
-> **Identity: none.** There is exactly one Machine, and that singularity is
-> load-bearing — with two, headroom would be a property of a *pair*. It is the
-> one entity outside the [three kinds](DESIGN-review.md#1-identity-three-kinds).
+> **Identity: `hostname` + a short id**, because several Plot instances run on
+> one computer — measured three, on one laptop, all reporting `ani`. The short
+> id is a hash of `repoRoot + scriptsDir`, which is the key
+> [`fleet.ts:646`](../../../packages/board/src/server/fleet.ts) already caches by.
+> It is the one entity that splits its readings between **the instance** and
+> **the computer under it**, and only the instance half is keyed.
 > **State: MEASURED** — the fourth
 > [source](DESIGN-review.md#2-state-where-each-entitys-truth-lives), and the only
 > one that **decays instantly**: the next process anyone starts invalidates it,
@@ -86,23 +94,164 @@ nor a process, but **the operating system**.
 
 ### Identity
 
-**A Machine has no identity, because there is exactly one.** Everything in this
-design runs on the machine it is measured from — the board, the agents, the
-scan, the supervisor.
+**A Machine is a Plot instance, and several run on one computer.** Its identity
+is `hostname` + a short id:
 
-**That singularity is load-bearing** (§8): if there were two, headroom would be
-a property of a *pair* and the whole entity would need a key.
+```
+ani/a9069063      Agentic-Tools/plot
+ani/<8 hex>       Agentic-Tools/agent-skills
+ani/<8 hex>       EKZ.Webportal/ekzweb
+```
+
+The first row is computed, from
+`sha256(repoRoot + "\0" + scriptsDir).slice(0, 8)`. The other two are shown as
+shapes rather than digits: **the derivation is normative, the digits are not** —
+they follow from wherever each project happens to sit on disk.
+
+**This corrects the spec.** It read *"A Machine has no identity, because there is
+exactly one"*, and named the exact condition that would refute it: *"if there
+were two, headroom would be a property of a pair and the whole entity would need
+a key."* **That condition is the working environment.**
+
+**Measured 2026-08-30, re-measured 2026-09-01** — each verified for a
+`## Plot Config` section *and* a `.plot/` directory, not merely for the name:
+
+```
+Agentic-Tools/plot          Plot Config: yes    .plot/: yes
+Agentic-Tools/agent-skills  Plot Config: yes    .plot/: yes
+EKZ.Webportal/ekzweb        Plot Config: yes    .plot/: yes
+
+hostname:  ani              — the same string for all three
+```
+
+#### Why `hostname()` alone is not an identity
+
+**It returns `ani` for all three.** The port declares
+`hostname()` ([`ports/machine.ts:44`](../../../packages/domain/src/ports/machine.ts))
+as though it named one thing, and on this laptop it names three. It stays
+useful and stays insufficient: **the hostname is what makes an id unique beyond
+this computer** — a fleet spanning laptops must say *which* `ani` — and the
+short id is what separates instances on one.
+
+#### The short id is a hash of `repoRoot + scriptsDir`
+
+**Decided here; the plan recorded both candidates.** The alternative was
+`basename(repoRoot)`, which is readable — `plot`, `agent-skills`, `ekzweb` —
+and loses on one case:
+
+| | three projects | a board in a worktree |
+|---|---|---|
+| `basename(repoRoot)` | readable | **`docs-a-machine-has-an-identity`** — renames itself with the branch, and vanishes when the branch is reaped |
+| **hash of `repoRoot + scriptsDir`** | `a9069063` — opaque | **stable across a rename** |
+
+**The worktree case is measured, not hypothetical.** This repo runs boards from
+worktrees in its own suite, and carried **six live ones** on 2026-09-01 — every
+name a branch name, every one of them reapable. An id that dies with a branch
+cannot key a `machineAtDeath` record that outlives it.
+
+**A readable id is worth something to an operator reading a log; a stable one is
+worth more to a machine that must stay itself.** The hash wins because the id's
+job is correlation across time, and the log can carry `repoRoot` beside it.
+
+#### It must cover both axes, not just the repo
+
+`repoRoot` is `PLOT_REPO_ROOT ?? process.cwd()`; `scriptsDir` is
+`PLOT_SCRIPTS_DIR ??` the artifact's own directory
+([`index.ts:64-65`](../../../packages/board/src/server/index.ts)). **They vary
+independently** — one follows the working directory, the other follows where the
+board was installed from.
+
+**So an id derived from the repo alone would merge two machines the cache
+already keeps apart.** `fleet.ts:646` keys every cache — and therefore every
+pulse, every PR timer, every estate — by `` `${opts.repoRoot}\0${opts.scriptsDir}` ``.
+**That key is the identity**, and this section only names what was already
+there.
+
+Computed the same way, this document's own two checkouts differ:
+
+```
+/Users/jwloka/Quatico/Agentic-Tools/plot                    → ani/a9069063
+/Users/jwloka/…/plot/.worktrees/docs-a-machine-has-an-identity → ani/e4a46dad
+```
+
+### Two entities, one of which was missing
+
+**The readings split, and only half of them are the instance's.**
+
+| | **Machine** (instance) | **Computer** (hardware) |
+|---|---|---|
+| identified by | `hostname` + short id, from `repoRoot + scriptsDir` | `hostname()` |
+| how many | **one per Plot project** | one |
+| owns | its pulse, its fleet, its estate, its divisors | `spawnCostMs`, `loadAverage`, `cores` |
+| answers | *whose clock is this?* | *can anything fork cheaply right now?* |
+
+**Three instances measuring one spawn cost is not duplication** — it is three
+tenants reading one meter. §8 already said so without drawing the conclusion:
+*"headroom is not this fleet's headroom, it is the machine's, and the fleet is
+one tenant among several."* **Read against three instances, "the machine" there
+is the hardware.**
+
+**Not chosen: renaming `Machine` to `Instance`.** The word is in
+`DESIGN-agent.md`, `DESIGN-worktree.md`, `ports/machine.ts`, `entities/machine.ts`,
+its adapter and its tests. A rename is a large diff that changes no meaning —
+and the meaning was never wrong, only the count.
 
 ### Fields
+
+**The table separates what the computer supplies from what the instance owns.**
+Every row is read the same way it always was; what changed is which entity owns
+it.
+
+**Read from the computer** — one measurement, shared by every instance on it:
 
 | field | type | note |
 |---|---|---|
 | `spawnCostMs` | number \| null | **the signal** — null when unmeasured |
-| `headroom` | `clear`\|`tight`\|`starved`\|`unmeasured` | derived from it |
-| `measuredAt` | ISO-8601 | **required** — a reading without one cannot be judged stale |
-| `sampleMs` | number | **what the measurement itself cost** |
 | `loadAverage` | [1m, 5m, 15m] | **context only, never the verdict** |
 | `cores` | number | context |
+
+**Owned by the instance** — its own reading of the computer, and its own claim
+on it:
+
+| field | type | note |
+|---|---|---|
+| `id` | `hostname/shortId` | **the correction** — `hostname()` alone names three instances |
+| `headroom` | `clear`\|`tight`\|`starved`\|`unmeasured` | derived from `spawnCostMs` |
+| `measuredAt` | ISO-8601 | **required** — a reading without one cannot be judged stale |
+| `sampleMs` | number | **what this instance's measurement cost** |
+| `parallelAgents` | number | **a claimed share of the computer, not a measurement** — see below |
+
+#### `parallelAgents` is a claim, and its default is not a measurement
+
+**The same number, a different question.** It reads today as *"how many agents do
+I want"*; under two entities it means *"what share of the computer do I claim"* —
+and the second question is answerable by an operator who knows three projects are
+running.
+
+**A machine does not negotiate its share; it declares one.** Nothing arbitrates,
+and nothing needs to: the sum is the operator's to keep sensible, exactly as it
+is for any three programs sharing a laptop.
+
+**Measured 2026-09-01 — an unset share is still a share:**
+
+```
+Agentic-Tools/plot          {"autoDispatch":false,"parallelAgents":4,"machineOverride":false}
+Agentic-Tools/agent-skills  no fleet-controls.json
+EKZ.Webportal/ekzweb        no fleet-controls.json
+```
+
+**Only one instance has ever claimed a share.** The other two run on
+config-seeded defaults
+([`fleet-settings.ts:124`](../../../packages/board/src/server/fleet-settings.ts),
+`PARALLEL_AGENTS_DEFAULT = 3`), which means **the share is implicit for two of
+the three machines, not merely unreported**. A machine that never chose still
+takes CPU, and its default is seeded from its own config rather than from
+anything that knows two other projects exist.
+
+**Known blind spot, recorded and not solved: nothing reports the sum.** No
+component reads what the three instances have claimed between them, and two of
+them have never said. **That is a reporting gap, not an arbitration one** (§13,
+gap 5) — a scheduler would be the wrong answer to it.
 
 ### Why spawn cost, and not load average
 
@@ -196,10 +345,12 @@ never written.
 
 | relation | mechanism |
 |---|---|
-| Machine → **everything** | every entity's derivation runs on it |
+| **Computer → Machine** | **one computer hosts several instances** — three measured (§3) |
+| Machine → Computer | it reads headroom; it does not own it |
+| Machine → **everything in it** | every entity's derivation runs on this instance |
 | Agent → Machine **at death** | `machineAtDeath` (Agent §3) |
 | Worktree → Machine | disk, and a recursive tool's cost (Worktree §12) |
-| Build → Machine | **no** — CI runs elsewhere |
+| Build → Computer | **no** — CI runs elsewhere |
 
 Source: [`diagrams/machine-relations.mmd`](diagrams/machine-relations.mmd)
 
@@ -207,22 +358,29 @@ Source: [`diagrams/machine-relations.mmd`](diagrams/machine-relations.mmd)
 classDiagram
   direction LR
 
+  class Computer
   class Machine
   class Agent
   class Worktree
   class Build
 
+  Computer "1" --> "*" Machine : hosts
+  Machine --> Computer : reads headroom
   Machine "1" --> "*" Agent : hosts
   Agent --> Machine : machineAtDeath
   Worktree --> Machine : disk cost
-  Build .. Machine : CI runs elsewhere
+  Build .. Computer : CI runs elsewhere
 ```
+
+**`machineAtDeath` names an instance, and that is what the id is for** (§3). A
+scan finding a dead worker on this laptop must be able to say *which* of the
+three machines it died on, and `ani` alone does not.
 
 **`machineAtDeath` is the relation that matters**, and it is why the
 `AgentMonitor` must be attached at creation (Agent §9): *a scan finding a dead
 worker cannot know what the machine was like when it died.*
 
-**Build is the one entity that does not share it** — CI runs on the host's
+**Build is the one entity that shares neither** — CI runs on the host's
 hardware, which is why a red build says nothing about local headroom.
 
 ---
@@ -252,7 +410,8 @@ fetches, its own test runs — because that spends nothing the operator owns
 
 ## 8. Scope
 
-**One machine, and the supervisor is on it.**
+**One computer, several machines on it, and the supervisor is on the same
+computer as all of them.**
 
 **That is the story's central coupling:** *"the board polls a scan that spawns
 115 git processes every 5 seconds. A supervisor working on the same machine is
@@ -263,8 +422,25 @@ operator's own view away."*
 scan, the supervisor's own tool calls, and everything else on the laptop —
 including an indexing burst that held 12.3 of 16 cores.
 
-**Which is why the entity is singular** (§3): headroom is not *this fleet's*
-headroom, it is *the machine's*, and the fleet is one tenant among several.
+### Rewritten against the measured three
+
+**This section argued the entity was singular**, and rested the whole of §3's
+*"no identity"* on it: *headroom is not this fleet's headroom, it is the
+machine's, and the fleet is one tenant among several.*
+
+**That sentence is right, and it is about the computer.** Three Plot instances
+run here (§3). Each measures the same spawn cost, on the same 16 cores, and each
+calls the reading its own. **The tenant list was never one fleet long** — it
+already named the board, the agents and an indexing burst, and it simply did not
+name the other two Plot instances that were also on it.
+
+**So what is singular is the computer, and what is plural is the machine.**
+Headroom is a property of the hardware; the reading of it, the pulse that takes
+it, and the share claimed against it are properties of an instance.
+
+**Nothing about the readings changes.** Spawn cost is measured the same way and
+means the same thing; the correction is which entity owns it, and that the
+owning entity needs a key.
 
 ---
 
@@ -282,10 +458,18 @@ hardware.
 |---|---|---|
 | `AgentMonitor` | one agent | that agent exits |
 | `WorktreeMonitor` | one tree | its agent is gone |
-| **`MachineMonitor`** | **the machine** | **never — there is one, and it is always there** |
+| **`MachineMonitor`** | **its own instance** | **never — the instance outlives every agent in it** |
 
-**A single long-lived reading**, sampled on a cadence and shared by every
-consumer — not one per agent, which would multiply the very cost it measures.
+**A single long-lived reading per instance**, sampled on a cadence and shared
+by every consumer inside it — not one per agent, which would multiply the very
+cost it measures.
+
+**One monitor per Plot instance, and each reads the same computer** (§3). That
+is three tenants reading one meter, not three copies of one monitor: each
+samples on its own cadence, dates its own reading, and reports to its own board.
+The cost is the reason it stays one per instance rather than one per agent —
+374 ms a sample against an 18.3 s scan, times the agents, is what a monitor is
+for avoiding.
 
 ### What it must supply
 
@@ -305,15 +489,35 @@ consumer — not one per agent, which would multiply the very cost it measures.
 maximum** — so the stepper climbs forever with nothing saying where the
 machine's range ends.
 
-| what the operator sees | source |
-|---|---|
-| the dial, at 3 | `parallelAgents` — **exists** |
-| slots taken | `liveAgentCount` — **exists** |
-| **what the machine can take** | **Machine — does not exist** |
+| what the operator sees | source | whose |
+|---|---|---|
+| the dial, at 3 | `parallelAgents` — **exists** | **the instance's claim** |
+| slots taken | `liveAgentCount` — **exists** | the instance |
+| **what the computer can take** | **Machine — does not exist** | the computer |
+| **what every instance has claimed** | **nothing reports it** | across instances |
 
 **It bounds, and at `starved` it says *not yet*.** Elastic means *the operator
 scales within a range the machine can take* — the controller reports the range
 and a person chooses inside it.
+
+#### The dial claims a share; the ceiling is the computer's
+
+**The two rows above answer different questions**, and the entity split (§3) is
+what separates them. `parallelAgents` is what *this instance* claims. The
+ceiling it should be bounded by is a property of the *computer*, which every
+instance shares — so a ceiling derived from spawn cost bounds the dial correctly
+without any instance knowing what the others took.
+
+**The share is not negotiated, and an unset one is still a share.** Two of the
+three instances measured here have no `fleet-controls.json` at all and run on a
+config-seeded default of `3` (§3). They claim CPU without ever having said so.
+
+**Row 4 is the blind spot, and this document records it rather than solving
+it.** Nothing sums the claims. **A scheduler would be the wrong answer** — the
+sum is the operator's to keep sensible, exactly as it is for any three programs
+sharing a laptop, and the machine's job is to report what it is getting rather
+than to bargain for more. What is missing is a *report*, and it is filed as
+such (§13, gap 5).
 
 #### Superseded the same day: there is nothing to refuse
 
@@ -426,6 +630,8 @@ correctly.
 | 2 | **No `machineAtDeath`** — `exit 124` cannot name its cause |
 | 3 | **No ceiling on `parallelAgents`** — floor 1, no maximum |
 | 4 | **Nothing prices an operation before it runs** — job 4 |
+| 5 | **Nothing reports the sum of the instances' claims** — three machines here, one has ever set `parallelAgents`, and no component reads across them (§3, §10). A **reporting** gap: arbitration is explicitly not wanted |
+| 6 | **No instance id is minted or recorded** — the key exists in `fleet.ts:646` as a cache key, and nothing surfaces it as the machine's identity |
 
 ---
 
@@ -440,7 +646,8 @@ correctly.
 4. **It defers, and never refuses** — at `starved` it says *not yet* with the
    number it measured; the operator may proceed anyway. It bounds a dial only
    the operator moves, and it never takes a dispatch away (§7, §10).
-5. **There is exactly one**, and the fleet is one tenant on it.
+5. **There is one per Plot project, and one computer under them all** — the
+   fleet is one tenant on the computer, and so is every other instance (§3, §8).
 6. **The controller may throttle itself; only the operator resizes the fleet.**
 
 ### Open points

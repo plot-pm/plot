@@ -1,12 +1,15 @@
 classDiagram
   direction LR
 
+  class Computer
   class Machine
   class Agent
   class Worktree
   class Build
 
+  Computer "1" --> "*" Machine : hosts
+  Machine --> Computer : reads headroom
   Machine "1" --> "*" Agent : hosts
   Agent --> Machine : machineAtDeath
   Worktree --> Machine : disk cost
-  Build .. Machine : CI runs elsewhere
+  Build .. Computer : CI runs elsewhere
