@@ -450,6 +450,47 @@ requests per hour, and those are different numbers with different recovery
 behaviour. A quota exhaustion has a reset time worth printing; a secondary limit
 clears in seconds and the board should retry, not apologise for 49 minutes.
 
+### Halving the frequency is the wrong reaction, and to both failures
+
+**Settled 2026-09-01.** The obvious response to a refusal — *halve the cadence*
+— is rejected, because the two failures recover differently and halving suits
+neither.
+
+| | quota spent | secondary / burst |
+|---|---|---|
+| what is exhausted | requests per hour | requests at once |
+| recovery | the reset time, minutes | seconds |
+| halving the cadence | **does not help** — the bucket is empty, and a slower call is refused identically | **too slow both ways** — it waits far longer than needed and still bursts |
+| the right reaction | **stop until the reset**, and say when | **retry shortly, and lower concurrency** |
+
+**A spent bucket is not a rate problem.** Nothing is spendable until the reset,
+so a halved cadence is a slower way of being refused. The honest reaction is to
+stop asking, print the reset the header already carries, and resume at the old
+cadence — the previous rate was not the cause.
+
+**A secondary limit is a concurrency problem wearing a rate costume.** The
+2026-08-27 outage was eight workers against a cap of seven with the quota
+untouched; halving each worker's frequency would have left eight in flight and
+refused again. **The lever is `bug/the-budget-bounds-simultaneous-calls`, not the
+cadence.**
+
+**So the cadence divides on OBSERVED SPEND, never on a refusal.** Division is how
+the account stays within its budget while several spenders share it — it is
+proactive, derived from the record, and it is already the section above. A
+refusal is not an input to it: reacting to an error by halving would compound
+with the division already happening and drift the cadence down with nothing to
+bring it back.
+
+**What a refusal DOES update is the prediction.** For a connector answering
+`predicted`, a `throttled` is the evidence that its value was wrong, and the
+correction belongs there rather than in the cadence.
+
+**Nothing reacts at all today** — verified 2026-09-01: `plot-host.sh` has no
+sleep, no retry and no backoff, and `fleet.ts` never reads `throttled`. So this
+is new behaviour rather than a correction, and it should be built in the order
+above: stop-until-reset first, because it is the one with a number the header
+already supplies.
+
 ### The banner tells the truth about which limit and which clock
 
 Today it prints the primary reset (`~12 min`, `~59 min`) whatever the failure
@@ -516,6 +557,10 @@ comes first**, because five branches write to it.
 ### Budgeting each bucket by name
 
 - `bug/the-budget-knows-which-bucket-it-spent` — the record from slice 1 is keyed by bucket (`core`, `graphql`, and whatever `X-RateLimit-Resource` names), read from the response headers of calls that were going to happen rather than from `gh api rate_limit`, which was measured reporting 5000 while the headers reported 0. Fixes `graphql_budget_spent()` in the same slice: a gate that cannot see the condition it gates on is worse than no gate, because it reports safety.
+
+### Waiting for the reset
+
+- `bug/a-spent-bucket-waits-for-its-reset` — the reaction to a refusal, which nothing does today: `plot-host.sh` has no sleep, no retry and no backoff, and `fleet.ts` never reads `throttled`. On a **spent quota** the caller stops until the reset the response header carries and resumes at its previous cadence — the rate was not the cause, so it is not the fix. On a **secondary limit** it retries after seconds and lowers concurrency, never frequency. **The cadence is not touched by either**: it divides on observed spend, and a refusal that also halved it would compound with that division and drift downward with nothing to restore it. Needs the bucket naming from `bug/the-budget-knows-which-bucket-it-spent` to know which reaction applies.
 
 ### Bounding concurrency
 
