@@ -92,6 +92,35 @@ await esbuild.build({
 fs.copyFileSync(verdictsArtifact, shippedVerdicts);
 fs.chmodSync(shippedVerdicts, 0o755);
 
+// The move refusals, reachable from the migration that needs them.
+//
+// A FOURTH artifact, for the reason the third one gives: plot-ask.mjs answers
+// by RUNNING plot-fleet-scan.sh, so a dispatcher asking it would be an artifact
+// calling a script that calls the dispatcher.
+//
+// A BUNDLE rather than plot-reap.sh's inline heredoc, and the difference is the
+// npm layout. The reaper imports packages/domain/src/rules/reapable.ts through
+// a path derived from its own checkout; plot-dispatch.sh is vendored into the
+// published package, where `packages/` does not exist, so that shape would make
+// every migration report "the rule could not be asked" and keep every worktree.
+const movableArtifact = path.join(here, 'dist/plot-movable.mjs');
+const shippedMovable = path.join(here, '../../skills/plot/scripts/board/plot-movable.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/movable.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: movableArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(movableArtifact, shippedMovable);
+fs.chmodSync(shippedMovable, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -139,7 +168,9 @@ for (const name of vendoredScripts) {
 const kb = (fs.statSync(shippedArtifact).size / 1024).toFixed(1);
 const askKb = (fs.statSync(shippedAsk).size / 1024).toFixed(1);
 const verdictsKb = (fs.statSync(shippedVerdicts).size / 1024).toFixed(1);
+const movableKb = (fs.statSync(shippedMovable).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-movable.mjs (${movableKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
