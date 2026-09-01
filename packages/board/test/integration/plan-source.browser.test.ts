@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { chromium, type Browser, type Page } from 'playwright';
-import { startServer } from '../helpers.mjs';
+import type { Page } from 'playwright';
+import { openCatalogue, board, card, column, type Catalogue } from '../catalogue/index.js';
+import type { PlanSource } from '../../src/contract/schema.js';
 
 /**
  * THE BOARD SAYS WHERE ITS PLANS CAME FROM, and marks the ones the ref has not
@@ -27,68 +26,106 @@ import { startServer } from '../helpers.mjs';
  * wrong phase and a Deliver button refusing a finished plan were mysteries
  * rather than diagnoses on 2026-08-27: nothing on screen said the plan estate
  * had been read from a commit sixteen behind.
+ *
+ * ## Two shapes of input, and the reason there are two
+ *
+ * Seven cases state a `planSource` and get it SERVED BY NAME — `board()` parses
+ * through Zod, so a field this file spells wrongly fails at build time rather
+ * than rendering blank.
+ *
+ * The remaining two are about a payload the schema CANNOT PRODUCE: a field that
+ * is genuinely absent at runtime. `BoardSchema` defaults `planSource` and
+ * `behind`, so anything `board()` returns HAS them — a parsed payload is the
+ * opposite of the older server's these two tests are about, and serving one
+ * would silently turn *absent* into `{ ref: '', resolved: false }`, whose render
+ * is the `unresolved` line rather than the silence the test asserts.
+ *
+ * So those two layer `page.route` over the served baseline and delete the field
+ * from the JSON — the interception-over-baseline pattern
+ * `unreachable-overlay.browser.test.ts` demonstrates for a board that cannot
+ * answer, applied to a board that answers with LESS than the schema describes.
+ * The absence is the subject, so the test states it where a reader can see it.
  */
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
+const CARD_PATH = (slug: string) => `docs/plans/2026-08-27-${slug}.md`;
 
-const card = (slug: string, over: Record<string, unknown> = {}) => ({
-  slug,
-  title: slug,
-  type: 'bug',
-  phase: 'Development',
-  path: `docs/plans/2026-08-27-${slug}.md`,
-  prs: [],
-  phaseDate: '2026-08-27',
-  ...over,
-});
+/** One Development card, built through the catalogue's parsing builder. */
+const planCard = (slug: string, over: Parameters<typeof card>[0] = {}) =>
+  card({
+    slug, title: slug, type: 'bug', phase: 'Development',
+    path: CARD_PATH(slug), phaseDate: '2026-08-27', ...over,
+  });
 
 describe('the board names the source of its plans', () => {
-  let browser: Browser;
-  let server: Awaited<ReturnType<typeof startServer>>;
-  let baseURL: string;
-  let base: Record<string, unknown>;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    browser = await chromium.launch();
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
-    base = await (await fetch(`${baseURL}api/board`)).json();
+    cat = await openCatalogue();
   }, 60_000);
 
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   /**
-   * Open the BOARD tab over a payload built from `planSource` and some cards.
+   * Open the BOARD tab over a stated `planSource` and a stated set of cards.
    *
-   * The board is served statically rather than proxied per request: a
-   * `route.fetch()` in the callback races the background poll against teardown,
-   * and the route callback must stay synchronous — a rule this repo already paid
-   * to learn.
+   * `an-empty-estate` is the baseline rather than `a-board-of-plans`: every
+   * assertion here reads the provenance LINE and the cards this test names, so
+   * a scenario supplying five phases of its own cards would add articles the
+   * `not pushed` assertions then have to exclude. The override is the whole
+   * subject, which is what makes it visible at the call site.
    */
-  async function open(planSource: unknown, cards: unknown[]): Promise<Page> {
-    const payload = JSON.parse(JSON.stringify(base)) as {
-      columns: { phase: string; cards: unknown[] }[];
-      planSource?: unknown;
-    };
-    for (const col of payload.columns) col.cards = [];
-    const development = payload.columns.find((c) => c.phase === 'Development');
-    if (development) development.cards = cards;
-    payload.planSource = planSource;
-    const body = JSON.stringify(payload);
-    const context = await browser.newContext({ viewport: { width: 1400, height: 1200 } });
-    const page = await context.newPage();
-    await page.route('**/api/board', (route) =>
-      route.fulfill({ contentType: 'application/json', body }));
-    await page.goto(baseURL);
+  const open = async (planSource: PlanSource, cards: ReturnType<typeof card>[]): Promise<Page> => {
+    const page = await cat.open('an-empty-estate', {
+      over: {
+        board: board({
+          planSource,
+          columns: [column({ phase: 'Development', cards })],
+        }),
+      },
+    });
     // Waits on the HEADER, not on the source line: one case here deliberately
     // has no source line at all, and waiting on it would turn that test's
     // subject into its timeout.
     await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
     return page;
-  }
+  };
+
+  /**
+   * Open the board over a payload with `field` DELETED — an older server's.
+   *
+   * The route is installed before `goto` and answers a payload built from the
+   * same scenario the mock serves, minus one key. Synchronous by design: the
+   * board polls on a timer, and an awaited `route.fetch()` can still be in
+   * flight when the page closes.
+   */
+  const openWithout = async (
+    field: 'planSource' | 'behind',
+    planSource: PlanSource,
+    cards: ReturnType<typeof card>[],
+  ): Promise<Page> => {
+    const built = board({
+      planSource,
+      columns: [column({ phase: 'Development', cards })],
+    });
+    const payload = JSON.parse(JSON.stringify(built)) as Record<string, unknown> & {
+      planSource?: Record<string, unknown>;
+    };
+    if (field === 'planSource') delete payload.planSource;
+    else delete payload.planSource?.behind;
+    const body = JSON.stringify(payload);
+
+    const context = await cat.browser.newContext({ viewport: { width: 1400, height: 1200 } });
+    const page = await context.newPage();
+    await page.route('**/api/board', (route) =>
+      route.fulfill({ contentType: 'application/json', body }));
+    // The fleet still comes from the mock, so only the board's shape is stated
+    // here — the state under test is one missing field, not a missing server.
+    cat.mock.serve('an-empty-estate');
+    await page.goto(cat.mock.baseURL);
+    await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
+    return page;
+  };
 
   const sourceLine = (page: Page) => page.locator('[data-plan-source]').first();
 
@@ -96,8 +133,8 @@ describe('the board names the source of its plans', () => {
     // Item 14. The ref reaches the SCREEN — its absence is what made two wrong
     // renders undiagnosable.
     const page = await open(
-      { ref: 'origin/main', resolved: true, localOnly: 0 },
-      [card('a-plan')],
+      { ref: 'origin/main', resolved: true, localOnly: 0, behind: null },
+      [planCard('a-plan')],
     );
     try {
       expect(await sourceLine(page).getAttribute('data-plan-source')).toBe('ref');
@@ -111,8 +148,8 @@ describe('the board names the source of its plans', () => {
     // `CardSchema` declaration it depends on is enforced separately, by tsc
     // (see the header).
     const page = await open(
-      { ref: 'origin/main', resolved: true, localOnly: 1 },
-      [card('written-here', { notPushed: true }), card('on-the-ref')],
+      { ref: 'origin/main', resolved: true, localOnly: 1, behind: null },
+      [planCard('written-here', { notPushed: true }), planCard('on-the-ref')],
     );
     try {
       const local = page.locator('article', { hasText: 'written-here' }).first();
@@ -137,8 +174,8 @@ describe('the board names the source of its plans', () => {
     // real deployments, which is why the absence is asserted rather than
     // assumed.
     const page = await open(
-      { ref: 'origin/main', resolved: true, localOnly: 0 },
-      [card('one'), card('two'), card('three')],
+      { ref: 'origin/main', resolved: true, localOnly: 0, behind: null },
+      [planCard('one'), planCard('two'), planCard('three')],
     );
     try {
       const board = page.locator('main');
@@ -157,7 +194,15 @@ describe('the board names the source of its plans', () => {
     // browser tests whose hand-written payloads predate this field.
     //
     // The failure is silent in the worst way: not a missing line, a blank page.
-    const page = await open(undefined, [card('a-plan')]);
+    //
+    // SERVED WITH THE KEY DELETED rather than built by the catalogue, because a
+    // parsed payload always HAS the field — see the header. This is the one
+    // input `board()` cannot express, so the test states it directly.
+    const page = await openWithout(
+      'planSource',
+      { ref: 'origin/main', resolved: true, localOnly: 0, behind: null },
+      [planCard('a-plan')],
+    );
     try {
       // The header is proof the app mounted rather than crashed on render.
       await page.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
@@ -175,8 +220,8 @@ describe('the board names the source of its plans', () => {
     // checkout quietly wear the ref's authority, which is the substitution the
     // whole plan forbids.
     const page = await open(
-      { ref: 'origin/main', resolved: false, localOnly: 2 },
-      [card('orphan', { notPushed: true })],
+      { ref: 'origin/main', resolved: false, localOnly: 2, behind: null },
+      [planCard('orphan', { notPushed: true })],
     );
     try {
       expect(await sourceLine(page).getAttribute('data-plan-source')).toBe('unresolved');
@@ -193,7 +238,7 @@ describe('the board names the source of its plans', () => {
     // was spent because nothing said so.
     const page = await open(
       { ref: 'origin/main', resolved: true, localOnly: 0, behind: 16 },
-      [card('a-plan')],
+      [planCard('a-plan')],
     );
     try {
       const text = await sourceLine(page).textContent();
@@ -214,7 +259,7 @@ describe('the board names the source of its plans', () => {
     // exception. Same rule the `not pushed` count already follows at zero.
     const page = await open(
       { ref: 'origin/main', resolved: true, localOnly: 0, behind: 0 },
-      [card('a-plan')],
+      [planCard('a-plan')],
     );
     try {
       const board = page.locator('main');
@@ -236,7 +281,7 @@ describe('the board names the source of its plans', () => {
     // the assertion that catches it.
     const page = await open(
       { ref: 'origin/main', resolved: true, localOnly: 0, behind: null },
-      [card('a-plan')],
+      [planCard('a-plan')],
     );
     try {
       const board = page.locator('main');
@@ -251,9 +296,15 @@ describe('the board names the source of its plans', () => {
     // the schema default never runs and `behind` is genuinely `undefined` —
     // which is neither a number nor null. It must read as *cannot say* too,
     // and above all must not take the page down.
-    const page = await open(
-      { ref: 'origin/main', resolved: true, localOnly: 0 },
-      [card('a-plan')],
+    //
+    // The key is DELETED from the served payload for the same reason as the
+    // `planSource` case above: `board()` parses, and a parsed `behind` is
+    // `null` rather than missing. Those render alike and mean different things,
+    // and this test is about the one the schema cannot emit.
+    const page = await openWithout(
+      'behind',
+      { ref: 'origin/main', resolved: true, localOnly: 0, behind: null },
+      [planCard('a-plan')],
     );
     try {
       expect(await sourceLine(page).textContent()).toContain('origin/main');
