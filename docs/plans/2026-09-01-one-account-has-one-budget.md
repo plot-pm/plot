@@ -17,6 +17,7 @@
 - **Rounds:** 5
 - **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Started:** 2026-09-01, Jan Wloka, `bug/a-connector-answers-for-its-limit`
+- **Started:** 2026-09-01, Jan Wloka, `bug/a-budget-belongs-to-the-computer`
 
 ## Changelog
 

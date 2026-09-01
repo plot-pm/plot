@@ -186,7 +186,7 @@ describe('sprintMembership — which active sprint claims each plan', () => {
       '2026-W40-alpha.md':
         `# Sprint: Alpha Title\n\n${ACTIVE}\n### Must Have\n\n- [ ] [plan-one] a\n- [ ] [plan-two] b\n`,
     });
-    const map = sprintMembership(opts);
+    const map = await sprintMembership(opts);
     expect(map.get('plan-one')).toBe('alpha');
     expect(map.get('plan-two')).toBe('alpha');
     // A plan no sprint lists is simply absent — the caller reads that as "".
@@ -204,7 +204,7 @@ describe('sprintMembership — which active sprint claims each plan', () => {
       '2026-W39-gone.md':
         `# Sprint: Closed One\n\n${CLOSED}\n### Must Have\n\n- [ ] [old-plan] b\n`,
     });
-    const map = sprintMembership(opts);
+    const map = await sprintMembership(opts);
     expect(map.get('live-plan')).toBe('live');
     expect(map.has('old-plan')).toBe(false);
   });
@@ -220,10 +220,10 @@ describe('sprintMembership — which active sprint claims each plan', () => {
       '2026-W40-second.md':
         `# Sprint: Second\n\n${ACTIVE}\n### Must Have\n\n- [ ] [shared-plan] a\n`,
     });
-    const map = sprintMembership(opts);
+    const map = await sprintMembership(opts);
     // Whichever sprint won, it is ONE of the two and stable across calls — the
     // property that matters is that the map holds a single deterministic answer.
-    expect(sprintMembership(opts).get('shared-plan')).toBe(map.get('shared-plan'));
+    expect((await sprintMembership(opts)).get('shared-plan')).toBe(map.get('shared-plan'));
     expect(['first', 'second']).toContain(map.get('shared-plan'));
   });
 
@@ -232,6 +232,6 @@ describe('sprintMembership — which active sprint claims each plan', () => {
       '2026-W39-closed.md':
         `# Sprint: Closed\n\n${CLOSED}\n### Must Have\n\n- [ ] [some-plan] a\n`,
     });
-    expect(sprintMembership(opts).size).toBe(0);
+    expect((await sprintMembership(opts)).size).toBe(0);
   });
 });

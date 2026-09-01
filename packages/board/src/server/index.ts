@@ -2,13 +2,13 @@ import http from 'node:http';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
+import { planStoreFor, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
 import { repairEnabledFromEnv } from './resolver.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
 import { estateFromEnv } from './estate.js';
 import { buildAttention } from './attention.js';
 import { dispatchAvailability, dispatchLog, dispatchLogPath, handleDispatch, SLUG_RE } from './dispatch.js';
-import { isUnderAgentLogDir } from './agent-log.js';
+import { isUnderAgentLogDir, primeWorktreeRoot } from './agent-log.js';
 import { continueAvailability, handleContinue } from './continue.js';
 import { handleClaim } from './claim.js';
 import { handleFleetSettings } from './fleet-settings.js';
@@ -79,6 +79,26 @@ const opts: BuildBoardOptions = {
  * same program, not a mode any of it checks.
  */
 const estate = estateFromEnv(opts);
+
+/**
+ * Read the `Worktree root` key once, here, before anything serves.
+ *
+ * `agent-log.ts` resolves that key to decide where every agent log lives, and
+ * `buildBoard` asks it once per card through `dispatchLogExists`. It is
+ * synchronous — 27 call sites in ten write-route modules are — so it cannot
+ * await, and until 2026-09-01 the first card of the first request paid a
+ * synchronous `bash plot-config.sh` fork for it.
+ *
+ * The read is not deferred and not awaited here: it is one fork at startup, and
+ * a `.catch` rather than a `void` because an unhandled rejection ends the
+ * process. A failed prime is not fatal — the synchronous read survives as the
+ * fallback for exactly this case, and it lands on the same answer.
+ */
+primeWorktreeRoot(opts.repoRoot, (key, fallback) =>
+  planStoreFor(opts).config(key, fallback),
+).catch((err: unknown) => {
+  console.warn(`[board] could not pre-read the worktree root: ${String(err)}`);
+});
 
 /**
  * The markdown-viewer routes, which differ ONLY in which allowlist they consult.
@@ -339,7 +359,7 @@ async function handleRequest(
       const board = {
         ...(await boardState({ opts, estate: estate.source })),
         dispatch: dispatchAvailability(HOST),
-        server: serverInfo(opts, boundPort),
+        server: await serverInfo(opts, boundPort),
         approve: approveAvailability(HOST),
         continue: continueAvailability(HOST),
         idea: ideaAvailability(HOST),

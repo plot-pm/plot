@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { readConfig, type BuildBoardOptions } from './board.js';
+import { readConfigAsync, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
 
 /**
@@ -49,7 +49,7 @@ import { isSameOrigin, readJsonBody } from './dispatch.js';
 /**
  * The `## Plot Config` keys that seed the defaults, and the defaults themselves.
  *
- * Read through `readConfig` — the one door to `plot-config.sh` — so an adopting
+ * Read through `readConfigAsync` — the one door to `plot-config.sh` — so an adopting
  * project can seed a different starting point without this file knowing where
  * Plot configuration lives. The switch defaults OFF: a board that has never been
  * told to serve the queue must not begin serving it, and wave 3 will only act
@@ -121,10 +121,21 @@ export function fleetSettingsPath(repoRoot: string): string {
  * truthy coercion. The cap is parsed and floored: a non-numeric or sub-floor
  * config value falls back to the default rather than seeding an illegal state.
  */
-export function defaultFleetSettings(opts: BuildBoardOptions): FleetSettings {
-  const rawSwitch = readConfig(opts, AUTO_DISPATCH_KEY, String(AUTO_DISPATCH_DEFAULT)).trim();
-  const rawCap = readConfig(opts, PARALLEL_AGENTS_KEY, String(PARALLEL_AGENTS_DEFAULT)).trim();
-  const rawOverride = readConfig(opts, MACHINE_OVERRIDE_KEY, String(MACHINE_OVERRIDE_DEFAULT)).trim();
+export async function defaultFleetSettings(opts: BuildBoardOptions): Promise<FleetSettings> {
+  // THREE CONFIG READS, ASKED TOGETHER AND OFF THE LOOP. They ran as three
+  // synchronous `bash plot-config.sh` forks until 2026-09-01, unconditionally,
+  // on every `buildFleet` — so the fleet's 4 s pulse paid them whether or not a
+  // state file existed to override them. A synchronous spawn cannot yield, and
+  // `sample` on a wedged board caught exactly this shape under the request
+  // handler. Concurrent rather than sequential because the three keys are
+  // independent; the parse below is unchanged.
+  const [rawSwitch, rawCap, rawOverride] = (
+    await Promise.all([
+      readConfigAsync(opts, AUTO_DISPATCH_KEY, String(AUTO_DISPATCH_DEFAULT)),
+      readConfigAsync(opts, PARALLEL_AGENTS_KEY, String(PARALLEL_AGENTS_DEFAULT)),
+      readConfigAsync(opts, MACHINE_OVERRIDE_KEY, String(MACHINE_OVERRIDE_DEFAULT)),
+    ])
+  ).map((raw) => raw.trim());
   const parsedCap = Number.parseInt(rawCap, 10);
   return {
     autoDispatch: rawSwitch === 'true',
@@ -172,8 +183,8 @@ function coerce(raw: unknown, fallback: FleetSettings): FleetSettings {
  * reads the same values* true: neither process holds authoritative state in
  * memory; both read this file, and the file is the shared answer.
  */
-export function readFleetSettings(opts: BuildBoardOptions): FleetSettings {
-  const fallback = defaultFleetSettings(opts);
+export async function readFleetSettings(opts: BuildBoardOptions): Promise<FleetSettings> {
+  const fallback = await defaultFleetSettings(opts);
   let raw: string;
   try {
     raw = fs.readFileSync(fleetSettingsPath(opts.repoRoot), 'utf8');
@@ -295,7 +306,7 @@ export async function handleFleetSettings(
   // Merge onto the CURRENT state, read fresh, so a partial write leaves the
   // other control untouched — and so two near-simultaneous writes each see the
   // most recently persisted value rather than a stale in-memory snapshot.
-  const current = readFleetSettings(opts);
+  const current = await readFleetSettings(opts);
   let autoDispatch: boolean | undefined;
   let parallelAgents: number | undefined;
   let machineOverride: boolean | undefined;
@@ -326,5 +337,5 @@ export async function handleFleetSettings(
 
   // The resulting state, re-read so the response reflects exactly what a reader
   // will get on the next poll — the floor already applied, no field guessed.
-  json(200, readFleetSettings(opts));
+  json(200, await readFleetSettings(opts));
 }

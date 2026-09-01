@@ -1,7 +1,19 @@
 import type { Issue } from '../../entities/issue.js';
+import {
+  correctForRefusal,
+  LimitBasisSchema,
+  type LimitBasis,
+  type LimitReading,
+} from '../../entities/limit.js';
 import type { Checks, Mergeability, Pr, PrState, ReviewVerdict } from '../../entities/pr.js';
 import { answered, type PortResult } from '../../port-result.js';
-import type { Host, HostBackend, MergedAnswer, PrLookup } from '../../ports/host.js';
+import type {
+  Host,
+  HostBackend,
+  LimitObservation,
+  MergedAnswer,
+  PrLookup,
+} from '../../ports/host.js';
 import { asJson, asJsonLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -20,6 +32,16 @@ interface RawPr {
   failing_checks?: string[];
   url?: string;
   title?: string;
+}
+
+/** One limit reading as `plot-host.sh` reports it, before it is read as the entity. */
+interface RawLimit {
+  connector?: string;
+  bucket?: string;
+  limit?: number | null;
+  remaining?: number | null;
+  reset?: number | null;
+  basis?: string;
 }
 
 /** One issue as `plot-host.sh` reports it. */
@@ -85,6 +107,49 @@ const issueOf = (raw: RawIssue): Issue => ({
   body: raw.body ?? null,
 });
 
+/** Milliseconds in a second — the script reports `reset` in epoch SECONDS. */
+const MS_PER_SECOND = 1000;
+
+/**
+ * Reads a number the script may have reported as null, absent or nonsense.
+ *
+ * ABSENT IS NOT ZERO, and this is the one mapper where that costs something
+ * real: a `remaining` of 0 means the bucket is spent and every call is refused,
+ * while an absent one means the connector did not say. A fallback of 0 would
+ * make an unreported field read as an exhausted budget.
+ */
+const numberOr = (value: number | null | undefined): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+/**
+ * Reads one limit line as the domain's entity.
+ *
+ * An unrecognised `basis` degrades to `unknown` rather than being passed
+ * through — the same rule `oneOf` applies above, and the cannot-verify member
+ * here is `unknown`. A word nobody has seen must never arrive as `actual`,
+ * which is the one basis a caller is entitled to trust.
+ *
+ * A reading whose basis is `unknown` carries a null limit whatever the script
+ * said: the two would otherwise be able to disagree, and a number tagged
+ * *unknown* is the collapse this slice exists to refuse.
+ *
+ * @param raw - the script's JSON object.
+ * @returns the reading, with `resetAt` in epoch MILLISECONDS.
+ */
+const limitOf = (raw: RawLimit): LimitReading => {
+  const parsed = LimitBasisSchema.safeParse(raw.basis);
+  const basis: LimitBasis = parsed.success ? parsed.data : 'unknown';
+  const reset = numberOr(raw.reset);
+  return {
+    connector: raw.connector ?? '',
+    bucket: raw.bucket ?? '',
+    limit: basis === 'unknown' ? null : numberOr(raw.limit),
+    remaining: numberOr(raw.remaining),
+    resetAt: reset === null ? null : reset * MS_PER_SECOND,
+    basis,
+  };
+};
+
 /**
  * Reads the git host through `plot-host.sh`, the one place that speaks to a
  * host CLI.
@@ -102,6 +167,30 @@ export const hostShell = (context: ShellContext): Host => {
   const inRepo = { cwd: context.repoRoot };
   const ask = <T>(args: readonly string[], parse: (stdout: string) => T) =>
     runScript('bash', [host, ...args], parse, inRepo);
+
+  /**
+   * The predictions this session has corrected, by `connector/bucket`.
+   *
+   * THE SESSION IS THE SCOPE, deliberately. A prediction corrected by a refusal
+   * is worth more than the shipped guess and less than a measurement, so it
+   * lives as long as the process that observed the refusal and no longer.
+   * Persisting it is the budget record's question, and that is another slice.
+   *
+   * Only predictions are held. An `actual` reading is re-read from the response
+   * headers of the next call, which is what makes it actual.
+   */
+  const corrected = new Map<string, number>();
+  const keyOf = (reading: LimitReading): string => `${reading.connector}/${reading.bucket}`;
+
+  /** Applies this session's corrections to a freshly-read prediction. */
+  const withCorrections = (reading: LimitReading): LimitReading => {
+    if (reading.basis !== 'predicted') return reading;
+    const learnt = corrected.get(keyOf(reading));
+    return learnt === undefined ? reading : { ...reading, limit: learnt };
+  };
+
+  /** The readings this session last saw, so an observation knows what to lower. */
+  let lastRead: readonly LimitReading[] = [];
 
   return {
     backend: () =>
@@ -148,6 +237,46 @@ export const hostShell = (context: ShellContext): Host => {
     issueView: async (id) => {
       const run = await runProcess('bash', [host, 'issue-view', id], inRepo);
       return resultOf(run, (stdout) => issueOf(asJson<RawIssue>(stdout)));
+    },
+
+    limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
+      // TWO CONNECTORS, ASKED SEPARATELY, because they are separate axes. The
+      // git host and CI are chosen independently — this repo is GitHub +
+      // Actions, `ekzweb` is Bitbucket + Jenkins — and GitHub Actions minutes
+      // are a quota distinct from the API's, so "the connector is github" does
+      // not identify the bucket.
+      const git = await runProcess('bash', [host, 'limit'], inRepo);
+      const gitReadings = resultOf(git, (stdout) =>
+        asJsonLines<RawLimit>(stdout).map(limitOf),
+      );
+      // The git host is the one that must answer. A CI connector that cannot be
+      // asked contributes nothing rather than failing the whole reading: a
+      // Jenkins that is down says nothing about the GitHub budget the caller
+      // came for.
+      if (!gitReadings.ok) return gitReadings;
+      const ci = await runProcess('bash', [host, 'ci-limit'], inRepo);
+      const ciReadings = resultOf(ci, (stdout) =>
+        asJsonLines<RawLimit>(stdout).map(limitOf),
+      );
+      const all = [...gitReadings.value, ...(ciReadings.ok ? ciReadings.value : [])].map(
+        withCorrections,
+      );
+      lastRead = all;
+      return answered(all);
+    },
+
+    observe: (observed: LimitObservation): void => {
+      // A refusal lowers every prediction this session has read, and touches no
+      // `actual` one. Nothing here asks the host: an observation is evidence
+      // the caller already holds, and spending a request to record it would be
+      // the failure mode in miniature.
+      if (observed !== 'throttled') return;
+      for (const reading of lastRead) {
+        const lowered = correctForRefusal(withCorrections(reading), observed);
+        if (lowered.limit !== null && lowered.basis === 'predicted') {
+          corrected.set(keyOf(reading), lowered.limit);
+        }
+      }
     },
   };
 };

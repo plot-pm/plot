@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { PortResult } from '@plot-pm/domain';
 
 /**
  * Where the board's agent logs live — the ONE place that decides it.
@@ -100,6 +101,46 @@ const readWorktreeRoot = (repoRoot: string): string => {
   }
   worktreeRootCache.set(repoRoot, value);
   return value;
+};
+
+/**
+ * Fill the cache off the event loop, so no later reader has to spawn for it.
+ *
+ * THE READ PATH REACHES THIS FILE THROUGH ONE CALL and cannot await it.
+ * `buildBoard` asks `dispatchLogExists` once per card, that resolves through
+ * {@link agentLogPath}, and both are synchronous because 27 call sites in ten
+ * write-route modules are — making them async is the migration
+ * `production-calls-the-domain-one-rule-at-a-time` owns, not this slice's.
+ *
+ * So the spawn is moved rather than removed: primed once at startup through the
+ * `PlanStore` port, before the first request, every later read is a `Map` hit.
+ * The synchronous `execFileSync` above survives for the caller this priming
+ * cannot reach — a test that constructs a fixture repo mid-process, and a write
+ * route in a process that never primed — and it is the same blast radius the
+ * plan leaves the write routes with: an operator waiting for their own click.
+ *
+ * The value read is a line of `CLAUDE.md` and it is read ONCE per process for
+ * the reason {@link worktreeRootCache} states: changing it relocates every
+ * future log, and a board that honoured the change mid-process would write half
+ * a run's three files either side of the move. So priming is not a cache warm-up
+ * that could also happen later — it is where the one read now happens.
+ *
+ * A port that cannot answer leaves the cache EMPTY rather than storing `''`.
+ * Storing it would make *nobody asked yet* indistinguishable from *the project
+ * declares no key*, and the second is an answer that pins the log directory for
+ * the life of the process.
+ *
+ * @param repoRoot absolute path to the repository this board serves
+ * @param config reads a `## Plot Config` key — `PlanStore.config`
+ */
+export const primeWorktreeRoot = async (
+  repoRoot: string,
+  config: (key: string, fallback: string) => Promise<PortResult<string>>,
+): Promise<void> => {
+  if (worktreeRootCache.has(repoRoot)) return;
+  const read = await config(WORKTREE_ROOT_KEY, '');
+  if (!read.ok) return;
+  worktreeRootCache.set(repoRoot, read.value.trim());
 };
 
 /**

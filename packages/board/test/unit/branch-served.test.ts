@@ -121,8 +121,8 @@ describe('the server names the branch it is serving', () => {
     const mod = await import('../../src/server/server-info.js');
     const dir = repo({ branch: 'feature/first' });
     const opts = { repoRoot: dir, scriptsDir: dir } as unknown as BuildBoardOptions;
-    expect(mod.serverInfo(opts, 7777).branch).toBe('feature/first');
+    expect((await mod.serverInfo(opts, 7777)).branch).toBe('feature/first');
     execFileSync('git', ['-C', dir, 'checkout', '-qb', 'feature/second']);
-    expect(mod.serverInfo(opts, 7777).branch).toBe('feature/first');
+    expect((await mod.serverInfo(opts, 7777)).branch).toBe('feature/first');
   });
 });

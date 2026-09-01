@@ -2390,3 +2390,156 @@ test('host: pr-list reads a secondary-limit 403 as throttled too', () => {
   const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
   assert.equal(res.code, 5, 'the secondary limit is the one that actually bit this repo');
 });
+
+// ── limit ───────────────────────────────────────────────────────────────────
+//
+// WHAT IS THIS CONNECTOR'S LIMIT, AND HOW WELL DOES IT KNOW IT?
+//
+// The op that supersedes `rate-limit`, and the reason is one measurement.
+// 2026-09-01, quiet moment, same account, seconds apart:
+//
+//   gh api rate_limit     graphql: 5000/5000, used 0
+//   a real call's header  X-Ratelimit-Remaining: 1236, Used: 3764
+//
+// 3764 calls spent, reported as zero. `graphql_budget_spent()` reads that
+// endpoint and tests `-eq 0`, so it has never been able to fire. These tests
+// pin the header path and, above all, that a connector reporting nothing
+// records `unknown` and never a number.
+
+// A `gh` stub that answers `api graphql --include` with HEADERS, which is the
+// only shape this op reads. `makeStubs` emits one canned body and cannot
+// express a header block followed by a payload.
+//
+// The header NAMES ARE `gh`'S OWN CASING (`X-Ratelimit-Limit`), not GitHub's
+// documented `X-RateLimit-Limit`. That difference is the bug this stub exists
+// to catch: a case-sensitive match reads a present header as absent, and the
+// op then reports `unknown` against a host that answered perfectly.
+function makeHeaderStub({ headers = {}, fail = null } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-limit-'));
+  const callsFile = path.join(dir, 'gh.calls');
+  const lines = Object.entries(headers)
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\n');
+  const body = fail != null
+    ? `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${callsFile}"\nprintf '%s\\n' '${String(fail).replace(/'/g, `'\\''`)}' >&2\nexit 1\n`
+    : `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${callsFile}"
+cat <<'HDR'
+HTTP/2.0 200 OK
+${lines}
+
+{"data":{"viewer":{"login":"someone"}}}
+HDR
+`;
+  writeFileSync(path.join(dir, 'gh'), body);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  // bb must exist on PATH for the backend-resolution paths that probe it.
+  writeFileSync(path.join(dir, 'bb'), '#!/usr/bin/env bash\nexit 0\n');
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir, callsFile };
+}
+
+const GITHUB_HEADERS = {
+  'X-Ratelimit-Limit': '5000',
+  'X-Ratelimit-Remaining': '1236',
+  'X-Ratelimit-Reset': '1788269670',
+  'X-Ratelimit-Resource': 'graphql',
+  'X-Ratelimit-Used': '3764',
+};
+
+test('host: limit reads the response headers, not the rate_limit endpoint', () => {
+  const stubs = makeHeaderStub({ headers: GITHUB_HEADERS });
+  const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'github' }, stubs }).trim());
+  assert.deepEqual(out, {
+    connector: 'github',
+    bucket: 'graphql',
+    limit: 5000,
+    remaining: 1236,
+    reset: 1788269670,
+    basis: 'actual',
+  });
+  // THE CALL IT MADE IS THE ASSERTION. `api rate_limit` was measured reporting
+  // 5000 while these headers read 1236, so asking it would report the wrong
+  // number no matter how the answer were mapped.
+  const calls = readFileSync(stubs.callsFile, 'utf8');
+  assert.match(calls, /--include/, 'the headers are what carry the reading');
+  assert.doesNotMatch(calls, /rate_limit/, 'that endpoint has never been able to answer this');
+});
+
+test('host: limit names the bucket the response itself spent', () => {
+  // A response reports the bucket IT spent, in `X-RateLimit-Resource`.
+  // Reporting `core` from a GraphQL response would invent a reading nobody
+  // took — which is what `rate_limit` does by answering for both at once.
+  const stubs = makeHeaderStub({
+    headers: { ...GITHUB_HEADERS, 'X-Ratelimit-Resource': 'core' },
+  });
+  const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'github' }, stubs }).trim());
+  assert.equal(out.bucket, 'core');
+});
+
+test('host: limit reports unknown, never a number, when the headers are stripped', () => {
+  // A proxy or an enterprise instance that removes them. The call answered and
+  // said nothing about a limit, which is not the same fact as a full budget.
+  const stubs = makeHeaderStub({ headers: {} });
+  const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'github' }, stubs }).trim());
+  assert.equal(out.basis, 'unknown');
+  assert.equal(out.limit, null);
+  assert.notEqual(out.limit, 0, 'unknown is not a spent budget');
+});
+
+test('host: limit exits 3 where the host could not be asked at all', () => {
+  // *Could not ask* and *asked, and it reports no limit* are different facts.
+  // The `rate-limit` op above collapses them by printing `unknown` on a failed
+  // call; this one does not, because the port maps exit 3 to `failed`.
+  const stubs = makeHeaderStub({ fail: 'error connecting to api.github.com: 503' });
+  const res = runAllowFail(['limit'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 3);
+  assert.equal(res.stdout.trim(), '', 'a failed call must not print a reading');
+});
+
+test('host: limit answers bitbucket from experience, tagged predicted', () => {
+  // Bitbucket meters and sends no `X-RateLimit-*`. A PREDICTION IS NOT A
+  // FAILURE — the adapter is telling the truth about what it knows, and a
+  // caller reads the basis to decide how much to trust it.
+  const stubs = makeStubs();
+  const out = JSON.parse(run(['limit'], { env: { PLOT_HOST: 'bitbucket' }, stubs }).trim());
+  assert.equal(out.connector, 'bitbucket');
+  assert.equal(out.basis, 'predicted');
+  assert.ok(out.limit > 0, 'a prediction carries a ceiling');
+  assert.equal(out.remaining, null, 'a connector reporting no limit reports no spend either');
+  assert.equal(argvOf(stubs.bbArgv), null, 'bb has nothing to answer — do not ask it');
+});
+
+test('host: ci-limit answers jenkins predicted, and it is a separate axis', () => {
+  // CI does not follow the git host: this repo is GitHub + Actions, `ekzweb` is
+  // Bitbucket + Jenkins. Jenkins reports no rate limit at all, which is the
+  // `predicted` case the design names.
+  const stubs = makeStubs();
+  const out = JSON.parse(
+    run(['ci-limit'], { env: { PLOT_HOST: 'github', PLOT_CI: 'jenkins' }, stubs }).trim(),
+  );
+  assert.equal(out.connector, 'jenkins');
+  assert.equal(out.basis, 'predicted');
+  assert.ok(out.limit > 0);
+});
+
+test('host: ci-limit reports a connector it has no estimate for as unknown', () => {
+  // The list is OPEN — GitLab and Trello are named as next — so nothing here
+  // validates the name. A connector nobody has written an estimate for answers
+  // `unknown`, which is the honest word and not a default borrowed from GitHub.
+  const stubs = makeStubs();
+  const out = JSON.parse(
+    run(['ci-limit'], { env: { PLOT_HOST: 'github', PLOT_CI: 'gitlab' }, stubs }).trim(),
+  );
+  assert.equal(out.connector, 'gitlab');
+  assert.equal(out.basis, 'unknown');
+  assert.equal(out.limit, null);
+});
+
+test('host: ci-limit prints nothing where no CI connector is configured', () => {
+  // Nothing to meter. An EMPTY answer, not a limit of zero — and the caller can
+  // tell the two apart because one is no line and the other is a number.
+  const stubs = makeStubs();
+  const out = run(['ci-limit'], { env: { PLOT_HOST: 'github', PLOT_CI: 'none' }, stubs });
+  assert.equal(out.trim(), '');
+});

@@ -1,5 +1,4 @@
-import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { planStoreFor, treesFor } from './board.js';
 import type { BuildBoardOptions } from './board.js';
 import type { ServerInfo } from '../contract/schema.js';
 
@@ -51,13 +50,15 @@ const NO_COMMAND = '';
  * Cached for `BRANCH_TTL_MS` rather than forever: the fork stays off the
  * per-request path, and a checkout shows up within seconds.
  *
- * `git branch --show-current` prints the branch, or NOTHING for a detached
- * HEAD — several worktrees here are detached. Empty is the honest answer for
+ * `Trees.currentBranch` answers the branch, or `''` for a detached HEAD —
+ * several worktrees here are detached. Empty is the honest answer for
  * *detached or unreadable*: the header renders no element rather than inventing
- * a short SHA, which would read as a branch name to anyone skimming. Any
- * failure (not a git repo, git absent) lands on the same empty string, since
- * the page's response to *cannot say* is identical to its response to
- * *detached* — show nothing.
+ * a short SHA, which would read as a branch name to anyone skimming. A port
+ * that cannot answer at all (not a git repo, git absent) lands on the same
+ * empty string, since the page's response to *cannot say* is identical to its
+ * response to *detached* — show nothing. The port keeps the two DISTINGUISHABLE
+ * in `ok`, which the old `execFileSync` did not; this caller is one that has
+ * decided the distinction does not change what it renders.
  */
 let cachedBranch: string | null = null;
 let cachedAt = 0;
@@ -70,7 +71,7 @@ let cachedAt = 0;
  */
 const BRANCH_TTL_MS = 5_000;
 
-function currentBranch(opts: BuildBoardOptions): string {
+async function currentBranch(opts: BuildBoardOptions): Promise<string> {
   // A PROCESS SERVES ONE WORKTREE, BUT A WORKTREE CHANGES BRANCH. The original
   // memo read once for the life of the server on the first half of that
   // sentence, which is true; the second half is what broke it.
@@ -87,32 +88,37 @@ function currentBranch(opts: BuildBoardOptions): string {
   // `git checkout` in the same tree.
   const now = Date.now();
   if (cachedBranch === null || now - cachedAt > BRANCH_TTL_MS) {
-    try {
-      cachedBranch = execFileSync('git', ['branch', '--show-current'], {
-        cwd: opts.repoRoot,
-        encoding: 'utf8',
-      }).trim();
-    } catch {
-      cachedBranch = '';
-    }
+    // THE SERVER'S OWN CHECKOUT, asked by path. `Trees.list()` would answer it
+    // too, and `fleet.ts` uses that call for the MAIN checkout — but finding
+    // this tree in a listing means comparing `opts.repoRoot` against git's
+    // reported path, and a temporary directory is a symlink on macOS, so the
+    // two spellings of one path would not match. `currentBranch(path)` asks
+    // about one checkout and needs no comparison.
+    const read = await treesFor(opts).currentBranch(opts.repoRoot);
+    cachedBranch = read.ok ? read.value : '';
     cachedAt = now;
   }
   return cachedBranch;
 }
 
-/** Read one `## Plot Config` key via the shared helper (with a default). */
-function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
-  try {
-    const out = execFileSync(
-      'bash',
-      [path.join(opts.scriptsDir, 'plot-config.sh'), 'get', key, fallback],
-      { cwd: opts.repoRoot, encoding: 'utf8' },
-    );
-    return out.trim() || fallback;
-  } catch {
-    return fallback;
-  }
-}
+/**
+ * Read one `## Plot Config` key through the `PlanStore` port (with a default).
+ *
+ * `plan-store.config(key, fallback)` is the async twin of the `execFileSync`
+ * that ran here until 2026-09-01. The port already applies the fallback for an
+ * absent key, so a non-answer and an empty answer land on the same value —
+ * which is what this caller wants, because {@link NO_COMMAND} is what the
+ * overlay renders when it has no command to name and a guessed command is
+ * worse than none.
+ */
+const readConfig = async (
+  opts: BuildBoardOptions,
+  key: string,
+  fallback: string,
+): Promise<string> => {
+  const read = await planStoreFor(opts).config(key, fallback);
+  return (read.ok ? read.value.trim() : '') || fallback;
+};
 
 /**
  * Assemble the server's self-description for the board payload.
@@ -121,14 +127,24 @@ function readConfig(opts: BuildBoardOptions, key: string, fallback: string): str
  * `PORT=0` they differ and the requested one is the literal 0, which would put
  * `localhost:0` in front of a reader as the address to go back to.
  */
-export function serverInfo(opts: BuildBoardOptions, port: number): ServerInfo {
+export async function serverInfo(
+  opts: BuildBoardOptions,
+  port: number,
+): Promise<ServerInfo> {
+  // ASKED TOGETHER, because neither answer depends on the other. Both used to
+  // be synchronous spawns on the `/api/board` path, which is the defect this
+  // migration exists for: a synchronous spawn cannot yield, so the loop served
+  // nothing while either ran.
+  const [restartCommand, branch] = await Promise.all([
+    readConfig(opts, BOARD_COMMAND_KEY, NO_COMMAND),
+    currentBranch(opts),
+  ]);
   return {
-    restartCommand: readConfig(opts, BOARD_COMMAND_KEY, NO_COMMAND),
+    restartCommand,
     port,
-    // Memoised — this is a startup fact, so the fork stays off the request
-    // path. Empty for a detached HEAD or an unreadable repo, which the header
-    // renders as no element rather than a fabricated name.
-    branch: currentBranch(opts),
+    // Memoised on a 5 s TTL. Empty for a detached HEAD or an unreadable repo,
+    // which the header renders as no element rather than a fabricated name.
+    branch,
     // A STARTUP FACT, like `branch`, and already resolved before the first
     // response — `repoRoot` is what every helper spawn is measured against, so
     // this reports a value the server already holds rather than computing one.

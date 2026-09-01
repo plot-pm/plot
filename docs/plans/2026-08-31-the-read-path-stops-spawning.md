@@ -18,6 +18,7 @@
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-08-31, Jan Wloka, `feature/the-board-reads-through-the-port`
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-fleet-reads-through-the-port`
+- **Started:** 2026-09-01, Jan Wloka, `feature/the-registry-reads-through-the-port`
 -->
 
 ## Changelog
