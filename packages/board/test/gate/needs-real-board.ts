@@ -157,7 +157,36 @@ const routeHandlers = (code: string): string[] =>
  * A third arm goes in when a file needs it and the signal separates, which is
  * the standard these two were held to. Writing one now would mean a predicate
  * with no file behind it, and calling the absence of a counter-example proof.
+ *
+ * ## The third arm, added 2026-09-01 by that standard
+ *
+ * `tiny-garden.browser.test.ts` needed it and the signal separated. Twelve of
+ * its thirteen tests migrated onto a served state; the thirteenth opens the plan
+ * page in a NEW TAB and asserts the server's own chrome — a `plan-back` titlebar
+ * pointing at `/` which then navigates back to a working board. The board
+ * assembles that page in `renderPlanPage`, whose `embed` option IS the
+ * distinction being asserted: the modal fetches with the parameter and must get
+ * no titlebar, the tab fetches without and must get one. A mock serves whatever
+ * document it was handed, so it can fail neither direction; the board is what
+ * decides, so the board is what runs.
+ *
+ * **The signal is both halves, because neither separates alone.** Measured
+ * across all 48 browser files: `waitForEvent('page')` also appears in a
+ * meta-click test that opens a tab to prove a modal did NOT open and asserts
+ * nothing about its contents, and reading an `h1` is what every embedded
+ * document test does. Requiring the popup AND the page shell matches 1 file.
+ *
+ * A note for whoever writes the fourth: this arm was nearly `a rendered
+ * document`, keyed on `srcdoc`, on the reasoning that `renderPlanPage` takes a
+ * `repoRoot`. A document is a `fetch` — `DocModal` requests `<href>?embed=1`
+ * and injects the body — so the mock can answer it, and `story-overlay` asserts
+ * `srcdoc` while starting no board. That predicate would have licensed a spawn
+ * nothing requires, which is worse than no arm at all.
  */
+export const assertsServerPageAssembly = (code: string): boolean =>
+  /waitForEvent\(\s*['"]page['"]\s*\)/.test(code)
+  && /plan-titlebar|plan-back/.test(code);
+
 export interface Entitlement {
   /** Named in the failure message, so a refusal says what would satisfy it. */
   readonly name: string;
@@ -181,6 +210,10 @@ export const ENTITLEMENTS: readonly Entitlement[] = [
           handler.includes('=>')
           && !/\b(fulfill|abort|continue|fallback)\s*\(/.test(handler),
       ),
+  },
+  {
+    name: "the server's own page assembly — a popup opened AND its page shell read",
+    holds: assertsServerPageAssembly,
   },
 ];
 

@@ -1,8 +1,8 @@
 import {
   AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema,
-  StoryCardSchema, WaveSchema,
+  SprintCardSchema, StoryCardSchema, WaveSchema,
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
-  type StoryCard, type Wave,
+  type SprintCard, type StoryCard, type Wave,
 } from '../../src/contract/schema.js';
 import type { z } from 'zod';
 
@@ -58,6 +58,7 @@ type FleetInput = z.input<typeof FleetSchema>;
 type BoardInput = z.input<typeof BoardSchema>;
 type AgentInput = z.input<typeof AgentEntrySchema>;
 type StoryInput = z.input<typeof StoryCardSchema>;
+type SprintInput = z.input<typeof SprintCardSchema>;
 
 /** A stable clock. A catalogue whose ages move is a catalogue that flakes. */
 const EPOCH = Date.parse('2026-08-30T12:00:00.000Z');
@@ -236,6 +237,23 @@ const BOARD_DEFAULTS: BoardInput = {
     repo: 'garden',
   },
 };
+
+/**
+ * One sprint card, as `/api/board` carries it.
+ *
+ * The sprint FILTER's options come from these, not from `card.sprint`: a plan's
+ * `Sprint:` field is history and does not clear when its sprint closes, so
+ * deriving options from the cards offered closed sprints beside open ones with
+ * nothing to tell them apart.
+ */
+const SPRINT_DEFAULTS: SprintInput = {
+  slug: 'a-sprint',
+  title: 'A sprint',
+  phase: 'active',
+};
+
+export const sprint = (over: Partial<SprintInput> = {}): SprintCard =>
+  SprintCardSchema.parse({ ...SPRINT_DEFAULTS, ...over });
 
 /**
  * One story card, as `/api/board` carries it.

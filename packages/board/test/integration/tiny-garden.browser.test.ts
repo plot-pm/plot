@@ -1,41 +1,54 @@
+// @needs-real-board: one test opens the plan page in a new tab and asserts the server's own chrome — the `plan-back` titlebar `renderPlanPage` adds only when `embed` is false, which is the distinction being asserted and which no served document can decide
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startServer } from '../helpers.mjs';
+import { openCatalogue, scenario, board as buildBoard, type Catalogue } from '../catalogue/index.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 
 // UI layer: drive a REAL browser against the shipped artifact's served page, so
 // pixel-level assertions (bug a: no horizontal page scroll) and inline-sprint
 // filter behaviour (bug b) are validated on exactly what plot ships — not on
 // recompiled components. Requires a freshly built artifact; `test:integration`
 // rebuilds first so these bytes are never stale.
-const here = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
-
 // A small phone viewport — the reported bug was horizontal scroll on mobile.
 const MOBILE = { width: 390, height: 844 };
 const LONG_SPRINT = 'the-great-heirloom-tomato-and-zucchini-overplanting-recovery-initiative';
 
+// THE ESTATE IS SERVED, NOT WALKED. `a-whole-small-estate` states the eight
+// cards and four sprints these tests count, and the counts are the reason: they
+// are facts about a POPULATION, and a population read from a directory is one
+// nobody stated. The scenario tabulates which card is there for which rule.
 describe('tiny-garden: UI layer (real browser renders the shipped artifact)', () => {
-  let server: { port: number; kill: () => void };
-  let browser: Browser;
-  let baseURL: string;
+  let cat: Catalogue;
 
   beforeAll(async () => {
-    server = await startServer(FIXTURE);
-    baseURL = `http://localhost:${server.port}/`;
-    browser = await chromium.launch();
-  });
+    cat = await openCatalogue();
+    // The plan documents the modal embeds. Everything else 404s, which is the
+    // board's own answer to a plan with no file.
+    //
+    // NO TITLEBAR, and that absence is asserted: the modal fetches with
+    // `?embed=1` and the chrome belongs only on the full page. A served document
+    // is what makes the distinction statable — the embed view gets a document
+    // with no `plan-titlebar`, so a component that started rendering one would
+    // fail here rather than pass on a server that happened to omit it.
+    const planDoc = (title: string) => `<h1>${title}</h1>
+<h2>Approach</h2>
+<p>Start the seedlings indoors, then transplant.</p>`;
+    cat.mock.serveDoc('/plan/2026-03-01-plant-tomatoes.md', planDoc('Plant heirloom tomatoes'));
+    cat.mock.serveDoc('/plan/2026-03-05-fix-leaky-hose.md', planDoc('Fix the leaky soaker hose'));
+  }, 60_000);
   afterAll(async () => {
-    await browser?.close();
-    server?.kill();
+    await cat?.close();
   });
 
   /** Open the board at mobile width and wait for cards to render. */
   async function openBoard(): Promise<Page> {
-    const page = await browser.newPage({ viewport: MOBILE });
-    await page.goto(baseURL);
-    await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    const page = await cat.open('a-whole-small-estate', { viewport: MOBILE });
+    await page.getByText('Plant heirloom tomatoes').waitFor({ timeout: 10_000 });
     return page;
   }
 
@@ -219,32 +232,6 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
     }
   });
 
-  it('"Open in new tab" opens the full plan page with a working back-to-board link', async () => {
-    const page = await openBoard();
-    try {
-      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
-      await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 5_000 });
-
-      const [popup] = await Promise.all([
-        page.context().waitForEvent('page'),
-        page.getByRole('link', { name: 'Open in new tab' }).click(),
-      ]);
-      await popup.waitForLoadState('domcontentloaded');
-      // Plain URL (no ?embed) — so the full page, with titlebar.
-      expect(popup.url().endsWith(PLAN_PATH)).toBe(true);
-      expect(await popup.locator('h1').textContent()).toBe('Plant heirloom tomatoes');
-
-      // The titlebar's back link points at the board and actually navigates there.
-      const back = popup.locator('a.plan-back');
-      expect(await back.getAttribute('href')).toBe('/');
-      await back.click();
-      await popup.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
-      await popup.close();
-    } finally {
-      await page.close();
-    }
-  });
-
   // ── Where this plan is checked out on THIS machine ────────────────────────
   //
   // The path comes from `git worktree list --porcelain`, which the fleet scan
@@ -265,21 +252,27 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
   async function openBoardWithWorktrees(
     worktrees?: { branch: string; path: string }[],
   ): Promise<Page> {
-    const page = await browser.newPage({ viewport: MOBILE });
-    if (worktrees) {
-      await page.route('**/api/board', async (route) => {
-        const res = await route.fetch();
-        const body = await res.json();
-        for (const col of body.columns) {
-          for (const card of col.cards) {
-            if (card.slug === 'plant-tomatoes') card.worktrees = worktrees;
-          }
-        }
-        await route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) });
-      });
-    }
-    await page.goto(baseURL);
-    await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    if (!worktrees) return openBoard();
+    // A FIELD ON A CARD, stated rather than patched into a fetched payload. The
+    // helper this replaces intercepted `/api/board`, re-parsed the response and
+    // wrote the field back in — the long way round to a value the scenario can
+    // simply carry.
+    const base = scenario('a-whole-small-estate').board;
+    const page = await cat.open('a-whole-small-estate', {
+      viewport: MOBILE,
+      over: {
+        board: buildBoard({
+          ...base,
+          columns: base.columns.map((col) => ({
+            ...col,
+            cards: col.cards.map((card) => (card.slug === 'plant-tomatoes'
+              ? { ...card, worktrees }
+              : card)),
+          })),
+        }),
+      },
+    });
+    await page.getByText('Plant heirloom tomatoes').waitFor({ timeout: 10_000 });
     return page;
   }
 
@@ -326,4 +319,75 @@ describe('tiny-garden: UI layer (real browser renders the shipped artifact)', ()
       await page.close();
     }
   });
+});
+
+/**
+ * THE SERVER'S OWN PAGE, which is the one thing a served document cannot be.
+ *
+ * `renderPlanPage` assembles the standalone plan page, and its `embed` option is
+ * the whole distinction this asserts: the in-board modal fetches `?embed=1` and
+ * gets a chrome-free document, the new tab gets a `plan-back` titlebar pointing
+ * at `/`. A mock handed a document serves whatever it was handed, so it can fail
+ * neither direction — the board is what decides, so the board is what runs.
+ *
+ * One test, and the twelve above it moved to a served state.
+ */
+describe('tiny-garden: the standalone plan page (the server assembles it)', () => {
+  let server: { port: number; kill: () => void };
+  let browser: Browser;
+  let baseURL: string;
+
+  beforeAll(async () => {
+    server = await startServer(FIXTURE);
+    baseURL = `http://localhost:${server.port}/`;
+    browser = await chromium.launch();
+  }, 60_000);
+  afterAll(async () => {
+    await browser?.close();
+    server?.kill();
+  });
+
+  const PLAN_PATH = '/plan/2026-03-01-plant-tomatoes.md';
+
+  async function openBoard(): Promise<Page> {
+    const page = await browser.newPage({ viewport: MOBILE });
+    await page.goto(baseURL);
+    await page.getByText('Deal with the zucchini glut').waitFor({ timeout: 10_000 });
+    return page;
+  }
+
+  const tomatoCard = (page: Page) =>
+    page.locator('article', { hasText: 'Plant heirloom tomatoes' });
+
+  it('"Open in new tab" opens the full plan page with a working back-to-board link', async () => {
+    const page = await openBoard();
+    try {
+      await tomatoCard(page).getByRole('link', { name: 'Open' }).click();
+      await page.getByRole('dialog').waitFor({ state: 'visible', timeout: 5_000 });
+
+      const [popup] = await Promise.all([
+        page.context().waitForEvent('page'),
+        page.getByRole('link', { name: 'Open in new tab' }).click(),
+      ]);
+      await popup.waitForLoadState('domcontentloaded');
+      // Plain URL (no ?embed) — so the full page, with titlebar.
+      expect(popup.url().endsWith(PLAN_PATH)).toBe(true);
+      expect(await popup.locator('h1').textContent()).toBe('Plant heirloom tomatoes');
+
+      // The titlebar's back link points at the board and actually navigates there.
+      const back = popup.locator('a.plan-back');
+      expect(await back.getAttribute('href')).toBe('/');
+      await back.click();
+      await popup.getByRole('heading', { name: 'Plot' }).waitFor({ timeout: 10_000 });
+      await popup.close();
+    } finally {
+      await page.close();
+    }
+    // 60s, because this is the ONE test in the suite that waits on a real board
+    // to answer `/api/board` from a git scan. Measured 2026-09-01: it passed in
+    // 1.1s locally and timed out at the 30s default on a CI runner — the first
+    // board request now lands after 400s of other tests rather than at the top
+    // of a warm file, so the scan is cold and the runner is slower than a
+    // laptop by more than the default's margin.
+  }, 60_000);
 });
