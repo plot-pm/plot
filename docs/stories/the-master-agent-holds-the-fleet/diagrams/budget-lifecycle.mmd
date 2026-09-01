@@ -1,0 +1,23 @@
+stateDiagram-v2
+  [*] --> unknown : no reading yet
+  unknown --> predicted : the adapter answers from experience
+  unknown --> actual : the first real call returns headers
+  predicted --> actual : a real call returns headers
+  predicted --> predicted : a refusal corrects the estimate
+  actual --> actual : the next call's headers
+  actual --> stale : no call for longer than the window
+  stale --> actual : the next call's headers
+  actual --> spent : remaining reaches zero
+  spent --> actual : the reset passes and a call succeeds
+  note right of unknown
+    unknown is never free.
+    A connector that reports
+    nothing is not a connector
+    with room.
+  end note
+  note right of spent
+    Stop until the reset.
+    Do not halve the cadence:
+    a slower call is refused
+    identically.
+  end note

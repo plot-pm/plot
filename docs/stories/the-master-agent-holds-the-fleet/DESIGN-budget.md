@@ -24,6 +24,7 @@ What a connector will still answer, and how well anyone knows it.
 | 2 | Identity | *which budget is this?* |
 | 3 | The domain object | *what does it hold?* |
 | 4 | Provenance | *how well is the limit known?* |
+| 4b | Lifecycle | *when does budgeting happen?* |
 | 5 | Where it lives | *whose record is it?* |
 | 6 | Reacting to a refusal | *what happens when it runs out?* |
 | 7 | Relations | *what does it touch?* |
@@ -112,6 +113,70 @@ call's header on the same account read `Remaining 4854, Used 146`. **146 calls
 spent, reported as zero.** An `actual` reading comes from the headers of a call
 that was going to happen anyway; a separate question about the budget is both an
 extra request and a wrong answer.
+
+## 4b. Lifecycle — when budgeting happens
+
+### There is no budgeting step, and that is the design
+
+**A Budget is never created, probed or refreshed on a schedule.** It is a
+reading taken from **the headers of a call that was going to happen anyway**, so
+budgeting costs nothing and happens exactly when work happens.
+
+| moment | what happens |
+|---|---|
+| **adoption** | nothing. No probe, no seeded value, no connector table. |
+| **first call on a fresh record** | the adapter answers `predicted` from experience, or the call's own headers make it `actual` |
+| **every call after** | the response headers update the reading; the caller appends what it spent |
+| **a refusal** | corrects a `predicted` value (§ 4) and selects a reaction (§ 6) |
+| **idle** | the reading ages. Nothing refreshes it, because a refresh is a call. |
+
+**This is why the cold-start question has no answer to give.** An empty record is
+`unknown`, and `unknown` is not a reason to refuse — it is a reason to make the
+call that will answer it. The first call on a fresh checkout is un-budgeted, and
+that is the correct cost: one call, once, to learn what the connector will say.
+
+**Asking separately is both an extra request and a wrong answer.** `gh api
+rate_limit` was measured 2026-09-01 reporting `graphql 5000/5000, used 0` while a
+real call's header on the same account read `Remaining 4854, Used 146`. A
+question about the budget spends budget and misreports it; a call that was
+happening anyway does neither.
+
+### The state is a moment, not a transition
+
+| state | means |
+|---|---|
+| `unknown` | never read, and **not free** — a connector reporting nothing has not reported room |
+| `predicted` | the adapter's own estimate; wrong until something proves it |
+| `actual` | the connector said so; decays from the instant it is taken |
+| `stale` | an `actual` reading older than the window; treat as `predicted` |
+| `spent` | `remaining` reached zero; stop until the reset |
+
+Source: [`diagrams/budget-lifecycle.mmd`](diagrams/budget-lifecycle.mmd)
+
+```mermaid
+stateDiagram-v2
+  [*] --> unknown : no reading yet
+  unknown --> predicted : the adapter answers from experience
+  unknown --> actual : the first real call returns headers
+  predicted --> actual : a real call returns headers
+  predicted --> predicted : a refusal corrects the estimate
+  actual --> actual : the next call's headers
+  actual --> stale : no call for longer than the window
+  stale --> actual : the next call's headers
+  actual --> spent : remaining reaches zero
+  spent --> actual : the reset passes and a call succeeds
+```
+
+### Where it is consulted
+
+**Once, immediately before a call, by the connector that is about to make it.**
+`plot-host.sh:1051` already has the only such read today — `graphql_budget_spent`
+guarding one path — and the shape is right even though the value it reads is
+wrong (§ 4).
+
+**Not by the caller.** A component asking *"is this branch merged?"* must not
+first ask *"can I afford to?"*; the connector owns both the budget and the
+transport, and answers or refuses. See [Ports](DESIGN-ports.md).
 
 ## 5. Where it lives
 
