@@ -1,10 +1,9 @@
 import fs from 'node:fs';
 import http from 'node:http';
-import path from 'node:path';
 import { agentLogPath, migrateAgentLogs } from './agent-log.js';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import type { BuildBoardOptions } from './board.js';
-import { readConfig } from './board.js';
+import { readConfig, scriptsFor } from './board.js';
 import { readTail, type LogMissReason } from './worker-log.js';
 import {
   IMPLEMENT_COMMAND_KEY,
@@ -35,6 +34,9 @@ import { localCapability } from './controllers/caller.js';
  *     and the claim is pushed before the attacker's unreadable response is
  *     written. Textual CSRF — the one hole the binding argument cannot cover.
  */
+
+/** The fan-out Plot ships — the one this package starts, never a path a caller holds. */
+export const DISPATCH_SCRIPT = 'plot-dispatch.sh';
 
 /** `--max 1`: a button is ONE decision. Fanning out a wave stays with /plot-dispatch. */
 const MAX_PER_CLICK = '1';
@@ -428,13 +430,10 @@ export async function handleDispatch(
   // exists once the run has finished. That is not a gap to paper over — it is
   // the same shape as start_worker's own detached spawn, and it is why the row
   // moving is the answer rather than the reply being one.
-  const child = spawn(
-    'bash',
-    [path.join(opts.scriptsDir, 'plot-dispatch.sh'), '--max', MAX_PER_CLICK, slug],
-    { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
-  );
-  child.on('error', (err) => console.error('dispatch failed to spawn:', err));
-  child.unref();
+  scriptsFor(opts).start(DISPATCH_SCRIPT, ['--max', MAX_PER_CLICK, slug], {
+    log: out,
+    onError: (err) => console.error('dispatch failed to spawn:', err),
+  });
   fs.closeSync(out);
 
   json(202, { slug, log, implementLog: implLog });

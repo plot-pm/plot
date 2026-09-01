@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { PortResult } from '@plot-pm/domain';
+import { scriptsShell } from '@plot-pm/domain/adapters';
 
 /**
  * Where the board's agent logs live — the ONE place that decides it.
@@ -80,25 +80,18 @@ const worktreeRootCache = new Map<string, string>();
 /**
  * The configured `Worktree root`, verbatim, or `''` when there is none.
  *
- * Shelled out through `plot-config.sh` — the one thing that knows where Plot
- * configuration lives — rather than parsing `CLAUDE.md` here. Any failure reads
- * as *no key*: a board whose scripts are missing must still resolve a log path,
+ * Read through the `Scripts` port — which reaches `plot-config.sh`, the one
+ * thing that knows where Plot configuration lives — rather than parsing
+ * `CLAUDE.md` here. Any failure reads as *no key*: a board whose scripts are missing must still resolve a log path,
  * and the fallback that answer produces is today's location, which is correct
  * rather than merely safe.
  */
 const readWorktreeRoot = (repoRoot: string): string => {
   const cached = worktreeRootCache.get(repoRoot);
   if (cached !== undefined) return cached;
-  let value = '';
-  try {
-    value = execFileSync(
-      'bash',
-      [path.join(scriptsDir(), 'plot-config.sh'), 'get', WORKTREE_ROOT_KEY, ''],
-      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
-  } catch {
-    value = '';
-  }
+  const answer = scriptsShell({ repoRoot, scriptDir: scriptsDir() })
+    .configSync(WORKTREE_ROOT_KEY, '');
+  const value = answer.ok ? answer.value.trim() : '';
   worktreeRootCache.set(repoRoot, value);
   return value;
 };
@@ -114,7 +107,7 @@ const readWorktreeRoot = (repoRoot: string): string => {
  *
  * So the spawn is moved rather than removed: primed once at startup through the
  * `PlanStore` port, before the first request, every later read is a `Map` hit.
- * The synchronous `execFileSync` above survives for the caller this priming
+ * The synchronous read above survives for the caller this priming
  * cannot reach — a test that constructs a fixture repo mid-process, and a write
  * route in a process that never primed — and it is the same blast radius the
  * plan leaves the write routes with: an operator waiting for their own click.

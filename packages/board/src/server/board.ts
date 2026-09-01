@@ -1,4 +1,3 @@
-import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,9 +25,10 @@ import {
   planStatus as decidePlanStatus,
   type PlanStore,
   type Refs,
+  type Scripts,
   type Trees,
 } from '@plot-pm/domain';
-import { planStoreShell, refsGit, treesGit } from '@plot-pm/domain/adapters';
+import { planStoreShell, refsGit, scriptsShell, treesGit } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
 import { extractTopics } from './topics.js';
@@ -127,6 +127,24 @@ export const planStoreFor = (opts: BuildBoardOptions): PlanStore =>
   opts.planStore ?? planStoreShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /**
+ * The script runner for these options — the ONE way this package invokes a
+ * `plot-*.sh`.
+ *
+ * Built per call for the same reason as {@link refsFor}: the adapter is a
+ * closure over two paths, and the expense was never in constructing it.
+ *
+ * There is no `opts.scripts` beside `opts.refs` and `opts.planStore`. Those two
+ * are substituted so a board can be built over a fixture estate; this one runs
+ * the helpers Plot ships, and every test that needed to stand in for one already
+ * does it at the route's own seam.
+ *
+ * @param opts - where the repository and the scripts are.
+ * @returns a runner over `opts.scriptsDir`.
+ */
+export const scriptsFor = (opts: BuildBoardOptions): Scripts =>
+  scriptsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
  * Resolve `repoRoot` through symlinks. Plan files are reported as real paths, so
  * the root must be resolved the same way for `path.relative` to come out
  * repo-relative (and for the /plan allowlist basenames to match card.path).
@@ -202,32 +220,24 @@ function readChecklist(repoRoot: string, releaseDir: string): { done: number; to
  * A cache nothing on the hot path reads is a second thing to invalidate and
  * nothing else.
  *
- * THIS IS THE LAST `execFileSync` IN THE FILE, and its presence here is the
+ * THE ONE BLOCKING READ THIS FILE MAKES, and its presence here is the
  * measurement rather than an oversight: a synchronous spawn on a WRITE route
  * blocks the loop for the operator who clicked, while one on `/api/board`
  * blocked it for every viewer on a 5 s poll. Same defect, different blast
  * radius, and only the second one made a static file time out at 15 s.
  */
 export function readConfig(opts: BuildBoardOptions, key: string, fallback: string): string {
-  try {
-    const out = execFileSync(
-      'bash',
-      [path.join(opts.scriptsDir, 'plot-config.sh'), 'get', key, fallback],
-      { cwd: opts.repoRoot, encoding: 'utf8' },
-    );
-    return out.trim() || fallback;
-  } catch {
-    return fallback;
-  }
+  const answer = scriptsFor(opts).configSync(key, fallback);
+  return answer.ok ? answer.value.trim() || fallback : fallback;
 }
 
 /**
  * The same lookup, awaited — what the read path calls.
  *
- * `plot-config.sh` is spawned through `execFile` rather than `execFileSync`,
- * so the event loop keeps serving while it runs. That is the whole difference
- * and it is the whole point: a synchronous spawn cannot yield, and a static
- * file timed out at 15 s beside one on 2026-08-31.
+ * `Scripts.config` runs off the event loop, so the loop keeps serving while
+ * the script does. That is the whole difference and it is the whole point: a
+ * synchronous spawn cannot yield, and a static file timed out at 15 s beside
+ * one on 2026-08-31.
  *
  * An unreadable config answers the fallback, matching the script: it returns
  * the fallback for an absent key, so "absent" is an answer here rather than a
@@ -238,42 +248,8 @@ export async function readConfigAsync(
   key: string,
   fallback: string,
 ): Promise<string> {
-  const out = await run('bash', [
-    path.join(opts.scriptsDir, 'plot-config.sh'), 'get', key, fallback,
-  ], { cwd: opts.repoRoot });
-  return out === null ? fallback : out.trim() || fallback;
-}
-
-/**
- * Runs a command off the event loop and answers its stdout, or null.
- *
- * The one process helper this file keeps, for the two spawns that are not ref
- * questions: `plot-config.sh` and `plot-plan-meta.sh`. Both are Plot's own
- * helper scripts rather than git, so neither belongs on the `Refs` port —
- * `plot-plan-meta.sh` IS the plan-format contract, and a port that re-declared
- * its output would be a second spelling of it.
- *
- * `null` for any failure, which is what both callers already did with a
- * throwing `execFileSync`. The reason is not thrown away silently: each caller
- * says below what an absent answer means for it.
- */
-function run(
-  command: string,
-  args: string[],
-  options: { cwd?: string; maxBuffer?: number } = {},
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(
-      command,
-      args,
-      {
-        cwd: options.cwd,
-        encoding: 'utf8',
-        maxBuffer: options.maxBuffer ?? 16 * 1024 * 1024,
-      },
-      (error, stdout) => resolve(error === null ? stdout : null),
-    );
-  });
+  const answer = await scriptsFor(opts).config(key, fallback);
+  return answer.ok ? answer.value.trim() || fallback : fallback;
 }
 
 /**
@@ -991,19 +967,15 @@ function planSlug(file: string): string {
  * thing less clearly. A record that is present but MALFORMED still throws, via
  * the schema — a plan the parser mis-describes must not be shown at all.
  *
- * @param scriptsDir - where Plot's helper scripts live.
+ * @param opts - where the repository and the scripts are.
  * @param files - every plan file to parse, as real paths.
  * @returns one validated record per plan, or none where the parser failed.
  */
-const readPlanMeta = async (scriptsDir: string, files: string[]): Promise<PlanMeta[]> => {
+const readPlanMeta = async (opts: BuildBoardOptions, files: string[]): Promise<PlanMeta[]> => {
   if (files.length === 0) return [];
-  const out = await run(
-    'bash',
-    [path.join(scriptsDir, 'plot-plan-meta.sh'), ...files],
-    { maxBuffer: 64 * 1024 * 1024 },
-  );
-  if (out === null) return [];
-  return out
+  const answer = await scriptsFor(opts).planMeta(files, { maxBuffer: 64 * 1024 * 1024 });
+  if (!answer.ok) return [];
+  return answer.value
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
@@ -1629,7 +1601,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
   const cards: Card[] = [];
   let metas: PlanMeta[];
   try {
-    metas = await readPlanMeta(opts.scriptsDir, [...files, ...staged]);
+    metas = await readPlanMeta(opts, [...files, ...staged]);
   } finally {
     // The staged copies exist only for the duration of that one parse. Removed
     // in a `finally` so a parser failure cannot leave temp directories behind
@@ -1923,7 +1895,7 @@ export async function planStatusBySlug(
       canonicalPath.set(file, src.path);
       files.push(file);
     }
-    for (const meta of await readPlanMeta(opts.scriptsDir, files)) {
+    for (const meta of await readPlanMeta(opts, files)) {
       const canonical = canonicalPath.get(meta.file);
       const relPath = canonical ?? path.relative(repoRoot, meta.file);
       bySlug.set(planSlug(relPath), planStatus(meta, pulse, complete));

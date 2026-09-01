@@ -1,9 +1,8 @@
 import http from 'node:http';
-import path from 'node:path';
-import { execFile } from 'node:child_process';
 import type { ClaimResult } from '../contract/index.js';
-import type { BuildBoardOptions } from './board.js';
+import { scriptsFor, type BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody, SLUG_RE } from './dispatch.js';
+import { DISPATCH_SCRIPT } from './dispatch.js';
 
 /**
  * `POST /api/claim` — reserve one branch of a plan, and say what resulted.
@@ -157,34 +156,27 @@ export async function handleClaim(
     return;
   }
 
-  // `execFile`, never a shell string: the slug is already validated, so this is
-  // defence in depth rather than the only barrier — which is exactly when it is
-  // worth having. `/api/approve` makes the same choice and says so.
-  const result = await new Promise<ClaimResult>((resolve) => {
-    execFile(
-      'bash',
-      [path.join(opts.scriptsDir, 'plot-dispatch.sh'), '--no-start', '--max', MAX_PER_CALL, slug],
-      { cwd: opts.repoRoot, timeout: CLAIM_TIMEOUT_MS, encoding: 'utf8' },
-      (err, stdout, stderr) => {
-        // A NON-ZERO EXIT IS NOT NECESSARILY A FAILED CLAIM, and parsing before
-        // branching on the error is what keeps that true. The script exits
-        // non-zero for its own reasons — a phase gate, an unresolvable
-        // `origin/<main>` — and in those cases stdout carries no `dispatched`
-        // line, so the parse already reports `claimed: false`. Treating the
-        // exit code as the answer would throw away the reason.
-        const parsed = parseClaim(slug, stdout ?? '');
-        if (!err || parsed.claimed) {
-          resolve(parsed);
-          return;
-        }
-        // Nothing was claimed AND the script failed: its stderr is the only
-        // account of why, so it travels instead of the generic sentence the
-        // parse would otherwise have supplied.
-        const said = (stderr ?? '').trim();
-        resolve({ ...parsed, reason: said || parsed.reason });
-      },
-    );
-  });
+  // AN ARGUMENT LIST, never a shell string: the slug is already validated, so
+  // this is defence in depth rather than the only barrier — which is exactly
+  // when it is worth having. `/api/approve` makes the same choice and says so.
+  const ran = await scriptsFor(opts).awaited(
+    DISPATCH_SCRIPT, ['--no-start', '--max', MAX_PER_CALL, slug],
+    { timeoutMs: CLAIM_TIMEOUT_MS },
+  );
+  // A NON-ZERO EXIT IS NOT NECESSARILY A FAILED CLAIM, and parsing before
+  // branching on it is what keeps that true. The script exits non-zero for its
+  // own reasons — a phase gate, an unresolvable `origin/<main>` — and in those
+  // cases stdout carries no `dispatched` line, so the parse already reports
+  // `claimed: false`. Treating the exit code as the answer would throw away the
+  // reason.
+  const parsed = parseClaim(slug, ran.stdout);
+  // Nothing was claimed AND the script failed: its stderr is the only account of
+  // why, so it travels instead of the generic sentence the parse would otherwise
+  // have supplied.
+  const said = ran.stderr.trim();
+  const result: ClaimResult = ran.code === 0 || parsed.claimed
+    ? parsed
+    : { ...parsed, reason: said || parsed.reason };
 
   // 200 for both outcomes, and `claimed` carries the answer.
   //

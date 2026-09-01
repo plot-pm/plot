@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import http from 'node:http';
-import path from 'node:path';
 import { agentLogDir, agentLogPath } from './agent-log.js';
 import { spawn } from 'node:child_process';
 import { readConfig, type BuildBoardOptions } from './board.js';
@@ -11,6 +10,7 @@ import {
   SLUG_RE,
   type DispatchAvailability,
 } from './dispatch.js';
+import { scriptsFor } from './board.js';
 
 /**
  * The board's SECOND state-changing route — and the one that acts on the git
@@ -265,28 +265,17 @@ export async function handleApprove(
   // already validated, so this is defence in depth rather than the only barrier
   // — which is precisely when it is worth having. The script case never builds a
   // shell string at all.
-  const child = command
-    ? spawn(
-        'sh',
-        ['-c', `${command} "$@"`, 'plot-approve', approvePrompt(slug)],
-        { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
-      )
-    : spawn('bash', [path.join(opts.scriptsDir, APPROVE_SCRIPT), slug], {
-        cwd: opts.repoRoot,
-        detached: true,
-        stdio: ['ignore', out, out],
-      });
   // The exit code is written by a listener in THIS process rather than by a
   // shell wrapper around the command, so a command that itself spawns and exits
   // is timed the same way any other is.
-  child.on('exit', (code, signal) => {
+  const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
     try {
       fs.writeFileSync(statePath, String(signal ? `signal ${signal}` : code ?? 1), 'utf8');
     } catch {
       /* the state file is a convenience; the log is the record */
     }
-  });
-  child.on('error', (err) => {
+  };
+  const onError = (err: Error): void => {
     console.error('approve failed to spawn:', err);
     try {
       fs.appendFileSync(log, `\n${err.message}\n`, 'utf8');
@@ -294,7 +283,18 @@ export async function handleApprove(
     } catch {
       /* nothing further to do */
     }
-  });
+  };
+  if (command) {
+    const child = spawn(
+      'sh',
+      ['-c', `${command} "$@"`, 'plot-approve', approvePrompt(slug)],
+      { cwd: opts.repoRoot, detached: true, stdio: ['ignore', out, out] },
+    );
+    child.on('exit', onExit);
+    child.on('error', onError);
+  } else {
+    scriptsFor(opts).start(APPROVE_SCRIPT, [slug], { log: out, onExit, onError });
+  }
   // `detached` WITHOUT `unref`, which is deliberate and not the contradiction
   // it looks like — the two flags answer different questions.
   //
