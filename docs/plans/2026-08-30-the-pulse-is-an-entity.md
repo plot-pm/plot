@@ -198,6 +198,28 @@ the numbers one owner; it does not retune them.**
 
 ## Slices
 
+### `Pulse` already means something else, and the document gives up the word
+
+**Found 2026-09-01, interrogating this plan.** `packages/domain/src/rules/pulse.ts`
+exists and means the fleet scan's OUTPUT — `sliceReadings(pulse: FleetPulse)`,
+`doubleClaimedBranches`, `pulseLoss`. This plan wants `Pulse` to mean a clock
+beating on a Machine. **Two unrelated concepts, one word**, and that is the
+`Wave`/`Slice` defect CLAUDE.md already records, about to be repeated.
+
+**The scan's document gives up the word; the clock keeps it.** A clock IS a
+pulse; the scan's output is a *reading* of the estate, so `FleetReading` names it
+better than `FleetPulse` ever did. The entity work that follows needs the
+vocabulary right more than this repo needs a small diff.
+
+**Measured before choosing: 207 references** — 20 in the domain, 64 in the board,
+123 in tests, plus 5 shell scripts.
+
+**And one of them crosses a process boundary.** `plot-fleet-scan.sh:3618` emits
+`{"kind":"pulse","pulse":{…}}` and `schema.ts:1585` parses it. **The rename is a
+wire change, not a type change**: both sides move together or the board stops
+reading its own scan. That is why it is a slice of its own, sequenced first —
+a find-and-replace across 207 sites would break the stream silently.
+
 ### The pulse owns the monitors, and that moves a guarantee
 
 **Settled 2026-09-01, interrogating this plan against the code.** Today three
@@ -231,6 +253,21 @@ more fundamental correction and the identity it needs was settled by
 `a-machine-is-an-instance`; monitoring adapts to a clock that exists rather than
 the two plans waiting on each other.
 
+### Freeing the word (Branch: feature/the-scan-reads-a-fleet-reading)
+
+`FleetPulse` becomes `FleetReading` and the stream's `kind` moves with it, so the
+clock can have the word `Pulse` without two meanings sharing it.
+
+**Done when** the 207 references are one name; **the shell and the board change
+in the same commit** — `plot-fleet-scan.sh:3618` emits the `kind` that
+`schema.ts:1585` parses, so a half-done rename breaks the stream with no test
+failing locally; and `plot-fleet-scan.sh --stream` feeds a running board
+unchanged, asserted rather than assumed.
+
+**First, because every later slice writes the word.** A `DESIGN-pulse.md` drafted
+while `FleetPulse` still means the scan's output documents a collision instead of
+an entity.
+
 ### Naming (Branch: docs/the-pulse-has-a-design)
 
 `DESIGN-pulse.md`: fields, lifecycle, its relation to `Machine`, and the divisor
@@ -260,8 +297,17 @@ The pulse gains subscribers; the scan and PR reader become two of them.
 12; **a subscriber that throws or hangs does not delay another's beat**,
 asserted directly; and the payload is unchanged.
 
-**Scope: in-process subscribers only.** Monitors run in a different process tree
-and cannot be ticked until a channel exists — see the correction above.
+**Scope, corrected 2026-09-01: in-process AND channel subscribers.** This slice
+was written when monitors could not be ticked *"until a channel exists"*. **It
+exists.** #584 shipped `adapters/channel/channel-socket.ts`, and
+`entities/channel-message.ts` already carries a `HeartbeatSchema` whose fields
+are *"which monitors have been heard from, and when each last spoke"* — which is
+a tick over a channel, already specified. `entities/subscription.ts` carries the
+`Purpose` a subscriber opens with.
+
+**So the stated blocker is gone, and the earlier scope line contradicted this
+plan's own decision that the pulse owns the monitors.** Monitors are subscribers
+here, over the channel, alongside the in-process scan and PR reader.
 
 **And the divisor for the PR reader is 12 only if the pulse is 5 s.** If Naming
 settles on a per-machine clock with a different base, the divisors move with it;
@@ -277,6 +323,13 @@ instead of ending.
 **Done when** a worker with a blocked next slice stays alive and hops when the
 blocker merges; a worker with **no** next slice still ends cleanly; and the
 first case is asserted end to end — **no worker in this repo has ever hopped.**
+
+**This slice does not land until the registry's monitor gate exists.** It carries
+two risks the other two do not: behaviour with no precedent here, and the birth
+guarantee that moves when the pulse takes the monitors off the worker wrapper.
+`the-registry-supervises-its-agents` owns the replacement gate; until a
+registered agent with no live monitor subscription is a *finding*, a hopping
+worker can outlive the thing watching it.
 
 ## Done when
 

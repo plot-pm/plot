@@ -146,6 +146,13 @@ the point**, not an implementation preference.
 the seam. The pulse takes it: one clock per machine is the more fundamental
 correction, and `a-machine-is-an-instance` settled the identity it beats on.
 
+**The channel they need already exists.** #584 shipped
+`adapters/channel/channel-socket.ts`, and `entities/channel-message.ts` carries a
+`HeartbeatSchema` whose fields are *"which monitors have been heard from, and
+when each last spoke"*. The pulse's Ticking slice therefore covers monitors as
+channel subscribers, and this plan's *Asking* slice adapts to a tick that
+arrives rather than building the transport.
+
 **This plan's first two slices need no clock at all** — a monitor becomes a pure
 function of two samples, and the ports learn to read activity and trees. Those
 can proceed while the pulse is built. Only *Asking* meets it.
