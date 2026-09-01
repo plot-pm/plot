@@ -37,6 +37,7 @@ import { execFileSync } from 'node:child_process';
 
 import { boardState, type FleetStateQuery } from '../../src/server/controllers/fleet-state.js';
 import { isLocalCaller, localCapability } from '../../src/server/controllers/caller.js';
+import { rmTree } from '../helpers.mjs';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const SCRIPTS_DIR = path.join(REPO_ROOT, 'skills/plot/scripts');
@@ -74,7 +75,7 @@ describe('the controller answers without a server', () => {
         `the plan on disk reaches the answer; got ${JSON.stringify(slugs)}`,
       );
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -106,7 +107,7 @@ describe('the controller answers without a server', () => {
         'the controller names no binding',
       );
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 

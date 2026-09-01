@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { stampManifest, writeManifestStamp } from '../../src/server/manifest-stamp.js';
+import { rmTree } from '../helpers.mjs';
 
 /** The manifest a first dispatch writes — two-space indent, no trailing comma. */
 function firstDispatch(pid = '', extra: string[] = []): string {
@@ -133,7 +134,7 @@ describe('writeManifestStamp — atomic, and a no-op the registry can survive', 
     assert.equal(m.relaunches, 1);
     // No temp file left behind.
     assert.deepEqual(fs.readdirSync(dir), ['sess-1.json']);
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmTree(dir);
   });
 
   it('leaves the manifest untouched when the file cannot be read', () => {

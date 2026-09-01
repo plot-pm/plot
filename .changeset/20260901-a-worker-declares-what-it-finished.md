@@ -1,0 +1,5 @@
+---
+'plot': patch
+---
+
+A worker seals a declaration for every branch it finishes, not one at the end of its life. A worker HOPS: `plot-worker-loop.sh` asks `--next` for another branch of the same plan, and the session and pid stay fixed while `wavesCount` increments — so one worker may finish branches A and B before dying on C. A single end-of-life declaration is then absent, and A and B, genuinely finished, read as incomplete. The seal is written before the hop moves `$PLOT_BRANCH`, because a declaration written after it would name the branch the worker moved TO. `test/reconcile/declaration-hop.test.mjs` performs a real hop rather than mocking one: the loop runs against a bare origin and a two-wave plan whose second wave is blocked until the first lands, and the landing is a merge commit rather than a fast-forward — pushing the tip straight onto main leaves branch and main at the same oid, which the scan reads as `open`, so a fast-forward fixture never opens wave 2 and the worker never hops.

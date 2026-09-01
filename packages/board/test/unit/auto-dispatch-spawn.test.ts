@@ -20,12 +20,13 @@ import {
 import { FleetReadingSchema, type FleetReading } from '../../src/contract/schema.js';
 import type { AgentEntry } from '../../src/server/registry.js';
 import type { FleetSettings } from '../../src/server/fleet-settings.js';
+import { rmTree } from '../helpers.mjs';
 
 const made: string[] = [];
 afterEach(() => {
   while (made.length) {
     const dir = made.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    if (dir) rmTree(dir);
   }
 });
 

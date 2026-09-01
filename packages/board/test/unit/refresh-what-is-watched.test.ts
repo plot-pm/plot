@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { rmTree } from '../helpers.mjs';
 import {
   refreshRuns, branchIsWatched, freshCacheEntry,
   type PrRecord, type CacheEntry,
@@ -70,7 +71,7 @@ function host() {
   return h;
 }
 afterEach(() => {
-  for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0)) rmTree(dir);
 });
 
 /**

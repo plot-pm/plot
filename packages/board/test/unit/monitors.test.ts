@@ -11,10 +11,11 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { BranchMonitor, PlanMonitor, WorktreeManager, FleetMonitors, adoptBatch } from '../../src/server/monitors.js';
 import { plansSignal, refsSignal, worktreesSignal } from '../../src/server/signals.js';
+import { rmTree } from '../helpers.mjs';
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of dirs.splice(0)) rmTree(d);
 });
 
 const git = (dir: string, ...a: string[]) =>

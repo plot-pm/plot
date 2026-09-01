@@ -8,6 +8,7 @@ import {
   dispatchLogPath,
   type DispatchLog,
 } from '../../src/server/dispatch.js';
+import { rmTree } from '../helpers.mjs';
 
 /**
  * THE DISPATCHER LOG, keyed by SLUG and read by a knowable path.
@@ -36,7 +37,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(parent, { recursive: true, force: true });
+  rmTree(parent);
 });
 
 const opts = () => ({ repoRoot }) as unknown as Parameters<typeof dispatchLog>[0];

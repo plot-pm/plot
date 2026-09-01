@@ -28,6 +28,7 @@ import {
   type ImplementDeps,
   type ImplementRefusal,
 } from '../../src/server/implement.js';
+import { rmTree } from '../helpers.mjs';
 
 const SCRIPTS = path.resolve(__dirname, '../../../../skills/plot/scripts');
 const SLUG = 'an-approved-plan-offers-its-two-starts';
@@ -39,7 +40,7 @@ afterEach(() => {
   // race and `maxRetries` is not being asked to win anything.
   while (made.length) {
     const dir = made.pop();
-    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    if (dir) rmTree(dir);
   }
 });
 

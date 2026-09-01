@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { stampManifest } from '../../src/server/manifest-stamp.js';
+import { rmTree } from '../helpers.mjs';
 
 const DISPATCH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -79,7 +80,7 @@ function runAwk(text: string, pid: string, started: string, g: Group): string {
     );
     return out;
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    rmTree(dir);
   }
 }
 

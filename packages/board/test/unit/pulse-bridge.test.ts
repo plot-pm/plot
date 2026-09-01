@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { rmTree } from '../helpers.mjs';
 import {
   BRIDGE_MAX_AGE_MS, bridgePath, readBridge, writeBridge,
 } from '../../src/server/pulse-bridge.js';
@@ -82,7 +83,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmTree(repo);
 });
 
 describe('the bridge round-trips what a restart needs', () => {

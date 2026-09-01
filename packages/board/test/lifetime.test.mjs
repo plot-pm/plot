@@ -18,6 +18,7 @@ import {
   REPO_ROOT,
   SCRIPTS_DIR,
   makeRepo,
+  rmTree,
 } from './helpers.mjs';
 
 const APPROVED = `# Ship the widget
@@ -130,7 +131,7 @@ describe('a test server exits when its launcher is killed', () => {
   after(() => {
     reap(started?.serverPid);
     reap(started?.launcher?.pid);
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('exits after the launcher is SIGKILLed', async () => {
@@ -161,7 +162,7 @@ describe('the gate is PLOT_EXIT_WITH_PARENT and nothing else', () => {
   after(() => {
     reap(started?.serverPid);
     reap(started?.launcher?.pid);
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('a server without the variable keeps running when its launcher dies', async () => {
@@ -190,7 +191,7 @@ describe("an operator's board is not killed by a parent that changes", () => {
   after(() => {
     reap(serverPid);
     reap(supervisor?.pid);
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('survives its shell going away, the way `pnpm board` must', async () => {
@@ -225,7 +226,7 @@ describe('no orphan survives a killed test run', () => {
   });
 
   after(() => {
-    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+    if (tmp) rmTree(tmp);
   });
 
   it('a suite killed mid-run leaves no board-server.mjs behind', async () => {

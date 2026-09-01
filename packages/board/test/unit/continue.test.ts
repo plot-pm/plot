@@ -26,6 +26,7 @@ import {
   landedCommits,
   readBrief,
 } from '../../src/server/continue.js';
+import { rmTree } from '../helpers.mjs';
 
 /** A composed prompt with every part present, for the assertions below. */
 function prompt(over: Partial<Parameters<typeof composeContinuation>[0]> = {}) {
@@ -190,7 +191,7 @@ describe('reading a brief from the worktree', () => {
     try {
       assert.equal(readBrief(dir, '.plot/briefs/absent.md'), '');
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -201,7 +202,7 @@ describe('reading a brief from the worktree', () => {
       fs.writeFileSync(path.join(dir, '.plot/briefs/x.md'), 'the worktree copy');
       assert.equal(readBrief(dir, '.plot/briefs/x.md'), 'the worktree copy');
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 });
@@ -240,7 +241,7 @@ describe('what already landed, read from git', () => {
         'the trunk’s commits are not this run’s work',
       );
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -250,7 +251,7 @@ describe('what already landed, read from git', () => {
       const landed = landedCommits(dir, 'main');
       assert.ok(landed[0].includes('first'), 'a briefing reads forwards, not backwards');
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -260,7 +261,7 @@ describe('what already landed, read from git', () => {
       const landed = landedCommits(dir, '');
       assert.ok(landed.length >= 2, 'over-reporting beats reporting nothing');
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -269,7 +270,7 @@ describe('what already landed, read from git', () => {
     try {
       assert.deepEqual(landedCommits(dir, 'main'), []);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 
@@ -278,7 +279,7 @@ describe('what already landed, read from git', () => {
     try {
       assert.ok(landedCommits(dir, '', 1).length <= 1);
     } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
+      rmTree(dir);
     }
   });
 });
