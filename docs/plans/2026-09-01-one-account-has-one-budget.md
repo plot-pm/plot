@@ -236,6 +236,31 @@ its connector, adding GitLab means editing the budget as well as the host
 adapter — and the edit that gets forgotten is the one that turns an unknown
 connector into a refusal or, worse, into GitHub's defaults.
 
+**CI is a THIRD axis, and it does not follow the git host.** Jenkins, GitHub
+Actions and GitLab pipelines are chosen independently of where the code lives —
+this repo runs GitHub Actions on a GitHub remote, while `ekzweb` runs Jenkins
+against Bitbucket. `plot-host.sh:1336` already resolves `ci_backend()`
+separately, reads a `Jenkins instance` with its own auth, and spends against that
+server rather than against the git host's quota.
+
+**And CI can be the same vendor on a different budget.** GitHub Actions minutes
+are a quota distinct from the API's 5000/hr, so *"the connector is github"* does
+not identify the bucket. `(connector, account, bucket)` already carries that —
+provided the bucket is the connector's own word rather than a normalised one.
+
+**`ci_backend()` is the model to follow, and it is already right.** It reads
+`$PLOT_CI` or the `CI` key, lowercases, and validates nothing — no enum, no
+`die`. Plot therefore has three connector axes with three disciplines today:
+
+| axis | shape | on an unknown value |
+|---|---|---|
+| `Git host` | closed enum | **dies** (`plot-host.sh:1006`) |
+| `Tracker` | named set, open in practice | tolerated; branches on behaviour |
+| `CI` | free string | tolerated |
+
+**The budget follows `CI`.** It is the axis that already survives a vendor
+nobody has written an adapter for, which is what gitlab and trello will be.
+
 **What each connector must supply, and nothing more:** its own name, the bucket
 a call spent, and how to read what remains — or an honest *unknown*. GitHub
 reads `X-RateLimit-Resource` from a response header; Bitbucket answers
