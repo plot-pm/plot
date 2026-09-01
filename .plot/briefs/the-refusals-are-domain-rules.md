@@ -49,3 +49,32 @@ The refusals. Not eligibility, not deliverability, not the spawning.
 **A refusal you cannot trigger in a test is a refusal you cannot verify moved.**
 If one depends on something a fixture cannot produce, say so in the PR rather
 than moving it untested.
+
+## Half this slice is already built — verified 2026-09-01
+
+**`plot-reap.sh` is done.** Its five refusals live in
+`packages/domain/src/rules/reapable.ts` (6 exports), and the shell only renders the
+verdict. Read `plot-reap.sh:400-422` before touching anything — its own comment
+states the split: *"RENDERING, not deciding. The rule named the measurement; this
+names what it means to someone reading the report."*
+
+That is the target shape for dispatch. Copy it; do not invent a second one.
+
+**It also means the dangerous half is finished.** Reap deletes worktrees — a wrong
+refusal there removes a desk somebody is working at. What remains is dispatch,
+which starts work rather than destroying it.
+
+**Dispatch's remaining refusal sites, measured 2026-09-01:**
+
+| line | refuses when |
+|---|---|
+| 468 | the agent manifest could not be written |
+| 859 | `--restart` on a branch that already has a PR |
+| 875 | `--restart` on a branch with a live worker pid |
+| 887 | `--restart` on a branch holding a `PLOT-BLOCKED` marker |
+| 1202 | the phase gate ref cannot be resolved — fails closed |
+
+**1195 and 1202 are one decision with two outcomes, not two refusals.** The gate
+refuses when `origin/<main>` is unreadable *unless* `--allow-local` was passed.
+Model it as one rule taking `allowLocal` as a reading, or the escape hatch becomes
+a branch in the shell again.
