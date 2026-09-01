@@ -492,6 +492,41 @@ test('worker-loop: an idle finding ends the prompt', serial, async () => {
   }
 });
 
+// THE READING MAY BE PUBLISHED WITHOUT ENDING THE WORKER, and this is the arm
+// that proves the seam. `idle` means the subtree burned no CPU across a 0.4s
+// sample (`plot-worker-state.sh:493`) taken twice ~30s apart, and an agent
+// waiting on a model response burns no CPU in its subtree — so a false zero is
+// the common reading, not the rare one.
+//
+// Measured 2026-09-01: seven desks on this estate carry `reported idle on`,
+// every one holding real commits, and `the-gates-read-what-was-left-behind` was
+// ended 11s after dispatch with 2 commits and an unwritten changeset.
+//
+// `PLOT_MONITOR_ENDS_WORKER=0` leaves ending a worker to `Worker bound` alone.
+// The pair of tests is the point: the same fixture and the same published
+// finding, differing only in the variable, so neither arm can pass by accident.
+test('worker-loop: PLOT_MONITOR_ENDS_WORKER=0 publishes idle and does not end', serial, async () => {
+  const secs = 8;
+  reap(secs);
+  // A bound LONGER than the body, so anything that ends this run early ended it
+  // on the finding. The body outlives two monitor polls and then exits cleanly.
+  const dir = fixture('idle-not-ends', 900, `sleep ${secs}\n`);
+  try {
+    setTimeout(() => publishFinding(dir, 'idle'), 900);
+    const started = Date.now();
+    const r = await runLoop(dir, { env: { PLOT_MONITOR_ENDS_WORKER: '0' } });
+    const elapsed = Date.now() - started;
+    assert.equal(r.code, 0, `the worker ran to its own end, got ${r.code}: ${r.stderr}`);
+    assert.doesNotMatch(r.stderr, /reported idle on/,
+      'the loop ended the worker on a finding it was told not to end on');
+    assert.ok(elapsed >= secs * 1000 - 1500,
+      `ran its full body rather than being cut short (${elapsed}ms for a ${secs}s body)`);
+  } finally {
+    reap(secs);
+    discard(dir);
+  }
+});
+
 // Done-when 4 — the message says WHICH READING ended it. An operator reading
 // `.plot-worker.log` must be able to tell a monitor's verdict from the floor
 // firing, because the two mean opposite things about the work in the worktree:

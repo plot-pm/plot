@@ -86,6 +86,26 @@ case "$WORKER_BOUND_SECONDS" in (*[!0-9]*|'') WORKER_BOUND_SECONDS=28800 ;; esac
 MONITOR_POLL_SECONDS="${PLOT_MONITOR_POLL_SECONDS:-5}"
 case "$MONITOR_POLL_SECONDS" in (*[!0-9]*|''|0) MONITOR_POLL_SECONDS=5 ;; esac
 
+# WHETHER AN `idle` READING MAY END A WORKER. Default 1, which is today's
+# behaviour; `PLOT_MONITOR_ENDS_WORKER=0` leaves the finding published and
+# ending the worker to `Worker bound` alone.
+#
+# THE SEAM EXISTS BECAUSE THE READING IS NOT THE QUESTION. `idle` means the
+# subtree burned no CPU across a 0.4 s sample (`plot-worker-state.sh:493`),
+# taken twice ~30 s apart. An agent waiting on a model response burns no CPU in
+# its subtree, so a false zero is the common reading rather than the rare one,
+# and the rule cannot tell `stuck` from `thinking`.
+#
+# Measured 2026-09-01 on this estate: SEVEN desks carry `reported idle on` in
+# their logs, every one of them holding real commits, and five had to be
+# finished by hand. `feature/the-gates-read-what-was-left-behind` was ended
+# 11 s after dispatch with 2 commits and an unwritten changeset.
+#
+# The default is unchanged because changing a kill's default under a running
+# fleet is a second failure; the fix for the reading belongs in its own plan.
+MONITOR_ENDS_WORKER="${PLOT_MONITOR_ENDS_WORKER:-1}"
+case "$MONITOR_ENDS_WORKER" in (0|1) ;; (*) MONITOR_ENDS_WORKER=1 ;; esac
+
 # Update the manifest when the worker hops to a new branch.
 #
 # The manifest already carries `session`, `pid`, `startedAt` — these stay fixed.
@@ -453,16 +473,18 @@ run_bounded() {
   # finding. `_watch_loop_pid` is captured before the subshell so `$$` inside it
   # names the loop rather than the subshell, exactly as the watchdog does.
   local _watch_loop_pid=$$
-  (
-    while :; do
-      sleep "$MONITOR_POLL_SECONDS" || exit 0
-      if monitor_says_idle; then
-        kill -USR1 "$_watch_loop_pid" 2>/dev/null
-        exit 0
-      fi
-    done
-  ) &
-  _monitor_watcher_pid=$!
+  if [ "$MONITOR_ENDS_WORKER" = "1" ]; then
+    (
+      while :; do
+        sleep "$MONITOR_POLL_SECONDS" || exit 0
+        if monitor_says_idle; then
+          kill -USR1 "$_watch_loop_pid" 2>/dev/null
+          exit 0
+        fi
+      done
+    ) &
+    _monitor_watcher_pid=$!
+  fi
 
   # Block on the prompt. If either watcher fires first, its trap kills the prompt
   # and this `wait` returns (interrupted); if the prompt finishes first, `wait`
