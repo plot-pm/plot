@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"pgrep -fl \\\"board-server.mjs\\\" | head -5; echo \\\"--- port check ---\\\"; curl -s -o /dev/null -w \\\"%{http_code}\\\" --max-time 3 http://localhost:4000/api/board 2>&1; echo; for p in 3000 4000 ...",
-  "error": "Exit code 1\n99526 node --watch skills/plot/scripts/board/board-server.mjs\n99533 /Users/jwloka/.nvm/versions/node/v24.4.1/bin/node skills/plot/scripts/board/board-server.mjs\n--- port check ---\n000",
-  "timestamp": "2026-08-31T12:23:41.215Z",
+  "tool_input_preview": "{\"command\":\"cd packages/board && source ~/.nvm/nvm.sh && nvm use >/dev/null 2>&1 && pnpm exec vitest run test/unit/branch-served.test.ts 2>&1 | tail -40\",\"timeout\":300000,\"description\":\"Run branch-ser...",
+  "error": "Exit code 1\n(eval):cd:1: no such file or directory: packages/board",
+  "timestamp": "2026-09-01T07:50:49.345Z",
   "retry_count": 1
 }
