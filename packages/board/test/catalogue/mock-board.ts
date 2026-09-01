@@ -116,6 +116,26 @@ export interface MockBoard {
   baseURL: string;
   /** Serve a different state from now on, without restarting. */
   serve: (name: ScenarioName, over?: Partial<Scenario>) => void;
+  /**
+   * How many times each payload has been served since the mock started.
+   *
+   * A test that swaps state with `serve()` has to know the client picked it up,
+   * and the only honest signal is that the endpoint answered again. Waiting a
+   * duration instead asserts the poll interval, which is not the subject and is
+   * the slower of the two by however much margin the wait carries.
+   */
+  served: () => { board: number; fleet: number };
+  /**
+   * Refuse the API from now on, as a dead server would.
+   *
+   * Set `true` and `/api/board` and `/api/fleet` destroy the socket without
+   * answering, which is what the client sees when the board is gone; `/` keeps
+   * serving so a reload still reaches a page. A switch on the SERVER rather
+   * than a route in the page, because a poll already in flight when a test
+   * installs a route slips through the unrouted window — the failure this
+   * replaces.
+   */
+  fail: (on: boolean) => void;
   /** Stop listening. Resolves once the server is closed. */
   stop: () => Promise<void>;
   /** Synchronous stop, for an `afterAll` that does not await. */
@@ -147,14 +167,22 @@ export const startMockBoard = async (
   over: Partial<Scenario> = {},
 ): Promise<MockBoard> => {
   let current = scenario(name, over);
+  let failing = false;
+  const counts = { board: 0, fleet: 0 };
   // Read the client BEFORE listening, so a missing artifact fails with the
   // message above rather than as a blank page in a browser.
   const html = clientHtml();
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
-    if (url.pathname === '/api/board') return json(res, current.board);
-    if (url.pathname === '/api/fleet') return json(res, current.fleet);
+    if (url.pathname === '/api/board' || url.pathname === '/api/fleet') {
+      // Destroyed, not 500ed: a `fetch` against a refusing server rejects, and
+      // a status code is an answer the client would render as an error state.
+      if (failing) return res.socket?.destroy();
+      const which = url.pathname === '/api/board' ? 'board' : 'fleet';
+      counts[which] += 1;
+      return json(res, current[which]);
+    }
     if (url.pathname === '/' || url.pathname === '/index.html') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(html);
@@ -181,6 +209,8 @@ export const startMockBoard = async (
     port,
     baseURL: `http://localhost:${port}/`,
     serve: (next, nextOver) => { current = scenario(next, nextOver); },
+    served: () => ({ ...counts }),
+    fail: (on) => { failing = on; },
     stop: () => new Promise<void>((resolve) => { server.close(() => resolve()); }),
     kill: () => { server.close(); },
   };
