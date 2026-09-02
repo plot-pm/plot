@@ -914,12 +914,10 @@ export function agentStateStatus(state: AgentEntry['state']): string {
  *                       sources this from the pulse, never from the host.
  * @returns `'free'` when the agent can take a slice, else `''`.
  */
-export function agentAvailability(
+export const agentAvailability = (
   agent: Pick<AgentEntry, 'state' | 'branch'>,
   sliceHasMerged: boolean,
-): string {
-  return isAgentFree({ state: agent.state, branch: agent.branch, sliceHasMerged }) ? 'free' : '';
-}
+): string => (isAgentFree({ state: agent.state, branch: agent.branch, sliceHasMerged }) ? 'free' : '');
 
 /**
  * The version a release row is about, or "" — read from the branch, never
