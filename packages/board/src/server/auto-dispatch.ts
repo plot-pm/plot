@@ -597,6 +597,10 @@ export function skippedPlans(
     let held = 0;
     let flying = 0;
     let eligibleBranches = 0;
+    // Merged, claimed or deferred: counted so the totals still add up, and
+    // never a reason on its own — a plan whose eligible wave holds only these
+    // falls through to `no-eligible-wave`, which is what the final `else` says.
+    let unstartable = 0;
     for (const wave of plan.slices) {
       if (wave.verdict !== 'eligible') continue;
       for (const b of wave.branches) {
@@ -605,7 +609,15 @@ export function skippedPlans(
         // A branch can be both ref-held and brief-less; the planner's `&&`
         // chain refuses it at the first failing clause, so the reason reported
         // is the one that actually stopped it.
-        if (!dispatchable(b)) held += 1;
+        // `held` MEANS A REF A REAPER COULD RELEASE, not "not startable".
+        // `dispatchable` is `isStartable(state) && !refBlocksClaim(b)`, so a
+        // merged or deferred branch fails it on STATE and counting that as
+        // `held` sends an operator to reap work that is already finished.
+        // Measured 2026-09-02: a wave of one merged and one deferred branch
+        // reported `ref-held`, and the reason this function exists is to name
+        // somebody's next move.
+        if (!isStartable(b.state)) unstartable += 1;
+        else if (refBlocksClaim(b)) held += 1;
         else if (inFlight.has(b.branch)) flying += 1;
         else if (missingBriefs.has(b.branch)) noBrief += 1;
         else startable += 1;
