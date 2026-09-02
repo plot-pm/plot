@@ -16,6 +16,7 @@
 - **Delivered:** <!-- YYYY-MM-DD -->
 - **Released:** <!-- YYYY-MM-DD, version -->
 - **Started:** 2026-09-01, Jan Wloka, `feature/a-monitor-is-a-pure-rule`
+- **Started:** 2026-09-02, Jan Wloka, `feature/the-pr-monitor-asks-through-a-port`
 
 ## Changelog
 
