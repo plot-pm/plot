@@ -9,7 +9,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -63,6 +63,14 @@ reaper    ──repairs──►  desks whose agent died
 
 **The registry holds the queue and matches on the free event.** `free` becomes something an agent announces when it finishes a slice, not a state anything polls. That is why the loop's `--offline --next` disappears rather than being fixed: the agent stops shopping for its own branch, and so stops taking a branch without a work order.
 
+**The registry is the assignment lock, and there is only one.** It hands a slice to one agent and never hands the same slice out twice. `--offline --next` goes with it: no agent selects its own work, so two agents racing for one branch stops being reachable rather than being caught.
+
+**Git's refusal is not a second lock — it is a property that cannot be removed.** `DESIGN-branch.md:64` settles why: *"A Branch is the only entity here whose source is git itself... a Branch **is** `refs/remotes/origin/<name>`."* An agent that works on a branch pushes it, and git rejects a push to a ref that already exists and diverged. That refusal happens whether or not anything intends it as a lock.
+
+**So it is demoted, not deleted.** Today `DESIGN-branch.md:52` calls the push *"the whole locking mechanism"*, and today that is accurate: nothing assigns, every agent shops through `--next`, and git's refusal is genuinely all that prevents a collision. Once the registry assigns, the same refusal becomes a backstop that costs nothing and should never fire — the relationship the reaper now has to desks.
+
+**A rejected claim push therefore stops being routine and becomes an alarm.** `plot-worker-loop.sh:729` treats one as ordinary — *"another worker won the race"* — and under this model it is a registry bug reporting itself. It must be logged loudly rather than swallowed, because the estate is protected at the moment the invariant is already broken.
+
 **The registry that does this is `plot-registryd`, and it is no longer deferred.** `readAgentRegistry` is a read over manifest files — it cannot wait for anything, so this plan needs the daemon `the-registry-supervises-its-agents` describes. That wave was gated on *"stranded, reported, and still not picked up by a person"* measuring non-zero, and **2026-09-02 supplied it**: 19 desks with merged PRs reaped by hand, 2 sitting as `unknown` agents until the operator pointed at them, 1 holding a `PLOT-BLOCKED` marker for 13 hours after a merge had answered its question. Reporting made every one visible and cleared none. **The gate was lifted the same day** — so this plan depends on a wave that is now startable, not on one that is parked.
 
 **The agent decides create-or-reset**, because it is the only party that can see its own tree. The registry sees identities; the machine sees processes; only the agent at the desk sees uncommitted changes, a `PLOT-BLOCKED` marker, or a checkout still on a merged branch.
@@ -114,6 +122,9 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
   **What wave 1 must therefore fix:** `branch` is set at spawn and rewritten on hop, but never *cleared*, so "no branch" is unreachable today. Clearing it on finishing a slice is the deliverable.
 - [ ] **What happens to a queued slice when every agent dies?** The queue outlives its agents by design. Whether it survives a machine restart depends on the answer above.
+- [ ] **What is the scope of the queue and the free-agent pool — one machine, or the estate?** `elsewhere` means *no worktree on this machine*, so the model already anticipates several, and `DESIGN-machine.md:147` measured six live boards across three projects. A daemon and its queue live on one machine. Either each machine runs its own daemon over the same repo, or the queue derives from git and every machine sees the same work while handing only to its own agents. The second reintroduces the double-assignment the registry lock is meant to end, one level up.
+- [ ] **What happens to the desks that exist at cutover?** This estate carried 11 worktrees, 8 loop processes and 1 manifest while the plan was written — desks made under the old model, most with no identity. The sweep wave probably *is* the migration, since an old desk is exactly the leftover it already handles, but the plan should say so rather than leave it inferred.
+- [ ] **What sets N, the number of agents?** The plan says the registry spawns *"N at a time, on the operator's ask"* and never says where N comes from, or what happens when the queue is longer than N. `DESIGN-agent.md:174` answers the first half — the machine measures pressure and reports it, the operator reads it when choosing N, and nothing refuses or defers. The board already carries a `parallel agents (cap)` control. The second half is unanswered: a queue longer than the pool is the normal case, not an error.
 - [ ] **Does an agent ever hold a desk on a branch it is not working?** Between units it is `running`, has no branch, and holds a desk sitting on something. What that tree points at while idle is unspecified.
 
 ## Branches
@@ -136,7 +147,7 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 ### Saying so in the specs
 
-- `docs/the-desk-belongs-to-the-agent` — amend `DESIGN-worktree.md:60`, which says the dispatcher creates the desk and is the sentence this plan contradicts. Record the measurement that settled it.
+- `docs/the-desk-belongs-to-the-agent` — amend the two sentences this plan contradicts. `DESIGN-worktree.md:60` says the dispatcher creates the desk; the agent does. `DESIGN-branch.md:52` says the push is *the whole* locking mechanism; it stops being that the moment the registry assigns, and becomes a backstop that should never fire. Record the measurement that settled the first and the reasoning that demoted the second — neither sentence was wrong when written.
 
 ## Notes
 
@@ -153,5 +164,9 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 2. *"What is the source for `free`?"* Settled on the manifest naming no branch — see Open Questions. The finding that mattered: `branch` is never cleared today, so the deliverable is smaller than it looked.
 3. *"A local branch is the last copy of a reflog."* Wrong, and corrected above: it is re-fetchable from origin. The real trap is that `git branch -d` refuses a squash-merged branch, so the gate is the reaper's two measurements.
 4. *"What does a reset actually do?"* The base-then-branch order, for the `.gitignore` reason that stranded 19 desks the same day.
+
+**Round 2, 2026-09-02, in-session.** One challenge answered, three left open above.
+
+The answered one: *"the registry should be the assignment lock — why two locking mechanisms?"* Because the plan had not said which one wins. It does now: the registry assigns and is the only lock, `--offline --next` goes, and git's refusal is demoted to a backstop that cannot be removed and should never fire. The consequence worth catching is small and specific — a rejected claim push is currently treated as routine at `plot-worker-loop.sh:729`, and under this model it is a registry bug reporting itself.
 
 **What is NOT in scope.** The `Slice`/`Wave` naming defect (`CLAUDE.md` records it as known, with its own plan) is untouched here, though this plan's branches sit next to it. So is the `HostBackend` layering exception — a different plan closed that today.
