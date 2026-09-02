@@ -1596,23 +1596,117 @@ gh_api_harvest() {
 # and `gh pr view` spend `graphql`; `gh api repos/…` and `gh run list` spend
 # `core`. A harvested header overrides it where one was taken — see
 # `budget_record_call`.
+# ── The concurrency bound ────────────────────────────────────────────────────
+#
+# HOW MANY CALLS THIS ACCOUNT MAY HAVE OPEN AT ONCE. The wrappers below claim a
+# slot before the CLI runs and give it back after, so eight workers running this
+# script at once compete for one account's cap rather than all calling together
+# — which is exactly what 2026-08-27 measured: eight workers, a 403 naming abuse
+# detection, and both buckets reading `5000/5000 used=0`.
+#
+# **DISCOVERED, NOT CONFIGURED.** `seven` has no independent source — the two
+# comments in this file that cite it cite the one incident, where eight failed
+# and seven is the inference — so no number is compiled in here. The bound is
+# derived from the ceiling the record already holds, by the arithmetic
+# `boundFromLimit` states: a limit is requests per HOUR and a bound is requests
+# at one MOMENT, so an account allowed `limit` an hour can sustain
+# `limit / (3600 / 4)` of them simultaneously at four seconds a call.
+#
+# **AND A CONNECTOR THAT REPORTS NOTHING IS UNBOUNDED**, which is what every
+# caller was before this slice. `unknown` is not a number, and a bound invented
+# here would be the compiled-in seven under another name.
+PLOT_SLOT_SECONDS=4
+
+# The bound for one connector and account, from the record's own reading.
+# Prints nothing and exits 1 where nothing licenses a bound.
+host_concurrency_bound() { # $1=connector $2=account
+  local rate limit basis
+  rate="$(budget_rate "$1" "$2" '' 2>/dev/null)" || return 1
+  basis="$(printf '%s' "$rate" | LC_ALL=C sed -n 's/.*"basis":"\([a-z]*\)".*/\1/p')"
+  [ "$basis" = actual ] || [ "$basis" = predicted ] || return 1
+  limit="$(printf '%s' "$rate" | LC_ALL=C sed -n 's/.*"limit":\([0-9]*\).*/\1/p')"
+  case "$limit" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$limit" -gt 0 ] || return 1
+  local bound=$(( limit * PLOT_SLOT_SECONDS / 3600 ))
+  # NEVER ZERO. A bound of zero is a connector that can never be called again,
+  # which no reading licenses.
+  [ "$bound" -ge 1 ] || bound=1
+  printf '%s\n' "$bound"
+}
+
+# How long a caller keeps asking for a slot before it proceeds anyway, and how
+# often it asks. Thirty seconds is the queue eight deep draining at four seconds
+# a call; a caller still waiting after it PROCEEDS rather than refusing, because
+# a script that waited forever would hang a worker where the plan asks only that
+# the cadence degrade. The cost of one extra simultaneous call is a secondary
+# refusal that lowers the bound — evidence, through the mechanism this slice is
+# built on.
+PLOT_SLOT_WAIT_MAX_S=30
+PLOT_SLOT_POLL_S=1
+
+# The slot this process holds, so the wrappers can give it back. Empty where
+# none was taken — an unbounded connector, or a wait that ran out.
+PLOT_SLOT_INDEX=''
+PLOT_SLOT_ACCOUNT=''
+
+# Claims a slot for the call about to be made, waiting where the account is
+# busy. Never refuses: at worst it proceeds unbounded, which is what every
+# caller did before this slice.
+host_slot_take() { # $1=connector $2=backend-for-account
+  PLOT_SLOT_INDEX=''; PLOT_SLOT_ACCOUNT=''
+  [ -z "${PLOT_BUDGET_OFF:-}" ] || return 0
+  local account bound waited=0 got
+  account="$(budget_account "${2:-$1}")" || return 0
+  bound="$(host_concurrency_bound "$1" "$account")" || return 0
+  local rc
+  while :; do
+    # CAPTURED IMMEDIATELY, because `$?` after an `if` reports the `if`. The
+    # three exits mean three different things and collapsing any two of them is
+    # the defect this whole plan is about.
+    got="$(budget_slot_acquire "$account" "$bound")"; rc=$?
+    if [ "$rc" -eq 0 ]; then
+      PLOT_SLOT_INDEX="$got"; PLOT_SLOT_ACCOUNT="$account"; return 0
+    fi
+    # Exit 2 is *the claims could not be managed*, which is not the account
+    # being busy — and a script that stopped calling because a directory could
+    # not be created would go dark on a disk fault. It proceeds.
+    [ "$rc" -eq 1 ] || return 0
+    [ "$waited" -lt "$PLOT_SLOT_WAIT_MAX_S" ] || return 0
+    sleep "$PLOT_SLOT_POLL_S"
+    waited=$(( waited + PLOT_SLOT_POLL_S ))
+  done
+}
+
+# Gives the slot back. Called on every path out of a wrapper, taken or not.
+host_slot_give() {
+  [ -n "$PLOT_SLOT_INDEX" ] || return 0
+  budget_slot_release "$PLOT_SLOT_ACCOUNT" "$PLOT_SLOT_INDEX"
+  PLOT_SLOT_INDEX=''; PLOT_SLOT_ACCOUNT=''
+}
+
 gh() {
+  host_slot_take github github
   command gh "$@"
   local rc=$?
+  host_slot_give
   budget_record_call github github "$(gh_bucket_of_argv "$@")"
   return $rc
 }
 
 bb() {
+  host_slot_take bitbucket bitbucket
   command bb "$@"
   local rc=$?
+  host_slot_give
   budget_record_call bitbucket bitbucket
   return $rc
 }
 
 jen() {
+  host_slot_take jenkins ''
   command jen "$@"
   local rc=$?
+  host_slot_give
   # Jenkins is the CI axis, a connector of its own — this repo is GitHub +
   # Actions while `ekzweb` is Bitbucket + Jenkins, so a `jen` call spends
   # against a server the git host knows nothing about.

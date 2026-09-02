@@ -17,7 +17,7 @@
 //    guarantee the cap exists to give.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -625,4 +625,177 @@ test('budget: an account nobody could resolve is recorded, not dropped', () => {
   const lines = recordLines(home);
   assert.ok(lines.length > 0, 'the call went unrecorded');
   for (const line of lines) assert.equal(line.split('\t')[2], 'unknown');
+});
+
+// ── The concurrency bound ────────────────────────────────────────────────────
+//
+// FOUR THINGS THIS SECTION PINS, and the first is the reason the whole slice
+// exists:
+//
+// 1. **Two PROCESSES asking for the last slot do not both get it.** 2026-08-27
+//    was eight workers, each running `plot-host.sh` once — a population no
+//    in-process semaphore bounds, and one only real processes demonstrate.
+// 2. **The shell and the domain adapter read each other's claims.** The board
+//    is TypeScript and the eleven spenders are shell; two implementations that
+//    could not see each other would be two caps, which is no cap at all.
+// 3. **A dead claimant frees its slot.** The idle rule ended twelve desks over
+//    two days here; a cap counting their claims forever would deadlock.
+// 4. **No seven is compiled in.** The bound is a quotient of the record's own
+//    ceiling, so a different limit gives a different bound.
+
+/** Sources `plot-budget.sh` and runs one expression against a record home. */
+function budgetShell(home, script) {
+  return spawnSync('bash', ['-c', `. "${budget}"\n${script}`], {
+    encoding: 'utf8',
+    env: { ...process.env, PLOT_BUDGET_HOME: home },
+  });
+}
+
+test('a slot is handed out up to the bound and then the account reads busy', () => {
+  const home = makeHome();
+  const res = budgetShell(home, `
+    budget_slot_acquire acct 2 || echo busy
+    budget_slot_acquire acct 2 || echo busy
+    budget_slot_acquire acct 2 || echo busy
+  `);
+  assert.equal(res.status, 0, res.stderr);
+  // BUSY IS NOT BROKEN. Exit 1 is the account being full; exit 2 would be the
+  // claims being unreadable, and a caller must not read either as the other.
+  assert.deepEqual(res.stdout.trim().split('\n'), ['0', '1', 'busy']);
+});
+
+test('a released slot is handed out again', () => {
+  const home = makeHome();
+  const res = budgetShell(home, `
+    budget_slot_acquire acct 1 >/dev/null
+    budget_slot_release acct 0
+    budget_slot_acquire acct 1 || echo busy
+  `);
+  assert.equal(res.stdout.trim(), '0');
+});
+
+test('a slot whose claimant is gone is reclaimed', () => {
+  const home = makeHome();
+  // A pid nothing is running under. `kill -0` answers, and the answer is that
+  // the slot names no process holding it.
+  const dir = path.join(home, 'slots', 'acct');
+  execFileSync('mkdir', ['-p', dir]);
+  writeFileSync(path.join(dir, '0'), `2147483646\t-\t${Date.now()}\n`);
+  const res = budgetShell(home, 'budget_slot_acquire acct 1 || echo busy');
+  assert.equal(res.stdout.trim(), '0');
+});
+
+test('a slot whose claimant is alive is kept', () => {
+  const home = makeHome();
+  const dir = path.join(home, 'slots', 'acct');
+  execFileSync('mkdir', ['-p', dir]);
+  // This test's own process is certainly alive.
+  writeFileSync(path.join(dir, '0'), `${process.pid}\t-\t${Date.now()}\n`);
+  const res = budgetShell(home, 'budget_slot_acquire acct 1 || echo busy');
+  assert.equal(res.stdout.trim(), 'busy');
+});
+
+test('a live claim older than the staleness bound is reclaimed', () => {
+  const home = makeHome();
+  const dir = path.join(home, 'slots', 'acct');
+  execFileSync('mkdir', ['-p', dir]);
+  // Alive, but stamped eleven minutes ago — past the ten-minute last resort.
+  writeFileSync(path.join(dir, '0'), `${process.pid}\t-\t${Date.now() - 11 * 60_000}\n`);
+  const res = budgetShell(home, 'budget_slot_acquire acct 1 || echo busy');
+  assert.equal(res.stdout.trim(), '0');
+});
+
+test('a release removes only this process own claim', () => {
+  const home = makeHome();
+  const dir = path.join(home, 'slots', 'acct');
+  execFileSync('mkdir', ['-p', dir]);
+  writeFileSync(path.join(dir, '0'), `${process.pid}\t-\t${Date.now()}\n`);
+  // A slot reclaimed while its owner still ran belongs to somebody else now,
+  // and unlinking it on the way out would let the cap be exceeded by one.
+  budgetShell(home, 'budget_slot_release acct 0');
+  assert.ok(existsSync(path.join(dir, '0')), 'another process claim was removed');
+});
+
+test('a claim is written outside no account directory', () => {
+  const home = makeHome();
+  // The account is a string the record does not validate, so it can hold a dot
+  // segment; a path built from it unchecked is a traversal.
+  const res = budgetShell(home, "budget_slot_acquire '../../escaped' 1 >/dev/null; budget_slots_dir '../../escaped'");
+  const dir = res.stdout.trim();
+  assert.ok(dir.startsWith(path.join(home, 'slots') + path.sep), `escaped to ${dir}`);
+  assert.ok(!dir.includes('..'), `still spells a parent: ${dir}`);
+});
+
+test('two processes never hold the same slot', () => {
+  const home = makeHome();
+  // STARTED TOGETHER, on a wall-clock moment the parent chose. A sequential run
+  // passes against a create-then-write and proves nothing about the guarantee.
+  const startAt = Math.floor(Date.now() / 1000) + 3;
+  const claimer = `
+    . "${budget}"
+    while [ "$(date +%s)" -lt ${startAt} ]; do :; done
+    budget_slot_acquire shared 3 || echo busy
+    sleep 2
+  `;
+  // `spawn`, NOT `spawnSync`. The synchronous form runs the six one after
+  // another, and each one's pid is dead by the time the next asks — so all six
+  // correctly take slot 0 and the test proves nothing about contention.
+  const runs = Array.from({ length: 6 }, () =>
+    new Promise((resolve) => {
+      const child = spawn('bash', ['-c', claimer], {
+        env: { ...process.env, PLOT_BUDGET_HOME: home },
+      });
+      let out = '';
+      child.stdout.on('data', (chunk) => { out += String(chunk); });
+      child.on('close', () => resolve(out.trim()));
+    }));
+  return Promise.all(runs).then((claims) => {
+    const taken = claims.filter((claim) => claim !== 'busy' && claim !== '');
+    assert.equal(new Set(taken).size, taken.length, `a slot went to two processes: ${claims}`);
+    assert.ok(taken.length <= 3, `${taken.length} processes took a bound of 3`);
+  });
+});
+
+test('the shell writes the claim the domain adapter reads', () => {
+  const home = makeHome();
+  budgetShell(home, 'budget_slot_acquire acct 2 >/dev/null');
+  const claim = readFileSync(path.join(home, 'slots', 'acct', '0'), 'utf8');
+  // THE FORMAT IS `slots-file.ts`'s AND NOT THIS FILE'S: three tab-separated
+  // fields, `<pid> <started-at|-> <at-ms>`, one line. The board is TypeScript
+  // and the eleven spenders are shell; two implementations that could not read
+  // each other would be two caps, which is no cap at all.
+  const fields = claim.replace(/\n$/, '').split('\t');
+  assert.equal(fields.length, 3, `not three fields: ${JSON.stringify(claim)}`);
+  assert.match(fields[0], /^[0-9]+$/, 'the pid is not a number');
+  assert.ok(fields[1] === '-' || /^[0-9]+$/.test(fields[1]), 'the start time is neither absent nor a number');
+  assert.match(fields[2], /^[0-9]+$/, 'the stamp is not a number');
+  // The same directory `slots-file.ts` resolves: `$PLOT_BUDGET_HOME/slots/<account>/<index>`.
+  assert.ok(existsSync(path.join(home, 'slots', 'acct', '0')));
+});
+
+test('the bound is a quotient of the record ceiling, with no seven compiled in', () => {
+  const home = makeHome();
+  const at = Date.now();
+  // Two accounts, two ceilings, from the record the connector already writes.
+  const record = [
+    `b1\tgithub\tbig\tcore\t${at}\t1\t5000\t4990\t-\tactual`,
+    `b1\tgithub\tsmall\tcore\t${at}\t1\t900\t880\t-\tactual`,
+    `b1\tgithub\tsilent\tcore\t${at}\t1\t-\t-\t-\tunknown`,
+  ].join('\n') + '\n';
+  writeFileSync(path.join(home, 'budget.tsv'), record);
+  const res = spawnSync('bash', ['-c', `
+    . "${budget}"
+    . <(sed -n '/^PLOT_SLOT_SECONDS=/,/^}/p' "${adapter}")
+    host_concurrency_bound github big || echo none
+    host_concurrency_bound github small || echo none
+    host_concurrency_bound github silent || echo none
+  `], { encoding: 'utf8', env: { ...process.env, PLOT_BUDGET_HOME: home } });
+  const [big, small, silent] = res.stdout.trim().split('\n');
+  // 5000 an hour at four seconds a call is 5; 900 is 1. A different ceiling
+  // gives a different bound, which a hard-coded seven could not do.
+  assert.equal(big, '5', res.stderr);
+  assert.equal(small, '1');
+  // `unknown` IS NOT A NUMBER. A connector reporting nothing proposes no bound,
+  // and one invented here would be the compiled-in seven under another name.
+  assert.equal(silent, 'none');
 });

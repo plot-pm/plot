@@ -1548,14 +1548,19 @@ export function applyReaction(entry: CacheEntry, reaction: Reaction | null): voi
   // own proposal is what the refusal disproves, so that is what it halves; a
   // connector proposing nothing falls back to the bound the board was running
   // at, which is what the refusal was measured against.
+  // ONLY A REACTION THAT LOWERS WRITES ANYTHING. A quota leaves the bound where
+  // it was, and storing the derived proposal on the way past would FREEZE it: a
+  // value that is recomputed from the connector's reading every refresh would
+  // become one that outlives the reading it came from, so a vendor changing its
+  // limit would stop moving the cap. Measured by `pr-concurrency.test.ts`,
+  // which asked for a quota and got the proposal written into the correction.
+  if (reaction === null || reaction.concurrencyFactor >= 1) return;
   const current = entry.prConcurrency ?? boundFromLimit(limitReadingOf(entry));
-  if (current === null) {
-    // NOTHING TO CORRECT AND NOTHING INVENTED. A connector that reports no
-    // ceiling gives a refusal no number to halve, and a bound picked here would
-    // be the compiled-in seven under another name. The next reading proposes
-    // one; until then the refusal's own wait is the whole reaction.
-    return;
-  }
+  // NOTHING TO CORRECT AND NOTHING INVENTED. A connector that reports no
+  // ceiling gives a refusal no number to halve, and a bound picked here would
+  // be the compiled-in seven under another name. The next reading proposes one;
+  // until then the refusal's own wait is the whole reaction.
+  if (current === null) return;
   entry.prConcurrency = loweredConcurrency(current, reaction);
 }
 
