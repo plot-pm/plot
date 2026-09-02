@@ -17,6 +17,7 @@
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-09-02, Jan Wloka, `feature/the-domain-forgets-the-vendor-list`
+- **Started:** 2026-09-02, Jan Wloka, `feature/a-third-connector-needs-no-domain-edit`
 -->
 
 ## Changelog
