@@ -168,6 +168,14 @@ fs.chmodSync(shippedTransition, 0o755);
 const vendoredScripts = [
   'plot-agent-monitor.sh',
   'plot-approve.sh',
+  // Sourced BY plot-host.sh as a `$here` sibling — the same shape as
+  // `plot-transcript-quiet.sh` below, and the same failure. Missing, the source
+  // prints one line to stderr and every budget function is then undefined:
+  // `graphql_budget_spent` calls `budget_rate`, so in the npm layout every
+  // `pr-state` would route on a `command not found`. The gate that derives this
+  // list from the server's own spawns cannot see a SOURCED file, so it is
+  // listed by hand and this comment says why.
+  'plot-budget.sh',
   'plot-config.sh',
   'plot-deliver.sh',
   'plot-dispatch.sh',
