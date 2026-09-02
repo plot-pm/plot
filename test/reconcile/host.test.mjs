@@ -2822,3 +2822,293 @@ test('host: exactly one site decides the route', () => {
   assert.ok(routerBody.includes('graphql_budget_spent'), 'the budget read is in the router');
   assert.ok(routerBody.includes('PLOT_HOST_FORCE_REST'), 'the override read is in the router');
 });
+
+// ── the budget knows which bucket it spent ──────────────────────────────────
+//
+// GITHUB METERS `core` AND `graphql` AS INDEPENDENT POOLS, 5000 each, and until
+// this slice the record filed every GitHub call against one bucket named `api`.
+// Measured 2026-09-01 from the response headers of one account at one moment:
+//
+//   core (REST)  5000 limit, 4990 remaining, 10 used
+//   graphql      5000 limit,    0 remaining, 5000 used
+//
+// A single reading over that pair reports plenty of room while every `gh pr`
+// call is refused — and refuses calls that would have gone to the pool with
+// 4990 left.
+//
+// THE TRUTH IS THE RESPONSE HEADER, NOT `gh api rate_limit`. Measured
+// 2026-09-01 and reproduced 2026-09-02, seconds apart on one account: the
+// endpoint reported `graphql 5000/5000 used 0` while the header on a real call
+// read `Remaining: 2732, Used: 2268`. The header reading is free (the call was
+// going to happen anyway), current (it describes the call that just happened)
+// and self-naming (`X-RateLimit-Resource` says which pool).
+
+// Reads the budget record a run wrote, as decoded fields.
+const recordOf = (stubs) => {
+  const file = path.join(stubs.budgetHome ?? path.join(stubs.dir, 'budget-home'), 'budget.tsv');
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [format, connector, account, bucket, at, spent, limit, remaining, reset, basis] =
+        line.split('\t');
+      return { format, connector, account, bucket, at, spent, limit, remaining, reset, basis };
+    });
+};
+
+// A `gh` stub that answers `api … --include` with a HEADER BLOCK, so a test can
+// express what a real response carries. The status line is what the adapter
+// keys the split on, and the headers are CRLF-terminated exactly as `gh` prints
+// them — a body split on a bare `\n` blank line would take the first blank line
+// inside a pretty-printed payload instead.
+function makeRestHeaderStub({ headers = {}, restJson = '{}', fail = null } = {}) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-rest-hdr-'));
+  const callsFile = path.join(dir, 'gh.calls');
+  const budgetHome = path.join(dir, 'budget-home');
+  mkdirSync(budgetHome, { recursive: true });
+  const q = (v) => String(v).replace(/'/g, `'\\''`);
+  const hdr = Object.entries(headers)
+    .map(([k, v]) => `${k}: ${v}\\r`)
+    .join('\n');
+  const body = `#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "${callsFile}"
+case "$1" in
+  repo) printf '%s' '{"defaultBranchRef":{"name":"main"},"nameWithOwner":"owner/repo"}'; exit 0 ;;
+esac
+${fail != null ? `printf '%s\\n' '${q(fail)}' >&2; exit 1` : ''}
+if [[ "$*" == *"--include"* ]]; then
+  printf 'HTTP/2.0 200 OK\\r\\n'
+  printf '${hdr}\\n'
+  printf '\\r\\n'
+fi
+printf '%s' '${q(restJson)}'
+`;
+  writeFileSync(path.join(dir, 'gh'), body);
+  chmodSync(path.join(dir, 'gh'), 0o755);
+  writeFileSync(path.join(dir, 'bb'), '#!/usr/bin/env bash\nexit 0\n');
+  chmodSync(path.join(dir, 'bb'), 0o755);
+  return { dir, callsFile, budgetHome };
+}
+
+const REST_PR = JSON.stringify({
+  number: 7,
+  state: 'open',
+  draft: false,
+  html_url: 'https://example.test/pr/7',
+  merged: false,
+  merge_commit_sha: null,
+});
+
+test('host: a REST call records the bucket its own header names', () => {
+  // THE BUCKET NAMES ITSELF. `X-RateLimit-Resource` says `core`, and the
+  // adapter files the spend there rather than under one undifferentiated pool.
+  const stubs = makeRestHeaderStub({
+    headers: {
+      'X-Ratelimit-Limit': '5000',
+      'X-Ratelimit-Remaining': '4990',
+      'X-Ratelimit-Reset': '1788269670',
+      'X-Ratelimit-Resource': 'core',
+    },
+    restJson: REST_PR,
+  });
+  run(['pr-state', '7'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs });
+  const rows = recordOf(stubs).filter((r) => r.bucket === 'core');
+  assert.ok(rows.length >= 1, `a core line must be written; record was:\n${JSON.stringify(recordOf(stubs), null, 2)}`);
+  const row = rows.at(-1);
+  assert.equal(row.remaining, '4990', 'the header’s own number, not the endpoint’s');
+  assert.equal(row.limit, '5000');
+  assert.equal(row.basis, 'actual', 'the connector said it, about the call that just happened');
+});
+
+test('host: the harvest costs no extra request', () => {
+  // THE OBJECTION THAT JUSTIFIED `rate_limit` DOES NOT APPLY HERE. `--include`
+  // adds a header block to a request the adapter was already making, so the
+  // reading is free — where `gh api rate_limit` was one call per lookup against
+  // the very pool it reported on.
+  const stubs = makeRestHeaderStub({
+    headers: { 'X-Ratelimit-Limit': '5000', 'X-Ratelimit-Remaining': '4990', 'X-Ratelimit-Resource': 'core' },
+    restJson: REST_PR,
+  });
+  run(['pr-state', '7'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs });
+  const calls = callsOf(stubs.callsFile).filter((c) => !c.startsWith('repo '));
+  assert.equal(calls.length, 1, `one request, not two; calls were:\n${calls.join('\n')}`);
+  assert.match(calls[0], /--include/, 'the same request, with its headers asked for');
+  assert.ok(!calls.some((c) => c.includes('rate_limit')), 'nothing asks that endpoint to route');
+});
+
+test('host: the harvested body reaches the caller unchanged', () => {
+  // STDOUT IS THE BODY AND NOTHING ELSE. The header block is split off inside
+  // the adapter, so every caller parses exactly what it parsed before —
+  // `--verbose` was the alternative and writes the whole exchange to stdout.
+  const stubs = makeRestHeaderStub({
+    headers: { 'X-Ratelimit-Limit': '5000', 'X-Ratelimit-Remaining': '4990', 'X-Ratelimit-Resource': 'core' },
+    restJson: REST_PR,
+  });
+  const out = run(['pr-state', '7'], {
+    env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' },
+    stubs,
+  });
+  assert.deepEqual(JSON.parse(out), {
+    number: 7, state: 'OPEN', draft: false, url: 'https://example.test/pr/7', mergeCommit: '',
+  });
+  assert.doesNotMatch(out, /X-Ratelimit|HTTP\//i, 'no header may reach a caller’s parse');
+});
+
+test('host: a stripped header records unknown, never a number', () => {
+  // `unknown` IS NEVER `free`. A proxy or an enterprise instance that removes
+  // the headers has not reported a full budget and has not reported an empty
+  // one — and the call is still recorded, because it still spent.
+  const stubs = makeRestHeaderStub({ headers: {}, restJson: REST_PR });
+  run(['pr-state', '7'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs });
+  const row = recordOf(stubs).filter((r) => r.bucket === 'core').at(-1);
+  assert.ok(row, 'a call that spent is recorded even where it reported nothing');
+  assert.equal(row.basis, 'unknown');
+  assert.equal(row.remaining, '-', 'the absent marker, never a zero standing in for it');
+  assert.notEqual(row.remaining, '0', 'silence must not read as exhaustion');
+});
+
+test('host: an unparseable header records unknown, never a number', () => {
+  // A limit that is not a number is no reading at all, and the WHOLE reading is
+  // dropped rather than half-kept: a bucket name beside an absent count would
+  // file a spend against a pool the record then reports as unknown.
+  const stubs = makeRestHeaderStub({
+    headers: { 'X-Ratelimit-Limit': 'lots', 'X-Ratelimit-Remaining': 'some', 'X-Ratelimit-Resource': 'core' },
+    restJson: REST_PR,
+  });
+  run(['pr-state', '7'], { env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' }, stubs });
+  const row = recordOf(stubs).filter((r) => r.bucket === 'core').at(-1);
+  assert.equal(row.basis, 'unknown');
+  assert.equal(row.limit, '-');
+});
+
+test('host: a GraphQL call is recorded against graphql, not against core', () => {
+  // `gh pr list` IS `gh`'S GRAPHQL WRAPPER and exposes no headers — there is no
+  // flag that adds them and `--verbose` writes the exchange to stdout. So the
+  // argv names the bucket, which is enough for the split that matters, and the
+  // numbers stay absent because nothing measured them.
+  const stubs = makeStubsRateAware({ graphqlJson: '[]' });
+  run(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
+  const written = recordOf(stubs).filter((r) => r.at > '0' && r.basis === 'unknown');
+  assert.ok(
+    written.some((r) => r.bucket === 'graphql'),
+    `a pr-list call spends graphql; record was:\n${JSON.stringify(recordOf(stubs), null, 2)}`,
+  );
+  assert.ok(
+    !written.some((r) => r.bucket === 'api'),
+    'the undifferentiated pool is gone — it described neither of the two',
+  );
+});
+
+test('host: a spent GraphQL bucket does not stop a REST call', () => {
+  // THE DONE-WHEN, WORDED AS THE PLAN WORDS IT. The two are budgeted by name,
+  // so the board keeps answering from the pool with 4990 left instead of
+  // pausing on the one with 0.
+  const stubs = makeStubsRateAware({
+    graphqlRemaining: 0,
+    coreRemaining: 4990,
+    restJson: REST_PR,
+  });
+  const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.state, 'OPEN', 'the REST pool answered while GraphQL was spent');
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(calls.some((c) => c.startsWith('api repos/')), 'and it answered over REST');
+});
+
+test('host: a spent REST bucket does not stop a GraphQL call', () => {
+  // AND THE REVERSE, which is the half a one-directional fix would miss.
+  const stubs = makeStubsRateAware({
+    graphqlRemaining: 4990,
+    coreRemaining: 0,
+    graphqlJson: JSON.stringify({
+      number: 7, state: 'OPEN', isDraft: false, url: 'https://example.test/pr/7',
+    }),
+  });
+  const out = JSON.parse(run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(out.state, 'OPEN');
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(calls.some((c) => c.startsWith('pr view')), 'a spent core pool says nothing about graphql');
+});
+
+test('host: the gate answers from the headers, not from rate_limit', () => {
+  // THE ASSERTION THE SLICE IS NAMED FOR. `X-RateLimit-Remaining: 0` on the
+  // graphql bucket routes to REST, and `gh api rate_limit` says 5000 at that
+  // exact moment — measured 2026-09-01 and reproduced 2026-09-02, three
+  // readings running.
+  //
+  // The stub answers `rate_limit` with a FULL budget on purpose: an adapter
+  // that still read that endpoint would take the cheap path and this test
+  // would fail. That inversion is the whole point.
+  const stubs = makeStubsRateAware({ graphqlRemaining: 0, coreRemaining: 5000, restJson: REST_PR });
+  writeFileSync(
+    path.join(stubs.budgetHome, 'budget.tsv'),
+    `b1\tgithub\t${BUDGET_ACCOUNT}\tgraphql\t${Date.now()}\t1\t5000\t0\t-\tactual\n`,
+  );
+  run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs });
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(calls.some((c) => c.startsWith('api repos/')), 'the header said 0, so REST answered');
+  assert.ok(
+    !calls.some((c) => c === 'api rate_limit'),
+    'the endpoint that reported 5000 against a header of 0 is not asked at all',
+  );
+});
+
+test('host: an empty record keeps the cheap path — unknown is not spent', () => {
+  // #485'S RULE AT THE POINT WHERE IT BITES. A record with no graphql line yet
+  // reports `unknown`, and reading that as exhausted would send every branch
+  // down the ~186-call path forever, on a fresh checkout, for nothing.
+  const stubs = makeStubsRateAware({
+    graphqlJson: JSON.stringify({
+      number: 7, state: 'OPEN', isDraft: false, url: 'https://example.test/pr/7',
+    }),
+  });
+  writeFileSync(path.join(stubs.budgetHome, 'budget.tsv'), '');
+  run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs });
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(calls.some((c) => c.startsWith('pr view')), 'no reading is not an empty bucket');
+  assert.ok(!calls.some((c) => c.startsWith('api repos/')), 'and must not take the expensive path');
+});
+
+test('host: a predicted reading may not close the gate', () => {
+  // ONLY AN `actual` READING IS EVIDENCE A POOL IS EMPTY. A prediction is the
+  // adapter's estimate of a CEILING and carries no spend against it, so a
+  // `predicted 0` is not a measurement of exhaustion — taking the expensive
+  // path on it would be routing on a guess.
+  const stubs = makeStubsRateAware({
+    graphqlJson: JSON.stringify({
+      number: 7, state: 'OPEN', isDraft: false, url: 'https://example.test/pr/7',
+    }),
+  });
+  writeFileSync(
+    path.join(stubs.budgetHome, 'budget.tsv'),
+    `b1\tgithub\t${BUDGET_ACCOUNT}\tgraphql\t${Date.now()}\t1\t5000\t0\t-\tpredicted\n`,
+  );
+  run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.ok(
+    callsOf(stubs.callsFile).some((c) => c.startsWith('pr view')),
+    'a guess must not route',
+  );
+});
+
+test('host: spend-rate with no --bucket sums every bucket the account has', () => {
+  // AN OMITTED `--bucket` MEANS EVERY BUCKET, which is what *what am I
+  // spending?* asks — the question the board's cadence divides by. An account
+  // spends both pools, so naming one would ignore the traffic on the other.
+  const stubs = makeStubsRateAware({});
+  const at = Date.now();
+  writeFileSync(
+    path.join(stubs.budgetHome, 'budget.tsv'),
+    [
+      `b1\tgithub\t${BUDGET_ACCOUNT}\tcore\t${at - 60000}\t1\t5000\t4990\t-\tactual`,
+      `b1\tgithub\t${BUDGET_ACCOUNT}\tgraphql\t${at - 30000}\t1\t5000\t0\t-\tactual`,
+      '',
+    ].join('\n'),
+  );
+  const all = JSON.parse(run(['spend-rate'], { env: { PLOT_HOST: 'github' }, stubs }));
+  assert.equal(all.spent, 2, 'both pools count toward what the account is spending');
+  const one = JSON.parse(
+    run(['spend-rate', '--bucket', 'graphql'], { env: { PLOT_HOST: 'github' }, stubs }),
+  );
+  assert.equal(one.spent, 1, 'a named bucket reports only its own');
+  assert.equal(one.remaining, 0, 'and its own reading, which the sum cannot give');
+});
