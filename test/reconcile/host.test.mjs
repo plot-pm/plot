@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -120,9 +120,30 @@ ${cases ? `case "$state" in\n${cases}\n    *) printf '%s' '[]' ;;\nesac` : `prin
 // It appends one line per invocation (`>>`), like `makeStrictBbStub`, so a test
 // can assert both what WAS called and what was NOT.
 //
+// WHO THE RECORD IS KEYED BY, in the tests that seed one.
+//
+// `budget_account` reads `gh`'s own config file and answers `unknown` where it
+// cannot; `PLOT_BUDGET_ACCOUNT` is the override both it and the seeder read, so
+// the key is stated once here rather than depending on whatever the machine
+// running the suite happens to be logged in as.
+const BUDGET_ACCOUNT = 'test-account';
+
 // `graphqlRemaining` defaults to a full budget: a stub that had to be told
 // "budget available" for every unrelated test would make the cheap path opt-in,
 // which is the inverse of the contract under test.
+//
+// THE BUDGET IS EXPRESSED AS A RECORD, NOT AS `rate_limit`, AND THAT IS THE
+// SLICE. These numbers used to reach the adapter only through the
+// `gh api rate_limit` payload the stub emitted — the endpoint measured
+// 2026-09-01 reporting 5000/5000 used 0 while the same account's response
+// header read `Remaining: 1236, Used: 3764`, and reproduced 2026-09-02 reading
+// 5000 against a header's 2732. So a test seeding it was pinning a gate that
+// could not fire against a real host.
+//
+// It now writes the budget record every spender appends to — one line per
+// bucket, `actual`, timestamped now — and points `PLOT_BUDGET_HOME` at it. The
+// stub still answers `rate_limit`, because the `rate-limit` OP still reports
+// it; nothing routes on it any more.
 function makeStubsRateAware({
   graphqlRemaining = 5000,
   coreRemaining = 5000,
@@ -133,6 +154,24 @@ function makeStubsRateAware({
 } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-rate-'));
   const callsFile = path.join(dir, 'gh.calls');
+  // The record lives beside the stubs and is passed through `PLOT_BUDGET_HOME`,
+  // the one override both the shell appender and `budget-file.ts` read.
+  const budgetHome = path.join(dir, 'budget-home');
+  mkdirSync(budgetHome, { recursive: true });
+  // `rateFail` means the budget CANNOT BE READ, and an unreadable budget is an
+  // empty record rather than a record of zeroes — the two answer `unknown` and
+  // `spent`, and #485's rule is that only the second may take the fallback.
+  if (rateFail == null) {
+    const at = Date.now();
+    writeFileSync(
+      path.join(budgetHome, 'budget.tsv'),
+      [
+        `b1\tgithub\t${BUDGET_ACCOUNT}\tcore\t${at - 1000}\t1\t5000\t${coreRemaining}\t-\tactual`,
+        `b1\tgithub\t${BUDGET_ACCOUNT}\tgraphql\t${at}\t1\t5000\t${graphqlRemaining}\t-\tactual`,
+        '',
+      ].join('\n'),
+    );
+  }
   const q = (v) => String(v).replace(/'/g, `'\\''`);
   const rateBody = rateFail != null
     ? `printf '%s\\n' '${q(rateFail)}' >&2; exit 1`
@@ -161,7 +200,7 @@ esac
 `;
   writeFileSync(path.join(dir, 'gh'), body);
   chmodSync(path.join(dir, 'gh'), 0o755);
-  return { dir, callsFile };
+  return { dir, callsFile, budgetHome };
 }
 
 const callsOf = (file) =>
@@ -171,10 +210,28 @@ const callsOf = (file) =>
 // the exit code and both streams instead of throwing, so a test can assert the
 // code, the silence on stdout, and the message on stderr as three separate
 // facts. The first two are the contract; the third is what makes it useful.
+// THE RECORD IS NEVER THE OPERATOR'S. Every run is pointed at a budget home
+// inside the stub's own directory — its seeded one where it has one, an empty
+// one otherwise — so a suite run on a real machine neither reads that machine's
+// spend nor appends a hundred lines of test traffic to it.
+//
+// `PLOT_BUDGET_ACCOUNT` is stated for the same reason: without it the key would
+// be whatever `gh` config the machine holds, and a seeded record would be
+// keyed to an account the adapter then does not ask about.
+const budgetEnvFor = (stubs) => ({
+  PLOT_BUDGET_HOME: stubs.budgetHome ?? path.join(stubs.dir, 'budget-home'),
+  PLOT_BUDGET_ACCOUNT: BUDGET_ACCOUNT,
+});
+
 function runAllowFail(args, { env = {}, stubs }) {
   const res = spawnSync('bash', [adapter, ...args], {
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, ...env },
+    env: {
+      ...process.env,
+      PATH: `${stubs.dir}:${process.env.PATH}`,
+      ...budgetEnvFor(stubs),
+      ...env,
+    },
   });
   return { code: res.status, stdout: res.stdout, stderr: res.stderr };
 }
@@ -182,7 +239,12 @@ function runAllowFail(args, { env = {}, stubs }) {
 function run(args, { env = {}, stubs }) {
   return execFileSync('bash', [adapter, ...args], {
     encoding: 'utf8',
-    env: { ...process.env, PATH: `${stubs.dir}:${process.env.PATH}`, ...env },
+    env: {
+      ...process.env,
+      PATH: `${stubs.dir}:${process.env.PATH}`,
+      ...budgetEnvFor(stubs),
+      ...env,
+    },
   });
 }
 

@@ -1503,20 +1503,51 @@ plot_harvest_headers() {
 # would make the reading cost correctness, which is the one price a bookkeeping
 # read may not charge.
 gh_api_harvest() {
-  local raw rc hdr_tmp
+  local raw rc hdr_tmp err_tmp
   hdr_tmp="$(mktemp "${TMPDIR:-/tmp}/plot-host-hdr.XXXXXX")" || {
-    # No temp file, no harvest — and the call still happens. Bookkeeping never
-    # fails its caller.
+    # No temp file, no harvest — and the call still happens, recorded by the
+    # wrapper from its argv alone. Bookkeeping never fails its caller.
     gh api "$@"
     return $?
   }
-  # Stderr is untouched — it flows to whatever the caller redirected it to, so
-  # a caller capturing it into a temp file captures the real CLI's words.
-  raw="$(gh api --include "$@")"
+  err_tmp="$(mktemp "${TMPDIR:-/tmp}/plot-host-herr.XXXXXX")" || {
+    rm -f "$hdr_tmp"
+    gh api "$@"
+    return $?
+  }
+  # `command gh`, NOT THE WRAPPER, and the reason is ordering. The wrapper
+  # records the call the moment it returns, which is before any header has been
+  # read — so a wrapped call here would file an `unknown` line and this
+  # function's reading would arrive too late to be the one recorded. Recording
+  # is therefore done below, once, with the header in hand.
+  # `--include` LAST, AFTER THE ENDPOINT. `gh` accepts it in either position,
+  # and the trailing one keeps the argv a reader — or a test's stub — sees
+  # identical up to the flag: `api repos/owner/repo/pulls/7 --include`, not
+  # `api --include repos/…`. The endpoint is what identifies the call.
+  raw="$(command gh api "$@" --include 2>"$err_tmp")"
   rc=$?
+  # THE EXIT CODE AND STDERR ARE THE REAL CALL'S. A harvest that changed either
+  # would make the reading cost correctness, which is the one price a
+  # bookkeeping read may not charge — so the CLI's own words are replayed on
+  # this function's stderr exactly as they arrived.
+  cat "$err_tmp" >&2
+  rm -f "$err_tmp"
   if [ $rc -ne 0 ]; then
     rm -f "$hdr_tmp"
+    # A FAILED CALL IS STILL A SPENT CALL on every refusal GitHub meters, so it
+    # is recorded like any other — from the argv, with no numbers.
+    budget_record_call github github "$(gh_bucket_of_argv api "$@")"
     return $rc
+  fi
+  # THE STATUS LINE IS WHAT PROVES A HEADER BLOCK IS THERE, and the check is not
+  # defensive padding. `sed '1,/^$/d'` on a body with NO header block deletes
+  # everything up to the first blank line IN THE BODY — pretty-printed JSON has
+  # none, so the whole payload would go. A `gh` too old for `--include`, or one
+  # that ignores it, produces exactly that input.
+  if [[ "$raw" != HTTP/* ]]; then
+    budget_record_call github github "$(gh_bucket_of_argv api "$@")"
+    printf '%s\n' "$raw"
+    return 0
   fi
   # `--include` prints the status line, the headers, a BLANK line, then the
   # body. The blank line is the split, and it carries a CR — the headers are
@@ -1524,6 +1555,11 @@ gh_api_harvest() {
   printf '%s\n' "$raw" | LC_ALL=C sed -n '1,/^[[:space:]]*$/p' >"$hdr_tmp"
   plot_harvest_headers "$hdr_tmp"
   rm -f "$hdr_tmp"
+  # THE ARGV NAMES THE BUCKET WHERE THE HEADER DID NOT. A response that carried
+  # no `X-RateLimit-Resource` still spent something, and `gh api <path>` is
+  # `core` by construction — so the call is recorded either way, and only the
+  # numbers are absent.
+  budget_record_call github github "$(gh_bucket_of_argv api "$@")"
   # The body is everything after the first blank line. `sed` rather than a
   # bash parameter expansion: the body may be megabytes of JSON, and the
   # expansion would hold two copies of it.
@@ -1626,7 +1662,7 @@ case "$op" in
         # place that knows how to read either.
         rest_repo="$(gh_rest_repo)" || exit $?
         if [[ "$ref" =~ ^[0-9]+$ ]]; then
-          if out="$(gh api "repos/$rest_repo/pulls/$ref" 2>/tmp/plot-host-err.$$)"; then
+          if out="$(gh_api_harvest "repos/$rest_repo/pulls/$ref" 2>/tmp/plot-host-err.$$)"; then
             rm -f "/tmp/plot-host-err.$$"
             rest_pr_to_state <<<"$out"
           else
@@ -1643,7 +1679,7 @@ case "$op" in
           # `state=all`, because the default is `open` and a merged PR would
           # otherwise read as NONE — wrong in the reassuring direction.
           rest_owner="${rest_repo%%/*}"
-          if out="$(gh api "repos/$rest_repo/pulls?head=$rest_owner:$ref&state=all&per_page=1" 2>/tmp/plot-host-err.$$)"; then
+          if out="$(gh_api_harvest "repos/$rest_repo/pulls?head=$rest_owner:$ref&state=all&per_page=1" 2>/tmp/plot-host-err.$$)"; then
             rm -f "/tmp/plot-host-err.$$"
             if [ "$(jq -r 'length' <<<"$out" 2>/dev/null)" = "0" ]; then
               echo '{"number":0,"state":"NONE","draft":false,"url":"","mergeCommit":""}'
@@ -2612,22 +2648,31 @@ case "$op" in
     # answering for both at once.
     if [ "$be" = "github" ]; then
       _hdr_tmp="/tmp/plot-host-limit.$$"
-      if gh api graphql -f query='{viewer{login}}' --include >"$_hdr_tmp" 2>/dev/null; then
-        # `--include` prints the headers, then a blank line, then the body.
-        # Header names are matched case-insensitively: `gh` prints
-        # `X-Ratelimit-Limit` while GitHub documents `X-RateLimit-Limit`, and a
-        # case-sensitive match reads a present header as absent.
-        _hv() { LC_ALL=C grep -im1 "^$1:" "$_hdr_tmp" | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r'; }
-        _lim="$(_hv 'X-RateLimit-Limit')"
-        _rem="$(_hv 'X-RateLimit-Remaining')"
-        _rst="$(_hv 'X-RateLimit-Reset')"
-        _res="$(_hv 'X-RateLimit-Resource')"
+      # `command gh`, NOT THE WRAPPER, and for the ordering reason
+      # `gh_api_harvest` gives: the wrapper records the moment the call returns,
+      # before any header has been read, so a wrapped call here would file an
+      # `unknown` line AND this arm would file the real one — two lines for one
+      # request, which over-counts the very spend the record exists to measure.
+      if command gh api graphql -f query='{viewer{login}}' --include >"$_hdr_tmp" 2>/dev/null; then
+        # ONE HEADER READER, NOT TWO. `plot_harvest_headers` is what every
+        # harvested call already reads its bucket and numbers with, and a second
+        # implementation here is the drift `plot-pr-merged.sh` argues against —
+        # the copy that goes permissive is the one that fails unrepairably. It
+        # matches header names case-insensitively because `gh` prints
+        # `X-Ratelimit-Limit` while GitHub documents `X-RateLimit-Limit`.
+        plot_harvest_headers "$_hdr_tmp"
         rm -f "$_hdr_tmp"
         # A number or null — never a quoted "unknown", and never 0 standing in
         # for absent. `jq -n` with `--argjson` refuses a non-number, so each
         # value is tested first and passed as the literal `null` otherwise.
         _num() { [[ "$1" =~ ^[0-9]+$ ]] && echo "$1" || echo null; }
-        if [ -n "$_lim" ]; then
+        if [ -n "${PLOT_BUDGET_HARVEST:-}" ]; then
+          IFS=$'\t' read -r _res _lim _rem _rst <<<"$PLOT_BUDGET_HARVEST"
+          # THE READING GOES INTO THE RECORD TOO. This call spent a request and
+          # got the connector's own numbers back, so leaving them unrecorded
+          # would throw away the one `actual` reading in the run — and
+          # `graphql_budget_spent` reads the record.
+          budget_record_call github github "${_res:-graphql}"
           jq -cn \
             --arg bucket "${_res:-graphql}" \
             --argjson limit "$(_num "$_lim")" \
@@ -2642,6 +2687,10 @@ case "$op" in
         fi
       else
         rm -f "$_hdr_tmp"
+        # A FAILED CALL IS STILL A SPENT CALL on every refusal GitHub meters, so
+        # it is recorded like any other — against `graphql`, which is what the
+        # query above spends, with no numbers.
+        budget_record_call github github graphql
         # The host could not be asked. Exit 3 rather than printing `unknown`:
         # *could not ask* and *asked, and it reports no limit* are different
         # facts, and the port keeps them apart as `failed` versus an answered
@@ -2731,7 +2780,11 @@ case "$op" in
     # asking about a connector it is not itself using.
     [ -n "$_sr_connector" ] || _sr_connector="$be"
     [ -n "$_sr_account" ] || _sr_account="$(budget_account "$be")"
-    [ -n "$_sr_bucket" ] || _sr_bucket="$(budget_bucket "$_sr_connector")"
+    # AN OMITTED `--bucket` MEANS EVERY BUCKET, which is what *what am I
+    # spending?* asks. One connector meters several pools independently, and the
+    # cadence this feeds is about how fast the ACCOUNT is going — it spends both,
+    # so summing them is the honest input and naming one would ignore the
+    # traffic on the other. A caller deciding whether a POOL is spent names it.
     _sr_rate="$(budget_rate "$_sr_connector" "$_sr_account" "$_sr_bucket")"
     jq -c --arg connector "$_sr_connector" --arg account "$_sr_account" --arg bucket "$_sr_bucket" \
       '{connector:$connector,account:$account,bucket:$bucket} + .' <<<"$_sr_rate"

@@ -199,6 +199,18 @@ budget_append() {
 # `packages/domain/src/rules/budget-record.ts`, and a test pins them together.
 BUDGET_FALLBACK_WINDOW_MS=3600000
 
+# AN EMPTY BUCKET MEANS EVERY BUCKET, and that is the account-wide question
+# rather than a missing argument. One connector meters several pools
+# independently — GitHub's `core` and `graphql` — and a caller asking *how fast
+# is this account going?* is asking about all of them: an account spends every
+# bucket it has, and a cadence divided by one pool's rate would ignore the
+# traffic on the other.
+#
+# THE VERDICT IS NOT SUMMED, and the aggregate deliberately does not report one.
+# `remaining` and `basis` describe the NEWEST live line across the buckets,
+# which is a reading about whichever pool was spent last — so a caller deciding
+# whether a bucket is spent must name that bucket. `graphql_budget_spent` does,
+# and this is why.
 budget_rate() {
   local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
   local path
@@ -224,7 +236,8 @@ budget_rate() {
       # would report the whole account as unreadable, which reads as headroom.
       if ($0 == "") next
       if (NF != 10 || $1 != "b1") { unreadable++; next }
-      if ($2 != want_c || $3 != want_a || $4 != want_b) next
+      if ($2 != want_c || $3 != want_a) next
+      if (want_b != "" && $4 != want_b) next
       at = $5 + 0
       if ($5 !~ /^-?[0-9]+$/) { unreadable++; next }
       n++
