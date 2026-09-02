@@ -79,3 +79,33 @@ export const buildConclusion = (build: Build): boolean | null =>
  * @returns true when the run finished without passing.
  */
 export const buildFailed = (build: Build): boolean => buildConclusion(build) === false;
+
+/**
+ * One entry in a branch's run history, as the host lists it.
+ *
+ * A SECOND SHAPE beside {@link Build}, and the difference is what the host
+ * answers rather than a preference. `Build` describes one run of one pipeline
+ * against one sha and carries a closed {@link BuildState}; a branch's history
+ * is asked for as evidence, and its `conclusion` is whatever word the host
+ * printed — `success`, `failure`, `cancelled`, `in_progress`,
+ * `action_required`, and whatever GitHub names next.
+ *
+ * The word stays verbatim. Narrowing it to an enum would map every unrecognised
+ * outcome onto a known one, and a history exists to be read rather than
+ * classified: what proved a `403` transient on 2026-08-17 was the neighbouring
+ * run, not its category.
+ *
+ * There is no sha. `gh run list --branch` does not report one, which is why a
+ * caller asking *did THIS commit pass* must ask a different question — see
+ * `plot-host.sh run-for-sha`.
+ */
+export interface BuildRun {
+  /** The workflow's name; `''` where the host did not name it. */
+  workflow: string;
+  /** How it ended, or what it is doing — verbatim from the host. */
+  conclusion: string;
+  /** When it started, ISO-8601 as the host reported it; `''` when absent. */
+  startedAt: string;
+  /** The run's address; `''` renders as plain text. */
+  url: string;
+}

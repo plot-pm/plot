@@ -1,3 +1,4 @@
+import type { BuildRun } from '../../entities/build.js';
 import type { Issue } from '../../entities/issue.js';
 import {
   correctForRefusal,
@@ -10,11 +11,12 @@ import { answered, type PortResult } from '../../port-result.js';
 import type {
   Host,
   HostBackend,
+  HostRefusal,
   LimitObservation,
   MergedAnswer,
   PrLookup,
 } from '../../ports/host.js';
-import { asJson, asJsonLines, asText, runProcess, runScript, resultOf } from '../run-script.js';
+import { asJson, asJsonLines, asText, runProcess, resultOf, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
@@ -51,6 +53,14 @@ interface RawIssue {
   url?: string;
   createdAt?: string;
   body?: string;
+}
+
+/** One run as `plot-host.sh runs` reports it. */
+interface RawRun {
+  workflow?: string;
+  conclusion?: string;
+  startedAt?: string;
+  url?: string;
 }
 
 const PR_STATES: readonly string[] = ['OPEN', 'MERGED', 'CLOSED'];
@@ -105,6 +115,24 @@ const issueOf = (raw: RawIssue): Issue => ({
   url: raw.url ?? '',
   createdAt: raw.createdAt !== undefined && raw.createdAt !== '' ? raw.createdAt : null,
   body: raw.body ?? null,
+});
+
+/**
+ * Reads one run-history line as the domain's entity.
+ *
+ * The conclusion is passed THROUGH rather than read against a set — the one
+ * mapper here that does not narrow. `BuildRun.conclusion` is documented as
+ * verbatim, and `oneOf`'s degrade-to-unknown rule would turn every outcome the
+ * host adds next into the same word as the ones it already has.
+ *
+ * @param raw - the script's JSON object.
+ * @returns the run, with every unstated field empty.
+ */
+const runOf = (raw: RawRun): BuildRun => ({
+  workflow: raw.workflow ?? '',
+  conclusion: raw.conclusion ?? '',
+  startedAt: raw.startedAt ?? '',
+  url: raw.url ?? '',
 });
 
 /** Milliseconds in a second — the script reports `reset` in epoch SECONDS. */
@@ -165,8 +193,40 @@ const limitOf = (raw: RawLimit): LimitReading => {
 export const hostShell = (context: ShellContext): Host => {
   const host = scriptPath(context, 'plot-host.sh');
   const inRepo = { cwd: context.repoRoot };
-  const ask = <T>(args: readonly string[], parse: (stdout: string) => T) =>
-    runScript('bash', [host, ...args], parse, inRepo);
+
+  /**
+   * Why the last call did not answer — see {@link Host.lastRefusal}.
+   *
+   * Held here rather than returned because a `PortResult` carries no sentence,
+   * and the sentence is the only place the host names its own reset.
+   */
+  let refusal: HostRefusal | null = null;
+
+  /**
+   * Records what this run refused with, and maps it as every adapter does.
+   *
+   * THE EXIT CODE IS READ EXACTLY ONCE, HERE. `5` is a rate limit and `3` is
+   * anything else that broke, a split `plot-host.sh` makes off the host's
+   * wording because `gh` exits 1 for a throttle and for a 503 alike. Both are
+   * `failed` to `resultOf` — a caller holding no value holds no value either
+   * way — and only the refusal below tells them apart.
+   *
+   * `4` is `unaskable` and is NOT a refusal: a Bitbucket repo with no tracker
+   * is answering, permanently and correctly. Recording it as one would make a
+   * standing configuration fact look like an incident worth waiting out.
+   */
+  const record = <T>(run: ScriptRun, parse: (stdout: string) => T): PortResult<T> => {
+    if (run.code === 0 || run.code === 4) {
+      refusal = null;
+    } else {
+      const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
+      refusal = { kind: run.code === 5 ? 'throttled' : 'failed', said };
+    }
+    return resultOf(run, parse);
+  };
+
+  const ask = async <T>(args: readonly string[], parse: (stdout: string) => T) =>
+    record(await runProcess('bash', [host, ...args], inRepo), parse);
 
   /**
    * The predictions this session has corrected, by `connector/bucket`.
@@ -204,7 +264,7 @@ export const hostShell = (context: ShellContext): Host => {
 
     prState: async (ref): Promise<PortResult<PrLookup>> => {
       const run = await runProcess('bash', [host, 'pr-state', String(ref)], inRepo);
-      return resultOf(run, (stdout) => {
+      return record(run, (stdout) => {
         const raw = asJson<RawPr & { state?: string }>(stdout);
         return raw.state === 'NONE' ? null : prOf(raw);
       });
@@ -212,8 +272,15 @@ export const hostShell = (context: ShellContext): Host => {
 
     prMerged: async (branch): Promise<PortResult<MergedAnswer>> => {
       const run = await runProcess('bash', [host, 'pr-merged', branch], inRepo);
-      if (run.code === 3) return answered<MergedAnswer>('unknown');
-      return resultOf(run, (stdout) => {
+      if (run.code === 3) {
+        // NOT A REFUSAL. `pr-merged` exits 3 to SAY `unknown` — a contract
+        // answer, not a broken call — and it is answered below. Clearing the
+        // refusal keeps `lastRefusal` about the last call rather than the last
+        // non-zero exit.
+        refusal = null;
+        return answered<MergedAnswer>('unknown');
+      }
+      return record(run, (stdout) => {
         const value = asText(stdout);
         if (value !== 'merged' && value !== 'not-merged' && value !== 'unknown') {
           throw new Error(`plot-host: unrecognised merge answer ${value}`);
@@ -243,13 +310,19 @@ export const hostShell = (context: ShellContext): Host => {
       // host that opened one and said nothing about where answers `''` — the
       // PR exists either way, and a caller that treated silence as failure
       // would ask for a second one.
-      return resultOf(run, (stdout) => asText(stdout));
+      return record(run, (stdout) => asText(stdout));
     },
 
     prList: (state, limit) =>
       ask(
         ['pr-list', '--state', state, ...(limit === undefined ? [] : ['--limit', String(limit)])],
         (stdout) => asJsonLines<RawPr>(stdout).map(prOf),
+      ),
+
+    runs: (branch, limit) =>
+      ask(
+        ['runs', branch, ...(limit === undefined ? [] : ['--limit', String(limit)])],
+        (stdout) => asJsonLines<RawRun>(stdout).map(runOf),
       ),
 
     issueList: (limit) =>
@@ -260,7 +333,7 @@ export const hostShell = (context: ShellContext): Host => {
 
     issueView: async (id) => {
       const run = await runProcess('bash', [host, 'issue-view', id], inRepo);
-      return resultOf(run, (stdout) => issueOf(asJson<RawIssue>(stdout)));
+      return record(run, (stdout) => issueOf(asJson<RawIssue>(stdout)));
     },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
@@ -270,7 +343,7 @@ export const hostShell = (context: ShellContext): Host => {
       // are a quota distinct from the API's, so "the connector is github" does
       // not identify the bucket.
       const git = await runProcess('bash', [host, 'limit'], inRepo);
-      const gitReadings = resultOf(git, (stdout) =>
+      const gitReadings = record(git, (stdout) =>
         asJsonLines<RawLimit>(stdout).map(limitOf),
       );
       // The git host is the one that must answer. A CI connector that cannot be
@@ -279,6 +352,9 @@ export const hostShell = (context: ShellContext): Host => {
       // came for.
       if (!gitReadings.ok) return gitReadings;
       const ci = await runProcess('bash', [host, 'ci-limit'], inRepo);
+      // NOT through `record`. A CI connector that cannot be asked says nothing
+      // about the git host's budget, and letting it overwrite the refusal would
+      // report a Jenkins outage as the reason a GitHub call was throttled.
       const ciReadings = resultOf(ci, (stdout) =>
         asJsonLines<RawLimit>(stdout).map(limitOf),
       );
@@ -302,5 +378,7 @@ export const hostShell = (context: ShellContext): Host => {
         }
       }
     },
+
+    lastRefusal: (): HostRefusal | null => refusal,
   };
 };

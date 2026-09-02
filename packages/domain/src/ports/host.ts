@@ -1,4 +1,5 @@
 import type { PortResult } from '../port-result.js';
+import type { BuildRun } from '../entities/build.js';
 import type { Pr } from '../entities/pr.js';
 import type { Issue } from '../entities/issue.js';
 import type { LimitReading } from '../entities/limit.js';
@@ -32,6 +33,30 @@ export type MergedAnswer = 'merged' | 'not-merged' | 'unknown';
  * the only evidence a connector with no limit API ever gets.
  */
 export type LimitObservation = 'ok' | 'throttled';
+
+/**
+ * Why the last call did not answer, and in the connector's own words.
+ *
+ * `PortResult` says a call failed and stops there, which is right for every
+ * caller that only needs to know whether it holds a value. A caller deciding
+ * **how long to wait** needs more: the connector names its own reset —
+ * *"Please wait 60 seconds"*, *"rate limit … reset 1756512000"* — and that
+ * sentence is the only place the number appears.
+ *
+ * So the refusal travels beside the result rather than inside it. `throttled`
+ * is the word `plot-host.sh` already classifies stderr into (exit 5) and is
+ * the one refusal worth waiting for; `failed` is every other non-zero exit, a
+ * DNS blip or an auth error, which a wait does not fix.
+ *
+ * `said` is verbatim. The board renders it to an operator, and a summarised
+ * refusal names neither the script that broke nor the path it could not read.
+ */
+export interface HostRefusal {
+  /** `throttled` is a rate limit; `failed` is everything else. */
+  kind: 'throttled' | 'failed';
+  /** What the connector said, verbatim. */
+  said: string;
+}
 
 /**
  * What opening a PR needs to be told.
@@ -133,6 +158,25 @@ export interface Host {
   prList(state: string, limit?: number): Promise<PortResult<readonly Pr[]>>;
 
   /**
+   * Lists one branch's recent CI runs, newest first.
+   *
+   * FACTS, NEVER A VERDICT. Nothing here compares runs or calls one transient;
+   * the history is evidence a reader concludes from. What proved a `403`
+   * transient on 2026-08-17 was the same branch running green two minutes
+   * earlier, and a real failure presents identically in every other respect.
+   *
+   * METERED, so a caller asks only where the question arises — a branch whose
+   * PR already reports failing checks. One request per such branch.
+   *
+   * @param branch - the branch to read the history of.
+   * @param limit - how many runs to ask for; the adapter's own default when
+   *   omitted.
+   * @returns the runs, newest first; an empty list where the host has no run
+   *   listing at all.
+   */
+  runs(branch: string, limit?: number): Promise<PortResult<readonly BuildRun[]>>;
+
+  /**
    * Lists the tracker's open issues, without their bodies.
    *
    * The body is omitted because this runs on a timer for every open issue, and
@@ -194,4 +238,23 @@ export interface Host {
    * @param observed - what the call saw: `throttled` is the refusal.
    */
   observe(observed: LimitObservation): void;
+
+  /**
+   * Why the most recent call did not answer, or null where it did.
+   *
+   * THE SENTENCE `PortResult` CANNOT CARRY, and the reason it is a second
+   * reading rather than a third arm of that type: `PortResult` is the answer to
+   * *do I hold a value*, which nine adapters answer and every caller reads. A
+   * connector is the only port whose refusal has a DURATION in it — *"Please
+   * wait 60 seconds"* — and lifting a sentence onto every filesystem port to
+   * carry it would be the same mistake as lifting `limit`.
+   *
+   * Set by every operation on this port, so a caller reads it immediately after
+   * the call it is about and never later. It is the SESSION's, held in the
+   * adapter and gone when the process ends, exactly as `observe`'s corrections
+   * are.
+   *
+   * @returns the last refusal, or null where the last call answered.
+   */
+  lastRefusal(): HostRefusal | null;
 }
