@@ -1,6 +1,8 @@
 import {
   budgetKeyOf,
   decodeEntry,
+  headroom,
+  spendVerdict,
   type BudgetEntry,
   type BudgetKey,
 } from '../entities/budget.js';
@@ -248,3 +250,82 @@ export const latest = (read: RecordRead): BudgetEntry | null =>
     (newest, entry) => (newest === null || entry.at >= newest.at ? entry : newest),
     null,
   );
+
+/**
+ * What one reader learns from the record about one budget.
+ *
+ * ONE ANSWER RATHER THAN FOUR CALLS, because the four are always wanted
+ * together and a caller assembling them itself is a caller that can assemble
+ * them differently. A cadence needs the rate; the banner needs the reading; the
+ * reader that holds the file is the only one cheaply placed to say whether
+ * pruning is owed.
+ */
+export interface SpendRate {
+  /** How many calls the window holds. */
+  spent: number;
+  /** How long they were spent over, in milliseconds. */
+  spanMs: number;
+  /**
+   * The implied calls per hour, or null where the window holds no span.
+   *
+   * NULL IS AN ABSENT RATE, NEVER A ZERO ONE. One line, or several written
+   * inside one millisecond, gives nothing to divide by — and a rate invented
+   * there would be the dishonest cadence input the record exists to remove. A
+   * caller dividing by this must read the null, not coerce it.
+   */
+  perHour: number | null;
+  /** The newest live reading, or null where the window holds none. */
+  reading: BudgetEntry | null;
+  /**
+   * How many calls the connector says remain, or null where that is not known.
+   *
+   * Straight from {@link headroom}, which is where `unknown` is refused as
+   * headroom: an `unknown` basis and an absent `remaining` both answer null,
+   * because neither is a number a caller may spend against.
+   */
+  headroom: number | null;
+  /** `spendable`, `spent`, or `unknown` — never a boolean. */
+  verdict: 'spendable' | 'spent' | 'unknown';
+  /** How many lines could not be read at all. */
+  unreadable: number;
+  /** Whether enough lines are dead to be worth the one write that is not an append. */
+  pruneOwed: boolean;
+}
+
+/**
+ * Reads one budget's spend out of the record's raw lines.
+ *
+ * THE ONE ENTRY POINT FOR A READER, and the reason it exists rather than four
+ * exported rules: every caller wants the rate AND the reading AND the verdict,
+ * and a caller that composes them itself composes them slightly differently.
+ * The board's cadence, the banner's wording and the pruner all read this.
+ *
+ * DERIVED OVER THE WINDOW, WHICH IS THE WHOLE POINT. Measured 2026-09-01: one
+ * board at 5 s and eleven scripts at 90 s append ~1,160 lines an hour, 15 MB a
+ * week. A rate over the whole file approaches zero as it grows, so a cadence
+ * derived from it relaxes forever — the opposite of what the record is for.
+ *
+ * @param lines - the record's raw lines, in file order.
+ * @param key - which budget to read.
+ * @param now - epoch milliseconds.
+ * @returns the spend, the reading, and whether pruning is owed.
+ */
+export const spendRate = (
+  lines: readonly string[],
+  key: BudgetKey,
+  now: number,
+): SpendRate => {
+  const read = readWindow(lines, key, now);
+  const { spent, spanMs, perHour } = windowSpend(read, now);
+  const reading = latest(read);
+  return {
+    spent,
+    spanMs,
+    perHour,
+    reading,
+    headroom: reading === null ? null : headroom(reading),
+    verdict: spendVerdict(reading),
+    unreadable: read.unreadable,
+    pruneOwed: truncationOwed(read),
+  };
+};

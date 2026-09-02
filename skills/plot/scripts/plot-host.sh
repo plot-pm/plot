@@ -200,6 +200,19 @@
 #                                 this connector meters nothing — which is not
 #                                 the same fact as a limit of zero, and not
 #                                 `free` either.
+#   spend-rate [--connector C] [--account A] [--bucket B]
+#                                 what this COMPUTER has spent, read back from
+#                                 the record every spender appends to, as one
+#                                 JSON object: {"connector","account","bucket",
+#                                 "spent","spanMs","perHour","lines",
+#                                 "unreadable","limit","remaining","basis"}.
+#                                 OVER THE CONNECTOR'S WINDOW, never the whole
+#                                 file — ~1,160 lines an hour were measured
+#                                 2026-09-01, and a rate over an ever-growing
+#                                 span approaches zero. SPENDS NOTHING: it reads
+#                                 a file and asks no host. `perHour` is null
+#                                 where the window holds no span to divide by,
+#                                 which is an absent rate and never a zero one.
 #   ci-limit                      the same question of the CI connector, which
 #                                 is a separate axis: this repo is GitHub +
 #                                 Actions, ekzweb is Bitbucket + Jenkins.
@@ -960,6 +973,25 @@ jira_curl() {
     -H 'Accept: application/json' \
     -w '\n%{http_code}' \
     "$base$path" "$@"
+  local rc=$?
+  # JIRA IS COUNTED HERE AND NOT BY A WRAPPER, because it is reached through
+  # `curl` rather than a CLI of its own — and shadowing `curl` would count every
+  # unrelated use of it. This is the one place plot speaks to a Jira, so it is
+  # the one place that records the spend, which is the same argument the `gh`
+  # wrapper makes one level up.
+  #
+  # The account is the Jira user, which is already in the environment and costs
+  # nothing to read — the one connector here whose account needs no lookup.
+  budget_record_jira
+  return $rc
+}
+
+# Records one Jira call. Jira meters, publishes no header this adapter reads,
+# and this slice does not add header parsing — so the reading is `unknown`,
+# which is never read as free.
+budget_record_jira() {
+  [ -z "${PLOT_BUDGET_OFF:-}" ] || return 0
+  budget_append jira "${JIRA_EMAIL:-unknown}" api 1 - - - unknown
 }
 
 # Split a jira_curl response into (body, status) and enforce the three outcomes.
@@ -1059,6 +1091,159 @@ backend() {
     bitbucket|bb) echo "bitbucket" ;;
     *) echo "github" ;;
   esac
+}
+
+
+# --- the connector counts what it spends -----------------------------------
+#
+# EVERY HOST CALL APPENDS ONE LINE, AND SO DOES EVERY REFUSAL. A record that
+# omits failures under-counts exactly when the count matters most: a refused
+# call spent quota — GitHub debits the request before it decides to refuse it —
+# and a budget blind to refusals reads a throttled account as an idle one.
+#
+# INSTRUMENTED BY SHADOWING, NOT BY EDITING 40 CALL SITES. `gh`, `bb` and `jen`
+# below are shell FUNCTIONS, and a function shadows a PATH executable for every
+# caller in this file. `command gh` reaches the real binary, so the wrapper is
+# the one place the counting happens and no call site changes.
+#
+# THE ALTERNATIVE WAS MEASURED AND REJECTED. This script makes ~40 host CLI
+# invocations across 14 backend branches; recording at each would be 40 edits
+# that must all stay right, and the arm that drifts is the one nobody's repo
+# exercises — the same argument `pr_list_call` makes for gathering six call
+# sites into one helper, and `plot-pr-merged.sh` makes for being sourced rather
+# than copied. A wrapper also counts a call site written NEXT year, which no
+# number of careful edits can.
+#
+# IT CHANGES NO BEHAVIOUR. The wrapper forwards argv untouched, passes stdin
+# through, preserves stdout, stderr and the exit code exactly, and appends
+# afterwards. A call that succeeds today succeeds identically with a line
+# written beside it.
+. "$here/plot-budget.sh"
+
+# WHO IS SPENDING — read from the CLI's own config, never from an API call.
+#
+# `gh api user` would answer authoritatively and cost one request against the
+# very bucket this is counting, on every invocation of this script. So the
+# account is read from `gh`'s config file, which `gh auth login` wrote and which
+# costs a file read. It is cached in an exported variable so a script that makes
+# several calls reads it once.
+#
+# AN UNKNOWN ACCOUNT IS RECORDED AS `unknown`, not skipped. Two checkouts whose
+# account cannot be read still share one real budget, and dropping their lines
+# would under-count the machine — the failure this plan exists to remove. They
+# group together under one honest name instead.
+budget_account() {
+  if [ -n "${PLOT_BUDGET_ACCOUNT:-}" ]; then printf '%s\n' "$PLOT_BUDGET_ACCOUNT"; return; fi
+  local who=''
+  case "$1" in
+    github)
+      # `gh`'s hosts.yml names the active user under the host it belongs to.
+      # `yq` is not a dependency here, and the file's shape is two levels of
+      # indentation, so the top-level `user:` key is read directly.
+      who="$(awk '/^[[:space:]]+user:/ {print $2; exit}' "${GH_CONFIG_DIR:-$HOME/.config/gh}/hosts.yml" 2>/dev/null)"
+      ;;
+    bitbucket)
+      # `bb_identify` already resolves who bb is, and it caches; but it runs a
+      # `bb` call, which is the thing being counted. The remote's owner is the
+      # free approximation and is the half of the key that groups correctly:
+      # two checkouts of one workspace share a budget.
+      who="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#^.*[:/]([^/]+)/[^/]+(\.git)?$#\1#')"
+      ;;
+  esac
+  printf '%s\n' "${who:-unknown}"
+}
+
+# The bucket a call spent, as far as THIS slice can honestly know it.
+#
+# NAMED BY THE CONNECTOR, NOT NORMALISED, and deliberately coarse. Reading
+# `X-RateLimit-Resource` off a response header is what names GitHub's `core`
+# against its `graphql`, and that is `bug/the-budget-knows-which-bucket-it-spent`
+# — slice 7, which owns the header parsing and the fix to
+# `graphql_budget_spent`. Pre-empting it here would put a second bucket-naming
+# implementation in the estate for that slice to reconcile.
+#
+# So this records the connector's own default pool: one bucket per connector,
+# which is the truth for `bb`, `jen` and `jira`, and an under-refinement for
+# `gh` that slice 7 replaces. A coarse bucket still counts every call and still
+# divides a cadence correctly; it merely cannot yet say that GraphQL is spent
+# while REST has 4990 left.
+budget_bucket() {
+  case "$1" in
+    github) printf 'api\n' ;;
+    bitbucket) printf 'api\n' ;;
+    *) printf '\n' ;;
+  esac
+}
+
+# What the connector's basis is, WITHOUT spending a call to find out.
+#
+# `plot-host.sh limit` reads a real response's headers, and it costs one
+# request. Calling it from inside the wrapper would double every host call this
+# script makes — the failure mode in miniature. So the wrapper records the
+# basis it can state for free, and the numbers stay absent:
+#
+#   github     `unknown` — GitHub HAS an actual reading, and this wrapper does
+#              not hold it. Recording a `predicted` 5000 here would tag a
+#              constant as an estimate nobody made; recording `actual` would tag
+#              a guess as a measurement. `unknown` is the honest word, and
+#              `unknown` is NEVER read as free — `headroom()` returns null for
+#              it by construction.
+#   bitbucket  `predicted 1000` — the adapter's own number from experience, the
+#              same one `limit` reports, and it costs nothing to state.
+#
+# A caller that wants the actual reading asks `limit`, which spends the request
+# it takes to get one. That cost is stated rather than hidden.
+budget_reading() { # $1=backend → "<limit>\t<remaining>\t<reset>\t<basis>"
+  # THE FIELDS ARE ARGUMENTS, NOT A FORMAT. Three of the four are the absent
+  # marker `-`, and `printf '-\t...'` reads that leading `-` as an option flag:
+  # bash answers `printf: -\: invalid option` and writes nothing. Measured
+  # 2026-09-02, that broke the GitHub arm — the common path — in 10 host tests.
+  case "$1" in
+    bitbucket) printf '%s\t%s\t%s\t%s\n' 1000 - - predicted ;;
+    *) printf '%s\t%s\t%s\t%s\n' - - - unknown ;;
+  esac
+}
+
+# Records one call against one connector, whatever it cost and however it ended.
+#
+# `PLOT_BUDGET_OFF=1` disables recording entirely. It is for the tests that must
+# prove the record changes NOTHING about a call's behaviour, and for an operator
+# whose home directory is read-only; it is not a performance switch.
+budget_record_call() { # $1=connector $2=backend-for-account
+  [ -z "${PLOT_BUDGET_OFF:-}" ] || return 0
+  local reading account bucket
+  reading="$(budget_reading "$1")"
+  account="$(budget_account "${2:-$1}")"
+  bucket="$(budget_bucket "$1")"
+  IFS=$'\t' read -r _blim _brem _brst _bbas <<<"$reading"
+  budget_append "$1" "$account" "$bucket" 1 "$_blim" "$_brem" "$_brst" "$_bbas"
+}
+
+# THE WRAPPERS. Each forwards argv untouched and returns the real CLI's exit
+# code unchanged; the append happens after, and `budget_append` never fails its
+# caller. `command` is what reaches past the function to the binary.
+gh() {
+  command gh "$@"
+  local rc=$?
+  budget_record_call github github
+  return $rc
+}
+
+bb() {
+  command bb "$@"
+  local rc=$?
+  budget_record_call bitbucket bitbucket
+  return $rc
+}
+
+jen() {
+  command jen "$@"
+  local rc=$?
+  # Jenkins is the CI axis, a connector of its own — this repo is GitHub +
+  # Actions while `ekzweb` is Bitbucket + Jenkins, so a `jen` call spends
+  # against a server the git host knows nothing about.
+  budget_record_call jenkins ''
+  return $rc
 }
 
 op="${1:-}"; [ -n "$op" ] || die "usage: plot-host.sh <op> [args...] (see header)"
@@ -2163,7 +2348,53 @@ case "$op" in
     esac
     ;;
 
+  spend-rate)
+    # WHAT HAS THIS COMPUTER SPENT, AND HOW FAST? Read back from the record
+    # every spender appends to — eleven scripts, a board, and a person at a
+    # terminal — so a caller can divide its cadence by what the account is
+    # actually spending rather than by a headcount of boards it cannot take.
+    #
+    # ONE JSON OBJECT:
+    #   {"connector":"github","account":"jwloka","bucket":"api","spent":41,
+    #    "spanMs":214000,"perHour":689.72,"lines":41,"unreadable":0,
+    #    "limit":null,"remaining":null,"basis":"unknown"}
+    #
+    # OVER THE CONNECTOR'S WINDOW, NEVER THE WHOLE FILE. Measured 2026-09-01,
+    # one board at 5 s and eleven scripts at 90 s append ~1,160 lines an hour:
+    # a rate divided by an ever-growing span approaches zero, and a cadence
+    # derived from it would relax forever — the opposite of what the record is
+    # for. The window starts at the latest reset that has already PASSED, or an
+    # hour back where no connector stated one.
+    #
+    # IT SPENDS NOTHING. This reads a file; no host is asked. That is the whole
+    # reason the record exists rather than a `rate_limit` call per decision —
+    # and `rate_limit` was measured 2026-09-01 reporting 5000 while the headers
+    # read 0, so it would be both expensive and wrong.
+    #
+    # `perHour` IS null WHERE THERE IS NO SPAN TO DIVIDE BY — one line, or
+    # several written inside one millisecond. An invented rate would be exactly
+    # the dishonest cadence input this slice exists to remove.
+    _sr_connector=""; _sr_account=""; _sr_bucket=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --connector) _sr_connector="${2:?}"; shift 2 ;;
+        --account) _sr_account="${2:?}"; shift 2 ;;
+        --bucket) _sr_bucket="${2:?}"; shift 2 ;;
+        *) die "spend-rate: unknown arg $1" ;;
+      esac
+    done
+    # Defaults name THIS connector and THIS account, which is what a caller
+    # asking "what am I spending?" means. An explicit triple is for a caller
+    # asking about a connector it is not itself using.
+    [ -n "$_sr_connector" ] || _sr_connector="$be"
+    [ -n "$_sr_account" ] || _sr_account="$(budget_account "$be")"
+    [ -n "$_sr_bucket" ] || _sr_bucket="$(budget_bucket "$_sr_connector")"
+    _sr_rate="$(budget_rate "$_sr_connector" "$_sr_account" "$_sr_bucket")"
+    jq -c --arg connector "$_sr_connector" --arg account "$_sr_account" --arg bucket "$_sr_bucket" \
+      '{connector:$connector,account:$account,bucket:$bucket} + .' <<<"$_sr_rate"
+    ;;
+
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|pr-body|rate-limit|limit|ci-limit)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|pr-body|rate-limit|limit|ci-limit|spend-rate)"
     ;;
 esac
