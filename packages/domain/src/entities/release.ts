@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normalizeVersion } from './version.js';
 
 /**
  * Where a release sits in its life.
@@ -33,21 +34,7 @@ export interface Release {
   checklist: string | null;
 }
 
-/**
- * Normalizes a recorded version to the canonical `vN.N.N` spelling.
- *
- * Both spellings appear in one field across this estate — 70 `Released:` lines
- * carry the `v` and 40 do not — while every git tag carries it, so a consumer
- * matching the recorded string against `git tag` resolves 70 and misses 40.
- *
- * @param version - the version as recorded, with or without the prefix.
- * @returns the version prefixed with `v`; `''` stays empty.
- */
-export const normalizeVersion = (version: string): string => {
-  const trimmed = version.trim();
-  if (trimmed === '') return '';
-  return trimmed.startsWith('v') ? trimmed : `v${trimmed}`;
-};
+export { normalizeVersion } from './version.js';
 
 /**
  * Whether two recorded versions name the same release.
