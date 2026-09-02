@@ -227,8 +227,11 @@ rel=$(cd "$repo_root" && real_plan_path "$plan_file") || rel=""
 plan_basename=$(basename "$rel")
 
 # Flip `**Phase:** Approved` → `Delivered` in the `## Status` section only.
-flip_phase() { # $1=file  → 0 if it changed the file, 1 if nothing to flip
-  local f="$1"
+#
+# READS ONE FILE AND WRITES ANOTHER, rather than editing in place. It edited in
+# place until 2026-09-02, which is what let the phase land without its record —
+# see write_transition() below.
+flip_phase() { # $1=in $2=out  → 0 if it changed the file, 1 if nothing to flip
   awk '
     BEGIN { section = ""; done = 0 }
     /^## / { section = ($0 ~ /^## Status/) ? "status" : ""; print; next }
@@ -241,10 +244,7 @@ flip_phase() { # $1=file  → 0 if it changed the file, 1 if nothing to flip
     }
     { print }
     END { exit (changed ? 0 : 1) }
-  ' "$f" > "$f.plot-tmp"
-  local rc=$?
-  if [ "$rc" = 0 ]; then mv "$f.plot-tmp" "$f"; else rm -f "$f.plot-tmp"; fi
-  return "$rc"
+  ' "$1" > "$2"
 }
 
 # Insert one `- **Delivered:** YYYY-MM-DD` line into the plan's `## Status` section.
@@ -268,9 +268,11 @@ flip_phase() { # $1=file  → 0 if it changed the file, 1 if nothing to flip
 #
 # A comment is where a plan keeps the shape of a record rather than a record, so
 # the insertion point is the last list item BEFORE one — never inside.
-append_delivered_line() { # $1=file $2=date
-  local f="$1" line
-  line="- **Delivered:** $2"
+#
+# READS ONE FILE AND WRITES ANOTHER, for the reason flip_phase() gives.
+append_delivered_line() { # $1=in $2=out $3=record
+  local line
+  line="- **Delivered:** $3"
   awk -v line="$line" '
     { lines[++n] = $0 }
     END {
@@ -296,8 +298,116 @@ append_delivered_line() { # $1=file $2=date
         if (!slot && i == insert) print line
       }
     }
-  ' "$f" > "$f.plot-tmp" || { rm -f "$f.plot-tmp"; return 1; }
-  mv "$f.plot-tmp" "$f"
+  ' "$1" > "$2"
+}
+
+# ---------------------------------------------------------------------------
+# THE TRANSITION — one value, decided in the domain, written whole or not at all
+# ---------------------------------------------------------------------------
+#
+# WHAT THIS CLOSES. The phase and the record were two independent steps until
+# 2026-09-02: `flip_phase` edited the file, and `append_delivered_line` then
+# edited it again. The second could fail — a plan with no `## Status` heading is
+# its documented refusal — and the first had already landed. That is not
+# theoretical: measured 2026-08-20, a plan carrying `Phase: Delivered` with no
+# `Delivered:` line was filtered out of `plot-fleet-scan.sh` ENTIRELY, which
+# reads its delivered window from `delivered_raw` — the record itself. The scan
+# reported zero plans for it. A phase without its record does not make a plan
+# half-delivered; it makes it invisible.
+#
+# SO THE TWO ARE ONE WRITE. The domain says so in a type: `transitions/plan.ts`
+# gives `Decision` a required `phase` AND a required `record`, so a decision
+# missing either does not compile. `plot-transition.mjs` carries that value out
+# to here, and this function is the half that could still have broken it —
+# both edits run against scratch copies, and the plan file is replaced only
+# once both have succeeded.
+#
+# THE DOMAIN DECIDES, THIS PERFORMS. The phase word and the record's text come
+# back from `plot-transition.mjs`; the awk that knows where a `## Status` line
+# lives stays here, because that is adaptation and it carries bug history worth
+# keeping (the HTML-comment fix above, 2026-09-01).
+#
+# IDEMPOTENCE IS UNCHANGED, and it is still the source that answers. The domain
+# reads the phase and the record THIS SCRIPT PARSED FROM THE FILE IT IS ABOUT TO
+# WRITE, and answers `already` when both are present — the same question the two
+# steps asked separately, asked once. No progress file appears here, because a
+# progress file is exactly what would disagree with the repository when somebody
+# intervened by hand between two runs.
+transition_mjs="$script_dir/board/plot-transition.mjs"
+
+# Ask the domain for the transition, and refuse in its words.
+#
+# Called with the file's OWN parse rather than the caller's: on the booking-
+# worktree flow those are different files, and the plan on the default branch is
+# the one that counts.
+decide_transition() { # $1=file  → prints "<Phase>\t<record>\t<write|already>"
+  local f="$1" m answer rc
+  [ -f "$transition_mjs" ] \
+    || { echo "plot-deliver: cannot find $transition_mjs — run 'pnpm build:board'." >&2; return 1; }
+  m=$(bash "$script_dir/plot-plan-meta.sh" "$f" 2>/dev/null) || m=""
+  [ -n "$m" ] || { echo "plot-deliver: cannot parse $f — refusing rather than guessing." >&2; return 1; }
+  answer=$(printf 'deliver\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\t\t\n' \
+    "$slug" \
+    "$(printf '%s' "$m" | jq -r '.phase // ""')" \
+    "$(printf '%s' "$m" | jq -r '.review // ""')" \
+    "$(printf '%s' "$m" | jq -r '.approved_raw // ""')" \
+    "$(printf '%s' "$m" | jq -r '.delivered_raw // ""')" \
+    "$(printf '%s' "$m" | jq -r '.released_raw // ""')" \
+    "$today" \
+    | node "$transition_mjs" 2>&1)
+  rc=$?
+  # Exit 1 is the domain's refusal and its sentence, tab-separated after the
+  # rule that fired. Exit 2 is this script handing it something unreadable,
+  # which no operator can act on — so it reports as the bug it is.
+  if [ "$rc" != 0 ]; then
+    if [ "$rc" = 1 ]; then
+      echo "plot-deliver: $(printf '%s' "$answer" | cut -f2-)" >&2
+    else
+      echo "plot-deliver: $answer" >&2
+    fi
+    return 1
+  fi
+  printf '%s' "$answer"
+}
+
+# Apply the decided transition: the phase and the record, or neither.
+#
+# BOTH EDITS RUN AGAINST SCRATCH FILES and the plan is replaced by one `mv`.
+# An `## Status` section that cannot take the record leaves the file exactly as
+# it was found — INCLUDING ITS PHASE — so re-running is still the repair, and
+# the half-state that made a plan invisible cannot be reached from here.
+#
+# `$3` says whether the file already carries the record. A plan can carry one
+# while its phase lags — written by hand, or an earlier run cut between the two
+# writes — and appending a second is how one plan came to hold two `Delivered:`
+# lines (2026-09-01). The domain returns the written record unchanged in that
+# case, so the phase still flips and nothing is inserted.
+write_transition() { # $1=file $2=record $3=recorded(yes|no) → sets phase_report record_report
+  local f="$1" record="$2" recorded="$3" a="$1.plot-phase" b="$1.plot-record" flipped=0
+
+  if flip_phase "$f" "$a"; then flipped=1; else flipped=0; fi
+  # awk wrote `$a` either way; where nothing flipped it is a faithful copy, so
+  # the record still has a file to be inserted into.
+  [ -s "$a" ] || { rm -f "$a"; echo "plot-deliver: could not read $rel" >&2; return 1; }
+
+  if [ "$recorded" = "yes" ]; then
+    mv "$a" "$f" || { rm -f "$a"; return 1; }
+    record_report="already"
+  else
+    if ! append_delivered_line "$a" "$b" "$record"; then
+      rm -f "$a" "$b"
+      echo "plot-deliver: $rel has no '## Status' section — nowhere to record the delivery." >&2
+      echo "  Nothing was written: the phase is not flipped either, because a phase" >&2
+      echo "  with no record is invisible to the scan. Fix the section and re-run." >&2
+      return 1
+    fi
+    mv "$b" "$f" || { rm -f "$a" "$b"; return 1; }
+    rm -f "$a"
+    record_report="written"
+  fi
+
+  phase_report=$([ "$flipped" = 1 ] && echo flipped || echo already)
+  return 0
 }
 
 # Update the sprint item annotation for this plan.
@@ -368,21 +478,23 @@ apply_local_writes() { # $1=root  → sets phase_report record_report index_repo
   local root="$1" f="$1/$rel"
   [ -f "$f" ] || { echo "plot-deliver: $rel is not present in $root" >&2; return 1; }
 
-  # Step 3 — flip the phase. Already-done test: the file no longer says Approved.
-  if flip_phase "$f"; then phase_report="flipped"; else phase_report="already"; fi
-
-  # Step 4 — fill the Delivered: record. Already-done test: it is non-empty.
-  local rec
-  rec=$(bash "$script_dir/plot-plan-meta.sh" "$f" 2>/dev/null | jq -r '.delivered_raw // ""' 2>/dev/null)
-  if [ -n "$rec" ]; then
+  # Step 3 — THE TRANSITION: the phase and its record, together or not at all.
+  #
+  # ONE STEP WHERE THERE WERE TWO, which is the whole of this change. The domain
+  # decides what the two lines say and whether they are owed at all; this writes
+  # them as one replacement of the file. Already-done test: the domain answers
+  # `already` when the file it is about to write ALREADY carries both, which is
+  # the source asked directly — never a progress file.
+  local decided record action recorded
+  decided=$(decide_transition "$f") || return 1
+  record=$(printf '%s' "$decided" | cut -f2)
+  action=$(printf '%s' "$decided" | cut -f3)
+  recorded=$(printf '%s' "$decided" | cut -f4)
+  if [ "$action" = "already" ]; then
+    phase_report="already"
     record_report="already"
   else
-    if append_delivered_line "$f" "$today"; then
-      record_report="written"
-    else
-      echo "plot-deliver: $rel has no '## Status' section — nowhere to record the delivery" >&2
-      return 1
-    fi
+    write_transition "$f" "$record" "$recorded" || return 1
   fi
 
   # Step 5 — move the index symlink (best effort).

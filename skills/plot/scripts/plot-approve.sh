@@ -345,8 +345,11 @@ rel=$(cd "$repo_root" && real_plan_path "$plan_file") || rel=""
 # (this repo has several, documenting the format) would otherwise have its
 # illustration rewritten too — a silent corruption of the very files that
 # specify the format.
-flip_phase() { # $1=file  → 0 if it changed the file, 1 if there was nothing to flip
-  local f="$1"
+#
+# READS ONE FILE AND WRITES ANOTHER, rather than editing in place. It edited in
+# place until 2026-09-02, which is what let the phase land without its record —
+# see write_transition() below.
+flip_phase() { # $1=in $2=out  → 0 if it changed the file, 1 if there was nothing to flip
   awk '
     BEGIN { section = ""; done = 0 }
     /^## / { section = ($0 ~ /^## Status/) ? "status" : ""; print; next }
@@ -363,10 +366,7 @@ flip_phase() { # $1=file  → 0 if it changed the file, 1 if there was nothing t
     }
     { print }
     END { exit (changed ? 0 : 1) }
-  ' "$f" > "$f.plot-tmp"
-  local rc=$?
-  if [ "$rc" = 0 ]; then mv "$f.plot-tmp" "$f"; else rm -f "$f.plot-tmp"; fi
-  return "$rc"
+  ' "$1" > "$2"
 }
 
 # Insert one `- **Approved:** ...` line into the plan's `## Status` section.
@@ -384,9 +384,11 @@ flip_phase() { # $1=file  → 0 if it changed the file, 1 if there was nothing t
 # plot-plan-meta.sh reads these records out of that section, so a line below it
 # parses as nothing at all — a record that exists on disk and not in the data is
 # worse than no record, because it looks written.
-append_approved_line() { # $1=file $2=date $3=who $4=channel
-  local f="$1" line
-  line="- **Approved:** $2, $3, $4"
+#
+# READS ONE FILE AND WRITES ANOTHER, for the reason flip_phase() gives.
+append_approved_line() { # $1=in $2=out $3=record
+  local line
+  line="- **Approved:** $3"
   awk -v line="$line" '
     { lines[++n] = $0 }
     END {
@@ -408,8 +410,121 @@ append_approved_line() { # $1=file $2=date $3=who $4=channel
         if (!slot && i == insert) print line
       }
     }
-  ' "$f" > "$f.plot-tmp" || { rm -f "$f.plot-tmp"; return 1; }
-  mv "$f.plot-tmp" "$f"
+  ' "$1" > "$2"
+}
+
+# ---------------------------------------------------------------------------
+# THE TRANSITION — one value, decided in the domain, written whole or not at all
+# ---------------------------------------------------------------------------
+#
+# WHAT THIS CLOSES. The phase and the record were steps 3 and 4 until
+# 2026-09-02, and they were independent: `flip_phase` edited the file, and
+# `append_approved_line` then edited it again. The second could fail — a plan
+# with no `## Status` heading is its documented refusal — and the first had
+# already landed. Measured on the delivery side 2026-08-20, where the same shape
+# had the same bug: a plan carrying `Phase: Delivered` with no `Delivered:` line
+# was filtered out of `plot-fleet-scan.sh` ENTIRELY, which reads its delivered
+# window from the record itself. A phase without its record does not make a plan
+# half-transitioned; it makes it invisible.
+#
+# SO THE TWO ARE ONE WRITE. The domain says so in a type: `transitions/plan.ts`
+# gives `Decision` a required `phase` AND a required `record`, so a decision
+# missing either does not compile. `plot-transition.mjs` carries that value out
+# to here, and this pair of functions is the half that could still have broken
+# it — both edits run against scratch copies, and the plan file is replaced only
+# once both have succeeded.
+#
+# THE DOMAIN DECIDES, THIS PERFORMS. The phase word and the record's text come
+# back from the bundle; the awk that knows where a `## Status` line lives stays
+# here, because that is adaptation and it carries bug history worth keeping
+# (append_started_line()'s placeholder repair, 2026-08-17).
+#
+# IDEMPOTENCE IS UNCHANGED, and it is still the source that answers. The domain
+# reads the phase and the record THIS SCRIPT PARSED FROM THE FILE IT IS ABOUT TO
+# WRITE, and answers `already` when both are present — the same question steps 3
+# and 4 asked separately, asked once. No progress file appears here, because a
+# progress file is exactly what would disagree with the repository when somebody
+# intervened by hand between two runs.
+#
+# THE MERGE IS NOT PART OF IT, and it must not become one. Step 2 merges the PR,
+# and a merged PR cannot be rolled back if a file write then fails. Atomicity
+# stops at the host boundary; re-running is the repair, which is why every step
+# still tests the source it would have written.
+transition_mjs="$script_dir/board/plot-transition.mjs"
+
+# Ask the domain for the transition, and refuse in its words.
+#
+# Called with the file's OWN parse rather than the caller's: on the `pr` flow
+# those are different files, and the plan on the default branch is the one that
+# counts.
+decide_transition() { # $1=file $2=channel  → prints "<Phase>\t<record>\t<write|already>\t<yes|no>"
+  local f="$1" channel="$2" m answer rc
+  [ -f "$transition_mjs" ] \
+    || { echo "plot-approve: cannot find $transition_mjs — run 'pnpm build:board'." >&2; return 1; }
+  m=$(bash "$script_dir/plot-plan-meta.sh" "$f" 2>/dev/null) || m=""
+  [ -n "$m" ] || { echo "plot-approve: cannot parse $f — refusing rather than guessing." >&2; return 1; }
+  answer=$(printf 'approve\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n' \
+    "$slug" \
+    "$(printf '%s' "$m" | jq -r '.phase // ""')" \
+    "$(printf '%s' "$m" | jq -r '.review // ""')" \
+    "$(printf '%s' "$m" | jq -r '.approved_raw // ""')" \
+    "$(printf '%s' "$m" | jq -r '.delivered_raw // ""')" \
+    "$(printf '%s' "$m" | jq -r '.released_raw // ""')" \
+    "$today" "$who" "$channel" \
+    | node "$transition_mjs" 2>&1)
+  rc=$?
+  # Exit 1 is the domain's refusal and its sentence, tab-separated after the
+  # rule that fired. Exit 2 is this script handing it something unreadable,
+  # which no operator can act on — so it reports as the bug it is.
+  if [ "$rc" != 0 ]; then
+    if [ "$rc" = 1 ]; then
+      echo "plot-approve: $(printf '%s' "$answer" | cut -f2-)" >&2
+    else
+      echo "plot-approve: $answer" >&2
+    fi
+    return 1
+  fi
+  printf '%s' "$answer"
+}
+
+# Apply the decided transition: the phase and the record, or neither.
+#
+# BOTH EDITS RUN AGAINST SCRATCH FILES and the plan is replaced by one `mv`.
+# An `## Status` section that cannot take the record leaves the file exactly as
+# it was found — INCLUDING ITS PHASE — so re-running is still the repair, and
+# the half-state that made a plan invisible cannot be reached from here.
+#
+# `$3` says whether the file already carries the record. A plan can carry one
+# while its phase lags — written by hand, or an earlier run cut between the two
+# writes — and appending a second would leave the block listing one approval
+# twice. The domain returns the written record unchanged in that case, so the
+# phase still flips and nothing is inserted.
+write_transition() { # $1=file $2=record $3=recorded(yes|no) → sets phase_report record_report
+  local f="$1" record="$2" recorded="$3" a="$1.plot-phase" b="$1.plot-record" flipped=0
+
+  if flip_phase "$f" "$a"; then flipped=1; else flipped=0; fi
+  # awk wrote `$a` either way; where nothing flipped it is a faithful copy, so
+  # the record still has a file to be inserted into.
+  [ -s "$a" ] || { rm -f "$a"; echo "plot-approve: could not read $rel" >&2; return 1; }
+
+  if [ "$recorded" = "yes" ]; then
+    mv "$a" "$f" || { rm -f "$a"; return 1; }
+    record_report="already"
+  else
+    if ! append_approved_line "$a" "$b" "$record"; then
+      rm -f "$a" "$b"
+      echo "plot-approve: $rel has no '## Status' section — nowhere to record the approval." >&2
+      echo "  Nothing was written: the phase is not flipped either, because a phase" >&2
+      echo "  with no record is invisible to the scan. Fix the section and re-run." >&2
+      return 1
+    fi
+    mv "$b" "$f" || { rm -f "$a" "$b"; return 1; }
+    rm -f "$a"
+    record_report="written"
+  fi
+
+  phase_report=$([ "$flipped" = 1 ] && echo flipped || echo already)
+  return 0
 }
 
 # Remove the `.plot/hold` entry for EVERY branch the plan names, and nothing
@@ -496,26 +611,27 @@ apply_local_writes() { # $1=root  → sets phase_report record_report holds_repo
   local root="$1" f="$1/$rel"
   [ -f "$f" ] || { echo "plot-approve: $rel is not present in $root" >&2; return 1; }
 
-  # Step 3 — flip the phase. Already-done test: the file no longer says Draft.
-  if flip_phase "$f"; then phase_report="flipped"; else phase_report="already"; fi
-
-  # Step 4 — fill the Approved: record. Already-done test: it is non-empty in
-  # THE FILE BEING WRITTEN, re-parsed here rather than trusted from the caller's
-  # copy: on the `pr` flow those are different files, and the plan on the
-  # default branch is the one that counts.
-  local rec
-  rec=$(bash "$script_dir/plot-plan-meta.sh" "$f" 2>/dev/null | jq -r '.approved_raw // ""' 2>/dev/null)
-  if [ -n "$rec" ]; then
+  # Step 3 — THE TRANSITION: the phase and its record, together or not at all.
+  #
+  # ONE STEP WHERE THERE WERE TWO, which is the whole of this change. The domain
+  # decides what the two lines say and whether they are owed at all; this writes
+  # them as one replacement of the file. Already-done test: the domain answers
+  # `already` when the file it is about to write ALREADY carries both — re-parsed
+  # here rather than trusted from the caller's copy, because on the `pr` flow
+  # those are different files and the plan on the default branch is the one that
+  # counts.
+  local channel="plan-PR #$pr_number merged"
+  [ "$same_branch" = 1 ] && channel="plan-PR #$pr_number reviewed"
+  local decided record action recorded
+  decided=$(decide_transition "$f" "$channel") || return 1
+  record=$(printf '%s' "$decided" | cut -f2)
+  action=$(printf '%s' "$decided" | cut -f3)
+  recorded=$(printf '%s' "$decided" | cut -f4)
+  if [ "$action" = "already" ]; then
+    phase_report="already"
     record_report="already"
   else
-    local channel="plan-PR #$pr_number merged"
-    [ "$same_branch" = 1 ] && channel="plan-PR #$pr_number reviewed"
-    if append_approved_line "$f" "$today" "$who" "$channel"; then
-      record_report="written"
-    else
-      echo "plot-approve: $rel has no '## Status' section — nowhere to record the approval" >&2
-      return 1
-    fi
+    write_transition "$f" "$record" "$recorded" || return 1
   fi
 
   # Step 5 — clear the holds, keyed by branch.

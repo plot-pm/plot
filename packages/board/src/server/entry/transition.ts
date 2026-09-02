@@ -15,8 +15,8 @@ import { pathToFileURL } from 'node:url';
  * transition.
  *
  * ```
- * printf 'deliver\tslug\tapproved\tpr\t\t\t\t2026-09-02\t\n' | node plot-transition.mjs
- * Delivered	2026-09-02	write
+ * printf 'deliver\tslug\tapproved\tpr\t\t\t\t2026-09-02\t\t\t\n' | node plot-transition.mjs
+ * Delivered	2026-09-02	write	no
  * ```
  *
  * **A FIFTH artifact, for the reason the third and fourth ones give.**
@@ -134,13 +134,32 @@ export const decide = (request: Request): TransitionResult => {
   }
 };
 
+/** The record the plan already carries for this verb, or `''`. */
+const written = (request: Request): string => {
+  switch (request.verb) {
+    case 'approve':
+      return request.plan.approvedRecord.trim();
+    case 'deliver':
+      return request.plan.deliveredRecord.trim();
+    case 'release':
+      return request.plan.releasedRecord.trim();
+  }
+};
+
 /**
- * Render one decided transition: `phase TAB record TAB action`.
+ * Render one decided transition: `phase TAB record TAB action TAB recorded`.
  *
  * The action is `write` or `already` — whether the plan still owes this
- * transition its two lines. It is the domain's `alreadyRecorded`, named for
- * what the caller does with it rather than for what it observed, because the
- * caller's next act is a write or a skip.
+ * transition anything at all. It is the domain's `alreadyRecorded`, named for
+ * what the caller does with it rather than for what it observed.
+ *
+ * `recorded` is `yes` where the plan ALREADY carries a record for this verb,
+ * and it is not the same question. A plan can carry a record while its phase
+ * still lags — someone wrote the line by hand, or an earlier run was cut
+ * between the two writes — and the caller must then flip the phase WITHOUT
+ * inserting a second record. The domain returns the written record unchanged
+ * in that case, so the two fields together say *this is the line, and it is
+ * already in the file*.
  *
  * The phase is the file's spelling rather than the domain's: the domain
  * normalizes to lower case, and a plan file writes `Delivered`.
@@ -158,7 +177,7 @@ export const answer = (request: Request): string => {
   }
   return `${SPELLING[request.verb]}\t${result.record}\t${
     result.alreadyRecorded ? 'already' : 'write'
-  }\n`;
+  }\t${written(request) === '' ? 'no' : 'yes'}\n`;
 };
 
 /**
