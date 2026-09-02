@@ -2379,16 +2379,52 @@ test('host: pr-list names any OTHER failure plainly, never as throttled', () => 
     'guessing "throttled" would counsel waiting out an outage that waiting will not fix');
 });
 
-// A SECONDARY LIMIT IS STILL A LIMIT, and it does not say "rate limit". The
-// outage measured on 2026-08-27 was GitHub's concurrent-request throttling —
-// eight workers against a cap of seven — and both budgets read 5000/5000 while
-// every call was refused. It reports itself as a 403 naming abuse detection.
-test('host: pr-list reads a secondary-limit 403 as throttled too', () => {
+// A SECONDARY LIMIT IS A DIFFERENT LIMIT, and until 2026-09-02 it shared the
+// spent quota's exit code. The outage measured on 2026-08-27 was GitHub's
+// concurrent-request throttling — eight workers against a cap of seven — and
+// both budgets read 5000/5000 while every call was refused; it reports itself
+// as a 403 naming abuse detection.
+//
+// THE TWO CEILINGS RECOVER MINUTES APART. A spent quota returns at the reset,
+// a secondary limit clears in seconds, so one exit code for both counsels a
+// wait of minutes for a limit that has already gone — and says nothing about
+// the one lever that helps, which is running fewer calls at once.
+//
+// THIS ASSERTION READ `res.code, 5` UNTIL 2026-09-02, and that was the defect
+// being pinned rather than the behaviour.
+test('host: pr-list reads a secondary-limit 403 as SECONDARY, not as a spent quota', () => {
   const stubs = makeStubs({
     ghFail: 'HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.',
   });
   const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
-  assert.equal(res.code, 5, 'the secondary limit is the one that actually bit this repo');
+  assert.equal(res.code, 6, 'exit 6 is "the host refused a burst", not exit 5');
+  assert.match(res.stderr, /burst/i, 'and the word is in the message a human reads');
+});
+
+// THE 2026-08-27 WORDING ITSELF, which names abuse detection and never says
+// "secondary". Matching only the newer phrasing would miss the message that
+// actually bit this repo.
+test('host: pr-list reads an abuse-detection 403 as SECONDARY', () => {
+  const stubs = makeStubs({
+    ghFail: 'HTTP 403: You have triggered an abuse detection mechanism.',
+  });
+  const res = runAllowFail(['pr-list'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.code, 6, 'the limit that actually bit this repo is the secondary one');
+});
+
+// THE DISTINCTION, ASSERTED AS A DIFFERENCE. Either assertion above passes on
+// its own against a script that answers one code for both; only this one fails.
+test('host: pr-list gives the two limits DIFFERENT exit codes', () => {
+  const quota = runAllowFail(['pr-list'], {
+    env: { PLOT_HOST: 'github' },
+    stubs: makeStubs({ ghFail: 'GraphQL: API rate limit already exceeded for user ID 870334.' }),
+  });
+  const secondary = runAllowFail(['pr-list'], {
+    env: { PLOT_HOST: 'github' },
+    stubs: makeStubs({ ghFail: 'HTTP 403: You have exceeded a secondary rate limit.' }),
+  });
+  assert.notEqual(quota.code, secondary.code,
+    'one word for two ceilings is what the banner could not tell apart');
 });
 
 // ── limit ───────────────────────────────────────────────────────────────────

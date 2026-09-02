@@ -150,8 +150,14 @@ const CORRECTION_FACTOR = 0.5;
  *
  * THE PIECE A STATIC DEFAULT CANNOT HAVE. A number shipped in Plot is stale the
  * moment a vendor changes it; a number corrected by the refusal it caused
- * cannot be. `plot-host.sh:245` classifies the stderr as `throttled`, and that
- * word is the evidence this reads.
+ * cannot be. `host_failure_kind` in `plot-host.sh` classifies the stderr as
+ * `throttled`, and that word is the evidence this reads.
+ *
+ * ONLY A SPENT QUOTA MOVES THE NUMBER. `secondary` is a refusal too, and it is
+ * evidence about a DIFFERENT ceiling: it bounds requests at once, not requests
+ * an hour, so halving an hourly prediction on it would correct a number the
+ * refusal says nothing about. The concurrency bound is
+ * `bug/the-budget-bounds-simultaneous-calls` and deliberately not this.
  *
  * Only a `predicted` reading moves. An `actual` one is what the connector
  * itself said, so a refusal beside it means something other than a wrong
@@ -160,12 +166,12 @@ const CORRECTION_FACTOR = 0.5;
  * correct.
  *
  * @param reading - the reading a call was made against.
- * @param observed - what the call observed: `throttled` is the refusal.
+ * @param observed - what the call observed: `throttled` is the spent quota.
  * @returns the corrected reading, or the same reading where nothing was learnt.
  */
 export const correctForRefusal = (
   reading: LimitReading,
-  observed: 'ok' | 'throttled',
+  observed: 'ok' | 'throttled' | 'secondary',
 ): LimitReading => {
   if (observed !== 'throttled') return reading;
   if (reading.basis !== 'predicted' || reading.limit === null) return reading;

@@ -162,4 +162,15 @@ describe('a refusal corrects the prediction it disproved', () => {
     const floored: LimitReading = predictedLimit('jenkins', '', MIN_PREDICTED_LIMIT);
     expect(correctForRefusal(floored, 'throttled').limit).toBe(MIN_PREDICTED_LIMIT);
   });
+
+  /**
+   * ONLY A SPENT QUOTA MOVES THE NUMBER. A secondary limit bounds requests AT
+   * ONCE, so it is evidence about a different ceiling entirely: halving an
+   * hourly prediction on it would correct a number the refusal says nothing
+   * about, and would keep halving it every time a burst was refused.
+   */
+  it('learns nothing about the hourly ceiling from a secondary limit', () => {
+    const before = predictedLimit('jenkins', '', 60);
+    expect(correctForRefusal(before, 'secondary')).toEqual(before);
+  });
 });

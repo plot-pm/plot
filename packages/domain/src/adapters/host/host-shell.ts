@@ -178,6 +178,33 @@ const limitOf = (raw: RawLimit): LimitReading => {
   };
 };
 
+/** `plot-host.sh`'s exit code for a spent quota. */
+const EXIT_QUOTA = 5;
+
+/** `plot-host.sh`'s exit code for a secondary limit. */
+const EXIT_SECONDARY = 6;
+
+/**
+ * Which refusal one of `plot-host.sh`'s exit codes names.
+ *
+ * THE SPLIT FALLS ONE WAY ONLY, which is why this is a switch on two known
+ * codes rather than a range. `plot-host.sh` gives the specific name only to a
+ * message it recognised, and a code this does not know must not be promoted
+ * into one: `throttled` and `secondary` each counsel a wait, and a wait does
+ * not fix an auth error.
+ *
+ * Exported for test — the mapping is the contract between the script's exit
+ * codes and the port.
+ *
+ * @param code - the script's exit code.
+ * @returns the refusal kind that code names.
+ */
+export const refusalKindOfExit = (code: number): HostRefusal['kind'] => {
+  if (code === EXIT_QUOTA) return 'throttled';
+  if (code === EXIT_SECONDARY) return 'secondary';
+  return 'failed';
+};
+
 /**
  * Reads the git host through `plot-host.sh`, the one place that speaks to a
  * host CLI.
@@ -205,11 +232,11 @@ export const hostShell = (context: ShellContext): Host => {
   /**
    * Records what this run refused with, and maps it as every adapter does.
    *
-   * THE EXIT CODE IS READ EXACTLY ONCE, HERE. `5` is a rate limit and `3` is
-   * anything else that broke, a split `plot-host.sh` makes off the host's
-   * wording because `gh` exits 1 for a throttle and for a 503 alike. Both are
-   * `failed` to `resultOf` — a caller holding no value holds no value either
-   * way — and only the refusal below tells them apart.
+   * THE EXIT CODE IS READ EXACTLY ONCE, HERE. `5` is a spent quota, `6` a
+   * secondary limit, and `3` anything else that broke — a split `plot-host.sh`
+   * makes off the host's wording because `gh` exits 1 for a throttle and for a
+   * 503 alike. All three are `failed` to `resultOf` — a caller holding no value
+   * holds no value either way — and only the refusal below tells them apart.
    *
    * `4` is `unaskable` and is NOT a refusal: a Bitbucket repo with no tracker
    * is answering, permanently and correctly. Recording it as one would make a
@@ -220,7 +247,7 @@ export const hostShell = (context: ShellContext): Host => {
       refusal = null;
     } else {
       const said = run.stderr.trim() || run.stdout.trim() || `plot-host.sh exited ${run.code}`;
-      refusal = { kind: run.code === 5 ? 'throttled' : 'failed', said };
+      refusal = { kind: refusalKindOfExit(run.code), said };
     }
     return resultOf(run, parse);
   };
