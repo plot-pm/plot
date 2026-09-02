@@ -26,7 +26,7 @@ The plan states it at `docs/plans/2026-09-01-one-account-has-one-budget.md:664`,
 
 ### The distinction is conflated in TWO places, and both are one regex
 
-**The shell.** `skills/plot/scripts/plot-host.sh:280` declares `host_failure_kind() { # $1=stderr text → throttled|failed`, and `:268` matches one regex — `rate limit|ratelimit|too many requests|\b429\b|secondary rate|abuse detection|exceeded a secondary` — returning `throttled` at `:269` for every one of them. *"API rate limit exceeded"* and *"You have exceeded a secondary rate limit"* both come back `throttled`.
+**The shell.** `skills/plot/scripts/plot-host.sh:280` declares `host_failure_kind() { # $1=stderr text → throttled|failed`, and `:281` matches one regex — `rate limit|ratelimit|too many requests|\b429\b|secondary rate|abuse detection|exceeded a secondary` — returning `throttled` at `:282` for every one of them. *"API rate limit exceeded"* and *"You have exceeded a secondary rate limit"* both come back `throttled`.
 
 **The board.** `packages/board/src/app/lib/agent-rows/host-notes.ts:257` is `return /rate limit/i.test(error) ? 'rate-limited' : 'unreachable';` — a second conflation, mirroring the first. `prNote` at `:306` then prints one wording for both, including a reset time it may not have received.
 
