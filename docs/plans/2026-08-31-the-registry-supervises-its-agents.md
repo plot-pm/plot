@@ -541,3 +541,33 @@ long-lived process, a new failure mode, and a new thing to explain to an
 adopting project. The three bounds and the OS-level supervision are what make it
 defensible; if the Declaring and Judging slices alone turn out to close the
 observed failures, the Supervising slice deserves re-argument before it lands.
+
+**The envelope makes every desk unreapable, and the reaper is the reason.
+Measured 2026-09-02:** `plot-reap.sh --dry-run` reported `reapable=0 kept=22`,
+and **15 of the 22 desks were dirty for one file only** —
+`?? .plot-worker.envelope.json`, the manifest this plan's Judging slice writes.
+
+**Two readings of one worktree, which is the drift this estate keeps removing.**
+`plot_worker_dirty_filter` at `plot-worker-state.sh:383` already excludes the
+whole `\.plot-worker\.` prefix, and it excludes the envelope correctly — checked
+directly. `plot-reap.sh:333` does not call it. It runs its own
+`git status --porcelain` and excuses exactly one path, `tiny-garden/.plot/state`,
+so every other `.plot-worker.*` file reads as uncommitted work and holds the desk.
+
+The filter's own comment names this failure shape, one file earlier:
+
+> ONE PATTERN, USED BY BOTH EXCLUSIONS BELOW, because they had already drifted
+> apart inside this one file … Two answers about one file, which is the shape
+> this entire plan exists to remove.
+
+**The consequence is fleet-wide.** No desk on this estate can be reaped while a
+worker has ever run on it, so worktrees accumulate — 29 as of this measurement —
+and `plot-release-refs.sh`, which runs after the reaper, never gets its turn.
+
+The fix is to read the estate's one answer instead of a second one.
+`plot-reap.sh:129` sources `plot-pr-merged.sh` and nothing else — it reads
+`.plot-worker.pid` directly and greps its own status output — so adopting
+`plot_worker_dirty_filter` means sourcing `plot-worker-state.sh` as
+`plot-fleet-scan.sh` and `plot-dispatch.sh` already do. Recorded rather than
+done: the reaper removes checkouts and its five refusals are its whole safety
+argument, so widening one deserves its own slice and its own test.
