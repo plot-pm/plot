@@ -44,6 +44,7 @@ export * from './rules/verdict.js';
 export * from './rules/attention.js';
 export * from './rules/budget-record.js';
 export * from './rules/cadence.js';
+export * from './rules/reaction.js';
 export * from './rules/refusal.js';
 export * from './rules/sample.js';
 export * from './rules/acting.js';
