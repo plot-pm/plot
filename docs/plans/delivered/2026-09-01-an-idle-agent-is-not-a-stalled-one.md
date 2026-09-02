@@ -1,0 +1,1 @@
+../2026-09-01-an-idle-agent-is-not-a-stalled-one.md

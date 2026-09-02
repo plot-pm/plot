@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Started:** 2026-09-02, Jan Wloka, `bug/a-thinking-agent-has-a-quiet-stretch`
 - **Started:** 2026-09-02, Jan Wloka, `bug/the-loop-reads-the-agents-own-stream`
 - **Started:** 2026-09-02, Jan Wloka, `bug/an-ended-worker-names-its-reading`
+- **Delivered:** 2026-09-02
 
 ## Changelog
 
