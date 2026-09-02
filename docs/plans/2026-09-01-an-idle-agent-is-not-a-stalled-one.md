@@ -127,3 +127,30 @@ Cheapest to write and wrong in the same way. Three zeros are three readings of a
 **Found while dispatching four briefed branches.** One died 11 seconds in, and its log named the cause plainly. The seven-desk count came from `grep -l 'reported idle on' .worktrees/*/.plot-worker.log`, which is why it is a floor rather than a total — a reaped worktree takes its log with it.
 
 **The rule was right to exist.** `CLAUDE.md` records why, describing `plot-worker-state.sh`: *"every worker exits 0, so the exit code cannot say whether the work is done."* Something has to notice a worker that stopped, and inferring it from a process ending was already known to be wrong. This plan does not remove the question; it changes what is sampled to answer it.
+
+## What the measurement found, and what it changes
+
+**Measured 2026-09-02 by `bug/a-thinking-agent-has-a-quiet-stretch`**, over 23 dispatched sessions in 21 worktrees, 7,547 quiet stretches:
+
+```
+Longest quiet         600.8s
+p50 / p90 / p99       0s / 2.6s / 15.6s
+Over the 30s window   37 stretches, in 9 of 23 sessions
+```
+
+**Nine of 23 sessions cross the window the rule kills on.** The rule needs two consecutive quiet passes, and 39% of sessions offer it more than one chance.
+
+**The split overturns this plan's own hypothesis.** The Design argues the false positive comes from an agent *thinking* — waiting on a model response. The data says that is the minority case:
+
+| waiting on | stretches ≥ 30s | longest |
+|---|---|---|
+| the model (thinking) | **9** | 109.6s |
+| **its own command** | **28** | **600.8s** |
+
+**Three quarters of the dangerous quiet is an agent waiting on a subprocess it started.** The ten-minute stretches are `pnpm run test:reconcile`, `pnpm run test:board`, `npx vitest run`, `gh pr checks --watch`. Those burn CPU heavily — in a child the sampler does not attribute to the agent's subtree.
+
+That matters for wave 2. A transcript-quiet reading fixes the thinking case and **leaves the larger one unfixed**: an agent waiting ten minutes on its own test suite writes nothing to its transcript either. The reading must either attribute a child's CPU to the agent that spawned it, or treat *an outstanding subprocess* as evidence of work, or both. Reading the transcript alone would still kill 28 of the 37.
+
+**The measurement includes its own author.** `bug-a-thinking-agent-has-a-quiet-stretch` appears in its own data at 40.1s with 2 stretches over the window, and the rule ended that worker while it was writing this tool. Nothing was lost — the brief told it to commit early and it had, three times.
+
+**`PLOT_QS_HOME` has no default.** Running `plot-quiet-stretch.mjs` without it reports `0 sessions across 21 worktrees` rather than failing, which is a silent wrong answer. Set `PLOT_QS_HOME="$HOME"` and `PLOT_QS_WORKTREES` to the worktree root, or fix the default before the next slice relies on it.
