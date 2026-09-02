@@ -114,11 +114,23 @@ describe('an absent rate leaves the cadence exactly where it is', () => {
     expect(refreshIntervalMs(INTERVAL, GITHUB, null)).toBe(INTERVAL);
   });
 
-  it('does not stretch a board already stretched, when the rate goes absent', () => {
-    // The load-bearing negative: a null must not hold a stretch in place either.
-    // It walks back toward the unstretched interval rather than freezing.
+  it('holds a stretched board exactly where it is, rather than walking it back', () => {
+    // THE LOAD-BEARING DISTINCTION, and the one a coerced null destroys. An
+    // absent rate is NO EVIDENCE — the record could not be read, or holds one
+    // line — so the honest response is to move nothing. A board at four times
+    // the interval stays there.
     const stretched = 4 * INTERVAL;
-    expect(refreshIntervalMs(INTERVAL, GITHUB, null, stretched)).toBeLessThan(stretched);
+    expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour: null }, stretched)).toBe(stretched);
+    expect(refreshIntervalMs(INTERVAL, GITHUB, null, stretched)).toBe(stretched);
+  });
+
+  it('walks a stretched board back on a rate that is zero rather than absent', () => {
+    // The other half of the same distinction. A zero rate IS evidence — the
+    // account is idle — so the board steps back toward its unstretched interval.
+    // Coercing the null above to this value would make the two indistinguishable
+    // and read a record that has only just started as one that has stopped.
+    const stretched = 4 * INTERVAL;
+    expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour: 0 }, stretched)).toBeLessThan(stretched);
   });
 
   it('reads a non-finite rate as absent rather than as an enormous one', () => {
@@ -126,7 +138,7 @@ describe('an absent rate leaves the cadence exactly where it is', () => {
     expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour: Number.NaN })).toBe(INTERVAL);
   });
 
-  it('reads a zero rate as no evidence rather than as an idle account', () => {
+  it('leaves an unstretched board unstretched on a zero rate', () => {
     expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour: 0 })).toBe(INTERVAL);
   });
 });
@@ -141,6 +153,21 @@ describe('a quiet account never speeds a board up', () => {
   it('never returns below the unstretched interval on any rate', () => {
     for (const perHour of [0.1, 1, 20, 59, 60, 61, 600, 6000]) {
       expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour })).toBeGreaterThanOrEqual(INTERVAL);
+    }
+  });
+
+  it('never returns a target below 1, whatever the board is currently at', () => {
+    // THE MUTATION THIS TEST EXISTS FOR: the floor must hold for a board that is
+    // ALREADY stretched and now reads a rate below its own contribution, which
+    // is the one shape that can produce a quotient under 1 if `others` is not
+    // floored. A board at eight times the interval spends 7.5 an hour; a rate of
+    // 1 is well under that.
+    for (const current of [INTERVAL, 2 * INTERVAL, 8 * INTERVAL]) {
+      for (const perHour of [0.1, 1, 7, 20, 59]) {
+        expect(targetStretch(perHour, INTERVAL, current, GITHUB)).toBeGreaterThanOrEqual(1);
+        expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour }, current))
+          .toBeGreaterThanOrEqual(INTERVAL);
+      }
     }
   });
 });
@@ -177,6 +204,31 @@ describe('the stretch is bounded, and the bound is stated', () => {
     // `others >= share` has nothing left to divide, which is the branch the
     // ceiling exists to answer rather than an infinity.
     expect(targetStretch(600, INTERVAL, INTERVAL, GITHUB)).toBe(MAX_CADENCE_STRETCH);
+  });
+
+  it('caps a target the arithmetic would otherwise put past the ceiling', () => {
+    // THE MUTATION THIS TEST EXISTS FOR: without the cap, a rate leaving one
+    // sixtieth of the share to this board yields a target of 60, and a board
+    // that reached it would refresh once an hour. The ceiling is asserted on the
+    // TARGET rather than only on the damped step, because the step approaches
+    // the target and a cap applied after damping would still let the aim run
+    // away.
+    //
+    // 119 an hour, at the unstretched interval: this board is spending 60 of it,
+    // so 59 belongs to everyone else and one request an hour is what is left.
+    const target = targetStretch(119, INTERVAL, INTERVAL, GITHUB);
+    expect(target).toBe(MAX_CADENCE_STRETCH);
+    // Uncapped, the same numbers give 60 — the value the cap is refusing.
+    expect(60 / (60 - 59)).toBe(60);
+  });
+
+  it('never lets an interval exceed the ceiling, at any current interval', () => {
+    for (const current of [INTERVAL, 2 * INTERVAL, 8 * INTERVAL]) {
+      for (const perHour of [59, 59.9, 120, 600, 60_000]) {
+        expect(refreshIntervalMs(INTERVAL, GITHUB, { perHour }, current))
+          .toBeLessThanOrEqual(MAX_CADENCE_STRETCH * INTERVAL);
+      }
+    }
   });
 });
 
@@ -219,12 +271,14 @@ describe('the step is damped, and that is what makes it settle', () => {
   });
 
   it('walks a board back down toward the unstretched interval, never past it', () => {
-    // A board sitting at the ceiling on an account that has gone quiet steps
-    // down each refresh and stops at 1 rather than passing through it.
-    let stretch = cadenceStretch(null, INTERVAL, MAX_CADENCE_STRETCH * INTERVAL, GITHUB);
+    // A board sitting at the ceiling on an account observed to have gone quiet
+    // steps down each refresh and stops at 1 rather than passing through it.
+    // The rate is 0 and not null: null is no evidence and holds position, which
+    // the block above asserts separately.
+    let stretch = cadenceStretch(0, INTERVAL, MAX_CADENCE_STRETCH * INTERVAL, GITHUB);
     expect(stretch).toBeLessThan(MAX_CADENCE_STRETCH);
     for (let step = 0; step < 200; step++) {
-      stretch = cadenceStretch(null, INTERVAL, stretch * INTERVAL, GITHUB);
+      stretch = cadenceStretch(0, INTERVAL, stretch * INTERVAL, GITHUB);
     }
     expect(stretch).toBe(1);
   });
@@ -232,6 +286,6 @@ describe('the step is damped, and that is what makes it settle', () => {
   it('never reads a board as refreshing faster than its unstretched interval', () => {
     // A current interval below the base would report a share above the board's
     // own, which is a state no caller can be in and must not compute one.
-    expect(cadenceStretch(null, INTERVAL, 1_000, GITHUB)).toBe(1);
+    expect(cadenceStretch(0, INTERVAL, 1_000, GITHUB)).toBe(1);
   });
 });

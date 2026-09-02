@@ -124,11 +124,6 @@ export const targetStretch = (
   currentIntervalMs: number,
   costPerRefresh: number,
 ): number => {
-  // AN ABSENT RATE LEAVES THE CADENCE EXACTLY WHERE IT IS. `perHour` is null
-  // where the window holds no span to divide by — one line, or several inside
-  // one millisecond — and that is an absent rate rather than a zero one. A null
-  // must be read, not coerced: coercing it to 0 would read an account that has
-  // only just started writing as an idle one.
   if (perHour === null || !Number.isFinite(perHour) || perHour <= 0) return 1;
   // THE SHARE IS TAKEN AT THE UNSTRETCHED CADENCE, WHICH IS ALREADY THE COST
   // MULTIPLIED ONE. `intervalMs` reasons about a refresh as a unit; the interval
@@ -143,12 +138,13 @@ export const targetStretch = (
   // branch a burst reaches, and the reason the ceiling is a number rather than
   // an infinity.
   if (others >= share) return MAX_CADENCE_STRETCH;
-  const stretch = share / (share - others);
-  // A QUIET ACCOUNT RETURNS 1, NEVER A FRACTION. This rule may only ever slow a
-  // board down. Speeding up on an idle record would spend the headroom of every
+  // A QUIET ACCOUNT RETURNS 1, NEVER A FRACTION. `others` is floored at zero, so
+  // this quotient is at least 1 by construction and the floor is a property of
+  // the arithmetic rather than a clamp on it: a board may only ever be slowed
+  // down. Speeding up on an idle record would spend the headroom of every
   // spender that happens to be quiet at that moment, and would oscillate against
   // the very rate it is reading.
-  return stretch <= 1 ? 1 : Math.min(MAX_CADENCE_STRETCH, stretch);
+  return Math.min(MAX_CADENCE_STRETCH, share / (share - others));
 };
 
 /**
@@ -180,9 +176,18 @@ export const cadenceStretch = (
   currentIntervalMs: number,
   costPerRefresh: number,
 ): number => {
-  const target = targetStretch(perHour, intervalMs, currentIntervalMs, costPerRefresh);
   const base = intervalMs * costPerRefresh;
   const current = Math.max(base, currentIntervalMs) / base;
+  // AN ABSENT RATE HOLDS THE CADENCE WHERE IT IS, AND A ZERO RATE WALKS IT
+  // BACK. `perHour` is null where the window holds no span to divide by — one
+  // line, or several inside one millisecond — and that is an absent rate rather
+  // than a zero one. The two must not act alike: an absent rate is NO EVIDENCE,
+  // so the honest response is to move nothing, while a rate that IS zero is
+  // evidence of an idle account and earns the walk back to the unstretched
+  // interval. Coercing the null to 0 collapses that distinction and reads an
+  // account that has only just started writing as one that has stopped.
+  if (perHour === null) return current;
+  const target = targetStretch(perHour, intervalMs, currentIntervalMs, costPerRefresh);
   const stepped = current + CADENCE_DAMPING * (target - current);
   // The floor is reasserted after the step, not assumed from it: a board already
   // stretched further than its target walks back DOWN toward 1, and must stop
