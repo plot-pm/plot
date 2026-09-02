@@ -648,6 +648,13 @@ while true; do
     # capability is `unavailable` rather than failed or zero, and a log that
     # collapses it into a bound expiry hides that Plot never had the reading —
     # which is an adopter's `.plot/worker-prompt.sh` to fix, not an agent's.
+    #
+    # BOTH FLOOR ARMS STILL SAY "exceeded the Ns bound", and that is not a
+    # leftover. The bound genuinely expired in both — it is what ended the
+    # worker either way — and the two differ in what was known WHILE it ran, not
+    # in what stopped it. A reader grepping for the bound must find every worker
+    # the bound ended, so the phrase stays on both and the leading clause is what
+    # separates them.
     case "$_ended_by" in
       monitor)
         echo "plot-worker-loop: the agent went quiet on ${PLOT_BRANCH:-?} — the WorkerMonitor reported idle: the agent is alive and has committed but its transcript has been silent past the window with nothing burning CPU behind it, across two passes; ending worker without hopping" >&2
@@ -659,10 +666,10 @@ while true; do
         # sentence.
         case "$(ended_reading_available)" in
           no)
-            echo "plot-worker-loop: nobody could tell on ${PLOT_BRANCH:-?} — no transcript could be read for this worktree, so no reading distinguishes a thinking agent from a stopped one; the ${WORKER_BOUND_SECONDS}s bound ended it and the reason is an absence, not a measurement. Pass --session-id from .plot/worker-prompt.sh to make the reading available; ending worker without hopping" >&2
+            echo "plot-worker-loop: nobody could tell on ${PLOT_BRANCH:-?} — no transcript could be read for this worktree, so no reading distinguishes a thinking agent from a stopped one; the prompt exceeded the ${WORKER_BOUND_SECONDS}s bound and that is an absence of a reading, not a measurement. Pass --session-id from .plot/worker-prompt.sh to make the reading available; ending worker without hopping" >&2
             ;;
           *)
-            echo "plot-worker-loop: the bound expired on ${PLOT_BRANCH:-?} — the prompt exceeded ${WORKER_BOUND_SECONDS}s and the agent's transcript was readable throughout, but no monitor finding said why; ending worker without hopping" >&2
+            echo "plot-worker-loop: the bound expired on ${PLOT_BRANCH:-?} — the prompt exceeded the ${WORKER_BOUND_SECONDS}s bound with the agent's transcript readable, and no monitor finding said why; ending worker without hopping" >&2
             ;;
         esac
         ;;
