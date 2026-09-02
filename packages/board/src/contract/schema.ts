@@ -3329,6 +3329,37 @@ export const FleetSchema = z.object({
    */
   prSpenders: z.number().nullable().default(null),
   /**
+   * The cap on host calls this board has open at once, or null where nothing
+   * licenses one.
+   *
+   * **DISCOVERED, NEVER COMPILED IN.** Derived from the connector's own limit
+   * reading by `boundFromLimit` and lowered by every secondary refusal, so it
+   * moves with the connector rather than with a constant somebody guessed.
+   * Seven — the number the 2026-08-27 incident is usually quoted as — appears
+   * nowhere: eight workers failed and seven is the inference from that one
+   * event.
+   *
+   * NULL IS UNBOUNDED, NOT ZERO. A connector that reports no ceiling and has
+   * refused nothing gives no evidence for any number, and the board runs as it
+   * did before the cap existed.
+   */
+  prConcurrencyCap: z.number().nullable().default(null),
+  /**
+   * How many of the account's slots are claimed right now, or null where the
+   * claims could not be read.
+   *
+   * **THE EVIDENCE THAT THE BOUND IS WORKING RATHER THAN MERELY QUIET.** A cap
+   * that refuses nothing and reports nothing is indistinguishable from no cap
+   * at all, which is why this is a number a reader can see: `2 of 5` says the
+   * account has two callers in flight and room for three more.
+   *
+   * ACROSS PROCESSES, NOT WITHIN ONE. The claims are one directory per account
+   * beside the budget record, so this counts the workers and the operator's own
+   * shell as readily as it counts this board — the population 2026-08-27
+   * measured.
+   */
+  prSlotsHeld: z.number().nullable().default(null),
+  /**
    * Open tracker issues no plan references, for WAITING ON YOU.
    *
    * Beside `rows` rather than inside it — see `IssueRowSchema`. Defaults to []
