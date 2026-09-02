@@ -151,3 +151,25 @@ describe('a bounded reading still answers the dispatch question', () => {
     expect(verdict.headroom).toBe('starved');
   });
 });
+
+describe('machineSystem: where this machine can be reached', () => {
+  it('answers a mesh address or an empty string, never a failure', async () => {
+    // BOTH OUTCOMES ARE THE CONTRACT, so this asserts the shape rather than the
+    // value: `tailscale` is absent on most machines and logged out on some, and
+    // each exits non-zero meaning *there is no mesh address* rather than *the
+    // machine could not be asked*. A test demanding an address would pass only
+    // on a meshed runner; one demanding emptiness would fail on a meshed
+    // developer's laptop. What must hold everywhere is that the call answers.
+    const answer = await machineSystem(context).privateAddress();
+    expect(answer.ok).toBe(true);
+    expect(typeof (answer.ok && answer.value)).toBe('string');
+  });
+
+  it('answers one address, not one per interface', async () => {
+    // `tailscale ip -4` prints a line per interface. A caller building a URL
+    // needs one, so a newline in the answer would be a defect that only shows
+    // up on a multi-interface machine — asserted here where it costs nothing.
+    const answer = await machineSystem(context).privateAddress();
+    expect(answer.ok && answer.value).not.toContain('\n');
+  });
+});

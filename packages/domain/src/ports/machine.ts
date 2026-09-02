@@ -42,4 +42,20 @@ export interface Machine {
    * @returns the hostname.
    */
   hostname(): Promise<PortResult<string>>;
+
+  /**
+   * This machine's address on the private network, where it is on one.
+   *
+   * A hostname/address question, which is why it is here and not on a port of
+   * its own — the same component that names the machine says where the machine
+   * can be reached.
+   *
+   * `''` where no private network is joined, and the emptiness is an ANSWER
+   * rather than a failure: a machine outside a mesh has no mesh address, which
+   * is the ordinary case and not a fault to report. A caller printing a second
+   * URL prints none.
+   *
+   * @returns the address, or `''` where there is none.
+   */
+  privateAddress(): Promise<PortResult<string>>;
 }

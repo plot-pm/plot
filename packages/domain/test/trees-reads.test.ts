@@ -259,3 +259,85 @@ describe('treesFixture: the same port with no machine behind it', () => {
     expect(await port.markers('/elsewhere', 'PLOT-BLOCKED')).toEqual({ ok: true, value: [] });
   });
 });
+
+/**
+ * The four operations that WRITE or read synchronously, against the same real
+ * repository. `add` and `prune` change the estate, so each works in a directory
+ * it creates and removes, and nothing here touches the fixtures the reads above
+ * depend on.
+ */
+describe('treesGit: adding, pruning, and the synchronous reads', () => {
+  it('adds a detached worktree at a start point, and git sees it', async () => {
+    const at = path.join(repo, '..', `${path.basename(repo)}-added`);
+    const head = git(repo, ['rev-parse', 'HEAD']).trim();
+    try {
+      expect(await trees().add(at, head)).toEqual({ ok: true, value: undefined });
+      // Asked of git rather than of the adapter that just wrote it: the
+      // question is whether the checkout exists, not whether the call returned.
+      expect(fs.existsSync(path.join(at, 'a.txt'))).toBe(true);
+      expect(git(repo, ['worktree', 'list', '--porcelain'])).toContain(fs.realpathSync(at));
+    } finally {
+      git(repo, ['worktree', 'remove', '--force', at]);
+    }
+  });
+
+  it('reports a failure for a start point git cannot resolve', async () => {
+    const at = path.join(repo, '..', `${path.basename(repo)}-nostart`);
+    expect((await trees().add(at, 'refs/heads/no-such-branch')).ok).toBe(false);
+    expect(fs.existsSync(at)).toBe(false);
+  });
+
+  it('prunes the record of a checkout whose directory is gone', async () => {
+    // THE STATE PRUNE EXISTS FOR, and it cannot be reached by removing a
+    // worktree properly: `git worktree remove` takes the record with it. A
+    // directory deleted from underneath git leaves the record behind, which is
+    // what a reaped desk looks like when something removed it by hand.
+    const at = path.join(repo, '..', `${path.basename(repo)}-orphan`);
+    const head = git(repo, ['rev-parse', 'HEAD']).trim();
+    git(repo, ['worktree', 'add', '--quiet', '--detach', at, head]);
+    fs.rmSync(at, { recursive: true, force: true });
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).toContain('prunable');
+
+    expect(await trees().prune()).toEqual({ ok: true, value: undefined });
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain('prunable');
+  });
+
+  it('reads a clean checkout as empty porcelain, and a dirty one as its lines', () => {
+    // ITS OWN CHECKOUT, not `linked`. The read tests above leave scratch and
+    // state files there on purpose — one of them proves a TRACKED scratch path
+    // is excluded — so `linked` is never clean and asserting emptiness on it
+    // would be asserting the other tests had not run yet.
+    const own = path.join(repo, '..', `${path.basename(repo)}-status`);
+    git(repo, ['worktree', 'add', '--quiet', '--detach', own, git(repo, ['rev-parse', 'HEAD']).trim()]);
+    try {
+      const clean = trees().statusSync(own);
+      expect(clean.ok).toBe(true);
+      expect(clean.ok && clean.value.trim()).toBe('');
+
+      fs.writeFileSync(path.join(own, 'dirty.txt'), 'work\n');
+      const dirty = trees().statusSync(own);
+      expect(dirty.ok).toBe(true);
+      expect(dirty.ok && dirty.value).toContain('dirty.txt');
+    } finally {
+      git(repo, ['worktree', 'remove', '--force', own]);
+    }
+  });
+
+  it('reports a failure for a synchronous status on a path that is no repository', () => {
+    // `git -C <path>` rather than a spawn that chdirs, so an unreadable
+    // checkout arrives as git's own exit code and names the path it failed on.
+    expect(trees().statusSync(os.tmpdir()).ok).toBe(false);
+  });
+
+  it('lists the same worktrees synchronously as the async read does', async () => {
+    const sync = trees().listSync();
+    const async_ = await trees().list();
+    expect(sync.ok).toBe(true);
+    expect(async_.ok).toBe(true);
+    if (!sync.ok || !async_.ok) return;
+    // THE PROPERTY THAT MATTERS: two emissions of one question. A caller
+    // choosing the synchronous form because it is on a startup path must not
+    // get a different estate from one that awaited.
+    expect(sync.value).toEqual(async_.value);
+  });
+});

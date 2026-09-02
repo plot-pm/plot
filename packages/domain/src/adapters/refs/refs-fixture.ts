@@ -1,6 +1,15 @@
 import type { FleetReading } from '../../entities/fleet.js';
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
-import type { BranchTip, MergeStatus, Refs, TreeBlob } from '../../ports/refs.js';
+import type {
+  BranchDate,
+  BranchTip,
+  CommitLine,
+  MergeStatus,
+  RefScope,
+  RefState,
+  Refs,
+  TreeBlob,
+} from '../../ports/refs.js';
 
 /** The estate a fixture `Refs` answers from. */
 export interface RefsFixture {
@@ -58,6 +67,29 @@ export interface RefsFixture {
    * a fixture that forgot to state one from reading as an empty fleet.
    */
   pulse?: FleetReading;
+  /**
+   * Whether git can be asked about this estate at all.
+   *
+   * Defaults to true. `false` is the plain-directory case every unit test
+   * builds — an estate with no refs, which is a different answer from one whose
+   * refs could not be read.
+   */
+  isRepository?: boolean;
+  /**
+   * How far ahead of its remote each local branch sits.
+   *
+   * A branch absent from the table is a FAILED reading rather than zero: zero
+   * reads as *nothing to push*, which is a claim, and no local ref is not one.
+   */
+  ahead?: Readonly<Record<string, number>>;
+  /** Path to the object name a hash of that file would produce. */
+  oids?: Readonly<Record<string, string>>;
+  /** Branch name to its tip's committer date, as epoch seconds. */
+  committedAt?: Readonly<Record<string, number>>;
+  /** Remote name to its configured URL. */
+  remotes?: Readonly<Record<string, string>>;
+  /** `<dir>\0<range>` to the commits that range holds, newest first. */
+  commits?: Readonly<Record<string, readonly CommitLine[]>>;
 }
 
 /** What a fixture reports when it was not told a default branch. */
@@ -114,6 +146,37 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
   const blobs = fixture.blobs ?? {};
   const tips = fixture.tips ?? {};
   const behind = fixture.behind ?? {};
+  const ahead = fixture.ahead ?? {};
+  const oids = fixture.oids ?? {};
+  const committedAt = fixture.committedAt ?? {};
+  const remotes = fixture.remotes ?? {};
+  const commits = fixture.commits ?? {};
+
+  /**
+   * The ref/sha pairs a scope covers, derived from the branches and tips this
+   * estate already holds.
+   *
+   * Derived rather than stated, so a fixture cannot list a branch under
+   * `branches` and contradict itself under a second key. A branch with no tip
+   * is absent — the estate knows the branch and not what it points at, which
+   * is exactly what a ref listing would omit.
+   */
+  const refState = (scope: RefScope): readonly RefState[] => {
+    const pairs: RefState[] = [];
+    if (scope !== 'remote') {
+      for (const branch of branches) {
+        const sha = tips[branch];
+        if (sha !== undefined) pairs.push({ ref: `refs/heads/${branch}`, sha });
+      }
+    }
+    if (scope !== 'local') {
+      for (const branch of remoteBranches) {
+        const sha = tips[branch];
+        if (sha !== undefined) pairs.push({ ref: `refs/remotes/origin/${branch}`, sha });
+      }
+    }
+    return pairs;
+  };
 
   return {
     defaultBranch: async () => answered(fixture.defaultBranch ?? DEFAULT_BRANCH),
@@ -169,5 +232,51 @@ export const refsFixture = (fixture: RefsFixture = {}): Refs => {
       const content = files[`${ref}:${path}`];
       return content === undefined ? failed<string>() : answered(content);
     },
+
+    isRepository: async () => answered(fixture.isRepository ?? true),
+
+    refState: async (scope) => answered(refState(scope)),
+
+    refStateSync: (scope) => answered(refState(scope)),
+
+    countAheadSync: (branch) => {
+      const count = ahead[branch];
+      return count === undefined ? failed<number>() : answered(count);
+    },
+
+    hashFilesSync: (paths) => {
+      const found = new Map<string, string>();
+      for (const path of paths) {
+        const oid = oids[path];
+        // ALL OR NOTHING, matching git: `hash-object --stdin-paths` aborts at
+        // the first unreadable path, so a fixture that returned the readable
+        // subset would let a caller pass a test the real adapter fails.
+        if (oid === undefined) return failed<ReadonlyMap<string, string>>();
+        found.set(path, oid);
+      }
+      return answered<ReadonlyMap<string, string>>(found);
+    },
+
+    fileExistsSync: (ref, path) => answered(files[`${ref}:${path}`] !== undefined),
+
+    branchDates: async (patterns) =>
+      answered<readonly BranchDate[]>(
+        Object.entries(committedAt)
+          .filter(([branch]) => patterns.some((pattern) => matchesRef(pattern, branch)))
+          .map(([branch, at]) => ({ branch, committedAt: at })),
+      ),
+
+    // Derived from `merged` rather than stated separately, so one estate cannot
+    // answer the two merge questions differently.
+    unmergedBranches: async () =>
+      answered<readonly string[]>(remoteBranches.filter((branch) => !merged.has(branch))),
+
+    remoteUrl: async (remote) => {
+      const url = remotes[remote];
+      return url === undefined ? failed<string>() : answered(url);
+    },
+
+    commitsSync: (dir, range, max) =>
+      answered<readonly CommitLine[]>((commits[`${dir}\0${range}`] ?? []).slice(0, max)),
   };
 };

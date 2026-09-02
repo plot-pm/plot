@@ -1,6 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+
+import { refsGit, shellContext, treesGit } from '@plot-pm/domain/adapters';
+import { isAnswered } from '@plot-pm/domain';
 
 /**
  * The three cheap facts that say whether an expensive answer can still be
@@ -42,13 +44,6 @@ export interface Signals {
   worktrees: Signal;
 }
 
-function git(repoRoot: string, args: string[]): string {
-  return execFileSync('git', ['-C', repoRoot, ...args], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-    maxBuffer: 32 * 1024 * 1024,
-  });
-}
 
 /**
  * Every ref SHA the branch answers depend on — **heads AND remotes**.
@@ -66,18 +61,15 @@ function git(repoRoot: string, args: string[]): string {
  * Measured on this repo: 275 refs in 0.007 s, one process.
  */
 export function refsSignal(repoRoot: string): Signal {
-  try {
-    const out = git(repoRoot, [
-      'for-each-ref', '--format=%(refname) %(objectname)',
-      'refs/heads', 'refs/remotes',
-    ]);
-    return { token: out, spawns: 1 };
-  } catch {
-    // Unreadable is NOT unchanged. An empty token matches nothing, so the
-    // caller recomputes — the safe direction, and the one that keeps a broken
-    // repo from serving cached answers forever.
-    return { token: '', spawns: 1 };
-  }
+  const read = refsGit(shellContext(repoRoot)).refStateSync('both');
+  // Unreadable is NOT unchanged. An empty token matches nothing, so the caller
+  // recomputes — the safe direction, and the one that keeps a broken repo from
+  // serving cached answers forever.
+  if (!isAnswered(read)) return { token: '', spawns: 1 };
+  return {
+    token: read.value.map(({ ref, sha }) => `${ref} ${sha}`).join('\n'),
+    spawns: 1,
+  };
 }
 
 /**
@@ -133,19 +125,17 @@ export function plansSignal(planDir: string): Signal {
  * a tree's status on its own cadence; this only says whether the SET changed.
  */
 export function worktreesSignal(repoRoot: string): Signal {
-  try {
-    const out = git(repoRoot, ['worktree', 'list', '--porcelain']);
-    // `worktree` and `branch` lines only: the HEAD sha changes on every commit
-    // in a tree, which would invalidate the set for a reason the set does not
-    // care about.
-    const token = out
-      .split('\n')
-      .filter((l) => l.startsWith('worktree ') || l.startsWith('branch '))
-      .join('\n');
-    return { token, spawns: 1 };
-  } catch {
-    return { token: '', spawns: 1 };
-  }
+  const read = treesGit(shellContext(repoRoot)).listSync();
+  if (!isAnswered(read)) return { token: '', spawns: 1 };
+  // THE PATH AND THE BRANCH ONLY, which is what the porcelain lines this read
+  // replaces carried: a tree's HEAD sha changes on every commit in it, and
+  // including one would invalidate the SET for a reason the set does not care
+  // about. A detached tree contributes its path and an empty branch, exactly as
+  // a listing with no `branch` line did.
+  return {
+    token: read.value.map((tree) => `worktree ${tree.path}\nbranch ${tree.branch}`).join('\n'),
+    spawns: 1,
+  };
 }
 
 /**

@@ -1,4 +1,6 @@
-import { execFile } from 'node:child_process';
+import { processesShell, shellContext } from '@plot-pm/domain/adapters';
+import { isAnswered } from '@plot-pm/domain';
+
 import type { FleetReading } from '../contract/schema.js';
 import { readConfigAsync, type BuildBoardOptions } from './board.js';
 import { pulseFor } from './fleet.js';
@@ -127,53 +129,42 @@ export function parseEtime(raw: string): number | null {
  * its first minute is worse than one reading nothing.
  *
  * `pid` arrives as the string the scan recorded. A non-numeric or empty one is
- * refused before it reaches the shell — not as sanitisation theatre, but because
- * `execFile` passes an argument vector and there is no shell to inject into;
- * the check exists so a malformed record fails as null instead of as a spawn.
+ * refused before it reaches the port — not as sanitisation theatre, but because
+ * the port takes a NUMBER, so a malformed record has no number to hand it; the
+ * check exists so a bad record fails as null instead of as a spawn.
  *
  * **`0` is refused explicitly.** `kill -0 0` signals the caller's entire process
  * group and succeeds, and the equivalent trap has been sprung in this repo
  * before. The scan already rejects it, so a `0` here means a record that should
  * not exist — answering null is the honest reading.
  *
- * ## `ps -o etime=`, not `Processes.startedAt`
+ * ## `Processes.uptimeSeconds`, not `Processes.startedAt`
  *
- * The port answers a start time from `ps -o lstart=`; this answers ELAPSED
- * seconds. Deriving one from the other is arithmetic against the board's own
- * clock, and it changes what an absent answer means: `startedAt` reports
- * `failed` for a dead pid, while `etime`'s empty output IS the reading —
- * *nothing is running under this pid* — which is the distinction
- * {@link parseEtime} enumerates across four measured formats and this panel
- * renders as an absent uptime. A port call would put a `PortResult` in front of
- * a question already answered without one.
+ * `startedAt` answers a start time from `ps -o lstart=`; this asks for ELAPSED
+ * seconds instead. Deriving one from the other is arithmetic against the
+ * board's own clock, and it changes what an absent answer means: `startedAt`
+ * reports `failed` for a dead pid, while elapsed time reports *nothing is
+ * running under this pid* and the panel renders that as an absent uptime. The
+ * port draws the same distinction for the same reason, which is why the two are
+ * separate operations there rather than one plus a subtraction.
  */
 export async function uptimeSeconds(pid: string): Promise<number | null> {
+  // REFUSED BEFORE IT REACHES THE PORT, and the shape of the check is why it
+  // stays here: the port takes a number, so a malformed RECORD — `''`, a word,
+  // a float — has no number to hand it. `0` is refused by both, because
+  // `kill -0 0` signals the caller's whole process group.
   if (!/^\d+$/.test(pid)) return null;
   if (Number(pid) <= 0) return null;
-  const out = await run('ps', ['-o', 'etime=', '-p', pid]);
-  // Non-zero exit: no such process. Uptime is absent, not zero — the same
-  // answer the throwing form gave, reached without blocking the loop.
-  return out === null ? null : parseEtime(out);
-}
-
-/**
- * Runs a command off the event loop and answers its stdout, or null.
- *
- * `ps` is not a git question and not one any port answers in the shape this
- * panel needs, so it keeps its own one-line helper rather than borrowing an
- * adapter. `null` for any failure, which is what the throwing `execFileSync`
- * already meant here.
- *
- * @param command - the executable to run.
- * @param args - its arguments.
- * @returns stdout, or null when the process failed.
- */
-function run(command: string, args: string[]): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(command, args, { encoding: 'utf8' }, (error, stdout) =>
-      resolve(error ? null : stdout),
-    );
-  });
+  // THIS PROCESS'S DIRECTORY. `ps` asks the kernel about a pid and resolves
+  // nothing against a working directory, and this function's callers — the
+  // panel and its tests — have no repository root to give it. The same
+  // concession `registry.ts` makes, for the same reason.
+  const processes = processesShell(shellContext(process.cwd()));
+  const read = await processes.uptimeSeconds(Number(pid));
+  // A failed reading and an absent process are one answer here: no uptime. The
+  // port already separates them — `ps` exiting non-zero IS *nothing is running
+  // under this pid* — and this panel renders both as an absent uptime.
+  return isAnswered(read) ? read.value : null;
 }
 
 /**

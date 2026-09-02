@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { scriptsFor, type BuildBoardOptions } from './board.js';
 import type { FleetSettings } from './fleet-settings.js';
 import { LIVE_STATES, type SourceBranch, type FleetReading } from '../contract/schema.js';
+import { refsGit, shellContext } from '@plot-pm/domain/adapters';
 import {
+  isAnswered,
   isFree,
   dispatchDefers,
   deferralMessage,
@@ -563,21 +564,18 @@ export function dispatchCandidates(pulse: FleetReading, inFlight: Set<string>): 
 export function findMissingBriefs(repoRoot: string, candidates: string[]): Set<string> {
   const missing = new Set<string>();
   for (const branch of candidates) {
-    const gitPath = `origin/main:${briefPath(branch)}`;
     try {
-      // `git cat-file -e` exits 0 if the object exists, non-zero otherwise.
-      // spawnSync is synchronous, which is fine: we're already on the scan's
-      // success path and the cost is measured and bounded.
-      const result = spawnSync('git', ['cat-file', '-e', gitPath], {
-        cwd: repoRoot,
-        stdio: 'ignore',
-      });
-      if (result.status !== 0) {
-        missing.add(branch);
-      }
+      // Presence, asked without reading the content. Synchronous, which is fine:
+      // this is already on the scan's success path and the cost is measured and
+      // bounded.
+      const read = refsGit(shellContext(repoRoot)).fileExistsSync(
+        'origin/main',
+        briefPath(branch),
+      );
+      // A failed reading and an absent object both count as missing — the
+      // worker would face the same problem either way.
+      if (!isAnswered(read) || !read.value) missing.add(branch);
     } catch {
-      // If git fails entirely, treat as missing — the worker would face the
-      // same problem.
       missing.add(branch);
     }
   }

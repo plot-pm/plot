@@ -1,7 +1,26 @@
 import { FleetReadingSchema } from '../../entities/fleet.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
-import type { BranchTip, MergeStatus, Refs, TreeBlob } from '../../ports/refs.js';
-import { asJson, asLines, asText, runBytes, runProcess, runScript, resultOf } from '../run-script.js';
+import type {
+  BranchDate,
+  BranchTip,
+  CommitLine,
+  MergeStatus,
+  RefScope,
+  RefState,
+  Refs,
+  TreeBlob,
+} from '../../ports/refs.js';
+import {
+  asJson,
+  asLines,
+  asText,
+  runBytes,
+  runProcess,
+  runProcessSync,
+  runScript,
+  runScriptSync,
+  resultOf,
+} from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** The scan is 18 s against a large estate; the default two minutes would clip it. */
@@ -52,6 +71,51 @@ const blobsOf = (stream: Buffer): ReadonlyMap<string, string> => {
     at = start + size + 1; // the newline that follows every body
   }
   return found;
+};
+
+/** Thirty-two megabytes: the whole ref database of a large estate in one reply. */
+const REFS_MAX_BUFFER = 32 * 1024 * 1024;
+
+/** Which ref namespaces each scope asks `for-each-ref` about. */
+const NAMESPACES: Record<RefScope, readonly string[]> = {
+  local: ['refs/heads'],
+  remote: ['refs/remotes/origin'],
+  both: ['refs/heads', 'refs/remotes'],
+};
+
+/**
+ * Reads `<ref> <sha>` pairs, dropping anything that is not one.
+ *
+ * @param stdout - the listing.
+ * @returns each readable pair, in the order given.
+ */
+const refStatesOf = (stdout: string): readonly RefState[] =>
+  asLines(stdout).flatMap((line) => {
+    const [ref, sha] = line.split(' ');
+    return ref && sha ? [{ ref, sha }] : [];
+  });
+
+/**
+ * Pairs the oids `hash-object --stdin-paths` printed with the paths it was given.
+ *
+ * A SHORT reply is a failure and throws, which is what makes the batch's
+ * all-or-nothing contract enforceable: the command aborts at the first
+ * unreadable path having already printed the oids before it, so a caller handed
+ * the short list would read a complete answer about a smaller set.
+ *
+ * @param stdout - one oid per line.
+ * @param paths - the paths hashed, in the order they were sent.
+ * @returns each path's oid.
+ */
+const oidsOf = (
+  stdout: string,
+  paths: readonly string[],
+): ReadonlyMap<string, string> => {
+  const oids = asLines(stdout);
+  if (oids.length !== paths.length) {
+    throw new Error(`git hash-object: ${oids.length} oids for ${paths.length} paths`);
+  }
+  return new Map(paths.map((path, at) => [path, oids[at]!]));
 };
 
 /**
@@ -194,5 +258,112 @@ export const refsGit = (context: ShellContext): Refs => {
 
     showFile: (ref, path) =>
       runScript('git', ['show', `${ref}:${path}`], (stdout) => stdout, inRepo),
+
+    isRepository: async () => {
+      const run = await runProcess('git', ['rev-parse', '--git-dir'], inRepo);
+      // A non-zero exit IS the answer here, and the only one this call can give
+      // wrongly: `rev-parse --git-dir` reaches no network and no remote, so it
+      // fails for exactly one reason.
+      return answered(run.code === 0);
+    },
+
+    refState: (scope) =>
+      runScript(
+        'git',
+        ['for-each-ref', '--format=%(refname) %(objectname)', ...NAMESPACES[scope]],
+        refStatesOf,
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+      ),
+
+    refStateSync: (scope) =>
+      runScriptSync(
+        'git',
+        ['for-each-ref', '--format=%(refname) %(objectname)', ...NAMESPACES[scope]],
+        refStatesOf,
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+      ),
+
+    countAheadSync: (branch) =>
+      runScriptSync(
+        'git',
+        ['rev-list', '--count', `refs/remotes/origin/${branch}..refs/heads/${branch}`],
+        (stdout) => {
+          const raw = asText(stdout);
+          // A non-numeric reading is a failed measurement, never a zero one:
+          // zero reads as *nothing to push*, which is a claim about the branch.
+          if (!/^\d+$/.test(raw)) throw new Error(`git rev-list: unreadable count ${raw}`);
+          return Number(raw);
+        },
+        inRepo,
+      ),
+
+    hashFilesSync: (paths) => {
+      if (paths.length === 0) {
+        return answered<ReadonlyMap<string, string>>(new Map());
+      }
+      // Through stdin rather than an argument vector: a plan estate is
+      // unbounded and an argument list is not, which is the reason
+      // `--stdin-paths` is the form asked for.
+      const run = runProcessSync(
+        'git',
+        ['hash-object', '--stdin-paths'],
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER, stdin: paths.join('\n') + '\n' },
+      );
+      return resultOf(run, (stdout) => oidsOf(stdout, paths));
+    },
+
+    fileExistsSync: (ref, path) => {
+      const run = runProcessSync('git', ['cat-file', '-e', `${ref}:${path}`], inRepo);
+      // Exit 128 is *no such object*, exit 0 is *there*. Both are answers about
+      // presence; neither is a failure of the call.
+      return answered(run.code === 0);
+    },
+
+    branchDates: (patterns) =>
+      patterns.length === 0
+        ? Promise.resolve(answered<readonly BranchDate[]>([]))
+        : runScript(
+            'git',
+            [
+              'for-each-ref',
+              '--format=%(refname:short)\t%(committerdate:unix)',
+              ...patterns,
+            ],
+            (stdout): readonly BranchDate[] =>
+              asLines(stdout).flatMap((line) => {
+                const [ref, at] = line.split('\t');
+                if (!ref || !at || !/^\d+$/.test(at)) return [];
+                return [{ branch: ref.replace(/^origin\//, ''), committedAt: Number(at) }];
+              }),
+            { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+          ),
+
+    unmergedBranches: (ref) =>
+      runScript(
+        'git',
+        ['branch', '-r', '--no-merged', ref, '--format=%(refname:short)'],
+        (stdout) =>
+          asLines(stdout)
+            .map((name) => name.replace(/^origin\//, ''))
+            .filter((name) => name !== 'HEAD'),
+        { ...inRepo, maxBuffer: REFS_MAX_BUFFER },
+      ),
+
+    remoteUrl: (remote) =>
+      runScript('git', ['remote', 'get-url', remote], asText, inRepo),
+
+    commitsSync: (dir, range, max) =>
+      runScriptSync(
+        'git',
+        ['-C', dir, 'log', '--no-merges', `--max-count=${max}`, '--format=%h %s', range],
+        (stdout): readonly CommitLine[] =>
+          asLines(stdout).flatMap((line) => {
+            const at = line.indexOf(' ');
+            return at === -1
+              ? []
+              : [{ sha: line.slice(0, at), subject: line.slice(at + 1) }];
+          }),
+        inRepo,
+      ),
   };
 };

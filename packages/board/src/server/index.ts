@@ -1,7 +1,8 @@
 import http from 'node:http';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { machineSystem, shellContext } from '@plot-pm/domain/adapters';
+import { isAnswered } from '@plot-pm/domain';
 import { planStoreFor, renderPlanPage, renderStoryPage, renderDesignDocPage, type BuildBoardOptions } from './board.js';
 import { repairEnabledFromEnv } from './resolver.js';
 import { boardState, fleetState } from './controllers/fleet-state.js';
@@ -819,11 +820,21 @@ server.listen(REQUESTED_PORT, HOST, () => {
   if (addr && typeof addr === 'object') boundPort = addr.port;
   console.log(`Plot board: http://localhost:${boundPort}`);
   if (HOST === '0.0.0.0') {
-    try {
-      const tsIp = execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8' }).trim();
-      if (tsIp) console.log(`  tailscale:  http://${tsIp}:${boundPort}`);
-    } catch {
-      /* tailscale not running or not installed */
-    }
+    // Through `Machine`, which is the component that names this machine and so
+    // the one that says where it can be reached. Awaited inside the callback
+    // rather than blocking it: the loopback URL above is what an operator needs
+    // and it prints first either way, so a mesh that answers slowly delays a
+    // second line and never the server coming up.
+    //
+    // An absent mesh answers `''` rather than failing — the binary not being
+    // installed is the common case, not a fault to report — so there is nothing
+    // to catch here and no error path to write.
+    void machineSystem(shellContext(opts.repoRoot))
+      .privateAddress()
+      .then((address) => {
+        if (isAnswered(address) && address.value) {
+          console.log(`  tailscale:  http://${address.value}:${boundPort}`);
+        }
+      });
   }
 });

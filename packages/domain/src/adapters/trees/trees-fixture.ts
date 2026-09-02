@@ -50,6 +50,15 @@ export interface TreesFixture {
    * for a detached checkout.
    */
   branches?: Readonly<Record<string, string>>;
+  /**
+   * What each checkout reports as changed, keyed by path.
+   *
+   * The porcelain text verbatim, so a caller comparing two readings can see a
+   * tree change while staying dirty. A path absent from the table reports `''`
+   * — nothing changed — which is the same direction {@link TreesFixture.clean}
+   * takes for a path it was told about.
+   */
+  statuses?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -70,6 +79,7 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
   const markers = fixture.markers ?? {};
   const dirty = fixture.dirty ?? {};
   const branches = fixture.branches ?? {};
+  const statuses = fixture.statuses ?? {};
   const worktrees: readonly Worktree[] = (fixture.worktrees ?? []).map((tree, at) => ({
     path: tree.path ?? '',
     branch: tree.branch ?? '',
@@ -96,5 +106,16 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
       const branch = branches[path];
       return branch === undefined ? failed<string>() : answered(branch);
     },
+
+    // Both writes SUCCEED and change nothing. A fixture holds no git records to
+    // prune and no filesystem to add to, and answering `failed` would make
+    // every caller take its error path against an estate that is fine.
+    prune: async () => answered(undefined),
+
+    add: async () => answered(undefined),
+
+    statusSync: (path) => answered(statuses[path] ?? ''),
+
+    listSync: () => answered(worktrees),
   };
 };
