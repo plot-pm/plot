@@ -1194,9 +1194,13 @@ budget_bucket() {
 # A caller that wants the actual reading asks `limit`, which spends the request
 # it takes to get one. That cost is stated rather than hidden.
 budget_reading() { # $1=backend → "<limit>\t<remaining>\t<reset>\t<basis>"
+  # THE FIELDS ARE ARGUMENTS, NOT A FORMAT. Three of the four are the absent
+  # marker `-`, and `printf '-\t...'` reads that leading `-` as an option flag:
+  # bash answers `printf: -\: invalid option` and writes nothing. Measured
+  # 2026-09-02, that broke the GitHub arm — the common path — in 10 host tests.
   case "$1" in
-    bitbucket) printf '1000\t-\t-\tpredicted\n' ;;
-    *) printf '-\t-\t-\tunknown\n' ;;
+    bitbucket) printf '%s\t%s\t%s\t%s\n' 1000 - - predicted ;;
+    *) printf '%s\t%s\t%s\t%s\n' - - - unknown ;;
   esac
 }
 
