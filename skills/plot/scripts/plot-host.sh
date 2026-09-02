@@ -642,6 +642,94 @@ graphql_budget_spent() {
   [[ "$remaining" =~ ^[0-9]+$ ]] && [ "$remaining" -eq 0 ]
 }
 
+# THE ROUTER. One function decides REST versus GraphQL for the GitHub
+# connector, and it is the only place in this script that decides. Every GitHub
+# op asks it; no op re-derives the answer.
+#
+# `gh_route <op>` prints `graphql` or `rest`. The op is the argument because
+# the routing question is *"how should THIS question be asked?"*, and not every
+# question has two answers.
+#
+# ONE ROUTER PER CONNECTOR, NOT ONE FOR ALL OF THEM. REST-versus-GraphQL is a
+# GitHub distinction: Bitbucket has no such split, Jenkins has neither
+# transport, and GitLab will have its own. A router lifted above the adapters
+# would make every future connector implement a fork that exists for one
+# vendor. So this function is named `gh_`, sits beside the other `gh_` helpers,
+# and `bb`, `jen` and `jira` never reach it.
+#
+# NO CALLER LEARNS THE ROUTE. The answer is consumed inside this script and
+# never reaches stdout, and both paths normalise to one vocabulary — see
+# `rest_pr_to_state`, which exists so a REST answer is indistinguishable from a
+# GraphQL one.
+#
+# THE CHEAP PATH IS THE DEFAULT, and this function does not change that. For 93
+# branches: one GraphQL call against ~186 REST calls, because REST's list
+# endpoint carries no check rollup and no `mergeable_state`. So `graphql` is
+# what falls out when nothing says otherwise, and `rest` needs a reason.
+#
+# ONE `case`, NOT THREE PREDICATES. An earlier draft split "which transports
+# does this op have?" into two helper functions the router called. That is a
+# second site that decides, which is the exact thing this slice removes — a
+# reader would have had to hold three functions in mind to answer one question.
+# The transports an op has are stated here, once, beside the rule that reads
+# them.
+#
+# THE ARMS, AND WHY EACH IS WHERE IT IS:
+#
+#   pr-state          both transports. The only op with a REST fallback
+#                     written, so the only one where the budget can change the
+#                     answer.
+#   rate-limit|limit  REST-only BY NATURE rather than by omission. Both are
+#                     reached through `gh api`, which is REST's transport.
+#                     `limit` spends a GraphQL call to read its own headers —
+#                     the call it makes is GraphQL, the route to it is not.
+#   *                 GraphQL-only. Ten ops, and this is where "every op
+#                     consults the router" is honest rather than decorative:
+#                     their answer is a statement about what THIS SCRIPT has
+#                     implemented, not about what GitHub offers, which serves
+#                     nearly everything both ways. Saying so here puts the
+#                     knowledge where slice 7 can act on it, instead of leaving
+#                     it implicit in the absence of a branch at the call site.
+#                     Writing the missing REST paths is new capability and
+#                     belongs to no slice in this plan.
+#
+# `PLOT_HOST_FORCE_REST=1` IS NOT A DEBUG SWITCH. It is how the rate-refusal
+# re-entry reaches the second path without a second copy of the REST code:
+# `pr-state` re-enters itself with the variable set after GraphQL is refused
+# for rate. An operator may also set it, and that is supported, but the
+# re-entry is why it exists. It is consulted before the budget because it is
+# free and the budget read is not.
+#
+# THE BUDGET IS CONSULTED LAST, AND IT IS KNOWN TO BE BLIND. `gh api
+# rate_limit` was measured on 2026-09-01 reporting `graphql: 5000/5000, used 0`
+# while a real response header reported `Remaining: 1236, Used: 3764`, so this
+# test has never fired in practice. `bug/the-budget-knows-which-bucket-it-spent`
+# — slice 7 — replaces the reading with the header. Last, because it is the
+# only one of the three reasons that can be wrong, and the only one that costs
+# a call to establish.
+gh_route() { # $1=op → graphql|rest
+  case "${1:-}" in
+    # REST-only: no GraphQL route exists to choose, so nothing is consulted.
+    rate-limit|limit)
+      printf 'rest\n'
+      ;;
+    # Both transports implemented — the one op where the reasons apply.
+    pr-state)
+      if [ "${PLOT_HOST_FORCE_REST:-0}" = "1" ] || graphql_budget_spent; then
+        printf 'rest\n'
+      else
+        printf 'graphql\n'
+      fi
+      ;;
+    # GraphQL-only. `PLOT_HOST_FORCE_REST` cannot move these: there is nowhere
+    # to move them TO, and answering `rest` would name a path that does not
+    # exist. An op that grows a REST fallback gets an arm above.
+    *)
+      printf 'graphql\n'
+      ;;
+  esac
+}
+
 # BOTH PATHS MUST PRODUCE ONE VOCABULARY, or the adapter's contract forks in two
 # and every caller has to learn which route answered.
 #
@@ -1286,6 +1374,25 @@ op="${1:-}"; [ -n "$op" ] || die "usage: plot-host.sh <op> [args...] (see header
 shift
 be="$(backend)" || exit 1
 
+# EVERY GITHUB OP CONSULTS THE ROUTER, ONCE, HERE. `gh_route` is asked before
+# the op runs and its answer is read from `$route` by whichever arm needs it —
+# so an op cannot spend a GitHub call without the route for that call having
+# been decided, and there is no second place where an op could decide it.
+#
+# ASKED ONCE PER RUN, NOT ONCE PER CALL. `pr-state`'s arm reads the budget, and
+# that read is free (`gh api rate_limit` consumes neither bucket, measured
+# 2026-08-27) but not instant. One process answers one op, so one reading is
+# the whole of what that process needs.
+#
+# ONLY WHEN THE BACKEND IS GITHUB. The route is a GitHub distinction and this
+# is the connector boundary: a Bitbucket or Jenkins run never reaches
+# `gh_route`, never reads a budget, and `$route` stays empty for it. That
+# emptiness is the honest value — there is no route where there is no fork.
+route=""
+if [ "$be" = "github" ]; then
+  route="$(gh_route "$op")"
+fi
+
 case "$op" in
   backend)
     echo "$be"
@@ -1312,11 +1419,11 @@ case "$op" in
       esac
     done
     if [ "$be" = "github" ]; then
-      # THE ROUTE IS CHOSEN ONCE, HERE, and the cheap path is the default. See
-      # `graphql_budget_spent` above for why REST is the exception rather than
-      # the rule (~186 calls versus one for a 93-branch scan) and for what this
-      # fallback honestly does and does not buy.
-      if [ "${PLOT_HOST_FORCE_REST:-0}" = "1" ] || graphql_budget_spent; then
+      # THE ROUTE IS NOT CHOSEN HERE. `gh_route` chooses it, for every op,
+      # and this site only reads the answer — see that function for why the
+      # cheap path is the default (~186 REST calls against one GraphQL call
+      # for a 93-branch scan) and for what the fallback honestly buys.
+      if [ "$route" = "rest" ]; then
         # THE GRAPHQL PATH IS NOT ATTEMPTED FIRST once its budget is known to be
         # gone. Trying it anyway would spend a call that is already refused, to
         # learn what was just read for free.
