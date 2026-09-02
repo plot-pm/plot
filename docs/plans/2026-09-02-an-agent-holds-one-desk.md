@@ -133,7 +133,7 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 ### Naming what is free
 
-- `feature/an-agent-says-when-it-is-free` — derive availability and make it observable. `DESIGN-agent.md:483` states the gap: the eight process states deliberately do not answer *can this agent take work?* — `running` is not busy (an agent between units is running with no branch, and is available), `finished` is not free (its worker exited and nothing marks the transition). Nothing else in this plan is reachable until something can answer it.
+- `feature/an-agent-says-when-it-is-free` — derive availability and make it observable. `DESIGN-agent.md:483` states the gap: the eight process states deliberately do not answer *can this agent take work?* — `running` is not busy (an agent between units is running with no branch, and is available), `finished` is not free (its worker exited and nothing marks the transition). Nothing else in this plan is reachable until something can answer it. (#670)
 
 ### Holding one desk
 
