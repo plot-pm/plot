@@ -96,11 +96,22 @@ beforeAll(() => {
 });
 
 describe('the estate is really being read', () => {
-  it('parses a pulse with plans and slices in it', () => {
+  it('parses a pulse with waves in it', () => {
     // THE VACUITY GUARD, first, because every assertion below is over these
     // collections. A scan that failed to read the estate reports zero plans and
     // every comparison then passes having compared nothing.
-    expect(pulse.plans.length).toBeGreaterThan(20);
+    //
+    // IT COUNTS WAVES, NOT PLANS, and the difference is what the number
+    // measures. The scan reads UNFINISHED plans, so the plan count is the
+    // backlog — it falls every time work is delivered, which is the project
+    // succeeding. Measured 2026-09-02: a night of deliveries took it from over
+    // 20 to 19, and the floor then failed four PRs in a row, none of which had
+    // touched the scan.
+    //
+    // Waves do not shrink that way. Each unfinished plan carries several, so
+    // the count stays well clear of zero — 74 against 19 plans on the same
+    // scan — and it is still zero exactly when the scan read nothing, which is
+    // the failure this guard is named for.
     expect(pulse.summary.waves).toBeGreaterThan(20);
   });
 });
