@@ -683,7 +683,7 @@ comes first**, because five branches write to it.
 
 ### Bounding concurrency
 
-- `bug/the-budget-bounds-simultaneous-calls` — a cap on in-flight host requests per account. **Discovered, not hard-coded:** seven has no independent source — `plot-host.sh:242` and `:514` both cite the one 2026-08-27 incident, where eight failed and seven is the inference. The bound starts as the connector's `predicted` value and is corrected by the refusals it causes, the same mechanism the limit itself uses. Last, because it needs the record from slice 1 and the reporting from slice 3 to show it is working rather than merely quiet.
+- `bug/the-budget-bounds-simultaneous-calls` → #666 — a cap on in-flight host requests per account. **Discovered, not hard-coded:** seven has no independent source — `plot-host.sh:242` and `:514` both cite the one 2026-08-27 incident, where eight failed and seven is the inference. The bound starts as the connector's `predicted` value and is corrected by the refusals it causes, the same mechanism the limit itself uses. Last, because it needs the record from slice 1 and the reporting from slice 3 to show it is working rather than merely quiet.
 
 ## Done when
 
