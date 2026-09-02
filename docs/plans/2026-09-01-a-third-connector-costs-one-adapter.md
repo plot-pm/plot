@@ -134,3 +134,20 @@ gain. **This plan waits on `bug/the-budget-knows-which-bucket-it-spent`.**
 GitLab is *"an adapter change rather than a domain change"*; the code said
 otherwise, and the correction — recording it as a target — left the target
 unowned. This plan owns it.
+
+**The gate held, and the wait is long. Measured 2026-09-01, then again 2026-09-02.**
+A dispatched worker on `feature/the-domain-forgets-the-vendor-list` verified the
+gate, confirmed the condition it protects still holds, committed nothing, and
+reported. `bug/the-budget-knows-which-bucket-it-spent` is **slice 7 of 9** in
+`2026-09-01-one-account-has-one-budget.md`, and that plan had reached slice 2 —
+so this branch waits behind most of a nine-slice plan rather than behind one
+nearly-finished PR. The two expressions the gate exists for are still present,
+at `fleet.ts:1905` and `fleet.ts:1939`.
+
+The desk was un-dispatched rather than left claimed: the branch returns to `open`
+and is dispatched again once slice 7 merges. Keeping a claim on a branch no
+worker can advance costs a slot and invites a second worker to re-derive the same
+report — one dispatch already warned the fleet was over its cap because of it.
+Narrowing the gate to the two `fleet.ts` expressions, or reordering them into
+their own slice ahead of the budget work, were both considered and rejected as
+plan-level rewrites nobody had asked for.
