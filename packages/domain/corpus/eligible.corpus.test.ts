@@ -190,7 +190,18 @@ describe('--next and the board offer the same branches', () => {
 
     // N BRANCHES COMPARED. The floor is the vacuity guard: an estate whose
     // plans all failed to parse would report zero branches and agree perfectly.
-    expect(compared).toBeGreaterThan(20);
+    //
+    // ZERO, NOT 20, AND THE DIFFERENCE IS WHAT THE NUMBER TRACKS. `compared`
+    // counts branches of NON-TERMINAL plans, which is the backlog — it falls
+    // every time work is delivered. Measured 2026-09-02: it reached exactly 20
+    // and failed #651, a PR that had not touched the scan. The sibling guard
+    // above made the same mistake earlier the same day and was moved off the
+    // plan count for the same reason.
+    //
+    // Zero is the failure this guard is named for, and the estate's size is not
+    // this test's subject — `refs.corpus.test.ts` states the rule: whether a
+    // case was exercised is a property of the estate, not of the code.
+    expect(compared).toBeGreaterThan(0);
     expect(found.map(describeDisagreement)).toEqual([]);
   });
 
