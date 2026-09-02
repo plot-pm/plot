@@ -22,6 +22,7 @@
 - **Started:** 2026-09-02, Jan Wloka, `bug/the-board-refresh-divides-by-its-peers`
 - **Started:** 2026-09-02, Jan Wloka, `bug/a-secondary-limit-is-not-a-spent-quota`
 - **Started:** 2026-09-02, Jan Wloka, `bug/one-router-chooses-the-path`
+- **Started:** 2026-09-02, Jan Wloka, `bug/the-budget-knows-which-bucket-it-spent`
 
 ## Changelog
 
