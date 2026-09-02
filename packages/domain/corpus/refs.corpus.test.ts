@@ -128,6 +128,9 @@ const BRANCH_FIELDS = [
   'worker_pid',
   'worker_exit',
   'worker_dirty_paths',
+  // What this branch waits on, read from the plan's `waits:` annotation. Empty
+  // for a branch that names no prerequisite, which is most of them.
+  'waits_on',
 ] as const;
 
 /** The counters `summary` carries. */
@@ -139,6 +142,12 @@ const SUMMARY_FIELDS = [
   'eligible',
   'blocked',
   'deferred',
+  // The two BRANCH counters beside the wave ones. `waiting` counts a branch
+  // whose prerequisite has not merged; `prereq_missing` one whose prerequisite
+  // the host has never seen a PR for. Separate because the first resolves by
+  // waiting and the second by editing the plan.
+  'waiting',
+  'prereq_missing',
 ] as const;
 
 const asRecord = (value: unknown): Record<string, unknown> =>

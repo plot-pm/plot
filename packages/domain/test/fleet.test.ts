@@ -35,7 +35,7 @@ const bareSummary = {
 };
 
 describe('the scan vocabularies are closed sets', () => {
-  it('names the six branch states and refuses a seventh', () => {
+  it('names the eight branch states and refuses a ninth', () => {
     expect(BranchStateSchema.options).toEqual([
       'open',
       'wip',
@@ -43,6 +43,11 @@ describe('the scan vocabularies are closed sets', () => {
       'claimed',
       'deferred',
       'unknown',
+      // The two read from a `waits:` annotation rather than from git. Both
+      // replace `open` or `unknown` only, so a branch carrying work keeps the
+      // state its work earned.
+      'waiting',
+      'blocked',
     ]);
     expect(BranchStateSchema.safeParse('abandoned').success).toBe(false);
   });
