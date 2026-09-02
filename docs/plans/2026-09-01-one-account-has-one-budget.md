@@ -658,7 +658,7 @@ comes first**, because five branches write to it.
 
 ### Dividing the cadence
 
-- `bug/the-board-refresh-divides-by-its-peers` — `fleet.ts` derives `PR_REFRESH_MS` from the observed spend rate as well as the per-refresh cost, so N boards spend what one board spends. No peer counting: the rate is read from the record, which also captures the operator's own `gh` calls and a worker's scans. The measurement is two boards running for an hour against a request count.
+- `bug/the-board-refresh-divides-by-its-peers` → #657 — `fleet.ts` derives `PR_REFRESH_MS` from the observed spend rate as well as the per-refresh cost, so N boards spend what one board spends. No peer counting: the rate is read from the record, which also captures the operator's own `gh` calls and a worker's scans. The measurement is two boards running for an hour against a request count.
 
 ### Telling the two limits apart
 
