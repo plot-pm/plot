@@ -902,14 +902,18 @@ export function mergePlan(plans: FleetReading['plans'], plan: FleetReading['plan
  * small and true; the previous scan's numbers were large and about a different
  * document.
  *
- * `blocked` and `deferred` are counted the same way the scan counts them, which
- * is the one duplication this function accepts — see the note on `summarizeStuck`
+ * `blocked`, `deferred`, `waiting` and `prereq_missing` are counted the same way
+ * the scan counts them, which is the one duplication this function accepts — see the note on `summarizeStuck`
  * for why counting FROM the rows beats tallying beside them: a partial pulse has
  * no other source, and deriving it here means it cannot disagree with the plans
  * it is derived from.
  */
 export function partialSummary(plans: FleetReading['plans']): FleetReading['summary'] {
   let waves = 0, branches = 0, claimed = 0, eligible = 0, blocked = 0, deferred = 0;
+  // BRANCH counters, beside the WAVE `blocked` above. A branch held by its
+  // `waits:` annotation is in exactly one of these and in neither of the wave
+  // tallies.
+  let waiting = 0, prereqMissing = 0;
   for (const plan of plans) {
     for (const wave of plan.slices) {
       waves += 1;
@@ -918,6 +922,8 @@ export function partialSummary(plans: FleetReading['plans']): FleetReading['summ
         branches += 1;
         if (b.state === 'deferred') deferred += 1;
         else if (b.state === 'claimed') claimed += 1;
+        else if (b.state === 'waiting') waiting += 1;
+        else if (b.state === 'blocked') prereqMissing += 1;
         else if (b.state === 'open' && wave.verdict === 'eligible') eligible += 1;
       }
     }
@@ -929,6 +935,7 @@ export function partialSummary(plans: FleetReading['plans']): FleetReading['summ
   // which is what a reader who cannot yet be told anything should see.
   return {
     plans: plans.length, waves, branches, claimed, eligible, blocked, deferred,
+    waiting, prereq_missing: prereqMissing,
     host: 'unknown' as const,
   };
 }
@@ -5624,6 +5631,7 @@ export function rowsFromPulse(
 
 const EMPTY_SUMMARY = {
   plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0,
+  waiting: 0, prereq_missing: 0,
   // A cold cache asked no host, so it reports no verdict — the same reasoning as
   // `partialSummary`. All-zero counters are also the healthy-fleet answer, and
   // `ready` is what separates the two; `host` must not add a second, wronger

@@ -46,9 +46,32 @@
 #               differs, and a terminal-phase plan lands here too (it is not
 #               approved); the board routes those to DONE by phase before the
 #               verdict is read.
+# Branch states — the word each BRANCH carries, distinct from the wave verdicts
+# above. `open`, `wip`, `merged`, `claimed`, `deferred` and `unknown` are read
+# from git and the host. Two more are read from the plan's `waits:` annotation:
+#   waiting     the branch names a prerequisite branch that has not merged. A
+#               wait with an end: it clears when that branch lands, and the
+#               fleet payload carries `waits_on` so a reader sees on WHAT.
+#   blocked     the branch names a prerequisite the host has never seen a PR
+#               for — a typo, or a branch nobody created. A defect in the plan
+#               estate, not progress, which is why it is a separate word: the
+#               first resolves by waiting, the second by editing the plan.
+#               THE SAME WORD AS THE WAVE VERDICT, IN A DIFFERENT VOCABULARY.
+#               A wave is `blocked` by an earlier wave; a branch is `blocked`
+#               by a prerequisite nobody declared. The two travel in separate
+#               JSON fields (`waves[].verdict` vs `branches[].state`) and are
+#               counted separately in the footer — `blocked=` is the wave
+#               count it has always been, `prereq_missing=` is the branch one.
+# Both apply ONLY where the branch's own state is `open` or `unknown` — a
+# branch carrying work, a claim, or a merge has already been started, and
+# overriding `merged` would stop its wave settling forever. An unreachable host
+# holds the slice at `waiting`; silence is never permission to start, and never
+# evidence of a typo either.
 # Output: per-plan wave report on stdout, terminated by a machine-countable
 #         summary line:
-#             summary: plans=1 waves=3 branches=5 claimed=1 eligible=2 blocked=1 deferred=1 merge_detect=pr-merge host=ok main=main
+#             summary: plans=1 waves=3 branches=5 claimed=1 eligible=2 blocked=1 deferred=1 waiting=1 prereq_missing=0 merge_detect=pr-merge host=ok main=main
+#         `blocked` counts WAVES an earlier wave holds; `waiting` and
+#         `prereq_missing` count BRANCHES their `waits:` annotation holds.
 #         merge_detect names how merged-and-deleted branches were detected:
 #         pr-merge (exhaustive), truncated (capped walk), none (no conforming
 #         merge commits — a squash/rebase repo, where `open` says nothing about
@@ -975,6 +998,66 @@ merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
 # safe direction for an answer nobody could verify.
 reached_review() { # $1=branch → 0 when an open or merged PR exists
   case "$(host_pr_state "$1")" in OPEN|MERGED) return 0 ;; *) return 1 ;; esac
+}
+
+# ---------------------------------------------------------------------------
+# A SLICE THAT WAITS ON ANOTHER PLAN'S BRANCH
+# ---------------------------------------------------------------------------
+#
+# Slice eligibility is computed PER PLAN, so nothing here compares two plans —
+# and that is the defect this answers. Measured 2026-09-01, twice in one
+# session: the fleet offered a branch as claimable whose prerequisite lived in
+# a different plan and had not merged, and the only thing between a worker and
+# premature work was a paragraph in a brief.
+#
+# THE RUN-SCOPED CACHE, NEVER `terminal_cached`. There are two caches and only
+# one can answer this. `terminal_cached` is keyed by `TERMINAL_PLAN_OID` — the
+# plan revision the answer was derived under — and returns nothing unless that
+# oid is the plan CURRENTLY being walked. A prerequisite belongs to another plan
+# by construction, so its entry can never validate. `HOST_STATE_CACHE` is keyed
+# by branch name alone through `cache_key`, which makes it the only cache whose
+# key this question can form. `host_pr_state` reads and writes it before asking
+# the host, so a prerequisite the run visits for its own plan costs NOTHING the
+# second time.
+#
+# SO THE COST IS BOUNDED AND STATED: free where the prerequisite is visited
+# elsewhere in the run, ONE host call per run otherwise — never one per pass.
+#
+# THE QUESTION IS ASKED OF THE HOST, NOT OF THE REFS, and an earlier draft of
+# this rule would have deadlocked on SUCCESS. `plot-release-refs.sh` deletes the
+# remote refs of a delivered plan's merged branches, so a prerequisite that
+# COMPLETED eventually has no ref — and "no ref → blocked" would hold the
+# waiting slice forever because its dependency succeeded. A merged PR outlives
+# the branch it was cut from, which is why `plot-pr-merged.sh` reads PRs and not
+# refs, and why this reads the same source.
+#
+# THREE ANSWERS, and the third is the one that must not be collapsed into the
+# second:
+#
+#   | host says        | answer    | meaning                                  |
+#   |------------------|-----------|------------------------------------------|
+#   | MERGED           | ""        | cleared — the annotation stops mattering |
+#   | OPEN or CLOSED   | waiting   | a wait with an end                       |
+#   | NONE             | blocked   | no PR ever existed: a typo               |
+#   | `-` (unreachable)| waiting   | silence is not evidence, in EITHER       |
+#   |                  |           | direction: not permission to start, and  |
+#   |                  |           | not proof of a typo                      |
+#
+# A CLOSED, UNMERGED PR IS `waiting` RATHER THAN `blocked`: the host has seen
+# the branch, so nothing is misspelled — somebody withdrew the work, and that
+# resolves by reopening it, not by editing the plan.
+waits_state() { # $1=prerequisite branch → "waiting" | "blocked" | ""
+  local st
+  # `--ask` because the prerequisite is precisely the branch the repo-wide list
+  # may legitimately omit: its plan may be delivered and its ref gone. The
+  # bound is the same one PR #216 set — ABSENT branches, not all branches — and
+  # the cache above keeps it at one call per run.
+  st=$(host_pr_state "$1" --ask)
+  case "$st" in
+    MERGED) printf '' ;;
+    NONE)   printf 'blocked' ;;
+    *)      printf 'waiting' ;;
+  esac
 }
 
 # Modification time of a path, in epoch seconds, following symlinks — or "" when
@@ -2495,9 +2578,15 @@ for line in sys.stdin:
             # run of tabs collapses to one separator and only the LAST field
             # may be optional. "-" stands in for empty everywhere, so no run
             # can form.
+            # THE PREREQUISITE, from the `waits_on` key the parser emits —
+            # never re-parsed from the annotation. The key is ABSENT on a branch that
+            # declares nothing (`plot-plan-meta.sh` promises "a branch name or
+            # nothing — never a blank string"), and "-" stands in here for the
+            # same tab-collapse reason every other middle column does.
             print("\t".join(clean(x) for x in [
                 "W", f, str(i), ref, str(b.get("deferred")).lower(),
                 (b.get("deferred_reason") or "-"),
+                (b.get("waits_on") or "-"),
                 name or "-", b.get("claimed") or "-"]))
 ' "$DELIVERED_WINDOW_HOURS" 2>/dev/null) || records=""
 
@@ -2732,7 +2821,7 @@ if [ ${#plans[@]} -eq 0 ]; then
     # the scan globbed it; pointing a reader at the index would now send them to
     # look for the cause of an empty list in a directory nothing consults.
     echo "No plans found in ${PLAN_DIR}."
-    echo "summary: plans=0 waves=0 branches=0 claimed=0 eligible=0 blocked=0 deferred=0 main=$MAIN"
+    echo "summary: plans=0 waves=0 branches=0 claimed=0 eligible=0 blocked=0 deferred=0 waiting=0 prereq_missing=0 main=$MAIN"
     exit 0
   fi
 fi
@@ -3087,6 +3176,10 @@ if [ "$next_only" != 1 ] && [ "$as_json" != 1 ]; then
 fi
 
 n_plans=0 n_waves=0 n_branches=0 n_claimed=0 n_eligible=0 n_blocked=0 n_deferred=0
+# Two BRANCH counters beside the wave ones above. `n_blocked` counts waves an
+# earlier wave holds; these count branches their `waits:` annotation holds, and
+# the footer keeps the two words apart for that reason.
+n_waiting=0 n_prereq_missing=0
 claimable=()
 plan_files=()
 
@@ -3205,11 +3298,40 @@ for plan in "${plans[@]}"; do
   # only safe because of that same rule: it is "-" when absent, never "". The
   # tabs inside it are replaced with spaces by the shim above, for the same
   # reason. It cannot go last; `claim` already is.
+  #
+  # `waits` — the branch a slice waits on — is a MIDDLE column under the same
+  # rule, and it is a branch name so it carries no tab of its own. It sits
+  # between `why` and the wave name, which moved the wave name to field 7: the
+  # `awk` that reads it below was updated with this line and the two must move
+  # together.
   states=""
-  while IFS=$'\t' read -r idx br deferred why wname claim; do
+  while IFS=$'\t' read -r idx br deferred why waits wname claim; do
     [ -n "$br" ] || continue
+    # "-" is the absent marker the shim writes, for the tab-collapse reason
+    # above. Normalized here so everything downstream tests emptiness.
+    [ "$waits" = "-" ] && waits=""
     if [ "$deferred" = "true" ]; then st="deferred"; else st=$(branch_state "$br"); fi
-    states+="$idx	$br	$st	$deferred	$why	$wname	$claim"$'\n'
+    # THE PREREQUISITE, AFTER THE BRANCH'S OWN STATE AND ONLY OVER TWO OF ITS
+    # WORDS. `deferred` outranks it — somebody gave the branch up, which is a
+    # decision, while waiting is a measurement — and so does any state that
+    # means work exists: `wip`, `claimed` and `merged` all say the branch was
+    # started, and overriding `merged` would stop its wave settling FOREVER,
+    # which is the blocked-on-success failure this feature is built to avoid.
+    #
+    # So the override lands exactly where the defect was: a branch that reads
+    # as unstarted, which is the population `--next` hands out.
+    if [ -n "$waits" ]; then
+      case "$st" in
+        open|unknown)
+          waits_st=$(waits_state "$waits")
+          [ -n "$waits_st" ] && st="$waits_st" ;;
+      esac
+    fi
+    # "-" GOES BACK IN, for the reason it was there in the first place: this
+    # record is re-read by two more `read` loops below, and an EMPTY middle
+    # column collapses its tab into its neighbour's and shifts every later
+    # field left. `$claim` is the only field allowed to be last and optional.
+    states+="$idx	$br	$st	$deferred	$why	${waits:--}	$wname	$claim"$'\n'
   done <<< "$wave_lines"
 
   # Pass 2a: what each wave HOLDS — how many of its non-deferred branches have
@@ -3228,7 +3350,7 @@ for plan in "${plans[@]}"; do
     outstanding=0
     _loose_degraded_branches=""
     wave_states=""
-    while IFS=$'\t' read -r idx br st deferred why nm claim; do
+    while IFS=$'\t' read -r idx br st deferred why waits nm claim; do
       [ "$idx" = "$wid" ] || continue
       # EVERY branch, including the deferred ones, and in the order the render
       # loop below will walk them — the claimable flags come back positionally,
@@ -3288,7 +3410,7 @@ for plan in "${plans[@]}"; do
       <<< "$(printf '%s\n' "$wave_verdicts" | sed -n "${verdict_i}p")"
     branch_i=0
     _loose_degraded_branches=$(printf '%s' "$wave_degraded_list" | sed -n "${verdict_i}p")
-    wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $6; exit}')
+    wname=$(printf '%s' "$states" | awk -F'\t' -v w="$wid" '$1==w {print $7; exit}')
     [ "$wname" = "-" ] && wname=""
 
     [ "$quiet" = 1 ] || echo "  ${wname:-(unnamed)} — $verdict"
@@ -3302,12 +3424,23 @@ for plan in "${plans[@]}"; do
       echo "      (--loose degraded to strict: checks unavailable for ${_loose_degraded_branches})"
     fi
     json_branches=""
-    while IFS=$'\t' read -r idx br st deferred why nm claim; do
+    while IFS=$'\t' read -r idx br st deferred why waits nm claim; do
       [ "$idx" = "$wid" ] || continue
       [ "$claim" = "-" ] && claim=""
       [ "$why" = "-" ] && why=""
+      [ "$waits" = "-" ] && waits=""
       n_branches=$((n_branches + 1))
       case "$st" in
+        # WHAT IT WAITS ON, NAMED. A bare `waiting` tells a reader to come back
+        # later without saying what would have to happen first, which is the
+        # whole of what this state adds over `open`.
+        waiting)  n_waiting=$((n_waiting + 1))
+                  note="waiting on $waits" ;;
+        # A PREREQUISITE NOBODY DECLARED. The sentence says the host was asked
+        # and answered, because that is what separates this from `waiting`: a
+        # host that could not be asked holds the branch at `waiting` instead.
+        blocked)  n_prereq_missing=$((n_prereq_missing + 1))
+                  note="blocked — no PR found for $waits" ;;
         # The REASON, where the plan recorded one. A bare `deferred` beside a
         # branch with no commits reads as two unrelated facts when the first is
         # the reason for the second, and the sentence that says so was already
@@ -3345,6 +3478,16 @@ for plan in "${plans[@]}"; do
         # branch is not deferred, and "" where it is deferred with nothing
         # recorded — the flag says which of those two a reader is looking at.
         json_branches+=",\"deferred_reason\":\"$(json_str "$why")\""
+        # WHAT THIS BRANCH WAITS ON, straight from the plan's `waits:`
+        # annotation. "" where the branch declares nothing, which is the answer
+        # every branch gave before this field existed.
+        #
+        # THE ANNOTATION, NOT THE VERDICT, and it is emitted whatever `state`
+        # says. A branch whose prerequisite has MERGED reports `waits_on` with
+        # its ordinary state — the declaration is still a fact about the plan,
+        # and a reader who sees a cleared dependency learns why the slice is
+        # now startable. Consumers test `state`, never the presence of this.
+        json_branches+=",\"waits_on\":\"$(json_str "$waits")\""
         json_branches+=",\"claimed\":\"$(json_str "$claim")\""
         # What this machine knows and the refs do not. Absent everywhere else:
         # `local_dirty:false` and `local_worktree:""` are what a branch checked
@@ -3587,7 +3730,7 @@ fi
 # pulse re-derives everything from git.
 if [ "$log_pulse" = 1 ]; then
   stamp=$(date -u +%Y-%m-%dT%H:%MZ)
-  line="<!-- pulse: $stamp — waves=$n_waves eligible=$n_eligible claimed=$n_claimed blocked=$n_blocked deferred=$n_deferred -->"
+  line="<!-- pulse: $stamp — waves=$n_waves eligible=$n_eligible claimed=$n_claimed blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing -->"
   for pf in ${plan_files[@]+"${plan_files[@]}"}; do
     real=$(cd "$(dirname "$pf")" && readlink "$(basename "$pf")" 2>/dev/null || true)
     target=$([ -n "$real" ] && echo "$(dirname "$pf")/$real" || echo "$pf")
@@ -3642,8 +3785,13 @@ if [ "$as_json" = 1 ]; then
   # says whether merge_detect can be believed. Rendered for the machine here
   # and in the footer for a human; the board reads this rather than parsing
   # the prose, the rule every other field follows.
-  printf '"eligible":%d,"blocked":%d,"deferred":%d,"merge_detect":"%s","host":"%s"}}' \
-    "$n_eligible" "$n_blocked" "$n_deferred" "$MERGE_DETECT" "$HOST_VERDICT"
+  # `waiting` and `prereq_missing` count BRANCHES, where `blocked` above counts
+  # WAVES. Two vocabularies share the word `blocked` and the footer must not:
+  # a consumer adding the three would double-count nothing, because no branch
+  # is in both and no wave is in either.
+  printf '"eligible":%d,"blocked":%d,"deferred":%d,"waiting":%d,"prereq_missing":%d,"merge_detect":"%s","host":"%s"}}' \
+    "$n_eligible" "$n_blocked" "$n_deferred" "$n_waiting" "$n_prereq_missing" \
+    "$MERGE_DETECT" "$HOST_VERDICT"
   [ "$stream" = 1 ] && printf '}'
   printf '\n'
   exit 0
@@ -3712,4 +3860,4 @@ if [ "$PLAN_SOURCE" != "ref" ]; then
   echo "        checkout instead, so the list is only as current as your last pull."
 fi
 echo "Pulse complete. This report is derived — nothing was changed."
-echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred merge_detect=$MERGE_DETECT host=$HOST_VERDICT main=$MAIN"
+echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing merge_detect=$MERGE_DETECT host=$HOST_VERDICT main=$MAIN"
