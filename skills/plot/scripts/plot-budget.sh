@@ -194,7 +194,8 @@ budget_append() {
 #
 # Prints one JSON object:
 #   {"spent":N,"spanMs":N,"perHour":N|null,"lines":N,"unreadable":N,
-#    "limit":N|null,"remaining":N|null,"basis":"actual|predicted|unknown"}
+#    "limit":N|null,"remaining":N|null,"resetAt":N|null,
+#    "basis":"actual|predicted|unknown"}
 #
 # OVER THE CONNECTOR'S WINDOW, NEVER THE WHOLE FILE, and that is the whole
 # reason the window exists. Measured 2026-09-01, one board at 5 s and eleven
@@ -224,13 +225,13 @@ budget_rate() {
   local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
   local path
   [ -n "$now" ] || now="$(budget_now_ms)"
-  path="$(budget_path)" || { echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"basis":"unknown"}'; return 0; }
+  path="$(budget_path)" || { echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}'; return 0; }
 
   # A MISSING FILE IS AN EMPTY RECORD, not a failure — absence is the state of
   # every computer that has not spent yet, and reporting it as broken would make
   # a fresh checkout look faulty.
   if [ ! -f "$path" ]; then
-    echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"basis":"unknown"}'
+    echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}'
     return 0
   fi
 
@@ -251,7 +252,7 @@ budget_rate() {
       if ($5 !~ /^-?[0-9]+$/) { unreadable++; next }
       n++
       c_at[n] = at; c_spent[n] = ($6 ~ /^-?[0-9]+$/) ? $6 + 0 : 0
-      c_limit[n] = $7; c_rem[n] = $8; c_basis[n] = $10
+      c_limit[n] = $7; c_rem[n] = $8; c_reset[n] = $9; c_basis[n] = $10
       # The latest reset that has ALREADY happened is where the live window
       # starts: every line older than it describes a bucket that no longer
       # exists. A reset still in the future says only that the window has not
@@ -262,7 +263,7 @@ budget_rate() {
       from = now - fallback
       if (passed >= 0 && passed > from) from = passed
       spent = 0; oldest = -1; newest = -1
-      limit = "null"; remaining = "null"; basis = "unknown"
+      limit = "null"; remaining = "null"; reset = "null"; basis = "unknown"
       for (i = 1; i <= n; i++) {
         if (c_at[i] < from) continue
         spent += c_spent[i]
@@ -284,11 +285,24 @@ budget_rate() {
           newest = c_at[i]
           limit = (c_limit[i] ~ /^-?[0-9]+$/) ? c_limit[i] : "null"
           remaining = (c_rem[i] ~ /^-?[0-9]+$/) ? c_rem[i] : "null"
+          # THE MOMENT THE BUCKET REFILLS, WHICH THE RECORD HAS ALWAYS STORED
+          # AND NEVER REPORTED. Field 9 was read for the window boundary above
+          # and dropped; a caller reacting to a refusal needs it, and reading it
+          # from a second `rate_limit` call would be both metered and wrong —
+          # measured 2026-09-01, that endpoint reported 5000 while the headers
+          # read 0.
+          #
+          # THE RESET STILL IN THE FUTURE IS THE ONE A CALLER WAITS FOR, and it
+          # is deliberately not the one `windowStart` uses: that boundary needs
+          # a reset that has PASSED, because a future one says only that the
+          # window has not closed. The two read the same field for opposite
+          # halves of the same fact.
+          reset = (c_reset[i] ~ /^[0-9]+$/) ? c_reset[i] : "null"
           basis = c_basis[i]
           if (basis != "actual" && basis != "predicted") basis = "unknown"
           # `unknown` IS NOT HEADROOM. A stored number tagged unknown is not a
           # reading, so it is reported as absent rather than as room.
-          if (basis == "unknown") { limit = "null"; remaining = "null" }
+          if (basis == "unknown") { limit = "null"; remaining = "null"; reset = "null" }
         }
       }
       span = (oldest < 0) ? 0 : now - oldest
@@ -301,8 +315,8 @@ budget_rate() {
         # cadence input this slice exists to make honest.
         rate = "null"
       }
-      printf "{\"spent\":%d,\"spanMs\":%d,\"perHour\":%s,\"lines\":%d,\"unreadable\":%d,\"limit\":%s,\"remaining\":%s,\"basis\":\"%s\"}\n", \
-        spent, span, rate, n, unreadable, limit, remaining, basis
+      printf "{\"spent\":%d,\"spanMs\":%d,\"perHour\":%s,\"lines\":%d,\"unreadable\":%d,\"limit\":%s,\"remaining\":%s,\"resetAt\":%s,\"basis\":\"%s\"}\n", \
+        spent, span, rate, n, unreadable, limit, remaining, reset, basis
     }
-  ' "$path" 2>/dev/null || echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"basis":"unknown"}'
+  ' "$path" 2>/dev/null || echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}'
 }

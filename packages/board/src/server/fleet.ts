@@ -39,7 +39,14 @@ import type { Host } from '@plot-pm/domain';
 // settles that every rendered or wired state is a domain property, and this one
 // is asserted as arithmetic in `packages/domain/test/cadence.test.ts` rather
 // than only observable through a live 60 s timer.
-import { localSpenders, refreshIntervalMs } from '@plot-pm/domain';
+import {
+  localSpenders,
+  loweredConcurrency,
+  reactionTo,
+  refreshIntervalMs,
+  refusalKind,
+  type Reaction,
+} from '@plot-pm/domain';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -94,6 +101,24 @@ const PR_REFRESH_MS = 60_000;
  * board should be retrying, not sulking.
  */
 const PR_BACKOFF_MAX_MS = 120_000;
+
+/**
+ * How many host calls a board allows itself at once before any refusal.
+ *
+ * FOUR, AND IT IS A STARTING POINT RATHER THAN A CAP. The estate's one
+ * measurement is 2026-08-27, where eight workers produced a 403 naming abuse
+ * detection; seven is an inference from that eight and has no independent
+ * source — not GitHub's documentation, not a second observation. So this slice
+ * compiles in no cap: it starts below the only number ever refused and halves
+ * on every secondary refusal, which converges on the real bound whatever it is.
+ *
+ * The board's own refresh is sequential today, so this bounds nothing yet —
+ * `bug/the-budget-bounds-simultaneous-calls` is the slice that spends it. What
+ * it does now is CARRY the correction: a secondary refusal lowers it, the
+ * lowering is visible, and the slice that adds the gate inherits a number a
+ * refusal already moved rather than a constant somebody guessed.
+ */
+const PR_CONCURRENCY_START = 4;
 
 /**
  * What ONE refresh costs, in host requests, on each backend.
@@ -579,6 +604,34 @@ export interface CacheEntry {
    * population.
    */
   prSpendPerHour: number | null;
+  /**
+   * When the record says this account's bucket refills, epoch ms, or null.
+   *
+   * READ FROM THE RECORD BESIDE THE RATE, on the same `spend-rate` call, so a
+   * refusal has a reset to wait for without a second question. The value is
+   * `X-RateLimit-Reset` as the headers carried it — the authority the plan
+   * settles on, against `gh api rate_limit`, which reported 5000 while a live
+   * call's headers read 0.
+   *
+   * NULL IS AN UNSTATED RESET, never an immediate one. A caller reading it gets
+   * `stated: false` from `reactionTo` and waits that rule's ceiling, so a
+   * banner can decline to print a reset it never received.
+   */
+  prResetAt: number | null;
+  /**
+   * How many host calls this board allows itself at once.
+   *
+   * LOWERED BY A SECONDARY REFUSAL AND BY NOTHING ELSE. It starts at
+   * `PR_CONCURRENCY_START` and halves on every burst refusal, floored at one —
+   * the correction `loweredConcurrency` performs, and the reason 2026-08-27's
+   * eight-against-seven needs no compiled-in cap to converge.
+   *
+   * IT NEVER RISES WITHIN A SESSION. The absence of a refusal is not evidence
+   * that more would have been allowed, so restoring the bound is a different
+   * question with a different input — and the cap it converges toward belongs
+   * to `bug/the-budget-bounds-simultaneous-calls`.
+   */
+  prConcurrency: number;
   /**
    * Epoch ms before which the PR fetch must not fire again. Normally the
    * fetch's START plus `PR_REFRESH_MS`; pushed further out when the host
@@ -1349,51 +1402,122 @@ export function rateLimitBackoffMs(
 }
 
 /**
- * Parse `gh api rate_limit`'s payload into "ms from now until the GraphQL budget
- * resets", or null when it cannot be read.
+ * How long to wait after a refusal, and what to lower — the REACTION, which
+ * until this slice nothing performed.
  *
- * GraphQL because that is the budget `gh pr list` spends and the one that fails
- * the PR fetch; the endpoint reports every resource's reset, and picking the
- * wrong one would wait for a budget that was never exhausted. The reset is
- * epoch SECONDS — GitHub states it in the same unit the message's stamp uses.
+ * **THE MESSAGE PARSING ABOVE STAYS; THE DECISION MOVES TO THE DOMAIN.**
+ * `rateLimitBackoffMs` reads a duration the connector spelled out in its own
+ * words — *"Please wait 90 seconds"*, *"reset at 1700000180"* — and that is a
+ * connector fact only a string can carry. What to DO with it is a rule, and
+ * `reactionTo` owns it: which limit was hit, whether the reset describes that
+ * limit, whether the wait is a floor the host named or a ceiling this inferred.
  *
- * Null, never a throw, on every unhappy shape: malformed JSON (an auth error
- * page, an empty string), a payload missing the GraphQL resource, a reset
- * already in the past. Each means "the host did not give us a usable reset", and
- * the caller answers that with the ceiling — the same last resort a bare message
- * had before this existed.
+ * **THE RESET COMES FROM THE RECORD, NOT FROM `gh api rate_limit`.** The record
+ * holds `X-RateLimit-Reset` harvested from a real response, and the endpoint was
+ * measured 2026-09-01 reporting `graphql: 5000/5000, used 0` at the same moment
+ * a live call's headers read `remaining 0`. So the fallback that asked the
+ * endpoint is now the fallback that reads the file every spender already writes:
+ * free where the endpoint is metered, and right where it was wrong.
+ *
+ * **AND THE CADENCE IS NOT AN INPUT HERE.** `reaction.waitMs` is a one-off delay
+ * before the next attempt; `prIntervalMs` is untouched by every branch of this.
+ * A refusal that also lowered the interval would compound with the division
+ * `cadenceStretch` is already performing and drift downward with nothing to
+ * restore it.
+ *
+ * @param message - what the host CLI said, verbatim.
+ * @param resetAt - when the record says this account's bucket refills, epoch
+ *   milliseconds; null where no live reading carries one.
+ * @param now - epoch milliseconds.
+ * @returns the reaction, or null where the failure was not a limit at all and
+ *   the ordinary cadence should simply continue.
  */
-export function graphqlResetMs(payload: string, now = Date.now()): number | null {
-  let reset: unknown;
-  try {
-    reset = (JSON.parse(payload) as { resources?: { graphql?: { reset?: unknown } } })
-      ?.resources?.graphql?.reset;
-  } catch {
-    return null;
+export function hostReaction(
+  message: string,
+  resetAt: number | null,
+  now = Date.now(),
+): Reaction | null {
+  const kind = refusalKind(message);
+  if (kind === null) return null;
+  // The connector's own words first: a named wait and an absolute stamp are
+  // both durations the host stated, and `rateLimitBackoffMs` is where this repo
+  // already reads them. Its bare-message ceiling is NOT wanted here — that is
+  // the guess `reactionTo` replaces with the record's reset — so the ceiling is
+  // recognised by value and dropped.
+  const said = rateLimitBackoffMs(message, now);
+  const named = typeof said === 'number' && said !== PR_BACKOFF_MAX_MS ? said : null;
+  const reaction = reactionTo(kind, resetAt, now, named);
+  if (reaction === null) return null;
+  // A QUOTA THE HOST NAMED A WAIT FOR HONOURS THAT WAIT. `reactionTo` reads the
+  // record's reset for a quota and ignores `retryAfterMs`, which is right when
+  // the record has one; where it has none, the host's own stamp beats this
+  // rule's five-minute ceiling, because it is a number the connector stated.
+  if (kind === 'quota' && !reaction.stated && named !== null) {
+    return { ...reaction, waitMs: named, stated: true };
   }
-  if (typeof reset !== 'number') return null;
-  const ms = reset * 1000 - now;
-  return ms > 0 ? ms : null;
+  return reaction;
 }
 
 /**
- * The I/O half of the reset read: shell `gh api rate_limit` and hand its stdout
- * to {@link graphqlResetMs}. Returns null on any failure — `gh` absent, not
- * authenticated, or the rate-limit endpoint itself refusing — so the backoff
- * decision falls back to the ceiling rather than propagating an error out of a
- * catch block that is already handling one.
+ * The wait one reaction asks for, in the shape the cadence gate takes.
  *
- * GitHub only. `bb` has no equivalent free reset endpoint, and the design holds
- * Bitbucket untouched; the caller passes this fetcher only when the backend is
- * `github`, so this is never reached on a Bitbucket board.
+ * NULL IS "REJOIN THE ORDINARY CADENCE", which is what an outage and a
+ * refilled bucket both mean: `prNextDueAt` reads null as *no floor was named*
+ * and anchors to the fetch's start as a success does. A zero wait must not
+ * arrive as a floor of `now`, because a floor is compared with no slack and
+ * would refuse the very tick this period is entitled to.
+ *
+ * @param reaction - what `hostReaction` answered, or null.
+ * @returns the milliseconds to wait, or null where nothing is owed.
  */
-async function fetchGraphqlResetMs(cwd: string): Promise<number | null> {
-  try {
-    return graphqlResetMs(await run('gh', ['api', 'rate_limit'], cwd));
-  } catch {
-    return null;
-  }
+export function waitOf(reaction: Reaction | null): number | null {
+  if (reaction === null || reaction.waitMs <= 0) return null;
+  return reaction.waitMs;
 }
+
+/**
+ * Applies the half of a reaction that is not a wait — the concurrency bound.
+ *
+ * **THE FREQUENCY IS UNTOUCHED HERE AND THAT IS THE WHOLE POINT.** A secondary
+ * limit bounds requests AT ONCE, so lowering the interval would correct a
+ * number the refusal says nothing about, and it would compound with the
+ * division `cadenceStretch` is already performing — a drift downward with
+ * nothing to restore it. So this writes `prConcurrency` and never
+ * `prIntervalMs`.
+ *
+ * **IT ONLY EVER FALLS.** `loweredConcurrency` refuses to raise, because a
+ * refusal is evidence in one direction: it proves the count was too high, and a
+ * quiet minute proves nothing about how much higher it could have gone. The cap
+ * itself is `bug/the-budget-bounds-simultaneous-calls`; this slice lowers what
+ * that slice will later bound.
+ *
+ * @param entry - the cache entry to record the bound on.
+ * @param reaction - what `hostReaction` answered, or null.
+ */
+export function applyReaction(entry: CacheEntry, reaction: Reaction | null): void {
+  entry.prConcurrency = loweredConcurrency(entry.prConcurrency, reaction);
+}
+
+/**
+ * `gh api rate_limit` IS NOT ASKED, AND `graphqlResetMs` IS GONE WITH IT.
+ *
+ * Both existed to answer *when does the budget return?* from the free
+ * rate-limit endpoint. Measured 2026-09-01, three consecutive uncached readings
+ * against the same account and moment:
+ *
+ *     rate_limit says graphql=5000   response header says=0
+ *
+ * and again in a quiet moment with nothing rate-limited: `/rate_limit` reported
+ * `graphql 5000/5000, used 0` while a real call's headers read
+ * `X-Ratelimit-Remaining: 4854, Used: 146`. **146 calls spent, reported as
+ * zero.** A reset read from that endpoint is a number about a bucket it cannot
+ * see.
+ *
+ * The authority is now the headers on a real response, which
+ * `plot_harvest_headers` reads into the budget record and `spend-rate` reports
+ * back as `resetAt`. Free where the endpoint was metered, and right where it
+ * was wrong.
+ */
 
 /**
  * How long to leave between PR refreshes on a given backend, in ms.
@@ -1482,14 +1606,25 @@ export function prRefreshMsFor(
  * `perHour: null` the script returns for a window with no span carries exactly
  * that distinction through untouched.
  */
-async function spendRateFor(opts: BuildBoardOptions): Promise<{ perHour: number | null } | null> {
+async function spendRateFor(
+  opts: BuildBoardOptions,
+): Promise<{ perHour: number | null; resetAt: number | null } | null> {
   try {
     const said = await scriptsFor(opts).hostSaid(['spend-rate']);
     if (said.answer !== 'answered') return null;
     const parsed: unknown = JSON.parse(said.stdout);
     if (typeof parsed !== 'object' || parsed === null) return null;
     const perHour = (parsed as { perHour?: unknown }).perHour;
-    return { perHour: typeof perHour === 'number' && Number.isFinite(perHour) ? perHour : null };
+    // THE RESET THE HEADERS CARRIED, read back out of the record rather than
+    // asked of `gh api rate_limit` — free where that call is metered, and right
+    // where it was measured wrong. An older `plot-budget.sh` omits the field
+    // entirely, which reads as null: no reset known, which is exactly what a
+    // record that never stored one means.
+    const resetAt = (parsed as { resetAt?: unknown }).resetAt;
+    return {
+      perHour: typeof perHour === 'number' && Number.isFinite(perHour) ? perHour : null,
+      resetAt: typeof resetAt === 'number' && Number.isFinite(resetAt) ? resetAt : null,
+    };
   } catch {
     return null;
   }
@@ -1844,7 +1979,9 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
     // no reset, it asks the host for the real one and returns a Promise. The
     // synchronous paths still return a number, so the await costs a microtask
     // and buys the caller one type instead of two.
-    const backoff = await rateLimitBackoffMs(message);
+    const reaction = hostReaction(message, entry.prResetAt);
+    applyReaction(entry, reaction);
+    const backoff = waitOf(reaction);
     if (backoff !== null) {
       // Measured from NOW — the host's "wait 90 seconds" starts when it said so.
       // EXTEND-ONLY: never pull the gate in. A longer backoff the PR fetch set a
@@ -1999,6 +2136,10 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // Reading it again in the payload would be a second `bash` per refresh and a
   // different answer whenever a line landed between the two reads.
   entry.prSpendPerHour = rate?.perHour ?? null;
+  // Held for the same reason and from the same read: a refusal in either branch
+  // below needs a reset to wait for, and asking again would be a second `bash`
+  // per refresh answering a different moment.
+  entry.prResetAt = rate?.resetAt ?? null;
   try {
     const said = await scriptsFor(opts).hostSaid(['pr-list', '--rich',
       '--state', 'all', '--limit', String(PR_LIMIT)]);
@@ -2075,11 +2216,9 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       // rate limit here gets the same backoff the catch would apply.
       const message = 'all PRs returned unknown — the host could not be reached';
       entry.prError = message;
-      const resetReader = backend === 'github'
-        ? () => fetchGraphqlResetMs(opts.repoRoot)
-        : undefined;
-      const backoff = await rateLimitBackoffMs(message, Date.now(), resetReader);
-      scheduleNextPr(entry, startedAt, backoff, backend, rate);
+      const reaction = hostReaction(message, rate?.resetAt ?? null);
+      applyReaction(entry, reaction);
+      scheduleNextPr(entry, startedAt, waitOf(reaction), backend, rate);
     } else {
       // The happy path: the host answered and at least some PRs are readable.
       entry.prs = map;
@@ -2105,15 +2244,19 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     // fetcher is consulted at most once, and only when the message names neither
     // a wait nor a stamp. Bitbucket has no such endpoint and passes none, so its
     // bare message keeps the ceiling exactly as before.
-    const resetReader = backend === 'github'
-      ? () => fetchGraphqlResetMs(opts.repoRoot)
-      : undefined;
-    const backoff = await rateLimitBackoffMs(message, Date.now(), resetReader);
+    // THE RESET COMES FROM THE RECORD. `gh api rate_limit` was measured
+    // 2026-09-01 reporting 5000 while the response headers read 0, so the free
+    // endpoint is the wrong authority; the record holds what the headers said.
+    const reaction = hostReaction(message, rate?.resetAt ?? null);
+    // A SECONDARY LIMIT LOWERS CONCURRENCY AND NEVER FREQUENCY. The interval is
+    // untouched by every branch here — see `scheduleNextPr`, which stamps
+    // `prIntervalMs` from the ordinary cadence whatever the wait.
+    applyReaction(entry, reaction);
     // A backoff is measured from NOW — the host's "wait 90 seconds" starts when
     // it said so, not when we started asking. An ordinary failure rejoins the
     // ordinary cadence, so it anchors to the start like a success does; a
     // failed call should not push the next attempt out by its own duration.
-    scheduleNextPr(entry, startedAt, backoff, backend, rate);
+    scheduleNextPr(entry, startedAt, waitOf(reaction), backend, rate);
   }
 }
 
@@ -2545,6 +2688,7 @@ export function freshCacheEntry(): CacheEntry {
     autoInFlight: new Set(),
     deliverInFlight: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null, prSpendPerHour: null,
+    prResetAt: null, prConcurrency: PR_CONCURRENCY_START,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false, prIntervalMs: PR_REFRESH_MS,
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
