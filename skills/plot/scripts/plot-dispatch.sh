@@ -1474,31 +1474,6 @@ esac
 # could not be asked is neither permission nor proof of a typo, so it HOLDS the
 # branch at `waiting`. Both refuse; only one tells the operator to fix the plan.
 
-# The branch this one waits on, from the plan blob the phase gate already read.
-#
-# `awk` over the parser's JSON rather than `jq`: this script has no `jq`
-# dependency and must not acquire one. The parser emits `waits_on` only on a
-# branch that carries the annotation, so a branch with no key answers "".
-#
-# THE RECORD IS BOUNDED BY THE NEXT BRANCH OBJECT, which is what keeps this from
-# reading a NEIGHBOUR's annotation. Splitting on `{"branch":"` gives one field
-# per branch, so a `waits_on` matched inside field i belongs to branch i.
-waits_on_of() { # $1=branch → the prerequisite branch name, or ""
-  printf '%s' "$gate_meta" | awk -v want="$1" '
-    {
-      n = split($0, parts, /\{"branch":"/)
-      for (i = 2; i <= n; i++) {
-        rec = parts[i]
-        br = rec; sub(/".*$/, "", br)
-        if (br != want) continue
-        if (match(rec, /"waits_on":"[^"]*"/)) {
-          print substr(rec, RSTART + 13, RLENGTH - 14)
-        }
-        exit
-      }
-    }'
-}
-
 # What the host says about the prerequisite's pull requests.
 #
 # Four answers, and the last two must never be collapsed — see the header
@@ -1528,39 +1503,95 @@ prereq_answer() { # $1=prerequisite branch → merged|unmerged|none|unreachable
   esac
 }
 
-# The refusal, printed identically by --dry-run and the real run.
+# Every branch the plan annotates `waits:`, with what it waits on — read from
+# the same blob, in the plan's own order, one line of `branch<TAB>prerequisite`.
 #
-# ONE FUNCTION CALLED FROM BOTH LOOPS, the discipline `report_held` already
-# sets: a dry run that offers what a real run would refuse is worse than no dry
-# run — it is the same wrong answer with a reassurance attached. Returns 0 when
-# the branch is held (the caller skips it), 1 when it is free to dispatch.
+# NON-DEFERRED ONLY. `deferred:` is a JUDGEMENT — somebody gave the branch up —
+# and it outranks a wait for the same reason the scan lets it: a branch nobody
+# will start does not need to be told what it is waiting for. The two
+# annotations sit on one line and neither reads the other's value.
+waits_pairs() { # → branch<TAB>prerequisite, one per annotated branch
+  printf '%s' "$gate_meta" | awk '
+    {
+      n = split($0, parts, /\{"branch":"/)
+      for (i = 2; i <= n; i++) {
+        rec = parts[i]
+        br = rec; sub(/".*$/, "", br)
+        if (rec ~ /"deferred":true/) continue
+        if (match(rec, /"waits_on":"[^"]*"/)) {
+          w = substr(rec, RSTART + 12, RLENGTH - 13)
+          if (w != "") print br "\t" w
+        }
+      }
+    }'
+}
+
+# THE PREFLIGHT, run once before the fan-out, and it is where the REFUSAL lives.
 #
-# `--allow-waiting` SAYS SO ON THE LINE IT OVERRIDES. An override nobody can see
-# in the output is an override nobody can audit.
-waits_gate() { # $1=branch → 0 = held (skip it), 1 = free
-  local br="$1" prereq answer held
-  prereq=$(waits_on_of "$br")
-  [ -n "$prereq" ] || return 1
-  answer=$(prereq_answer "$prereq")
-  case "$answer" in
-    merged) return 1 ;;
-    none)   held=blocked ;;
-    *)      held=waiting ;;
-  esac
-  if [ "$allow_waiting" = 1 ]; then
-    echo "  $br waits on $prereq ($held) — dispatching anyway (--allow-waiting)"
-    return 1
-  fi
-  if [ "$held" = "blocked" ]; then
-    echo "skipped $br (blocked — no PR found for $prereq)"
-    echo "  the plan says this branch waits on $prereq, and the host has never"
-    echo "  seen a pull request for it. Check the branch name in the plan."
-  else
-    echo "skipped $br (waiting on $prereq)"
-    echo "  the plan says this branch waits on $prereq, which has not merged."
-    echo "  Dispatch it when that lands, or pass --allow-waiting to start anyway."
-  fi
-  return 0
+# WHY IT CANNOT LIVE IN THE LOOP ALONE. The fan-out loop only ever sees what
+# `plot-fleet-scan.sh` offered, and the scan ALREADY reports a waiting branch as
+# `waiting` rather than `open` — so it is filtered out before this script hears
+# of it, and the run ends `dispatched=0 skipped=0` with nothing said about what
+# was withheld. That silence is the exact defect: an empty offer has nothing to
+# say about what it filtered out, and a worker was dispatched twice on 2026-09-02
+# by an operator reading it as "nothing to do here".
+#
+# So the plan is walked DIRECTLY. This script already holds the parsed plan from
+# the shared ref — the same blob its phase gate read — so naming what the fan-out
+# will not reach costs one host call per annotated branch, on a population of six
+# plans in 188.
+#
+# IT FILLS `waits_held`, WHICH THE LOOPS THEN CONSULT. Two mechanisms, one
+# decision: this states the refusal, and the loops refuse to write for a branch
+# it named — belt to that brace, because a scan that could not reach the host
+# still offers the branch as `open`.
+declare -a waits_held=()
+is_waits_held() {
+  local x
+  for x in ${waits_held[@]+"${waits_held[@]}"}; do [ "$x" = "$1" ] && return 0; done
+  return 1
+}
+
+# Runs the preflight: prints its refusals, fills `waits_held`, and adds what it
+# withheld to `n_skipped`.
+#
+# NOT A COMMAND SUBSTITUTION, and that is not a style choice. `$( … )` is a
+# SUBSHELL, so an array filled inside one is discarded on return — the loops
+# below would consult an empty `waits_held` and the refusal would be a message
+# with no effect behind it. So this writes its two results into globals and the
+# caller invokes it plainly.
+#
+# PRINTED IDENTICALLY BY --dry-run AND THE REAL RUN, the discipline `report_held`
+# already sets: a dry run that offers what a real run would refuse is worse than
+# no dry run — it is the same wrong answer with a reassurance attached.
+run_waits_preflight() { # → prints refusals; fills waits_held, adds to n_skipped
+  local br prereq answer held
+  while IFS=$'\t' read -r br prereq; do
+    [ -n "$br" ] || continue
+    answer=$(prereq_answer "$prereq")
+    case "$answer" in
+      merged) continue ;;
+      none)   held=blocked ;;
+      *)      held=waiting ;;
+    esac
+    # `--allow-waiting` SAYS SO ON THE LINE IT OVERRIDES. An override nobody can
+    # see in the output is an override nobody can audit.
+    if [ "$allow_waiting" = 1 ]; then
+      echo "$br waits on $prereq ($held) — dispatching anyway (--allow-waiting)"
+      continue
+    fi
+    waits_held+=("$br")
+    n_skipped=$((n_skipped + 1))
+    if [ "$held" = "blocked" ]; then
+      echo "skipped $br (blocked — no PR found for $prereq)"
+      echo "  the plan says this branch waits on $prereq, and the host has never"
+      echo "  seen a pull request for it. Check the branch name in the plan."
+    else
+      echo "skipped $br (waiting on $prereq)"
+      echo "  the plan says this branch waits on $prereq, which has not merged."
+      echo "  Dispatch it when that lands, or pass --allow-waiting to start anyway."
+    fi
+  done < <(waits_pairs)
 }
 
 # Where the worktrees live and what their names carry — see resolve_wt_root.
@@ -2257,6 +2288,13 @@ report_in_flight() { # $1=candidate branch
   done
 }
 
+# THE PREREQUISITE PREFLIGHT, before either fan-out path. It names every branch
+# this plan will not start and why, and fills `waits_held` so neither loop can
+# write for one. Run here, once, rather than inside the loops: the scan filters a
+# waiting branch out before a loop ever hears of it, so a refusal that only fires
+# on an offered branch would never fire at all.
+run_waits_preflight
+
 # A dry run changes nothing, so nothing can go stale — read the whole eligible
 # set once. (`--next` would loop forever here: without a claim it keeps
 # returning the same branch.)
@@ -2271,13 +2309,10 @@ if [ "$dry_run" = 1 ]; then
       n_skipped=$((n_skipped + 1))
       continue
     fi
-    # THE PREREQUISITE GATE, in the dry run exactly as in the real one. A dry
-    # run that predicts a dispatch the real run refuses is the failure both
-    # gates exist to stop.
-    if waits_gate "$br"; then
-      n_skipped=$((n_skipped + 1))
-      continue
-    fi
+    # ALREADY REFUSED BY THE PREFLIGHT, which named it and counted it. The
+    # scan does not normally offer a waiting branch at all; this arm catches
+    # the one that reached here because the scan could not ask the host.
+    is_waits_held "$br" && continue
     echo "would dispatch $br → $(worktree_for "$br")"
     report_monitors "$(worktree_for "$br")"
     report_in_flight "$br"
@@ -2342,18 +2377,18 @@ while :; do
     continue
   fi
 
-  # THE PREREQUISITE GATE, ahead of every write this loop makes, for the same
-  # reason the held gate is: the worktree and the claim are what a premature
-  # start leaves behind, and `feature/the-domain-forgets-the-vendor-list` is
-  # still claimed and still holds nothing but its claim commit.
+  # ALREADY REFUSED BY THE PREFLIGHT, ahead of every write this loop makes —
+  # the worktree and the claim are what a premature start leaves behind, and
+  # `feature/the-domain-forgets-the-vendor-list` is still claimed and still
+  # holds nothing but its claim commit.
   #
   # `exhausted` is what makes the refusal terminal — `--next` has no memory and
   # would keep offering this branch until the loop's own break fired. It should
   # not be offering it at all (the scan reads `waiting`), so this arm is the
-  # belt to that brace: a branch named by a scan that could not reach the host,
-  # or by an older scan, still stops here.
-  if waits_gate "$branch"; then
-    n_skipped=$((n_skipped + 1))
+  # belt to the preflight's brace: a branch offered by a scan that could not
+  # reach the host still stops here, and it is NOT counted again — the preflight
+  # already reported it.
+  if is_waits_held "$branch"; then
     exhausted+=("$branch")
     continue
   fi

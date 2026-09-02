@@ -3,6 +3,8 @@ import {
   sliceVerdict,
   sliceVerdicts,
   isClaimable,
+  waitVerdict,
+  type PrereqAnswer,
   type SliceReadings,
 } from '../src/rules/eligible.js';
 
@@ -135,4 +137,67 @@ describe('isClaimable — what --next may push a ref for', () => {
       expect(isClaimable(verdict, 'open')).toBe(false);
     },
   );
+});
+
+describe('waitVerdict — what a `waits:` annotation makes of a branch', () => {
+  it('clears the moment the prerequisite merges', () => {
+    expect(waitVerdict('bug/prereq', 'merged')).toBe('');
+  });
+
+  it('holds a branch whose prerequisite exists and has not landed', () => {
+    expect(waitVerdict('bug/prereq', 'unmerged')).toBe('waiting');
+  });
+
+  it('blocks a branch the host has never seen a PR for', () => {
+    // The host ANSWERED — that is what separates this from `waiting`. A branch
+    // name nobody ever opened work for is a typo, and it resolves by editing
+    // the plan rather than by waiting for anything.
+    expect(waitVerdict('bug/typo', 'none')).toBe('blocked');
+  });
+
+  it('HOLDS on an unreachable host, and does not block', () => {
+    // The clause the plan states in its own words: silence is never permission
+    // to start, and it is equally not proof of a typo. `blocked` would tell an
+    // operator to go and fix a plan that is correct.
+    expect(waitVerdict('bug/prereq', 'unreachable')).toBe('waiting');
+  });
+
+  it.each(['merged', 'unmerged', 'none', 'unreachable'] as const)(
+    'holds nothing when nothing is declared (host said %s)',
+    (answer: PrereqAnswer) => {
+      expect(waitVerdict('', answer)).toBe('');
+    },
+  );
+
+  it('a prerequisite that merged and was then REAPED still clears', () => {
+    // `plot-release-refs.sh` deletes the remote refs of a delivered plan's
+    // merged branches, so a prerequisite that SUCCEEDED eventually has no ref.
+    // A merged PR outlives the branch it was cut from, which is why the caller
+    // owes a PR answer rather than a ref answer — and why `merged` is the only
+    // input this rule needs to clear. Asserted directly: this is the case where
+    // correct work would otherwise produce a permanent block.
+    expect(waitVerdict('bug/reaped-after-merge', 'merged')).toBe('');
+  });
+});
+
+describe('isClaimable — the prerequisite is the third fact', () => {
+  it('refuses an open branch of an eligible slice that is waiting', () => {
+    expect(isClaimable('eligible', 'open', 'waiting')).toBe(false);
+  });
+
+  it('refuses an open branch of an eligible slice that is blocked', () => {
+    expect(isClaimable('eligible', 'open', 'blocked')).toBe(false);
+  });
+
+  it('claims it once the prerequisite has cleared', () => {
+    // A dependency that never clears is a deadlock, so the cleared case is
+    // asserted beside the held one.
+    expect(isClaimable('eligible', 'open', '')).toBe(true);
+  });
+
+  it('asks the same question as before when no annotation is offered', () => {
+    // Defaulted, so every caller that has no annotation to give keeps its
+    // answer. This is what lets the field reach the rule without a flag day.
+    expect(isClaimable('eligible', 'open')).toBe(true);
+  });
 });
