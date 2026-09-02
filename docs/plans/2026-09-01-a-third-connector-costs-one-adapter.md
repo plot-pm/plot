@@ -16,6 +16,7 @@
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
+- **Started:** 2026-09-02, Jan Wloka, `feature/the-domain-forgets-the-vendor-list`
 -->
 
 ## Changelog
