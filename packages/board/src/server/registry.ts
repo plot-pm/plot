@@ -105,6 +105,34 @@ export interface ProcessGroup {
 export interface AgentEntry {
   /** The session id the dispatcher minted — the identity, and the transcript's name. */
   session: string;
+  /**
+   * The handle a correction is resumed into, or `''` on a manifest that carries
+   * none.
+   *
+   * **A SECOND FIELD, NOT AN ALIAS FOR {@link session}**, even though a dispatch
+   * writes the same value into both. `session` is the transcript join key and
+   * stays fixed across a branch hop by design — `plot-worker-loop.sh` rewrites
+   * `branch` and `worktree` on a hop and leaves `session` alone. The resume
+   * handle is a different identity with a different lifetime, and whether it
+   * should follow a hop cannot even be ASKED while one field carries both
+   * meanings. Nothing may assume the two agree.
+   *
+   * A handle alone never means resume is possible: the runtime writes a
+   * transcript for it only if the project's `.plot/worker-prompt.sh` passed
+   * `--session-id`, which Plot does not own. `resumeAvailability` is what
+   * answers, from the transcript rather than from this field.
+   */
+  resumeId: string;
+  /**
+   * How many times a SUPERVISOR retried this agent — 0 on a first dispatch.
+   *
+   * Distinct from {@link relaunches}, which counts operator-initiated restarts
+   * and is a human's record. This is the automatic budget's own counter, so a
+   * person's three manual restarts cannot exhaust it and a supervisor's retries
+   * cannot be mistaken for a person losing patience. Nothing in Plot raises it
+   * yet; the field exists so the two counters were never one.
+   */
+  attempts: number;
   /** The branch it holds, or `''` while it holds none. */
   branch: string;
   worktree: string;
@@ -344,6 +372,20 @@ export function parseManifest(json: string): AgentEntry | null {
   const group = readGroup(o);
   return {
     session,
+    // NOT DEFAULTED TO `session`, and that is the whole reason it is a second
+    // field. A manifest written before this existed asserts no resume handle,
+    // and filling one in from the join key would invent a claim the file never
+    // made — precisely the collapse the plan forbids. `''` is *no handle*, and
+    // `resumeAvailability` refuses on it by name.
+    resumeId: typeof o.resumeId === 'string' ? o.resumeId : '',
+    // A COUNT, AND NEVER A GUESS. An older manifest carried none, which means
+    // no supervisor has retried this agent — the same reading `relaunches`
+    // takes of its own absence. Negative and non-integer values are junk and
+    // read as 0 rather than being carried into a bound.
+    attempts:
+      typeof o.attempts === 'number' && Number.isInteger(o.attempts) && o.attempts >= 0
+        ? o.attempts
+        : 0,
     branch: typeof o.branch === 'string' ? o.branch : '',
     worktree: typeof o.worktree === 'string' ? o.worktree : '',
     command: typeof o.command === 'string' ? o.command : '',
@@ -670,12 +712,20 @@ export async function readAgentRegistryWithInfo(
  * be false. `pid` is `''`; the state is refreshed from the worktree by the pulse
  * like any other entry.
  *
+ * `resumeId` is `''` for the same reason `session` is, and it costs the entry
+ * its resume path: a worktree nobody registered was never handed a session id,
+ * so no transcript carries its conversation and a correction has nowhere to go.
+ * That is the honest reading rather than a gap — `resumeAvailability` refuses on
+ * it and the caller starts a fresh worker.
+ *
  * A manifest becomes the record of a DISPATCH, not the definition of an agent's
  * existence — the worktree is what exists.
  */
 function synthesizeEntry(wt: WorktreeInfo): AgentEntry {
   return {
     session: '',
+    resumeId: '',
+    attempts: 0,
     branch: wt.branch,
     worktree: wt.path,
     command: '',

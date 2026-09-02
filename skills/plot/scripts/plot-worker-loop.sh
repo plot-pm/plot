@@ -14,6 +14,20 @@
 # parser stripping `$(...)` constructs, and lets the prompt be as long as
 # needed without making CLAUDE.md unreadable.
 #
+# THAT FILE BELONGS TO THE ADOPTING PROJECT, and Plot's contract with it is one
+# environment variable. The dispatcher mints a session id and exports it as
+# `PLOT_SESSION_ID`; the prompt file decides whether to pass it on:
+#
+#     claude -p "..." --session-id "$PLOT_SESSION_ID" --permission-mode ...
+#
+# Pass it and the runtime writes its transcript under the id the manifest
+# records, which is what lets the board join an agent's row to its transcript
+# and lets a correction be resumed into the SAME conversation. Omit it — or run
+# a harness that writes no transcript — and resume reports itself UNAVAILABLE
+# and a fresh worker is started instead. Nothing here requires the flag: Plot
+# does not own this file, and the transcript's presence is the gate rather than
+# any promise made about the invocation.
+#
 # THE CLAIM is the same ref push dispatch uses: an empty commit titled
 # `plot: claim <branch>`, which diverges from any other claim attempt so only
 # one push succeeds. A failed push means another worker won the race; the loop
@@ -110,6 +124,18 @@ case "$MONITOR_ENDS_WORKER" in (0|1) ;; (*) MONITOR_ENDS_WORKER=1 ;; esac
 #
 # The manifest already carries `session`, `pid`, `startedAt` — these stay fixed.
 # This function updates `branch`, `worktree`, and increments `wavesCount`.
+#
+# `resumeId` AND `attempts` STAY FIXED TOO, and they do so by being untouched
+# rather than by being preserved: the node one-liner round-trips the whole
+# object, so every field this function does not name survives verbatim. That is
+# a PROPERTY WORTH STATING, because it is the answer to a question the plan
+# deliberately left open — *should the resume handle follow a hop?* Today it
+# does: a correction about branch C would be delivered into a conversation that
+# has since moved to D. The two ids are separate FIELDS so the question can be
+# asked and answered later without a migration; nothing here decides it.
+#
+# `attempts` is likewise carried across a hop and not reset. A hop is the same
+# agent continuing, so a supervisor's budget for it is the same budget.
 #
 # WHY THE MANIFEST UPDATE IS NECESSARY. The registry synthesizes from manifests.
 # A worker that moved branches without updating the manifest would still appear
@@ -216,7 +242,14 @@ prompt_file="$repo_root/.plot/worker-prompt.sh"
 if [ ! -f "$prompt_file" ]; then
   echo "plot-worker-loop: no prompt file at $prompt_file" >&2
   echo "  Create it with the inner claude -p invocation, e.g.:" >&2
-  echo "    claude -p \"You are implementing the branch \$PLOT_BRANCH...\" --permission-mode bypassPermissions" >&2
+  echo "    claude -p \"You are implementing the branch \$PLOT_BRANCH...\" --session-id \"\$PLOT_SESSION_ID\" --permission-mode bypassPermissions" >&2
+  # `--session-id` is shown because this is the one place a person writes the
+  # invocation, and it is the only half of the contract Plot cannot fulfil
+  # itself. It stays OPTIONAL: without it the worker runs exactly as before and
+  # resume reports itself unavailable, which is the honest answer rather than a
+  # failure.
+  echo "  Passing --session-id lets a correction resume the same conversation;" >&2
+  echo "  without it resume is reported unavailable and a fresh worker is started." >&2
   exit 1
 fi
 
