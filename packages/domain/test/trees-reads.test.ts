@@ -334,9 +334,10 @@ describe('treesGit: adding, pruning, and the synchronous reads', () => {
     const async_ = await trees().list();
     expect(sync.ok).toBe(true);
     expect(async_.ok).toBe(true);
+    if (!sync.ok || !async_.ok) return;
     // THE PROPERTY THAT MATTERS: two emissions of one question. A caller
     // choosing the synchronous form because it is on a startup path must not
     // get a different estate from one that awaited.
-    expect(sync.ok && async_.ok && sync.value).toEqual(async_.value);
+    expect(sync.value).toEqual(async_.value);
   });
 });
