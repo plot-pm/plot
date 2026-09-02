@@ -138,6 +138,18 @@ case "$MONITOR_POLL_SECONDS" in (*[!0-9]*|''|0) MONITOR_POLL_SECONDS=5 ;; esac
 # kill was always making. The seam stays because it is cheap and because an
 # operator who wants `Worker bound` alone should be able to have it — but it is
 # no longer the workaround for a reading that could not be trusted.
+#
+# SO WHAT `0` NOW COSTS IS THE OPPOSITE OF WHAT IT SAVED, and an operator
+# choosing it should be told which trade they are making. Against the old rule
+# it bought back seven desks' work at the price of a stuck agent holding one for
+# eight hours. Against the transcript reading it buys nothing that reading does
+# not already give, and it spends the ending that names *the agent went quiet* —
+# every worker then reaches the floor, so the log says the bound expired for a
+# desk whose agent measurably stopped, and the difference the three sentences
+# below exist to draw is flattened back to one. `2026-09-01-an-idle-agent-is-not
+# -a-stalled-one` keeps it as an escape rather than removing it, because a
+# default flipped under a running fleet is a second failure — not because there
+# is a fleet it is still the right answer for.
 MONITOR_ENDS_WORKER="${PLOT_MONITOR_ENDS_WORKER:-1}"
 case "$MONITOR_ENDS_WORKER" in (0|1) ;; (*) MONITOR_ENDS_WORKER=1 ;; esac
 
@@ -436,11 +448,14 @@ monitor_says_idle() { # → 0 idle | 1 not idle (or nothing to read)
 # one `stat` per ended worker, and a slow or wrong answer costs prose rather than
 # work — which is why this may ask directly where the end condition may not.
 #
-# `yes` ON ANYTHING THAT IS NOT THE WORD. The reader answers a number, the word
-# `unavailable`, or exits 2 on a worktree it cannot name. Only the word licenses
-# the third message; a number says the reading worked, and an exit-2 argument
-# failure is this loop's own bug rather than evidence about the adopter's
-# prompt. Both fall to the bound's sentence, which claims less.
+# IT CLASSIFIES EXACTLY AS THE MONITOR DOES, and that is the whole
+# requirement. `sample_verdict` reaches `unknown` — the state that publishes
+# nothing and leaves the ending to the bound — on an empty answer and on a
+# non-numeric one as well as on the word itself (`plot-worker-monitor.sh:497`).
+# A digit is the only answer that means a reading was made. So the digit is what
+# this matches, and every other answer is `no`; matching only the literal word
+# would report *the reading was available* for a reader that failed silently,
+# which is the sentence this slice exists to stop printing.
 #
 # THE ANSWER IS ABOUT NOW, NOT ABOUT THE RUN. A transcript deleted between the
 # ending and this call reads `unavailable` though the monitor saw one all along.
@@ -451,7 +466,7 @@ monitor_says_idle() { # → 0 idle | 1 not idle (or nothing to read)
 ended_reading_available() { # → yes | no
   command -v plot_transcript_quiet_seconds >/dev/null 2>&1 || { printf 'no'; return 0; }
   case "$(plot_transcript_quiet_seconds "${PLOT_WORKTREE:-$PWD}" 2>/dev/null)" in
-    unavailable) printf 'no' ;;
+    ''|*[!0-9]*) printf 'no' ;;
     *)           printf 'yes' ;;
   esac
 }

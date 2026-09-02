@@ -13,8 +13,8 @@
 # ═══════════════════════════════════════════════════════════════════════════
 #
 #   <seconds>     the newest transcript line is that many seconds old
-#   unavailable   no transcript can be read for this worktree
-#   (exit 2)      the arguments name no worktree at all
+#   unavailable   no transcript can be read for this worktree, INCLUDING the
+#                 case where the arguments name no worktree at all
 #
 # `unavailable` is a first-class answer, settled by
 # `the-registry-supervises-its-agents`: a capability the adopting project does
