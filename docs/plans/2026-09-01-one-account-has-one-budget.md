@@ -663,7 +663,7 @@ comes first**, because five branches write to it.
 
 ### Telling the two limits apart
 
-- `bug/a-secondary-limit-is-not-a-spent-quota` — the banner names which limit was hit, prints a reset time only when there is one, and when the cause is local contention says how many spenders it found. **`plot-host.sh` does NOT already distinguish them, and an earlier draft of this line said it did.** Verified 2026-09-01: `host_failure_kind` matches one regex — `rate limit|ratelimit|too many requests|429|secondary rate|abuse detection|exceeded a secondary` — and returns `throttled` for every one of them. *"API rate limit exceeded"* and *"You have exceeded a secondary rate limit"* both come back `throttled`, so the board is not discarding a distinction; there is none to discard. **This slice makes it, rather than surfacing it.**
+- `bug/a-secondary-limit-is-not-a-spent-quota` → #659 — the banner names which limit was hit, prints a reset time only when there is one, and when the cause is local contention says how many spenders it found. **`plot-host.sh` does NOT already distinguish them, and an earlier draft of this line said it did.** Verified 2026-09-01: `host_failure_kind` matches one regex — `rate limit|ratelimit|too many requests|429|secondary rate|abuse detection|exceeded a secondary` — and returns `throttled` for every one of them. *"API rate limit exceeded"* and *"You have exceeded a secondary rate limit"* both come back `throttled`, so the board is not discarding a distinction; there is none to discard. **This slice makes it, rather than surfacing it.**
 
 ### One router, reused
 
