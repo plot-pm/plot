@@ -242,12 +242,25 @@ export const windowSpend = (
  * has killed describes a bucket that no longer exists, so reading it as the
  * current state would report a spent bucket long after it refilled.
  *
+ * AND THE LAST LINE THAT CARRIES A READING, not simply the last line. Most
+ * calls cannot report a limit — a GraphQL wrapper that exposes no response
+ * headers records a spend and no numbers — so an `unknown` line arriving after
+ * a measurement would erase it. Measured 2026-09-02 against the live host: a
+ * header harvest recorded `graphql 4391/5000 actual`, one `pr-state` followed,
+ * and the bucket then read `remaining: null`, leaving the routing gate unable
+ * to see a spent pool.
+ *
+ * An `unknown` line is still a SPEND and still counts toward the rate — see
+ * {@link windowSpend}, which reads every live line. It is only the READING it
+ * cannot supply.
+ *
  * @param read - what {@link readWindow} found.
- * @returns the newest live entry, or null.
+ * @returns the newest live entry carrying a reading, or null.
  */
 export const latest = (read: RecordRead): BudgetEntry | null =>
   read.live.reduce<BudgetEntry | null>(
-    (newest, entry) => (newest === null || entry.at >= newest.at ? entry : newest),
+    (newest, entry) =>
+      entry.basis !== 'unknown' && (newest === null || entry.at >= newest.at) ? entry : newest,
     null,
   );
 
@@ -329,3 +342,101 @@ export const spendRate = (
     pruneOwed: truncationOwed(read),
   };
 };
+
+/**
+ * What one account is spending, bucket by bucket.
+ *
+ * ONE CONNECTOR METERS SEVERAL POOLS INDEPENDENTLY, and until this slice the
+ * record could not say so: every GitHub call was written to one bucket named
+ * `api`, so a spent GraphQL pool and a full REST one summed to a number that
+ * described neither. Measured 2026-09-01 from the response headers: `core`
+ * 4990 of 5000, `graphql` **0** of 5000. A single reading over that pair
+ * reports plenty of room while every `gh pr` call is refused.
+ *
+ * `buckets` is keyed by the connector's OWN word, unvalidated — `core`,
+ * `graphql`, and whatever a connector nobody has written an adapter for names
+ * next.
+ */
+export interface AccountSpend {
+  /** Every bucket the record holds for this account, by the connector's word. */
+  buckets: ReadonlyMap<string, SpendRate>;
+  /** The calls every bucket spent inside its own window, summed. */
+  spent: number;
+  /**
+   * The account's implied calls per hour, or null where no bucket has a span.
+   *
+   * SUMMED ACROSS BUCKETS, because the cadence is about how fast the ACCOUNT
+   * is going and an account spends every bucket it has. The verdict is not
+   * summed and must not be — see {@link bucketVerdict}.
+   */
+  perHour: number | null;
+  /** Whether any bucket holds enough dead lines to be worth a truncation. */
+  pruneOwed: boolean;
+}
+
+/**
+ * Every bucket one connector-and-account pair has spent, read separately.
+ *
+ * THE BUCKETS ARE DISCOVERED, NEVER LISTED. A closed set here is the edit that
+ * gets forgotten when GitLab arrives — the same rule `LimitReading` states for
+ * the bucket name itself. So the record's own lines say which buckets exist,
+ * and a bucket nobody has seen appears the first time a call spends it.
+ *
+ * @param lines - the record's raw lines, in file order.
+ * @param connector - the connector's own name.
+ * @param account - the account the limit belongs to.
+ * @param now - epoch milliseconds.
+ * @returns the spend per bucket, and the account's total.
+ */
+export const accountSpend = (
+  lines: readonly string[],
+  connector: string,
+  account: string,
+  now: number,
+): AccountSpend => {
+  const names = new Set<string>();
+  for (const entries of groupByBudget(lines).values()) {
+    const first = entries[0];
+    if (first !== undefined && first.key.connector === connector && first.key.account === account) {
+      names.add(first.key.bucket);
+    }
+  }
+  const buckets = new Map<string, SpendRate>();
+  let spent = 0;
+  let perHour: number | null = null;
+  let pruneOwed = false;
+  for (const bucket of names) {
+    const rate = spendRate(lines, { connector, account, bucket }, now);
+    buckets.set(bucket, rate);
+    spent += rate.spent;
+    if (rate.perHour !== null) perHour = (perHour ?? 0) + rate.perHour;
+    if (rate.pruneOwed) pruneOwed = true;
+  }
+  return { buckets, spent, perHour, pruneOwed };
+};
+
+/**
+ * Whether a reader may spend against ONE named bucket of an account.
+ *
+ * **A SPENT BUCKET DOES NOT STOP THE OTHER, and this is where that holds.** The
+ * pools are independent: `gh pr view` spends `graphql` and `gh api repos/…`
+ * spends `core`, so a GraphQL exhaustion is no reason to stop asking REST — the
+ * board keeps answering from the bucket with 4990 left instead of pausing on
+ * the one with 0. A caller asks about the bucket it is about to spend and reads
+ * nothing about any other.
+ *
+ * `unknown` STAYS `unknown`. A bucket the record has never seen, and a bucket
+ * whose readings carry no number, both answer `unknown` — not `spendable`, so
+ * a caller does not read silence as room, and not `spent`, so a fresh record
+ * does not refuse the first call that would have told it anything.
+ *
+ * @param lines - the record's raw lines, in file order.
+ * @param key - the connector, account and bucket to ask about.
+ * @param now - epoch milliseconds.
+ * @returns `spendable`, `spent`, or `unknown` — never a boolean.
+ */
+export const bucketVerdict = (
+  lines: readonly string[],
+  key: BudgetKey,
+  now: number,
+): 'spendable' | 'spent' | 'unknown' => spendRate(lines, key, now).verdict;

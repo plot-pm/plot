@@ -38,6 +38,15 @@
 # REFUSED rather than shortened: a torn line loses the concurrent writer's line
 # too, so dropping one spend is cheaper than corrupting another's.
 #
+# THE BUCKET IS THE CONNECTOR'S OWN WORD, AND ONE CONNECTOR HAS SEVERAL. GitHub
+# meters `core` and `graphql` as independent 5000-request pools, named by
+# `X-RateLimit-Resource` on the response of a call that was going to happen
+# anyway. Measured 2026-09-01 on one account at one moment: `core` 4990 of 5000,
+# `graphql` **0** of 5000. A record keyed to one undifferentiated pool describes
+# neither — it reports room while every `gh pr` call is refused, and refuses
+# calls that would have gone to the pool with 4990 left. Nothing here validates
+# the name: a connector nobody has written an adapter for names a third thing.
+#
 # THE RECORD IS THE COMPUTER'S, NOT THE CHECKOUT'S. Measured 2026-09-01: two
 # GitHub checkouts on this computer share the account `jwloka`, so a
 # per-checkout `.plot/state/` would let each read a full 5000 while the other
@@ -199,6 +208,18 @@ budget_append() {
 # `packages/domain/src/rules/budget-record.ts`, and a test pins them together.
 BUDGET_FALLBACK_WINDOW_MS=3600000
 
+# AN EMPTY BUCKET MEANS EVERY BUCKET, and that is the account-wide question
+# rather than a missing argument. One connector meters several pools
+# independently — GitHub's `core` and `graphql` — and a caller asking *how fast
+# is this account going?* is asking about all of them: an account spends every
+# bucket it has, and a cadence divided by one pool's rate would ignore the
+# traffic on the other.
+#
+# THE VERDICT IS NOT SUMMED, and the aggregate deliberately does not report one.
+# `remaining` and `basis` describe the NEWEST live line across the buckets,
+# which is a reading about whichever pool was spent last — so a caller deciding
+# whether a bucket is spent must name that bucket. `graphql_budget_spent` does,
+# and this is why.
 budget_rate() {
   local connector="${1:-}" account="${2:-}" bucket="${3:-}" now="${4:-}"
   local path
@@ -224,7 +245,8 @@ budget_rate() {
       # would report the whole account as unreadable, which reads as headroom.
       if ($0 == "") next
       if (NF != 10 || $1 != "b1") { unreadable++; next }
-      if ($2 != want_c || $3 != want_a || $4 != want_b) next
+      if ($2 != want_c || $3 != want_a) next
+      if (want_b != "" && $4 != want_b) next
       at = $5 + 0
       if ($5 !~ /^-?[0-9]+$/) { unreadable++; next }
       n++
@@ -245,15 +267,25 @@ budget_rate() {
         if (c_at[i] < from) continue
         spent += c_spent[i]
         if (oldest < 0 || c_at[i] < oldest) oldest = c_at[i]
-        # The newest LIVE line is the current reading. A line the reset has
-        # killed describes a bucket that no longer exists, so reading it as the
-        # current state would report a spent bucket long after it refilled.
-        if (newest < 0 || c_at[i] >= newest) {
+        # THE NEWEST LIVE LINE THAT CARRIES A READING, not simply the newest
+        # line. Most calls cannot report a limit — `gh pr list` is a GraphQL
+        # wrapper that exposes no headers — so they record a spend with an
+        # `unknown` basis, and one of those arriving after a measurement would
+        # erase it. Measured 2026-09-02 against the live host: `limit`
+        # harvested `graphql 4391/5000 actual`, one `pr-state` followed, and the
+        # bucket then read `remaining: null` — leaving the routing gate
+        # permanently unable to see a spent pool, which is the defect this slice
+        # exists to remove.
+        #
+        # A line the RESET has killed is a different case and is already gone:
+        # the window filter above dropped it, because it describes a bucket that
+        # no longer exists.
+        if (c_basis[i] != "unknown" && (newest < 0 || c_at[i] >= newest)) {
           newest = c_at[i]
           limit = (c_limit[i] ~ /^-?[0-9]+$/) ? c_limit[i] : "null"
           remaining = (c_rem[i] ~ /^-?[0-9]+$/) ? c_rem[i] : "null"
           basis = c_basis[i]
-          if (basis != "actual" && basis != "predicted" && basis != "unknown") basis = "unknown"
+          if (basis != "actual" && basis != "predicted") basis = "unknown"
           # `unknown` IS NOT HEADROOM. A stored number tagged unknown is not a
           # reading, so it is reported as absent rather than as room.
           if (basis == "unknown") { limit = "null"; remaining = "null" }

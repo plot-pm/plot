@@ -5,6 +5,7 @@ dist/
 # is standalone (see build.mjs). Build output — not source; shipped via `files`.
 /plot-agent-monitor.sh
 /plot-approve.sh
+/plot-budget.sh
 /plot-config.sh
 /plot-deliver.sh
 /plot-dispatch.sh
