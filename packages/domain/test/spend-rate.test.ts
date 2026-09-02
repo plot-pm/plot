@@ -55,6 +55,25 @@ describe('the spend rate is read over the window', () => {
     expect(read.spent).toBe(1);
   });
 
+  it('does not let a reset still ahead discard the window', () => {
+    // THE ARITHMETIC THAT DISCARDS EVERY LIVE LINE. A reset an hour out says
+    // only that the window has not closed; it says nothing about when it
+    // opened. Reading it as a boundary lands the window start on `now`, and
+    // every line ever written is then older than the window — a record that
+    // holds 40 calls reports a spend of 0, which reads as headroom.
+    const ahead = NOW + 55 * MINUTE;
+    const read = spendRate(
+      lines(
+        entry(NOW - 40 * MINUTE, { resetAt: ahead }),
+        entry(NOW - 10 * MINUTE, { resetAt: ahead }),
+      ),
+      KEY,
+      NOW,
+    );
+    expect(read.spent).toBe(2);
+    expect(read.spanMs).toBe(40 * MINUTE);
+  });
+
   it('counts only this budget', () => {
     // A rate that summed the file would report a GitHub cadence inflated by
     // every Jenkins poll on the machine.
