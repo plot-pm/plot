@@ -4589,6 +4589,60 @@ esac
     'without reading further — which is the whole point of it being in the footer');
 });
 
+// THE SECOND LIMIT GETS THE SECOND WORD. Exit 6 is `plot-host.sh`'s word for a
+// burst refusal, and it recovers in seconds where exit 5's spent quota recovers
+// at a reset minutes away. Reporting both as `throttled` told an operator to
+// wait out a ceiling that had already cleared.
+test('fleet: a secondary limit reads host=secondary, not host=throttled', () => {
+  const f = makeRepo('plot-fleet-secondary-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 514);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) echo 'plot-host: pr-list: host refused a burst — secondary rate limit' >&2; exit 6 ;;
+  pr-state) echo 'plot-host: host refused a burst' >&2; exit 6 ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.match(footerOf(out), /\bhost=secondary\b/,
+    'the two limits recover minutes apart, so one word for both sends the reader ' +
+    'to the wrong errand');
+  assert.doesNotMatch(footerOf(out), /\bhost=throttled\b/,
+    'and a secondary limit must not borrow the spent quota word');
+});
+
+// IT GATES LIKE THE OTHER TWO. A faster recovery is no reason to exempt it:
+// the question was PUT and went unanswered, so this scan holds no more evidence
+// than a throttled one does, and a no-ref branch must not read `open`.
+test('fleet: no row reads `open` under a secondary limit either', () => {
+  const f = makeRepo('plot-fleet-secondaryrow-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 515);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const { out } = countCalls(f, `#!/usr/bin/env bash
+printf '%s\\n' "$1" >> "$PLOT_TEST_CALLS"
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) echo 'plot-host: host refused a burst' >&2; exit 6 ;;
+  pr-state) echo 'plot-host: host refused a burst' >&2; exit 6 ;;
+  *) echo "{}" ;;
+esac
+`);
+  assert.doesNotMatch(out, /\bopen\b/,
+    '`open` claims a PR was looked for and none found, which no call earned here');
+});
+
 // DONE-WHEN 2, AND THE ROW IS WHERE IT BITES. `open` is a claim about a PR:
 // that one was looked for and none was found. When the host could not be
 // asked, no such claim was earned, and the honest word is a different one.
