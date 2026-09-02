@@ -186,6 +186,13 @@ const vendoredScripts = [
   // see this one, so it is listed by hand and this comment says why.
   'plot-worker-monitor.sh',
   'plot-worker-state.sh',
+  // Sourced BY plot-worker-monitor.sh as a `$script_dir` sibling, so it travels
+  // with it or the monitor is blind. Missing, the monitor does not crash — its
+  // guard answers `unavailable`, which is the honest word for a reader that is
+  // not there — but every worker in the npm layout would then fall back to
+  // `Worker bound` alone, silently, which is exactly the degradation the
+  // comment above says the vendoring exists to prevent.
+  'plot-transcript-quiet.sh',
 ];
 for (const name of vendoredScripts) {
   const src = path.join(here, '../../skills/plot/scripts', name);

@@ -333,6 +333,19 @@ test('a real healthy worker is monitored and silent', () => {
     // This one is not: mutating `monitor_activity` to return `idle`
     // unconditionally — the #538 regression — turns it RED, because the libel
     // then never clears.
+    //
+    // WHAT THIS FIXTURE NOW PROVES IS NARROWER, and saying so is more useful
+    // than leaving the claim above to age. Since 2026-09-02 the monitor reads
+    // the agent's TRANSCRIPT first and only consults `monitor_activity` past
+    // the quiet window. This fixture is a synthetic worker in a sandbox with no
+    // `claude -p` session behind it, so its transcript reads `unavailable` and
+    // no health finding can be published at all — the assertion passes, but the
+    // CPU mutation above no longer reaches it.
+    //
+    // The transcript rule's own branches are covered as unit cases in
+    // `test/reconcile/workermonitor.test.mjs`, against mocked ports, for the
+    // reason that file states: a real machine will not produce a fifteen-minute
+    // transcript silence on demand, and a test that waits for one flakes.
     const last = worker.filter((x) => x.finding !== 'gone').at(-1);
     if (last) {
       assert.equal(last.finding, 'clear',
