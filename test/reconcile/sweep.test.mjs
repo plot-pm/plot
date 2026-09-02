@@ -368,6 +368,22 @@ test('a dirty tree a live worker owns is not a leftover', () => {
   assert.match(out, /dirty_trees=0/, `a live worker owns its dirt:\n${out}`);
 });
 
+test('the main checkout is a person\'s desk, not a leftover', () => {
+  // MEASURED WHILE WRITING THE SWEEP: the operator's own checkout carried 2
+  // uncommitted files and no `.plot-worker.pid`, so it read as a tree nobody
+  // owns — and it is the one tree on the estate somebody is certainly at.
+  // `$ROOT` cannot be the test, because the script runs from whichever
+  // worktree invoked it; the main checkout is the parent of `--git-common-dir`.
+  const { tmp, repo } = makeRepo();
+  fs.writeFileSync(path.join(repo, 'a-person-is-editing-this.txt'), 'work in progress');
+  const bin = stubGh(tmp, {});
+
+  const out = run(repo, bin, '--yes');
+  assert.match(out, /dirty_trees=0/, `the main checkout is never a leftover:\n${out}`);
+  assert.ok(fs.existsSync(path.join(repo, 'a-person-is-editing-this.txt')),
+    'and its work is untouched');
+});
+
 test('a clean tree is not reported as a dirty leftover', () => {
   // The kind is "a dirty tree nobody owns". A clean unowned tree is the
   // reaper's question, and answering it here would be a second implementation

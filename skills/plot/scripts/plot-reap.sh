@@ -826,7 +826,16 @@ done < <(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null)
 # It runs over EVERY worktree, not only dispatch trees: a tree nobody owns is
 # by construction one that may carry no `.plot-worker.pid`, so the marker the
 # reap loop gates on is exactly what a leftover of this kind lacks.
+#
+# EXCEPT THE MAIN CHECKOUT, which is a person's desk by definition. Measured
+# while writing this: the operator's own checkout carried 2 uncommitted files
+# and no `.plot-worker.pid`, so it read as a leftover nobody owns — and it is
+# the one tree on the estate somebody is certainly at. `$ROOT` is not the test,
+# because this script runs from whichever worktree invoked it; the main
+# checkout is the PARENT of `--git-common-dir`, which every worktree agrees on.
 # ---------------------------------------------------------------------------
+
+MAIN_CHECKOUT=$(cd "$(git rev-parse --git-common-dir 2>/dev/null)/.." 2>/dev/null && pwd -P) || MAIN_CHECKOUT=""
 
 sweep_dirty_owner() { # $1=pid $2=manifest → owner word
   PLOT_PID="$1" PLOT_MANIFEST="$2" PLOT_RULE="$SWEEP_RULE" \
@@ -848,6 +857,10 @@ echo "-- dirty trees nobody owns --"
 while IFS=$'\t' read -r wt br; do
   [ -n "$wt" ] || continue
   [ -d "$wt" ] || continue
+  # The main checkout is a person's desk, and its dirt is a person's work in
+  # progress. Compared canonically, since git reports resolved paths and macOS
+  # spells `/tmp`, `/var` and `/etc` two ways.
+  [ -n "$MAIN_CHECKOUT" ] && [ "$(canonical "$wt")" = "$(canonical "$MAIN_CHECKOUT")" ] && continue
   dshort=${br#refs/heads/}
 
   dcount=$(git -C "$wt" status --porcelain 2>/dev/null \
