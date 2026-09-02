@@ -50,6 +50,7 @@ export * from './rules/refusal.js';
 export * from './rules/sample.js';
 export * from './rules/acting.js';
 export * from './rules/free.js';
+export * from './rules/sweepable.js';
 /**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
  * which `## Status` line a lifecycle step writes.
