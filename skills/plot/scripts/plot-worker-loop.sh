@@ -332,6 +332,24 @@ desk_is_resettable() { # $1=worktree → 0 when the desk may be taken over
 reset_desk() { # $1=worktree $2=branch → 0 when the desk now holds the branch
   local wt="$1" branch="$2"
 
+  # STEP 0 — THE PREVIOUS SLICE'S DECLARATION LEAVES WITH THE SLICE.
+  #
+  # `seal_declaration` MERGES into whatever file it finds: it keeps the
+  # agent's own `artifacts`, `pr`, `summary` and `status`, because the agent is
+  # the only party that knows what it produced. That is right when the file
+  # belongs to the branch being sealed and wrong the moment two branches share a
+  # desk — the second slice would inherit the first slice's PR number and call
+  # it its own. One desk per agent creates that sharing, so the removal is this
+  # slice's to make.
+  #
+  # THIS IS NOT THE WORK THE GUARD PROTECTS. It is Plot's own bookkeeping,
+  # already excluded from `plot_worker_dirty` by `PLOT_WORKER_RECORD` for the
+  # same reason: a file the fleet dropped in the tree is not something an agent
+  # left on the floor. The declaration for the finished branch has done its job
+  # by the time the hop reaches here — `seal_declaration` ran before `--next`
+  # was asked.
+  rm -f "$wt/$DECLARATION_FILE_NAME" 2>/dev/null || true
+
   # STEP 1 — the base, detached. Detached because the desk may not hold
   # `$main_branch` (another worktree usually does, and git refuses to check out
   # a branch twice), and because nothing here wants the base as a branch: it is
