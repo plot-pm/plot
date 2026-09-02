@@ -614,8 +614,14 @@ export interface CacheEntry {
    * saying it differently is the sort of duplicate this file removes.
    */
   pulseComplete: boolean;
-  timer: NodeJS.Timeout | null;
-  prTimer: NodeJS.Timeout | null;
+  /**
+   * This machine's clock, or null before `ensureCache` started it.
+   *
+   * Replaces the `timer`/`prTimer` pair. Both cadences are subscribers on it
+   * now — divisors 1 and 12 — so the two numbers that were `5_000` and `60_000`
+   * in two constants are one base and one ratio.
+   */
+  pulseClock: RunningPulse | null;
   running: boolean;
   prRunning: boolean;
 }
@@ -2384,7 +2390,9 @@ export function freshCacheEntry(): CacheEntry {
     // different answers, and `resolveBackend` distinguishes them to ask once.
     backend: null,
     pulseComplete: true,
-    timer: null, prTimer: null, running: false, prRunning: false,
+    // Null, not a stopped clock: `ensureCache` starts the pulse, and a fresh
+    // entry has not been through it yet.
+    pulseClock: null, running: false, prRunning: false,
   };
 }
 
@@ -2436,14 +2444,57 @@ function ensureCache(opts: BuildBoardOptions): CacheEntry {
   // always wins over the bridged one.
   void refresh(opts, entry);
   void maybeRefreshPrs(opts, entry);
-  entry.timer = setInterval(() => void refresh(opts, entry!), REFRESH_MS);
-  entry.timer.unref?.();
-  // Its own timer, because its own clock: git is local and free at 5 s, the
-  // host is metered and pointless below a minute. They failed independently
-  // already; now they also fire independently.
-  entry.prTimer = setInterval(() => void maybeRefreshPrs(opts, entry!), PR_REFRESH_MS);
-  entry.prTimer.unref?.();
+  // ONE CLOCK, TWO DIVISORS, where there were two timers.
+  //
+  // This cache key IS the machine's identity — `repoRoot + scriptsDir`, which
+  // is what distinguishes three Plot instances on one laptop — so one pulse per
+  // entry is `DESIGN-pulse.md`'s *one machine, one pulse* rather than a timer
+  // per repository that happens to look like one.
+  //
+  // The isolation the two timers bought is NOT spent here. It moved into
+  // `beat`, which dispatches synchronously and awaits nothing: git is local and
+  // free at 5 s, the host is metered and pointless below a minute, they failed
+  // independently already, and they still fire independently. A rate-limited
+  // host cannot stall the git scan that has nothing to do with it.
+  const pulse = startPulse(clockSystem(), REFRESH_MS);
+  entry.pulseClock = pulse;
+  // The tick per subscriber, looked up by name rather than chosen by a
+  // condition: a `name === 'fleet-scan' ? … : …` would wire the PR reader twice
+  // on a typo, silently, and both cadences would then be 60 s.
+  const ticks: Record<string, () => Promise<void>> = {
+    'fleet-scan': () => refresh(opts, entry!),
+    'pr-reader': () => maybeRefreshPrs(opts, entry!),
+  };
+  for (const { name, everyNthBeat } of boardDivisors()) {
+    pulse.add({ name, everyNthBeat, tick: ticks[name] });
+  }
   return entry;
+}
+
+/**
+ * The board's two subscribers, and the divisor each one counts by.
+ *
+ * DERIVED FROM THE BASE, never written down. `12` is right only because the
+ * base is 5 s — `divisorFor` reads it off `REFRESH_MS` and `PR_REFRESH_MS`, so
+ * moving either constant moves the cadence with it and no literal has to be
+ * found and edited. That is the whole reason a subscriber names a divisor
+ * rather than a period.
+ *
+ * Exported so a test can assert the cadences the board actually wires, rather
+ * than grepping this file for a number. What it returns IS what `ensureCache`
+ * subscribes; there is no second list.
+ *
+ * @returns the scan at every beat, and the PR reader at every twelfth.
+ */
+export function boardDivisors(): { name: string; everyNthBeat: number }[] {
+  const base = createPulse(REFRESH_MS, 0);
+  return [
+    // 1: git is local and free, so the scan takes every beat.
+    { name: 'fleet-scan', everyNthBeat: divisorFor(base, REFRESH_MS) },
+    // 12: the host is metered, and firing it at 5 s spent a 5000/hour budget in
+    // a working day — measured 2026-08-16, `remaining 0/5000, used 5007`.
+    { name: 'pr-reader', everyNthBeat: divisorFor(base, PR_REFRESH_MS) },
+  ];
 }
 
 /**
@@ -2499,12 +2550,11 @@ export function pulseCompleteFor(opts: BuildBoardOptions): boolean {
   return ensureCache(opts).pulseComplete;
 }
 
-/** Stop the refresh timers. Tests need this; the server never calls it. */
+/** Stop the refresh clocks. Tests need this; the server never calls it. */
 export function stopFleetRefresh(): void {
-  for (const entry of caches.values()) {
-    if (entry.timer) clearInterval(entry.timer);
-    if (entry.prTimer) clearInterval(entry.prTimer);
-  }
+  // One `stop` per entry where there were two `clearInterval`s: both cadences
+  // are subscribers on the one clock, so stopping it stops both.
+  for (const entry of caches.values()) entry.pulseClock?.stop();
   caches.clear();
 }
 
@@ -2751,13 +2801,18 @@ export function waitingOnFor(
 // function, named here for the callers that already import it. Changing forty
 // imports would make a move look like a rename.
 import {
+  createPulse,
+  divisorFor,
   doubleClaimedBranches,
   readingLoss,
   rowPhase,
   sliceReadings,
   startabilityVerdict,
+  startPulse,
   waveVerdict,
+  type RunningPulse,
 } from '@plot-pm/domain';
+import { clockSystem } from '@plot-pm/domain/adapters';
 
 export { startabilityVerdict, waveVerdict };
 export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
