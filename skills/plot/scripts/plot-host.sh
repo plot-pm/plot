@@ -2773,7 +2773,13 @@ case "$op" in
     # ONE JSON OBJECT:
     #   {"connector":"github","account":"jwloka","bucket":"api","spent":41,
     #    "spanMs":214000,"perHour":689.72,"lines":41,"unreadable":0,
-    #    "limit":null,"remaining":null,"basis":"unknown"}
+    #    "limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}
+    #
+    # `resetAt` IS WHEN THE BUCKET REFILLS, epoch milliseconds, and it is what a
+    # caller reacting to a refusal waits for. The record has stored it since the
+    # headers were first harvested; until this slice no reader could get it back
+    # out, so the one component that needed it had to ask `gh api rate_limit` —
+    # a call that is both metered and, measured 2026-09-01, wrong.
     #
     # OVER THE CONNECTOR'S WINDOW, NEVER THE WHOLE FILE. Measured 2026-09-01,
     # one board at 5 s and eleven scripts at 90 s append ~1,160 lines an hour:

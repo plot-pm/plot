@@ -14,9 +14,9 @@ import { rmTree } from '../helpers.mjs';
 // neighbour kept knocking.
 //
 // The issue poll runs on the SAME gate as the PR fetch (`prNextAt`), so a fix
-// is a matter of routing its rate-limit failure through `rateLimitBackoffMs`
-// and pushing that gate out — never pulling it in, so a longer PR backoff a
-// tick earlier is never shortened.
+// is a matter of routing its rate-limit failure through `hostReaction` and
+// pushing that gate out — never pulling it in, so a longer PR backoff a tick
+// earlier is never shortened.
 
 /**
  * A fake `plot-host.sh` whose `issue-list` exits with the given code and writes
@@ -80,12 +80,18 @@ describe('a rate-limited issue poll waits, as the PR refresh already does', () =
 
   it('never SHORTENS a longer backoff the PR refresh set a tick earlier', async () => {
     // The load-bearing negative and the reason "PR refresh unchanged" holds: if
-    // the PR fetch already bought a longer wait — the host named 300 s — the
-    // issue poll's own 120 s ceiling must not pull the gate back in.
+    // the PR fetch already bought a longer wait — the host named 900 s — the
+    // issue poll's own unstated-reset ceiling must not pull the gate back in.
+    //
+    // 900 s rather than the 300 s this asserted before the reaction landed: the
+    // ceiling for a quota that states no reset IS 300 s now, so a 300 s floor
+    // ties it and the comparison decides on the milliseconds between two
+    // `Date.now()` calls. A floor a reaction cannot reach is what makes this
+    // test about the extend-only rule rather than about clock jitter.
     const scriptsDir = host(RATE_LIMIT, 1);
     const entry = freshCacheEntry();
     const started = Date.now();
-    const longer = started + 300_000;
+    const longer = started + 900_000;
     entry.prNextAt = longer;
     entry.prNextIsBackoff = true;
 

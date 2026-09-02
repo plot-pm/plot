@@ -3,7 +3,6 @@ import { describe, it, expect } from 'vitest';
 import {
   classify, compareWithinGroup, draftNote, humanAge, prState, prStates, rowPhase, rowsFromPulse,
   rateLimitBackoffMs,
-  graphqlResetMs,
   prGateOpen,
   prNextDueAt,
   prRefreshMsFor,
@@ -2883,49 +2882,6 @@ describe('the wait comes from the host, not from a constant', () => {
     // The pure call path the other callers use until they pass a fetcher.
     const ms = await rateLimitBackoffMs(BARE);
     expect(ms).toBe(120_000);
-  });
-});
-
-describe('graphqlResetMs — the reset the free endpoint states', () => {
-  // `gh api rate_limit` returns epoch-seconds resets per resource; GraphQL is
-  // the budget the PR fetch spends, so its reset is the one to wait for. Pure so
-  // the branching (missing field, expired stamp, malformed JSON) is covered
-  // without the network; the one untestable line is the `run()` that feeds it.
-
-  // Trimmed shape of a real `gh api rate_limit` response.
-  const payload = (graphqlReset: number) => JSON.stringify({
-    resources: {
-      core: { limit: 5000, remaining: 5000, reset: graphqlReset + 999 },
-      graphql: { limit: 5000, used: 5000, remaining: 0, reset: graphqlReset },
-    },
-    rate: { limit: 5000, remaining: 5000, reset: graphqlReset + 999 },
-  });
-
-  it('returns ms from now until the GraphQL reset', () => {
-    const now = 1_700_000_000_000; // ms
-    const ms = graphqlResetMs(payload(1_700_000_480), now); // resets in 480 s
-    expect(ms).toBe(480_000);
-  });
-
-  it('returns null when the reset is already past', () => {
-    // A stale reset must not become a negative or instant wait; the caller
-    // falls back to the ceiling instead.
-    const now = 1_700_000_000_000;
-    const ms = graphqlResetMs(payload(1_699_999_940), now); // 60 s ago
-    expect(ms).toBeNull();
-  });
-
-  it('returns null when the payload has no GraphQL resource', () => {
-    const now = 1_700_000_000_000;
-    const ms = graphqlResetMs(JSON.stringify({ resources: { core: { reset: 1_700_000_480 } } }), now);
-    expect(ms).toBeNull();
-  });
-
-  it('returns null on malformed JSON rather than throwing', () => {
-    // `gh` handed back something that is not the shape — an auth error page,
-    // an empty string. Null, never a crash inside the backoff decision.
-    expect(graphqlResetMs('not json at all', Date.now())).toBeNull();
-    expect(graphqlResetMs('', Date.now())).toBeNull();
   });
 });
 
