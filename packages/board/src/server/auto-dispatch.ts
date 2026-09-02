@@ -526,6 +526,126 @@ export function skippedClaimedBranches(pulse: FleetReading, inFlight: Set<string
 }
 
 /**
+ * Why auto-dispatch dropped a plan from this pulse's candidates.
+ *
+ * A NAME A READER CAN ACT ON, following `commission.ts`'s `no-idea-command` and
+ * `plot-dispatch.sh:419`'s `no-brief-command`: an absent capability is a named
+ * refusal, never an error.
+ *
+ * - `no-brief` — every branch it could have started is missing a brief on
+ *   `origin/main`. The operator runs `/plot-implement`, or the `Brief command`
+ *   writes one.
+ * - `ref-held` — every branch's own ref already blocks the claim
+ *   `plot-dispatch.sh` would push. Nothing to do until those refs are reaped.
+ * - `in-flight` — this board already dispatched them and the pulse cannot yet
+ *   confirm it. The next pulse resolves it; no action.
+ * - `no-eligible-wave` — the plan has no eligible wave at all. Its waves are
+ *   complete, blocked, or its branches are merged, claimed or deferred.
+ * - `budget-spent` is NOT a plan reason and is not listed here: the cap refusal
+ *   already has its own sentence, and a plan the budget never reached was not
+ *   skipped for anything about the plan.
+ */
+export type PlanSkipReason = 'no-brief' | 'ref-held' | 'in-flight' | 'no-eligible-wave';
+
+/** One plan auto-dispatch did NOT name this pulse, and the reason it did not. */
+export interface SkippedPlan {
+  /** The plan slug, the same spelling {@link planSlug} gives the dispatcher. */
+  slug: string;
+  /** Why the plan was dropped — see {@link PlanSkipReason}. */
+  reason: PlanSkipReason;
+}
+
+/**
+ * The approved plans whose startable count fell to zero, and why — the PLAN-level
+ * decision `planAutoDispatch` makes at `if (startable === 0) continue;` and has
+ * until now made in silence.
+ *
+ * NOT a fourth spelling of *this branch has no brief*. `BriefStateSchema` and the
+ * `needs-brief` verdict already carry per-branch brief presence to the row, and
+ * the pulse log at {@link maybeAutoDispatch} already names the branches. What
+ * nothing recorded is that a whole PLAN left the candidate list for that reason,
+ * so this names the plan and stops there.
+ *
+ * PURE, and deliberately a second pass over the same pulse rather than an output
+ * of {@link planAutoDispatch}: the planner's contract is the dispatch decision,
+ * and threading a diagnostic through it would make every caller carry a value
+ * only the logger reads. The two read the same filters — a divergence would make
+ * the board explain a plan it dispatched — which is why `dispatchable`,
+ * `inFlight` and `missingBriefs` are asked here in the identical order.
+ *
+ * A plan the budget never reached is absent from the result. The budget is not a
+ * property of the plan, and the cap refusal is already its own sentence; naming
+ * plans the budget stopped short of would print a reason that is not about them.
+ *
+ * @param pulse This pulse's fleet reading.
+ * @param inFlight Branches dispatched but not yet confirmed — see {@link planAutoDispatch}.
+ * @param missingBriefs Branches with no brief on `origin/main`.
+ * @returns One entry per approved plan that offered nothing startable, in the
+ *   pulse's own plan order.
+ */
+export function skippedPlans(
+  pulse: FleetReading,
+  inFlight: Set<string>,
+  missingBriefs: Set<string>,
+): SkippedPlan[] {
+  const out: SkippedPlan[] = [];
+  for (const plan of pulse.plans) {
+    if (plan.phase !== 'approved') continue;
+
+    let startable = 0;
+    let noBrief = 0;
+    let held = 0;
+    let flying = 0;
+    let eligibleBranches = 0;
+    // Merged, claimed or deferred: counted so the totals still add up, and
+    // never a reason on its own — a plan whose eligible wave holds only these
+    // falls through to `no-eligible-wave`, which is what the final `else` says.
+    let unstartable = 0;
+    for (const wave of plan.slices) {
+      if (wave.verdict !== 'eligible') continue;
+      for (const b of wave.branches) {
+        eligibleBranches += 1;
+        // THE PLANNER'S ORDER, and it is what makes the reason single-valued.
+        // A branch can be both ref-held and brief-less; the planner's `&&`
+        // chain refuses it at the first failing clause, so the reason reported
+        // is the one that actually stopped it.
+        // `held` MEANS A REF A REAPER COULD RELEASE, not "not startable".
+        // `dispatchable` is `isStartable(state) && !refBlocksClaim(b)`, so a
+        // merged or deferred branch fails it on STATE and counting that as
+        // `held` sends an operator to reap work that is already finished.
+        // Measured 2026-09-02: a wave of one merged and one deferred branch
+        // reported `ref-held`, and the reason this function exists is to name
+        // somebody's next move.
+        if (!isStartable(b.state)) unstartable += 1;
+        else if (refBlocksClaim(b)) held += 1;
+        else if (inFlight.has(b.branch)) flying += 1;
+        else if (missingBriefs.has(b.branch)) noBrief += 1;
+        else startable += 1;
+      }
+    }
+    // Not skipped. The planner will name it, budget permitting.
+    if (startable > 0) continue;
+
+    // THE REASON IS THE ONE THAT ACCOUNTS FOR THE MOST BRANCHES, and ties break
+    // toward the actionable one. `no-brief` is a person's next move, `ref-held`
+    // is a reaper's, and `in-flight` asks for nothing — so a plan whose branches
+    // split evenly reports the reason somebody can act on.
+    let reason: PlanSkipReason;
+    if (eligibleBranches === 0) reason = 'no-eligible-wave';
+    else if (noBrief >= held && noBrief >= flying && noBrief > 0) reason = 'no-brief';
+    else if (held >= flying && held > 0) reason = 'ref-held';
+    else if (flying > 0) reason = 'in-flight';
+    // Every eligible branch is merged, claimed or deferred — the wave has work
+    // but none of it startable, which is the same answer as no eligible wave
+    // from a dispatch's point of view.
+    else reason = 'no-eligible-wave';
+
+    out.push({ slug: planSlug(plan.file), reason });
+  }
+  return out;
+}
+
+/**
  * All branches that auto-dispatch would consider starting this pulse — the
  * candidates whose briefs must exist before a dispatch is allowed.
  *
@@ -812,6 +932,27 @@ export function maybeAutoDispatch(
       `auto-dispatch: skipping branch(es) with no brief on origin/main ` +
       `(run /plot-implement first): ${missing.join(', ')}`,
     );
+  }
+
+  // NAMES THE PLAN AND THE REASON, ONCE PER PULSE — the PLAN-level decision
+  // `planAutoDispatch` makes at `if (startable === 0) continue;` and has until
+  // now made in silence. The branch logs above already say which branches were
+  // skipped; what nothing said is that a whole plan left the candidate list,
+  // and for which of four reasons.
+  //
+  // Printed BEFORE the planner runs and derived from the same three filters, so
+  // the sentence and the dispatch cannot describe different pulses. A reason is
+  // a name a reader can act on — `no-brief` is a person's next move,
+  // `no-eligible-wave` asks for nothing — which is what makes a plan skipped
+  // for briefs distinguishable from one skipped for anything else.
+  if (controls.autoDispatch) {
+    const skipped = skippedPlans(pulse, pruned, missingBriefs);
+    if (skipped.length > 0) {
+      console.log(
+        `auto-dispatch: skipping plan(s) with nothing startable: ` +
+        `${skipped.map((p) => `${p.slug} (${p.reason})`).join(', ')}`,
+      );
+    }
   }
 
   const plans = planAutoDispatch({
