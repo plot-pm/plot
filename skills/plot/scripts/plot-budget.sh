@@ -38,6 +38,15 @@
 # REFUSED rather than shortened: a torn line loses the concurrent writer's line
 # too, so dropping one spend is cheaper than corrupting another's.
 #
+# THE BUCKET IS THE CONNECTOR'S OWN WORD, AND ONE CONNECTOR HAS SEVERAL. GitHub
+# meters `core` and `graphql` as independent 5000-request pools, named by
+# `X-RateLimit-Resource` on the response of a call that was going to happen
+# anyway. Measured 2026-09-01 on one account at one moment: `core` 4990 of 5000,
+# `graphql` **0** of 5000. A record keyed to one undifferentiated pool describes
+# neither — it reports room while every `gh pr` call is refused, and refuses
+# calls that would have gone to the pool with 4990 left. Nothing here validates
+# the name: a connector nobody has written an adapter for names a third thing.
+#
 # THE RECORD IS THE COMPUTER'S, NOT THE CHECKOUT'S. Measured 2026-09-01: two
 # GitHub checkouts on this computer share the account `jwloka`, so a
 # per-checkout `.plot/state/` would let each read a full 5000 while the other

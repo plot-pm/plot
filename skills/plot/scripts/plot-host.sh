@@ -189,7 +189,11 @@
 #                                 its callers have not moved: that endpoint was
 #                                 measured 2026-09-01 reporting graphql
 #                                 5000/5000 used=0 while a real call's header
-#                                 read Remaining 1236, Used 3764. Prefer `limit`.
+#                                 read Remaining 1236, Used 3764, and reproduced
+#                                 2026-09-02 against a header's 2732. NOTHING
+#                                 ROUTES ON IT any more — `gh_route` reads the
+#                                 budget record, which is written from response
+#                                 headers. Prefer `limit`.
 #   limit                         what is this connector's limit, and how well
 #                                 does it know it? One JSON line per metered
 #                                 bucket: {"connector","bucket","limit",
@@ -207,6 +211,15 @@
 #                                 JSON object: {"connector","account","bucket",
 #                                 "spent","spanMs","perHour","lines",
 #                                 "unreadable","limit","remaining","basis"}.
+#                                 AN OMITTED --bucket MEANS EVERY BUCKET, which
+#                                 is what "what am I spending?" asks: one
+#                                 connector meters several pools and an account
+#                                 spends all of them, so the cadence divides by
+#                                 the sum. A caller deciding whether a POOL is
+#                                 spent names it — `remaining` and `basis` in
+#                                 the aggregate describe whichever pool was
+#                                 spent last, which is a reading and not a
+#                                 verdict.
 #                                 OVER THE CONNECTOR'S WINDOW, never the whole
 #                                 file — ~1,160 lines an hour were measured
 #                                 2026-09-01, and a rate over an ever-growing
@@ -549,10 +562,11 @@ is_lookup_miss() {
 
 # Did the host refuse this call for RATE, rather than answer it?
 #
-# The gap `graphql_budget_spent` names in its own docblock: *"`rate_limit` does
-# not report the secondary limit and cannot, so this gate would have read 5000
-# available at the exact moment nothing worked. Backing off on the 403 itself is
-# a separate change and is not this one."* This is that change.
+# THE GAP NO BUDGET READING CLOSES, and this is what closes it instead. A
+# secondary limit bounds requests AT ONCE rather than requests an hour, so it
+# fires while the pool is nearly full — measured 2026-09-01, `gh pr view`
+# refused while the same account's GraphQL header read 4854 of 5000. No reading
+# of any bucket predicts that, which is why the refusal itself is the evidence.
 #
 # Measured 2026-09-01. A polling burst tripped GitHub's secondary limit on
 # GraphQL while BOTH buckets read `5000/5000`, so `graphql_budget_spent` was
@@ -739,13 +753,20 @@ graphql_budget_spent() {
 # re-entry is why it exists. It is consulted before the budget because it is
 # free and the budget read is not.
 #
-# THE BUDGET IS CONSULTED LAST, AND IT IS KNOWN TO BE BLIND. `gh api
-# rate_limit` was measured on 2026-09-01 reporting `graphql: 5000/5000, used 0`
-# while a real response header reported `Remaining: 1236, Used: 3764`, so this
-# test has never fired in practice. `bug/the-budget-knows-which-bucket-it-spent`
-# — slice 7 — replaces the reading with the header. Last, because it is the
-# only one of the three reasons that can be wrong, and the only one that costs
-# a call to establish.
+# THE BUDGET IS CONSULTED LAST, AND IT READS THE RECORD BY BUCKET NAME. Every
+# `gh` call files its spend against the pool it spent, and a call that harvested
+# `X-RateLimit-*` files the connector's own numbers with it — so `graphql` is
+# asked about `graphql`, and a `core` with 4990 left cannot answer for it.
+#
+# It read `gh api rate_limit` until 2026-09-02, and that reading could not see
+# the condition it gates on: the endpoint was measured 2026-09-01 reporting
+# `graphql: 5000/5000, used 0` while a real response header reported
+# `Remaining: 1236, Used: 3764`, and reproduced 2026-09-02 against a header's
+# 2732. So the `-eq 0` test never fired, and a gate that cannot see its
+# condition is worse than no gate because it reports safety.
+#
+# Last, because it is the only one of the three reasons that can be wrong. It
+# no longer costs a call to establish — the record is a file.
 gh_route() { # $1=op → graphql|rest
   case "${1:-}" in
     # REST-only: no GraphQL route exists to choose, so nothing is consulted.
@@ -2626,21 +2647,24 @@ case "$op" in
     # `-eq 0` — has never been able to fire. The authority is the header on a
     # response that actually came back.
     #
-    # THIS CALL SPENDS ONE REQUEST, AND SAYS SO. The design wants the headers of
-    # a call that was going to happen anyway, and the hot call is `gh pr list`,
-    # which is `gh`'s own GraphQL wrapper and exposes no headers. Rewriting it
-    # as `gh api graphql` to harvest them is HEADER READING, not routing, and it
-    # belongs to `bug/the-budget-knows-which-bucket-it-spent` — slice 7, which
-    # owns both the header parsing and the fix to `graphql_budget_spent`. An
-    # earlier draft of this comment assigned it to
-    # `bug/one-router-chooses-the-path`; that slice landed, and it gathered the
-    # REST-versus-GraphQL choice into `gh_route` without touching where a
-    # reading comes from. The two are separate and only one is done.
+    # THIS CALL SPENDS ONE REQUEST, AND SAYS SO. It asks the cheapest real
+    # question there is — `{viewer{login}}` — and reports what its response
+    # carried. One request against the bucket it reports is an honest cost; a
+    # free reading of the wrong number is not.
     #
-    # Until then this asks the cheapest real question there is —
-    # `{viewer{login}}` — and reports what its response carried. One request
-    # against the bucket it reports is an honest cost; a free reading of the
-    # wrong number is not.
+    # THE OTHER READINGS ARE FREE, and this op is the one that is not. Every
+    # `gh api` call the adapter makes harvests its own headers through
+    # `gh_api_harvest`, on a request that was going to happen anyway, and files
+    # the reading in the budget record. So a caller that merely wants to know
+    # whether a pool is spent reads the record and spends nothing; this op is
+    # for a caller that wants a reading NOW, on a connector that may not have
+    # been called yet.
+    #
+    # `gh pr list` CANNOT BE HARVESTED. It is `gh`'s own GraphQL wrapper: no
+    # flag adds the response headers, and `--verbose` writes the whole exchange
+    # to stdout, which would corrupt every caller's parse. So a GraphQL call
+    # names its bucket from the argv and records no numbers — `unknown`, which
+    # is never read as free.
     #
     # ONE BUCKET, NOT TWO. A response reports the bucket IT spent, in
     # `X-RateLimit-Resource`. Reporting `core` from a GraphQL response would be
