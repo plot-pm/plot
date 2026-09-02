@@ -86,15 +86,16 @@
 #         merging).
 #         host says whether the git host ANSWERED, and is what says whether
 #         merge_detect can be believed: ok (the list arrived — an EMPTY list is
-#         ok, the host answered and there are none), throttled (a rate limit;
-#         the same question later will be answered), failed (any other failure),
+#         ok, the host answered and there are none), throttled (a spent quota;
+#         the same question after the reset will be answered), secondary (a
+#         burst refusal, which clears in seconds), failed (any other failure),
 #         unasked (no host, or --offline — the question was never put, which is
 #         not the same as one that went unanswered).
 #         Measured 2026-08-30: a merged branch read `open` and was counted
 #         among the unfinished under `merge_detect=pr-merge`, which reads as
 #         *asked and answered*, while the host had refused every call. Where
-#         host is throttled or failed, a no-ref branch reads `unknown` rather
-#         than `open` and is not offered to --next.
+#         host is throttled, secondary or failed, a no-ref branch reads `unknown`
+#         rather than `open` and is not offered to --next.
 #         Consumers that only need counts (the /plot-fleet pulse log, the
 #         board) read that one line and never re-count the body.
 #         --json additionally carries, per PLAN, `phase` — the plan's own
@@ -538,16 +539,20 @@ PR_LIST_LIMIT="${PLOT_PR_LIST_LIMIT:-1000}"
 #                there are none. Collapsing that into a failure would trade a
 #                silent wrong answer for a noisy one and break every repo that
 #                genuinely has no PRs.
-#   throttled  — a rate limit, primary or secondary (`plot-host.sh` exit 5).
-#                Nothing is broken; the same question later will be answered.
+#   throttled  — a SPENT QUOTA (`plot-host.sh` exit 5). Nothing is broken; the
+#                same question after the reset will be answered.
+#   secondary  — a burst refusal (`plot-host.sh` exit 6). Nothing is broken
+#                either, and it clears in seconds rather than minutes.
 #   failed     — any other failure (exit 3, or anything unclassified).
 #   unasked    — no host to ask, or --offline. Not a degradation: the scan was
 #                never going to ask, and saying `failed` would report a fault
 #                where there is a configuration.
 #
-# TWO WORDS FOR THE TWO FAILURES BECAUSE THEY ASK FOR DIFFERENT RESPONSES.
-# `throttled` says wait; `failed` says look. An operator told to wait out an
-# outage loses exactly the time waiting was meant to save.
+# THREE WORDS FOR THREE FAILURES BECAUSE THEY ASK FOR DIFFERENT RESPONSES.
+# `throttled` says wait for the reset; `secondary` says retry shortly and run
+# fewer at once; `failed` says look. An operator told to wait out an outage
+# loses exactly the time waiting was meant to save — and one told to wait out a
+# secondary limit waits minutes for a ceiling that cleared in seconds.
 HOST_VERDICT=unasked
 
 prefill_pr_states() {
@@ -604,6 +609,7 @@ prefill_pr_states() {
     # able to say so.
     case "$rc" in
       5) HOST_VERDICT=throttled ;;
+      6) HOST_VERDICT=secondary ;;
       4) HOST_VERDICT=unasked ;;
       *) case "$host_err" in
            # THE WORDING IS MEASURED, NOT GUESSED. An earlier version of this
@@ -2985,14 +2991,19 @@ branch_state() {
     # started this" is precisely the claim that went unverified. Handing out a
     # merged branch is what actually happened.
     #
-    # GATED ON THE TWO FAILURES ONLY, never on "not ok". `unasked` — no host
+    # GATED ON THE THREE FAILURES ONLY, never on "not ok". `unasked` — no host
     # configured, or --offline — must keep reading `open`: the scan was never
     # going to ask, so nothing was lost, and flipping every unstarted branch to
     # `unknown` on every offline scan would be a far larger change than the
     # defect. A question that was not put is not a question that went
     # unanswered.
+    #
+    # `secondary` GATES LIKE THE OTHER TWO, and its faster recovery is no reason
+    # to exempt it: the question was PUT and went unanswered, so this scan has
+    # no more evidence than a throttled one does. What the two limits differ in
+    # is what to DO about it, which is the note below and not this branch.
     case "$HOST_VERDICT" in
-      throttled|failed) echo "unknown"; return ;;
+      throttled|secondary|failed) echo "unknown"; return ;;
     esac
     echo "open"; return
   fi
@@ -3846,12 +3857,20 @@ fi
 # eligible: indistinguishable from work genuinely in flight, which is why this
 # has to be stated rather than left for a reader to infer from a quiet report.
 #
-# THE TWO WORDS GET DIFFERENT ADVICE because they need different responses.
+# THE THREE WORDS GET DIFFERENT ADVICE because they need different responses.
+# A spent quota returns at the reset, minutes away; a secondary limit clears in
+# seconds and is fixed by running fewer calls at once; an outage clears when
+# somebody looks at it.
 if [ "$HOST_VERDICT" = throttled ]; then
-  echo "  note: the git host was throttled, so no PR could be read. Every branch"
-  echo "        below reads from local evidence alone — a merged branch whose ref"
-  echo "        was deleted reads 'unknown', never 'open', and none was offered"
+  echo "  note: the git host's rate limit was spent, so no PR could be read. Every"
+  echo "        branch below reads from local evidence alone — a merged branch whose"
+  echo "        ref was deleted reads 'unknown', never 'open', and none was offered"
   echo "        to --next. The budget refills on a clock; re-run in a few minutes."
+elif [ "$HOST_VERDICT" = secondary ]; then
+  echo "  note: the git host refused a burst, not a spent budget, so no PR could be"
+  echo "        read. Every branch below reads from local evidence alone and none"
+  echo "        was offered to --next. This clears in seconds — re-run shortly, and"
+  echo "        run fewer scans at once rather than waiting for a reset."
 elif [ "$HOST_VERDICT" = failed ]; then
   echo "  note: the git host could not be reached, so no PR could be read. Every"
   echo "        branch below reads from local evidence alone, and a branch whose"

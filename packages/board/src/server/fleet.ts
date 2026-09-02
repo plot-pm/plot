@@ -39,7 +39,7 @@ import type { Host } from '@plot-pm/domain';
 // settles that every rendered or wired state is a domain property, and this one
 // is asserted as arithmetic in `packages/domain/test/cadence.test.ts` rather
 // than only observable through a live 60 s timer.
-import { refreshIntervalMs } from '@plot-pm/domain';
+import { localSpenders, refreshIntervalMs } from '@plot-pm/domain';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -564,6 +564,21 @@ export interface CacheEntry {
   runs: Map<string, StuckRun[]>;
   prAt: number | null;
   prError: string | null;
+  /**
+   * What the budget record said this account was spending at the last refresh,
+   * in requests an hour, or null where it could not be read.
+   *
+   * ALREADY READ, NOT ASKED AGAIN. `spendRateFor` runs once per refresh to
+   * divide the cadence, and this holds that same number so the banner can say
+   * how many spenders the record accounts for. A second read would be a second
+   * `bash` per refresh and, worse, a different number: the two would disagree
+   * whenever a line landed between them.
+   *
+   * NULL IS AN ABSENT MEASUREMENT, never an idle account — the same direction
+   * `spendRateFor` fails in. The banner then names the limit and invents no
+   * population.
+   */
+  prSpendPerHour: number | null;
   /**
    * Epoch ms before which the PR fetch must not fire again. Normally the
    * fetch's START plus `PR_REFRESH_MS`; pushed further out when the host
@@ -1980,6 +1995,10 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // failure is spaced exactly as a success is. Reading it after would also
   // count this refresh's own line, which the board is about to subtract anyway.
   const rate = await spendRateFor(opts);
+  // Held for the banner, which needs the SAME number the cadence divided by.
+  // Reading it again in the payload would be a second `bash` per refresh and a
+  // different answer whenever a line landed between the two reads.
+  entry.prSpendPerHour = rate?.perHour ?? null;
   try {
     const said = await scriptsFor(opts).hostSaid(['pr-list', '--rich',
       '--state', 'all', '--limit', String(PR_LIMIT)]);
@@ -2525,7 +2544,7 @@ export function freshCacheEntry(): CacheEntry {
     // and a restart re-derives liveness from git rather than trusting a set.
     autoInFlight: new Set(),
     deliverInFlight: new Set(),
-    prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null,
+    prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null, prSpendPerHour: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false, prIntervalMs: PR_REFRESH_MS,
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
@@ -6051,6 +6070,20 @@ export async function buildFleet(
     scanNextInSeconds:
       entry.at === null ? null : Math.max(0, Math.round((entry.at + REFRESH_MS - now) / 1000)),
     prError: entry.prError,
+    // HOW MANY SPENDERS THE RECORD ACCOUNTS FOR, computed here because this is
+    // where both halves of the quotient live: the observed rate the cadence
+    // already read, and the backend that decides what one refresh costs. A
+    // client dividing for itself would need `PR_REFRESH_MS` and the cost table,
+    // and would hold a second copy of arithmetic that must agree with the
+    // cadence's.
+    //
+    // Null where the record could not be read — the banner then names the limit
+    // and invents no population.
+    prSpenders: localSpenders(
+      entry.prSpendPerHour === null ? null : { perHour: entry.prSpendPerHour },
+      PR_REFRESH_MS,
+      prRequestsPerRefresh(entry.backend ?? 'github'),
+    ),
     // The inbox travels with its ANSWER, never alone: a consumer reading
     // `issues: []` without `issueAnswer` cannot tell an empty tracker from one
     // that was never reachable, and would render the second as the first.

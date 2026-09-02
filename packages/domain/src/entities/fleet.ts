@@ -677,9 +677,15 @@ export const FleetReadingSchema = z.object({
      * row — the whole fleet then reads unmerged and every wave stays blocked,
      * which is indistinguishable from work genuinely in flight.
      *
-     * THE TWO FAILURES ARE KEPT APART because they need different responses:
-     * `throttled` is a spent budget that refills on a clock, `failed` is a host
-     * that cannot be reached and will not clear by waiting.
+     * THE THREE FAILURES ARE KEPT APART because they need different responses:
+     * `throttled` is a spent budget that refills at a reset minutes away,
+     * `secondary` a burst refusal that clears in seconds and is fixed by
+     * lowering concurrency, `failed` a host that cannot be reached and will not
+     * clear by waiting.
+     *
+     * `secondary` arrived 2026-09-02. Before it the scan reported `throttled`
+     * for both limits, so an operator was told to wait out a ceiling that had
+     * already cleared — and told nothing about the one lever that helps.
      *
      * `.catch('unknown')` rather than a bare enum, because this field is
      * PARSED (`pulse-bridge.ts`) rather than cast: a word a later scan adds
@@ -693,7 +699,7 @@ export const FleetReadingSchema = z.object({
      * mid-stream, `EMPTY_SUMMARY` on a cold cache) are not made to assert a
      * health they have no evidence for.
      */
-    host: z.enum(['ok', 'throttled', 'failed', 'unknown']).catch('unknown').default('unknown'),
+    host: z.enum(['ok', 'throttled', 'secondary', 'failed', 'unknown']).catch('unknown').default('unknown'),
   }),
 });
 export type FleetReading = z.infer<typeof FleetReadingSchema>;

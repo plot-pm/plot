@@ -3308,6 +3308,27 @@ export const FleetSchema = z.object({
   scanNextInSeconds: z.number().nullable().default(null),
   prError: z.string().nullable(),
   /**
+   * How many spenders the budget record accounts for on this account, or null
+   * where the record could not be read.
+   *
+   * FOR THE SECONDARY-LIMIT BANNER, which is the one failure the number
+   * explains. A secondary limit is local contention — the fix is closing a
+   * board rather than waiting for GitHub — so the reader needs to know how many
+   * spenders are competing. A spent quota is an account ceiling one spender can
+   * reach alone, and naming a population there would point at the wrong lever.
+   *
+   * FROM THE RECORD, NEVER A HEADCOUNT. The spenders are eleven scripts, the
+   * board, and a person at a terminal; a count of board processes misses the
+   * scripts and a count of processes misses the person. `localSpenders` divides
+   * the observed rate by one spender's share, which is the same arithmetic the
+   * cadence divides by.
+   *
+   * Defaults to null so a client talking to an older server validates, and null
+   * is an ABSENT MEASUREMENT rather than an idle account: the banner then names
+   * the limit and invents no population.
+   */
+  prSpenders: z.number().nullable().default(null),
+  /**
    * Open tracker issues no plan references, for WAITING ON YOU.
    *
    * Beside `rows` rather than inside it — see `IssueRowSchema`. Defaults to []

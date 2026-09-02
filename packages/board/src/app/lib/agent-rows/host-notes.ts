@@ -1,3 +1,4 @@
+import { refusalKind, resetApplies } from '@plot-pm/domain';
 import {
   type AgentRow,
   type Fleet,
@@ -234,27 +235,35 @@ export const HOST_ANSWER_HINT: Record<Exclude<HostAnswer, 'answered'>, string> =
 };
 
 /**
- * The kind of a host failure — a rate limit is a THIRD state, never an outage.
+ * The kind of a host failure — FOUR states, because there are two limits.
  *
  * `2026-08-20-a-rate-limit-is-not-an-outage.md`: a spent budget is *partial,
  * temporary, and with a known end*; an unreachable host is none of those. The
  * note that reports the failure must not collapse the two into one word, so it
  * reads the kind here first.
  *
- * The signal is the message string, `/rate limit/i` — the SAME string the
- * backend keys on (`rateLimitBackoffMs` in fleet.ts). A shelled-out `gh` hands
- * back only its stderr, so both ends read the same words; a second, cleverer
- * detector on the client would be the place the two vocabularies drift, and the
- * note would say *outage* while the fetch was already backing off for a rate
- * limit. Anything the backend does NOT recognise as a rate limit is an outage
- * here too — the honest default, since a message that names no reset has no end
- * to promise.
+ * `secondary-limit` is the state this line did not have until 2026-09-02, when
+ * it was `/rate limit/i.test(error) ? 'rate-limited' : 'unreachable'` — one
+ * regex, mirroring the one `host_failure_kind` matched, so *"API rate limit
+ * exceeded"* and *"You have exceeded a secondary rate limit"* arrived as the
+ * same word. The board was not discarding a distinction; there was none to
+ * discard, and this slice makes it.
+ *
+ * THE CLASSIFICATION IS THE DOMAIN'S, not a second detector here. `refusalKind`
+ * decides, and this maps its three answers onto the words the notes already use
+ * — so a cleverer detector on the client cannot become the place the two
+ * vocabularies drift. Anything the domain does not recognise as a limit is an
+ * outage, the honest default: a message that names no reset has no end to
+ * promise.
  */
-export type HostErrorState = 'rate-limited' | 'unreachable';
+export type HostErrorState = 'rate-limited' | 'secondary-limit' | 'unreachable';
 
 export function hostErrorState(error: string | null): HostErrorState | null {
-  if (!error) return null;
-  return /rate limit/i.test(error) ? 'rate-limited' : 'unreachable';
+  const kind = refusalKind(error);
+  if (kind === null) return null;
+  if (kind === 'quota') return 'rate-limited';
+  if (kind === 'secondary') return 'secondary-limit';
+  return 'unreachable';
 }
 
 /**
@@ -291,10 +300,24 @@ function agePhrase(ageSeconds: number | null): string | null {
 /**
  * The PR footer note — one sentence, or null when the host answered.
  *
- * TWO shapes for TWO failures, which is the whole branch. An unreachable host
- * keeps the exact wording `an-outage-is-not-an-answer` settled — *PR data
+ * THREE shapes for THREE failures, which is the whole branch. An unreachable
+ * host keeps the exact wording `an-outage-is-not-an-answer` settled — *PR data
  * unavailable (…) — the two groups above that depend on it may be incomplete.*
- * A rate limit is not unavailable: it says so, and names when service returns.
+ * A spent quota is not unavailable: it says so, and names when service returns.
+ * A secondary limit is neither, and it is the case added on 2026-09-02.
+ *
+ * THE RESET IS PRINTED ONLY WHERE IT DESCRIBES THE LIMIT THAT REFUSED. Until
+ * 2026-09-02 this printed `service returns in ~${when}` from `prNextInSeconds`
+ * whatever the failure was. On a secondary limit that number is about the
+ * primary bucket — a different ceiling — and the advice it implies, wait, is
+ * the opposite of what helps: the limit clears in seconds while the banner
+ * counsels minutes. `resetApplies` is what decides, in the domain.
+ *
+ * THE SECONDARY WORDING NAMES THE POPULATION, because that is the lever. The
+ * fix for local contention is closing a board, not waiting for GitHub, and a
+ * reader told only *too many at once* has nothing to act on. The count comes
+ * from the record — `prSpenders` — and is omitted where the record could not be
+ * read, rather than guessed.
  *
  * THE BANNER NAMES THE AGE of the data still on screen (Done-when item 10).
  * The catch keeps the last good map rather than blanking it — a deliberate
@@ -303,13 +326,37 @@ function agePhrase(ageSeconds: number | null): string | null {
  *
  * Exported for test — the wording is the contract with the reader.
  */
-export function prNote(fleet: Pick<Fleet, 'prError' | 'prNextInSeconds' | 'prAgeSeconds'>): string | null {
+export function prNote(
+  fleet: Pick<Fleet, 'prError' | 'prNextInSeconds' | 'prAgeSeconds'> & Partial<Pick<Fleet, 'prSpenders'>>,
+): string | null {
+  const refusal = refusalKind(fleet.prError);
   const kind = hostErrorState(fleet.prError);
   if (kind === null) return null;
   const age = agePhrase(fleet.prAgeSeconds);
   const ageSuffix = age ? ` — showing data from ${age} ago` : '';
+  // ASKED OF THE DOMAIN, ONCE, FOR BOTH BRANCHES. `resetApplies` is what says a
+  // reset describes the limit that refused, and reading it here rather than
+  // inside the quota branch is what makes the rule govern every wording rather
+  // than the one that happens to print a time today.
+  const when = resetApplies(refusal) ? resetPhrase(fleet.prNextInSeconds) : null;
+  if (kind === 'secondary-limit') {
+    // `prSpenders` is CAST rather than parsed on the client, so a payload from
+    // a server that predates the field arrives as `undefined` — the
+    // `fleetControls` lesson from 2026-08-22, which a Zod `.default()` does not
+    // save because it fires only at parse time. An absent count and an
+    // unreadable record say the same thing here, and both omit the clause.
+    const spenders = fleet.prSpenders ?? null;
+    return (
+      'PR data paused: the host refused a burst, not a spent budget' +
+      (spenders === null
+        ? ''
+        : `, and this computer has ${spenders} ${spenders === 1 ? 'spender' : 'spenders'} on the account`) +
+      (when ? `, service returns in ~${when}` : '') +
+      ageSuffix +
+      ' — it clears in seconds; close a board rather than wait.'
+    );
+  }
   if (kind === 'rate-limited') {
-    const when = resetPhrase(fleet.prNextInSeconds);
     return (
       "PR data paused: the host's rate limit is spent" +
       (when ? `, service returns in ~${when}` : '') +
@@ -331,12 +378,26 @@ export function prNote(fleet: Pick<Fleet, 'prError' | 'prNextInSeconds' | 'prAge
  * claims a check that ran and failed, and a rate limit ran no check — so it
  * must not borrow that wording. The issue poll shares the PR gate (`prNextAt`),
  * so `prNextInSeconds` is its reset too.
+ *
+ * A SECONDARY LIMIT BORROWS THE REFUSED WORDING AND NOT THE RESET. It refused
+ * the same way a spent budget did, so *could not be read* is as wrong here as
+ * there; but `prNextInSeconds` is the primary bucket's reset and says nothing
+ * about a ceiling on simultaneous calls. `resetApplies` is what decides.
  */
 export function issueNote(fleet: Pick<Fleet, 'issueError' | 'prNextInSeconds'>): string | null {
   const kind = hostErrorState(fleet.issueError);
   if (kind === null) return null;
+  const when = resetApplies(refusalKind(fleet.issueError))
+    ? resetPhrase(fleet.prNextInSeconds)
+    : null;
+  if (kind === 'secondary-limit') {
+    return (
+      'Open issues paused: the tracker refused a burst, not a spent budget' +
+      (when ? `, service returns in ~${when}` : '') +
+      ' — it clears in seconds; this list may be incomplete.'
+    );
+  }
   if (kind === 'rate-limited') {
-    const when = resetPhrase(fleet.prNextInSeconds);
     return (
       "Open issues paused: the tracker's rate limit is spent" +
       (when ? `, service returns in ~${when}` : '') +
@@ -373,12 +434,13 @@ export type ScanHostVerdict = Fleet['summary']['host'];
 /**
  * The scan-host note — one sentence, or null when the scan's host answered.
  *
- * TWO WORDS, TWO SENTENCES, because they need different responses: a spent
- * budget refills on a clock and the reader should wait, an unreachable host
- * will not clear by waiting and the reader should look. Collapsing them into
- * one *host problem* sentence sends half of readers to the wrong errand — the
- * distinction the scan went to the trouble of drawing, thrown away at the last
- * step.
+ * THREE WORDS, THREE SENTENCES, because they need different responses: a spent
+ * budget refills at a reset and the reader should wait, a secondary limit
+ * clears in seconds and the reader should run fewer scans at once, an
+ * unreachable host will not clear by waiting and the reader should look.
+ * Collapsing them into one *host problem* sentence sends two thirds of readers
+ * to the wrong errand — the distinction the scan went to the trouble of
+ * drawing, thrown away at the last step.
  *
  * BOTH NAME THE CONSEQUENCE, not just the cause. "The host was throttled" is a
  * fact about an API; what a reader actually needs is why the board looks quiet
@@ -400,6 +462,12 @@ export function scanHostNote(
     return "Fleet scan blind: the git host's rate limit was spent, so no PR could be read."
       + ' Every branch below reads from local evidence alone and none was offered to'
       + ' --next — the budget refills on a clock, so a later scan will say more.';
+  }
+  if (host === 'secondary') {
+    return 'Fleet scan blind: the git host refused a burst, not a spent budget, so no PR'
+      + ' could be read. Every branch below reads from local evidence alone and none was'
+      + ' offered to --next — it clears in seconds, so run fewer scans at once rather'
+      + ' than waiting for a reset.';
   }
   if (host === 'failed') {
     return 'Fleet scan blind: the git host could not be reached, so no PR could be read.'

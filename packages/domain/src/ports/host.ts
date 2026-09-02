@@ -28,11 +28,17 @@ export type MergedAnswer = 'merged' | 'not-merged' | 'unknown';
 /**
  * What a call observed about the host's willingness to answer.
  *
- * `throttled` is the word `plot-host.sh` already classifies stderr into — a
- * rate limit, primary or secondary. It is evidence about the real ceiling, and
- * the only evidence a connector with no limit API ever gets.
+ * `throttled` is a SPENT QUOTA — the window's requests are gone. It is evidence
+ * about the real ceiling, and the only evidence a connector with no limit API
+ * ever gets.
+ *
+ * `secondary` is a burst refusal, and it is deliberately a THIRD word rather
+ * than a second name for the first. A secondary limit bounds requests AT ONCE
+ * and says nothing about the hourly ceiling, so lowering a per-hour prediction
+ * on it would correct a number the refusal is not evidence about — see
+ * {@link correctForRefusal}, which moves only on `throttled`.
  */
-export type LimitObservation = 'ok' | 'throttled';
+export type LimitObservation = 'ok' | 'throttled' | 'secondary';
 
 /**
  * Why the last call did not answer, and in the connector's own words.
@@ -44,16 +50,23 @@ export type LimitObservation = 'ok' | 'throttled';
  * sentence is the only place the number appears.
  *
  * So the refusal travels beside the result rather than inside it. `throttled`
- * is the word `plot-host.sh` already classifies stderr into (exit 5) and is
- * the one refusal worth waiting for; `failed` is every other non-zero exit, a
- * DNS blip or an auth error, which a wait does not fix.
+ * is a spent quota (exit 5), `secondary` a burst refusal (exit 6), and `failed`
+ * every other non-zero exit — a DNS blip or an auth error, which a wait does
+ * not fix.
+ *
+ * THE TWO LIMITS ARE KEPT APART BECAUSE THEY RECOVER DIFFERENTLY. A spent quota
+ * returns at the reset the response carries, minutes away; a secondary limit
+ * clears in seconds and carries no reset. A caller handed one word for both
+ * waits minutes for a limit that cleared, or retries in seconds into an empty
+ * bucket — and the banner that reports it prints a reset about a ceiling that
+ * was never the one hit.
  *
  * `said` is verbatim. The board renders it to an operator, and a summarised
  * refusal names neither the script that broke nor the path it could not read.
  */
 export interface HostRefusal {
-  /** `throttled` is a rate limit; `failed` is everything else. */
-  kind: 'throttled' | 'failed';
+  /** `throttled` is a spent quota, `secondary` a burst; `failed` is everything else. */
+  kind: 'throttled' | 'secondary' | 'failed';
   /** What the connector said, verbatim. */
   said: string;
 }
