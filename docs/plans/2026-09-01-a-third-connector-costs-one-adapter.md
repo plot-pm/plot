@@ -116,7 +116,7 @@ gain. **This plan waits on `bug/the-budget-knows-which-bucket-it-spent`.**
 
 ### Proving it
 
-- `feature/a-third-connector-needs-no-domain-edit` — a fixture connector with a name the domain has never seen, driven end to end through the `Host` port, asserting that **no file under `packages/domain/src/` names it**. The gate the spec's claim needs: without it, *"adding a connector is an adapter change"* is prose that the next enum quietly falsifies.
+- `feature/a-third-connector-needs-no-domain-edit` → #665 — a fixture connector with a name the domain has never seen, driven end to end through the `Host` port, asserting that **no file under `packages/domain/src/` names it**. The gate the spec's claim needs: without it, *"adding a connector is an adapter change"* is prose that the next enum quietly falsifies.
 
 ## Done when
 
