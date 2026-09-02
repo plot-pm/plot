@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-02, Jan Wloka, in-session
 - **Started:** 2026-09-02, Jan Wloka, `bug/a-thinking-agent-has-a-quiet-stretch`
+- **Started:** 2026-09-02, Jan Wloka, `bug/the-loop-reads-the-agents-own-stream`
 
 ## Changelog
 
