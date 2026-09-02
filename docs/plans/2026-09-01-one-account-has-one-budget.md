@@ -673,7 +673,7 @@ comes first**, because five branches write to it.
 
 ### Budgeting each bucket by name
 
-- `bug/the-budget-knows-which-bucket-it-spent` — the record from slice 1 is keyed by bucket (`core`, `graphql`, and whatever `X-RateLimit-Resource` names), read from the response headers of calls that were going to happen rather than from `gh api rate_limit`, which was measured reporting 5000 while the headers reported 0. Fixes `graphql_budget_spent()` in the same slice: a gate that cannot see the condition it gates on is worse than no gate, because it reports safety.
+- `bug/the-budget-knows-which-bucket-it-spent` → #661 — the record from slice 1 is keyed by bucket (`core`, `graphql`, and whatever `X-RateLimit-Resource` names), read from the response headers of calls that were going to happen rather than from `gh api rate_limit`, which was measured reporting 5000 while the headers reported 0. Fixes `graphql_budget_spent()` in the same slice: a gate that cannot see the condition it gates on is worse than no gate, because it reports safety.
 
 ### Waiting for the reset
 
