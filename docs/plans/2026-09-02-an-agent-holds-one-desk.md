@@ -140,10 +140,6 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 - `feature/an-agent-decides-create-or-reset` — the agent takes both ends of its desk's life. `plot-worker-loop.sh:723` stops creating a desk per branch; the agent resets the tree it holds where the tree allows, and creates one only where it does not. The old desk stops being abandoned because it is the same desk. (#671)
 
-### Handing work over
-
-- `feature/the-registry-queues-a-brief` <!-- waits: feature/the-registry-supervises-its-agents --> — dispatch hands slice + brief to the registry and returns; the registry matches on the free event. **Waits on the daemon**, because `readAgentRegistry` is a read and cannot hold work for anyone. `plot-dispatch.sh:2503` stops calling `git worktree add`, and the brief gate at `:2555` moves to the hand-over rather than the launch.
-
 ### Sweeping what was overlooked
 
 - `feature/the-sweep-names-every-leftover` — extend the estate sweep past worktrees. **Measured 2026-09-02: 85 of 98 local branches already merged, and nothing sweeps them** — the largest leftover population here, and the one no script looks at. Orphaned claim refs and unowned dirty trees are the same shape: something nobody is coming back for, with no actor. Keep the reaper's five refusals and its per-kind licence. A local branch is deleted on two measurements — the host says merged, and no worktree holds it — never on `git branch -d` alone, which refuses a squash-merged branch for the wrong reason.
@@ -151,6 +147,10 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 ### Saying so in the specs
 
 - `docs/the-desk-belongs-to-the-agent` — amend the two sentences this plan contradicts. `DESIGN-worktree.md:60` says the dispatcher creates the desk; the agent does. `DESIGN-branch.md:52` says the push is *the whole* locking mechanism; it stops being that the moment the registry assigns, and becomes a backstop that should never fire. Record the measurement that settled the first and the reasoning that demoted the second — neither sentence was wrong when written.
+
+### Handing work over
+
+- `feature/the-registry-queues-a-brief` <!-- waits: feature/the-registry-supervises-its-agents --> — dispatch hands slice + brief to the registry and returns; the registry matches on the free event. **Waits on the daemon**, because `readAgentRegistry` is a read and cannot hold work for anyone. `plot-dispatch.sh:2503` stops calling `git worktree add`, and the brief gate at `:2555` moves to the hand-over rather than the launch.
 
 ## Notes
 
@@ -171,5 +171,9 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 **Round 2, 2026-09-02, in-session.** One challenge answered, three left open above.
 
 The answered one: *"the registry should be the assignment lock — why two locking mechanisms?"* Because the plan had not said which one wins. It does now: the registry assigns and is the only lock, `--offline --next` goes, and git's refusal is demoted to a backstop that cannot be removed and should never fire. The consequence worth catching is small and specific — a rejected claim push is currently treated as routine at `plot-worker-loop.sh:729`, and under this model it is a registry bug reporting itself.
+
+**The gated wave moved to last, 2026-09-03.** *Handing work over* was written third, and it carries `waits: feature/the-registry-supervises-its-agents` — a branch with no PR yet. Waves are sequential, so an eligible-but-blocked wave 3 held waves 4 and 5 behind it although neither depends on it: the dispatch after wave 2 merged offered the blocked branch, refused it correctly, and started nothing.
+
+**A `waits:` annotation and a wave position are different orderings, and a plan must not use the first where it means the second.** The annotation says *this branch needs another branch*; the position says *this wave needs the wave before it*. Putting a cross-plan dependency in the middle of a sequence makes every later wave inherit it. So the branch that waits goes last, where its own gate is the only thing it blocks.
 
 **What is NOT in scope.** The `Slice`/`Wave` naming defect (`CLAUDE.md` records it as known, with its own plan) is untouched here, though this plan's branches sit next to it. So is the `HostBackend` layering exception — a different plan closed that today.
