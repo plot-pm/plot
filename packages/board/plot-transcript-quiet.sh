@@ -116,6 +116,19 @@ plot_transcript_quiet_seconds() { # $1=worktree → seconds | unavailable
 # A file's modification time as a unix epoch. BSD and GNU `stat` disagree on the
 # flag, and a monitor that works on the author's laptop and not in CI is a
 # monitor nobody trusts.
+#
+# THE `||` IS NOT ENOUGH, AND CI MEASURED WHY. On Linux `stat -f` is not an
+# unknown flag — it means FILESYSTEM info, and it SUCCEEDS. So the BSD form
+# never falls through: it printed `Namelen: 255  Type: ext2/ext3` and the
+# caller subtracted that from a clock. Two of this branch's own tests failed on
+# it, 2026-09-02, having passed on macOS.
+#
+# So the answer is validated rather than trusted. Each form must yield digits;
+# anything else is treated as that form not being available here.
 plot_transcript_mtime() { # $1=file → epoch seconds
-  stat -f '%m' "$1" 2>/dev/null || stat -c '%Y' "$1" 2>/dev/null
+  local m
+  m=$(stat -c '%Y' "$1" 2>/dev/null)
+  case "$m" in ''|*[!0-9]*) m=$(stat -f '%m' "$1" 2>/dev/null) ;; esac
+  case "$m" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$m"
 }
