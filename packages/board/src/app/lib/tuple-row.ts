@@ -16,6 +16,7 @@
 // It carries no React, so the unit suite tests it as data — which is the other
 // half of why the collapse was cheap: the hard decisions were testable without
 // a browser, and the browser only had to confirm a layout.
+import { isAgentFree } from '@plot-pm/domain';
 import type { AgentEntry, AgentRow, IssueRow, RowKind, SliceVerdict } from '../../contract/schema.js';
 
 /**
@@ -884,6 +885,40 @@ export function agentStateStatus(state: AgentEntry['state']): string {
     case 'unknown': return 'unknown';
     default: return '';
   }
+}
+
+/**
+ * Whether this agent can take the next slice — the SECOND question about a
+ * registry row, and the one its state cannot answer.
+ *
+ * `DESIGN-agent.md:483` names the gap: *"The process states do not say whether
+ * an agent is free."* Both words a reader reaches for are wrong on their own.
+ * **`running` is not busy** — an agent between slices is running with no branch
+ * and is available, so it renders `running` from {@link agentStateStatus} and
+ * `free` from here at the same time, and both are true. **`finished` is not
+ * free** — its worker exited, so there is nothing to hand work to.
+ *
+ * THE DERIVATION IS THE DOMAIN'S. This asks `isAgentFree` and chooses a word;
+ * a `free` computed here could only be tested by rendering, which is the
+ * Layering Rule's own example of what not to do.
+ *
+ * A SEPARATE FUNCTION RATHER THAN A WIDER {@link agentStateStatus}, because the
+ * two answer different questions from different inputs. The state word reads
+ * `state` alone — what the process is doing — while availability needs the
+ * slice too. Collapsing them would make a row that says *what is it doing?*
+ * depend on a fact about the fleet's merges, and there is no word that says
+ * both.
+ *
+ * @param agent The registry entry — its state and the branch it holds.
+ * @param sliceHasMerged Whether the branch it holds has landed; the caller
+ *                       sources this from the pulse, never from the host.
+ * @returns `'free'` when the agent can take a slice, else `''`.
+ */
+export function agentAvailability(
+  agent: Pick<AgentEntry, 'state' | 'branch'>,
+  sliceHasMerged: boolean,
+): string {
+  return isAgentFree({ state: agent.state, branch: agent.branch, sliceHasMerged }) ? 'free' : '';
 }
 
 /**
