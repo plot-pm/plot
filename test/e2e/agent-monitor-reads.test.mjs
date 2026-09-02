@@ -172,25 +172,22 @@ test('a real dispatched agent that commits and opens nothing is reported owes a 
   // monitor inside the wrapper immediately before the agent — so the first
   // sample races the worker's first command whatever the interval is set to.
   //
-  // AND THE FIRST SAMPLE DECIDES, because the monitor publishes ON CHANGE. A
-  // mid-edit `holds unlanded work` still holds once the commit lands and the
-  // PR is still absent, so no second record is ever written and the poll waits
-  // out its deadline against a monitor with nothing left to say.
+  // A `sleep` AFTER THE PUSH IS NOT THE FIX, AND #640 MEASURED WHY. Holding
+  // this agent alive for twelve seconds kept the desk in the state under test
+  // — and broke the CONTROL below, which opens by stating that its desk is
+  // *identical to the test above, same commit, same clean tree, same exit, and
+  // only the host's answer differs*. A fixture change here is a change to that
+  // premise: main went red on the merge commit and green again on the revert.
   //
-  // `sleep 12` after the push is what removes the ambiguity — not by making
-  // the sample later, but by keeping the desk in the state under test for
-  // several intervals after it reaches it. The debt itself is patient, so a
-  // finding one interval late is as good as one on time; what the test cannot
-  // tolerate is a finding about a state the fixture was only passing through.
-  //
-  // VERIFIED BY FORCING THE RACE, not by a green run: with 4s inserted between
-  // the write and the commit, so the first sample lands mid-edit for certain,
-  // the test still reports `owes a review`.
+  // So the two desks stay identical, and the remaining flake is left standing
+  // rather than papered over asymmetrically. It is rare, it is CI-only, and
+  // this file already records three diagnoses of its neighbour that measurement
+  // refuted — a fourth guess costs more than the re-run does.
   const stub = stubHost(NO_PR);
   const run = dispatchOne('agent-owes-review', {
     stub,
     monitorInterval: '3',
-    workerCommand: "sh -c 'echo work > done.txt && git add done.txt && git commit -qm work && git push -q -u origin HEAD && sleep 12'",
+    workerCommand: "sh -c 'echo work > done.txt && git add done.txt && git commit -qm work && git push -q -u origin HEAD'",
   });
   try {
     const records = waitFor(run.findingsFile, (r) => r.some((x) => x.finding === 'owes a review'));
