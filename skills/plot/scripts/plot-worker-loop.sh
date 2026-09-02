@@ -50,6 +50,23 @@ repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || repo_root="."
 
 cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 
+# THE TRANSCRIPT READER, sourced for the MESSAGE and for nothing else. The loop
+# ends a worker on a signal from a watcher; this file is asked one question,
+# once, after that has already happened: *could the reading have been made at
+# all?* It sets no flag, ends nothing, and is not consulted on any path where
+# the worker keeps running.
+#
+# IT IS THE MONITOR'S OWN READER. `plot-worker-monitor.sh` sources the same
+# file to answer the same question, so the loop reports what the monitor saw
+# rather than a second opinion — a message naming a reading the monitor never
+# made would be worse than the one it replaces.
+#
+# ITS ABSENCE IS ITS OWN ANSWER. `[ -r ]` guards the source because a missing
+# reader is exactly the `unavailable` case: an adopting project whose checkout
+# predates wave 2 reads as *nobody could tell*, which is true.
+# shellcheck source=plot-transcript-quiet.sh
+[ -r "$script_dir/plot-transcript-quiet.sh" ] && . "$script_dir/plot-transcript-quiet.sh"
+
 # THE FLOOR UNDER A SINGLE PROMPT RUN, in seconds — and a FLOOR is all it is
 # as of 2026-08-30. A worker whose agent process hangs — the `Error: No messages
 # returned` rejection inside the CLI, which leaves the process alive but never
@@ -121,6 +138,18 @@ case "$MONITOR_POLL_SECONDS" in (*[!0-9]*|''|0) MONITOR_POLL_SECONDS=5 ;; esac
 # kill was always making. The seam stays because it is cheap and because an
 # operator who wants `Worker bound` alone should be able to have it — but it is
 # no longer the workaround for a reading that could not be trusted.
+#
+# SO WHAT `0` NOW COSTS IS THE OPPOSITE OF WHAT IT SAVED, and an operator
+# choosing it should be told which trade they are making. Against the old rule
+# it bought back seven desks' work at the price of a stuck agent holding one for
+# eight hours. Against the transcript reading it buys nothing that reading does
+# not already give, and it spends the ending that names *the agent went quiet* —
+# every worker then reaches the floor, so the log says the bound expired for a
+# desk whose agent measurably stopped, and the difference the three sentences
+# below exist to draw is flattened back to one. `2026-09-01-an-idle-agent-is-not
+# -a-stalled-one` keeps it as an escape rather than removing it, because a
+# default flipped under a running fleet is a second failure — not because there
+# is a fleet it is still the right answer for.
 MONITOR_ENDS_WORKER="${PLOT_MONITOR_ENDS_WORKER:-1}"
 case "$MONITOR_ENDS_WORKER" in (0|1) ;; (*) MONITOR_ENDS_WORKER=1 ;; esac
 
@@ -405,6 +434,43 @@ monitor_says_idle() { # → 0 idle | 1 not idle (or nothing to read)
   return 1
 }
 
+# Could the agent's transcript be read for this worktree at all? `yes` | `no`.
+#
+# THE THIRD READING'S ONLY QUESTION. Wave 2 made `unavailable` a first-class
+# answer and the monitor honours it by publishing NOTHING — it reports `unknown`
+# and leaves the ending to `Worker bound`. That is deliberate and this slice does
+# not touch it. But it means the loop reaches its floor by two different routes
+# that were indistinguishable in the log: a monitor that measured and stayed
+# silent, and a monitor that could never measure at all.
+#
+# ASKED ONCE, AFTER THE ENDING, ON THE FLOOR'S PATH ONLY. It sets no flag and
+# gates nothing; a `no` here changes one sentence in one message. So the cost is
+# one `stat` per ended worker, and a slow or wrong answer costs prose rather than
+# work — which is why this may ask directly where the end condition may not.
+#
+# IT CLASSIFIES EXACTLY AS THE MONITOR DOES, and that is the whole
+# requirement. `sample_verdict` reaches `unknown` — the state that publishes
+# nothing and leaves the ending to the bound — on an empty answer and on a
+# non-numeric one as well as on the word itself (`plot-worker-monitor.sh:497`).
+# A digit is the only answer that means a reading was made. So the digit is what
+# this matches, and every other answer is `no`; matching only the literal word
+# would report *the reading was available* for a reader that failed silently,
+# which is the sentence this slice exists to stop printing.
+#
+# THE ANSWER IS ABOUT NOW, NOT ABOUT THE RUN. A transcript deleted between the
+# ending and this call reads `unavailable` though the monitor saw one all along.
+# That window is the seconds between a signal and a message, and the correction
+# it would need — recording each pass's availability across a run — is a fact the
+# monitor holds and does not publish. The narrower claim is left as the honest
+# one rather than plumbing a channel for a sentence.
+ended_reading_available() { # → yes | no
+  command -v plot_transcript_quiet_seconds >/dev/null 2>&1 || { printf 'no'; return 0; }
+  case "$(plot_transcript_quiet_seconds "${PLOT_WORKTREE:-$PWD}" 2>/dev/null)" in
+    ''|*[!0-9]*) printf 'no' ;;
+    *)           printf 'yes' ;;
+  esac
+}
+
 # A WATCHER FIRED. Either the floor's watchdog (SIGALRM) or the monitor watcher
 # (SIGUSR1) sent a signal; record which, and end the prompt (and the agent CLI
 # it spawned). The flag is what `run_bounded` reads after `wait` returns to tell
@@ -574,20 +640,53 @@ while true; do
   # is `a-hung-child-does-not-hold-the-loop`'s 2026-08-25 property, and this
   # slice changed the READING rather than the protection.
   if ! run_bounded; then
-    # THE MESSAGE NAMES WHICH READING ENDED IT, because the two mean opposite
-    # things about the work in the worktree. A monitor verdict says the agent
-    # measurably stopped — alive, committed, no CPU, tree unchanged across two
-    # passes — so the worktree holds finished-looking work worth rescuing. The
-    # floor says only that time passed, and fires ONLY when the monitor itself
-    # went silent, so nobody knows what state the desk is in. An operator
-    # reading `.plot-worker.log` triages those differently, and before this
-    # slice both printed the same sentence.
+    # THE MESSAGE NAMES WHICH READING ENDED IT, because the three mean
+    # different things about the work in the worktree and an operator reading
+    # `.plot-worker.log` triages them differently:
+    #
+    #   the agent went quiet   a verdict. The agent is alive, has committed, its
+    #                          transcript has been silent past the window and
+    #                          nothing burned CPU behind it, across two passes.
+    #                          The desk holds finished-looking work worth
+    #                          rescuing.
+    #   the bound expired      only that time passed. The floor fires when the
+    #                          monitor itself went silent, so nobody knows what
+    #                          state the desk is in — but the reading WAS
+    #                          available and said nothing.
+    #   nobody could tell      no transcript can be read for this worktree, so
+    #                          no reading distinguishes thinking from stuck. The
+    #                          bound ended it and the reason is an ABSENCE.
+    #
+    # THE THIRD IS NEW WITH WAVE 2 and had no sentence before this slice: it
+    # printed the bound's, which claims a measurement was made and came back
+    # empty. `the-registry-supervises-its-agents` settles that an unprovided
+    # capability is `unavailable` rather than failed or zero, and a log that
+    # collapses it into a bound expiry hides that Plot never had the reading —
+    # which is an adopter's `.plot/worker-prompt.sh` to fix, not an agent's.
+    #
+    # BOTH FLOOR ARMS STILL SAY "exceeded the Ns bound", and that is not a
+    # leftover. The bound genuinely expired in both — it is what ended the
+    # worker either way — and the two differ in what was known WHILE it ran, not
+    # in what stopped it. A reader grepping for the bound must find every worker
+    # the bound ended, so the phrase stays on both and the leading clause is what
+    # separates them.
     case "$_ended_by" in
       monitor)
-        echo "plot-worker-loop: the WorkerMonitor reported idle on ${PLOT_BRANCH:-?} — the agent is alive and has committed but its transcript has been silent past the window with nothing burning CPU behind it, across two passes; ending worker without hopping" >&2
+        echo "plot-worker-loop: the agent went quiet on ${PLOT_BRANCH:-?} — the WorkerMonitor reported idle: the agent is alive and has committed but its transcript has been silent past the window with nothing burning CPU behind it, across two passes; ending worker without hopping" >&2
         ;;
       *)
-        echo "plot-worker-loop: prompt exceeded the ${WORKER_BOUND_SECONDS}s bound on ${PLOT_BRANCH:-?} — no monitor finding said why; ending worker without hopping" >&2
+        # THE TRANSCRIPT IS ASKED ONLY HERE, on the floor's path, and only to
+        # tell the second reading from the third. The monitor watcher fired on
+        # neither, so nothing about the ending changes — this decides one
+        # sentence.
+        case "$(ended_reading_available)" in
+          no)
+            echo "plot-worker-loop: nobody could tell on ${PLOT_BRANCH:-?} — no transcript could be read for this worktree, so no reading distinguishes a thinking agent from a stopped one; the prompt exceeded the ${WORKER_BOUND_SECONDS}s bound and that is an absence of a reading, not a measurement. Pass --session-id from .plot/worker-prompt.sh to make the reading available; ending worker without hopping" >&2
+            ;;
+          *)
+            echo "plot-worker-loop: the bound expired on ${PLOT_BRANCH:-?} — the prompt exceeded the ${WORKER_BOUND_SECONDS}s bound with the agent's transcript readable, and no monitor finding said why; ending worker without hopping" >&2
+            ;;
+        esac
         ;;
     esac
     exit 124
