@@ -887,3 +887,191 @@ test('worker-loop: no declaration is written for a branch the loop cannot name',
     discard(dir);
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THREE ENDINGS, THREE SENTENCES
+// `docs/plans/2026-09-01-an-idle-agent-is-not-a-stalled-one.md`, wave
+// `Saying what happened`.
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// A worker can stop for three reasons that need three different moves, and two
+// of them reached the floor by different roads and printed one sentence:
+//
+//   the agent went quiet   a monitor verdict. The desk holds finished-looking
+//                          work worth rescuing.
+//   the bound expired      the reading WAS available and said nothing. Nobody
+//                          knows what state the desk is in.
+//   nobody could tell      no transcript can be read for this worktree, so no
+//                          reading distinguishes thinking from stuck. The
+//                          reason is an ABSENCE, and it is the ADOPTER'S
+//                          `.plot/worker-prompt.sh` to fix rather than the
+//                          agent's work to inspect.
+//
+// THE THIRD IS WAVE 2's OWN FALLBACK REPORTING ITSELF. `sample_verdict` turns
+// `unavailable` into `unknown`, publishes nothing, and lets `Worker bound` end
+// the worker — deliberately, and this slice does not touch it. What it changes
+// is that the log then said *"no monitor finding said why"*, which is literally
+// true and hides that the monitor could never have said anything on that desk.
+//
+// THE TRANSCRIPT HOME IS THE LEVER, and it is the honest one. The reading joins
+// a worktree to `$HOME/.claude/projects/<slug>` by path
+// (`plot-transcript-quiet.sh`), and `PLOT_TRANSCRIPT_HOME` overrides the root.
+// Pointing it at a directory holding the right slug is a desk WITH a readable
+// transcript; pointing it at an empty one is a desk without — which is the
+// configuration Plot cannot control and the plan's Done-when names.
+
+/**
+ * A transcript home for `dir`, holding `hasTranscript` sessions for it.
+ *
+ * The slug is the worktree path with `/` and `.` replaced by `-`, which is the
+ * runtime's own derivation and is duplicated in three places on purpose
+ * (`plot-transcript-quiet.sh` says why). Spelling it a fourth time here rather
+ * than sourcing the shell keeps the test independent of the thing under test:
+ * a loop that read the WRONG slug would still pass a test that asked the loop
+ * for the slug.
+ *
+ * Returns the home path; the caller discards it.
+ */
+function transcriptHome(dir, { hasTranscript }) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-tqhome-'));
+  if (hasTranscript) {
+    const slug = dir.replace(/[/.]/g, '-');
+    const d = path.join(home, '.claude', 'projects', slug);
+    fs.mkdirSync(d, { recursive: true });
+    // Content is never parsed — the mtime IS the reading — so one line of
+    // anything is a transcript for this purpose.
+    fs.writeFileSync(path.join(d, 'session.jsonl'), '{"type":"user"}\n');
+  }
+  return home;
+}
+
+// The floor's FIRST arm — the reading was there and stayed silent.
+test('worker-loop: a readable transcript makes the floor say the bound expired', serial, async () => {
+  const secs = 71;
+  reap(secs);
+  const dir = fixture('floor-readable', 1, `sleep ${secs}\n`);
+  const home = transcriptHome(dir, { hasTranscript: true });
+  try {
+    const r = await runLoop(dir, { env: { PLOT_TRANSCRIPT_HOME: home } });
+    assert.equal(r.code, 124, `the floor ended it\n--- stderr ---\n${r.stderr}`);
+    assert.match(r.stderr, /the bound expired/,
+      'the floor names its own reading rather than borrowing another');
+    assert.match(r.stderr, /exceeded the 1s bound/,
+      'and still carries the phrase a reader greps for');
+    assert.doesNotMatch(r.stderr, /nobody could tell/,
+      'a desk whose transcript CAN be read is not an unmeasurable one');
+  } finally {
+    reap(secs);
+    fs.rmSync(home, { recursive: true, force: true });
+    discard(dir);
+  }
+});
+
+// The floor's SECOND arm — the plan's Done-when, asserted against the
+// configuration Plot cannot control: an adopter's prompt that passes no
+// `--session-id`, so no transcript exists for the desk at all.
+test('worker-loop: with no readable transcript the floor says nobody could tell', serial, async () => {
+  const secs = 72;
+  reap(secs);
+  const dir = fixture('floor-unreadable', 1, `sleep ${secs}\n`);
+  // A home that exists and holds NOTHING for this worktree. Not a missing
+  // directory: the runtime creates the project directory on first open, so
+  // "exists but empty" is the shape a real unconfigured desk has, and
+  // `plot_transcript_quiet_seconds` answers `unavailable` for both.
+  const home = transcriptHome(dir, { hasTranscript: false });
+  try {
+    const r = await runLoop(dir, { env: { PLOT_TRANSCRIPT_HOME: home } });
+    assert.equal(r.code, 124, `the bound is still what ends it\n--- stderr ---\n${r.stderr}`);
+    assert.match(r.stderr, /nobody could tell/, 'the third reading has its own sentence');
+    assert.match(r.stderr, /no transcript could be read/,
+      'and the sentence says WHAT was missing');
+    assert.doesNotMatch(r.stderr, /no monitor finding said why/,
+      'the unavailable case must not borrow the bound arm, which claims a '
+      + 'measurement was made and came back empty');
+    assert.match(r.stderr, /exceeded the 1s bound/,
+      'the bound is still the fallback and still what a reader greps for');
+  } finally {
+    reap(secs);
+    fs.rmSync(home, { recursive: true, force: true });
+    discard(dir);
+  }
+});
+
+// THE FALLBACK IS THE BOUND AND NOTHING ELSE. The plan prices this deliberately
+// — "a genuinely stuck agent then holds a desk for up to 8 hours, which is
+// smaller than the measured cost of the rule this replaces". An unreadable
+// transcript must therefore change the SENTENCE and never the timing: a slice
+// that added a kill for the unavailable case would pass both message tests
+// above and reintroduce the defect the plan exists to remove.
+test('worker-loop: an unreadable transcript does not end a worker early', serial, async () => {
+  const marker = 'unreadable-finished.marker';
+  // A bound far beyond the body, so anything ending this run early ended it on
+  // the unavailable reading rather than on the floor.
+  const dir = fixture('unreadable-noend', 900,
+    `sleep 3; touch "$PLOT_WORKTREE/${marker}"; echo done\n`);
+  const home = transcriptHome(dir, { hasTranscript: false });
+  try {
+    const r = await runLoop(dir, { env: { PLOT_TRANSCRIPT_HOME: home } });
+    assert.ok(fs.existsSync(path.join(dir, marker)),
+      'the prompt ran to completion though its transcript could not be read');
+    assert.equal(r.code, 0, `an unreadable reading is not an ending: ${r.stderr}`);
+    assert.doesNotMatch(r.stderr, /nobody could tell/,
+      'the third sentence belongs to an ENDING, not to every quiet desk');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+    discard(dir);
+  }
+});
+
+// The MONITOR arm, and the half of it this slice owns: the sentence must
+// describe wave 2's reading rather than the one wave 2 rejected. Until this
+// slice it read "burned no CPU and changed nothing across two passes", which is
+// how the OLD rule reached its verdict — a 0.4s subtree CPU sample that ended
+// eleven dispatched workers. The verdict is now transcript silence past the
+// window, with the CPU consulted only to prove a child is on a core.
+test('worker-loop: the monitor sentence describes the transcript reading', serial, async () => {
+  const secs = 73;
+  reap(secs);
+  const dir = fixture('monitor-sentence', 900, `sleep ${secs}\n`);
+  try {
+    setTimeout(() => publishFinding(dir, 'idle'), 900);
+    const r = await runLoop(dir);
+    assert.equal(r.code, 124, `the finding ended it\n--- stderr ---\n${r.stderr}`);
+    assert.match(r.stderr, /the agent went quiet/,
+      'the monitor ending names its own reading');
+    assert.match(r.stderr, /transcript/,
+      'and the evidence it names is the transcript, which is what wave 2 reads');
+    assert.doesNotMatch(r.stderr, /burned no CPU/,
+      'the rejected rule must not be described as the reading that fired: a 0.4s '
+      + 'CPU sample is not how this verdict is reached');
+    assert.doesNotMatch(r.stderr, /the bound expired|nobody could tell/,
+      'a monitor verdict is neither floor arm');
+  } finally {
+    reap(secs);
+    discard(dir);
+  }
+});
+
+// THE THREE SENTENCES ARE MUTUALLY EXCLUSIVE, asserted over the SOURCE rather
+// than over three runs. Each of the tests above proves its own arm prints; none
+// of them proves a FOURTH arm was not added, or that two arms cannot both
+// match. The leading clauses are the operator's index into the three, so they
+// must partition the endings exactly.
+test('worker-loop: exactly three endings are spelled, one per reading', serial, () => {
+  const src = fs.readFileSync(loop, 'utf8');
+  // Only the lines the loop PRINTS, so the prose above them cannot satisfy this.
+  const printed = src.split('\n').filter((l) => /^\s*echo "plot-worker-loop: /.test(l));
+  const leads = ['the agent went quiet', 'the bound expired', 'nobody could tell'];
+  for (const lead of leads) {
+    const hits = printed.filter((l) => l.includes(lead));
+    assert.equal(hits.length, 1,
+      `exactly one printed line leads with "${lead}", found ${hits.length}`);
+  }
+  const endings = printed.filter((l) => l.includes('ending worker without hopping'));
+  assert.equal(endings.length, leads.length,
+    `every ending message is one of the three readings; found ${endings.length}`);
+  for (const e of endings) {
+    assert.equal(leads.filter((l) => e.includes(l)).length, 1,
+      `each ending names exactly one reading: ${e.trim()}`);
+  }
+});
