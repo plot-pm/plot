@@ -1,0 +1,1 @@
+../2026-08-30-the-pulse-is-an-entity.md
