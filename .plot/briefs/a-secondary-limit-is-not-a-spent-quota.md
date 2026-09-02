@@ -6,7 +6,7 @@
 - **Ends as:** one PR to `main`
 - **Review of the code:** in-session
 
-Slice 5 of nine. Four slices are merged or running and this consumes them: `bug/a-connector-answers-for-its-limit` gave `packages/domain/src/entities/limit.ts` its `LimitBasis` (`actual` | `predicted` | `unknown`) and `LimitReading`; `bug/a-budget-belongs-to-the-computer` as #621 gave `packages/domain/src/entities/budget.ts` its `BudgetKey`, `BudgetEntry` and the `BudgetRecord` port; `bug/the-host-adapter-counts-what-it-spends` as #655 gave `packages/domain/src/rules/budget-record.ts` its `spendRate` returning a `SpendRate` with `reading`, `headroom` and `verdict: 'spendable' | 'spent' | 'unknown'`; `bug/the-board-refresh-divides-by-its-peers` is slice 4 and owns the cadence. **The banner needs the reading, and `SpendRate` is where it comes from.**
+Slice 5 of nine. Four slices are merged or running and this consumes them: `bug/a-connector-answers-for-its-limit` gave `packages/domain/src/entities/limit.ts` its `LimitBasis` (`actual` | `predicted` | `unknown`) and `LimitReading`; `bug/a-budget-belongs-to-the-computer` as #621 gave `packages/domain/src/entities/budget.ts` its `BudgetKey`, `BudgetEntry` and the `BudgetRecord` port; `bug/the-host-adapter-counts-what-it-spends` as #655 gave `packages/domain/src/rules/budget-record.ts` its `spendRate(lines, key, now)` (`:313`) returning a `SpendRate`, built from `readWindow` (`:104`) and `windowSpend` (`:219`); `bug/the-board-refresh-divides-by-its-peers` is slice 4 and owns the cadence. **The banner needs the reading, and `SpendRate` is where it comes from.**
 
 Four slices wait behind this one, and slice 7 (`bug/the-budget-knows-which-bucket-it-spent`) also releases both waves of `2026-09-01-a-third-connector-costs-one-adapter`.
 
@@ -26,7 +26,7 @@ The plan states it at `docs/plans/2026-09-01-one-account-has-one-budget.md:664`,
 
 ### The distinction is conflated in TWO places, and both are one regex
 
-**The shell.** `skills/plot/scripts/plot-host.sh:267` declares `host_failure_kind() { # $1=stderr text → throttled|failed`, and `:268` matches one regex — `rate limit|ratelimit|too many requests|\b429\b|secondary rate|abuse detection|exceeded a secondary` — returning `throttled` at `:269` for every one of them. *"API rate limit exceeded"* and *"You have exceeded a secondary rate limit"* both come back `throttled`.
+**The shell.** `skills/plot/scripts/plot-host.sh:280` declares `host_failure_kind() { # $1=stderr text → throttled|failed`, and `:268` matches one regex — `rate limit|ratelimit|too many requests|\b429\b|secondary rate|abuse detection|exceeded a secondary` — returning `throttled` at `:269` for every one of them. *"API rate limit exceeded"* and *"You have exceeded a secondary rate limit"* both come back `throttled`.
 
 **The board.** `packages/board/src/app/lib/agent-rows/host-notes.ts:257` is `return /rate limit/i.test(error) ? 'rate-limited' : 'unreachable';` — a second conflation, mirroring the first. `prNote` at `:306` then prints one wording for both, including a reset time it may not have received.
 
