@@ -3684,6 +3684,21 @@ function classifyGroup(
    * file has paid that once already.
    */
   prUnknown = false,
+  /**
+   * Why a `deferred` branch was given up — `SourceBranchSchema.deferred_reason`,
+   * the text of the plan's `deferred:` annotation.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST, by the rule `prUnknown` records above.
+   *
+   * It answers a question `planPhase` cannot. A withdrawn plan keeps
+   * `Phase: Draft` deliberately — Plot has four phases and none of them is
+   * *withdrawn*, and `the-board-answers-while-it-scans` says so in its own
+   * text: *"the phase stays Draft because inventing a fifth"* is worse. So the
+   * phase reads `draft`, the row says *plan not approved yet — still in
+   * review*, and the reader is told a decision is pending that was already
+   * made. Measured on the live board 2026-09-02, on that plan's own row.
+   */
+  deferredReason = '',
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -3742,7 +3757,19 @@ function classifyGroup(
     // neither has to remember to exclude it from a list meant for phases the
     // board cannot read.
     if (planPhase === 'draft') {
-      return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
+      // THE ANNOTATION OUTRANKS THE PHASE, and only in this arm. A deferred
+      // branch carries a reason somebody wrote; a draft phase is the absence of
+      // an approval. Where both are present the written one is the specific
+      // answer, and `DRAFT_PLAN_NOTE` is the generic one — so it is the
+      // fallback, never the override.
+      //
+      // The GROUP is untouched. `waiting-on-you` is where #231's measurement
+      // put a draft branch and this changes nothing about that; the row moves
+      // nowhere, it stops describing a review nobody is running.
+      return {
+        group: 'waiting-on-you',
+        note: deferredReason === '' ? DRAFT_PLAN_NOTE : deferredReason,
+      };
     }
     // The allowlist, as in the `open` arm and for its reason: a phase the board
     // has not been taught is not startable, and the sentence NAMES it rather
@@ -5466,7 +5493,12 @@ export function rowsFromPulse(
           // data. When true and the wave verdict would be `eligible`, the
           // verdict is withheld: the row says the host could not be asked
           // rather than claiming the branch is ready for an agent.
-          held?.state === 'unknown');
+          held?.state === 'unknown',
+          // WHY a deferred branch was given up, so the row can say it instead of
+          // reporting a review nobody is running. Read on a `deferred` branch of
+          // a `draft` plan only; empty everywhere else, and empty falls back to
+          // the phase sentence.
+          b.deferred_reason);
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.

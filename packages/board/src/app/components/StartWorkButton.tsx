@@ -258,14 +258,25 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
         body: JSON.stringify({ slug: card.slug }),
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),
       });
-      const body = (await res.json()) as { slug?: string; log?: string; error?: string };
+      const body = (await res.json()) as {
+        slug?: string; log?: string; error?: string; detail?: string; reason?: string;
+      };
       // A non-2xx is the ONE thing the button can report as a failure: the
       // dispatch was refused before it began, and the server said why in words.
       // The 202 body still carries `log` (the dispatcher log path), but the
       // button no longer keeps it: the row's `Status` menu entry reads that log
       // durably, rather than this render owning a pointer it will destroy.
       if (!res.ok) {
-        setState({ kind: 'failed', message: body.error ?? `HTTP ${res.status}` });
+        // `detail` FIRST, because it is the field this endpoint actually sends.
+        // `/api/dispatch` answers a refusal with `{ok, slug, reason, detail}` —
+        // never `error` — so reading `error` alone threw the sentence away and
+        // rendered a bare `HTTP 409` beside the button. Measured 2026-09-02.
+        // `error` stays as the second choice: `readJsonBody` and the
+        // cross-origin guard use it, and both can still refuse this POST.
+        setState({
+          kind: 'failed',
+          message: body.detail ?? body.error ?? `HTTP ${res.status}`,
+        });
         return;
       }
       // Stay `starting` on success — the spinner runs until the pulse confirms

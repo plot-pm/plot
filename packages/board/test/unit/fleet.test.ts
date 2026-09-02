@@ -818,6 +818,38 @@ describe('classify', () => {
     expect(r.note).toBe(DRAFT_PLAN_NOTE);
   });
 
+  it('says why a deferred branch was given up, rather than naming a review nobody is running', () => {
+    // A WITHDRAWN PLAN KEEPS `Phase: Draft` ON PURPOSE. Plot has four phases and
+    // none of them is *withdrawn*; `the-board-answers-while-it-scans` states the
+    // choice in its own text and declines to invent a fifth. So the phase stays
+    // `draft` forever, and the row said *plan not approved yet — still in
+    // review* about a decision its author had already made. Measured on the live
+    // board 2026-09-02, on that plan's own row.
+    //
+    // The annotation is the specific answer and the phase sentence is the
+    // generic one, so the annotation wins HERE and only here — on a deferred
+    // branch, where somebody wrote a reason down.
+    const reason = 'plan withdrawn 2026-08-31 — the fix is in the-read-path-stops-spawning';
+    const r = classify(
+      'deferred', 'blocked', null, QUIET, null, false, 0, 'draft',
+      '', '', '', false, '', '', false, '', false, reason,
+    );
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toBe(reason);
+  });
+
+  it('falls back to the phase sentence when a deferred branch names no reason', () => {
+    // `deferred:` with no text parses to an empty string, and an empty string is
+    // not a reason — it is the absence of one. The generic sentence is then the
+    // only true thing left to say, so it is the FALLBACK and never the override.
+    const r = classify(
+      'deferred', 'blocked', null, QUIET, null, false, 0, 'draft',
+      '', '', '', false, '', '', false, '', false, '',
+    );
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toBe(DRAFT_PLAN_NOTE);
+  });
+
   it('leaves the eligible sentence to APPROVED plans and unknown-phase pulses', () => {
     // Narrowed from "every phase but draft". `delivered` and `released` no
     // longer read as eligible — they are finished, and that is this branch's
@@ -4565,7 +4597,14 @@ describe('an unknown PR withholds the verdict in classifyGroup', () => {
     // The detection: `held` is from `prsByHeadMap`, the any-state map. When
     // `held.state === 'unknown'`, the host answered but could not report the
     // PR's state. That propagates to classify as `prUnknown`.
-    expect(source).toMatch(/held\?\.state === 'unknown'\)/);
+    //
+    // MATCHED WITHOUT ITS TRAILING PUNCTUATION. The pattern once ended `\)`,
+    // which held only while `prUnknown` was the last argument — appending
+    // `deferredReason` after it turned the `)` into a `,` and failed this test
+    // for a change that did not touch what it is about. The subject is that the
+    // expression is PASSED; where it sits in the list is the next parameter's
+    // business.
+    expect(source).toMatch(/held\?\.state === 'unknown'/);
   });
 });
 
