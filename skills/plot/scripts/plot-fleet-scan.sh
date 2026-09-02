@@ -24,6 +24,14 @@
 #               exit 1 when there is none. Used by /plot-implement to pick work
 #               without re-deriving eligibility. "Nothing to start" is a normal
 #               state — the exit code, not stderr, is what says so.
+#   --why-nothing  print WHY `--next` would be silent, and exit 0 either way:
+#               `none` when there is no work left for this plan, or `not-yet`
+#               followed by the branches whose landing would open a blocked
+#               slice. THE SECOND QUESTION A WORKER ASKS. `--next` exits 1 for
+#               two different nothings — a blocked next slice and no next slice
+#               — and a worker that cannot tell them apart pays a whole
+#               dispatch to reach a slice it was standing next to. Exits 0 with
+#               `none` when it cannot tell, so silence is never read as wait.
 #   --stream    --json, emitted as it resolves rather than as one document at
 #               the end. One `{"kind":"plan","plan":{...}}` line per plan the
 #               moment that plan is fully derived, then one
@@ -193,6 +201,7 @@ cfg() { "$script_dir/plot-config.sh" get "$1" "${2:-}"; }
 do_fetch=1
 next_only=0
 list_all=0
+why_nothing=0
 loose=0
 log_pulse=0
 as_json=0
@@ -205,6 +214,11 @@ while [ $# -gt 0 ]; do
     --log-pulse) log_pulse=1 ;;
     --next) next_only=1 ;;
     --list-eligible) next_only=1; list_all=1 ;;
+    # THE SECOND QUESTION, and it borrows `--next`'s population deliberately.
+    # A caller asks this having just been told nothing, so it must be told
+    # about the SAME plans `--next` was silent over — a terminal plan admitted
+    # here would answer `not-yet` about work somebody decided was not needed.
+    --why-nothing) next_only=1; why_nothing=1 ;;
     --json) as_json=1 ;;
     --stream) as_json=1; stream=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
@@ -2800,6 +2814,11 @@ if [ ${#plans[@]} -eq 0 ]; then
   # the same answer whether the plans are all claimed or there are no plans at
   # all. Exiting 0 here would hand a caller an EMPTY branch name as if it were
   # valid work.
+  # `--why-nothing` answers here too, and it answers `none`. No plans means no
+  # slice can ever become eligible, which is the honest end of a worker's life
+  # — and a wait with nothing to wait on is the one failure this flag exists to
+  # prevent.
+  [ "$why_nothing" = 1 ] && { echo "none"; exit 0; }
   [ "$next_only" = 1 ] && exit 1
   # A MACHINE CONSUMER FALLS THROUGH. An empty estate is a COMPLETE answer, and
   # this branch used to end the run before the emitter — so `--json` and
@@ -3182,6 +3201,11 @@ n_plans=0 n_waves=0 n_branches=0 n_claimed=0 n_eligible=0 n_blocked=0 n_deferred
 n_waiting=0 n_prereq_missing=0
 claimable=()
 plan_files=()
+# `--why-nothing`'s input: one `verdict<TAB>name:state|...` line per slice, in
+# plan order. Accumulated in the SAME loop that renders the branches, so the
+# outlook reads the verdicts a caller's `--next` just acted on rather than a
+# second derivation that could disagree with them.
+outlook_lines=""
 
 plan_idx=-1
 for plan in "${plans[@]}"; do
@@ -3424,8 +3448,14 @@ for plan in "${plans[@]}"; do
       echo "      (--loose degraded to strict: checks unavailable for ${_loose_degraded_branches})"
     fi
     json_branches=""
+    # The outlook's reading of this slice, built alongside the render. EVERY
+    # branch including the deferred ones, in the plan's order — the rule needs
+    # `deferred` to tell a branch that will never move from one that has not
+    # moved yet.
+    outlook_branches=""
     while IFS=$'\t' read -r idx br st deferred why waits nm claim; do
       [ "$idx" = "$wid" ] || continue
+      outlook_branches+="${outlook_branches:+|}$br:$st"
       [ "$claim" = "-" ] && claim=""
       [ "$why" = "-" ] && why=""
       [ "$waits" = "-" ] && waits=""
@@ -3671,6 +3701,8 @@ for plan in "${plans[@]}"; do
       json_waves+="${json_waves:+,}{\"name\":\"$(json_str "$wname")\""
       json_waves+=",\"verdict\":\"$verdict\",\"branches\":[$json_branches]}"
     fi
+
+    outlook_lines+="$verdict	$outlook_branches"$'\n'
 
     n_waves=$((n_waves + 1))
     # `prior_ok` used to be carried here — the ordering half of the verdict,

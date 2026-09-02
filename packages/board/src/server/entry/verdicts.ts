@@ -1,5 +1,6 @@
 import { isClaimable, sliceVerdicts, type SliceReadings } from '@plot-pm/domain/rules/eligible';
-import type { BranchState } from '@plot-pm/domain';
+import { nextWork, type SliceOutlookReading } from '@plot-pm/domain/rules/waiting';
+import type { BranchState, SliceVerdict } from '@plot-pm/domain';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -11,6 +12,10 @@ import { pathToFileURL } from 'node:url';
  * eligible	10
  * complete	0
  * ```
+ *
+ * **Two questions, one bundle.** With `outlook` as its argument it answers the
+ * second — *was nothing offered because the work is blocked, or because there
+ * is none?* — from the verdicts the first already decided. See {@link outlook}.
  *
  * **A THIRD artifact, and the reason is not size.** `plot-ask.mjs` answers
  * `board` and `fleet` by RUNNING `plot-fleet-scan.sh`. A scan that asked it for
@@ -103,18 +108,83 @@ export const answer = (text: string): string => {
 };
 
 /**
+ * Parse one decided slice per line: `verdict<TAB>name:state|name:state|...`.
+ *
+ * The SECOND question this bundle answers, and it takes the verdicts as input
+ * rather than re-deciding them: `--next` has already run the fold, and a second
+ * derivation here could disagree with the one the worker just acted on.
+ *
+ * A branch name may not contain `:` or `|` — git forbids neither, but Plot's
+ * own branch prefixes and this repo's 54 branches use neither, and a name that
+ * did would be split rather than silently mis-stated. `rsplit` on the LAST `:`
+ * keeps `feature/a:b` readable if one ever appears.
+ *
+ * @param text the stdin document, one slice per line
+ * @returns the slices in order
+ * @throws when any non-empty line is not `<verdict><TAB><branches>`
+ */
+export const outlookSlicesFrom = (text: string): SliceOutlookReading[] =>
+  text
+    .split('\n')
+    .filter((line) => line !== '')
+    .map((line, i) => {
+      const [verdict, branches] = line.split('\t');
+      if (verdict === undefined || branches === undefined) {
+        throw new Error(`line ${i + 1}: expected '<verdict>\\t<branches>', got '${line}'`);
+      }
+      return {
+        verdict: verdict as SliceVerdict,
+        branches: branches === '' ? [] : branches.split('|').map((spec) => {
+          const cut = spec.lastIndexOf(':');
+          if (cut < 1) throw new Error(`line ${i + 1}: expected '<name>:<state>', got '${spec}'`);
+          return {
+            name: spec.slice(0, cut),
+            state: spec.slice(cut + 1) as BranchState,
+          };
+        }),
+      };
+    });
+
+/**
+ * Say why a worker was offered nothing, and what would change it.
+ *
+ * ```
+ * eligible	feature/seam:wip
+ * blocked	feature/api:open
+ * → not-yet	feature/seam
+ * ```
+ *
+ * One line: the outlook, then the blockers tab-separated after it. Tabs rather
+ * than JSON for the reason the other answer gives — the caller is bash, and a
+ * `jq` here would be a second process to avoid a second format.
+ *
+ * @param text the stdin document, one decided slice per line
+ * @returns `<outlook>[<TAB><branch>]...`, newline-terminated
+ */
+export const outlook = (text: string): string => {
+  const work = nextWork(outlookSlicesFrom(text));
+  return `${[work.outlook, ...work.blockers].join('\t')}\n`;
+};
+
+/**
  * Read stdin, print the answer.
+ *
+ * The mode is an argument because the two answers share every byte of the
+ * bundle: a second artifact would pay the same import cost twice and give the
+ * scan a second dependency to ship.
  *
  * @param text the whole of stdin
  * @param write where the answer goes
+ * @param mode `outlook` for the waiting question, anything else for verdicts
  * @returns the process exit code — 0 answered, 2 unreadable input
  */
 export const run = (
   text: string,
   write: (s: string) => void = (s) => process.stdout.write(s),
+  mode = '',
 ): number => {
   try {
-    write(answer(text));
+    write(mode === 'outlook' ? outlook(text) : answer(text));
     return 0;
   } catch (err) {
     process.stderr.write(`plot-verdicts: ${(err as Error).message}\n`);
@@ -134,5 +204,9 @@ export const run = (
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
-  process.exit(run(Buffer.concat(chunks).toString('utf8')));
+  process.exit(run(
+    Buffer.concat(chunks).toString('utf8'),
+    (s) => process.stdout.write(s),
+    process.argv[2] ?? '',
+  ));
 }
