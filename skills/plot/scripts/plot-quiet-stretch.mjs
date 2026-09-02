@@ -46,6 +46,36 @@ const mergedRows = parseRows(process.env.PLOT_QS_MERGED);
 const mergedSet = new Set(mergedRows.map((r) => r[0]));
 
 /**
+ * Which tool call, if any, a transcript line belongs to.
+ *
+ * **THIS IS THE DISTINCTION THE MEASUREMENT TURNED ON.** A quiet stretch has two
+ * quite different causes, and a single maximum over both answers no question:
+ *
+ *   - the agent is WAITING ON THE MODEL — thinking. Bounded by how long a turn
+ *     takes, and measured here at 109.6 s worst case.
+ *   - the agent is WAITING ON ITS OWN FOREGROUND COMMAND — a test run, a CI
+ *     watch. Bounded by the command's timeout, which the AGENT chooses, and
+ *     measured here at 600.8 s: `gh pr checks --watch` and `pnpm run
+ *     test:board`.
+ *
+ * The second is not a slower version of the first. It has no ceiling this
+ * repository controls, so a threshold derived from the combined maximum is a
+ * threshold derived from whatever timeout the last agent happened to pass.
+ * Reporting them apart is what lets a later slice choose a rule rather than a
+ * number.
+ *
+ * A line is attributed through `attachment.toolUseID`, which the runtime stamps
+ * on every hook record around a call. A gap is attributed when EITHER of its
+ * two ends names a tool: the stretch between a `PreToolUse` record and the
+ * matching `PostToolUse` one is the command's own duration, and both ends carry
+ * the id.
+ */
+const toolOfGap = (before, after, tools) => {
+  const id = before.toolUseID || after.toolUseID;
+  return id && tools[id] ? tools[id] : null;
+};
+
+/**
  * Every gap between consecutive timestamped lines in one transcript.
  *
  * **Unparseable lines are skipped, never treated as a break.** A line the
@@ -65,6 +95,10 @@ const readGaps = (file) => {
     return null;
   }
   const times = [];
+  // Tool calls are collected in the same pass, keyed by id, so a gap can name
+  // the command it spans. An assistant turn declares the call; the hook records
+  // around it carry the id back.
+  const tools = {};
   for (const line of text.split('\n')) {
     if (!line) continue;
     let obj;
@@ -74,21 +108,45 @@ const readGaps = (file) => {
       continue;
     }
     if (!obj || typeof obj !== 'object') continue;
+    if (obj.type === 'assistant' && Array.isArray(obj.message?.content)) {
+      for (const block of obj.message.content) {
+        if (block?.type === 'tool_use' && typeof block.id === 'string') {
+          tools[block.id] = {
+            name: typeof block.name === 'string' ? block.name : '?',
+            command:
+              typeof block.input?.command === 'string'
+                ? block.input.command.replace(/\s+/g, ' ').slice(0, 120)
+                : '',
+          };
+        }
+      }
+    }
     const ts = obj.timestamp;
     if (typeof ts !== 'string') continue;
     const t = Date.parse(ts);
     if (!Number.isFinite(t)) continue;
-    times.push({ t, type: typeof obj.type === 'string' ? obj.type : '?' });
+    times.push({
+      t,
+      type: typeof obj.type === 'string' ? obj.type : '?',
+      toolUseID: typeof obj.attachment?.toolUseID === 'string' ? obj.attachment.toolUseID : null,
+    });
   }
   if (times.length < 2) return null;
   times.sort((a, b) => a.t - b.t);
   const gaps = [];
   for (let i = 1; i < times.length; i++) {
+    const tool = toolOfGap(times[i - 1], times[i], tools);
     gaps.push({
       seconds: (times[i].t - times[i - 1].t) / 1000,
       from: times[i - 1].type,
       to: times[i].type,
       at: new Date(times[i - 1].t).toISOString(),
+      tool: tool?.name ?? null,
+      command: tool?.command || '',
+      // The split the report turns on: a gap spanning the agent's own
+      // foreground command is bounded by that command's timeout, not by how
+      // long a model takes to answer.
+      waitingOnCommand: tool?.name === 'Bash',
     });
   }
   return {
@@ -169,18 +227,31 @@ for (const wt of worktrees) {
 allGaps.sort((a, b) => b.seconds - a.seconds);
 
 /**
- * A percentile over the sorted-descending gap list.
+ * Nearest-rank percentile over a list of gaps.
  *
- * Nearest-rank, not interpolated: the number is going to be compared against a
- * threshold in seconds, and an interpolated value is not a stretch any agent
- * actually had. Every figure this reports is an observation.
+ * Not interpolated: the number is going to be compared against a threshold in
+ * seconds, and an interpolated value is not a stretch any agent actually had.
+ * Every figure this reports is an observation.
  */
-const percentile = (p) => {
-  if (allGaps.length === 0) return null;
-  const asc = [...allGaps].sort((a, b) => a.seconds - b.seconds);
+const percentile = (gaps, p) => {
+  if (gaps.length === 0) return null;
+  const asc = [...gaps].sort((a, b) => a.seconds - b.seconds);
   const rank = Math.min(asc.length - 1, Math.max(0, Math.ceil((p / 100) * asc.length) - 1));
   return Number(asc[rank].seconds.toFixed(1));
 };
+
+/** The shape reported for each population, so the two are read side by side. */
+const describe = (gaps) => ({
+  count: gaps.length,
+  longestSeconds: gaps.length ? Number(Math.max(...gaps.map((g) => g.seconds)).toFixed(1)) : null,
+  p50: percentile(gaps, 50),
+  p90: percentile(gaps, 90),
+  p99: percentile(gaps, 99),
+  overWindow: gaps.filter((g) => g.seconds >= interval).length,
+});
+
+const thinking = allGaps.filter((g) => !g.waitingOnCommand);
+const onCommand = allGaps.filter((g) => g.waitingOnCommand);
 
 const summary = {
   interval,
@@ -189,9 +260,13 @@ const summary = {
   sessions: sessions.length,
   gaps: allGaps.length,
   longestQuietSeconds: allGaps.length ? Number(allGaps[0].seconds.toFixed(1)) : null,
-  p50: percentile(50),
-  p90: percentile(90),
-  p99: percentile(99),
+  p50: percentile(allGaps, 50),
+  p90: percentile(allGaps, 90),
+  p99: percentile(allGaps, 99),
+  // THE TWO POPULATIONS, and the reason this script reports a pair rather than
+  // a maximum. See `toolOfGap`.
+  thinking: describe(thinking),
+  onCommand: describe(onCommand),
   overWindow: allGaps.filter((g) => g.seconds >= interval).length,
   sessionsOverWindow: sessions.filter((s) => s.overWindow > 0).length,
   live: liveRows.map(([worktree, pid, activity]) => ({
@@ -224,6 +299,12 @@ out.push(`Longest quiet         ${summary.longestQuietSeconds ?? 'n/a'}s`);
 out.push(`p50 / p90 / p99       ${summary.p50 ?? 'n/a'}s / ${summary.p90 ?? 'n/a'}s / ${summary.p99 ?? 'n/a'}s`);
 out.push(`Over the window       ${summary.overWindow} stretches, in ${summary.sessionsOverWindow} of ${summary.sessions} sessions`);
 out.push('');
+out.push('By what the agent was waiting on:');
+const row = (label, d) =>
+  `  ${label.padEnd(22)} n=${String(d.count).padEnd(6)} max=${String(d.longestSeconds ?? 'n/a').padStart(7)}s  p99=${String(d.p99 ?? 'n/a').padStart(6)}s  >=${interval}s: ${d.overWindow}`;
+out.push(row('the model (thinking)', summary.thinking));
+out.push(row('its own command', summary.onCommand));
+out.push('');
 
 if (summary.live.length) {
   out.push('Live workers, CPU beside the transcript:');
@@ -233,7 +314,11 @@ if (summary.live.length) {
 
 out.push(`Longest ${Math.min(top, allGaps.length)} stretches:`);
 for (const g of allGaps.slice(0, top)) {
-  out.push(`  ${g.seconds.toFixed(1).padStart(7)}s  ${g.from}->${g.to}  ${g.at}  ${g.branch}`);
+  // The command is what makes a long stretch legible. A bare duration beside
+  // `attachment->attachment` reads as an agent that stopped; the same duration
+  // beside `pnpm run test:board` reads as an agent running the repo's tests.
+  const what = g.waitingOnCommand ? g.command || 'Bash' : 'the model';
+  out.push(`  ${g.seconds.toFixed(1).padStart(7)}s  ${g.branch.padEnd(44)} ${what}`);
 }
 out.push('');
 out.push('Sessions by longest quiet:');
