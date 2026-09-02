@@ -39,6 +39,11 @@
 #               origin/<main> cannot be resolved (no remote, fresh clone).
 #               The explicit escape for a remote-less repo — never a default,
 #               because a working-tree read is what this gate exists to avoid.
+#   --allow-waiting  dispatch a branch whose `waits:` prerequisite has not
+#               merged. The named escape for the prerequisite gate, in the
+#               tradition of --allow-local: a gate with no exit is one people
+#               route around by never annotating at all. It says so on the
+#               line it overrides, so the override is on the record.
 #   <slug>      the plan to fan out
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then the
@@ -176,6 +181,7 @@ stop_branch=""
 restart_branch=""
 offline=""
 allow_local=0
+allow_waiting=0
 max=0
 slug=""
 migrate_yes=0
@@ -208,12 +214,13 @@ while [ $# -gt 0 ]; do
     --no-brief) no_brief=1 ;;
     --offline|--no-fetch) offline="--offline" ;;
     --allow-local) allow_local=1 ;;
+    --allow-waiting) allow_waiting=1 ;;
     --max)      max="${2:?--max needs a value}"
                 case "$max" in
                   ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
                 esac
                 shift ;;
-    -h|--help)  sed -n '2,38p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,46p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -1428,6 +1435,134 @@ esac
 # MAIN was resolved and origin fetched above, before the phase gate — the gate
 # needs the shared ref to read the plan from it.
 
+# ---------------------------------------------------------------------------
+# THE PREREQUISITE GATE: a branch that waits on another plan's branch
+# ---------------------------------------------------------------------------
+#
+# A plan may annotate one of its branches `<!-- waits: <branch> -->`, naming ONE
+# branch — usually of another plan — that must merge before this one may start.
+# The parser exposes it as `waves[].branches[].waits_on`; the scan turns it into
+# the branch states `waiting` and `blocked`, so `--next` already stops OFFERING
+# such a branch.
+#
+# THAT IS ONE HALF, AND THIS IS THE OTHER. An empty offer has nothing to say
+# about what it filtered out: `plot-dispatch.sh <slug>` answered `dispatched=0`
+# with no reason attached, which is the same silence `--restart` was built to
+# break. So this names the branch AND the prerequisite, and it names them in
+# `--dry-run` identically to a real run.
+#
+# IT HAS COST TWO WORKERS. Measured 2026-09-02:
+# `feature/the-domain-forgets-the-vendor-list` was re-dispatched at 04:50 into a
+# prerequisite that had not merged, hit its own gate, and wrote a PLOT-BLOCKED
+# marker. Its report names the cause: *"plot-dispatch.sh gates on the plan's
+# phase, and this plan is Approved, so the slice read as eligible."*
+#
+# THE ANNOTATION IS READ FROM THE SHARED REF, out of the same `gate_meta` the
+# phase gate parsed. A `waits:` that exists only in this working tree is an
+# ordering constraint nobody else can see, exactly as a local approval is.
+#
+# THE PREREQUISITE IS ASKED OF THE HOST, NEVER OF THE REFS.
+# `plot-release-refs.sh` deletes the remote refs of a delivered plan's merged
+# branches, so a prerequisite that SUCCEEDED and was then reaped has no ref —
+# and a rule reading refs would hold its dependent forever BECAUSE its
+# dependency succeeded. That is the worst available failure: correct work
+# producing a permanent block. `pr-state` answers about PULL REQUESTS, and a
+# merged PR outlives the branch it was cut from.
+#
+# `NONE` AND SILENCE ARE DIFFERENT ANSWERS. `NONE` means the host was asked and
+# has never seen a PR for that branch — a typo, which is `blocked`. A host that
+# could not be asked is neither permission nor proof of a typo, so it HOLDS the
+# branch at `waiting`. Both refuse; only one tells the operator to fix the plan.
+
+# The branch this one waits on, from the plan blob the phase gate already read.
+#
+# `awk` over the parser's JSON rather than `jq`: this script has no `jq`
+# dependency and must not acquire one. The parser emits `waits_on` only on a
+# branch that carries the annotation, so a branch with no key answers "".
+#
+# THE RECORD IS BOUNDED BY THE NEXT BRANCH OBJECT, which is what keeps this from
+# reading a NEIGHBOUR's annotation. Splitting on `{"branch":"` gives one field
+# per branch, so a `waits_on` matched inside field i belongs to branch i.
+waits_on_of() { # $1=branch → the prerequisite branch name, or ""
+  printf '%s' "$gate_meta" | awk -v want="$1" '
+    {
+      n = split($0, parts, /\{"branch":"/)
+      for (i = 2; i <= n; i++) {
+        rec = parts[i]
+        br = rec; sub(/".*$/, "", br)
+        if (br != want) continue
+        if (match(rec, /"waits_on":"[^"]*"/)) {
+          print substr(rec, RSTART + 13, RLENGTH - 14)
+        }
+        exit
+      }
+    }'
+}
+
+# What the host says about the prerequisite's pull requests.
+#
+# Four answers, and the last two must never be collapsed — see the header
+# above. `--offline` promises no network, so it answers `unreachable`: the
+# question was not put, and a flag that lied would be worse than a slower
+# answer. The same reasoning `reached_review` applies one screen up.
+prereq_answer() { # $1=prerequisite branch → merged|unmerged|none|unreachable
+  local js st
+  [ -z "$offline" ] || { echo unreachable; return; }
+  [ "$("$script_dir/plot-host.sh" backend 2>/dev/null)" != "none" ] || { echo unreachable; return; }
+  # Exit code first: a non-zero is a transport failure and its stdout is not an
+  # answer. GitHub returned 503 all afternoon on 2026-08-17, and a reader that
+  # trusted the payload on failure would have started every waiting branch.
+  js=$("$script_dir/plot-host.sh" pr-state "$1" </dev/null 2>/dev/null) || { echo unreachable; return; }
+  st=$(printf '%s' "$js" | sed -n 's/.*"state":"\([A-Z]*\)".*/\1/p')
+  case "$st" in
+    MERGED) echo merged ;;
+    NONE)   echo none ;;
+    # OPEN and CLOSED both mean the host has SEEN the branch. A closed, unmerged
+    # PR is `unmerged` rather than `none`: nothing is misspelled — somebody
+    # withdrew the work, and that resolves by reopening it, not by editing the
+    # plan.
+    OPEN|CLOSED) echo unmerged ;;
+    # A state word this adapter does not emit, or none at all. Unread is not
+    # answered, and this gate's silence holds rather than permits.
+    *) echo unreachable ;;
+  esac
+}
+
+# The refusal, printed identically by --dry-run and the real run.
+#
+# ONE FUNCTION CALLED FROM BOTH LOOPS, the discipline `report_held` already
+# sets: a dry run that offers what a real run would refuse is worse than no dry
+# run — it is the same wrong answer with a reassurance attached. Returns 0 when
+# the branch is held (the caller skips it), 1 when it is free to dispatch.
+#
+# `--allow-waiting` SAYS SO ON THE LINE IT OVERRIDES. An override nobody can see
+# in the output is an override nobody can audit.
+waits_gate() { # $1=branch → 0 = held (skip it), 1 = free
+  local br="$1" prereq answer held
+  prereq=$(waits_on_of "$br")
+  [ -n "$prereq" ] || return 1
+  answer=$(prereq_answer "$prereq")
+  case "$answer" in
+    merged) return 1 ;;
+    none)   held=blocked ;;
+    *)      held=waiting ;;
+  esac
+  if [ "$allow_waiting" = 1 ]; then
+    echo "  $br waits on $prereq ($held) — dispatching anyway (--allow-waiting)"
+    return 1
+  fi
+  if [ "$held" = "blocked" ]; then
+    echo "skipped $br (blocked — no PR found for $prereq)"
+    echo "  the plan says this branch waits on $prereq, and the host has never"
+    echo "  seen a pull request for it. Check the branch name in the plan."
+  else
+    echo "skipped $br (waiting on $prereq)"
+    echo "  the plan says this branch waits on $prereq, which has not merged."
+    echo "  Dispatch it when that lands, or pass --allow-waiting to start anyway."
+  fi
+  return 0
+}
+
 # Where the worktrees live and what their names carry — see resolve_wt_root.
 # The default is beside the repo with the `plot-wt-` prefix; a `Worktree root:`
 # key relocates them (and drops the prefix, which was only earning its keep
@@ -2136,6 +2271,13 @@ if [ "$dry_run" = 1 ]; then
       n_skipped=$((n_skipped + 1))
       continue
     fi
+    # THE PREREQUISITE GATE, in the dry run exactly as in the real one. A dry
+    # run that predicts a dispatch the real run refuses is the failure both
+    # gates exist to stop.
+    if waits_gate "$br"; then
+      n_skipped=$((n_skipped + 1))
+      continue
+    fi
     echo "would dispatch $br → $(worktree_for "$br")"
     report_monitors "$(worktree_for "$br")"
     report_in_flight "$br"
@@ -2195,6 +2337,22 @@ while :; do
   # would keep offering this same branch until the loop's own break fired.
   if held=$(held_worktree "$branch"); then
     report_held "$branch" "$held"
+    n_skipped=$((n_skipped + 1))
+    exhausted+=("$branch")
+    continue
+  fi
+
+  # THE PREREQUISITE GATE, ahead of every write this loop makes, for the same
+  # reason the held gate is: the worktree and the claim are what a premature
+  # start leaves behind, and `feature/the-domain-forgets-the-vendor-list` is
+  # still claimed and still holds nothing but its claim commit.
+  #
+  # `exhausted` is what makes the refusal terminal — `--next` has no memory and
+  # would keep offering this branch until the loop's own break fired. It should
+  # not be offering it at all (the scan reads `waiting`), so this arm is the
+  # belt to that brace: a branch named by a scan that could not reach the host,
+  # or by an older scan, still stops here.
+  if waits_gate "$branch"; then
     n_skipped=$((n_skipped + 1))
     exhausted+=("$branch")
     continue
