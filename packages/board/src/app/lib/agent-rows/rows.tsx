@@ -15,7 +15,7 @@ import {
   isBrokenState,
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
-import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
+import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, agentAvailability, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
 import { TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus, exceptionSummary } from './stuck.js';
@@ -2199,6 +2199,17 @@ export function RegistryRow({
   // joined row's projection would otherwise say.
   const status = agentStateStatus(agent.state);
 
+  // AVAILABILITY IS THE SECOND QUESTION, and the status word cannot answer it.
+  // `running` is not busy — an agent between slices is running with no branch
+  // and is available — so this row can truthfully say `running` and `free` at
+  // once. `finished` is not free: its worker exited.
+  //
+  // `sliceHasMerged` COMES FROM THE JOINED ROW, which is where the pulse
+  // already published what the scan measured. Asking the host per agent would
+  // spend a request per pulse per agent to re-learn a fact in hand, and an
+  // agent with no joined row contributes `false` — silence is never landed.
+  const availability = agentAvailability(agent, row?.state === 'merged');
+
   // AN AGENT ACTS, IT DOES NOT CHANGE — so the age is not *since last change*
   // but two labelled clocks: how long this run has been going, and how long it
   // has been silent. `startedAt` is a launch fact; `lastActivity` is read from
@@ -2332,6 +2343,13 @@ export function RegistryRow({
           // addressable. A row with no branch, or whose branch belongs to no
           // wave, carries neither: absent is not empty.
           ...(row?.wave ? { 'data-wave-row': row.wave } : {}),
+          // FREE IS RENDERED AS AN ATTRIBUTE, NOT AS THE STATUS WORD. The two
+          // are different questions — *what is it doing?* and *can it take
+          // work?* — and a `running` agent between slices answers `running` and
+          // `free` at the same time, so overwriting one with the other would
+          // lose a fact. The attribute is present only when the agent IS free:
+          // absent is not `false`, the same rule the wave hook follows above.
+          ...(availability ? { 'data-agent-availability': availability } : {}),
         }}
         iconTone={
           agent.state === 'stalled' ? 'error'

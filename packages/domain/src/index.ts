@@ -49,6 +49,7 @@ export * from './rules/concurrency.js';
 export * from './rules/refusal.js';
 export * from './rules/sample.js';
 export * from './rules/acting.js';
+export * from './rules/free.js';
 /**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
  * which `## Status` line a lifecycle step writes.

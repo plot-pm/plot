@@ -1045,17 +1045,23 @@ describe('slot 5 holds a value, never a sentence', () => {
 describe('no host call is added', () => {
   it('projects from the row alone, with no fetch or import of a host adapter', () => {
     // This is a SHAPING change: every one of the six slots is derivable from
-    // what the pulse already carries. The projection imports its types and
-    // nothing else — a `fetch` or a host import here would mean the tuple made
-    // the board ask the host a new question per row.
+    // what the pulse already carries. A `fetch` or a host import here would mean
+    // the tuple made the board ask the host a new question per row.
     const src = readFileSync(
       new URL('../../src/app/lib/tuple-row.ts', import.meta.url), 'utf8');
     expect(src).not.toMatch(/\bfetch\(/);
     expect(src).not.toMatch(/plot-host|execFile|spawn/);
-    // One import, and it is the contract's types.
+    // EVERY IMPORT REACHES NOTHING — the contract's types, or the domain's
+    // pure rules. This asserted a COUNT of one until 2026-09-02, which was a
+    // proxy for the property and not the property: `agentAvailability` asks
+    // `isAgentFree` from `@plot-pm/domain`, a rule with no disk, no process and
+    // no network, and the count refused it while allowing a second host import
+    // to arrive by replacing the first. The allowlist is what the guard means.
     const imports = src.match(/^import .*$/gm) ?? [];
-    expect(imports).toHaveLength(1);
-    expect(imports[0]).toMatch(/contract\/schema\.js/);
+    expect(imports.length).toBeGreaterThan(0);
+    for (const line of imports) {
+      expect(line, line).toMatch(/contract\/schema\.js|@plot-pm\/domain/);
+    }
   });
 });
 
