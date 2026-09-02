@@ -1,0 +1,1 @@
+../2026-08-31-the-registry-supervises-its-agents.md
