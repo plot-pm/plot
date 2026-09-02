@@ -111,7 +111,7 @@ gain. **This plan waits on `bug/the-budget-knows-which-bucket-it-spent`.**
 
 ### Freeing the type
 
-- `feature/the-domain-forgets-the-vendor-list` <!-- waits: bug/the-budget-knows-which-bucket-it-spent --> — `HostBackend` becomes a string; the adapter keeps its guard and refuses a backend it cannot drive; `host-shell.test.ts:104`'s assertion changes from *"gitlab is refused by the type"* to *"gitlab is refused by the adapter, and says why"*. **Gated on the budget slice that removes the two `fleet.ts` branches** — until then the enum is protecting something real. The gate is now the annotation rather than this sentence: dispatched on 2026-09-02 while the prerequisite was open, this branch hit its own gate and wrote a `PLOT-BLOCKED` marker.
+- `feature/the-domain-forgets-the-vendor-list` → #664 <!-- waits: bug/the-budget-knows-which-bucket-it-spent --> — `HostBackend` becomes a string; the adapter keeps its guard and refuses a backend it cannot drive; `host-shell.test.ts:104`'s assertion changes from *"gitlab is refused by the type"* to *"gitlab is refused by the adapter, and says why"*. **Gated on the budget slice that removes the two `fleet.ts` branches** — until then the enum is protecting something real. The gate is now the annotation rather than this sentence: dispatched on 2026-09-02 while the prerequisite was open, this branch hit its own gate and wrote a `PLOT-BLOCKED` marker.
 
 ### Proving it
 
