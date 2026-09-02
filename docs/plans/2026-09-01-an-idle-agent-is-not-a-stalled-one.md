@@ -108,7 +108,7 @@ Cheapest to write and wrong in the same way. Three zeros are three readings of a
 
 ### Reading the agent instead of the machine
 
-- `bug/the-loop-reads-the-agents-own-stream` — the end condition reads transcript quiet rather than subtree CPU, with the measured threshold, and reports itself **unavailable** where no transcript exists. The fallback is `Worker bound`.
+- `bug/the-loop-reads-the-agents-own-stream` — the end condition reads transcript quiet rather than subtree CPU, with the measured threshold, and reports itself **unavailable** where no transcript exists. The fallback is `Worker bound`. (#653)
 
 ### Saying what happened
 
