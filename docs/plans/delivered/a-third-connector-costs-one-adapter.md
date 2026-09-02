@@ -1,0 +1,1 @@
+../2026-09-01-a-third-connector-costs-one-adapter.md
