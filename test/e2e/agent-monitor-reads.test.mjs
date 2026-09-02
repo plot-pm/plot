@@ -165,13 +165,32 @@ test('a real dispatched agent that commits and opens nothing is reported owes a 
   // reintroduces the very collapse the two-monitor split exists to prevent, so
   // the interval is shortened only as far as the logic tolerates.
   //
-  // The debt itself is patient — "a finding one interval late is as good as one
-  // on time" — so nothing is lost by letting the worker finish first.
+  // THE INTERVAL CANNOT CLOSE THAT RACE, AND 3s ONLY MADE IT RARE. Measured on
+  // CI 2026-09-02: the monitor published `holds unlanded work` naming
+  // `done.txt`, and nothing followed it. `plot-agent-monitor.sh:490` runs its
+  // first `monitor_pass` BEFORE any sleep, and `plot-dispatch.sh` starts the
+  // monitor inside the wrapper immediately before the agent — so the first
+  // sample races the worker's first command whatever the interval is set to.
+  //
+  // AND THE FIRST SAMPLE DECIDES, because the monitor publishes ON CHANGE. A
+  // mid-edit `holds unlanded work` still holds once the commit lands and the
+  // PR is still absent, so no second record is ever written and the poll waits
+  // out its deadline against a monitor with nothing left to say.
+  //
+  // `sleep 12` after the push is what removes the ambiguity — not by making
+  // the sample later, but by keeping the desk in the state under test for
+  // several intervals after it reaches it. The debt itself is patient, so a
+  // finding one interval late is as good as one on time; what the test cannot
+  // tolerate is a finding about a state the fixture was only passing through.
+  //
+  // VERIFIED BY FORCING THE RACE, not by a green run: with 4s inserted between
+  // the write and the commit, so the first sample lands mid-edit for certain,
+  // the test still reports `owes a review`.
   const stub = stubHost(NO_PR);
   const run = dispatchOne('agent-owes-review', {
     stub,
     monitorInterval: '3',
-    workerCommand: "sh -c 'echo work > done.txt && git add done.txt && git commit -qm work && git push -q -u origin HEAD'",
+    workerCommand: "sh -c 'echo work > done.txt && git add done.txt && git commit -qm work && git push -q -u origin HEAD && sleep 12'",
   });
   try {
     const records = waitFor(run.findingsFile, (r) => r.some((x) => x.finding === 'owes a review'));
