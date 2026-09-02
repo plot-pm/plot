@@ -24,6 +24,7 @@
 - **Started:** 2026-09-02, Jan Wloka, `bug/one-router-chooses-the-path`
 - **Started:** 2026-09-02, Jan Wloka, `bug/the-budget-knows-which-bucket-it-spent`
 - **Started:** 2026-09-02, Jan Wloka, `bug/a-spent-bucket-waits-for-its-reset`
+- **Started:** 2026-09-02, Jan Wloka, `bug/the-budget-bounds-simultaneous-calls`
 
 ## Changelog
 
