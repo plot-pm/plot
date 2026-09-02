@@ -62,12 +62,13 @@
 #                                 means the host answered and there are none
 #                                 (exit 0, no rows); a failed question exits
 #                                 non-zero with EMPTY stdout, never a silent
-#                                 empty list. EXIT 5 is a rate limit — primary
-#                                 or secondary — and exit 3 is any other
-#                                 failure. The two are separate because they
-#                                 ask for different responses: 5 says wait, 3
-#                                 says look. An unrecognised error is never
-#                                 given the more specific name.
+#                                 empty list. EXIT 5 is a SPENT QUOTA, exit 6 a
+#                                 SECONDARY limit, and exit 3 any other
+#                                 failure. The three are separate because they
+#                                 ask for different responses: 5 says wait for
+#                                 the reset, 6 says retry shortly and lower
+#                                 concurrency, 3 says look. An unrecognised
+#                                 error is never given the more specific name.
 #   runs <branch> [--limit N]     a branch's own recent CI runs, newest first,
 #                                 as JSON lines: {"workflow":"CI",
 #                                 "conclusion":"success|failure|…",
@@ -260,6 +261,29 @@ die3() { echo "plot-host: $*" >&2; exit 3; }
 # reportable fact into an unexplained four-minute call.
 die5() { echo "plot-host: $*" >&2; exit 5; }
 
+# Exit 6 — the host refused because too many calls arrived AT ONCE. A secondary
+# limit, and a different ceiling from the one exit 5 reports.
+#
+# ITS OWN CODE BECAUSE THE TWO RECOVER DIFFERENTLY, which is the whole reason
+# this script now answers three words where it answered two. A spent quota
+# recovers at the reset the response carries — minutes away — and the honest
+# reaction is to stop until then and say when. A secondary limit clears in
+# seconds, carries no reset, and the reaction is to retry shortly and lower
+# concurrency. A caller told only *throttled* counsels one when it means the
+# other: it waits minutes for a limit that cleared, or it retries in seconds
+# into a bucket that is empty.
+#
+# BOTH WERE MEASURED HERE. 2026-08-27, eight workers against a cap of seven
+# produced a 403 naming abuse detection. 2026-09-01, `gh pr view` refused with
+# *"API rate limit already exceeded"* while the same account's GraphQL headers
+# read 4854 of 5000 remaining — a bucket with 97 % left does not refuse on
+# quota. So both causes are real, and the aggregate view could not tell them
+# apart.
+#
+# NOT A RETRY, for the reason exit 5 states: whether to wait is the caller's
+# decision, and this adapter reports rather than reacts.
+die6() { echo "plot-host: $*" >&2; exit 6; }
+
 # WHICH FAILURE, read off the wording — the same shape `bb_issue_exit_code`
 # uses, and for the same reason: the exit code cannot split these cases. `gh`
 # exits 1 for a rate limit and for a 503 alike, and puts the whole difference
@@ -271,14 +295,21 @@ die5() { echo "plot-host: $*" >&2; exit 5; }
 # looking. That is the same direction `bb_issue_exit_code` refuses to guess in,
 # where an unrecognised error must be 3 rather than 4.
 #
-# BOTH LIMITS, because only one of them says "rate limit". The primary limit
-# announces itself (`API rate limit already exceeded`); the SECONDARY limit —
-# concurrent-request throttling, which is the outage this repo actually had on
-# 2026-08-27 with eight workers against a cap of seven — reports a 403 naming
-# abuse detection, while `gh api rate_limit` reads 5000/5000 on both buckets.
-# Matching only the first would miss the one that bit.
-host_failure_kind() { # $1=stderr text → throttled|failed
-  if LC_ALL=C grep -qiE 'rate limit|ratelimit|too many requests|\b429\b|secondary rate|abuse detection|exceeded a secondary' <<<"$1"; then
+# THREE ANSWERS, BECAUSE THE TWO LIMITS ARE TWO CEILINGS. This returned
+# `throttled` for every match of one regex until 2026-09-02, so *"API rate
+# limit exceeded"* and *"You have exceeded a secondary rate limit"* came back
+# the same word and nothing downstream could tell them apart. `secondary` is
+# now its own answer: `die6` carries it, and the board names which limit was
+# hit rather than printing one reset over both.
+#
+# THE SECONDARY TEST RUNS FIRST, AND THE ORDER IS THE CLASSIFICATION. GitHub's
+# secondary message contains the phrase *"rate limit"* too — *"You have
+# exceeded a secondary rate limit"* — so a quota test applied first claims
+# every secondary refusal and the distinction is lost at the point it is made.
+host_failure_kind() { # $1=stderr text → throttled|secondary|failed
+  if LC_ALL=C grep -qiE 'secondary rate|exceeded a secondary|abuse detection|abuse-detection|too many requests|\b429\b' <<<"$1"; then
+    echo secondary
+  elif LC_ALL=C grep -qiE 'rate limit|ratelimit' <<<"$1"; then
     echo throttled
   else
     echo failed
@@ -297,9 +328,14 @@ host_failure_kind() { # $1=stderr text → throttled|failed
 # LIST has no absent subject, so if the call failed, the answer is unknown.
 pr_list_failed() { # $1=stderr text
   local err="$1"
-  if [ "$(host_failure_kind "$err")" = throttled ]; then
-    die5 "pr-list: host throttled — ${err:-the host refused the request and said nothing}"
-  fi
+  case "$(host_failure_kind "$err")" in
+    secondary)
+      die6 "pr-list: host refused a burst — ${err:-the host refused the request and said nothing}"
+      ;;
+    throttled)
+      die5 "pr-list: host throttled — ${err:-the host refused the request and said nothing}"
+      ;;
+  esac
   die3 "pr-list: ${err:-the host failed the request and said nothing}"
 }
 
