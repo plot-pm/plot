@@ -37,8 +37,8 @@ const monitor = path.join(scripts, 'plot-worker-monitor.sh');
  * Drive the monitor with its ports replaced.
  *
  * `ports` is shell that redefines any of `monitor_pid_alive`,
- * `monitor_pid`, `monitor_activity`, `monitor_tree_fingerprint` and
- * `monitor_has_commits`. `passes` is how many times `monitor_pass` is called —
+ * `monitor_pid`, `monitor_transcript_quiet`, `monitor_activity`,
+ * `monitor_tree_fingerprint` and `monitor_has_commits`. `passes` is how many times `monitor_pass` is called —
  * the two-sample rule means most interesting assertions need at least two.
  *
  * Returns the findings the monitor published, parsed. Publishing goes to a real
@@ -74,10 +74,20 @@ function drive(ports, passes = 1, { env = {} } = {}) {
   }
 }
 
-/** Ports for a live agent whose subtree is frozen, over a tree that never moves. */
+/**
+ * Ports for a live agent that has written nothing for far longer than the
+ * window, with no child process burning CPU behind it, over a tree that never
+ * moves. That is the whole of the new `quiet` reading, and BOTH readings are
+ * needed: since 2026-09-02 a frozen CPU clock alone is not a stall, because an
+ * agent waiting on a model response has exactly that clock.
+ *
+ * 99999 is well past the 900 s default, so the window's exact value is not
+ * baked into every test that merely needs *quiet*.
+ */
 const QUIET = `
   monitor_pid_alive() { return 0; }
   monitor_pid() { printf '4242'; }
+  monitor_transcript_quiet() { printf '99999'; }
   monitor_activity() { printf 'idle'; }
   monitor_tree_fingerprint() { printf 'unchanged'; }
   monitor_has_commits() { return 0; }
@@ -260,15 +270,25 @@ test('worker-monitor: a busy worker publishes nothing, however long it runs', ()
     'a healthy worker produced findings — silence no longer means healthy');
 });
 
-test('worker-monitor: a live pid with nothing to measure is silent, not idle', () => {
-  // `plot_worker_activity` answers "" for a pid whose subtree holds no CPU
-  // clock at all, and it refuses to call that `idle` for a stated reason: the
-  // absence of a child is not the presence of an idle one. The monitor built on
-  // it must not undo that refusal one layer up.
+test('worker-monitor: past the window, a live pid with NO child is idle', () => {
+  // THIS ASSERTION INVERTED ON 2026-09-02, and the inversion is the fix.
+  //
+  // Under the CPU rule the monitor refused `idle` for a pid whose subtree held
+  // no CPU clock at all, because the reading arrived with no evidence the agent
+  // had done anything — the absence of a child was not the presence of an idle
+  // one, and it was only ever read beside a 0.4 s sample.
+  //
+  // The transcript changes what the empty answer means. Reaching this line
+  // already establishes the agent has written nothing for over 900 s; a live
+  // pid with no child process behind it is then precisely an agent that has
+  // stopped, not one whose measurement is missing. Refusing here would leave
+  // the commonest real stall unreported.
   const nothing = QUIET.replace("monitor_activity() { printf 'idle'; }",
     "monitor_activity() { printf ''; }");
-  assert.deepEqual(drive(nothing, 4), [],
-    'an unmeasurable subtree was reported idle — the empty answer became a finding');
+  const published = drive(nothing, 4);
+  assert.equal(published.length, 1,
+    `expected one idle finding, got ${JSON.stringify(published)}`);
+  assert.equal(published[0].finding, 'idle');
 });
 
 test('worker-monitor: it publishes the moment a finding holds and nothing when nothing changed', () => {
@@ -291,6 +311,7 @@ test('worker-monitor: a finding that stops holding is published as clear', () =>
     monitor_pid() { printf '4242'; }
     monitor_tree_fingerprint() { printf 'unchanged'; }
     monitor_has_commits() { return 0; }
+    monitor_transcript_quiet() { printf '99999'; }
     monitor_activity() {
       _n=$(cat "$PLOT_WORKTREE/.a" 2>/dev/null || echo 0)
       _n=$((_n + 1)); printf '%s' "$_n" > "$PLOT_WORKTREE/.a"
