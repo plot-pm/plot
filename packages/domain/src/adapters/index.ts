@@ -31,6 +31,9 @@ export { hostFixture, type HostFixture } from './host/host-fixture.js';
 export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
 export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
 
+export { slotsFile, SLOTS_HOME_ENV, type SlotsFileOptions } from './slots/slots-file.js';
+export { slotsFixture, type SlotsFixture } from './slots/slots-fixture.js';
+
 export { refsGit } from './refs/refs-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 
