@@ -3,16 +3,16 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: twelve-section text report on stdout (each finding carries its exact
+# Output: thirteen-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed),
 #         terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits a twelve-section report. This is the COMPUTATIONAL half of the
+# emits a thirteen-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -86,9 +86,20 @@
 #                                 NEVER GATES — a double claim is a shape for a
 #                                 person to resolve, not a branch that cannot
 #                                 move — so it carries `double_claims=` and
-#                                 stays out of `attention`. Placed LAST so
-#                                 sections 1-11 keep their numbers, and with
-#                                 them /plot-deliver's `== 7.` gate marker.
+#                                 stays out of `attention`.
+#  13. Stale interrogation rounds — a DRAFT plan whose recorded `Rounds:` value
+#                                 predates its own last amendment, naming the
+#                                 round, the commit that last wrote it, and the
+#                                 commit that amended the plan after it. A plan
+#                                 recording NO round is not a finding: an
+#                                 unquestioned plan is honestly unquestioned.
+#                                 `Rounds: 0` IS a recorded value. REPORTS AND
+#                                 NEVER GATES — a stale round is a hint about a
+#                                 badge, not a reason to stop a delivery — so
+#                                 it carries `rounds_drift=` and stays out of
+#                                 `attention`. Placed LAST so sections 1-12
+#                                 keep their numbers, and with them
+#                                 /plot-deliver's `== 7.` gate marker.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -516,6 +527,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0; n_double=0
+n_rounds_drift=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -1428,6 +1440,98 @@ fi
 if [ -n "$double_out" ]; then printf '%b' "$double_out"; else echo "  (none — every branch is claimed by exactly one plan)"; fi
 echo
 
+# ---------------------------------------------------------------------------
+# 13. Stale interrogation rounds
+#
+# A Draft plan whose recorded round predates its own last amendment. The
+# finding is the DISAGREEMENT between what the plan says it was questioned
+# through and what its text has become since — the case the board's badge gets
+# wrong, because the badge shows the number and the reader cannot see that the
+# questioning predates the current text.
+#
+# A MISSING ROUND IS NOT A DEFECT. A plan with no `Rounds:` field produces no
+# finding: a plan nobody has questioned is honestly unquestioned, and
+# `PlanCard.tsx` renders no badge for it — silence, not a zero. Only a plan
+# that HAS a recorded round can disagree with itself. The test is the KEY'S
+# PRESENCE (`has("rounds")`), never its truthiness: `- **Rounds:** 0` is a
+# recorded value — a plan explicitly saying it was never questioned — and a
+# shell test treating `0` as empty would silence exactly that plan.
+#
+# THE PARSER IS THE SOURCE, never a second grep. plot-plan-meta.sh reads
+# `Rounds:` from three places in a fixed order (## Status, YAML front matter,
+# the CHALLENGE-THE-PLAN-METADATA block), and `plan_json` above already holds
+# its answer. Re-deriving the number here would reproduce the defect wave 1 of
+# the reslice work removed, one layer up, and would disagree with the board
+# whenever a plan uses front matter or the block.
+#
+# IT DOES NOT COUNT ROUNDS FROM GIT. Bookkeeping commits, PR annotations and
+# phase flips all touch a plan, so a commit count over-counts; an interrogation
+# whose findings land in one commit under-counts. A round is a judgement about
+# what happened, not a diff count. This compares a recorded round against an
+# edit date and reports only that the two disagree.
+#
+# THE TWO DATES, AND WHY THESE TWO — the plan left this open, so it is decided
+# here:
+#   - the amendment:    `git log -1 --format=%ct -- <plan>`, the same call
+#                       claim_age_days uses. The plan file's last commit.
+#   - the round record: `git log -1 --format=%ct -G'[Rr]ounds?[:*"]' -- <plan>`,
+#                       the last commit that CHANGED a rounds line.
+# `-G` and not `-S`. `-S` counts occurrences of the string, so a value edited
+# from `Rounds: 1` to `Rounds: 2` leaves the count at one and `-S` reports the
+# commit that first introduced the field — measured 2026-09-01 in a three-commit
+# fixture, `-S` named c1 where `-G` named c2. The pattern spans all three
+# sources the parser reads, including the block's `"round":` key.
+#
+# THE FINDING IS WEAKER THAN THE FACT, and it names its inputs so a reader can
+# judge it: the recorded round, the commit the round was last written in, and
+# the commit that amended the plan after it. A hint that names its inputs can
+# be argued with; a bare verdict cannot. Two shapes are silent rather than
+# guessed: a plan whose rounds line has no commit of its own (uncommitted, or a
+# repo the file was added to whole), and one whose amendment is that same
+# commit.
+#
+# DRAFT PLANS ONLY. An Approved plan has already passed the review the
+# questioning feeds; a Draft plan is the one whose card a reader judges by the
+# badge. A file with no `Phase:` is not a plan (phase == NONE) and never
+# reaches this test, the same rule sections 1, 7, 8 and 12 apply.
+#
+# CONVENIENCE, NEVER A GATE. A stale round is a hint about a badge; it must not
+# stop a delivery. It carries its own footer counter (`rounds_drift=`) and
+# stays OUT of `attention=`, exactly as unsliced waves, prose wave names,
+# sprint drift, stale tallies, index drift and double claims each do. And it
+# sits LAST, after section 12: /plot-deliver's gate marker is
+# `sed -n '/^== 7./q;p'`, which stops before the first non-blocking section,
+# and that stays true only while nothing is inserted below 7.
+echo "== 13. Stale interrogation rounds (a Draft plan amended since its last round) =="
+rounds_out=""
+if [ -n "$plan_json" ]; then
+  # One jq pass, one record per Draft plan that RECORDS a round. `has("rounds")`
+  # is the presence test the section turns on — see the note above on `0`.
+  while IFS="$US" read -r f rounds; do
+    [ -n "$f" ] || continue
+    [ -f "$f" ] || continue
+    round_ct=$(git log -1 --format=%ct -G'[Rr]ounds?[:*"]' -- "$f" </dev/null 2>/dev/null)
+    [ -n "$round_ct" ] || continue     # no commit recorded the round → nothing to compare
+    edit_ct=$(git log -1 --format=%ct -- "$f" </dev/null 2>/dev/null)
+    [ -n "$edit_ct" ] || continue
+    [ "$edit_ct" -gt "$round_ct" ] || continue
+    round_sha=$(git log -1 --format=%h -G'[Rr]ounds?[:*"]' -- "$f" </dev/null 2>/dev/null)
+    edit_sha=$(git log -1 --format=%h -- "$f" </dev/null 2>/dev/null)
+    base=$(basename "$f")
+    rounds_out+="  $base — records round $rounds (last written in $round_sha), amended since in $edit_sha\n"
+    # The repair is a person re-reading the plan and deciding whether the
+    # amendment needs questioning — so the verb is `consider:`, not `fix:`. A
+    # shell cannot judge whether a typo correction invalidates a round.
+    rounds_out+="    consider: re-question the plan, or leave it — the round is stale, not wrong\n"
+    n_rounds_drift=$((n_rounds_drift + 1))
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r --arg US "$US" '
+        select(.phase == "draft") | select(has("rounds"))
+        | [.file, (.rounds | tostring)] | join($US)')
+fi
+if [ -n "$rounds_out" ]; then printf '%b' "$rounds_out"; else echo "  (none — no Draft plan has been amended since the round it records)"; fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced prose_wave_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced prose_wave_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift pr_source=$PR_SOURCE main=$MAIN"
 exit 0
