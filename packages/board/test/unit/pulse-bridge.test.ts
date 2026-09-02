@@ -45,6 +45,11 @@ const SLICES: FleetReading['plans'][number]['slices'] = [{
     // `state: 'claimed'` on purpose: the two are independent, and a fixture
     // that let them agree by accident would not notice them being conflated.
     ref_held: false,
+    // WHAT THIS BRANCH WAITS ON, empty here. The field carries a `.default('')`
+    // in the schema, so the bridge restores it whether or not a fixture names
+    // it — and a fixture that stays silent asserts the round-trip is faithful
+    // for one key fewer than it claims.
+    waits_on: '',
     worker_dirty_paths: [],
   }],
 }];
@@ -59,6 +64,7 @@ const PULSE: FleetReading = {
   }],
   summary: {
     plans: 1, waves: 1, branches: 1, claimed: 1, eligible: 0, blocked: 0, deferred: 0,
+    waiting: 0, prereq_missing: 0,
     // The EVIDENCE field beside the counters. A fixture without it round-trips
     // one key short of what the bridge restores.
     host: 'unknown' as const,
