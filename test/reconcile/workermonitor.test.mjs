@@ -634,3 +634,210 @@ test('subject: a desk with no pid file yet is starting — the startup window', 
 test('subject: no pid file path at all is still starting — a hand-run monitor', () => {
   assert.equal(subject(''), 'starting');
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE TRANSCRIPT READING — what replaced the CPU rule on 2026-09-02
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// The rule these tests replace ended ELEVEN dispatched workers across two days,
+// several holding uncommitted work including new test files. Every case below
+// is one of those workers, or the stall the monitor must still catch.
+//
+// THE NUMBERS ARE WAVE 1'S, measured 2026-09-02 by `plot-quiet-stretch.sh`
+// across 23 sessions in 21 worktrees, 7547 quiet stretches: p50 0s, p90 2.6s,
+// p99 15.6s, max 600.8s. The 900 s default is 1.5x that maximum and 57x the
+// p99.
+
+const transcriptLib = path.join(scripts, 'plot-transcript-quiet.sh');
+
+test('worker-monitor: an agent that only READS for ten minutes is not ended', () => {
+  // THE PLAN'S OWN `Done when`, and the defect in one line. An agent reading
+  // files runs tools whose CPU is charged to short-lived children that are gone
+  // by the next 0.4 s sample, so the old rule saw a frozen subtree clock and
+  // called it a stall. Its transcript, meanwhile, gains a line per tool call.
+  //
+  // Ten minutes is 600 s — past every stretch wave 1 measured except the single
+  // 600.8 s `gh pr checks --watch`, and still inside the 900 s window. A reading
+  // agent is therefore `busy` on the transcript alone, whatever its CPU says.
+  const reading = QUIET.replace("monitor_transcript_quiet() { printf '99999'; }",
+    "monitor_transcript_quiet() { printf '600'; }");
+  assert.deepEqual(drive(reading, 8), [],
+    'a working agent that only read for ten minutes was reported idle — the defect this slice exists to fix');
+});
+
+test('worker-monitor: an agent inside a 20-minute test run is not ended', () => {
+  // THE CASE A THRESHOLD ALONE CANNOT COVER, and why the window is a gate
+  // rather than the verdict. 28 of the 37 over-window stretches wave 1 measured
+  // are an agent waiting on its OWN command, and the four longest are this
+  // repo's gates: `gh pr checks --watch` 600.8s, `pnpm run test:board` 600.3s,
+  // `pnpm run test:reconcile` 584.9s and 575.5s.
+  //
+  // Those cluster at 600 because that is where a watch command and a test
+  // runner time out — a CEILING, not a distribution's tail. A project whose
+  // suite is slower produces a longer one, so no single number picked from this
+  // sample is safe. What separates this agent from a stopped one is that a
+  // child is on a core, and that is what the second reading asks.
+  const building = QUIET.replace("monitor_activity() { printf 'idle'; }",
+    "monitor_activity() { printf 'working'; }");
+  assert.deepEqual(drive(building, 8), [],
+    'an agent whose test suite was running was reported idle — the CPU reading did not save it');
+});
+
+test('worker-monitor: a genuinely stopped agent is still ended', () => {
+  // THE OTHER HALF, and the one that keeps the fix from being a deletion. Past
+  // the window with nothing burning CPU, over an unchanged tree, with commits
+  // already on the branch — every condition the finding has ever carried.
+  const published = drive(QUIET, 2);
+  assert.equal(published.length, 1,
+    `a stopped agent published ${JSON.stringify(published)} — the monitor stopped finding real stalls`);
+  assert.equal(published[0].finding, 'idle');
+});
+
+test('worker-monitor: the window boundary is the measured maximum, with margin', () => {
+  // THE THRESHOLD ITSELF, asserted rather than described. Just inside is busy,
+  // just outside is a candidate — and the default sits at 900 s so that the
+  // 600.8 s maximum wave 1 measured clears it by five minutes.
+  const at = (n) => QUIET.replace("monitor_transcript_quiet() { printf '99999'; }",
+    `monitor_transcript_quiet() { printf '${n}'; }`);
+
+  assert.deepEqual(drive(at(899), 4), [],
+    'a transcript quiet for 899s fired inside the 900s window');
+  assert.equal(drive(at(901), 2).length, 1,
+    'a transcript quiet for 901s did not fire past the 900s window');
+
+  // 600.8 s — the longest stretch ever measured on this estate, an agent
+  // watching its own PR checks. It must be silence, and with room to spare.
+  assert.deepEqual(drive(at(601), 4), [],
+    'the longest quiet stretch wave 1 measured was reported idle');
+});
+
+test('worker-monitor: the window is configurable, and the default is 900', () => {
+  // A PROJECT WHOSE GATES ARE SLOWER THAN THIS REPO'S must be able to say so
+  // without editing the script — the same reason `Worker bound` is a config
+  // key. The measurement that chose 900 is this estate's, and Plot does not
+  // assume every adopter's suite looks like its own.
+  const src = fs.readFileSync(monitor, 'utf8');
+  assert.match(src, /PLOT_MONITOR_QUIET_SECONDS:=900/,
+    'the default window is no longer 900s — if that is deliberate, the numbers in the header must move with it');
+
+  const wide = QUIET.replace("monitor_transcript_quiet() { printf '99999'; }",
+    "monitor_transcript_quiet() { printf '1200'; }");
+  assert.deepEqual(drive(wide, 4, { env: { PLOT_MONITOR_QUIET_SECONDS: '1800' } }), [],
+    'a project that widened the window still had its worker reported idle');
+});
+
+test('worker-monitor: no transcript is UNAVAILABLE, and publishes nothing', () => {
+  // THE FALLBACK, settled by `the-registry-supervises-its-agents`: a capability
+  // the adopting project does not provide is UNAVAILABLE, never failed and
+  // never zero.
+  //
+  // BOTH WRONG READINGS ARE FAILURES, in opposite directions. Read as zero, an
+  // unreadable agent reports healthy forever and no stall is ever caught. Read
+  // as an error, the monitor refuses to run where Plot's contract says it must
+  // degrade. It is a word, and the verdict matches on it.
+  //
+  // What ends a stuck worker here is `Worker bound` — 8 hours on this estate.
+  // The cost is stated rather than hidden, and it is smaller than the measured
+  // cost of killing working agents.
+  const unreadable = QUIET.replace("monitor_transcript_quiet() { printf '99999'; }",
+    "monitor_transcript_quiet() { printf 'unavailable'; }");
+  assert.deepEqual(drive(unreadable, 6), [],
+    'an agent whose transcript could not be read was reported idle — unavailable became a finding');
+});
+
+test('worker-monitor: a missing transcript reader is unavailable, not zero', () => {
+  // THE HELPER ITSELF GOING MISSING is the same answer as the transcript going
+  // missing, and for the same reason: a monitor that cannot see must say so
+  // rather than report that it saw nothing happen. Zero would make every worker
+  // on a broken install a stall.
+  const noReader = QUIET
+    .replace("monitor_transcript_quiet() { printf '99999'; }", '')
+    + '\n unset -f plot_transcript_quiet_seconds\n';
+  assert.deepEqual(drive(noReader, 6), [],
+    'a monitor whose transcript reader was absent reported idle anyway');
+});
+
+test('transcript-quiet: it reads a REAL session directory, by worktree path', () => {
+  // THE JOIN, against the real layout rather than a description of it. Wave 1
+  // proved this resolution on 23 sessions; the point here is that this script
+  // agrees with it, since the two derive the slug independently and a drift
+  // between them would make the monitor blind on exactly the estate wave 1
+  // measured.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-tq-home-'));
+  const worktree = '/Users/someone/repo/.worktrees/feature-x';
+  const slug = worktree.replace(/[/.]/g, '-');
+  const dir = path.join(home, '.claude', 'projects', slug);
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(dir, 'sess.jsonl'), '{}\n');
+    const read = (extra = '') => execFileSync('bash', ['-c', `
+      . ${JSON.stringify(transcriptLib)}
+      ${extra}
+      plot_transcript_quiet_seconds ${JSON.stringify(worktree)}
+    `], { encoding: 'utf8', env: { ...process.env, PLOT_TRANSCRIPT_HOME: home } });
+
+    const quiet = read();
+    assert.match(quiet, /^\d+$/, `expected seconds, got ${quiet}`);
+    assert.ok(Number(quiet) < 60, `a file just written read as ${quiet}s quiet`);
+
+    // A DIRECTORY THAT EXISTS BUT HOLDS NO SESSION is still unavailable. The
+    // runtime creates it when the project is first opened, so an empty one
+    // means nothing has written here — not "quiet for a very long time".
+    fs.rmSync(path.join(dir, 'sess.jsonl'));
+    assert.equal(read(), 'unavailable',
+      'an empty session directory read as a very long silence');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('transcript-quiet: an `agent-` prefixed transcript is not the worker', () => {
+  // WAVE 1'S FILTER, kept for its reason: a subagent's transcript is a true
+  // statement about the WRONG process. A worker whose subagent is chatting
+  // while the worker itself has stopped must still read as quiet — otherwise
+  // the busiest stall on the estate is the one that never reports.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-tq-sub-'));
+  const worktree = '/Users/someone/repo/.worktrees/feature-y';
+  const dir = path.join(home, '.claude', 'projects', worktree.replace(/[/.]/g, '-'));
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    fs.writeFileSync(path.join(dir, 'agent-sub.jsonl'), '{}\n');
+    const out = execFileSync('bash', ['-c', `
+      . ${JSON.stringify(transcriptLib)}
+      plot_transcript_quiet_seconds ${JSON.stringify(worktree)}
+    `], { encoding: 'utf8', env: { ...process.env, PLOT_TRANSCRIPT_HOME: home } });
+    assert.equal(out, 'unavailable',
+      'a subagent transcript was read as the worker\'s own — the wrong process was measured');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('transcript-quiet: the newest session across a desk is the reading', () => {
+  // A WORKTREE CAN HOLD SEVERAL SESSIONS — a worker that hopped waves, or an
+  // operator who opened one at the same desk. Any of them producing output
+  // means somebody is working there, and the monitor's question is about the
+  // DESK. Taking the maximum timestamp is what stops a live session being ended
+  // because a stale sibling sits beside it.
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-tq-many-'));
+  const worktree = '/Users/someone/repo/.worktrees/feature-z';
+  const dir = path.join(home, '.claude', 'projects', worktree.replace(/[/.]/g, '-'));
+  fs.mkdirSync(dir, { recursive: true });
+  try {
+    const stale = path.join(dir, 'old.jsonl');
+    fs.writeFileSync(stale, '{}\n');
+    // Two hours ago — past any window.
+    const old = new Date(Date.now() - 7200_000);
+    fs.utimesSync(stale, old, old);
+    fs.writeFileSync(path.join(dir, 'live.jsonl'), '{}\n');
+
+    const out = execFileSync('bash', ['-c', `
+      . ${JSON.stringify(transcriptLib)}
+      plot_transcript_quiet_seconds ${JSON.stringify(worktree)}
+    `], { encoding: 'utf8', env: { ...process.env, PLOT_TRANSCRIPT_HOME: home } });
+    assert.ok(Number(out) < 60,
+      `a desk with one live and one stale session read as ${out}s quiet — the stale sibling won`);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
