@@ -108,6 +108,34 @@ describe('a host that refuses', () => {
     expect(answer).toEqual({ ok: false, why: 'failed' });
   });
 
+  it('names the host it could not drive, and what it drives instead', async () => {
+    // THE REFUSAL HAS TO SAY WHICH HOST. Removing the union moved this refusal
+    // from the compiler to here, and the compiler named the vendor — a `failed`
+    // with no sentence is a worse answer than the type used to give.
+    //
+    // `PortResult` carries no sentence, so `lastRefusal` is the only place the
+    // name can survive. Asserted separately from the refusal above because the
+    // two failed independently: the guard threw from the day the union went,
+    // and the message it threw was discarded by `resultOf` until 2026-09-02 —
+    // `lastRefusal()` answered `null`, since the script exited 0 and `record`
+    // clears the refusal on a zero exit.
+    const host = hostShell(hostThat('echo quokka-forge'));
+    await host.backend();
+    const refusal = host.lastRefusal();
+    expect(refusal?.kind).toBe('failed');
+    expect(refusal?.said).toContain('quokka-forge');
+    expect(refusal?.said).toContain('github');
+  });
+
+  it('holds no refusal once it drives a host it was taught', async () => {
+    // The other half: a refusal that never clears would report the last
+    // unknown host forever, and every caller reading `lastRefusal` after a
+    // good call would back off for a reason that no longer exists.
+    const host = hostShell(hostThat('echo github'));
+    await host.backend();
+    expect(host.lastRefusal()).toBeNull();
+  });
+
   it('drives a backend it was taught, and the domain never sees the list', async () => {
     // The other half of the refusal above: the guard admits what it can drive
     // and passes the word through unnarrowed. Asserting only the refusal would
