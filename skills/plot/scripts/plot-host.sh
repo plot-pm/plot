@@ -220,6 +220,13 @@
 #                                 Jenkins reports no limit, so it answers
 #                                 `predicted`.
 #
+# TRANSPORT IS NOT A CALLER'S CONCERN. Where a host offers a question over more
+# than one transport — GitHub's REST against its GraphQL — the choice is made
+# inside this script, by `gh_route`, and no op reports which one answered. The
+# payload is identical either way by construction; a caller that could tell them
+# apart would start depending on the route. `PLOT_HOST_FORCE_REST=1` pins the
+# GitHub route to REST, and it is read in exactly one place.
+#
 # Backend resolution: $PLOT_HOST (github|bitbucket) wins — useful for tests —
 # else the `Git host` key from `## Plot Config` (via plot-config.sh), default
 # github. The bb CLI is any Bitbucket Cloud CLI exposing pr view/create/merge
@@ -2400,11 +2407,18 @@ case "$op" in
     # THIS CALL SPENDS ONE REQUEST, AND SAYS SO. The design wants the headers of
     # a call that was going to happen anyway, and the hot call is `gh pr list`,
     # which is `gh`'s own GraphQL wrapper and exposes no headers. Rewriting it
-    # as `gh api graphql` is the transport choice, which belongs to
-    # `bug/one-router-chooses-the-path`. Until then this asks the cheapest real
-    # question there is — `{viewer{login}}` — and reports what its response
-    # carried. One request against the bucket it reports is an honest cost; a
-    # free reading of the wrong number is not.
+    # as `gh api graphql` to harvest them is HEADER READING, not routing, and it
+    # belongs to `bug/the-budget-knows-which-bucket-it-spent` — slice 7, which
+    # owns both the header parsing and the fix to `graphql_budget_spent`. An
+    # earlier draft of this comment assigned it to
+    # `bug/one-router-chooses-the-path`; that slice landed, and it gathered the
+    # REST-versus-GraphQL choice into `gh_route` without touching where a
+    # reading comes from. The two are separate and only one is done.
+    #
+    # Until then this asks the cheapest real question there is —
+    # `{viewer{login}}` — and reports what its response carried. One request
+    # against the bucket it reports is an honest cost; a free reading of the
+    # wrong number is not.
     #
     # ONE BUCKET, NOT TWO. A response reports the bucket IT spent, in
     # `X-RateLimit-Resource`. Reporting `core` from a GraphQL response would be
