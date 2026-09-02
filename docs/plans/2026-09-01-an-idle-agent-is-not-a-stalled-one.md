@@ -10,6 +10,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-02, Jan Wloka, in-session
+- **Started:** 2026-09-02, Jan Wloka, `bug/a-thinking-agent-has-a-quiet-stretch`
 
 ## Changelog
 
