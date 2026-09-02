@@ -610,19 +610,38 @@ host_miss_or_fail() {
 # there unused, and the same question can still be answered — degraded and more
 # expensive, but answered.
 #
-# BE HONEST ABOUT WHAT THIS BUYS. It is a second path when one bucket is
-# GENUINELY spent, which is a real state a long-running board reaches. It is NOT
-# immunity from throttling. The outage this repo actually had on 2026-08-27 was
-# GitHub's SECONDARY limit — concurrent-request throttling, eight workers
-# against a cap of seven — and during it both budgets read:
+# THIS GATE READ `gh api rate_limit` UNTIL 2026-09-02, AND IT COULD NOT SEE THE
+# CONDITION IT GATES ON. Measured 2026-09-01 in a quiet moment, same account,
+# seconds apart:
 #
-#   graphql: 5000/5000  used=0  reset_in=3599s
-#   core:    5000/5000  used=0  reset_in=3599s
+#   gh api rate_limit     graphql: 5000/5000, used 0
+#   a real call's header  X-Ratelimit-Remaining: 1236, Used: 3764
 #
-# Both full, nothing spent, every call refused. `rate_limit` does not report the
-# secondary limit and cannot, so this gate would have read 5000 available at the
-# exact moment nothing worked. Backing off on the 403 itself is a separate
-# change and is not this one.
+# Reproduced 2026-09-02: `rate_limit` reported 5000/5000 used 0 while the header
+# on the same account read `Remaining: 2732, Used: 2268`. So the `-eq 0` test
+# below has never been able to fire, and the fallback it guards has never been
+# reached by a budget reading.
+#
+# **A gate that cannot see the condition it gates on is worse than no gate,
+# because it reports safety.** Measured 2026-09-01: a polling burst tripped
+# GitHub's secondary limit on GraphQL while both buckets read `5000/5000`, this
+# gate was therefore false, the cheap path was chosen, and every `gh pr` call
+# returned `API rate limit already exceeded`. REST answered normally throughout.
+# The estate's whole reap stalled — 18 worktrees read `rule could not be asked`
+# and every one was kept.
+#
+# SO IT READS THE RECORD, AND THE RECORD IS WRITTEN FROM RESPONSE HEADERS. Every
+# `gh` call this script makes files its spend against the bucket it spent, and a
+# call that harvested `X-RateLimit-*` files the connector's own numbers with it.
+# Three properties follow, and each answers an objection to the old reading:
+#
+#   FREE       it reads a file. No host is asked, so the "the query is free"
+#              argument the old docblock made is no longer needed — nothing is
+#              spent at all, rather than one call against the bucket in question.
+#   CURRENT    the newest live line describes the last call that actually
+#              happened, not a separate endpoint's view of it.
+#   BY NAME    the line names its own bucket, so `graphql` is asked about
+#              `graphql` and a full `core` cannot answer for it.
 #
 # THE CHEAP PATH STAYS THE DEFAULT, and the reason is measured. For 93 branches:
 # ONE GraphQL call (`pr-list` with the check rollup) versus ~186 REST calls,
@@ -632,20 +651,33 @@ host_miss_or_fail() {
 # ACTUALLY spent.
 #
 # UNKNOWN IS NOT ZERO. #485 pinned that rule where it was informational; here is
-# where it bites. A host that cannot be asked reports `unknown`, and reading
-# that as "exhausted" would send every branch down the expensive path forever,
-# for as long as the budget query kept failing. So anything that is not a
-# number that is not greater than zero leaves the default alone.
+# where it bites. A record with no `graphql` line yet, a reading the connector
+# did not number, and an unreadable file all report `unknown` — and reading any
+# of them as "exhausted" would send every branch down the expensive path
+# forever. So only a `remaining` that IS a number and IS zero returns true.
+#
+# IT IS STILL BLIND TO THE SECONDARY LIMIT, and that is stated rather than
+# fixed here. A burst refusal arrives while the bucket has 4854 of 5000 left —
+# measured 2026-09-01 — so no reading of any bucket predicts it. What answers
+# that is the rate-refusal re-entry in `pr-state`, which reads the refusal
+# itself; `bug/a-spent-bucket-waits-for-its-reset` owns the reaction.
 graphql_budget_spent() {
-  local rate remaining
-  # The budget query is FREE — `gh api rate_limit` consumes neither bucket
-  # (measured 2026-08-27: three consecutive readings, all used=0) — so asking
-  # before each lookup costs nothing against either limit.
-  rate="$(gh api rate_limit 2>/dev/null)" || return 1
-  remaining="$(jq -r '.resources.graphql.remaining // "unknown"' <<<"$rate" 2>/dev/null)" || return 1
-  # `== 0` and not `<= 0`: only a number can be spent. `unknown`, an empty
-  # string and a malformed payload all fall through to false, which is the
-  # cheap path — the honest direction to be wrong in.
+  local rate remaining basis
+  # THE RECORD, NEVER THE HOST. `budget_rate` reads one file and asks nothing,
+  # so this costs no request against the bucket it is asking about — which the
+  # old reading did, on every lookup.
+  rate="$(budget_rate github "$(budget_account github)" graphql 2>/dev/null)" || return 1
+  remaining="$(jq -r '.remaining' <<<"$rate" 2>/dev/null)" || return 1
+  basis="$(jq -r '.basis' <<<"$rate" 2>/dev/null)" || return 1
+  # ONLY AN `actual` READING MAY CLOSE THIS GATE. A `predicted` number is the
+  # adapter's estimate of a ceiling and carries no spend against it; an
+  # `unknown` one is the absence of a reading. Neither is evidence that a
+  # bucket is empty, and treating either as one takes the expensive path on a
+  # guess.
+  [ "$basis" = actual ] || return 1
+  # `== 0` and not `<= 0`: only a number can be spent. `null`, an empty string
+  # and a malformed payload all fall through to false, which is the cheap path
+  # — the honest direction to be wrong in.
   [[ "$remaining" =~ ^[0-9]+$ ]] && [ "$remaining" -eq 0 ]
 }
 
@@ -1284,23 +1316,54 @@ budget_account() {
   printf '%s\n' "${who:-unknown}"
 }
 
-# The bucket a call spent, as far as THIS slice can honestly know it.
+# The bucket a call spent, in the connector's OWN word.
 #
-# NAMED BY THE CONNECTOR, NOT NORMALISED, and deliberately coarse. Reading
-# `X-RateLimit-Resource` off a response header is what names GitHub's `core`
-# against its `graphql`, and that is `bug/the-budget-knows-which-bucket-it-spent`
-# — slice 7, which owns the header parsing and the fix to
-# `graphql_budget_spent`. Pre-empting it here would put a second bucket-naming
-# implementation in the estate for that slice to reconcile.
+# TWO SOURCES, AND THE HEADER OUTRANKS THE ARGV. A response reports the bucket
+# it spent in `X-RateLimit-Resource` — `core`, `graphql`, and `code_search` for
+# a search, which no reading of the command line would ever name. So a call that
+# harvested a header records what the header said, and this function answers
+# only for the calls that could not.
 #
-# So this records the connector's own default pool: one bucket per connector,
-# which is the truth for `bb`, `jen` and `jira`, and an under-refinement for
-# `gh` that slice 7 replaces. A coarse bucket still counts every call and still
-# divides a cadence correctly; it merely cannot yet say that GraphQL is spent
-# while REST has 4990 left.
+# `gh` OFFERS NO HEADERS ON MOST OF ITS SURFACE. `gh pr list` and `gh issue
+# list` are `gh`'s own GraphQL wrappers: they print a rendered payload and there
+# is no flag that adds the response headers to it. `--verbose` writes the whole
+# exchange to STDOUT, which would corrupt every caller's parse. So the argv is
+# what remains, and it is enough for the split that matters: `gh api graphql` and
+# every `gh pr`/`gh issue` command spend `graphql`, while `gh api <path>`,
+# `gh run` and `gh repo` spend `core`.
+#
+# AN UNRECOGNISED VERB NAMES NO BUCKET, and that empty string is the honest
+# answer rather than a default. Guessing `core` for a command nobody has
+# classified would file its spend against a pool it never touched, and the
+# gate below reads that pool.
+#
+# NOT NORMALISED, EVER. A connector nobody has written an adapter for names a
+# third thing, and `BudgetKey` carries the bucket as an unvalidated string for
+# exactly that reason — see `packages/domain/src/entities/limit.ts`: *"A closed
+# set here is the edit that gets forgotten when GitLab arrives."*
+gh_bucket_of_argv() {
+  case "${1:-}" in
+    # `gh api graphql` is the ONE `gh api` form that is not REST, and it is
+    # named by its first positional rather than by a flag.
+    api) if [ "${2:-}" = graphql ]; then printf 'graphql\n'; else printf 'core\n'; fi ;;
+    # `gh`'s PR and issue commands are its GraphQL wrappers throughout.
+    pr|issue) printf 'graphql\n' ;;
+    # REST, all of them: `gh run list` reads the Actions API, `gh repo view`
+    # the repository one, and `gh auth` the user one.
+    run|repo|auth|release|workflow|search) printf 'core\n' ;;
+    *) printf '\n' ;;
+  esac
+}
+
+# The bucket a NON-GitHub connector spends.
+#
+# One bucket per connector, which is the truth for `bb`, `jen` and `jira`: each
+# meters one pool or none, and neither reports a resource name. GitHub is the
+# connector that meters several, and `gh_bucket_of_argv` above is what names
+# them.
 budget_bucket() {
   case "$1" in
-    github) printf 'api\n' ;;
+    github) printf 'core\n' ;;
     bitbucket) printf 'api\n' ;;
     *) printf '\n' ;;
   esac
@@ -1322,8 +1385,12 @@ budget_bucket() {
 #   bitbucket  `predicted 1000` — the adapter's own number from experience, the
 #              same one `limit` reports, and it costs nothing to state.
 #
-# A caller that wants the actual reading asks `limit`, which spends the request
-# it takes to get one. That cost is stated rather than hidden.
+# A CALL THAT HARVESTED ITS OWN HEADERS OVERRIDES THIS, and that is the whole
+# of what slice 7 adds: `gh_api_harvest` puts the response's own
+# `X-RateLimit-*` into `PLOT_BUDGET_HARVEST`, and `budget_record_call` reads
+# that in preference to this. The reading is then FREE — the call was going to
+# happen anyway — and CURRENT, because it describes the call that just
+# happened rather than a separate endpoint's view of it.
 budget_reading() { # $1=backend → "<limit>\t<remaining>\t<reset>\t<basis>"
   # THE FIELDS ARE ARGUMENTS, NOT A FORMAT. Three of the four are the absent
   # marker `-`, and `printf '-\t...'` reads that leading `-` as an option flag:
@@ -1335,28 +1402,147 @@ budget_reading() { # $1=backend → "<limit>\t<remaining>\t<reset>\t<basis>"
   esac
 }
 
+# The reading the LAST harvested response carried, as
+# "<bucket>\t<limit>\t<remaining>\t<reset>", or empty where nothing was
+# harvested.
+#
+# A SHELL VARIABLE RATHER THAN A RETURN, because the harvest happens inside a
+# command substitution — `out="$(gh_api_harvest …)"` — and a subshell's
+# variables do not survive it. So the harvester writes the reading to a file
+# whose path the parent chose, and the parent reads it back. A pipe would have
+# the same problem in the other direction.
+PLOT_BUDGET_HARVEST=""
+
 # Records one call against one connector, whatever it cost and however it ended.
 #
 # `PLOT_BUDGET_OFF=1` disables recording entirely. It is for the tests that must
 # prove the record changes NOTHING about a call's behaviour, and for an operator
 # whose home directory is read-only; it is not a performance switch.
-budget_record_call() { # $1=connector $2=backend-for-account
+#
+# THE BUCKET IS THE THIRD ARGUMENT AND IT IS NOT OPTIONAL FOR GITHUB. One
+# connector meters several pools independently, and until this slice every
+# GitHub call was filed against one bucket named `api` — so a spent GraphQL pool
+# and a full REST one summed to a number describing neither. Measured
+# 2026-09-01 from the response headers: `core` 4990 of 5000, `graphql` 0 of
+# 5000.
+budget_record_call() { # $1=connector $2=backend-for-account $3=bucket
   [ -z "${PLOT_BUDGET_OFF:-}" ] || return 0
   local reading account bucket
-  reading="$(budget_reading "$1")"
   account="$(budget_account "${2:-$1}")"
-  bucket="$(budget_bucket "$1")"
+  bucket="${3:-}"
+  [ -n "$bucket" ] || bucket="$(budget_bucket "$1")"
+  # A HARVESTED HEADER OUTRANKS EVERYTHING, including the argv's guess at the
+  # bucket: `X-RateLimit-Resource` names `code_search` for a search that no
+  # reading of the command line would have classified as anything but `core`.
+  if [ -n "${PLOT_BUDGET_HARVEST:-}" ]; then
+    IFS=$'\t' read -r _hbkt _blim _brem _brst <<<"$PLOT_BUDGET_HARVEST"
+    PLOT_BUDGET_HARVEST=""
+    [ -z "$_hbkt" ] || bucket="$_hbkt"
+    # `actual` is the one basis a caller is entitled to trust, and a harvested
+    # header is the only thing in this script that earns it: the connector said
+    # it, about the call that just happened.
+    budget_append "$1" "$account" "$bucket" 1 "$_blim" "$_brem" "$_brst" actual
+    return 0
+  fi
+  reading="$(budget_reading "$1")"
   IFS=$'\t' read -r _blim _brem _brst _bbas <<<"$reading"
   budget_append "$1" "$account" "$bucket" 1 "$_blim" "$_brem" "$_brst" "$_bbas"
+}
+
+# Reads `X-RateLimit-*` out of a header block, into the harvest variable.
+#
+#   plot_harvest_headers <file-holding-the-header-block>
+#
+# CASE-INSENSITIVE ON THE NAME. `gh` prints `X-Ratelimit-Limit` while GitHub
+# documents `X-RateLimit-Limit`, and a case-sensitive match reads a present
+# header as absent — which records `unknown` against a host that answered
+# perfectly.
+#
+# A MISSING HEADER LEAVES THE HARVEST EMPTY, so the caller records `unknown`
+# rather than a number. A proxy or an enterprise instance that strips them has
+# not reported a full budget and has not reported an empty one: `unknown` is
+# never `free`, and `headroom()` returns null for it by construction.
+plot_harvest_headers() {
+  local file="${1:-}" lim rem rst res
+  PLOT_BUDGET_HARVEST=""
+  [ -f "$file" ] || return 0
+  _hv() { LC_ALL=C grep -im1 "^$1:" "$file" | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r'; }
+  lim="$(_hv 'X-RateLimit-Limit')"
+  rem="$(_hv 'X-RateLimit-Remaining')"
+  rst="$(_hv 'X-RateLimit-Reset')"
+  res="$(_hv 'X-RateLimit-Resource')"
+  # A LIMIT THAT IS NOT A NUMBER IS NO READING AT ALL. The whole reading is
+  # dropped rather than half-kept: a bucket name beside an absent count would
+  # file a spend against a pool the record then reports as unknown, which is
+  # the shape a caller cannot act on.
+  [[ "$lim" =~ ^[0-9]+$ ]] || return 0
+  [[ "$rem" =~ ^[0-9]+$ ]] || rem='-'
+  [[ "$rst" =~ ^[0-9]+$ ]] || rst='-'
+  PLOT_BUDGET_HARVEST="$(printf '%s\t%s\t%s\t%s' "$res" "$lim" "$rem" "$rst")"
+}
+
+# `gh api` WITH ITS OWN HEADERS HARVESTED, and the body printed unchanged.
+#
+#   out="$(gh_api_harvest <args…>)"
+#
+# THE READING IS FREE BECAUSE THE CALL WAS GOING TO HAPPEN ANYWAY. `--include`
+# adds a header block to a request this script was already making, so no extra
+# request is spent — which is the objection that justified `gh api rate_limit`,
+# and it does not apply here. It is also CURRENT: it describes the call that
+# just happened rather than a separate endpoint's view of it. Measured
+# 2026-09-02 on this account, seconds apart: `gh api rate_limit` reported
+# graphql 5000/5000 used 0 while the same account's header read
+# `Remaining: 2732, Used: 2268`.
+#
+# STDOUT IS THE BODY AND NOTHING ELSE. The header block is split off here, so
+# every caller parses exactly what it parsed before. `--verbose` was the
+# alternative and it is unusable: `gh` writes the whole exchange to STDOUT,
+# which would corrupt the payload of every call that reads one.
+#
+# THE EXIT CODE AND STDERR ARE THE REAL CALL'S. A harvest that changed either
+# would make the reading cost correctness, which is the one price a bookkeeping
+# read may not charge.
+gh_api_harvest() {
+  local raw rc hdr_tmp
+  hdr_tmp="$(mktemp "${TMPDIR:-/tmp}/plot-host-hdr.XXXXXX")" || {
+    # No temp file, no harvest — and the call still happens. Bookkeeping never
+    # fails its caller.
+    gh api "$@"
+    return $?
+  }
+  # Stderr is untouched — it flows to whatever the caller redirected it to, so
+  # a caller capturing it into a temp file captures the real CLI's words.
+  raw="$(gh api --include "$@")"
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    rm -f "$hdr_tmp"
+    return $rc
+  fi
+  # `--include` prints the status line, the headers, a BLANK line, then the
+  # body. The blank line is the split, and it carries a CR — the headers are
+  # CRLF-terminated while the body is not — so the match tolerates one.
+  printf '%s\n' "$raw" | LC_ALL=C sed -n '1,/^[[:space:]]*$/p' >"$hdr_tmp"
+  plot_harvest_headers "$hdr_tmp"
+  rm -f "$hdr_tmp"
+  # The body is everything after the first blank line. `sed` rather than a
+  # bash parameter expansion: the body may be megabytes of JSON, and the
+  # expansion would hold two copies of it.
+  printf '%s\n' "$raw" | LC_ALL=C sed '1,/^[[:space:]]*$/d'
+  return 0
 }
 
 # THE WRAPPERS. Each forwards argv untouched and returns the real CLI's exit
 # code unchanged; the append happens after, and `budget_append` never fails its
 # caller. `command` is what reaches past the function to the binary.
+#
+# THE BUCKET IS READ FROM THE ARGV THIS WRAPPER ALREADY HOLDS. `gh api graphql`
+# and `gh pr view` spend `graphql`; `gh api repos/…` and `gh run list` spend
+# `core`. A harvested header overrides it where one was taken — see
+# `budget_record_call`.
 gh() {
   command gh "$@"
   local rc=$?
-  budget_record_call github github
+  budget_record_call github github "$(gh_bucket_of_argv "$@")"
   return $rc
 }
 
