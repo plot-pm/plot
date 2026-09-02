@@ -1585,6 +1585,7 @@ export async function refreshRuns(
   opts: BuildBoardOptions,
   entry: CacheEntry,
   prs: Map<string, PrRecord>,
+  host: Host = hostFor(opts),
 ): Promise<void> {
   const runs = new Map<string, StuckRun[]>();
   const candidates = [...prs.entries()].filter(([, pr]) => pr.checks === 'failing');
@@ -1612,20 +1613,19 @@ export async function refreshRuns(
   }
   for (const [branch] of failing) {
     try {
-      const answer = await scriptsFor(opts).host(['runs', branch,
-        '--limit', String(RUN_HISTORY_LIMIT)]);
+      const answer = await host.runs(branch, RUN_HISTORY_LIMIT);
       if (!answer.ok) throw new Error('runs unavailable');
-      const list: StuckRun[] = [];
-      for (const line of answer.value.split('\n')) {
-        if (!line.trim()) continue;
-        const r = JSON.parse(line) as Partial<StuckRun>;
-        list.push({
-          workflow: r.workflow ?? '',
-          conclusion: r.conclusion ?? '',
-          startedAt: r.startedAt ?? '',
-          url: r.url ?? '',
-        });
-      }
+      // The adapter parses and normalizes; `BuildRun` and `StuckRun` are the
+      // same four fields, so the copy below is a widening from readonly rather
+      // than a second mapping. The JSON parse that used to sit here is the
+      // adapter's, which is the whole move: a controller reading `--json`
+      // output is a controller holding the host's wire format.
+      const list: StuckRun[] = answer.value.map((r) => ({
+        workflow: r.workflow,
+        conclusion: r.conclusion,
+        startedAt: r.startedAt,
+        url: r.url,
+      }));
       if (list.length > 0) runs.set(branch, list);
     } catch {
       // One branch's history is unavailable; the other two evidence lines
@@ -1812,11 +1812,13 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
  * The error is not surfaced because there is nothing for a reader to do about
  * it: unlike a PR fetch, this failing produces no wrong CLAIM on the page.
  */
-async function resolveBackend(opts: BuildBoardOptions, entry: CacheEntry): Promise<string> {
+async function resolveBackend(
+  opts: BuildBoardOptions, entry: CacheEntry, host = hostFor(opts),
+): Promise<string> {
   if (entry.backend !== null) return entry.backend;
   try {
-    const answer = await scriptsFor(opts).host(['backend']);
-    entry.backend = (answer.ok ? answer.value.trim() : '') || 'github';
+    const answer = await host.backend();
+    entry.backend = answer.ok ? answer.value : 'github';
   } catch {
     entry.backend = 'github';
   }
@@ -1927,7 +1929,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       entry.prs = map;
       entry.prsByNumber = byNumber;
       entry.prsByHead = byHead;
-      await refreshRuns(opts, entry, map);
+      await refreshRuns(opts, entry, map, host);
       entry.prAt = Date.now();
       const due = prNextDueAt(startedAt, null, Date.now(), backend);
       entry.prNextAt = due.at;
