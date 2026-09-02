@@ -18,6 +18,7 @@
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-09-01, Jan Wloka, `feature/a-branch-names-what-it-waits-on`
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-scan-holds-a-waiting-slice`
+- **Started:** 2026-09-02, Jan Wloka, `feature/dispatch-refuses-a-waiting-slice`
 -->
 
 ## Changelog
