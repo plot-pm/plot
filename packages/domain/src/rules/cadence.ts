@@ -130,7 +130,13 @@ export const targetStretch = (
   // must be read, not coerced: coercing it to 0 would read an account that has
   // only just started writing as an idle one.
   if (perHour === null || !Number.isFinite(perHour) || perHour <= 0) return 1;
-  const share = boardSharePerHour(intervalMs, costPerRefresh);
+  // THE SHARE IS TAKEN AT THE UNSTRETCHED CADENCE, WHICH IS ALREADY THE COST
+  // MULTIPLIED ONE. `intervalMs` reasons about a refresh as a unit; the interval
+  // a board actually starts at is that times the cost, and it is deliberately
+  // the same 60 requests an hour on every host. Reading the share off
+  // `intervalMs` alone would give Bitbucket a share of 240 and let two boards
+  // there spend what four boards spend everywhere else.
+  const share = boardSharePerHour(intervalMs * costPerRefresh, costPerRefresh);
   if (!Number.isFinite(share) || share <= 0) return 1;
   const others = othersPerHour(perHour, currentIntervalMs, costPerRefresh);
   // Nothing left for this board to spend, so the ceiling decides. This is the
@@ -181,7 +187,27 @@ export const cadenceStretch = (
   // The floor is reasserted after the step, not assumed from it: a board already
   // stretched further than its target walks back DOWN toward 1, and must stop
   // there rather than pass through it.
-  return Math.min(MAX_CADENCE_STRETCH, Math.max(1, stepped));
+  const bounded = Math.min(MAX_CADENCE_STRETCH, Math.max(1, stepped));
+  // SNAPPED ONTO THE TARGET WHERE THE REMAINING GAP IS UNDER A MILLISECOND OF
+  // INTERVAL, because a damped step approaches its target asymptotically and
+  // never arrives. The residue is far below anything a timer can honour, but it
+  // does not decay away: a board recovering from a burst would sit at 60002 ms
+  // for as long as it runs rather than at the 60 s this file documents, and a
+  // board holding at the ceiling would report 479999. Snapping is what makes
+  // the two states this rule promises — unstretched, and at the ceiling —
+  // reachable rather than merely approached.
+  //
+  // It closes the gap to the TARGET and not to a round number: the target is
+  // where the arithmetic is going, and rounding the interval instead quantises
+  // the step into a one-millisecond limit cycle around the same place.
+  //
+  // THE THRESHOLD IS THE STEP, NOT THE GAP. A gap of one millisecond is not the
+  // right test, because the step only closes a QUARTER of whatever remains: a
+  // board sitting 1.5 ms above its target moves 0.4 ms and stays there for as
+  // long as it runs. So the snap fires wherever the step itself would be worth
+  // less than a millisecond of interval — which is exactly the condition under
+  // which no further step can ever arrive.
+  return Math.abs(target - bounded) * base * CADENCE_DAMPING < 1 ? target : bounded;
 };
 
 /**
