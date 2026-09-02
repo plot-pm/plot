@@ -35,6 +35,11 @@ import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
 import { workingTreeSprints, planStatusBySlug, readConfigAsync, scriptsFor, treesFor, hostFor, type BuildBoardOptions } from './board.js';
 import type { Host } from '@plot-pm/domain';
+// The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
+// settles that every rendered or wired state is a domain property, and this one
+// is asserted as arithmetic in `packages/domain/test/cadence.test.ts` rather
+// than only observable through a live 60 s timer.
+import { refreshIntervalMs } from '@plot-pm/domain';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -584,6 +589,23 @@ export interface CacheEntry {
    * nothing, because calling before it is what exhausted the quota.
    */
   prNextIsBackoff: boolean;
+  /**
+   * The interval this board is currently leaving between PR refreshes, in ms.
+   *
+   * THE BOARD'S OWN CONTRIBUTION, WHICH IS WHAT IT SUBTRACTS FROM THE OBSERVED
+   * RATE. The budget record counts every spender on the computer, this board
+   * included, so a stretch taken straight from it would chase the board's own
+   * tail. Knowing what this board is spending right now is what turns the same
+   * reading into a division that settles on one board's share.
+   *
+   * Derived, never counted. It is exactly what the last `prRefreshMsFor`
+   * returned, so the record needs no process identity to attribute a line.
+   *
+   * Starts at the unstretched interval, which is where a board starts, and is
+   * re-derived on every refresh rather than accumulated — a value carried
+   * forward through a failure would drift with nothing to correct it.
+   */
+  prIntervalMs: number;
   /**
    * The configured git host — `github` or `bitbucket` — or null before the
    * first lookup. Decides what one PR refresh COSTS, and therefore how far
@@ -1386,9 +1408,76 @@ async function fetchGraphqlResetMs(cwd: string): Promise<number | null> {
  * to four minutes old instead of one. That is the right side to err on for
  * data whose events are minutes-scale anyway — and the alternative is not a
  * fresher board but a rate-limited one, which is how this was measured.
+ *
+ * **AND THE ACCOUNT-LEVEL TERM, WHICH THE COST MULTIPLIER ALONE CANNOT SUPPLY.**
+ * The arithmetic above is right for ONE board. A second board on the same
+ * account doubles what the account spends, because neither board can see the
+ * other. So the interval also divides by what the record says the account is
+ * observed to be spending: two boards each refresh half as often and the pair
+ * still spends 60 requests an hour, a third makes it a third each and the total
+ * is unchanged again.
+ *
+ * NO PEER COUNTING. The rate is read from the record rather than from a
+ * headcount, because the operator's own `gh` calls and a dispatched worker's
+ * scans spend the same budget — a count of boards would miss both, and a count
+ * of processes would miss the person at the terminal. `cadenceStretch` is where
+ * that division lives; this function supplies the two numbers it needs and
+ * holds no copy of the reasoning.
+ *
+ * **A QUIET ACCOUNT IS UNCHANGED, AND SO IS A BOARD THAT ASKS NOTHING.** Every
+ * caller that passes no rate — every existing one — gets exactly the number it
+ * got before, and so does a board whose record holds an absent rate. The
+ * uncommon case must not slow the common one down.
+ *
+ * @param backend - the configured host, which decides what one refresh costs.
+ * @param rate - what the record says this account is spending, or null where it
+ *   was not read or holds no rate to read. Null leaves the cadence exactly where
+ *   the cost multiplier alone puts it.
+ * @param currentMs - the interval this board is refreshing at right now, which
+ *   is what lets it subtract its own contribution from the observed rate.
+ *   Defaults to the unstretched interval, which is where a board starts.
  */
-export function prRefreshMsFor(backend: string): number {
-  return PR_REFRESH_MS * prRequestsPerRefresh(backend);
+export function prRefreshMsFor(
+  backend: string,
+  rate: { perHour: number | null } | null = null,
+  currentMs?: number,
+): number {
+  const cost = prRequestsPerRefresh(backend);
+  return refreshIntervalMs(PR_REFRESH_MS, cost, rate, currentMs ?? PR_REFRESH_MS * cost);
+}
+
+/**
+ * What the budget record says this account is spending, or null.
+ *
+ * ASKED OF `plot-host.sh spend-rate`, WHICH SPENDS NOTHING. It reads the file
+ * every spender on this computer appends to and asks no host — which is the
+ * whole reason the record exists rather than a `rate_limit` call per decision.
+ * Measured 2026-09-01, `rate_limit` reported 5000 while the response headers
+ * read 0, so the call would be both metered and wrong.
+ *
+ * ONE LOCAL `bash` PER REFRESH, on the 60 s clock rather than the 5 s one. That
+ * is the same seam `pr-list` already goes through, so a fixture `Scripts` that
+ * substitutes one substitutes both.
+ *
+ * NULL ON EVERY FAILURE, and that direction is deliberate. An unreadable record,
+ * an absent script and a torn line all mean the same thing here — *no evidence*
+ * — and no evidence must leave the cadence where it is. Reading silence as a
+ * busy account would let a missing file slow every board down; reading it as an
+ * idle one would be the dishonest input the record exists to remove, and the
+ * `perHour: null` the script returns for a window with no span carries exactly
+ * that distinction through untouched.
+ */
+async function spendRateFor(opts: BuildBoardOptions): Promise<{ perHour: number | null } | null> {
+  try {
+    const said = await scriptsFor(opts).hostSaid(['spend-rate']);
+    if (said.answer !== 'answered') return null;
+    const parsed: unknown = JSON.parse(said.stdout);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const perHour = (parsed as { perHour?: unknown }).perHour;
+    return { perHour: typeof perHour === 'number' && Number.isFinite(perHour) ? perHour : null };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -1476,10 +1565,18 @@ export function prGateOpen(
  *   therefore how far apart refreshes go. Defaults to `github`, whose cost is
  *   1, so every existing caller and every existing test gets exactly the
  *   arithmetic it got before.
+ * @param rate what the budget record says the ACCOUNT is spending, or null
+ *   where it was not read. Defaults to null, which leaves the cadence exactly
+ *   where the cost multiplier alone puts it — so, again, every existing caller
+ *   gets the arithmetic it got before.
+ * @param currentMs the interval this board is refreshing at right now, which is
+ *   what lets it subtract its own contribution from the observed rate.
  */
 export function prNextDueAt(
   startedAt: number, backoff: number | null, now = Date.now(),
   backend = 'github',
+  rate: { perHour: number | null } | null = null,
+  currentMs?: number,
 ): { at: number; hard: boolean } {
   // BEFORE the cost is applied, and this ordering is the rule the brief names:
   // a cost-aware cadence may only ever be MORE conservative than a backoff,
@@ -1487,7 +1584,7 @@ export function prNextDueAt(
   // and harmless, but shortening it would spend quota to be refused — so the
   // backoff is returned untouched and the multiplier never reaches it.
   if (backoff !== null) return { at: now + backoff, hard: true };
-  return { at: startedAt + prRefreshMsFor(backend), hard: false };
+  return { at: startedAt + prRefreshMsFor(backend, rate, currentMs), hard: false };
 }
 
 /**
@@ -1828,6 +1925,35 @@ async function resolveBackend(
   return entry.backend ?? 'github';
 }
 
+/**
+ * Records when the PR fetch is next due, and what interval that implies.
+ *
+ * ONE PLACE, THREE EXITS. `refreshPrs` leaves by a success, an all-unknown
+ * outage and a thrown refusal, and all three must reschedule identically — a
+ * failure on a shared account must be spaced by the same division a success is,
+ * or a board that is failing spends more than one that is working. Before this
+ * existed the three exits held three copies of two assignments; a fourth field
+ * would have made that three copies of three.
+ *
+ * `prIntervalMs` is stamped from the ORDINARY cadence even where a backoff
+ * pushed `prNextAt` further out. The two answer different questions: the gate
+ * says when this board may next call, and the interval says what this board is
+ * spending, which is what the next division subtracts. A backoff is a one-off
+ * wait the host named, so treating it as this board's rate would understate the
+ * board's own contribution and over-stretch every board that reads the record
+ * next.
+ */
+function scheduleNextPr(
+  entry: CacheEntry, startedAt: number, backoff: number | null, backend: string,
+  rate: { perHour: number | null } | null,
+): void {
+  const interval = prRefreshMsFor(backend, rate, entry.prIntervalMs);
+  const due = prNextDueAt(startedAt, backoff, Date.now(), backend, rate, entry.prIntervalMs);
+  entry.prIntervalMs = interval;
+  entry.prNextAt = due.at;
+  entry.prNextIsBackoff = due.hard;
+}
+
 async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
   // Captured BEFORE the call, and this is the whole fix. `prNextAt` is the
   // cadence's anchor, and anchoring it to the finish made every period cost the
@@ -1850,6 +1976,10 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // pass, which is the failure a substitutable port exists to prevent.
   const host = hostFor(opts);
   const backend = await resolveBackend(opts, entry, host);
+  // Read BEFORE the fetch, so all three exits divide by the same number and a
+  // failure is spaced exactly as a success is. Reading it after would also
+  // count this refresh's own line, which the board is about to subtract anyway.
+  const rate = await spendRateFor(opts);
   try {
     const said = await scriptsFor(opts).hostSaid(['pr-list', '--rich',
       '--state', 'all', '--limit', String(PR_LIMIT)]);
@@ -1930,9 +2060,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
         ? () => fetchGraphqlResetMs(opts.repoRoot)
         : undefined;
       const backoff = await rateLimitBackoffMs(message, Date.now(), resetReader);
-      const due = prNextDueAt(startedAt, backoff, Date.now(), backend);
-      entry.prNextAt = due.at;
-      entry.prNextIsBackoff = due.hard;
+      scheduleNextPr(entry, startedAt, backoff, backend, rate);
     } else {
       // The happy path: the host answered and at least some PRs are readable.
       entry.prs = map;
@@ -1940,9 +2068,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       entry.prsByHead = byHead;
       await refreshRuns(opts, entry, map, host);
       entry.prAt = Date.now();
-      const due = prNextDueAt(startedAt, null, Date.now(), backend);
-      entry.prNextAt = due.at;
-      entry.prNextIsBackoff = due.hard;
+      scheduleNextPr(entry, startedAt, null, backend, rate);
       entry.prError = null;
     }
   } catch (err) {
@@ -1968,9 +2094,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
     // it said so, not when we started asking. An ordinary failure rejoins the
     // ordinary cadence, so it anchors to the start like a success does; a
     // failed call should not push the next attempt out by its own duration.
-    const due = prNextDueAt(startedAt, backoff, Date.now(), backend);
-    entry.prNextAt = due.at;
-    entry.prNextIsBackoff = due.hard;
+    scheduleNextPr(entry, startedAt, backoff, backend, rate);
   }
 }
 
@@ -2403,7 +2527,7 @@ export function freshCacheEntry(): CacheEntry {
     deliverInFlight: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null,
     // 0, so the first fetch happens immediately rather than a minute in.
-    prNextAt: 0, prNextIsBackoff: false,
+    prNextAt: 0, prNextIsBackoff: false, prIntervalMs: PR_REFRESH_MS,
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
     // different answers, and `resolveBackend` distinguishes them to ask once.
     backend: null,

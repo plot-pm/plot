@@ -4612,3 +4612,149 @@ describe('an unknown PR withholds the verdict in classifyGroup', () => {
     expect(source).toMatch(/held\?\.state === 'unknown'\)/);
   });
 });
+
+/**
+ * THE ACCOUNT-LEVEL TERM, WIRED.
+ *
+ * The rule itself is asserted as arithmetic in
+ * `packages/domain/test/cadence.test.ts`; what this block pins is that the board
+ * actually passes it the right two numbers, and that the number the GATE
+ * compares against is the divided one rather than a value computed and dropped.
+ */
+describe('the PR cadence divides by what the account is observed to spend', () => {
+  const PERIOD = 60_000;
+  const HOUR_MS = 3_600_000;
+
+  /** What a board refreshing every `intervalMs` spends in an hour, on `backend`. */
+  const spendOf = (intervalMs: number, backend: string): number =>
+    (HOUR_MS / intervalMs) * prRequestsPerRefresh(backend);
+
+  it('returns exactly the shipped interval when no rate is passed at all', () => {
+    // Every pre-existing caller passes none, so this is the whole compatibility
+    // claim in one line.
+    expect(prRefreshMsFor('github')).toBe(PERIOD);
+    expect(prRefreshMsFor('bitbucket')).toBe(4 * PERIOD);
+  });
+
+  it('leaves the cadence exactly where it is on an absent rate', () => {
+    // `perHour` is null where the record holds one line, or several written
+    // inside one millisecond. That is an absent rate rather than a zero one, and
+    // it must not stretch OR collapse the interval.
+    expect(prRefreshMsFor('github', { perHour: null })).toBe(PERIOD);
+    expect(prRefreshMsFor('bitbucket', { perHour: null })).toBe(4 * PERIOD);
+    // And a record that could not be read at all says the same thing.
+    expect(prRefreshMsFor('github', null)).toBe(PERIOD);
+  });
+
+  it(`leaves a quiet GitHub board on today's numbers`, () => {
+    // The brief's requirement: one board on a quiet account refreshes exactly as
+    // it does today. A rate at or below this board's own share is quiet.
+    for (const perHour of [0, 1, 20, 59, 60]) {
+      expect(prRefreshMsFor('github', { perHour })).toBe(PERIOD);
+    }
+  });
+
+  it('stretches when the account spends more than this board is spending', () => {
+    // A second board's worth of spend on top of this one's.
+    expect(prRefreshMsFor('github', { perHour: 120 })).toBeGreaterThan(PERIOD);
+  });
+
+  it('holds the account at 60 requests an hour with two boards running', () => {
+    // The plan's only real claim, counted the way an operator would count it:
+    // add up what every board spends and compare it with what one board spends.
+    let intervals = [PERIOD, PERIOD];
+    for (let step = 0; step < 400; step++) {
+      const observed = intervals.reduce((total, ms) => total + spendOf(ms, 'github'), 0);
+      intervals = intervals.map((ms) => prRefreshMsFor('github', { perHour: observed }, ms));
+    }
+    const total = intervals.reduce((sum, ms) => sum + spendOf(ms, 'github'), 0);
+    expect(total).toBeCloseTo(spendOf(PERIOD, 'github'), 2);
+    expect(intervals[0]).toBeCloseTo(2 * PERIOD, -1);
+  });
+
+  it('changes that number by nothing when a third board joins', () => {
+    const settle = (count: number): number => {
+      let intervals = Array<number>(count).fill(PERIOD);
+      for (let step = 0; step < 400; step++) {
+        const observed = intervals.reduce((total, ms) => total + spendOf(ms, 'github'), 0);
+        intervals = intervals.map((ms) => prRefreshMsFor('github', { perHour: observed }, ms));
+      }
+      return intervals.reduce((sum, ms) => sum + spendOf(ms, 'github'), 0);
+    };
+    expect(settle(3)).toBeCloseTo(settle(2), 2);
+    expect(settle(3)).toBeCloseTo(60, 2);
+  });
+
+  it('bounds the stretch, so a burst cannot push the board somewhere it never returns from', () => {
+    // A dispatch fanning out eight worktrees reports a rate far above anything
+    // sustained, because the window can be as short as the gap between two
+    // lines. The ceiling is what keeps the loop closed.
+    let ms = PERIOD;
+    for (let step = 0; step < 200; step++) {
+      ms = prRefreshMsFor('github', { perHour: 3_600_000 }, ms);
+    }
+    expect(ms).toBe(8 * PERIOD);
+    // And it comes back down once the burst has passed.
+    for (let step = 0; step < 200; step++) {
+      ms = prRefreshMsFor('github', { perHour: spendOf(ms, 'github') }, ms);
+    }
+    expect(ms).toBe(PERIOD);
+  });
+
+  it('feeds the divided interval to the GATE, not a number computed and dropped', () => {
+    // The wiring assertion. `prNextDueAt` is what stamps `prNextAt`, and
+    // `prGateOpen` is what reads it — a division that never reached the gate
+    // would change no behaviour at all.
+    const stretched = prRefreshMsFor('github', { perHour: 240 }, PERIOD);
+    expect(stretched).toBeGreaterThan(PERIOD);
+    const due = prNextDueAt(0, null, 1_400, 'github', { perHour: 240 }, PERIOD);
+    expect(due.at).toBe(stretched);
+    expect(due.hard).toBe(false);
+    // The tick the un-stretched cadence would have honoured is now refused.
+    expect(prGateOpen(due.at, false, PERIOD)).toBe(false);
+    expect(prGateOpen(due.at, false, stretched)).toBe(true);
+  });
+
+  it('never lets the division shorten a backoff the host named', () => {
+    // The ordering the existing comment states, re-asserted against the new
+    // input: a cost-aware cadence may only ever be MORE conservative than a
+    // backoff, never less. A rate has no say over a floor the host named.
+    const withRate = prNextDueAt(0, 90_000, 1_000, 'github', { perHour: 3_600_000 }, PERIOD);
+    const without = prNextDueAt(0, 90_000, 1_000, 'github');
+    expect(withRate).toEqual(without);
+    expect(withRate.hard).toBe(true);
+  });
+
+  it('composes with the cost multiplier rather than replacing it', () => {
+    // Bitbucket's refresh costs four requests AND its account may be shared.
+    // Both terms apply, and the account still spends 60 an hour.
+    let intervals = [4 * PERIOD, 4 * PERIOD];
+    for (let step = 0; step < 400; step++) {
+      const observed = intervals.reduce((total, ms) => total + spendOf(ms, 'bitbucket'), 0);
+      intervals = intervals.map((ms) => prRefreshMsFor('bitbucket', { perHour: observed }, ms));
+    }
+    expect(intervals.reduce((sum, ms) => sum + spendOf(ms, 'bitbucket'), 0)).toBeCloseTo(60, 2);
+    expect(intervals[0]).toBeCloseTo(8 * PERIOD, -1);
+  });
+
+  it('keeps the subscriber divisor derived from the interval', () => {
+    // `boardDivisors` reads its 12 off `PR_REFRESH_MS`, and the division happens
+    // at the GATE rather than in the subscription — the pulse keeps firing every
+    // twelfth beat and the gate refuses the ticks the stretch does not entitle.
+    // That is the same mechanism Bitbucket's 240 s already uses, so nothing here
+    // writes a divisor down.
+    const src = readFileSync('src/server/fleet.ts', 'utf8');
+    expect(src).toContain('divisorFor(base, PR_REFRESH_MS)');
+    expect(src).not.toMatch(/everyNthBeat:\s*\d/);
+  });
+
+  it('reproduces the doubled spend the naive cadence would have paid', () => {
+    // The control. A test that passes both ways is not testing this defect, so
+    // the replaced policy is asserted to FAIL the bar the shipped one clears:
+    // two boards ignoring the record spend twice what one board spends.
+    const naive = [PERIOD, PERIOD];
+    const naiveTotal = naive.reduce((sum, ms) => sum + spendOf(ms, 'github'), 0);
+    expect(naiveTotal).toBe(120);
+    expect(naiveTotal).toBeGreaterThan(spendOf(PERIOD, 'github'));
+  });
+});
