@@ -197,7 +197,12 @@ test('waits: a prerequisite that merged and was then REAPED still clears', () =>
   assert.equal(git(repo, 'ls-remote', '--heads', 'origin', 'bug/reaped-after-merge').trim(), '',
     'the fixture must hold no ref for the prerequisite — that is the case');
 
-  const { stdout } = run(repo, ['--dry-run', 'dependent'], { gh: ghShim({ state: 'MERGED' }) });
+  // The shim must name THIS prerequisite: it answers about one branch and
+  // reports no PR for every other, so leaving `prereq` at its default would
+  // make the host say NONE about `bug/reaped-after-merge` and the branch read
+  // `blocked` — the right answer to a different question.
+  const { stdout } = run(repo, ['--dry-run', 'dependent'],
+    { gh: ghShim({ prereq: 'bug/reaped-after-merge', state: 'MERGED' }) });
   assert.match(stdout, /would dispatch feature\/dependent/,
     `a reaped-but-merged prerequisite must clear:\n${stdout}`);
   assert.doesNotMatch(stdout, /blocked/,
@@ -251,12 +256,26 @@ test('waits: a branch declaring nothing is asked nothing', () => {
   // The population is 6 plans in 188. A gate that cost every other branch a
   // host round trip would be paid by the 182 that declare nothing — so the
   // absence of the annotation must short-circuit before the host is reached.
-  // Proved by giving the shim NO `gh` at all: a run that asks would fail.
+  //
+  // PROVED BY A SHIM THAT REFUSES ONE QUESTION, not by removing `gh`. The scan
+  // asks the host about the plan's OWN branches on every run, so a shim failing
+  // every call reports the host as unreachable, the branch reads `unknown`
+  // rather than `open`, and the fan-out is empty for a reason that has nothing
+  // to do with the annotation — measured while writing this file. So ordinary
+  // calls are answered and only a `pr view` naming a branch this plan does not
+  // declare — which is what a prerequisite lookup looks like — fails loudly.
   const repo = makeRepo({});
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waits-nogh-'));
   ctx.push(dir);
   fs.writeFileSync(path.join(dir, 'gh'),
-    '#!/usr/bin/env bash\necho "gh must not be called for an unannotated branch" >&2\nexit 9\n');
+    '#!/usr/bin/env bash\n'
+    + 'if [ "$1 $2" = "pr view" ]; then\n'
+    + '  case "$3" in\n'
+    + '    feature/dependent) echo "no pull requests found" >&2; exit 1 ;;\n'
+    + '    *) echo "gh must not be asked about a prerequisite: $3" >&2; exit 9 ;;\n'
+    + '  esac\n'
+    + 'fi\n'
+    + 'echo "{}"\n');
   fs.chmodSync(path.join(dir, 'gh'), 0o755);
 
   const { stdout } = run(repo, ['--dry-run', 'dependent'], { gh: dir });

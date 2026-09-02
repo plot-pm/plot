@@ -1552,6 +1552,34 @@ is_waits_held() {
   return 1
 }
 
+# AND IT FILLS `waits_freed`, WHICH IS WHERE `--allow-waiting` GETS ITS
+# CANDIDATE FROM.
+#
+# The override cannot work by relaxing a test in this script, because the branch
+# never reaches a test here: `plot-fleet-scan.sh` reports a waiting branch as
+# `waiting` rather than `open`, so `--list-eligible` and `--next` both withhold
+# it and the loops are handed an empty set. Measured 2026-09-02 — the flag
+# printed its override line and the run still reported `dispatched=0 skipped=0`,
+# counting the branch neither way.
+#
+# So the flag ADDS a candidate rather than removing a filter. The preflight
+# already walked the plan from the shared ref and asked the host about the
+# prerequisite, so it holds the one fact the scan withheld, and naming it here
+# costs no further call.
+#
+# ONLY A BRANCH THE PREFLIGHT ITSELF HELD, and only under the flag. This adds
+# nothing the scan refused for any OTHER reason — a claimed branch, a `wip` one,
+# an incomplete prior wave — because those verdicts are not this flag's to
+# override and the scan remains the only thing that decides them. The branch
+# still passes every gate the loops apply after it: `held_worktree`, the claim
+# race, and the brief.
+declare -a waits_freed=()
+is_waits_freed() {
+  local x
+  for x in ${waits_freed[@]+"${waits_freed[@]}"}; do [ "$x" = "$1" ] && return 0; done
+  return 1
+}
+
 # Runs the preflight: prints its refusals, fills `waits_held`, and adds what it
 # withheld to `n_skipped`.
 #
@@ -1578,6 +1606,7 @@ run_waits_preflight() { # → prints refusals; fills waits_held, adds to n_skipp
     # see in the output is an override nobody can audit.
     if [ "$allow_waiting" = 1 ]; then
       echo "$br waits on $prereq ($held) — dispatching anyway (--allow-waiting)"
+      waits_freed+=("$br")
       continue
     fi
     waits_held+=("$br")
@@ -2317,7 +2346,13 @@ if [ "$dry_run" = 1 ]; then
     report_monitors "$(worktree_for "$br")"
     report_in_flight "$br"
     n_dispatched=$((n_dispatched + 1))
-  done < <("$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null)
+    # The scan's eligible set, plus whatever `--allow-waiting` freed. The scan
+    # reports a waiting branch as `waiting`, so it is absent from the first and
+    # only the preflight can supply it — see `waits_freed`. `sort -u` because a
+    # branch the scan DID offer (its host call failed where the preflight's
+    # succeeded) must be dispatched once, not twice.
+  done < <({ "$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null
+             printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}; } | grep -v '^$' | sort -u)
   # A dry run starts nothing BY CONSTRUCTION, so its `started=0` carries no
   # information about the config — reporting "no workers started" here would be
   # true and useless, and would train the reader to skip the line on the real
@@ -2340,11 +2375,39 @@ fi
 while :; do
   [ "$max" -gt 0 ] && [ "$n_dispatched" -ge "$max" ] && break
 
-  branch=$("$script_dir/plot-fleet-scan.sh" $offline --next "$slug" 2>/dev/null) || break
+  branch=$("$script_dir/plot-fleet-scan.sh" $offline --next "$slug" 2>/dev/null) || branch=""
+  # WHAT `--allow-waiting` FREED, ONCE THE SCAN HAS RUN DRY. `--next` reports a
+  # waiting branch as `waiting` and will never offer it, so the flag's candidate
+  # can only come from the preflight — and it is taken LAST, after every branch
+  # the scan was willing to name. A held branch is the one the operator chose to
+  # start early; it must not displace one that was ready.
+  #
+  # `exhausted` is what terminates this: each freed branch is marked attempted
+  # below (or by a gate that refuses it), so the loop cannot re-offer it the way
+  # a pull from `--next` would.
+  from_freed=0
+  if [ -z "$branch" ] && [ "$allow_waiting" = 1 ]; then
+    for br in ${waits_freed[@]+"${waits_freed[@]}"}; do
+      is_exhausted "$br" && continue
+      branch="$br"
+      from_freed=1
+      # MARKED ATTEMPTED AT SELECTION, not after a successful dispatch. Every
+      # other candidate leaves this loop because `--next` stops naming it once
+      # it is claimed; `waits_freed` is a fixed list this script re-reads, so a
+      # branch marked only on failure would be offered again on the next pass
+      # and the loop would never end.
+      exhausted+=("$br")
+      break
+    done
+  fi
   [ -n "$branch" ] || break
   # --next has no memory; if it offers something we already failed on, the
-  # eligible set is exhausted for this run.
-  is_exhausted "$branch" && break
+  # eligible set is exhausted for this run. A freed branch was just marked
+  # attempted one line above, so the test is asked of scan-offered branches
+  # only — asking it here would break the loop on the candidate it just chose.
+  if [ "$from_freed" = 0 ] && is_exhausted "$branch"; then
+    break
+  fi
 
   # Flatten the whole branch name, not just its last segment: feature/api and
   # bug/api are different work and must not share a worktree (a shared path
