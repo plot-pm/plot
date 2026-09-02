@@ -94,7 +94,15 @@ export interface BuildBoardOptions {
    * there, and repointing at it is what makes the poller substitutable: a
    * board handed a fixture `Host` asks no CLI and spends no budget.
    */
-  host?: Host;
+  /**
+   * NOT `host`, AND THE COLLISION IS THE REASON. `host` already means the bound
+   * network interface — a STRING — in `ApproveOptions` and 13 sibling option
+   * types that extend this one; naming the port `host` made every one of them
+   * fail to extend, 47 errors across 13 files. `hostPort` was the other
+   * candidate and reads as a TCP port two lines from `port: number`, which is
+   * the same confusion in a new place.
+   */
+  hostAdapter?: Host;
 }
 
 /**
@@ -174,7 +182,7 @@ export const scriptsFor = (opts: BuildBoardOptions): Scripts =>
  * @returns the injected host, or one backed by `plot-host.sh`.
  */
 export const hostFor = (opts: BuildBoardOptions): Host =>
-  opts.host ?? hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+  opts.hostAdapter ?? hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /**
  * Resolve `repoRoot` through symlinks. Plan files are reported as real paths, so

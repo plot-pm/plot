@@ -33,7 +33,8 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
-import { workingTreeSprints, planStatusBySlug, readConfigAsync, scriptsFor, treesFor, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, readConfigAsync, scriptsFor, treesFor, hostFor, type BuildBoardOptions } from './board.js';
+import type { Host } from '@plot-pm/domain';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -1822,7 +1823,9 @@ async function resolveBackend(
   } catch {
     entry.backend = 'github';
   }
-  return entry.backend;
+  // Both arms above assign a string, so this is non-null; the narrowing is lost
+  // across the try/catch rather than the value being genuinely unknown.
+  return entry.backend ?? 'github';
 }
 
 async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
@@ -1840,7 +1843,13 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // failure on Bitbucket must be spaced by the same cost as a success. Cached
   // after the first call, so this is one extra local `bash` on the process's
   // first refresh and nothing on any later one.
-  const backend = await resolveBackend(opts, entry);
+  // ONE ADAPTER FOR THE WHOLE REFRESH, bound here and passed down. Both
+  // `resolveBackend` and `refreshRuns` default to `hostFor(opts)`, so leaving
+  // them to their defaults would construct two adapters for one refresh — and
+  // a fixture `Host` handed to only one of them would be obeyed by half the
+  // pass, which is the failure a substitutable port exists to prevent.
+  const host = hostFor(opts);
+  const backend = await resolveBackend(opts, entry, host);
   try {
     const said = await scriptsFor(opts).hostSaid(['pr-list', '--rich',
       '--state', 'all', '--limit', String(PR_LIMIT)]);
