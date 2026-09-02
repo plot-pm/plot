@@ -211,3 +211,30 @@ and reported**, and the operator or the next pass acts on it — the same postur
 careful — `origin/<main>` rather than the working tree, non-empty rather than
 present. What is missing is what happens after it fires, and on the auto path
 that is currently nothing at all.
+
+**The `Brief command` cannot reach `/plot-implement`. Measured 2026-09-02, first
+real use.** Dispatching `bug/a-thinking-agent-has-a-quiet-stretch` prepared the
+worktree, refused to start the worker, and asked the `Brief command` to write
+the missing brief — exactly as designed. The log it names holds 33 bytes:
+
+```
+Unknown command: /plot-implement
+```
+
+Reproduced directly. `PLOT_UNATTENDED=1 claude -p --permission-mode
+bypassPermissions '/plot-implement --help'` answers `Unknown command`, while the
+same invocation with a plain prompt answers normally. The agent runs; the skill
+is not addressable from it. `skills/plot-implement/` exists, so the directory is
+not the problem — a headless `claude -p` in this repo does not load repo-local
+skills as slash commands.
+
+So the mechanism is sound and its one assumption is wrong: `plot-dispatch.sh:369`
+states *"the prompt it is handed asks for `/plot-implement <slug>` and nothing
+else"*, and that prompt cannot be honoured. `brief_asked=1` is reported for a
+call that wrote nothing, which is worse than the refusal it replaced — the
+operator is told a brief was requested and finds none.
+
+Two fixes, and the choice is a person's: hand the agent the brief-writing
+INSTRUCTIONS rather than a slash command, or make the skill addressable headless
+and keep the prompt. The first is self-contained; the second is a harness
+question beyond this plan.
