@@ -678,7 +678,7 @@ comes first**, because five branches write to it.
 
 ### Waiting for the reset
 
-- `bug/a-spent-bucket-waits-for-its-reset` — the reaction to a refusal, which nothing does today: `plot-host.sh` has no sleep, no retry and no backoff, and `fleet.ts` never reads `throttled`. On a **spent quota** the caller stops until the reset the response header carries and resumes at its previous cadence — the rate was not the cause, so it is not the fix. On a **secondary limit** it retries after seconds and lowers concurrency, never frequency. **The cadence is not touched by either**: it divides on observed spend, and a refusal that also halved it would compound with that division and drift downward with nothing to restore it. Needs the bucket naming from `bug/the-budget-knows-which-bucket-it-spent` to know which reaction applies.
+- `bug/a-spent-bucket-waits-for-its-reset` → #663 — the reaction to a refusal, which nothing does today: `plot-host.sh` has no sleep, no retry and no backoff, and `fleet.ts` never reads `throttled`. On a **spent quota** the caller stops until the reset the response header carries and resumes at its previous cadence — the rate was not the cause, so it is not the fix. On a **secondary limit** it retries after seconds and lowers concurrency, never frequency. **The cadence is not touched by either**: it divides on observed spend, and a refusal that also halved it would compound with that division and drift downward with nothing to restore it. Needs the bucket naming from `bug/the-budget-knows-which-bucket-it-spent` to know which reaction applies.
 
 ### Bounding concurrency
 
