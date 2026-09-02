@@ -182,11 +182,11 @@ and reported**, and the operator or the next pass acts on it — the same postur
 
 ### Asking
 
-- `feature/a-refused-dispatch-asks-for-a-brief` — the `Brief command` key, read via `plot-config.sh`; `plot-dispatch.sh` invokes it when the brief gate fires; a `no-brief-command` refusal when unconfigured.
+- `feature/a-refused-dispatch-asks-for-a-brief` — the `Brief command` key, read via `plot-config.sh`; `plot-dispatch.sh` invokes it when the brief gate fires; a `no-brief-command` refusal when unconfigured. → #647
 
 ### Reporting
 
-- `feature/auto-dispatch-says-why-it-skipped` — **the skip REASON, not the brief state.** `BriefStateSchema` and `needs-brief` already carry per-branch brief presence to the row, and both render; what nothing records is that `auto-dispatch.ts:442` dropped a plan from its candidates for that reason. The smallest of the three, and it was over-scoped in the plan's first draft.
+- `feature/auto-dispatch-says-why-it-skipped` — **the skip REASON, not the brief state.** `BriefStateSchema` and `needs-brief` already carry per-branch brief presence to the row, and both render; what nothing records is that `auto-dispatch.ts:442` dropped a plan from its candidates for that reason. The smallest of the three, and it was over-scoped in the plan's first draft. → #650
 
 ## Done when
 
