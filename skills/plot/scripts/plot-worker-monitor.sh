@@ -199,6 +199,43 @@ plot_state_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-worker-state.
 # shellcheck source=plot-worker-state.sh
 if [ -r "$plot_state_lib" ]; then . "$plot_state_lib"; fi
 
+# THE TRANSCRIPT READER — the primary reading, sourced beside the CPU sampler
+# rather than replacing it. What each answers is different in kind: the
+# transcript says whether the AGENT has produced anything, the CPU says whether
+# a CHILD is on a core. `idle` now needs both to agree.
+plot_transcript_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-transcript-quiet.sh"
+# shellcheck source=plot-transcript-quiet.sh
+if [ -r "$plot_transcript_lib" ]; then . "$plot_transcript_lib"; fi
+
+# HOW LONG A TRANSCRIPT MUST BE QUIET BEFORE THE QUESTION IS EVEN ASKED.
+#
+# 900 s, and the number comes from wave 1's measurement rather than from taste.
+# `plot-quiet-stretch.sh` read 7547 quiet stretches across 23 sessions in 21
+# worktrees on 2026-09-02:
+#
+#   p50 0s   p90 2.6s   p99 15.6s   max 600.8s
+#
+# 900 s is 1.5x that maximum and 57x the p99. Every stretch ever measured on
+# this estate clears it with five minutes to spare.
+#
+# THE MAXIMUM IS NOT A DISTRIBUTION'S TAIL — IT IS A CEILING, and that is why
+# the threshold alone is not the answer. The four longest stretches are this
+# repo's own gates: `gh pr checks --watch` at 600.8s, `pnpm run test:board` at
+# 600.3s, `pnpm run test:reconcile` at 584.9s and 575.5s. They cluster at 600
+# because that is where a watch command and a test runner time out, not because
+# an agent's quiet naturally ends there. A project with a slower suite produces
+# a longer one, and any single number picked from this sample would kill its
+# workers on the day it adopted Plot.
+#
+# SO THE THRESHOLD IS A GATE, NOT THE VERDICT. Past it, the monitor still asks
+# whether a child process is on a core — see `sample_verdict`. The threshold
+# says *this has gone on long enough to be worth asking about*; the CPU reading
+# answers *and there is nothing running*. Together they separate the two cases
+# a transcript cannot tell apart on its own, both of which look identically
+# quiet: an agent waiting on its own 20-minute command, and an agent that has
+# stopped.
+: "${PLOT_MONITOR_QUIET_SECONDS:=900}"
+
 json_escape() { # $1 = raw → prints a JSON-safe string body
   printf '%s' "$1" | python3 -c 'import json,sys; sys.stdout.write(json.dumps(sys.stdin.read())[1:-1])' 2>/dev/null \
     || printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
@@ -274,6 +311,19 @@ monitor_pid() {
 monitor_activity() { # $1=pid → working | idle | ""
   command -v plot_worker_activity >/dev/null 2>&1 || return 0
   plot_worker_activity "$1"
+}
+
+# How long has the AGENT at this desk produced nothing? The primary reading.
+#
+# `unavailable` where no transcript can be read, and that word travels all the
+# way to the verdict rather than being collapsed into a number. Settled by
+# `the-registry-supervises-its-agents`: a capability the adopting project does
+# not provide is UNAVAILABLE, never failed and never zero. A missing helper
+# answers the same way — a monitor whose reader is absent must say it cannot
+# see, not that it saw nothing happen.
+monitor_transcript_quiet() { # → seconds | unavailable
+  command -v plot_transcript_quiet_seconds >/dev/null 2>&1 || { printf 'unavailable'; return 0; }
+  plot_transcript_quiet_seconds "$worktree"
 }
 
 # A cheap stand-in for "the tree as it is right now", compared between passes.
@@ -365,24 +415,63 @@ since=''
 # that is not there, and `plot_worker_activity` would answer "" for it anyway,
 # which is indistinguishable from a live pid with no children.
 sample_verdict() { # → gone | quiet | busy | unknown
-  local alive rc
+  local alive
   monitor_pid_alive; alive=$?
   [ "$alive" = 1 ] && { printf 'gone'; return; }
   # `unknown` is the startup window: the wrapper has not recorded the pid yet.
   # Not a finding, and NOT `gone`.
   [ "$alive" = 2 ] && { printf 'unknown'; return; }
 
-  local act
-  act=$(monitor_activity "$(monitor_pid)")
-  case "$act" in
-    working) printf 'busy' ;;
-    idle)    printf 'quiet' ;;
-    # "" — a live pid whose subtree holds no CPU clock at all. The absence of a
-    # child is not the presence of an idle one; the same refusal
-    # `plot_worker_activity` makes for its own empty answer.
-    *)       printf 'unknown' ;;
+  # THE TRANSCRIPT IS ASKED FIRST, and it is asked instead of the CPU rather
+  # than beside it. Until 2026-09-02 this read `plot_worker_activity` alone and
+  # called a frozen 0.4 s CPU sample `quiet`; that rule ended eleven dispatched
+  # workers across two days, several holding uncommitted work. An agent waiting
+  # on a model response burns no subtree CPU, so a false zero was the COMMON
+  # reading rather than the rare one, and no sampling interval closes that gap.
+  #
+  # A `claude -p` session appends to its transcript for every turn, tool call
+  # and tool result. Seconds since the newest line is a direct reading of
+  # whether the AGENT has done anything — which is the question the monitor was
+  # always trying to ask.
+  local quiet
+  quiet=$(monitor_transcript_quiet)
+
+  # UNAVAILABLE IS NOT A FINDING, and this is where the plan's fallback lands.
+  # Where no transcript can be read there is no reading that distinguishes
+  # thinking from stuck, so the monitor invents none: it reports `unknown`,
+  # publishes nothing, and `Worker bound` is what ends the worker. The cost is
+  # stated rather than hidden — a genuinely stuck agent then holds a desk for up
+  # to 8 hours, which is smaller than the measured cost of the rule this
+  # replaces.
+  case "$quiet" in
+    ''|unavailable)    printf 'unknown'; return ;;
+    *[!0-9]*)          printf 'unknown'; return ;;
   esac
-  rc=0; return $rc
+
+  # Inside the window, the agent has produced output recently. Nothing else
+  # needs asking: no CPU sample can overturn a line written seconds ago.
+  if [ "$quiet" -lt "$PLOT_MONITOR_QUIET_SECONDS" ]; then printf 'busy'; return; fi
+
+  # PAST THE WINDOW, THE SECOND READING DECIDES — and it answers a question the
+  # transcript cannot. A transcript is equally quiet whether the agent is
+  # waiting on a model or waiting on its own 20-minute test suite. 28 of the 37
+  # over-window stretches wave 1 measured were the latter.
+  #
+  # So the CPU is consulted for what it CAN say: `working` means a child is on a
+  # core, and an agent whose build is running has not stopped. That is not the
+  # rejected rule returning — the rejected rule read `idle` as a stall, and this
+  # reads `working` as life. The asymmetry is the point: a moving clock proves
+  # something is happening, while a frozen one proved nothing, which is exactly
+  # why it could not be trusted alone.
+  case "$(monitor_activity "$(monitor_pid)")" in
+    working) printf 'busy' ;;
+    # `idle` (frozen subtree clock) and "" (no child holding a clock at all)
+    # agree here: fifteen minutes of transcript silence with nothing burning CPU
+    # behind it. Unlike the old rule, "" is not refused — a live pid with no
+    # child is precisely an agent that has stopped, and it only reaches this
+    # line after the window has already elapsed.
+    *)       printf 'quiet' ;;
+  esac
 }
 
 # One full pass: sample, apply the two-sample rule, publish only on a change.
@@ -411,7 +500,7 @@ monitor_pass() {
         monitor_has_commits; rc2=$?
         if [ "$rc2" = 0 ]; then
           finding='idle'
-          evidence="the agent pid $(monitor_pid) is alive but its subtree burned no CPU across two consecutive passes ~${interval}s apart, the tree is unchanged between them, and the branch already carries commits"
+          evidence="the agent pid $(monitor_pid) is alive but its transcript has been silent for over ${PLOT_MONITOR_QUIET_SECONDS}s with no child process burning CPU behind it, across two consecutive passes ~${interval}s apart, the tree is unchanged between them, and the branch already carries commits"
         fi
         # rc2 = 1 → no commits yet: the middle row. It may be thinking, and
         # calling that a stall is what teaches an operator to ignore the word.
