@@ -513,6 +513,52 @@ test('budget: a recorded zero remaining is told apart from an unknown one', () =
   assert.notEqual(rate.remaining, null);
 });
 
+test('budget: the reset the headers carried is reported back', () => {
+  // THE FIELD THE RECORD STORED AND NEVER RETURNED. `budget_rate` has always
+  // read field 9 to find the window boundary and has always dropped it — so a
+  // caller reacting to a refusal had no reset to wait for, and the one
+  // component that needed it asked `gh api rate_limit`, which was measured
+  // 2026-09-01 reporting 5000 while the response headers read 0.
+  //
+  // IT IS THE RESET STILL IN THE FUTURE that a caller waits for, which is the
+  // opposite half of the fact `windowStart` reads: that boundary needs a reset
+  // already PASSED, because a future one says only that the window is open.
+  const home = makeHome();
+  const now = 1_788_269_670_000;
+  const ahead = now + 900_000;
+  writeFileSync(
+    path.join(home, 'budget.tsv'),
+    `b1\tgithub\tjwloka\tgraphql\t${now}\t1\t5000\t0\t${ahead}\tactual\n`,
+    'utf8',
+  );
+  const rate = JSON.parse(inBudget(home, `budget_rate github jwloka graphql ${now}`).stdout);
+  assert.equal(rate.resetAt, ahead, 'the reset must survive the read');
+  assert.equal(rate.remaining, 0);
+});
+
+test('budget: an unknown reading reports no reset either', () => {
+  // `unknown` IS NOT HEADROOM, AND IT IS NOT A SCHEDULE. A line that carries no
+  // trustworthy reading carries no trustworthy reset, so a caller gets null and
+  // waits its own bounded ceiling rather than a moment it cannot justify.
+  const home = makeHome();
+  const now = 1_788_269_670_000;
+  writeFileSync(
+    path.join(home, 'budget.tsv'),
+    `b1\tgithub\tjwloka\tgraphql\t${now}\t1\t-\t-\t${now + 900_000}\tunknown\n`,
+    'utf8',
+  );
+  const rate = JSON.parse(inBudget(home, `budget_rate github jwloka graphql ${now}`).stdout);
+  assert.equal(rate.resetAt, null);
+});
+
+test('budget: a record nobody has written reports no reset', () => {
+  // A MISSING FILE IS AN EMPTY RECORD, and an absent reset is not an immediate
+  // one: a caller must not read silence as "the bucket is already full".
+  const home = makeHome();
+  const rate = JSON.parse(inBudget(home, 'budget_rate github jwloka graphql').stdout);
+  assert.equal(rate.resetAt, null);
+});
+
 // --- the op ----------------------------------------------------------------
 
 test('budget: spend-rate reads the record back and asks no host', () => {
