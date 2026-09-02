@@ -138,7 +138,7 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 ### Holding one desk
 
-- `feature/an-agent-decides-create-or-reset` — the agent takes both ends of its desk's life. `plot-worker-loop.sh:723` stops creating a desk per branch; the agent resets the tree it holds where the tree allows, and creates one only where it does not. The old desk stops being abandoned because it is the same desk.
+- `feature/an-agent-decides-create-or-reset` — the agent takes both ends of its desk's life. `plot-worker-loop.sh:723` stops creating a desk per branch; the agent resets the tree it holds where the tree allows, and creates one only where it does not. The old desk stops being abandoned because it is the same desk. (#671)
 
 ### Handing work over
 
