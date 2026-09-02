@@ -2428,9 +2428,17 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   // model and context are still absent, because those the dispatcher cannot know
   // and a manifest claiming them would be a guess. A pid of a process it forked
   // itself is not a guess, which is why the group is admitted and they are not.
+  // `attempts` and `resumeId` join on the same criterion the comment above
+  // states. Both are facts the dispatcher KNOWS at launch rather than guesses:
+  // it sets the attempt counter itself, and the resume handle is the session id
+  // it just generated. They are separate fields on purpose — `session` is the
+  // transcript join key and stays fixed across a branch hop, while the resume
+  // handle's lifetime is the open question, and `attempts` is the supervisor's
+  // counter rather than a share of `relaunches`, so a person's manual restarts
+  // cannot exhaust an automatic budget.
   assert.deepEqual(Object.keys(m).sort(),
-    ['agentMonitorPid', 'branch', 'buildMonitorPid', 'command', 'pid', 'session',
-      'startedAt', 'workerMonitorPid', 'worktree', 'wrapperPid'],
+    ['agentMonitorPid', 'attempts', 'branch', 'buildMonitorPid', 'command', 'pid',
+      'resumeId', 'session', 'startedAt', 'workerMonitorPid', 'worktree', 'wrapperPid'],
     'launch-time facts plus every process the dispatcher started: no model, no context it could only guess');
 });
 
