@@ -62,6 +62,8 @@ reaper    ──repairs──►  desks whose agent died
 
 **The registry holds the queue and matches on the free event.** `free` becomes something an agent announces when it finishes a slice, not a state anything polls. That is why the loop's `--offline --next` disappears rather than being fixed: the agent stops shopping for its own branch, and so stops taking a branch without a work order.
 
+**The registry that does this is `plot-registryd`, and it is no longer deferred.** `readAgentRegistry` is a read over manifest files — it cannot wait for anything, so this plan needs the daemon `the-registry-supervises-its-agents` describes. That wave was gated on *"stranded, reported, and still not picked up by a person"* measuring non-zero, and **2026-09-02 supplied it**: 19 desks with merged PRs reaped by hand, 2 sitting as `unknown` agents until the operator pointed at them, 1 holding a `PLOT-BLOCKED` marker for 13 hours after a merge had answered its question. Reporting made every one visible and cleared none. **The gate was lifted the same day** — so this plan depends on a wave that is now startable, not on one that is parked.
+
 **The agent decides create-or-reset**, because it is the only party that can see its own tree. The registry sees identities; the machine sees processes; only the agent at the desk sees uncommitted changes, a `PLOT-BLOCKED` marker, or a checkout still on a merged branch.
 
 - clean tree, branch merged → **reset**: check out the new slice's branch in the desk it holds
@@ -88,7 +90,7 @@ The sweep answers one question — *is anything here that nobody is coming back 
 
 ### Open Questions
 
-- [ ] **Where does the queue live — derived or stored?** Plot's discipline is that git is the source of truth and state is derived. Derived: an eligible slice with a brief and no claim *is* queued, so the queue is the fleet scan's existing output and nothing new is stored. Stored: the registry keeps ordering and assignment records, which is the first piece of fleet state git does not hold, and needs its own answer to *what happens when the registry dies holding it*. This plan argues derived, on manifesto grounds, and does not settle it.
+- [ ] **Where does the queue live — derived or stored?** Plot's discipline is that git is the source of truth and state is derived. Derived: an eligible slice with a brief and no claim *is* queued, so the queue is the fleet scan's existing output and nothing new is stored. Stored: the registry keeps ordering and assignment records, which is the first piece of fleet state git does not hold. This plan argues derived, and the daemon's own design agrees — `the-registry-supervises-its-agents` specifies it *"stateless across restarts by construction"*, which a stored queue would break. Settle it there rather than here.
 - [ ] **What announces `free`?** An agent that finishes a slice must reach its registry. A file the registry watches, or the manifest itself gaining a state — the second keeps identity and availability in one place, which is where `DESIGN-agent.md:502` puts it (*"`free` is derived, not stored"*).
 - [ ] **What happens to a queued slice when every agent dies?** The queue outlives its agents by design. Whether it survives a machine restart depends on the answer above.
 - [ ] **Does an agent ever hold a desk on a branch it is not working?** Between units it is `running`, has no branch, and holds a desk sitting on something. What that tree points at while idle is unspecified.
@@ -105,7 +107,7 @@ The sweep answers one question — *is anything here that nobody is coming back 
 
 ### Handing work over
 
-- `feature/the-registry-queues-a-brief` — dispatch hands slice + brief to the registry and returns; the registry matches on the free event. `plot-dispatch.sh:2503` stops calling `git worktree add`, and the brief gate at `:2555` moves to the hand-over rather than the launch.
+- `feature/the-registry-queues-a-brief` <!-- waits: feature/the-registry-supervises-its-agents --> — dispatch hands slice + brief to the registry and returns; the registry matches on the free event. **Waits on the daemon**, because `readAgentRegistry` is a read and cannot hold work for anyone. `plot-dispatch.sh:2503` stops calling `git worktree add`, and the brief gate at `:2555` moves to the hand-over rather than the launch.
 
 ### Sweeping what was overlooked
 
