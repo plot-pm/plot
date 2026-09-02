@@ -95,6 +95,14 @@
 # arm ran. A project that never sets the key sees `brief_asked=0` and today's
 # behaviour exactly.
 #
+# `brief_asked=N` COUNTS COMMANDS STARTED, NEVER BRIEFS WRITTEN. The command is
+# detached by design and this script never waits on it, so a command that dies
+# in its first millisecond is counted the same as one that writes and pushes a
+# brief. Measured 2026-09-02: a `Brief command` that could not reach
+# `/plot-implement` wrote a 33-byte log and the summary reported
+# `brief_asked=1`. The per-branch line names the log for exactly this reason —
+# the log is the evidence, the count is only that an attempt was made.
+#
 # THIS IS THE ONE SCRIPT IN THE FLEET THAT WRITES. Everything else
 # (plot-fleet-scan.sh, plot-reconcile-scan.sh) is read-only. Consequently every
 # write here is either idempotent or refused:
@@ -431,6 +439,13 @@ request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
        "$(brief_prompt "$branch" "$bslug")" \
        >"$log" 2>&1 </dev/null & ) 2>/dev/null
   echo "      asked the \`Brief command\` to write it — log: $log"
+  # SAYS WHAT WAS MEASURED, WHICH IS THE START AND NOT THE RESULT. The command
+  # is detached and never waited on, so this returns 0 the moment it is spawned
+  # and a command that fails in its first millisecond still counts. Measured
+  # 2026-09-02, first real use: the log held 33 bytes, `Unknown command:
+  # /plot-implement`, and the summary still reported `brief_asked=1`. Naming the
+  # log as the evidence is what keeps the count from reading as a promise.
+  echo "      started, not awaited — read the log to see whether it wrote anything"
   echo "      dispatch $bslug again once it lands; the gate reads $(brief_ref "$branch")"
   return 0
 }
