@@ -9,6 +9,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -66,8 +67,12 @@ reaper    ──repairs──►  desks whose agent died
 
 **The agent decides create-or-reset**, because it is the only party that can see its own tree. The registry sees identities; the machine sees processes; only the agent at the desk sees uncommitted changes, a `PLOT-BLOCKED` marker, or a checkout still on a merged branch.
 
-- clean tree, branch merged → **reset**: check out the new slice's branch in the desk it holds
+- clean tree, branch merged → **reset**: check out `origin/<main>` first, then the slice's branch
 - anything unlanded → **create** a new desk and leave this one for repair
+
+**The reset checks out the base before the branch, and that order is the point.** `.gitignore` is per-checkout: a worktree sees an ignore entry only once its base branch carries it, which is what stranded 19 desks on 2026-09-02 — every one held by an artifact the ignore list had gained after those desks were cut. A desk switching straight to a branch that already exists from an earlier attempt inherits *that* branch's rules. Landing on the base first makes the desk's state independent of whatever it held before, for one extra checkout.
+
+**It does not `reset --hard` or `clean -fdx`.** Those destroy whatever the create-or-reset guard failed to notice — and the guard being wrong is exactly the case where destruction cannot be undone. A guard that misjudges should leave a desk the sweep reports, not deleted work. The asymmetry is the whole argument: a leftover desk costs a sweep, lost work costs the work.
 
 A measurement, not a policy — the same shape as every refusal `plot-reap.sh` already makes. `git worktree add` becomes the exception, so a full checkout is paid once per agent rather than once per slice.
 
@@ -86,12 +91,28 @@ A measurement, not a policy — the same shape as every refusal `plot-reap.sh` a
 
 The sweep answers one question — *is anything here that nobody is coming back for?* — and it does not care whether the cause was a dead agent, an interrupted dispatch, a `--stop`, or a merge somebody did on the host. Its five guards stay exactly as written: they were written for precisely this population, and a backstop that guesses is worse than none.
 
-**The asymmetry between kinds is deliberate and stays.** A removed checkout comes back with `git worktree add`; a deleted remote ref does not. So worktrees are swept estate-wide and refs stay plan-scoped, which is the licence `plot-release-refs.sh:28` already argues. A local branch sits between the two: it is the last copy of a reflog, and deleting it is cheap to regret.
+**The asymmetry between kinds is deliberate and stays.** A removed checkout comes back with `git worktree add`; a deleted remote ref does not. So worktrees are swept estate-wide and refs stay plan-scoped, which is the licence `plot-release-refs.sh:28` already argues.
+
+**A local branch is not the third case it first looks like.** An earlier draft of this plan called it *"the last copy of a reflog"* and borrowed the remote-ref caution for it. That is wrong: a local branch whose PR merged is re-fetchable from `origin`, so it is a copy, not the copy, and the argument that protects remote refs does not transfer.
+
+**But `git branch -d` is not the gate either.** It refuses an unmerged branch, which sounds like the safety this needs — except **squash-merge leaves a branch permanently ahead of main**, the same trap `plot-pr-merged.sh` exists for. `-d` would refuse all 85 of them, for the wrong reason. So the gate is the reaper's rather than git's:
+
+> **the host says merged, AND no worktree holds it → delete**
+
+Two measurements, the shape every other refusal in this estate is written in. The second half matters on its own: deleting a branch out from under a checkout is exactly what the reaper's guards exist to prevent.
+
+**Report-only was the alternative, and 85 rows is the argument against it.** A sweep that reports and never acts becomes one more thing a person has to clear — the problem this plan exists to remove, reintroduced one level up.
 
 ### Open Questions
 
 - [ ] **Where does the queue live — derived or stored?** Plot's discipline is that git is the source of truth and state is derived. Derived: an eligible slice with a brief and no claim *is* queued, so the queue is the fleet scan's existing output and nothing new is stored. Stored: the registry keeps ordering and assignment records, which is the first piece of fleet state git does not hold. This plan argues derived, and the daemon's own design agrees — `the-registry-supervises-its-agents` specifies it *"stateless across restarts by construction"*, which a stored queue would break. Settle it there rather than here.
-- [ ] **What announces `free`?** An agent that finishes a slice must reach its registry. A file the registry watches, or the manifest itself gaining a state — the second keeps identity and availability in one place, which is where `DESIGN-agent.md:502` puts it (*"`free` is derived, not stored"*).
+- [x] **What announces `free`? The manifest, by naming no branch.** A manifest already carries `branch` and `worktree` as live fields — `update_manifest_on_hop` rewrites both when an agent changes slice — and `DESIGN-agent.md:80` already says an agent between units holds none: *"that is why `branch` is optional"*. So `free = process alive AND manifest names no branch`, derived from two facts that exist, storing nothing new.
+
+  **Not the tree.** `plot-worker-state.sh:46` derives `waiting` and `stalled` from the desk, which is right for those — they are claims about work left behind. `free` is not a property of a desk: under this plan the desk persists across slices, so a clean desk says nothing about whether its agent has been handed the next brief.
+
+  **Not an announced marker.** It is stored state with a gap the other two lack — an agent that crashes between finishing and announcing is free and does not say so. `PLOT-BLOCKED` survives that objection only because a blocked agent is by definition still alive to write it.
+
+  **What wave 1 must therefore fix:** `branch` is set at spawn and rewritten on hop, but never *cleared*, so "no branch" is unreachable today. Clearing it on finishing a slice is the deliverable.
 - [ ] **What happens to a queued slice when every agent dies?** The queue outlives its agents by design. Whether it survives a machine restart depends on the answer above.
 - [ ] **Does an agent ever hold a desk on a branch it is not working?** Between units it is `running`, has no branch, and holds a desk sitting on something. What that tree points at while idle is unspecified.
 
@@ -111,7 +132,7 @@ The sweep answers one question — *is anything here that nobody is coming back 
 
 ### Sweeping what was overlooked
 
-- `feature/the-sweep-names-every-leftover` — extend the estate sweep past worktrees. **Measured 2026-09-02: 85 of 98 local branches already merged, and nothing sweeps them** — the largest leftover population here, and the one no script looks at. Orphaned claim refs and unowned dirty trees are the same shape: something nobody is coming back for, with no actor. Keep the reaper's five refusals and its per-kind licence — a checkout is re-creatable, a ref is not, and a local branch is the last copy of a reflog.
+- `feature/the-sweep-names-every-leftover` — extend the estate sweep past worktrees. **Measured 2026-09-02: 85 of 98 local branches already merged, and nothing sweeps them** — the largest leftover population here, and the one no script looks at. Orphaned claim refs and unowned dirty trees are the same shape: something nobody is coming back for, with no actor. Keep the reaper's five refusals and its per-kind licence. A local branch is deleted on two measurements — the host says merged, and no worktree holds it — never on `git branch -d` alone, which refuses a squash-merged branch for the wrong reason.
 
 ### Saying so in the specs
 
@@ -125,5 +146,12 @@ The sweep answers one question — *is anything here that nobody is coming back 
 
 1. *"The worker loop ends at PR-open."* It does not — `plot-worker-loop.sh:716` asks `--next` and hops. The loop already implements taking a next unit; what it gets wrong is the desk and the missing brief.
 2. *"Dispatch should refuse on `0 free`."* Wrong for the reason in Approach: it recreates the capacity coupling the machine spec rejects. The queue is the answer, not a refusal.
+
+**Round 1, 2026-09-02, in-session.** Four challenges, three of which changed the plan and one of which changed another plan:
+
+1. *"The registry cannot wait — it is a read, and the daemon that could is deferred."* Correct. The gate on `the-registry-supervises-its-agents` was checked against its own condition, found satisfied by this day's measurements, and lifted. The dependency is now a `waits:` annotation rather than an assumption.
+2. *"What is the source for `free`?"* Settled on the manifest naming no branch — see Open Questions. The finding that mattered: `branch` is never cleared today, so the deliverable is smaller than it looked.
+3. *"A local branch is the last copy of a reflog."* Wrong, and corrected above: it is re-fetchable from origin. The real trap is that `git branch -d` refuses a squash-merged branch, so the gate is the reaper's two measurements.
+4. *"What does a reset actually do?"* The base-then-branch order, for the `.gitignore` reason that stranded 19 desks the same day.
 
 **What is NOT in scope.** The `Slice`/`Wave` naming defect (`CLAUDE.md` records it as known, with its own plan) is untouched here, though this plan's branches sit next to it. So is the `HostBackend` layering exception — a different plan closed that today.
