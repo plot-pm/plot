@@ -4,8 +4,14 @@ import {
   actualLimit,
   isAnswered,
   predictedLimit,
+  type BuildRun,
+  type Issue,
   type LimitReading,
+  type MergedAnswer,
   type PortResult,
+  type Pr,
+  type PrCreateRequest,
+  type PrLookup,
 } from '../src/index.js';
 
 /**
@@ -209,5 +215,112 @@ describe('hostFixture: a connector answers for its limit', () => {
     expect(answer<readonly LimitReading[]>(await host.limit()).map((r) => r.limit)).toEqual([
       5000, 30,
     ]);
+  });
+});
+
+/**
+ * A CONNECTOR THE DOMAIN HAS NEVER HEARD OF, DRIVEN END TO END.
+ *
+ * This is the proof the whole slice exists for. `HostBackend` was
+ * `'github' | 'bitbucket'` until 2026-09-01 — a closed vendor list, in the
+ * domain, one line long — so a third connector was not an adapter change no
+ * matter what the port's own documentation said about it. Widening the type
+ * removed the refusal; this asserts nothing else was refusing underneath.
+ *
+ * `quokka-forge` IS NOT A HOST, AND THAT IS THE POINT. `gitlab` would prove
+ * less: a plausible name is one somebody eventually teaches the adapter, and
+ * the test would then be passing because the vendor arrived rather than because
+ * the domain stopped caring. A name with no roadmap can only pass for the
+ * reason claimed.
+ *
+ * IT DRIVES THE WHOLE PORT, not just `backend()`. A type that admits any string
+ * and a port that quietly branches on the value somewhere else would still
+ * refuse a third connector, and asserting the name alone would miss it — which
+ * is exactly the failure `fleet.ts` held until wave 1 removed its
+ * `backend === ` expressions.
+ */
+describe('hostFixture: a connector the domain has never heard of', () => {
+  const backend = 'quokka-forge';
+
+  /** An estate belonging to a host Plot ships no adapter for. */
+  const forge = () =>
+    hostFixture({
+      backend,
+      merged: ['feature/landed'],
+      prs: [
+        {
+          number: 7,
+          repo: 'quokka/plot',
+          head: 'feature/open',
+          state: 'OPEN',
+          mergedAt: null,
+          mergeCommit: '',
+          draft: false,
+          mergeable: 'mergeable',
+          review: '',
+          checks: 'green',
+          failingChecks: [],
+          url: 'https://quokka.invalid/pr/7',
+        },
+      ],
+      issues: [
+        {
+          id: 'QF-1',
+          title: 'The forge has an issue',
+          url: 'https://quokka.invalid/issue/QF-1',
+          createdAt: '2026-09-01T00:00:00Z',
+          body: null,
+        },
+      ],
+      runs: {
+        'feature/open': [
+          {
+            workflow: 'forge',
+            conclusion: 'success',
+            startedAt: '2026-09-01T00:00:00Z',
+            url: 'https://quokka.invalid/run/1',
+          },
+        ],
+      },
+      limits: [predictedLimit(backend, 'api', 100)],
+    });
+
+  it('names itself, and the port passes the word through unnarrowed', async () => {
+    // The assertion the old union made impossible: this string was not a
+    // `HostBackend` at all, so the fixture could not have been written.
+    expect(answer<string>(await forge().backend())).toBe(backend);
+  });
+
+  it('answers every read the port defines', async () => {
+    const host = forge();
+    expect(answer<PrLookup>(await host.prState('feature/open'))?.number).toBe(7);
+    expect(answer<PrLookup>(await host.prState(7))?.head).toBe('feature/open');
+    expect(answer<MergedAnswer>(await host.prMerged('feature/landed'))).toBe('merged');
+    expect(answer<MergedAnswer>(await host.prMerged('feature/open'))).toBe('not-merged');
+    expect(answer<readonly Pr[]>(await host.prList('open')).map((pr) => pr.number)).toEqual([7]);
+    expect(answer<readonly BuildRun[]>(await host.runs('feature/open'))).toHaveLength(1);
+    expect(answer<readonly Issue[]>(await host.issueList()).map((i) => i.id)).toEqual(['QF-1']);
+    expect(answer<Issue>(await host.issueView('QF-1')).title).toBe('The forge has an issue');
+  });
+
+  it('opens a PR, which is the one write the port allows', async () => {
+    // A connector nothing was written for still gets the acting path, and the
+    // URL comes back as the host stated it.
+    const opened: PrCreateRequest[] = [];
+    const host = hostFixture({ backend, opened });
+    const url = answer<string>(
+      await host.prCreate({ head: 'feature/new', title: 'A finding', body: 'What it found.' }),
+    );
+    expect(url).not.toBe('');
+    expect(opened.map((request) => request.head)).toEqual(['feature/new']);
+  });
+
+  it('reports and corrects a limit in its own name', async () => {
+    // The connector contract — a budget, and a prediction that learns — holds
+    // for a host Plot has no adapter for. Nothing keys off the vendor.
+    const host = forge();
+    expect(answer<readonly LimitReading[]>(await host.limit())[0]?.connector).toBe(backend);
+    host.observe('throttled');
+    expect(answer<readonly LimitReading[]>(await host.limit())[0]?.limit).toBe(50);
   });
 });
