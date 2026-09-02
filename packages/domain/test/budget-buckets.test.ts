@@ -147,3 +147,37 @@ describe('an account spends every bucket it has', () => {
     expect(accountSpend(record, 'github', 'jwloka', NOW).pruneOwed).toBe(true);
   });
 });
+
+describe('an unrecorded reading does not erase a recorded one', () => {
+  it('keeps the last measurement when a later call could not report one', () => {
+    // MEASURED 2026-09-02 AGAINST THE LIVE HOST. A header harvest recorded
+    // `graphql 4391/5000 actual`; one `pr-state` followed — `gh pr view` is a
+    // GraphQL wrapper that exposes no headers, so it records a spend and no
+    // numbers — and the bucket then read `remaining: null`. Every `gh pr` call
+    // writes such a line, so the routing gate would never again see a spent
+    // pool.
+    const record = lines(
+      entry('graphql', NOW - 2 * MINUTE, { remaining: 0, basis: 'actual' }),
+      entry('graphql', NOW - MINUTE, { limit: null, remaining: null, basis: 'unknown' }),
+    );
+    expect(bucketVerdict(record, key('graphql'), NOW)).toBe('spent');
+  });
+
+  it('still counts the unreadable line as a spend', () => {
+    // A CALL THAT REPORTED NOTHING STILL SPENT. Only the READING is what it
+    // cannot supply — dropping the spend would under-count the account, which
+    // is the failure the record exists to remove.
+    const record = lines(
+      entry('graphql', NOW - 2 * MINUTE, { remaining: 4990 }),
+      entry('graphql', NOW - MINUTE, { limit: null, remaining: null, basis: 'unknown' }),
+    );
+    expect(accountSpend(record, 'github', 'jwloka', NOW).spent).toBe(2);
+  });
+
+  it('reports unknown where no line in the window carries a reading', () => {
+    const record = lines(
+      entry('graphql', NOW - MINUTE, { limit: null, remaining: null, basis: 'unknown' }),
+    );
+    expect(bucketVerdict(record, key('graphql'), NOW)).toBe('unknown');
+  });
+});

@@ -242,12 +242,25 @@ export const windowSpend = (
  * has killed describes a bucket that no longer exists, so reading it as the
  * current state would report a spent bucket long after it refilled.
  *
+ * AND THE LAST LINE THAT CARRIES A READING, not simply the last line. Most
+ * calls cannot report a limit — a GraphQL wrapper that exposes no response
+ * headers records a spend and no numbers — so an `unknown` line arriving after
+ * a measurement would erase it. Measured 2026-09-02 against the live host: a
+ * header harvest recorded `graphql 4391/5000 actual`, one `pr-state` followed,
+ * and the bucket then read `remaining: null`, leaving the routing gate unable
+ * to see a spent pool.
+ *
+ * An `unknown` line is still a SPEND and still counts toward the rate — see
+ * {@link windowSpend}, which reads every live line. It is only the READING it
+ * cannot supply.
+ *
  * @param read - what {@link readWindow} found.
- * @returns the newest live entry, or null.
+ * @returns the newest live entry carrying a reading, or null.
  */
 export const latest = (read: RecordRead): BudgetEntry | null =>
   read.live.reduce<BudgetEntry | null>(
-    (newest, entry) => (newest === null || entry.at >= newest.at ? entry : newest),
+    (newest, entry) =>
+      entry.basis !== 'unknown' && (newest === null || entry.at >= newest.at) ? entry : newest,
     null,
   );
 

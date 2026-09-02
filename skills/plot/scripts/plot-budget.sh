@@ -267,15 +267,25 @@ budget_rate() {
         if (c_at[i] < from) continue
         spent += c_spent[i]
         if (oldest < 0 || c_at[i] < oldest) oldest = c_at[i]
-        # The newest LIVE line is the current reading. A line the reset has
-        # killed describes a bucket that no longer exists, so reading it as the
-        # current state would report a spent bucket long after it refilled.
-        if (newest < 0 || c_at[i] >= newest) {
+        # THE NEWEST LIVE LINE THAT CARRIES A READING, not simply the newest
+        # line. Most calls cannot report a limit — `gh pr list` is a GraphQL
+        # wrapper that exposes no headers — so they record a spend with an
+        # `unknown` basis, and one of those arriving after a measurement would
+        # erase it. Measured 2026-09-02 against the live host: `limit`
+        # harvested `graphql 4391/5000 actual`, one `pr-state` followed, and the
+        # bucket then read `remaining: null` — leaving the routing gate
+        # permanently unable to see a spent pool, which is the defect this slice
+        # exists to remove.
+        #
+        # A line the RESET has killed is a different case and is already gone:
+        # the window filter above dropped it, because it describes a bucket that
+        # no longer exists.
+        if (c_basis[i] != "unknown" && (newest < 0 || c_at[i] >= newest)) {
           newest = c_at[i]
           limit = (c_limit[i] ~ /^-?[0-9]+$/) ? c_limit[i] : "null"
           remaining = (c_rem[i] ~ /^-?[0-9]+$/) ? c_rem[i] : "null"
           basis = c_basis[i]
-          if (basis != "actual" && basis != "predicted" && basis != "unknown") basis = "unknown"
+          if (basis != "actual" && basis != "predicted") basis = "unknown"
           # `unknown` IS NOT HEADROOM. A stored number tagged unknown is not a
           # reading, so it is reported as absent rather than as room.
           if (basis == "unknown") { limit = "null"; remaining = "null" }

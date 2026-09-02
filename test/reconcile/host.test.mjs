@@ -3112,3 +3112,28 @@ test('host: spend-rate with no --bucket sums every bucket the account has', () =
   assert.equal(one.spent, 1, 'a named bucket reports only its own');
   assert.equal(one.remaining, 0, 'and its own reading, which the sum cannot give');
 });
+
+test('host: an unreadable call does not erase the reading before it', () => {
+  // MEASURED 2026-09-02 AGAINST THE LIVE HOST. `limit` harvested
+  // `graphql 4391/5000 actual`, one `pr-state` followed — `gh pr view` is a
+  // GraphQL wrapper that exposes no headers, so it records a spend and no
+  // numbers — and the bucket then read `remaining: null`. Every `gh pr` call
+  // writes such a line, so the routing gate would never again see a spent pool:
+  // the exact blindness this slice removes, reintroduced from the other side.
+  const stubs = makeStubsRateAware({ graphqlJson: '[]' });
+  const at = Date.now();
+  writeFileSync(
+    path.join(stubs.budgetHome, 'budget.tsv'),
+    [
+      `b1\tgithub\t${BUDGET_ACCOUNT}\tgraphql\t${at - 2000}\t1\t5000\t0\t-\tactual`,
+      `b1\tgithub\t${BUDGET_ACCOUNT}\tgraphql\t${at - 1000}\t1\t-\t-\t-\tunknown`,
+      '',
+    ].join('\n'),
+  );
+  const rate = JSON.parse(
+    run(['spend-rate', '--bucket', 'graphql'], { env: { PLOT_HOST: 'github' }, stubs }),
+  );
+  assert.equal(rate.remaining, 0, 'the measurement survives a later call that reported nothing');
+  assert.equal(rate.basis, 'actual');
+  assert.equal(rate.spent, 2, 'and the unreadable call still counts as a spend');
+});
