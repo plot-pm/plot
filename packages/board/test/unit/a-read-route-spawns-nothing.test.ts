@@ -182,15 +182,17 @@ describe('a read route spawns nothing', () => {
 });
 
 /**
- * One on 2026-09-02, down from three, and lowering it is the interesting
- * direction.
+ * ZERO on 2026-09-02, down from three, and this is the end of the ratchet.
  *
- * `production-calls-the-domain-one-rule-at-a-time` migrated the write-route call
- * sites that kept `agent-log.ts:readWorktreeRoot` synchronous, and
- * `auto-deliver.ts:deliverCommand` followed. The survivor is owned by the same
- * plan.
+ * `production-calls-the-domain-one-rule-at-a-time` took the three in stages:
+ * `agent-log.ts:readWorktreeRoot` and `auto-deliver.ts:deliverCommand` first,
+ * then `auto-dispatch.ts:findMissingBriefs` — the last survivor — when the
+ * panel's `uptimeSeconds` moved to `Processes` and the brief lookup followed it
+ * through a port.
  *
- * A RATCHET, so this number goes down and never up. Raising it to accommodate a
- * new synchronous spawn is the change this test exists to refuse.
+ * A RATCHET, so this number goes down and never up. At zero it stops being a
+ * count of documented exceptions and becomes the plain claim that NO read route
+ * reaches a synchronous spawn, awaits ignored. Raising it to admit a new one is
+ * the change this test exists to refuse.
  */
-const SPAWNS_BEHIND_AN_AWAIT = 1;
+const SPAWNS_BEHIND_AN_AWAIT = 0;
