@@ -11,7 +11,8 @@
 # ═══════════════════════════════════════════════════════════════════════════
 #
 #   gone   the agent pid names no live process
-#   idle   the pid lives, its subtree burned no CPU across two consecutive
+#   idle   the pid lives, its TRANSCRIPT has been silent past the window with
+#          no child process burning CPU behind it, across two consecutive
 #          passes, the tree did not change between them, AND commits already
 #          exist on the branch
 #
@@ -20,22 +21,69 @@
 # teaches an operator to ignore it, and then it is worse than absent.
 #
 # ═══════════════════════════════════════════════════════════════════════════
-# WHY `idle` CARRIES THREE CONDITIONS AND NOT ONE
+# IT READS THE AGENT, NOT THE MACHINE
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# A worker waiting on a long model response has the SAME zero CPU delta as one
-# whose agent has vanished. The delta alone cannot tell them apart, so it is not
-# the finding. What separated the three stalls measured on 2026-08-30 is that
-# each had already COMMITTED and then gone quiet:
+# Until 2026-09-02 the reading was a 0.4 s CPU sample of the agent's subtree,
+# taken twice ~30 s apart. An agent waiting on a model response burns no subtree
+# CPU, so a false zero was the COMMON reading rather than the rare one, and no
+# sampling interval closes that gap: a slow model response is indistinguishable
+# from a dead one by CPU alone. The rule ended eleven dispatched workers across
+# two days, several holding uncommitted work.
 #
-#   no CPU, tree unchanged, commits present   → idle
-#   no CPU, tree unchanged, no commits yet    → silent (it may be thinking)
-#   no CPU, tree CHANGED between samples      → silent (something is happening)
+# A `claude -p` session appends a line to its transcript for every model turn,
+# tool call and tool result. Seconds since the newest line reads whether the
+# AGENT has produced anything — the question the CPU sample was standing in for.
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# TWO READINGS, BECAUSE NEITHER ANSWERS IT ALONE
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# A TRANSCRIPT IS EQUALLY QUIET IN TWO CASES that must end differently: an agent
+# waiting on a model, and an agent waiting on its own 20-minute test suite.
+# Wave 1 measured 7547 quiet stretches across 23 sessions on 2026-09-02, and 28
+# of the 37 that passed 30 s were the second kind — the four longest being this
+# repo's own gates, `gh pr checks --watch` at 600.8 s and `pnpm run test:board`
+# at 600.3 s.
+#
+# So the window (`PLOT_MONITOR_QUIET_SECONDS`, 900 s) is a GATE and the CPU is
+# the verdict beside it:
+#
+#   transcript inside the window                → busy   (it just wrote something)
+#   past the window, a child burning CPU        → busy   (its build is running)
+#   past the window, no child on a core         → quiet  (it has stopped)
+#   no transcript readable                      → unknown (see the fallback)
+#
+# THE CPU'S ROLE IS INVERTED FROM THE OLD RULE, and that is what makes it sound
+# here. The rejected rule read a FROZEN clock as a stall; this reads a MOVING
+# clock as life. A moving clock proves something is happening; a frozen one
+# proved nothing, which is precisely why it could not be trusted alone.
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# WHY `idle` STILL CARRIES THE TREE AND COMMIT CONDITIONS
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# What separated the three stalls measured on 2026-08-30 is that each had
+# already COMMITTED and then gone quiet:
+#
+#   quiet, tree unchanged, commits present   → idle
+#   quiet, tree unchanged, no commits yet    → silent (it may be thinking)
+#   quiet, tree CHANGED between samples      → silent (something is happening)
 #
 # THE MIDDLE ROW IS WHERE THE FALSE POSITIVES WOULD HAVE BEEN. An agent given a
 # hard first slice is quiet for a long time with nothing to show; calling that a
 # stall is the cry-wolf that costs the finding its readers. The extra two
 # conditions are not caution — they are what makes the word mean something.
+#
+# ═══════════════════════════════════════════════════════════════════════════
+# WHERE NO TRANSCRIPT CAN BE READ, IT SAYS SO
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# The reading is UNAVAILABLE, not zero and not failed — the contract
+# `the-registry-supervises-its-agents` settled. The monitor then publishes
+# nothing and `Worker bound` is what ends the worker. The cost is stated rather
+# than hidden: a genuinely stuck agent holds a desk for up to 8 hours, which is
+# smaller than the measured cost of killing working ones.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 # IT IS NOT CALLED `stalled`, AND THAT IS A CONTRACT

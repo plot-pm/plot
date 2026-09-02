@@ -90,19 +90,23 @@ case "$MONITOR_POLL_SECONDS" in (*[!0-9]*|''|0) MONITOR_POLL_SECONDS=5 ;; esac
 # behaviour; `PLOT_MONITOR_ENDS_WORKER=0` leaves the finding published and
 # ending the worker to `Worker bound` alone.
 #
-# THE SEAM EXISTS BECAUSE THE READING IS NOT THE QUESTION. `idle` means the
-# subtree burned no CPU across a 0.4 s sample (`plot-worker-state.sh:493`),
-# taken twice ~30 s apart. An agent waiting on a model response burns no CPU in
-# its subtree, so a false zero is the common reading rather than the rare one,
-# and the rule cannot tell `stuck` from `thinking`.
+# THE SEAM EXISTS BECAUSE THE READING WAS NOT THE QUESTION, and as of
+# 2026-09-02 it is. `idle` used to mean the subtree burned no CPU across a 0.4 s
+# sample, taken twice ~30 s apart — and an agent waiting on a model response
+# burns no CPU in its subtree, so a false zero was the common reading rather
+# than the rare one and the rule could not tell `stuck` from `thinking`.
 #
-# Measured 2026-09-01 on this estate: SEVEN desks carry `reported idle on` in
+# Measured 2026-09-01 on this estate: SEVEN desks carried `reported idle on` in
 # their logs, every one of them holding real commits, and five had to be
 # finished by hand. `feature/the-gates-read-what-was-left-behind` was ended
-# 11 s after dispatch with 2 commits and an unwritten changeset.
+# 11 s after dispatch with 2 commits and an unwritten changeset. Eleven workers
+# went this way across two days.
 #
-# The default is unchanged because changing a kill's default under a running
-# fleet is a second failure; the fix for the reading belongs in its own plan.
+# `plot-worker-monitor.sh` now reads the agent's TRANSCRIPT and asks the CPU
+# only whether a child is on a core, so the reading answers the question the
+# kill was always making. The seam stays because it is cheap and because an
+# operator who wants `Worker bound` alone should be able to have it — but it is
+# no longer the workaround for a reading that could not be trusted.
 MONITOR_ENDS_WORKER="${PLOT_MONITOR_ENDS_WORKER:-1}"
 case "$MONITOR_ENDS_WORKER" in (0|1) ;; (*) MONITOR_ENDS_WORKER=1 ;; esac
 
@@ -312,9 +316,10 @@ _kill_tree() { # $1 = root pid
 # ---------------------------------------------------------------------------
 #
 # `plot-worker-monitor.sh` answers the question the bound was guessing at, with
-# four conditions that must hold together: the pid is alive, its subtree burned
-# no CPU across two consecutive passes, the tree did not change between them,
-# and commits already exist on the branch. The loop READS that answer and does
+# four conditions that must hold together: the pid is alive, its TRANSCRIPT has
+# been silent past the window with no child process burning CPU behind it across
+# two consecutive passes, the tree did not change between them, and commits
+# already exist on the branch. The loop READS that answer and does
 # not re-derive it — a second implementation of one measurement is the drift
 # this repo has already paid for, in the classification `plot-worker-state.sh`
 # was extracted to hold.
@@ -386,9 +391,10 @@ _on_alarm() {
 }
 trap _on_alarm ALRM
 
-# The WorkerMonitor published `idle`: the agent is alive, has committed, and has
-# burned no CPU and changed nothing across two consecutive passes. That is the
-# reading the bound was guessing at, and it is a verdict rather than an alarm.
+# The WorkerMonitor published `idle`: the agent is alive, has committed, and its
+# transcript has been silent past the window with nothing burning CPU behind it,
+# across two consecutive passes with the tree unchanged. That is the reading the
+# bound was guessing at, and it is a verdict rather than an alarm.
 _on_monitor() {
   _timed_out=1
   _ended_by='monitor'
@@ -545,7 +551,7 @@ while true; do
     # slice both printed the same sentence.
     case "$_ended_by" in
       monitor)
-        echo "plot-worker-loop: the WorkerMonitor reported idle on ${PLOT_BRANCH:-?} — the agent is alive and has committed but burned no CPU and changed nothing across two passes; ending worker without hopping" >&2
+        echo "plot-worker-loop: the WorkerMonitor reported idle on ${PLOT_BRANCH:-?} — the agent is alive and has committed but its transcript has been silent past the window with nothing burning CPU behind it, across two passes; ending worker without hopping" >&2
         ;;
       *)
         echo "plot-worker-loop: prompt exceeded the ${WORKER_BOUND_SECONDS}s bound on ${PLOT_BRANCH:-?} — no monitor finding said why; ending worker without hopping" >&2
