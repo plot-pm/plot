@@ -46,8 +46,13 @@ export interface LocalBranchReadings {
  * `checked-out` is not a milder form of `no-merged-pr`: deleting a branch out
  * from under a checkout is exactly what the reaper's guards exist to prevent,
  * and it refuses on its own even where the host says merged.
+ *
+ * `Sweep` is in the name because `workflows/dispatch.ts` already owns
+ * `BranchRefusal`, and the two answer opposite questions about one noun: that
+ * one says why a branch cannot be STARTED, this one says why it cannot be
+ * DELETED. Collapsing them would let a dispatch reason reach a deletion.
  */
-export type BranchRefusal = 'default-branch' | 'no-merged-pr' | 'checked-out';
+export type BranchSweepRefusal = 'default-branch' | 'no-merged-pr' | 'checked-out';
 
 /**
  * Every reason this local branch stays, in the order they are tested.
@@ -60,8 +65,8 @@ export type BranchRefusal = 'default-branch' | 'no-merged-pr' | 'checked-out';
  * @param readings - what was measured of the branch.
  * @returns the refusals that apply, most urgent first; empty means sweepable.
  */
-export const branchSweepProblems = (readings: LocalBranchReadings): BranchRefusal[] => {
-  const problems: BranchRefusal[] = [];
+export const branchSweepProblems = (readings: LocalBranchReadings): BranchSweepRefusal[] => {
+  const problems: BranchSweepRefusal[] = [];
   if (readings.branch === readings.defaultBranch) {
     problems.push('default-branch');
   }
@@ -91,7 +96,7 @@ export const isSweepableBranch = (readings: LocalBranchReadings): boolean =>
  * @param readings - what was measured of the branch.
  * @returns the most urgent refusal, or `null` when the branch is sweepable.
  */
-export const firstBranchRefusal = (readings: LocalBranchReadings): BranchRefusal | null =>
+export const firstBranchRefusal = (readings: LocalBranchReadings): BranchSweepRefusal | null =>
   branchSweepProblems(readings)[0] ?? null;
 
 /**
@@ -126,7 +131,7 @@ export interface ClaimRefReadings {
 }
 
 /** Why an orphaned claim ref stays. */
-export type ClaimRefusal = 'not-an-empty-claim' | 'needs-judgment';
+export type ClaimSweepRefusal = 'not-an-empty-claim' | 'needs-judgment';
 
 /**
  * Every reason this claim ref stays.
@@ -138,8 +143,8 @@ export type ClaimRefusal = 'not-an-empty-claim' | 'needs-judgment';
  * @param readings - what was measured of the claim.
  * @returns the refusals that apply, most urgent first; empty means sweepable.
  */
-export const claimSweepProblems = (readings: ClaimRefReadings): ClaimRefusal[] => {
-  const problems: ClaimRefusal[] = [];
+export const claimSweepProblems = (readings: ClaimRefReadings): ClaimSweepRefusal[] => {
+  const problems: ClaimSweepRefusal[] = [];
   if (!readings.isEmptyClaim) {
     problems.push('not-an-empty-claim');
   }
@@ -164,7 +169,7 @@ export const isSweepableClaim = (readings: ClaimRefReadings): boolean =>
  * @param readings - what was measured of the claim.
  * @returns the most urgent refusal, or `null` when the claim is sweepable.
  */
-export const firstClaimRefusal = (readings: ClaimRefReadings): ClaimRefusal | null =>
+export const firstClaimRefusal = (readings: ClaimRefReadings): ClaimSweepRefusal | null =>
   claimSweepProblems(readings)[0] ?? null;
 
 /** What was measured of one dirty tree. */
