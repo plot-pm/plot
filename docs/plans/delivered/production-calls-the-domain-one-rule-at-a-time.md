@@ -1,0 +1,1 @@
+../2026-08-28-production-calls-the-domain-one-rule-at-a-time.md
