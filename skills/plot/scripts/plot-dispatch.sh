@@ -287,6 +287,22 @@ json_escape() {
 #
 # Model and context are still absent on purpose: they belong to the runtime and
 # are read from the transcript, so a manifest that named them would be a guess.
+#
+# `resumeId` AND `session` ARE TWO FIELDS THAT HOLD ONE VALUE AT LAUNCH, and
+# they are written separately on purpose. `session` is the transcript join key
+# and STAYS FIXED across a branch hop, by design — `plot-worker-loop.sh` rewrites
+# `branch` and `worktree` on each hop and leaves `session` alone. The resume
+# handle is a different identity with a different lifetime, and whether it should
+# follow a hop cannot even be ASKED while one field carries both meanings. They
+# will usually agree; nothing may assume they always do.
+#
+# `attempts` IS THE SUPERVISOR'S OWN COUNTER, DISTINCT FROM `relaunches`.
+# `relaunches` counts operator-initiated restarts — a human's record, written by
+# the launch stamp. `attempts` counts a supervisor's own retries and is what a
+# bound would read. Merging them would let a person's three manual restarts
+# exhaust an automatic budget, or the reverse. It is written 0 here and by
+# nothing else in this script: no component in Plot raises it yet, and a launch
+# that guessed at one would be recording a retry nobody made.
 # The `pid` starts EMPTY here and is stamped by the wrapper the instant it learns
 # its own child — see `stamp_manifest_pid`. The dispatcher does not know the
 # agent pid at this line (only the wrapper does, from its `$!`), so it writes the
@@ -299,10 +315,12 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
   {
     printf '{\n'
     printf '  "session": "%s",\n' "$(json_escape "$2")"
+    printf '  "resumeId": "%s",\n' "$(json_escape "$2")"
     printf '  "branch": "%s",\n' "$(json_escape "$3")"
     printf '  "worktree": "%s",\n' "$(json_escape "$4")"
     printf '  "command": "%s",\n' "$(json_escape "$5")"
     printf '  "pid": "",\n'
+    printf '  "attempts": 0,\n'
     printf '  "startedAt": "%s"\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf '}\n'
   } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
