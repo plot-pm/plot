@@ -460,13 +460,29 @@ that gate exists.
      reported, and still not picked up by a person is measured NON-ZERO.
 
      If a visible desk gets attended to, the daemon is machinery for a problem
-     that reporting already solved — and this plan should say so and stop. -->
+     that reporting already solved — and this plan should say so and stop.
 
-- `feature/the-registry-supervises-its-agents` <!-- deferred: gated on the measurement above — do not start until Judging has run a week against the real estate and the count of reported-but-unattended stranded desks is measured non-zero --> — `plot-registryd`: the tick, the three bounds, the correction-and-resume path, the reap on success, and the `needs a person` stop. Stateless across restarts by construction.
+     GATE LIFTED 2026-09-02, Jan Wloka, in-session. The condition was
+     "stranded, reported, and still not picked up by a person" measured
+     non-zero. It is:
+
+       - 19 dispatch desks whose PRs had merged sat visible and were reaped by
+         hand, every one held on a single untracked artifact
+       - 2 desks whose PRs merged on 08-29 and 09-01 sat on the board as
+         `unknown` agents and were removed only after the operator pointed at
+         them
+       - 1 desk sat 13 hours holding a PLOT-BLOCKED marker whose question had
+         already been answered by a merge
+
+     Reporting made all of them visible and cleared none of them. The board
+     showed 1 manifest against 25 synthesized rows while it did so. That is
+     the measurement the gate asked for, and it says build the daemon. -->
+
+- `feature/the-registry-supervises-its-agents` — `plot-registryd`: the tick, the three bounds, the correction-and-resume path, the reap on success, and the `needs a person` stop. Stateless across restarts by construction.
 
 ### Watching
 
-- `feature/the-machine-keeps-the-daemon-alive` <!-- deferred: nothing to supervise until the Supervising wave lands, which is itself gated --> — the launchd/systemd unit, and what the daemon does on a tick it cannot complete. Last, because a supervisor worth keeping alive has to exist first.
+- `feature/the-machine-keeps-the-daemon-alive` <!-- waits: feature/the-registry-supervises-its-agents --> — the launchd/systemd unit, and what the daemon does on a tick it cannot complete. Last, because a supervisor worth keeping alive has to exist first.
 
 ## Done when
 
