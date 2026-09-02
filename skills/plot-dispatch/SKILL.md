@@ -33,7 +33,8 @@ agents, several branches, real tokens. Monitoring is automatable; committing to
 parallel work is a decision. This command therefore never runs itself, and
 `--dry-run` exists so the decision can be taken with the facts in hand.
 
-**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--allow-local] <slug>`,
+**Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--allow-local]
+[--allow-waiting] <slug>`,
 or `--status` / `--stop <branch>` / `--restart <branch>` to inspect, stop or
 replace a worker, or `--migrate [--yes]` to move idle legacy worktrees into the
 configured `Worktree root:`.
@@ -451,6 +452,22 @@ phase, since it operates on the estate rather than one plan.
   `origin/<main>` genuinely cannot be resolved; using it to get past a refusal
   is how unapproved work gets dispatched. It does **not** unlock a held branch —
   see the next point, which it has no bearing on.
+- **A branch whose `waits:` prerequisite has not merged is refused by name**, and
+  the refusal says what it waits on. A plan may annotate one branch
+  `<!-- waits: <branch> -->`, naming one branch — usually of another plan — that
+  must merge first. The question goes to the host's pull requests, never to the
+  refs: `plot-release-refs.sh` deletes a delivered plan's merged refs, so a
+  prerequisite that succeeded and was then reaped has no ref, and a refs-reading
+  gate would block its dependent forever. Two refusals, and they send you to
+  different places: `waiting` means the prerequisite exists and has not landed —
+  dispatch it when that merges; `blocked` means the host has never seen a pull
+  request for that name — a typo, so fix the plan. A host that could not be asked
+  holds the branch at `waiting`, because silence is neither permission nor proof
+  of a typo.
+- **`--allow-waiting` starts a waiting branch anyway**, and prints the override on
+  the line it overrides. Reach for it when you know the prerequisite is not
+  really needed for the slice in hand; it does not unlock a held desk or a
+  blocked wave, and it says on the record what it let through.
 - **A held branch is refused by the script**, not by your judgement. A worktree
   on this machine carrying unlanded work means somebody is at that desk, and the
   fleet scan cannot see it — the work is often unpushed, so there is no claim and
