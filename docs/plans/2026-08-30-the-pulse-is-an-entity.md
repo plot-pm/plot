@@ -360,3 +360,23 @@ monitor must be a domain object or a clock cannot trigger it.
 
 **It depends on `monitoring-is-a-domain-concept`** for the third slice — a
 monitor that owns its `sleep` cannot be ticked. The first two slices do not.
+
+**The Waiting slice keeps its prose, and `waits:` cannot take it over — measured
+2026-09-02.** `a-slice-can-wait-on-another-plan` asked for the annotation here.
+Two things refuse it, and both are facts about this plan rather than about the
+gate:
+
+- **`plot-plan-meta.sh` reads `waits:` from a list-item branch line only.** This
+  plan writes its branches as headings (`### Waiting (Branch: …)`), which a
+  separate block parses for `Branch:` and `PR:` alone. An annotation appended to
+  the heading is not read — and worse, it defeats the heading match, so the
+  branch leaves `waves[].branches` entirely and the fleet stops seeing it.
+- **What this slice waits on is not a branch.** It waits on the gate that
+  replaces `plot-dispatch.sh:558`'s birth guarantee — *"a registered agent with
+  no live monitor subscription is a finding"*. `the-registry-supervises-its-agents`
+  owns it, its two merged slices (#609, #629) do not build it, and the branch
+  that would is itself `deferred:` on a measurement. `waits:` is for a fact a
+  script can check; encoding a judgement in it is what the design section of
+  `a-slice-can-wait-on-another-plan` rules out.
+
+So the constraint stays a sentence until the gate exists as a branch to name.

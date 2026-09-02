@@ -100,9 +100,73 @@ export const sliceVerdicts = (slices: readonly SliceReadings[]): SliceVerdict[] 
  * This is the claim `--next` acts on immediately by pushing a ref, so the
  * conjunction is the gate rather than a filter applied afterwards.
  *
+ * A THIRD FACT, AND IT IS THE BRANCH'S DECLARATION RATHER THAN A MEASUREMENT.
+ * `held` is what {@link waitVerdict} made of the branch's `waits:` annotation:
+ * "" where nothing holds it, `waiting` or `blocked` where something does. It is
+ * tested SEPARATELY from `state` because the two can disagree — a caller that
+ * has the plan's annotation but derives `state` from git alone would read
+ * `open` over a live prerequisite, which is exactly the branch this rule must
+ * refuse. Measured 2026-09-02: `waits_on` reached `FleetReading` and no rule,
+ * and two workers were dispatched onto prerequisites that had not merged.
+ *
+ * DEFAULTED TO "", so a caller with no annotation to offer asks the question it
+ * always asked. A branch declaring nothing is held by nothing.
+ *
  * @param verdict The slice's verdict.
  * @param state The branch's measured state.
+ * @param held What the branch's `waits:` annotation holds it in, or "".
  * @returns True when a worker may claim this branch.
  */
-export const isClaimable = (verdict: SliceVerdict, state: BranchState): boolean =>
-  verdict === 'eligible' && state === 'open';
+export const isClaimable = (
+  verdict: SliceVerdict,
+  state: BranchState,
+  held: '' | 'waiting' | 'blocked' = '',
+): boolean => verdict === 'eligible' && state === 'open' && held === '';
+
+/**
+ * What the host answered about a prerequisite branch's pull requests.
+ *
+ * `merged`      the host merged a PR for it — asked of PRs, never of refs
+ * `unmerged`    the host has a PR for it and none merged
+ * `none`        the host answered, and it has never seen a PR for that branch
+ * `unreachable` the host could not be asked at all
+ *
+ * `none` AND `unreachable` ARE KEPT APART, and collapsing them is the defect
+ * this type exists to prevent. `none` is evidence — a branch name nobody ever
+ * opened work for, which is a typo. `unreachable` is the absence of evidence,
+ * and the two lead to opposite verdicts below.
+ */
+export type PrereqAnswer = 'merged' | 'unmerged' | 'none' | 'unreachable';
+
+/**
+ * What a branch's `waits:` annotation makes of it, given what the host said.
+ *
+ * ```
+ * ''        cleared — the prerequisite merged, so the annotation stops mattering
+ * 'waiting' a wait with an end: the prerequisite exists and has not landed
+ * 'blocked' no PR ever existed for the named branch — a typo, or a branch
+ *           nobody created
+ * ```
+ *
+ * THE QUESTION IS PUT TO THE HOST, NEVER TO THE REFS, and the caller owes that
+ * shape. `plot-release-refs.sh` deletes the remote refs of a delivered plan's
+ * merged branches, so a prerequisite that COMPLETED eventually has no ref — a
+ * rule reading refs would hold its dependent forever because its dependency
+ * succeeded. A merged PR outlives the branch it was cut from.
+ *
+ * AN UNREACHABLE HOST HOLDS AND DOES NOT BLOCK. Silence is not permission to
+ * start, and it is equally not proof of a typo, so it answers `waiting`: a
+ * refusal that resolves the moment the host can be asked again.
+ *
+ * @param waitsOn The branch this one waits on — "" where it declares none.
+ * @param answer What the host said about that branch's pull requests.
+ * @returns "" where nothing holds the branch, else the state it is held in.
+ */
+export const waitVerdict = (
+  waitsOn: string,
+  answer: PrereqAnswer,
+): '' | 'waiting' | 'blocked' => {
+  if (waitsOn === '') return '';
+  if (answer === 'merged') return '';
+  return answer === 'none' ? 'blocked' : 'waiting';
+};
