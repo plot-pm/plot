@@ -6,8 +6,9 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
+- **Delivered:** 2026-09-02
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
 - **Story:** plot-board
