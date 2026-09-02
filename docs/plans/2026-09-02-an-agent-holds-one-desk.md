@@ -4,12 +4,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 2
+- **Approved:** 2026-09-02, Jan Wloka, in-session
 
 ## Changelog
 
