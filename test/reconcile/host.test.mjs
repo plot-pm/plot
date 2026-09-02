@@ -2579,3 +2579,184 @@ test('host: ci-limit prints nothing where no CI connector is configured', () => 
   const out = run(['ci-limit'], { env: { PLOT_HOST: 'github', PLOT_CI: 'none' }, stubs });
   assert.equal(out.trim(), '');
 });
+
+// ── one router chooses the path ─────────────────────────────────────────────
+//
+// `gh_route` is the one place that decides REST versus GraphQL for the GitHub
+// connector. The tests below are of two kinds, and the split is deliberate.
+//
+// The BEHAVIOURAL ones assert the route by what the stub was called with,
+// because that is the only thing a caller could observe and the only thing
+// that matters. Asserting the function's stdout would test an internal.
+//
+// The STRUCTURAL one is the Done-when the plan words as *"asserted by there
+// being one implementation, not by review"* — so it greps the source. That is
+// an unusual test and it earns its place: a reviewer can be convinced that a
+// second decision site is fine, and this cannot be.
+
+test('host: the cheap path is the default — a full budget routes to GraphQL', () => {
+  // THE REGRESSION THIS GUARDS. Gathering the decision into a router is the
+  // kind of change that flips a default by accident, and the flip is expensive
+  // rather than wrong-looking: ~186 REST calls against one GraphQL call for a
+  // 93-branch scan. So the default is pinned by the call that was made.
+  const stubs = makeStubsRateAware({
+    graphqlRemaining: 5000,
+    graphqlJson: JSON.stringify({
+      number: 7, state: 'OPEN', isDraft: false,
+      url: 'https://example.test/pr/7', mergeCommit: { oid: '' },
+    }),
+  });
+  run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs });
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(calls.some((c) => c.startsWith('pr view')), 'GraphQL is the default route');
+  assert.ok(
+    !calls.some((c) => c.startsWith('api repos/')),
+    'a full budget must not reach the REST path',
+  );
+});
+
+test('host: PLOT_HOST_FORCE_REST routes without reading the budget', () => {
+  // The re-entry after a rate refusal sets this, and the budget read it skips
+  // is the point: the caller already knows GraphQL was refused, so asking
+  // `rate_limit` whether it might work is a call spent to learn nothing.
+  const stubs = makeStubsRateAware({
+    restJson: JSON.stringify({
+      number: 7, state: 'open', draft: false,
+      html_url: 'https://example.test/pr/7', merged: false, merge_commit_sha: null,
+    }),
+  });
+  const out = JSON.parse(run(['pr-state', '7'], {
+    env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' },
+    stubs,
+  }));
+  assert.equal(out.state, 'OPEN');
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(calls.some((c) => c.startsWith('api repos/')), 'forced onto REST');
+  assert.ok(
+    !calls.some((c) => c === 'api rate_limit'),
+    'a route already decided asks no budget',
+  );
+});
+
+test('host: a GraphQL-only op stays on GraphQL even under PLOT_HOST_FORCE_REST', () => {
+  // THE ROUTER ANSWERS FOR WHAT THIS SCRIPT HAS, NOT FOR WHAT GITHUB OFFERS.
+  // GitHub serves `pr list` over REST perfectly well; this script has not
+  // written that path. Answering `rest` for `pr-merged` would name a route
+  // that does not exist, and the op would then either take the GraphQL path
+  // anyway — making the router decorative — or fail.
+  //
+  // So the honest answer is `graphql`, and the force switch does not move it.
+  // Writing the missing REST paths is new capability and belongs to no slice
+  // in this plan.
+  const stubs = makeStubsRateAware({
+    graphqlRemaining: 0,
+    graphqlJson: JSON.stringify([{ mergedAt: '2026-09-01T00:00:00Z' }]),
+  });
+  const out = run(['pr-merged', 'some-branch'], {
+    env: { PLOT_HOST: 'github', PLOT_HOST_FORCE_REST: '1' },
+    stubs,
+  });
+  assert.equal(out.trim(), 'merged');
+  const calls = callsOf(stubs.callsFile);
+  assert.ok(calls.some((c) => c.startsWith('pr list')), 'the only route it has');
+});
+
+test('host: a GraphQL-only op spends no budget read to be routed', () => {
+  // Consulting the router must not cost anything for the ten ops that cannot
+  // act on the answer. The router's `pr-state` arm reads `rate_limit`; every
+  // other arm returns without asking, and this pins that — otherwise
+  // "every op consults the router" would have added a call per op to a script
+  // whose whole subject is spending fewer of them.
+  const stubs = makeStubsRateAware({
+    graphqlJson: JSON.stringify([{ mergedAt: null }]),
+  });
+  run(['pr-merged', 'some-branch'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.ok(
+    !callsOf(stubs.callsFile).some((c) => c === 'api rate_limit'),
+    'routing an op with one transport reads no budget',
+  );
+});
+
+test('host: bitbucket never reaches the router', () => {
+  // ONE ROUTER PER CONNECTOR. REST-versus-GraphQL is a GitHub distinction, and
+  // a Bitbucket run must not read a GitHub budget to be told there is no fork.
+  // The assertion is that `gh` was never invoked at all.
+  const stubs = makeStubs({
+    bbJson: '{"id":7,"state":"OPEN","draft":false,"links":{"html":{"href":"https://example.test/pr/7"}}}',
+  });
+  run(['pr-state', '7'], { env: { PLOT_HOST: 'bitbucket' }, stubs });
+  assert.equal(argvOf(stubs.ghArgv), null, 'a bitbucket run asks gh nothing');
+});
+
+test('host: no caller learns which transport ran', () => {
+  // The plan settles that the transport is the connector's business. Both
+  // routes must therefore produce the same payload, field for field — a
+  // difference of even one key would let a caller detect the route and start
+  // depending on it.
+  const graphql = makeStubsRateAware({
+    graphqlRemaining: 5000,
+    graphqlJson: JSON.stringify({
+      number: 7, state: 'MERGED', isDraft: false,
+      url: 'https://example.test/pr/7', mergeCommit: { oid: 'abc123' },
+    }),
+  });
+  const rest = makeStubsRateAware({
+    graphqlRemaining: 0,
+    restJson: JSON.stringify({
+      number: 7, state: 'closed', draft: false,
+      html_url: 'https://example.test/pr/7', merged: true, merge_commit_sha: 'abc123',
+    }),
+  });
+  const viaGraphql = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: graphql });
+  const viaRest = run(['pr-state', '7'], { env: { PLOT_HOST: 'github' }, stubs: rest });
+  assert.deepEqual(JSON.parse(viaGraphql), JSON.parse(viaRest));
+  // And nothing names the route. `MERGED` is the vocabulary both must speak —
+  // REST says `closed` with the merge in a separate field, and an adapter that
+  // merely uppercased `.state` would report a merged PR as CLOSED.
+  assert.equal(JSON.parse(viaRest).state, 'MERGED');
+  assert.doesNotMatch(viaRest, /rest|graphql/i, 'the route never reaches stdout');
+});
+
+// THE STRUCTURAL ASSERTION. The plan's Done-when is *"every op consults the
+// router, and no op re-derives the choice… asserted by there being one
+// implementation, not by review"*. A behavioural test cannot say that: it can
+// prove the route taken on the paths it exercises and says nothing about a
+// second decision site on a path it does not.
+//
+// So this reads the source. Two facts, and both are countable:
+//
+//   `graphql_budget_spent` is CALLED once   — one budget consultation
+//   `PLOT_HOST_FORCE_REST` is READ once     — one override consultation
+//
+// Both counts are of the router's own body. The re-entry at the bottom of
+// `pr-state` SETS the variable for a child process, which is not a read and
+// not a decision — it is how the second path is reached without a second copy
+// of the REST code.
+test('host: exactly one site decides the route', () => {
+  const src = readFileSync(adapter, 'utf8');
+  // Comments carry the argument for the design and mention both names
+  // repeatedly; stripping them is what makes the count a count of CODE.
+  const code = src
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
+
+  const budgetCalls = code.match(/(?<![\w-])graphql_budget_spent(?!\(\))/g) ?? [];
+  assert.equal(
+    budgetCalls.length, 1,
+    `the budget is consulted at one site; found ${budgetCalls.length}`,
+  );
+
+  const forceReads = code.match(/\$\{PLOT_HOST_FORCE_REST[^}]*\}/g) ?? [];
+  assert.equal(
+    forceReads.length, 1,
+    `the override is read at one site; found ${forceReads.length}`,
+  );
+
+  // And both live inside `gh_route`. A single site in the wrong function would
+  // satisfy the counts above and defeat the purpose.
+  const router = code.slice(code.indexOf('gh_route() {'));
+  const routerBody = router.slice(0, router.indexOf('\n}\n') + 3);
+  assert.ok(routerBody.includes('graphql_budget_spent'), 'the budget read is in the router');
+  assert.ok(routerBody.includes('PLOT_HOST_FORCE_REST'), 'the override read is in the router');
+});
