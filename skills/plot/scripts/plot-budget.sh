@@ -175,6 +175,7 @@ budget_append() {
   # ONE `printf`, ONE `>>`. The redirection opens with `O_APPEND` and the single
   # write is what the atomicity guarantee is about; two writes could interleave
   # however short each was.
+  printf '%s\n' "$line" >>"$path" 2>/dev/null || true
   return 0
 }
 

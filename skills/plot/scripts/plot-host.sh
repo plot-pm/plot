@@ -1221,7 +1221,7 @@ budget_record_call() { # $1=connector $2=backend-for-account
 gh() {
   command gh "$@"
   local rc=$?
-  [ $rc -eq 0 ] && budget_record_call github github
+  budget_record_call github github
   return $rc
 }
 
