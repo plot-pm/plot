@@ -162,6 +162,47 @@ describe('the awk and stampManifest agree byte for byte', () => {
     assert.equal(fromTs.match(/"wrapperPid"/g)?.length, 1, 'exactly one wrapperPid line');
   });
 
+  // THE SHAPE THE DISPATCHER ACTUALLY WRITES, and the one property the resume
+  // fields need from both stamps: they are CARRIED, not touched. `resumeId` and
+  // `attempts` are neither launch facts nor relaunch bookkeeping — an operator's
+  // restart must not consume a supervisor's budget — so a stamp that rewrote
+  // either would merge two counters the plan spent a paragraph separating.
+  //
+  // Both implementations get this by passing unknown lines through, which is
+  // exactly why it is asserted rather than assumed: neither names the fields, so
+  // nothing would fail if one of them started to.
+  it('over the resume fields — carried unchanged, on both shapes', () => {
+    const first = [
+      '{',
+      '  "session": "sess-1",',
+      '  "resumeId": "sess-1",',
+      '  "branch": "feature/x",',
+      '  "worktree": "/wt/x",',
+      '  "command": "claude -p \\"go\\"",',
+      '  "pid": "",',
+      '  "attempts": 2,',
+      '  "startedAt": "2026-08-20T09:00:00Z"',
+      '}',
+      '',
+    ].join('\n');
+    const fromAwk = runAwk(first, '4242', NOW, GROUP);
+    const fromTs = stampManifest(first, { pid: '4242', startedAt: NOW, ...GROUP });
+    assert.equal(fromAwk, fromTs);
+    assert.ok(fromTs.includes('  "resumeId": "sess-1",'), 'the handle survives a first stamp');
+    assert.ok(fromTs.includes('  "attempts": 2,'), 'the attempt count is not reset');
+
+    // AND ON A RELAUNCH — the case that matters, since this is where an
+    // operator's `--restart` meets the supervisor's counter. `relaunches`
+    // appears; `attempts` does not move.
+    const again = fromTs;
+    const relaunchedAwk = runAwk(again, '5353', NOW, GROUP);
+    const relaunchedTs = stampManifest(again, { pid: '5353', startedAt: NOW, ...GROUP });
+    assert.equal(relaunchedAwk, relaunchedTs);
+    assert.ok(relaunchedTs.includes('  "relaunches": 1,'), 'the operator restart is counted');
+    assert.ok(relaunchedTs.includes('  "attempts": 2,'), 'the supervisor budget is untouched');
+    assert.ok(relaunchedTs.includes('  "resumeId": "sess-1",'), 'the handle survives a relaunch');
+  });
+
   // A MEMBER THAT WAS NEVER STARTED records `''` rather than vanishing — *absent
   // is not none*. A hand-made worktree has no monitors; the field says so.
   it('with no monitors attached — empty values, not missing lines', () => {

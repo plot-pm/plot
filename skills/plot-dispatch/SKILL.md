@@ -352,6 +352,44 @@ example put in front of them becomes the answer.
 and the workers keep going — which is also why a dead worker needs the reaper
 (`/plot-reconcile`) rather than being noticed here.
 
+### `PLOT_SESSION_ID`, and the one line an adopting project must add
+
+The dispatcher mints a session id, records it in the manifest as both `session`
+and `resumeId`, and exports it into the worker's environment as
+`PLOT_SESSION_ID`. **Plot stops there.** The invocation lives in the project's
+own `.plot/worker-prompt.sh` — or in its `Worker command` — and Plot owns
+neither that file nor the harness it runs, so it cannot add a flag to it and
+must not quietly require one.
+
+The contract is therefore split, and each side does exactly its half:
+
+```
+Plot            → PLOT_SESSION_ID in the worker's environment
+project's file  → claude -p "…" --session-id "$PLOT_SESSION_ID"
+Plot            → checks whether a transcript for that id exists
+```
+
+Pass it on, and two things become possible: the board joins the agent's row to
+its transcript (model, context size, last activity), and a correction can be
+delivered into the **same conversation** with `--resume` rather than starting an
+agent that re-derives an hour of reading.
+
+**Omit it and nothing breaks — the capability is simply reported unavailable.**
+The runtime writes its transcript under an id of its own choosing, Plot's
+asserted id names no file, and `resumeAvailability` says so by name. A caller
+that wanted to resume starts a fresh worker instead, with the failures written
+into its brief. That is the design: *a resume path that silently did nothing
+would be worse than not having one, because a supervisor would report a
+correction it never delivered.*
+
+**The check is the gate, not this documentation.** Nothing asserts the flag was
+added; the transcript's presence is what is measured, so a project that changes
+harness or drops the flag is reported honestly rather than assumed compliant.
+
+**A harness that is not `claude` is a supported answer.** Some write no
+transcript at all, and some name it differently. Both read as *resume
+unavailable*, which is the truth about that project rather than a defect in it.
+
 ## Inspecting, stopping and restarting workers
 
 Detached workers would otherwise be invisible:
