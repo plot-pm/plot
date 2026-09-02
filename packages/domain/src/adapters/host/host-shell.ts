@@ -10,6 +10,7 @@ import type { Checks, Mergeability, Pr, PrState, ReviewVerdict } from '../../ent
 import { answered, type PortResult } from '../../port-result.js';
 import type {
   Host,
+  HostBackend,
   HostRefusal,
   LimitObservation,
   MergedAnswer,
@@ -290,14 +291,39 @@ export const hostShell = (context: ShellContext): Host => {
   let lastRead: readonly LimitReading[] = [];
 
   return {
-    backend: () =>
-      ask(['backend'], (stdout) => {
+    backend: async (): Promise<PortResult<HostBackend>> => {
+      // The word the script reported, kept so the refusal below can name it.
+      // `resultOf` maps a throw to `failed` and discards the message, which is
+      // right for every parse failure and loses the only fact this one has.
+      let reported = '';
+      const answer = await ask(['backend'], (stdout) => {
         const value = asText(stdout);
+        reported = value;
         if (!DRIVES.includes(value)) {
-          throw new Error(`plot-host: unrecognised backend ${value}`);
+          throw new Error(`plot-host: cannot drive ${value}`);
         }
         return value;
-      }),
+      });
+      // THE ONE REFUSAL THIS ADAPTER MAKES ON ITS OWN JUDGEMENT, so it is the
+      // one `record` cannot see. Every other refusal on this port is the
+      // script's, read off an exit code; this one happens on exit 0 — the
+      // script answered, and the adapter is what says the answer names a host
+      // it was never taught. `record` clears `refusal` on a zero exit, exactly
+      // right for the calls it was written for and wrong for this one.
+      //
+      // IT MUST NAME THE HOST. Removing `HostBackend`'s union moved the refusal
+      // from the type to this layer, and a refusal that says only `failed` is a
+      // worse answer than the type gave: a compiler error named the vendor. The
+      // sentence is where the name survives, and `lastRefusal` is the only
+      // place a caller can read one.
+      if (!answer.ok && refusal === null) {
+        refusal = {
+          kind: 'failed',
+          said: `plot-host: cannot drive ${reported} — this adapter drives ${DRIVES.join(', ')}`,
+        };
+      }
+      return answer;
+    },
 
     prState: async (ref): Promise<PortResult<PrLookup>> => {
       const run = await runProcess('bash', [host, 'pr-state', String(ref)], inRepo);

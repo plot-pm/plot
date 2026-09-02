@@ -163,6 +163,43 @@ jobs:
           fi
           echo "Domain purity gate: clean."
 
+      # THE CONNECTOR BOUNDARY, ENFORCED THE SAME WAY. The purity gate above
+      # asserts the domain reaches nothing; this one asserts it KNOWS nothing —
+      # no vendor name in domain code outside `adapters/`.
+      #
+      # It is what turns "adding a connector is an adapter change" from prose
+      # into a property. `ports/host.ts` declared `HostBackend = 'github' |
+      # 'bitbucket'` until 2026-09-01, so a third connector needed a domain
+      # edit while every sentence in the file said it did not. A union is one
+      # line, and the next one arrives the same way unless something refuses it.
+      #
+      # IT STRIPS COMMENTS FIRST, and that is the gate being about behaviour
+      # rather than about text. Measured on this tree: 24 vendor mentions
+      # outside `adapters/`, every one of them in a TSDoc block, and every one
+      # an ARGUMENT FOR the property — `limit.ts:50` names GitHub's
+      # `X-RateLimit-Resource` to explain why the bucket is unvalidated. A gate
+      # matching those would force the explanations out and leave the union it
+      # exists to catch, because a union carries no vendor word in a comment.
+      #
+      # The list is the vendors Plot has an opinion about plus the ones nearest
+      # to arriving. It is not exhaustive and cannot be — a gate on every host
+      # that exists is a gate on a word list nobody maintains. What it catches
+      # is the shape that actually happened: a domain type or branch naming the
+      # hosts Plot drives today.
+      - name: The domain names no vendor
+        run: |
+          hits=$(grep -rEn --include='*.ts' -i \
+                   '\b(github|bitbucket|gitlab|jenkins|jira|gitea|trello|linear)\b' \
+                   packages/domain/src/ \
+                 | grep -v '^packages/domain/src/adapters/' \
+                 | grep -vE ':[[:space:]]*(\*|//|/\*)' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::the domain named a vendor — a connector belongs in packages/domain/src/adapters/:"
+            printf '%s\n' "$hits"
+            exit 1
+          fi
+          echo "The domain names no vendor: clean."
+
       # THE OTHER HALF OF THE LAYER, and the half that was never enforced.
       #
       # The purity gate above stops the DOMAIN importing the world. Nothing
