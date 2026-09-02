@@ -1,9 +1,11 @@
+import type { BuildRun } from '../../entities/build.js';
 import type { Issue } from '../../entities/issue.js';
 import { correctForRefusal, type LimitReading } from '../../entities/limit.js';
 import type { Pr } from '../../entities/pr.js';
 import type {
   Host,
   HostBackend,
+  HostRefusal,
   LimitObservation,
   MergedAnswer,
   PrCreateRequest,
@@ -21,6 +23,14 @@ export interface HostFixture {
   prs?: readonly Pr[];
   /** The issues `issueList` reports, and `issueView` looks up by id. */
   issues?: readonly Issue[];
+  /**
+   * The run history `runs` reports, by branch.
+   *
+   * A branch with no entry answers `[]` — the host was asked and holds no runs
+   * for it, which is the same answer a real Bitbucket gives. It is never a
+   * refusal: a fixture knows its own estate and has nothing to be throttled by.
+   */
+  runs?: Readonly<Record<string, readonly BuildRun[]>>;
   /**
    * The limit readings `limit` reports, before any correction.
    *
@@ -69,6 +79,7 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
   const merged = new Set(fixture.merged ?? []);
   const prs = fixture.prs ?? [];
   const issues = fixture.issues ?? [];
+  const runs = fixture.runs ?? {};
   const opened = fixture.opened ?? [];
   // Mutable, because the correction rule is behaviour rather than a value and
   // the fixture must be able to show it. A fixture that always answered the
@@ -104,6 +115,11 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     prList: async (_state, limit): Promise<PortResult<readonly Pr[]>> =>
       answered(limit === undefined ? prs : prs.slice(0, limit)),
 
+    runs: async (branch, limit): Promise<PortResult<readonly BuildRun[]>> => {
+      const history = runs[branch] ?? [];
+      return answered(limit === undefined ? history : history.slice(0, limit));
+    },
+
     issueList: async (limit): Promise<PortResult<readonly Issue[]>> =>
       answered(limit === undefined ? issues : issues.slice(0, limit)),
 
@@ -119,5 +135,11 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     observe: (observed: LimitObservation): void => {
       limits = limits.map((reading) => correctForRefusal(reading, observed));
     },
+
+    // ALWAYS NULL, and that is the fixture being honest rather than
+    // incomplete. Every operation above answers, so there is never a call this
+    // could be about; a fixture that reported a refusal it did not make would
+    // let a test assert a backoff no adapter had cause to take.
+    lastRefusal: (): HostRefusal | null => null,
   };
 };

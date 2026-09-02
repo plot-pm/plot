@@ -23,12 +23,13 @@ import {
 import {
   allSlicesMerged,
   planStatus as decidePlanStatus,
+  type Host,
   type PlanStore,
   type Refs,
   type Scripts,
   type Trees,
 } from '@plot-pm/domain';
-import { planStoreShell, refsGit, scriptsShell, treesGit } from '@plot-pm/domain/adapters';
+import { hostShell, planStoreShell, refsGit, scriptsShell, treesGit } from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
 import { extractTopics } from './topics.js';
@@ -82,6 +83,26 @@ export interface BuildBoardOptions {
    * caching a synchronous function keeps it synchronous.
    */
   planStore?: PlanStore;
+  /**
+   * Where host questions are answered from. Absent means this repository's
+   * configured git host.
+   *
+   * The seam the PR poller asks through. `Scripts.host` hands an argv to
+   * `plot-host.sh` and gets a string back, which is a controller reaching a
+   * script — the layering rule's `controller → domain → port ← adapter →
+   * script` with the middle two missing. This is the port that was already
+   * there, and repointing at it is what makes the poller substitutable: a
+   * board handed a fixture `Host` asks no CLI and spends no budget.
+   */
+  /**
+   * NOT `host`, AND THE COLLISION IS THE REASON. `host` already means the bound
+   * network interface — a STRING — in `ApproveOptions` and 13 sibling option
+   * types that extend this one; naming the port `host` made every one of them
+   * fail to extend, 47 errors across 13 files. `hostPort` was the other
+   * candidate and reads as a TCP port two lines from `port: number`, which is
+   * the same confusion in a new place.
+   */
+  hostAdapter?: Host;
 }
 
 /**
@@ -143,6 +164,25 @@ export const planStoreFor = (opts: BuildBoardOptions): PlanStore =>
  */
 export const scriptsFor = (opts: BuildBoardOptions): Scripts =>
   scriptsShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * The host reader for these options — the caller's, or this repository's.
+ *
+ * Built per call for the same reason as {@link refsFor}: the adapter is a
+ * closure over two paths and a session's worth of corrections, and the expense
+ * was never in constructing it.
+ *
+ * ONE CAVEAT THIS SHARES WITH NOTHING ELSE HERE. `hostShell` holds session
+ * state — the limit corrections `observe` records, and the refusal
+ * `lastRefusal` reports — so a caller that must read a refusal reads it from
+ * the SAME instance that made the call. `refreshPrs` builds one and uses it
+ * throughout, which is what makes that safe.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the injected host, or one backed by `plot-host.sh`.
+ */
+export const hostFor = (opts: BuildBoardOptions): Host =>
+  opts.hostAdapter ?? hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /**
  * Resolve `repoRoot` through symlinks. Plan files are reported as real paths, so

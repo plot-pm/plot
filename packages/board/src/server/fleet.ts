@@ -33,7 +33,8 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
-import { workingTreeSprints, planStatusBySlug, readConfigAsync, scriptsFor, treesFor, type BuildBoardOptions } from './board.js';
+import { workingTreeSprints, planStatusBySlug, readConfigAsync, scriptsFor, treesFor, hostFor, type BuildBoardOptions } from './board.js';
+import type { Host } from '@plot-pm/domain';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -1585,6 +1586,7 @@ export async function refreshRuns(
   opts: BuildBoardOptions,
   entry: CacheEntry,
   prs: Map<string, PrRecord>,
+  host: Host = hostFor(opts),
 ): Promise<void> {
   const runs = new Map<string, StuckRun[]>();
   const candidates = [...prs.entries()].filter(([, pr]) => pr.checks === 'failing');
@@ -1612,20 +1614,19 @@ export async function refreshRuns(
   }
   for (const [branch] of failing) {
     try {
-      const answer = await scriptsFor(opts).host(['runs', branch,
-        '--limit', String(RUN_HISTORY_LIMIT)]);
+      const answer = await host.runs(branch, RUN_HISTORY_LIMIT);
       if (!answer.ok) throw new Error('runs unavailable');
-      const list: StuckRun[] = [];
-      for (const line of answer.value.split('\n')) {
-        if (!line.trim()) continue;
-        const r = JSON.parse(line) as Partial<StuckRun>;
-        list.push({
-          workflow: r.workflow ?? '',
-          conclusion: r.conclusion ?? '',
-          startedAt: r.startedAt ?? '',
-          url: r.url ?? '',
-        });
-      }
+      // The adapter parses and normalizes; `BuildRun` and `StuckRun` are the
+      // same four fields, so the copy below is a widening from readonly rather
+      // than a second mapping. The JSON parse that used to sit here is the
+      // adapter's, which is the whole move: a controller reading `--json`
+      // output is a controller holding the host's wire format.
+      const list: StuckRun[] = answer.value.map((r) => ({
+        workflow: r.workflow,
+        conclusion: r.conclusion,
+        startedAt: r.startedAt,
+        url: r.url,
+      }));
       if (list.length > 0) runs.set(branch, list);
     } catch {
       // One branch's history is unavailable; the other two evidence lines
@@ -1812,15 +1813,19 @@ export async function refreshIssues(opts: BuildBoardOptions, entry: CacheEntry):
  * The error is not surfaced because there is nothing for a reader to do about
  * it: unlike a PR fetch, this failing produces no wrong CLAIM on the page.
  */
-async function resolveBackend(opts: BuildBoardOptions, entry: CacheEntry): Promise<string> {
+async function resolveBackend(
+  opts: BuildBoardOptions, entry: CacheEntry, host = hostFor(opts),
+): Promise<string> {
   if (entry.backend !== null) return entry.backend;
   try {
-    const answer = await scriptsFor(opts).host(['backend']);
-    entry.backend = (answer.ok ? answer.value.trim() : '') || 'github';
+    const answer = await host.backend();
+    entry.backend = answer.ok ? answer.value : 'github';
   } catch {
     entry.backend = 'github';
   }
-  return entry.backend;
+  // Both arms above assign a string, so this is non-null; the narrowing is lost
+  // across the try/catch rather than the value being genuinely unknown.
+  return entry.backend ?? 'github';
 }
 
 async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<void> {
@@ -1838,7 +1843,13 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // failure on Bitbucket must be spaced by the same cost as a success. Cached
   // after the first call, so this is one extra local `bash` on the process's
   // first refresh and nothing on any later one.
-  const backend = await resolveBackend(opts, entry);
+  // ONE ADAPTER FOR THE WHOLE REFRESH, bound here and passed down. Both
+  // `resolveBackend` and `refreshRuns` default to `hostFor(opts)`, so leaving
+  // them to their defaults would construct two adapters for one refresh — and
+  // a fixture `Host` handed to only one of them would be obeyed by half the
+  // pass, which is the failure a substitutable port exists to prevent.
+  const host = hostFor(opts);
+  const backend = await resolveBackend(opts, entry, host);
   try {
     const said = await scriptsFor(opts).hostSaid(['pr-list', '--rich',
       '--state', 'all', '--limit', String(PR_LIMIT)]);
@@ -1927,7 +1938,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       entry.prs = map;
       entry.prsByNumber = byNumber;
       entry.prsByHead = byHead;
-      await refreshRuns(opts, entry, map);
+      await refreshRuns(opts, entry, map, host);
       entry.prAt = Date.now();
       const due = prNextDueAt(startedAt, null, Date.now(), backend);
       entry.prNextAt = due.at;
