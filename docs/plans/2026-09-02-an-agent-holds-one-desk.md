@@ -12,6 +12,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-09-02, Jan Wloka, in-session
 - **Started:** 2026-09-02, Jan Wloka, `feature/an-agent-says-when-it-is-free`
+- **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-decides-create-or-reset`
 
 ## Changelog
 
