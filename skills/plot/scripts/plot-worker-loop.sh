@@ -436,6 +436,25 @@ seal_declaration() { # $1=worktree $2=branch
   mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
+# ---------------------------------------------------------------------------
+# EVERYTHING ABOVE IS DEFINITIONS; EVERYTHING BELOW STARTS A WORKER
+# ---------------------------------------------------------------------------
+#
+# `PLOT_WORKER_LOOP_SOURCED=1` STOPS HERE, so a test can take the definitions
+# without launching anything. The desk decision — `desk_is_resettable`,
+# `desk_hold_reason`, `reset_desk` — needs one tree per case, each in a
+# different state, and driving a whole loop per case would spend a two-minute
+# fixture to observe one `if`. `plot-worker-state.sh` is sourced rather than run
+# for the same reason and states it in its own first paragraph; this is that
+# idiom applied to the file that already sources it.
+#
+# THE FLAG IS OPT-IN AND NAMED FOR THIS FILE. An unset variable leaves the
+# script exactly as it was — no caller changes, and a worker started by the
+# fleet cannot reach this return by accident. `return` rather than `exit`
+# because a sourced script returns to its sourcer; under `bash file` it would
+# be an error, which is why it is reached only when the caller asked for it.
+[ -n "${PLOT_WORKER_LOOP_SOURCED:-}" ] && return 0
+
 # Read the prompt from the dedicated file. A file rather than a config key
 # because plot-config.sh strips `(...)` as prose, and the prompt legitimately
 # contains shell constructs like ${PLOT_BRANCH##*/}.
