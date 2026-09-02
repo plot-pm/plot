@@ -243,6 +243,65 @@ jobs:
             exit 1
           fi
           echo "One place reaches a script: clean."
+      # A TEARDOWN DOES NOT FAIL A SUITE — the gate that keeps the conversion.
+      #
+      # A raw recursive `fs.rmSync` in a test teardown races whatever child the
+      # fixture left running: it removes a tree a doomed `git` or board process
+      # is still writing into, throws ENOTEMPTY, and `node --test` reports the
+      # throw as the LAST TEST FAILING. Measured across three failures, the
+      # named test had passed and the failing site was one teardown.
+      #
+      # `rmTree` (test/helpers.mjs) retries that specific, transient class and
+      # nothing else. 157 sites were converted to it across #578 and #616; one
+      # raw site landed afterwards, which is exactly the drift a gate exists to
+      # catch — a conversion nothing enforces is undone one merge at a time.
+      #
+      # `force: true` DOES NOT COVER THIS. It suppresses the absence of
+      # something expected; this failure is the presence of something
+      # unexpected. The stray site carried `force: true` and still raced.
+      #
+      # MECHANICAL, NOT JUDGED. The population is "a file under
+      # packages/board/test/ calling fs.rmSync with recursive" — a grep. Scoping
+      # it to "teardowns that race a child" would need a reviewer's opinion per
+      # site, which is a rule, not a gate.
+      #
+      # `-a` for the same reason the domain gates carry it: one NUL byte in a
+      # fixture would make grep report "binary file matches" and hide the whole
+      # file from the count.
+      #
+      # `allowed=1` is `rmTree`'s own implementation, the one call that must
+      # stay raw. Same ratchet shape as above: `::error::` when the count rises,
+      # `::notice::` when it can tighten. The target is 1, not 0.
+      #
+      # THE ONE SHAPE IT MISSES is a call split across lines, because grep reads
+      # one line at a time. Measured 2026-09-01: that form occurs nowhere in
+      # `packages/` — every `fs.rmSync` in the repo is written on one line. The
+      # fix would be a parser, and a parser is a different kind of check than a
+      # ratchet; the blind spot is recorded here so the next reader knows it was
+      # weighed rather than missed.
+      #
+      # A NON-recursive `fs.rmSync` is deliberately NOT in the population. It
+      # removes one file, so it cannot race a child writing into a tree — 13
+      # such calls stand in these tests and none is this bug. `git-retry.test.mjs`
+      # also assigns to `fs.rmSync` to inject failures, which is the fixture
+      # proving the retry works and must keep working.
+      - name: A teardown does not race a child
+        run: |
+          allowed=1
+          hits=$(grep -rEna 'fs\.rmSync\s*\([^)]*recursive' \
+                   packages/board/test || true)
+          count=$(printf '%s' "$hits" | grep -c . || true)
+          echo "raw recursive fs.rmSync under packages/board/test: $count (allowed $allowed)"
+          if [ "$count" -gt "$allowed" ]; then
+            echo "::error::a raw recursive fs.rmSync reappeared in a test — $count sites, allowed $allowed."
+            echo "Use rmTree() from test/helpers.mjs: it retries ENOTEMPTY/EBUSY/EPERM,"
+            echo "which is what a teardown racing a still-running child throws."
+            printf '%s\n' "$hits"
+            exit 1
+          fi
+          if [ "$count" -lt "$allowed" ]; then
+            echo "::notice::the ratchet can tighten — $count sites, allowed still $allowed."
+          fi
 
       # TWO-SIDED, BECAUSE ONE SIDE PASSES ON NOTHING.
       #
