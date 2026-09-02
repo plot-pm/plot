@@ -1,4 +1,8 @@
-import { normalizeVersion } from '../entities/release.js';
+// From `entities/version.js` rather than `entities/release.js`, which re-exports
+// it. The `Release` entity's schemas import `zod` at module scope, and this is a
+// VALUE import — a bundle taking one transition took `zod` with it, at 324 KB
+// for four lines of string handling. See `entities/version.ts`.
+import { normalizeVersion } from '../entities/version.js';
 
 /**
  * A plan's lifecycle phase as the parser normalizes it.
