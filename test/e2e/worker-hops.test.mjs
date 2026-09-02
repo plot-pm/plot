@@ -160,7 +160,12 @@ function runLoop({ wt, manifest, branch, slug, timeout = 120000 }) {
 test('flow: a worker finishes one slice and starts the next — one agent, two branches', () => {
   // The claim this whole plan exists to make good. Nothing about it is read
   // from the loop's source: the evidence is a file the worker appended to once
-  // per slice, and a second worktree on disk that only the hop creates.
+  // per slice, and the desk it did that from.
+  //
+  // THE DESK IS ONE, since `an-agent-decides-create-or-reset`. The hop used to
+  // cut a worktree per branch and leave the previous one on disk; the agent now
+  // takes over the desk it holds, so what proves the hop is the SECOND LINE in
+  // `ran.txt` and the ABSENCE of a second directory.
   const sb = makeSandbox({ name: 'worker-hop', config: CONFIG });
   try {
     twoWavePlan(sb.work, { slug: 'hopflow' });
@@ -187,9 +192,11 @@ test('flow: a worker finishes one slice and starts the next — one agent, two b
     assert.deepEqual(ran, ['feature/seam', 'feature/api'],
       'the worker must run its prompt on the second branch after finishing the first');
 
-    // And the second slice is a real desk: the hop creates the worktree.
-    assert.ok(fs.existsSync(path.join(wtRoot, 'plot-wt-feature-api')),
-      'the hop must create a worktree for the branch it moved to');
+    // And it ran both slices at ONE desk. A `plot-wt-feature-api` here would be
+    // the abandoned checkout this plan exists to stop: measured 2026-09-02, 2
+    // agents holding 11 worktrees.
+    assert.equal(fs.existsSync(path.join(wtRoot, 'plot-wt-feature-api')), false,
+      'the hop must reset the desk it holds, not cut a second one');
 
     // The claim on the second branch is a REF on origin, the same exclusion
     // dispatch relies on — not a note the worker kept to itself.
@@ -210,7 +217,7 @@ test('flow: the manifest after the hop names the second branch and its worktree'
   const sb = makeSandbox({ name: 'worker-hop-manifest', config: CONFIG });
   try {
     twoWavePlan(sb.work, { slug: 'hopmanifest' });
-    const { wt, manifest, wtRoot } = claimAsDispatcher(sb, 'feature/seam');
+    const { wt, manifest } = claimAsDispatcher(sb, 'feature/seam');
 
     const ranFile = path.join(sb.root, 'ran.txt');
     const snapshotDir = path.join(sb.root, 'snapshots');
@@ -225,8 +232,12 @@ test('flow: the manifest after the hop names the second branch and its worktree'
     const after = JSON.parse(fs.readFileSync(path.join(snapshotDir, 'manifest-api.json'), 'utf8'));
 
     assert.equal(after.branch, 'feature/api', 'the manifest must name the branch hopped to');
-    assert.equal(after.worktree, path.join(wtRoot, 'plot-wt-feature-api'),
-      'the manifest must name the new worktree');
+    // THE DESK DID NOT MOVE, and the manifest must still name it. `worktree` is
+    // written on every hop so the field's contract stays *where the agent is*;
+    // on a reset that write lands the same value, and the registry's transcript
+    // join and liveness check — both keyed on this path — keep working.
+    assert.equal(after.worktree, wt,
+      'the manifest must name the desk the agent actually holds');
     assert.equal(after.wavesCount, 2, 'wavesCount counts the slices this worker has taken');
 
     // SAME WORKER, NEW PLACE. A hop is one session continuing, so the identity
