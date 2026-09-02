@@ -1,6 +1,33 @@
 #!/usr/bin/env bash
-# Remove worktrees whose work has landed, their dead worker files, the registry
-# manifests that named them, and the agent logs that described them.
+# The estate sweep. It answers ONE question of everything it looks at — is
+# anything here that nobody is coming back for? — and it does not care whether
+# the cause was a dead agent, an interrupted dispatch, a `--stop`, or a merge
+# somebody did on the host.
+#
+# FOUR KINDS OF LEFTOVER, and the first is the one this script started as:
+#
+#   1. worktrees whose work has landed, with their dead worker files, the
+#      registry manifests that named them, and the agent logs that described
+#      them
+#   2. LOCAL BRANCHES the host merged that no worktree holds
+#   3. ORPHANED CLAIM REFS a plan already recorded as deferred or moved
+#   4. DIRTY TREES NOBODY OWNS — named, never deleted
+#
+# Kinds 2-4 were added 2026-09-03. Measured on this estate the day before:
+# 85 of 98 local branches already merged and nothing looked at them, claim refs
+# whose agent never existed, and 2 dirty desks holding 52 and 1 files that
+# every run refused and nothing ever resolved.
+#
+# EVERY KIND KEEPS ONE SHAPE: `--dry-run` by default, acting on `--yes`,
+# bounded by `--max N`. The bound is PER KIND, because the kinds are different
+# acts on different populations — a run bounded to five worktrees has not
+# thereby been asked to leave the 85th branch alone.
+#
+# THE ASYMMETRY BETWEEN KINDS IS DELIBERATE AND STAYS. A removed checkout comes
+# back with `git worktree add` and a local branch is re-fetchable from origin,
+# so both are swept estate-wide. A deleted REMOTE ref is not re-creatable at
+# all, so `plot-release-refs.sh` deletes those under its own licence, its own
+# five guards, and a blast radius bounded by one plan file.
 #
 # The gap this fills was named by a comment before it existed:
 # `plot-reconcile-scan.sh:323` says "with a deferred: annotation the reaper
@@ -42,6 +69,20 @@
 #   3. a worktree carrying a PLOT-BLOCKED* marker    (a worker waiting on a person)
 #   4. a branch NO PR of which merged                (the host is the authority)
 #   5. the main checkout, and any non-dispatch tree  (not ours to remove)
+#
+# THOSE FIVE REFUSALS ARE UNCHANGED BY THE THREE NEW KINDS, in this file and in
+# `packages/domain/src/rules/reapable.ts` alike. They were written for exactly
+# the population they sweep, and a backstop that guesses is worse than none.
+# Each new kind brings its own gate instead, in `rules/sweepable.ts`:
+#
+#   local branch  the host says merged, AND no worktree holds it. NEVER
+#                 `git branch -d`, which refuses a squash-merged branch for the
+#                 wrong reason and would have kept all 85 of them.
+#   claim ref     only what `plot-reconcile-scan.sh` section 3 ALREADY calls
+#                 reapable — a `deferred:`/`moved:` annotation. A bare
+#                 `claimed:` is reported and left for a person.
+#   dirty tree    nothing. There is no deletion path: where this guard is
+#                 wrong, destruction cannot be undone.
 #
 # A dispatch tree is recognised by `.plot-worker.pid`, which the dispatcher
 # writes at creation, OR by the legacy `plot-wt-` path. Both are supported
@@ -508,9 +549,343 @@ if [ -d "$MANIFEST_DIR" ]; then
   done
 fi
 
-# The branches and refs are untouched, deliberately: this removes CHECKOUTS and
-# the registrations that named them. A reaped tree is re-creatable with
-# `git worktree add`, so the destructive act is bounded to disk space and to a
-# record of an agent that has already finished — never to history.
-echo "summary: reapable=$reap removed=$removed kept=$kept cleared=$cleared dry_run=$DRY"
+
+# ===========================================================================
+# THE OTHER THREE KINDS OF LEFTOVER.
+#
+# The sweep answers ONE question — is anything here that nobody is coming back
+# for? — and it does not care whether the cause was a dead agent, an
+# interrupted dispatch, a `--stop`, or a merge somebody did on the host.
+# Everything above answers it about WORKTREES. Measured 2026-09-02 on this
+# estate, three more populations answer it and nothing looks at them:
+#
+#   local branches        85 of 98 already merged   ← the largest, swept below
+#   orphaned claim refs   a claim whose agent never existed
+#   dirty trees nobody owns   2 desks, 52 and 1 files   ← reported, never deleted
+#
+# EVERY KIND KEEPS THE SHAPE THIS SCRIPT ALREADY HAS: `--dry-run` by default,
+# acting on `--yes`, bounded by `--max N`. The bound is per kind, because the
+# kinds are different acts on different populations — a run bounded to five
+# worktrees has not therefore been asked to leave the 85th branch alone.
+#
+# AND THE DECIDING IS NOT HERE EITHER. Each kind gathers readings and asks
+# `packages/domain/src/rules/sweepable.ts`, exactly as the worktree loop asks
+# `reapable.ts`. `reapable.ts` is UNTOUCHED: its five refusals were written for
+# the population it sweeps, and a backstop that guesses is worse than none.
+# A rule that cannot be asked REFUSES, so a missing `node` sweeps nothing.
+# ===========================================================================
+
+SWEEP_RULE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd)/packages/domain/src/rules/sweepable.ts"
+SWEEP_RULE="file://$SWEEP_RULE_PATH"
+
+swept_branches=0; deleted_branches=0; kept_branches=0
+swept_claims=0; deleted_claims=0; kept_claims=0
+dirty_trees=0
+
+# ---------------------------------------------------------------------------
+# KIND 2: LOCAL BRANCHES.
+#
+# THE GATE IS THE REAPER'S, NOT GIT'S:
+#
+#     the host says merged, AND no worktree holds it → delete
+#
+# `git branch -d` is NOT the gate. It refuses an unmerged branch, which sounds
+# like the safety this needs — except squash-merge leaves a branch permanently
+# ahead of main, the trap `plot-pr-merged.sh` exists for, so `-d` would refuse
+# all 85 for the wrong reason. This uses `-D` and puts the safety in the two
+# measurements above it, where a test can reach it.
+#
+# WHY A LOCAL BRANCH JOINS THE ESTATE-WIDE SIDE. The asymmetry between kinds is
+# deliberate: a removed checkout comes back with `git worktree add`, a deleted
+# REMOTE ref does not, so `plot-release-refs.sh` stays plan-scoped. A local
+# branch whose PR merged is re-fetchable from origin — it is A copy, not THE
+# copy — so the argument that protects remote refs does not transfer, and this
+# sweeps estate-wide like the worktrees do.
+#
+# REPORT-ONLY WAS THE ALTERNATIVE, AND 85 ROWS IS THE ARGUMENT AGAINST IT. A
+# sweep that reports and never acts becomes one more thing a person has to
+# clear — the problem this plan exists to remove, reintroduced one level up.
+# ---------------------------------------------------------------------------
+
+# Every branch checked out ANYWHERE, for the second half of the gate.
+#
+# Read once before the loop, the same reading and the same reason as
+# `plot-release-refs.sh:126` — that file's guard 4 collects exactly this, and
+# the brief asks for it to be reused rather than written twice. A worktree
+# created mid-run holds a branch this run has not yet reached, and the next run
+# sees it.
+sweep_checked_out=$(git worktree list --porcelain 2>/dev/null \
+                      | sed -n 's|^branch refs/heads/||p')
+
+sweep_is_checked_out() {
+  printf '%s\n' "$sweep_checked_out" | grep -qxF "$1"
+}
+
+# Ask the rule about one branch. Empty output means the rule could not be
+# asked, which the caller renders as a refusal — silence is never permission.
+sweep_branch_verdict() { # $1=branch $2=merged(true/false) $3=checked_out(true/false)
+  PLOT_BRANCH="$1" PLOT_DEFAULT="$DEFAULT" PLOT_MERGED="$2" PLOT_CHECKED="$3" \
+  PLOT_RULE="$SWEEP_RULE" \
+  node --input-type=module - <<'NODE_EOF' 2>/dev/null
+const { firstBranchRefusal } = await import(process.env.PLOT_RULE);
+const refusal = firstBranchRefusal({
+  branch: process.env.PLOT_BRANCH,
+  defaultBranch: process.env.PLOT_DEFAULT,
+  hasMergedPr: process.env.PLOT_MERGED === "true",
+  checkedOut: process.env.PLOT_CHECKED === "true",
+});
+process.stdout.write(refusal === null ? "sweep" : refusal);
+NODE_EOF
+}
+
+echo
+echo "-- local branches --"
+
+while IFS= read -r br; do
+  [ -n "$br" ] || continue
+
+  # The host, asked exactly as the worktree loop asks it. Ancestry FIRST only
+  # because it needs no network; it can only ever ADD a merged answer, never
+  # withhold one, since squash-merge leaves the branch permanently ahead and
+  # falls through to `pr_merged`.
+  merged=false
+  if [ "$(git rev-list --count "origin/$DEFAULT..$br" 2>/dev/null || echo 1)" = "0" ]; then
+    merged=true; bwhy="merged into $DEFAULT"
+  elif pr_merged "$br"; then
+    merged=true; bwhy="PR merged (squash)"
+  fi
+
+  held=false
+  sweep_is_checked_out "$br" && held=true
+
+  bverdict=$(sweep_branch_verdict "$br" "$merged" "$held")
+
+  if [ "$bverdict" != "sweep" ]; then
+    case "$bverdict" in
+      default-branch) breason="the default branch — never deleted" ;;
+      no-merged-pr)   breason="unlanded work — no merged PR" ;;
+      checked-out)    breason="checked out in a worktree — somebody is reading it" ;;
+      *)              breason="rule could not be asked — keeping" ;;
+    esac
+    printf '%-8s %-52s %s\n' "keep" "$br" "$breason"; kept_branches=$((kept_branches+1)); continue
+  fi
+
+  if [ "$MAX" -gt 0 ] && [ "$swept_branches" -ge "$MAX" ]; then
+    printf '%-8s %-52s %s\n' "keep" "$br" "--max $MAX reached"; kept_branches=$((kept_branches+1)); continue
+  fi
+
+  swept_branches=$((swept_branches+1))
+  if [ "$DRY" -eq 1 ]; then
+    printf '%-8s %-52s %s\n' "would" "$br" "$bwhy, no worktree holds it"
+  else
+    # `-D`, not `-d`. The safety is the two measurements above, and `-d` would
+    # veto every squash-merged branch — the whole population — for a reason
+    # that has nothing to do with whether the work landed.
+    if git branch -D "$br" >/dev/null 2>&1; then
+      printf '%-8s %-52s %s\n' "deleted" "$br" "$bwhy, local ref deleted"; deleted_branches=$((deleted_branches+1))
+    else
+      printf '%-8s %-52s %s\n' "FAILED" "$br" "git branch -D refused"; kept_branches=$((kept_branches+1))
+    fi
+  fi
+done < <(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null)
+
+# ---------------------------------------------------------------------------
+# KIND 3: ORPHANED CLAIM REFS.
+#
+# A claim whose agent never existed. `plot-reconcile-scan.sh:423` defines the
+# marker precisely and this uses THE SAME definition: a claim commit is titled
+# `plot: claim ...` AND empty, its tree equal to its parent's. The subject
+# alone is not evidence — a human commit titled "plot: claim handling
+# refactor" carrying real files would otherwise read as an empty claim, and
+# the sweep would offer to delete real work.
+#
+# ONLY WHAT THE SCAN ALREADY CALLS REAPABLE IS SWEPT. Section 3 classifies
+# these: a `deferred:`/`moved:` annotation in the plan means reapable, a bare
+# `claimed:` needs judgment. The judgment cases are left for a person and keep
+# being reported — a slow worker and a dead one leave the identical empty
+# branch, and one of them is doing real work.
+#
+# Git cannot answer how a claim ended, so the plan annotation is the only
+# signal. Reading it here is the same deliberate exception the scan states: it
+# decides CLEANUP, not work, so a wrong annotation costs at most a missed
+# cleanup — never lost or duplicated work.
+# ---------------------------------------------------------------------------
+
+ACTIVE_DIR_SWEEP="docs/plans/active/"
+if [ -r "$CONFIG" ]; then
+  d=$(bash "$CONFIG" get "Active index" "docs/plans/active/" 2>/dev/null) && [ -n "$d" ] && ACTIVE_DIR_SWEEP="$d"
+fi
+case "$ACTIVE_DIR_SWEEP" in /*) ;; *) ACTIVE_DIR_SWEEP="$ROOT/$ACTIVE_DIR_SWEEP" ;; esac
+
+# Does this branch carry ONLY empty claim commits? The scan's definition,
+# applied to a LOCAL ref — this sweep runs over local branches, where the scan
+# reads `origin/`.
+sweep_is_empty_claim() { # $1=branch
+  local br="$1" ahead c subj real=0
+  ahead=$(git rev-list --count "origin/$DEFAULT..$br" 2>/dev/null || echo 0)
+  [ "${ahead:-0}" -gt 0 ] || return 1   # nothing of its own → merged work, not a claim
+  for c in $(git rev-list "origin/$DEFAULT..$br" </dev/null 2>/dev/null); do
+    subj=$(git log -1 --format=%s "$c" </dev/null 2>/dev/null)
+    case "$subj" in
+      "plot: claim "*)
+        # Titled AND empty. Both, or it counts as real work.
+        if [ "$(git rev-parse "$c^{tree}" </dev/null 2>/dev/null)" \
+             = "$(git rev-parse "$c^^{tree}" </dev/null 2>/dev/null)" ]; then
+          continue
+        fi ;;
+    esac
+    real=$((real+1))
+  done
+  [ "$real" = "0" ]
+}
+
+# How the plan annotation classified this claim — the scan's `claim_disposition`,
+# same predicate, same directory.
+sweep_claim_disposition() { # $1=branch → abandoned | unresolved
+  local br="$1" l line
+  for l in "$ACTIVE_DIR_SWEEP"/*.md; do
+    [ -e "$l" ] || continue
+    line=$(grep -F -- "\`$br\`" "$l" 2>/dev/null | head -1)
+    [ -n "$line" ] || continue
+    case "$line" in
+      *"<!-- deferred:"*|*"<!-- moved:"*) echo "abandoned"; return ;;
+    esac
+  done
+  echo "unresolved"
+}
+
+sweep_claim_verdict() { # $1=branch $2=empty(true/false) $3=disposition
+  PLOT_BRANCH="$1" PLOT_EMPTY="$2" PLOT_DISP="$3" PLOT_RULE="$SWEEP_RULE" \
+  node --input-type=module - <<'NODE_EOF' 2>/dev/null
+const { firstClaimRefusal } = await import(process.env.PLOT_RULE);
+const refusal = firstClaimRefusal({
+  branch: process.env.PLOT_BRANCH,
+  isEmptyClaim: process.env.PLOT_EMPTY === "true",
+  disposition: process.env.PLOT_DISP === "abandoned" ? "abandoned" : "unresolved",
+});
+process.stdout.write(refusal === null ? "sweep" : refusal);
+NODE_EOF
+}
+
+echo
+echo "-- orphaned claim refs --"
+
+while IFS= read -r br; do
+  [ -n "$br" ] || continue
+  [ "$br" = "$DEFAULT" ] && continue
+
+  empty=false
+  sweep_is_empty_claim "$br" && empty=true
+  # Only branches that ARE empty claims belong to this kind at all. Anything
+  # else is another kind's population or none, and reporting it here would say
+  # "this is a claim we declined" about a branch carrying real work.
+  [ "$empty" = "true" ] || continue
+
+  disp=$(sweep_claim_disposition "$br")
+  cverdict=$(sweep_claim_verdict "$br" "$empty" "$disp")
+
+  if [ "$cverdict" != "sweep" ]; then
+    case "$cverdict" in
+      needs-judgment)     creason="still claimed, no commits → needs judgment (worker thinking, or dead)" ;;
+      not-an-empty-claim) creason="carries real work — not a claim" ;;
+      *)                  creason="rule could not be asked — keeping" ;;
+    esac
+    printf '%-8s %-52s %s\n' "keep" "$br" "$creason"; kept_claims=$((kept_claims+1)); continue
+  fi
+
+  if [ "$MAX" -gt 0 ] && [ "$swept_claims" -ge "$MAX" ]; then
+    printf '%-8s %-52s %s\n' "keep" "$br" "--max $MAX reached"; kept_claims=$((kept_claims+1)); continue
+  fi
+
+  swept_claims=$((swept_claims+1))
+  if [ "$DRY" -eq 1 ]; then
+    printf '%-8s %-52s %s\n' "would" "$br" "abandoned claim (plan says deferred/moved)"
+  else
+    if git branch -D "$br" >/dev/null 2>&1; then
+      printf '%-8s %-52s %s\n' "deleted" "$br" "abandoned claim — local ref deleted"; deleted_claims=$((deleted_claims+1))
+    else
+      printf '%-8s %-52s %s\n' "FAILED" "$br" "git branch -D refused"; kept_claims=$((kept_claims+1))
+    fi
+  fi
+done < <(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null)
+
+# ---------------------------------------------------------------------------
+# KIND 4: DIRTY TREES NOBODY OWNS.
+#
+# REFUSED TODAY AND NEVER RESOLVED, and this KEEPS it refused. `uncommitted-
+# changes` is a refusal for the same reason the create-or-reset guard does not
+# `reset --hard`: the case where the guard is wrong is exactly the case where
+# destruction cannot be undone. A guard that misjudges should leave a desk the
+# sweep reports, not deleted work.
+#
+# SO THIS KIND HAS NO `--yes` PATH AT ALL, and that absence is the design. What
+# it adds is the NAME: the tree is reported as a leftover whose owner is
+# `nobody`, loudly enough that a person clears it. The population was refused
+# and never resolved precisely because nothing ever said whose it was.
+#
+# It runs over EVERY worktree, not only dispatch trees: a tree nobody owns is
+# by construction one that may carry no `.plot-worker.pid`, so the marker the
+# reap loop gates on is exactly what a leftover of this kind lacks.
+# ---------------------------------------------------------------------------
+
+sweep_dirty_owner() { # $1=pid $2=manifest → owner word
+  PLOT_PID="$1" PLOT_MANIFEST="$2" PLOT_RULE="$SWEEP_RULE" \
+  node --input-type=module - <<'NODE_EOF' 2>/dev/null
+const { dirtyTreeOwner } = await import(process.env.PLOT_RULE);
+process.stdout.write(dirtyTreeOwner({
+  path: "",
+  branch: "",
+  dirtyCount: 1,
+  workerPid: process.env.PLOT_PID === "" ? null : process.env.PLOT_PID,
+  manifest: process.env.PLOT_MANIFEST,
+}));
+NODE_EOF
+}
+
+echo
+echo "-- dirty trees nobody owns --"
+
+while IFS=$'\t' read -r wt br; do
+  [ -n "$wt" ] || continue
+  [ -d "$wt" ] || continue
+  dshort=${br#refs/heads/}
+
+  dcount=$(git -C "$wt" status --porcelain 2>/dev/null \
+             | grep -v 'tiny-garden/\.plot/state' | wc -l | tr -d ' ')
+  [ "${dcount:-0}" -gt 0 ] || continue
+
+  dpid=""
+  if [ -f "$wt/.plot-worker.pid" ]; then
+    p=$(cat "$wt/.plot-worker.pid" 2>/dev/null)
+    if [ -n "$p" ] && ps -p "$p" >/dev/null 2>&1; then dpid="$p"; fi
+  fi
+
+  dmanifest=""
+  if m=$(manifest_for "$(canonical "$wt")"); then dmanifest=$(basename "$m"); fi
+
+  downer=$(sweep_dirty_owner "$dpid" "$dmanifest")
+  # A rule that could not be asked answers nothing, and nothing is not
+  # `nobody`. An unaskable rule must not be what promotes a tree to a finding.
+  [ "$downer" = "nobody" ] || continue
+
+  dirty_trees=$((dirty_trees+1))
+  # NEVER a `would` or a `deleted`: there is no act to preview. `LEFTOVER` is
+  # the verdict, and the owner is the finding.
+  printf '%-8s %-52s %s\n' "LEFTOVER" "${dshort:-(detached)}" \
+    "$dcount uncommitted, owner: nobody — clear it by hand: $wt"
+done < <(git worktree list --porcelain \
+          | awk '/^worktree /{p=$2} /^branch /{print p"\t"$2} /^detached/{print p"\t"}')
+
+if [ "$dirty_trees" -gt 0 ]; then
+  echo "  ^ $dirty_trees dirty tree(s) nobody owns. Nothing was deleted from them,"
+  echo "    deliberately: where this guard is wrong, destruction cannot be undone."
+fi
+
+# THE REMOTE refs are untouched, deliberately. This deletes LOCAL branches,
+# which are re-fetchable from origin — a copy, not the copy — so the act is
+# bounded to a local ref and a reflog. A remote ref is not re-creatable at all,
+# which is why `plot-release-refs.sh` deletes those, plan-scoped, under its own
+# licence and its own five guards. The asymmetry between the kinds is the whole
+# safety argument and it stays.
+echo "summary: reapable=$reap removed=$removed kept=$kept cleared=$cleared branches=$swept_branches branches_deleted=$deleted_branches branches_kept=$kept_branches claims=$swept_claims claims_deleted=$deleted_claims claims_kept=$kept_claims dirty_trees=$dirty_trees dry_run=$DRY"
 exit 0
