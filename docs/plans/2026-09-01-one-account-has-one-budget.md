@@ -668,7 +668,7 @@ comes first**, because five branches write to it.
 
 ### One router, reused
 
-- `bug/one-router-chooses-the-path` — the GitHub adapter chooses REST or GraphQL for itself, and no caller learns which. Today the choice is made inside `pr-state`'s github branch under *"THE ROUTE IS CHOSEN ONCE, HERE"* — once for `pr-state`, and nowhere else, while 14 backend branches consult 3 budgets. **Gather it into one place PER CONNECTOR, not one place for all of them:** REST-versus-GraphQL is a GitHub distinction, and a shared router would make every future adapter implement a fork that exists for one vendor. The `Host` port already names no transport, so nothing in it changes. No new capability — the deliverable is that eleven paths stop spending blind and the transport stops being the caller's business.
+- `bug/one-router-chooses-the-path` → #660 — the GitHub adapter chooses REST or GraphQL for itself, and no caller learns which. Today the choice is made inside `pr-state`'s github branch under *"THE ROUTE IS CHOSEN ONCE, HERE"* — once for `pr-state`, and nowhere else, while 14 backend branches consult 3 budgets. **Gather it into one place PER CONNECTOR, not one place for all of them:** REST-versus-GraphQL is a GitHub distinction, and a shared router would make every future adapter implement a fork that exists for one vendor. The `Host` port already names no transport, so nothing in it changes. No new capability — the deliverable is that eleven paths stop spending blind and the transport stops being the caller's business.
 
 ### Budgeting each bucket by name
 
