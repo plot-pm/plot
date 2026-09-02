@@ -4,7 +4,7 @@ import { clockSystem } from '../src/adapters/clock/clock-system.js';
 import { hostShell } from '../src/adapters/host/host-shell.js';
 import { machineSystem } from '../src/adapters/machine/machine-system.js';
 import { planStoreShell } from '../src/adapters/plan-store/plan-store-shell.js';
-import { processesShell } from '../src/adapters/processes/processes-shell.js';
+import { processesShell, parseEtime } from '../src/adapters/processes/processes-shell.js';
 import { refsGit } from '../src/adapters/refs/refs-git.js';
 import { shellContext } from '../src/adapters/scripts.js';
 import { treesGit } from '../src/adapters/trees/trees-git.js';
@@ -219,6 +219,56 @@ describe('Processes reads this machine’s process table', () => {
     const reading = await processes.workerState('/tmp/plot-no-such-worktree-xyz', false);
     expect(reading.ok).toBe(true);
     if (isAnswered(reading)) expect(reading.value.state).toBe('none');
+  });
+
+  it('measures its own uptime, and reads a dead pid as null rather than zero', async () => {
+    const processes = processesShell(context);
+
+    const mine = await processes.uptimeSeconds(process.pid);
+    expect(mine.ok).toBe(true);
+    // A NUMBER, not a specific one: this process has been running for however
+    // long the suite has taken. Zero is a legitimate answer for a process
+    // started this second, so the assertion is on the type and the sign.
+    if (isAnswered(mine)) {
+      expect(typeof mine.value).toBe('number');
+      expect(mine.value as number).toBeGreaterThanOrEqual(0);
+    }
+
+    // `ps` exits non-zero for a pid nobody is running, and THAT IS THE READING
+    // — *nothing is running under this pid* — which the panel renders as an
+    // absent uptime. A failure here would make a dead worker indistinguishable
+    // from a host that could not be asked.
+    const dead = await processes.uptimeSeconds(99_998);
+    expect(dead).toEqual({ ok: true, value: null });
+  });
+
+  it('refuses a pid at or below zero before asking `ps`', async () => {
+    // `kill -0 0` signals the caller's WHOLE PROCESS GROUP, and the equivalent
+    // trap has been sprung in this repo before. Zero and negatives answer null
+    // rather than reaching a process table at all.
+    const processes = processesShell(context);
+    expect(await processes.uptimeSeconds(0)).toEqual({ ok: true, value: null });
+    expect(await processes.uptimeSeconds(-1)).toEqual({ ok: true, value: null });
+    expect(await processes.uptimeSeconds(1.5)).toEqual({ ok: true, value: null });
+  });
+});
+
+describe('parseEtime reads the four shapes `ps` prints', () => {
+  it('reads each documented format', () => {
+    expect(parseEtime('05')).toBe(null);       // seconds alone: not a shape ps prints
+    expect(parseEtime('01:30')).toBe(90);       // MM:SS
+    expect(parseEtime('2:03:04')).toBe(7_384);  // H:MM:SS
+    expect(parseEtime('1-02:03:04')).toBe(93_784); // D-HH:MM:SS
+  });
+
+  it('answers null for a shape it does not recognise, never zero', () => {
+    // AN UNPARSED READING IS AN ABSENT UPTIME. Zero would render as *up 0s* on
+    // a process that has been running for hours — a localised `ps` or a future
+    // format must produce nothing rather than a plausible wrong number.
+    expect(parseEtime('')).toBe(null);
+    expect(parseEtime('   ')).toBe(null);
+    expect(parseEtime('elapsed')).toBe(null);
+    expect(parseEtime('1:2:3:4:5')).toBe(null);
   });
 });
 

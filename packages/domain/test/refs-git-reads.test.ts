@@ -285,3 +285,137 @@ describe('runProcess and runBytes read their options', () => {
     expect(killed.code).not.toBe(0);
   });
 });
+
+/**
+ * The nine readings the fingerprint and the sweeps need, against the same real
+ * repository. Several have a synchronous twin because a startup path cannot
+ * await; each pair is asserted to agree, since a caller choosing the sync form
+ * for that reason must not get a different answer.
+ */
+describe('refsGit: the fingerprint and sweep readings', () => {
+  it('knows a repository from a directory that is not one', async () => {
+    expect(await refs().isRepository()).toEqual({ ok: true, value: true });
+    const outside = refsGit({ repoRoot: os.tmpdir(), scriptDir: os.tmpdir() });
+    // FALSE, not a failure: "this is not a repository" is the answer the
+    // adoption probe asks for, and reporting it as unaskable would make an
+    // un-adopted directory indistinguishable from a broken git.
+    expect(await outside.isRepository()).toEqual({ ok: true, value: false });
+  });
+
+  it('reads local, remote and both scopes, and the sync twin agrees', async () => {
+    const local = await refs().refState('local');
+    const remote = await refs().refState('remote');
+    const both = await refs().refState('both');
+    expect(local.ok && remote.ok && both.ok).toBe(true);
+    if (!local.ok || !remote.ok || !both.ok) return;
+
+    expect(local.value.every((r) => r.ref.startsWith('refs/heads/'))).toBe(true);
+    expect(remote.value.every((r) => r.ref.startsWith('refs/remotes/'))).toBe(true);
+    // `both` is the union, so it holds at least what either scope holds alone.
+    expect(both.value.length).toBeGreaterThanOrEqual(local.value.length);
+    expect(both.value.length).toBeGreaterThanOrEqual(remote.value.length);
+
+    // EVERY ENTRY CARRIES A SHA. The estate fingerprint hashes these, so a ref
+    // with an empty sha would make two different estates hash the same.
+    expect(local.value.every((r) => /^[0-9a-f]{40}$/.test(r.sha))).toBe(true);
+
+    const sync = refs().refStateSync('local');
+    expect(sync.ok && sync.value).toEqual(local.value);
+  });
+
+  it('counts a branch against ITS OWN remote ref, not against the default', () => {
+    // `refs/remotes/origin/<branch>..refs/heads/<branch>` — the question is
+    // *what has this branch not pushed*, which is why a branch level with its
+    // own remote answers 0 however far ahead of main it sits. The fixture
+    // fetched after creating `feature/ahead`, so origin already holds it.
+    expect(refs().countAheadSync('feature/ahead')).toEqual({ ok: true, value: 0 });
+
+    // One local commit that origin does not have, and now it counts.
+    git(repo, ['checkout', '--quiet', 'feature/ahead']);
+    fs.writeFileSync(path.join(repo, 'docs/plans/c.md'), '# c plan\n');
+    git(repo, ['add', '-A']);
+    git(repo, ['commit', '--quiet', '-m', 'unpushed']);
+    git(repo, ['checkout', '--quiet', 'main']);
+    expect(refs().countAheadSync('feature/ahead')).toEqual({ ok: true, value: 1 });
+
+    // A FAILED READING, not a zero one: a branch with no remote ref has
+    // nothing to measure against, and zero would read as *nothing to push*.
+    expect(refs().countAheadSync('feature/no-such-branch').ok).toBe(false);
+  });
+
+  it('hashes every path it is given, in the order it was given them', () => {
+    // THE WORKING TREE, not a ref. `git hash-object` reads files from disk, so
+    // the paths must exist in the CHECKOUT — `docs/plans/b.md` is committed on
+    // `feature/ahead` and HEAD is on `main`, which makes it absent here.
+    const second = path.join(repo, 'docs/plans/on-disk.md');
+    fs.writeFileSync(second, '# on disk\n');
+    try {
+      const answer = refs().hashFilesSync(['docs/plans/a.md', 'docs/plans/on-disk.md']);
+      expect(answer.ok).toBe(true);
+      if (!answer.ok) return;
+      expect(answer.value.size).toBe(2);
+      for (const at of ['docs/plans/a.md', 'docs/plans/on-disk.md']) {
+        expect(answer.value.get(at)).toMatch(/^[0-9a-f]{40}$/);
+      }
+      // Two different files, two different oids — the map is keyed by path and
+      // not by position, so a transposition would show up here.
+      expect(answer.value.get('docs/plans/a.md'))
+        .not.toBe(answer.value.get('docs/plans/on-disk.md'));
+    } finally {
+      fs.rmSync(second, { force: true });
+    }
+  });
+
+  it('fails the whole call when a path is missing, rather than skipping it', () => {
+    // ONE MISSING PATH FAILS EVERYTHING, and that is the design rather than a
+    // rough edge: `--stdin-paths` prints one oid per readable path, so a
+    // missing file makes the answer SHORTER than the question and the map can
+    // no longer be built by position. Skipping it would let a deleted plan
+    // silently stop contributing to the estate fingerprint, which is the one
+    // failure the fingerprint exists to catch.
+    expect(refs().hashFilesSync(['docs/plans/a.md', 'no-such-file.md']).ok).toBe(false);
+  });
+
+  it('answers an empty map for no paths, and asks git nothing', () => {
+    const answer = refs().hashFilesSync([]);
+    expect(answer.ok).toBe(true);
+    expect(answer.ok && answer.value.size).toBe(0);
+  });
+
+  it('says whether a path exists at a ref', () => {
+    expect(refs().fileExistsSync('main', 'docs/plans/a.md')).toEqual({ ok: true, value: true });
+    expect(refs().fileExistsSync('main', 'docs/plans/no-such.md'))
+      .toEqual({ ok: true, value: false });
+  });
+
+  it('reports branch tips with their commit dates', async () => {
+    const answer = await refs().branchDates(['refs/heads/feature/*']);
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    expect(answer.value.map((b) => b.branch).sort())
+      .toEqual(['feature/ahead', 'feature/merged']);
+    // Epoch SECONDS, and recent: a date read at the wrong offset or in
+    // milliseconds is the failure this catches, and both are far from now.
+    for (const b of answer.value) {
+      expect(b.committedAt).toBeGreaterThan(1_600_000_000);
+      expect(b.committedAt).toBeLessThan(Date.now() / 1000 + 60);
+    }
+  });
+
+  it('names the branches an ancestor has not absorbed', async () => {
+    const answer = await refs().unmergedBranches('main');
+    expect(answer.ok).toBe(true);
+    if (!answer.ok) return;
+    // `feature/ahead` carries a commit main lacks; `feature/merged` does not.
+    expect(answer.value).toContain('feature/ahead');
+    expect(answer.value).not.toContain('feature/merged');
+  });
+
+  it('reads a remote URL, and fails for a remote that was never added', async () => {
+    const answer = await refs().remoteUrl('origin');
+    expect(answer.ok).toBe(true);
+    // The fixture's `origin` points at the repository itself.
+    expect(answer.ok && answer.value).toBe(repo);
+    expect((await refs().remoteUrl('no-such-remote')).ok).toBe(false);
+  });
+});
