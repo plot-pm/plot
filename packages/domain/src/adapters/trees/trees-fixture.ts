@@ -29,6 +29,18 @@ export interface TreesFixture {
    */
   markers?: Readonly<Record<string, readonly string[]>>;
   /**
+   * The paths each worktree holds on the floor, keyed by path.
+   *
+   * Already FILTERED, as the port returns them: a fixture states what the
+   * caller would see, not what `git status` printed before the exclusions ran.
+   * A test that wants to prove the filter itself needs the git adapter, since
+   * the filter lives in the shell and a fixture cannot stand in for it.
+   *
+   * A path absent from the table holds nothing — an answer, not a failure,
+   * which is the same direction {@link markers} answers in.
+   */
+  dirty?: Readonly<Record<string, readonly string[]>>;
+  /**
    * The branch each checkout is on, keyed by path.
    *
    * A path absent from the table cannot be read at all, which is a FAILURE
@@ -50,12 +62,13 @@ export interface TreesFixture {
  * It reads no environment. Everything it answers was decided when it was
  * constructed.
  *
- * @param fixture - the desks, their cleanliness, markers and branches.
+ * @param fixture - the desks, their cleanliness, markers, dirty paths and branches.
  * @returns a `Trees` backed by that fixture.
  */
 export const treesFixture = (fixture: TreesFixture = {}): Trees => {
   const clean = new Set(fixture.clean ?? []);
   const markers = fixture.markers ?? {};
+  const dirty = fixture.dirty ?? {};
   const branches = fixture.branches ?? {};
   const worktrees: readonly Worktree[] = (fixture.worktrees ?? []).map((tree, at) => ({
     path: tree.path ?? '',
@@ -76,6 +89,8 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
 
     markers: async (path, prefix) =>
       answered((markers[path] ?? []).filter((name) => name.startsWith(prefix))),
+
+    dirtyPaths: async (path) => answered(dirty[path] ?? []),
 
     currentBranch: async (path) => {
       const branch = branches[path];

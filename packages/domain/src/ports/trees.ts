@@ -49,6 +49,31 @@ export interface Trees {
   markers(path: string, prefix: string): Promise<PortResult<readonly string[]>>;
 
   /**
+   * Lists the paths a worktree holds on the floor, leftovers dropped.
+   *
+   * The DIRTY PATHS, where {@link isClean} answers only whether there are any.
+   * A monitor comparing two passes needs to know *what* moved, and a boolean
+   * that flips from false to false says nothing across a rename.
+   *
+   * The filter is the operation's reason for existing rather than a
+   * convenience on top of it. Three exclusions apply — Plot's own
+   * `.plot-worker.` records, editor leftovers (`.tmp1`, `.swp`, `.orig`,
+   * `.rej`, `.bak`), and tool scratch directories (`.playwright-mcp`,
+   * `.plot/agents`, `.plot/state`, `.omc/state`). A worker monitor appends its
+   * findings to a file INSIDE the worktree it watches, so an unfiltered
+   * listing would show the monitor's own writing and no two passes could ever
+   * agree.
+   *
+   * Two of the three exclusions match on a nested path, which is why this is
+   * not {@link markers}: that one lists a directory's own entries by name
+   * prefix and cannot see into `.plot/state` at all.
+   *
+   * @param path - the worktree's absolute path.
+   * @returns the paths, relative to the worktree, without their status codes.
+   */
+  dirtyPaths(path: string): Promise<PortResult<readonly string[]>>;
+
+  /**
    * Names the branch a checkout is on.
    *
    * `''` for a detached HEAD, and the emptiness is an ANSWER rather than a
