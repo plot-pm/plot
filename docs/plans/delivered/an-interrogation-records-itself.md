@@ -1,0 +1,1 @@
+../2026-09-01-an-interrogation-records-itself.md
