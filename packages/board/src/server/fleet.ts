@@ -40,13 +40,28 @@ import type { Host } from '@plot-pm/domain';
 // is asserted as arithmetic in `packages/domain/test/cadence.test.ts` rather
 // than only observable through a live 60 s timer.
 import {
+  SLOT_POLL_MS,
+  boundFromLimit,
+  concurrencyBound,
+  heldSlots,
   localSpenders,
   loweredConcurrency,
   reactionTo,
   refreshIntervalMs,
   refusalKind,
+  slotVerdict,
+  waitExhausted,
+  type LimitBasis,
+  type LimitReading,
   type Reaction,
 } from '@plot-pm/domain';
+// THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
+// rather than behind `BuildBoardOptions`: the cap is shared state on the
+// COMPUTER, not a fixture a caller substitutes — a board handed an in-memory
+// one would bound only itself, which is the failure the port's own comment
+// names. `slotsFile` is seamed by `PLOT_BUDGET_HOME`, which is how a test moves
+// it, exactly as `budgetFile` is.
+import { slotsFile } from '@plot-pm/domain/adapters';
 import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
@@ -105,20 +120,19 @@ const PR_BACKOFF_MAX_MS = 120_000;
 /**
  * How many host calls a board allows itself at once before any refusal.
  *
- * FOUR, AND IT IS A STARTING POINT RATHER THAN A CAP. The estate's one
- * measurement is 2026-08-27, where eight workers produced a 403 naming abuse
- * detection; seven is an inference from that eight and has no independent
- * source — not GitHub's documentation, not a second observation. So this slice
- * compiles in no cap: it starts below the only number ever refused and halves
- * on every secondary refusal, which converges on the real bound whatever it is.
+ * **NULL, BECAUSE NOTHING LICENSES A NUMBER YET.** The estate's one measurement
+ * is 2026-08-27, where eight workers produced a 403 naming abuse detection;
+ * seven is an inference from that eight and has no independent source — not
+ * GitHub's documentation, not a second observation. So no cap is compiled in
+ * here either: the bound is derived from the connector's own limit reading by
+ * `boundFromLimit` on every refresh, and lowered by every secondary refusal.
  *
- * The board's own refresh is sequential today, so this bounds nothing yet —
- * `bug/the-budget-bounds-simultaneous-calls` is the slice that spends it. What
- * it does now is CARRY the correction: a secondary refusal lowers it, the
- * lowering is visible, and the slice that adds the gate inherits a number a
- * refusal already moved rather than a constant somebody guessed.
+ * A board that has read no limit yet, from a connector that reports none, runs
+ * unbounded — which is what it did before this slice. The first reading
+ * proposes a bound and the first refusal corrects it, and neither is a constant
+ * somebody guessed.
  */
-const PR_CONCURRENCY_START = 4;
+const PR_CONCURRENCY_START = null;
 
 /**
  * What ONE refresh costs, in host requests, on each backend.
@@ -619,19 +633,51 @@ export interface CacheEntry {
    */
   prResetAt: number | null;
   /**
-   * How many host calls this board allows itself at once.
+   * The bound refusals have lowered this board to, or null where none has
+   * refused.
    *
-   * LOWERED BY A SECONDARY REFUSAL AND BY NOTHING ELSE. It starts at
-   * `PR_CONCURRENCY_START` and halves on every burst refusal, floored at one —
-   * the correction `loweredConcurrency` performs, and the reason 2026-08-27's
-   * eight-against-seven needs no compiled-in cap to converge.
+   * LOWERED BY A SECONDARY REFUSAL AND BY NOTHING ELSE. It starts null — no
+   * refusal, no evidence — and halves on every burst refusal, floored at one,
+   * which is the correction `loweredConcurrency` performs.
    *
    * IT NEVER RISES WITHIN A SESSION. The absence of a refusal is not evidence
    * that more would have been allowed, so restoring the bound is a different
-   * question with a different input — and the cap it converges toward belongs
-   * to `bug/the-budget-bounds-simultaneous-calls`.
+   * question with a different input.
+   *
+   * **IT IS THE FLOOR, NOT THE CAP.** The cap this board actually runs at is
+   * `concurrencyBound(boundFromLimit(reading), this)` — the connector's own
+   * proposal and this correction, whichever is lower — recomputed on every
+   * refresh, because the connector's reading moves and this does not.
    */
-  prConcurrency: number;
+  prConcurrency: number | null;
+  /**
+   * What the record last said the connector's ceiling is, and how it knows.
+   *
+   * READ FROM THE SAME `spend-rate` CALL the cadence divides by, so the bound
+   * costs no extra host request and no extra `bash`. The record stores the
+   * limit the response headers carried; a connector that reports none leaves
+   * the basis `unknown`, which proposes no bound at all.
+   */
+  /**
+   * How many of the account's slots were claimed at the last refresh, or null
+   * where the claims could not be read.
+   *
+   * READ ONCE PER REFRESH, beside the rate, so the number a reader sees is the
+   * one the gate acted on. Reading it again in the payload would be a second
+   * `readdir` answering a different moment.
+   */
+  prSlotsHeld: number | null;
+  prLimit: number | null;
+  /** How the limit reading was come by — `actual`, `predicted`, or `unknown`. */
+  prLimitBasis: LimitBasis;
+  /**
+   * The account the cap belongs to, as `plot-host.sh` resolves it.
+   *
+   * PER ACCOUNT, NOT PER PROCESS — the plan's whole name. Two boards are two
+   * budgets against one cap, and the slot directory is keyed by this rather
+   * than by a checkout or a pid.
+   */
+  prAccount: string | null;
   /**
    * Epoch ms before which the PR fetch must not fire again. Normally the
    * fetch's START plus `PR_REFRESH_MS`; pushed further out when the host
@@ -1495,7 +1541,55 @@ export function waitOf(reaction: Reaction | null): number | null {
  * @param reaction - what `hostReaction` answered, or null.
  */
 export function applyReaction(entry: CacheEntry, reaction: Reaction | null): void {
-  entry.prConcurrency = loweredConcurrency(entry.prConcurrency, reaction);
+  // A REFUSAL WITH NO BOUND TO LOWER STILL ESTABLISHES ONE. `prConcurrency` is
+  // null until something refuses, so there is nothing to halve on the first
+  // secondary limit — and answering *still unbounded* would discard the only
+  // measurement this estate has ever taken of the real ceiling. The connector's
+  // own proposal is what the refusal disproves, so that is what it halves; a
+  // connector proposing nothing falls back to the bound the board was running
+  // at, which is what the refusal was measured against.
+  // ONLY A REACTION THAT LOWERS WRITES ANYTHING. A quota leaves the bound where
+  // it was, and storing the derived proposal on the way past would FREEZE it: a
+  // value that is recomputed from the connector's reading every refresh would
+  // become one that outlives the reading it came from, so a vendor changing its
+  // limit would stop moving the cap. Measured by `pr-concurrency.test.ts`,
+  // which asked for a quota and got the proposal written into the correction.
+  if (reaction === null || reaction.concurrencyFactor >= 1) return;
+  const current = entry.prConcurrency ?? boundFromLimit(limitReadingOf(entry));
+  // NOTHING TO CORRECT AND NOTHING INVENTED. A connector that reports no
+  // ceiling gives a refusal no number to halve, and a bound picked here would
+  // be the compiled-in seven under another name. The next reading proposes one;
+  // until then the refusal's own wait is the whole reaction.
+  if (current === null) return;
+  entry.prConcurrency = loweredConcurrency(current, reaction);
+}
+
+/** The limit reading the record last gave this board, in the shape rules read. */
+function limitReadingOf(entry: CacheEntry): LimitReading {
+  return {
+    connector: entry.backend ?? '',
+    bucket: '',
+    limit: entry.prLimit,
+    remaining: null,
+    resetAt: entry.prResetAt,
+    basis: entry.prLimitBasis,
+  };
+}
+
+/**
+ * The cap this board runs at right now — the connector's proposal, floored by
+ * every refusal it has already caused.
+ *
+ * RECOMPUTED ON EVERY REFRESH RATHER THAN STORED, because the connector's
+ * reading moves and the correction does not. Storing the composed number would
+ * let a stale proposal outlive the reading it came from, and the composition is
+ * `concurrencyBound`'s one line.
+ *
+ * @param entry - the cache entry holding the reading and the correction.
+ * @returns the bound, or null where nothing licenses one.
+ */
+export function prConcurrencyBound(entry: CacheEntry): number | null {
+  return concurrencyBound(boundFromLimit(limitReadingOf(entry)), entry.prConcurrency);
 }
 
 /**
@@ -1608,7 +1702,13 @@ export function prRefreshMsFor(
  */
 async function spendRateFor(
   opts: BuildBoardOptions,
-): Promise<{ perHour: number | null; resetAt: number | null } | null> {
+): Promise<{
+  perHour: number | null;
+  resetAt: number | null;
+  limit: number | null;
+  basis: LimitBasis;
+  account: string | null;
+} | null> {
   try {
     const said = await scriptsFor(opts).hostSaid(['spend-rate']);
     if (said.answer !== 'answered') return null;
@@ -1621,12 +1721,130 @@ async function spendRateFor(
     // entirely, which reads as null: no reset known, which is exactly what a
     // record that never stored one means.
     const resetAt = (parsed as { resetAt?: unknown }).resetAt;
+    // THE CEILING AND THE ACCOUNT COME FROM THE SAME READ, so the concurrency
+    // bound costs no extra host request and no extra `bash`. `spend-rate`
+    // already reports both — the limit the response headers carried and the
+    // account `budget_account` resolved — and asking twice would be a second
+    // shell per refresh answering about a different moment.
+    const limit = (parsed as { limit?: unknown }).limit;
+    const basis = (parsed as { basis?: unknown }).basis;
+    const account = (parsed as { account?: unknown }).account;
     return {
       perHour: typeof perHour === 'number' && Number.isFinite(perHour) ? perHour : null,
       resetAt: typeof resetAt === 'number' && Number.isFinite(resetAt) ? resetAt : null,
+      limit: typeof limit === 'number' && Number.isFinite(limit) ? limit : null,
+      // AN UNRECOGNISED BASIS IS `unknown`, NEVER A GUESS. A record written by a
+      // newer Plot could name a fourth word, and reading it as `actual` would
+      // let an unrecognised value license a bound — the direction that spends.
+      basis: basis === 'actual' || basis === 'predicted' ? basis : 'unknown',
+      account: typeof account === 'string' && account !== '' ? account : null,
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Holds one of the account's slots for the duration of a host call.
+ *
+ * **THE POPULATION IS PROCESSES, NOT PROMISES**, which is why the count lives
+ * in a directory beside the budget record rather than in a variable here.
+ * 2026-08-27 was eight WORKERS, each shelling `plot-host.sh` once, and this
+ * board's own refresh is sequential — so a semaphore inside this process would
+ * bound nothing that incident measured.
+ *
+ * **AT THE CAP IT WAITS, AND THE WAIT IS THE DEGRADED CADENCE.** The plan's
+ * Done-when is that more spenders than the cap degrades cadence rather than
+ * producing a 403, and waiting for a peer to finish is exactly that: the call
+ * still happens, later. It is not a backoff and must not become one — a caller
+ * waiting for a slot is waiting for a peer, not for a limit to reset, and
+ * `reactionTo` owns the other question.
+ *
+ * **AND A WAIT THAT RUNS OUT PROCEEDS RATHER THAN REFUSING.** A board that
+ * waited forever would read as broken instead of busy. Every slot being held
+ * that long means every holder is stuck or the reading is wrong, and the cost
+ * of one extra simultaneous call is a secondary refusal that lowers the bound —
+ * evidence, arriving through the mechanism this whole slice is built on.
+ *
+ * **AN UNREADABLE SLOT DIRECTORY SPENDS.** This is the one place the answer is
+ * deliberately permissive: a board that stopped asking because a directory
+ * could not be created would go dark on a disk fault, and the cap exists to
+ * prevent a 403, not to become a second way to fail.
+ *
+ * @param entry - the cache entry holding the account and the bound.
+ * @param call - the host call to make while the slot is held.
+ * @returns whatever `call` returned.
+ */
+async function liveSlotsFor(entry: CacheEntry): Promise<number | null> {
+  const account = entry.prAccount;
+  if (account === null) return null;
+  const answer = await slotsFile().held(account);
+  if (!answer.ok) return null;
+  // A STALE CLAIM IS NOT A HELD SLOT, and the rule decides which is which. The
+  // board reports the same count the gate counts, or the number on screen would
+  // disagree with the one the cap acted on.
+  return heldSlots(
+    answer.value.map((slot) => ({
+      claim: slot.claim,
+      alive: pidLooksAlive(slot.claim.pid),
+      startedAt: null,
+    })),
+    Date.now(),
+  );
+}
+
+/**
+ * Whether a pid is alive, for the REPORTED count.
+ *
+ * The gate's own liveness test lives in the adapter, where it belongs; this is
+ * the same question asked for a number nobody spends against, so it is asked
+ * the same way rather than through a second mechanism that could disagree.
+ */
+function pidLooksAlive(pid: number): boolean | null {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === 'ESRCH') return false;
+    if (code === 'EPERM') return true;
+    return null;
+  }
+}
+
+async function withHostSlot<T>(entry: CacheEntry, call: () => Promise<T>): Promise<T> {
+  const bound = prConcurrencyBound(entry);
+  const account = entry.prAccount;
+  // NOTHING LICENSES A BOUND, so nothing is claimed. A board that has read no
+  // limit runs as it did before this slice, and the first reading changes that.
+  if (bound === null || account === null) return call();
+  const slots = slotsFile();
+  const startedAt = Date.now();
+  let index: number | null = null;
+  for (;;) {
+    const asked = await slots.acquire(account, bound);
+    if (!asked.ok) break;
+    if (asked.value !== null) {
+      index = asked.value;
+      break;
+    }
+    // `wait`, WHICH IS NEVER *NOTHING TO DO*. The verdict is recomputed rather
+    // than assumed so the rule owns the word, and a caller reading this can see
+    // that a full account and an unreadable one are different answers.
+    if (slotVerdict(bound, bound) !== 'wait') break;
+    if (waitExhausted(Date.now() - startedAt)) break;
+    await new Promise((resolve) => setTimeout(resolve, SLOT_POLL_MS));
+  }
+  try {
+    return await call();
+  } finally {
+    // RELEASED ON EVERY EXIT, thrown or returned. A refusal is thrown through
+    // this on purpose — the catch that owns the backoff is further out — and a
+    // slot leaked on that path would lower the account's real cap by one for
+    // ten minutes, which is the staleness bound rather than a fault anybody
+    // would notice.
+    if (index !== null) await slots.release(account, index);
   }
 }
 
@@ -1861,7 +2079,7 @@ export async function refreshRuns(
   }
   for (const [branch] of failing) {
     try {
-      const answer = await host.runs(branch, RUN_HISTORY_LIMIT);
+      const answer = await withHostSlot(entry, () => host.runs(branch, RUN_HISTORY_LIMIT));
       if (!answer.ok) throw new Error('runs unavailable');
       // The adapter parses and normalizes; `BuildRun` and `StuckRun` are the
       // same four fields, so the copy below is a widening from readonly rather
@@ -2140,9 +2358,29 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // below needs a reset to wait for, and asking again would be a second `bash`
   // per refresh answering a different moment.
   entry.prResetAt = rate?.resetAt ?? null;
+  // THE CEILING AND THE ACCOUNT THE CAP IS KEYED BY, from the same read. A
+  // record that could not be read leaves them where they were rather than
+  // clearing them: silence is not evidence that the connector's limit changed,
+  // and clearing the account would silently unbound the board.
+  if (rate !== null) {
+    entry.prLimit = rate.limit;
+    entry.prLimitBasis = rate.basis;
+    entry.prAccount = rate.account;
+  }
+  // THE EVIDENCE, READ WHERE IT IS FREE. Counting the claims is one `readdir`
+  // and no host request, and it is taken here rather than in the payload
+  // assembly so the number the banner shows is the one this refresh gated on.
+  // A cap that refuses nothing and reports nothing is indistinguishable from no
+  // cap at all.
+  entry.prSlotsHeld = await liveSlotsFor(entry);
   try {
-    const said = await scriptsFor(opts).hostSaid(['pr-list', '--rich',
-      '--state', 'all', '--limit', String(PR_LIMIT)]);
+    // BOUNDED HERE, WHERE THE CALL IS. The gate wraps the host request and
+    // nothing else — reading the record, parsing the answer and scheduling the
+    // next refresh spend no host budget, and holding a slot across them would
+    // count this board as a caller while it is not calling.
+    const said = await withHostSlot(entry, () =>
+      scriptsFor(opts).hostSaid(['pr-list', '--rich',
+        '--state', 'all', '--limit', String(PR_LIMIT)]));
     // A refusal is thrown so the catch below keeps owning the backoff. It is one
     // policy — keep the last good map, wait where the host named a wait — and
     // the two paths that reach it (a refused call, and a map that came back all
@@ -2689,6 +2927,7 @@ export function freshCacheEntry(): CacheEntry {
     deliverInFlight: new Set(),
     prs: null, prsByNumber: null, prsByHead: null, runs: new Map(), prAt: null, prError: null, prSpendPerHour: null,
     prResetAt: null, prConcurrency: PR_CONCURRENCY_START,
+    prLimit: null, prLimitBasis: 'unknown', prAccount: null, prSlotsHeld: null,
     // 0, so the first fetch happens immediately rather than a minute in.
     prNextAt: 0, prNextIsBackoff: false, prIntervalMs: PR_REFRESH_MS,
     // Null, never 'github': "not yet asked" and "asked, and it is GitHub" are
@@ -6228,6 +6467,11 @@ export async function buildFleet(
       PR_REFRESH_MS,
       prRequestsPerRefresh(entry.backend ?? 'github'),
     ),
+    // THE CAP AND WHAT IS AGAINST IT, so the bound is visible rather than
+    // merely quiet. Both null before the first refresh has read a limit, which
+    // is *unbounded* rather than *zero*.
+    prConcurrencyCap: prConcurrencyBound(entry),
+    prSlotsHeld: entry.prSlotsHeld,
     // The inbox travels with its ANSWER, never alone: a consumer reading
     // `issues: []` without `issueAnswer` cannot tell an empty tracker from one
     // that was never reachable, and would render the second as the first.

@@ -320,3 +320,120 @@ budget_rate() {
     }
   ' "$path" 2>/dev/null || echo '{"spent":0,"spanMs":0,"perHour":null,"lines":0,"unreadable":0,"limit":null,"remaining":null,"resetAt":null,"basis":"unknown"}'
 }
+
+# ── The concurrency bound ────────────────────────────────────────────────────
+#
+# HOW MANY CALLS THIS ACCOUNT HAS OPEN AT ONCE, bounded across PROCESSES. The
+# 2026-08-27 incident was eight WORKERS, each running this script once, so the
+# count cannot live in a shell variable and cannot live in the board: a
+# semaphore inside one process bounds nothing that incident measured.
+#
+# THE RECORD CANNOT HOLD IT. `budget.tsv` is append-only with a 512-byte line
+# cap — the two properties that make it lock-free — and an in-flight count needs
+# a DELETE on release. A process killed between claim and release would leave a
+# line nothing removes, and the account would read as permanently full: the cap
+# degrading into a deadlock, which is worse than the 403 it prevents. So the
+# claims sit BESIDE the record, one file per slot, where releasing is an unlink.
+#
+# ONE DIRECTORY PER ACCOUNT, and it is the SAME one `slots-file.ts` uses —
+# `$PLOT_BUDGET_HOME/slots/<account>/<index>`. The board and the workers compete
+# for one cap or they do not compete at all.
+#
+# THE CLAIM IS PUBLISHED BY `ln`, NEVER BY `>`. A redirect creates the NAME
+# before the CONTENT, so a second process can open the empty file, read no claim
+# in it, and reclaim a slot the first is about to write into — measured in
+# `slots-file.test.ts`, six processes taking five slots from a bound of three.
+# `ln` publishes a file that is already complete and fails where the name is
+# taken, so the name and the claim arrive together.
+
+# Where one account's claims live. Same override as the record, deliberately:
+# two halves of one budget must not resolve to two places.
+budget_slots_dir() {
+  local home="${PLOT_BUDGET_HOME:-}" account="${1:-}"
+  if [ -z "$home" ]; then
+    [ -n "${HOME:-}" ] || return 1
+    home="$HOME/.plot/state"
+  fi
+  # The account is a string the record does not validate, so it can hold a
+  # slash or a dot segment and a path built from it unchecked is a traversal.
+  # Same substitution `slots-file.ts` makes, and for the same reason.
+  account="$(printf '%s' "$account" | LC_ALL=C tr -c 'A-Za-z0-9._-' '_' | LC_ALL=C sed 's/\.\{2,\}/_/g')"
+  [ -n "$account" ] || account='_'
+  printf '%s\n' "$home/slots/$account"
+}
+
+# How long a claim may stand before it is reclaimable on age alone. Ten minutes,
+# the same figure `CLAIM_STALE_MS` states and for the same reason: liveness is
+# the measurement and this only catches what liveness cannot decide.
+BUDGET_CLAIM_STALE_MS=600000
+
+# Is this claim still held? Prints nothing; the exit code is the answer.
+#   0 = held by a live process     1 = reclaimable
+#
+# A PID THE TABLE CANNOT BE ASKED ABOUT KEEPS ITS SLOT. Nothing silently reads
+# unreachable as permission — reclaiming on a failed reading would raise the
+# number of simultaneous callers on the strength of not knowing.
+budget_slot_held() {
+  local file="${1:-}" now="${2:-}" pid at
+  [ -f "$file" ] || return 1
+  pid="$(LC_ALL=C awk -F'\t' 'NR==1 {print $1}' "$file" 2>/dev/null)"
+  at="$(LC_ALL=C awk -F'\t' 'NR==1 {print $3}' "$file" 2>/dev/null)"
+  # A torn or empty claim names no process holding the slot.
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2>/dev/null || return 1
+  case "$at" in ''|*[!0-9]*) return 0 ;; esac
+  [ -n "$now" ] || now="$(budget_now_ms)"
+  [ "$(( now - at ))" -lt "$BUDGET_CLAIM_STALE_MS" ]
+}
+
+# Takes one slot, or reports the account busy.
+#   budget_slot_acquire <account> <bound>
+# Prints the slot index and exits 0 where one was taken; exits 1 where every
+# slot is held by a live process; exits 2 where the claims could not be managed.
+#
+# BUSY AND UNREADABLE ARE DIFFERENT EXITS, and a caller must not read either as
+# the other — the rule the whole plan states for `unknown`.
+budget_slot_acquire() {
+  local account="${1:-}" bound="${2:-}" dir scratch now index path rc=1
+  case "$bound" in ''|*[!0-9]*) return 2 ;; esac
+  [ "$bound" -ge 1 ] || bound=1
+  dir="$(budget_slots_dir "$account")" || return 2
+  mkdir -p "$dir" 2>/dev/null || return 2
+  now="$(budget_now_ms)"
+  scratch="$dir/.$$.$now.tmp"
+  # WRITTEN WHOLE, THEN LINKED. See the note above `budget_slots_dir`.
+  printf '%s\t-\t%s\n' "$$" "$now" >"$scratch" 2>/dev/null || return 2
+  index=0
+  while [ "$index" -lt "$bound" ]; do
+    path="$dir/$index"
+    if ln "$scratch" "$path" 2>/dev/null; then
+      printf '%s\n' "$index"; rc=0; break
+    fi
+    if ! budget_slot_held "$path" "$now"; then
+      rm -f "$path" 2>/dev/null
+      if ln "$scratch" "$path" 2>/dev/null; then
+        printf '%s\n' "$index"; rc=0; break
+      fi
+    fi
+    index=$(( index + 1 ))
+  done
+  # THE SCRATCH FILE ALWAYS GOES, taken or not. A successful `ln` leaves two
+  # names for one inode and the slot keeps the one that matters.
+  rm -f "$scratch" 2>/dev/null
+  return "$rc"
+}
+
+# Gives a slot back. Removes only THIS process's own claim: a slot reclaimed as
+# stale while its owner still ran belongs to somebody else now, and unlinking it
+# on the way out would let the cap be exceeded by one.
+budget_slot_release() {
+  local account="${1:-}" index="${2:-}" dir path pid
+  case "$index" in ''|*[!0-9]*) return 0 ;; esac
+  dir="$(budget_slots_dir "$account")" || return 0
+  path="$dir/$index"
+  [ -f "$path" ] || return 0
+  pid="$(LC_ALL=C awk -F'\t' 'NR==1 {print $1}' "$path" 2>/dev/null)"
+  [ "$pid" = "$$" ] || return 0
+  rm -f "$path" 2>/dev/null
+  return 0
+}
