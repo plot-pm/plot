@@ -10,7 +10,6 @@ import type { Checks, Mergeability, Pr, PrState, ReviewVerdict } from '../../ent
 import { answered, type PortResult } from '../../port-result.js';
 import type {
   Host,
-  HostBackend,
   HostRefusal,
   LimitObservation,
   MergedAnswer,
@@ -18,6 +17,17 @@ import type {
 } from '../../ports/host.js';
 import { asJson, asJsonLines, asText, runProcess, resultOf, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
+
+/**
+ * The backends this adapter can drive, which is what `plot-host.sh` implements.
+ *
+ * The list lives here because this is the layer that could do something about a
+ * backend it cannot drive: adding one means teaching the script its CLI, and
+ * this array is the record of which have been taught. The domain holds no such
+ * list — {@link HostBackend} is any string — so a new host is an edit to this
+ * file and the script beside it.
+ */
+const DRIVES: readonly string[] = ['github', 'bitbucket'];
 
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
 interface RawPr {
@@ -283,10 +293,10 @@ export const hostShell = (context: ShellContext): Host => {
     backend: () =>
       ask(['backend'], (stdout) => {
         const value = asText(stdout);
-        if (value !== 'github' && value !== 'bitbucket') {
+        if (!DRIVES.includes(value)) {
           throw new Error(`plot-host: unrecognised backend ${value}`);
         }
-        return value as HostBackend;
+        return value;
       }),
 
     prState: async (ref): Promise<PortResult<PrLookup>> => {

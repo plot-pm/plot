@@ -97,12 +97,23 @@ describe('a host that refuses', () => {
     expect(answer).toEqual({ ok: false, why: 'failed' });
   });
 
-  it('refuses a backend word it does not recognise', async () => {
-    // `backend` is the one operation with a closed vocabulary, and an
-    // unrecognised word degrades to failed rather than being passed through as
-    // a `HostBackend` the rest of the domain would branch on.
+  it('refuses a backend it cannot drive', async () => {
+    // THE ADAPTER'S REFUSAL, NOT THE TYPE'S. `HostBackend` is any string — the
+    // domain holds no vendor list — so this is the layer that says no, and it
+    // is the right one: driving a host means a CLI this adapter has been taught,
+    // and it is the only layer that could be taught it.
+    //
+    // `gitlab` is refused for the same reason it always was, one layer down.
     const answer = await hostShell(hostThat('echo gitlab')).backend();
     expect(answer).toEqual({ ok: false, why: 'failed' });
+  });
+
+  it('drives a backend it was taught, and the domain never sees the list', async () => {
+    // The other half of the refusal above: the guard admits what it can drive
+    // and passes the word through unnarrowed. Asserting only the refusal would
+    // pass against a guard that refused everything.
+    const answer = await hostShell(hostThat('echo bitbucket')).backend();
+    expect(answer).toEqual({ ok: true, value: 'bitbucket' });
   });
 
   it('refuses a merge answer it does not recognise', async () => {

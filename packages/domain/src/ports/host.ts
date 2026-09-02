@@ -4,8 +4,17 @@ import type { Pr } from '../entities/pr.js';
 import type { Issue } from '../entities/issue.js';
 import type { LimitReading } from '../entities/limit.js';
 
-/** Which host CLI answers — the backend `plot-host.sh` resolved. */
-export type HostBackend = 'github' | 'bitbucket';
+/**
+ * Which host CLI answers — the backend `plot-host.sh` resolved, in its own word.
+ *
+ * Unvalidated, like {@link LimitReading.connector} and the `CI` backend beside
+ * it. The domain holds no list of vendor names, so a host it has never heard of
+ * reaches the adapter that might drive it rather than being refused by a type.
+ *
+ * The adapter still refuses what it cannot drive, and names it — the refusal is
+ * the layer's, not the type's.
+ */
+export type HostBackend = string;
 
 /**
  * A PR lookup's answer, where finding nothing is an answer.
@@ -118,7 +127,7 @@ export interface Host {
   /**
    * Names the resolved backend.
    *
-   * @returns `github` or `bitbucket`.
+   * @returns the backend's own word, whichever host the adapter resolved.
    */
   backend(): Promise<PortResult<HostBackend>>;
 
