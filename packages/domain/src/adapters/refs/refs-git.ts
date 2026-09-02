@@ -79,7 +79,7 @@ const REFS_MAX_BUFFER = 32 * 1024 * 1024;
 /** Which ref namespaces each scope asks `for-each-ref` about. */
 const NAMESPACES: Record<RefScope, readonly string[]> = {
   local: ['refs/heads'],
-  remote: ['refs/remotes'],
+  remote: ['refs/remotes/origin'],
   both: ['refs/heads', 'refs/remotes'],
 };
 

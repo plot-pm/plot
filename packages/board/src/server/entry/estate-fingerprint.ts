@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+
+import { refsGit, shellContext } from '@plot-pm/domain/adapters';
+import { isAnswered } from '@plot-pm/domain';
 
 import type { BuildBoardOptions } from '../board.js';
 
@@ -39,21 +41,12 @@ export interface EstateFingerprint {
  * the measurement cannot plausibly cost more than the answer it saves.
  */
 const refState = (repoRoot: string): string[] => {
-  try {
-    return execFileSync(
-      'git',
-      ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/remotes/origin'],
-      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    )
-      .split('\n')
-      .filter(Boolean)
-      .sort();
-  } catch {
-    // A repo git cannot be asked about is one whose estate cannot be measured,
-    // and an unmeasurable estate must never compare EQUAL to a previous one.
-    // The caller turns that into a miss; see `sameEstate`.
-    return [];
-  }
+  const read = refsGit(shellContext(repoRoot)).refStateSync('remote');
+  // A repo git cannot be asked about is one whose estate cannot be measured,
+  // and an unmeasurable estate must never compare EQUAL to a previous one. The
+  // caller turns the empty list into a miss; see `sameEstate`.
+  if (!isAnswered(read)) return [];
+  return read.value.map(({ ref, sha }) => `${ref} ${sha}`).sort();
 };
 
 /**

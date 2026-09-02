@@ -1,4 +1,6 @@
-import { execFileSync } from 'node:child_process';
+import { refsGit, shellContext, treesGit } from '@plot-pm/domain/adapters';
+import { isAnswered, type Refs, type Trees } from '@plot-pm/domain';
+
 import { readSignals, unchanged, type Signal, type Signals } from './signals.js';
 
 /**
@@ -41,13 +43,27 @@ export interface MonitorStats {
 
 const NO_STATS: MonitorStats = { reused: 0, recomputed: 0, spawns: 0 };
 
-function git(repoRoot: string, args: string[]): string {
-  return execFileSync('git', ['-C', repoRoot, ...args], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-    maxBuffer: 32 * 1024 * 1024,
-  });
-}
+/**
+ * The ref reader for a repository, constructed per call.
+ *
+ * Constructed rather than held, because `refsGit` binds nothing and starts
+ * nothing: it closes over a path and returns the operations. A field would make
+ * two monitors that read one repository hold two objects saying the same thing,
+ * and `WorktreeManager` deliberately carries no root at all.
+ *
+ * @param repoRoot - the repository to read.
+ * @returns the ref operations, bound to that repository.
+ */
+const refs = (repoRoot: string): Refs => refsGit(shellContext(repoRoot));
+
+/**
+ * The worktree reader for a checkout, constructed per call.
+ *
+ * @param dir - the directory to read from.
+ * @returns the worktree operations, bound to that directory.
+ */
+const trees = (dir: string): Trees => treesGit(shellContext(dir));
+
 
 /**
  * Ahead-counts per branch, invalidated by ANY ref moving.
@@ -181,13 +197,11 @@ export function aheadCounts(
   for (const br of branches) {
     spawns++;
     try {
-      const out = git(repoRoot, [
-        'rev-list', '--count', `refs/remotes/origin/${br}..refs/heads/${br}`,
-      ]).trim();
-      counts.set(br, /^\d+$/.test(out) ? Number(out) : 0);
-    } catch {
+      const read = refs(repoRoot).countAheadSync(br);
       // No local ref, no upstream, or an unreadable ref database. Not observed
       // → not reported, which is the scan's own rule for this call.
+      counts.set(br, isAnswered(read) ? read.value : 0);
+    } catch {
       counts.set(br, 0);
     }
   }
@@ -266,28 +280,26 @@ export class PlanMonitor {
       spawns = 1;
       // ONE PROCESS FOR THE WHOLE MISS SET. `--stdin-paths` hashes 164 plans in
       // 0.014 s (measured) — the batch form the plan calls for on a miss.
-      let res = '';
-      try {
-        const stdin = need.map((n) => `${planDir}/${n}`).join('\n') + '\n';
-        res = execFileSync('git', ['-C', this.repoRoot, 'hash-object', '--stdin-paths'], {
-          encoding: 'utf8',
-          input: stdin,
-          stdio: ['pipe', 'pipe', 'ignore'],
-          maxBuffer: 32 * 1024 * 1024,
-        });
-      } catch {
-        // MEASURED 2026-08-29, and it is why this catch is the live path rather
-        // than a formality: `hash-object --stdin-paths` ABORTS at the first
-        // unreadable path with exit 128 (a missing file, a directory named
-        // `*.md`), having printed the oids before it. `execFileSync` throws, and
-        // an `ENOBUFS` clip throws too. So a batch that went wrong arrives here
-        // as an exception, not as a short reply.
-        //
-        // Everything is left absent rather than guessed. An absent oid means no
-        // cached branch answer validates — a recompute, which costs time and
-        // states no falsehood.
-        res = '';
-      }
+      const paths = need.map((n) => `${planDir}/${n}`);
+      const read = refs(this.repoRoot).hashFilesSync(paths);
+      // MEASURED 2026-08-29, and it is why the failed reading is the live path
+      // rather than a formality: `hash-object --stdin-paths` ABORTS at the first
+      // unreadable path with exit 128 — a missing file, a directory named
+      // `*.md` — having printed the oids before it. The port answers `failed`
+      // for that partial reply and for an `ENOBUFS` clip alike, so a batch that
+      // went wrong arrives here as an absence rather than as a short list.
+      //
+      // Everything is left absent rather than guessed. An absent oid means no
+      // cached branch answer validates — a recompute, which costs time and
+      // states no falsehood.
+      //
+      // Re-joined into the positional reply `adoptBatch` reads, because that
+      // function is where the all-or-nothing rule is asserted and tested: the
+      // port already refuses a short reply, and a second copy of the rule here
+      // is exactly the duplication that drifts.
+      const res = isAnswered(read)
+        ? paths.map((path) => read.value.get(path) ?? '').join('\n')
+        : '';
       adoptBatch(res, need, now, this.oids, this.stamps, out);
     }
     return { oids: out, stats: { reused, recomputed: need.length, spawns } };
@@ -388,13 +400,12 @@ export class WorktreeManager {
       recomputed++;
       spawns++;
       try {
-        const value = execFileSync('git', ['-C', p, 'status', '--porcelain'], {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-          maxBuffer: 32 * 1024 * 1024,
-        });
-        this.statuses.set(p, { value, at: now });
-        out.set(p, value);
+        const read = trees(p).statusSync(p);
+        // A tree that cannot be asked is not recorded — see below. `isAnswered`
+        // is what separates that from a CLEAN tree, which answers `''`.
+        if (!isAnswered(read)) continue;
+        this.statuses.set(p, { value: read.value, at: now });
+        out.set(p, read.value);
       } catch {
         // A tree that cannot be asked is not recorded — the next pulse asks
         // again rather than serving an absence as a clean tree.

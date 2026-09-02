@@ -59,7 +59,14 @@ export interface CommitLine {
   subject: string;
 }
 
-/** Which refs a state reading covers. */
+/**
+ * Which refs a state reading covers.
+ *
+ * `remote` is `origin` alone rather than every remote, because that is the
+ * remote Plot derives branch state from — a fork's second remote moves for
+ * reasons no Plot answer depends on, and hashing it would report an estate
+ * change that changes nothing.
+ */
 export type RefScope = 'local' | 'remote' | 'both';
 
 /**
