@@ -5,8 +5,15 @@
 #
 # This is the looping shell the Worker command calls. After each branch
 # completes, it asks `--next` for another claimable branch OF THE SAME PLAN,
-# claims it, creates its worktree, and loops. Exit 1 from `--next` is
-# "nothing to start" and breaks the loop cleanly.
+# takes its desk over for that branch, claims it, and loops. Exit 1 from
+# `--next` is "nothing to start" and breaks the loop cleanly.
+#
+# ONE DESK PER AGENT, NOT ONE PER SLICE. The loop used to `git worktree add` on
+# every hop and leave the previous checkout on disk; measured 2026-09-02, that
+# gave 2 manifests 11 worktrees. The agent now decides create-or-reset from its
+# own tree — the only place a `PLOT-BLOCKED` marker, an uncommitted change or an
+# unpushed commit can be seen — and creates a desk only where its own holds
+# something nobody has accounted for. `git worktree add` is the exception.
 #
 # THE PROMPT is read from `.plot/worker-prompt.sh` in the repo root. That file
 # contains the literal `claude -p "..."` invocation the loop runs each
@@ -30,8 +37,11 @@
 #
 # THE CLAIM is the same ref push dispatch uses: an empty commit titled
 # `plot: claim <branch>`, which diverges from any other claim attempt so only
-# one push succeeds. A failed push means another worker won the race; the loop
-# removes that worktree and tries `--next` again.
+# one push succeeds. A REJECTED push is a registry-lock violation rather than a
+# race lost: the registry is the assignment lock and this push is its backstop,
+# so a rejection means two agents were handed one branch. The loop says so
+# loudly and asks `--next` again; it removes no desk, because on the reset path
+# the desk is the one the agent is standing in.
 #
 # A worker that hops takes NO NEW SLOT: the cap counts sessions, and a hopping
 # worker is one session continuing, not a second one spawning. This is why the
@@ -39,10 +49,12 @@
 # through the workers already running.
 #
 # THE MANIFEST IS UPDATED ON EACH HOP. When a worker moves to a new branch,
-# the manifest's `branch` and `worktree` fields are updated, and `wavesCount`
-# is incremented. This keeps the registry accurate: a reader sees where the
-# worker IS, not where it started. The `session` and `pid` stay fixed — it is
-# the same worker, in a new place.
+# the manifest's `branch` and `worktree` fields are written and `wavesCount` is
+# incremented. This keeps the registry accurate: a reader sees where the worker
+# IS, not where it started. The `session` and `pid` stay fixed — it is the same
+# worker. `worktree` is written on both paths even though a reset does not move
+# it, so the call's contract stays *the manifest names where the agent is* and
+# the caller needs no knowledge of which path it took.
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
