@@ -24,6 +24,12 @@ Add `--allow-waiting` in the shape `--allow-local` already has — declared in t
 
 ### The decisions the plan settles — do not re-derive them
 
+**Eligibility is not decided in the dispatcher, and must not start being.** `plot-dispatch.sh:103` states the architecture: *"Eligibility is NOT decided here: this script asks plot-fleet-scan.sh, which owns the wave arithmetic. Dispatch only acts on the answer. Keeping the rule in one place is why a blocked wave can never be fanned out by accident."* The scan already computes `waiting` and `blocked` from the annotation — verified on main 2026-09-02 at `plot-fleet-scan.sh:52` and `:72`. This slice reads that answer; it does not parse `waits:` itself, and it does not ask the host a second time.
+
+**Check what `--next` and `--list-eligible` already exclude before writing a line.** If `Holding` already keeps a waiting branch out of `--list-eligible`, then that half of the first `Done when` is met and this slice is the explicit refusal on a branch named DIRECTLY — the `--restart <branch>` and slug paths, where a person names a branch the scan would never have offered. Establish which by running `plot-fleet-scan.sh --list-eligible` against a plan carrying a `waits:` annotation, and say in the PR what you found rather than assuming either way.
+
+**`--allow-waiting` follows `--allow-local`'s shape**, which is a flag variable initialised at `plot-dispatch.sh:169`, set at `:201`, and read at the gate it escapes. Copy that rather than inventing a form.
+
 **`deferred:` and `waits:` are different annotations and must not converge.** The plan is explicit: *"`deferred:` remains the annotation for a judgement; `waits:` is only for a fact a script can check."* It gives the case that proves it — `the-registry-supervises-its-agents` defers its daemon on *"a week of visibility AND a non-zero count of reported-but-unattended desks"*, deliberately not mechanical, because the plan is willing to cancel itself. Encoding that as `waits:` would replace a judgement with a branch name and lose the cancellation. A test must assert the two do not interfere on one branch.
 
 **One branch, one prerequisite, no transitive resolution.** *"Not a dependency graph… If a plan needs a DAG, the plans are wrongly cut."* Do not follow a prerequisite's own `waits:`.
