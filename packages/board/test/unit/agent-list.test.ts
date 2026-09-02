@@ -2370,12 +2370,30 @@ describe('hostErrorState — a rate limit is a THIRD state, never an outage', ()
   const RATE_LIMIT = 'GraphQL: API rate limit already exceeded for user ID 870334';
   const SECONDARY = 'You have exceeded a secondary rate limit. Please wait 60 seconds…';
 
-  it('reads GitHub\'s exhaustion messages as rate-limited', () => {
-    // The exact strings the backend keys on (`rateLimitBackoffMs`, fleet.ts):
+  it('reads GitHub\'s exhaustion message as rate-limited', () => {
+    // The exact string the backend keys on (`rateLimitBackoffMs`, fleet.ts):
     // client and server must read the SAME signal, or the note says outage
     // while the fetch is already backing off for a rate limit.
     expect(hostErrorState(RATE_LIMIT)).toBe('rate-limited');
-    expect(hostErrorState(SECONDARY)).toBe('rate-limited');
+  });
+
+  // THIS ASSERTION USED TO READ `'rate-limited'`, AND THAT WAS THE DEFECT.
+  // Until 2026-09-02 both messages arrived as one word, so the banner printed
+  // one wording — and one reset — over two ceilings that recover minutes apart.
+  // The 2026-09-01 measurement is what settles it: `gh pr view` refused while
+  // the same account's GraphQL headers read 4854 of 5000 remaining, and a
+  // bucket with 97 % left does not refuse on quota.
+  it('reads a secondary limit as its OWN state, though it also says "rate limit"', () => {
+    expect(SECONDARY).toMatch(/rate limit/i);
+    expect(hostErrorState(SECONDARY)).toBe('secondary-limit');
+    expect(hostErrorState(SECONDARY)).not.toBe(hostErrorState(RATE_LIMIT));
+  });
+
+  it('reads the 2026-08-27 abuse-detection wording as a secondary limit', () => {
+    // The outage this repo actually had: eight workers against a cap of seven,
+    // reported as a 403 naming abuse detection and saying nothing about quota.
+    expect(hostErrorState('403: You have triggered an abuse detection mechanism'))
+      .toBe('secondary-limit');
   });
 
   it('keeps every other failure an outage', () => {
@@ -2462,6 +2480,98 @@ describe('prNote — the PR note distinguishes the two failures', () => {
     expect(note).not.toContain('showing data');
     expect(note).toBe('PR data unavailable (gh: 503) — the two groups above that depend on it may be incomplete.');
   });
+
+  // THE DONE-WHEN OF THIS SLICE. `prNextInSeconds` is the PRIMARY bucket's
+  // reset, and a secondary limit is a different ceiling that clears in seconds.
+  // Printing that number here counsels minutes of waiting for a limit that has
+  // already gone — the opposite of what helps, and what this line did until
+  // 2026-09-02.
+  it('NEVER prints a reset time for a secondary limit', () => {
+    const note = prNote(at({
+      prError: 'You have exceeded a secondary rate limit. Please wait 60 seconds…',
+      prNextInSeconds: 480,
+    }));
+    expect(note).not.toContain('8 min');
+    expect(note).not.toContain('service returns');
+  });
+
+  it('says a secondary limit is not a spent budget', () => {
+    // A quota refusal and a burst refusal must not read alike: the first is
+    // waited out, the second is fixed by running fewer calls at once.
+    const note = prNote(at({
+      prError: 'You have exceeded a secondary rate limit',
+      prNextInSeconds: 480,
+    }));
+    expect(note).toContain('refused a burst');
+    expect(note).toContain('not a spent budget');
+    expect(note).toContain('close a board rather than wait');
+  });
+
+  // The plan at `:607`: *"When the cause is this machine's own spenders, the
+  // banner should say so and name how many, because the fix is closing a board
+  // rather than waiting for GitHub."*
+  it('names how many spenders the record found', () => {
+    const note = prNote(at({
+      prError: 'You have exceeded a secondary rate limit',
+      prSpenders: 3,
+    }));
+    expect(note).toContain('3 spenders');
+  });
+
+  it('says one SPENDER, not one spenders', () => {
+    const note = prNote(at({
+      prError: 'You have exceeded a secondary rate limit',
+      prSpenders: 1,
+    }));
+    expect(note).toContain('1 spender ');
+    expect(note).not.toContain('1 spenders');
+  });
+
+  // NULL IS AN ABSENT MEASUREMENT, never an idle account. An unreadable record
+  // and a server that predates the field say the same thing, and the banner
+  // names the limit rather than inventing a population.
+  it('omits the population where the record could not be read', () => {
+    const note = prNote(at({
+      prError: 'You have exceeded a secondary rate limit',
+      prSpenders: null,
+    }));
+    expect(note).toContain('refused a burst');
+    expect(note).not.toContain('spender');
+  });
+
+  it('omits the population on a payload that predates the field', () => {
+    // `prSpenders` is CAST rather than parsed on the client, so an older
+    // server's payload arrives with the key absent — the `fleetControls`
+    // lesson, which a Zod `.default()` does not save.
+    const note = prNote({
+      prError: 'You have exceeded a secondary rate limit',
+      prNextInSeconds: null,
+      prAgeSeconds: null,
+    } as Fleet);
+    expect(note).toContain('refused a burst');
+    expect(note).not.toContain('spender');
+  });
+
+  // A QUOTA REFUSAL STILL READS AS ONE. This slice adds a case rather than
+  // replacing the one that was already right.
+  it('still names the reset for a spent quota, beside the new case', () => {
+    const note = prNote(at({
+      prError: 'GraphQL: API rate limit already exceeded',
+      prNextInSeconds: 480,
+      prSpenders: 3,
+    }));
+    expect(note).toContain('rate limit is spent');
+    expect(note).toContain('service returns in ~8 min');
+    expect(note).not.toContain('spenders');
+  });
+
+  it('names the age of the retained data for a secondary limit too', () => {
+    const note = prNote(at({
+      prError: 'You have exceeded a secondary rate limit',
+      prAgeSeconds: 840,
+    }));
+    expect(note).toContain('showing data from 14 min ago');
+  });
 });
 
 describe('scanHostNote — the scan says when it could not ask', () => {
@@ -2508,15 +2618,32 @@ describe('scanHostNote — the scan says when it could not ask', () => {
     expect(note).not.toContain('refills on a clock');
   });
 
+  it('names a secondary limit, and sends the reader at concurrency', () => {
+    // The third word, and the third errand. A secondary limit clears in
+    // seconds, so telling the reader to wait for a reset wastes minutes on a
+    // ceiling that has already gone — and hides the one lever that helps.
+    const note = scanHostNote(at('secondary'));
+    expect(note).toContain('refused a burst');
+    expect(note).toContain('fewer scans at once');
+    expect(note).not.toContain('refills on a clock');
+    expect(note).not.toContain('check the host');
+  });
+
   it('states the CONSEQUENCE, not merely the cause', () => {
     // "The host was throttled" is a fact about an API. What a reader needs is
     // why the board looks quiet: every branch read from local evidence alone,
-    // and nothing was offered to --next. Both words carry it.
-    for (const host of ['throttled', 'failed'] as const) {
+    // and nothing was offered to --next. All three words carry it.
+    for (const host of ['throttled', 'secondary', 'failed'] as const) {
       const note = scanHostNote(at(host)) ?? '';
       expect(note).toContain('local evidence alone');
       expect(note).toContain('--next');
     }
+  });
+
+  it('gives each of the three failures its own sentence', () => {
+    // The distinction is worth nothing if two words print the same words.
+    const notes = (['throttled', 'secondary', 'failed'] as const).map((host) => scanHostNote(at(host)));
+    expect(new Set(notes).size).toBe(3);
   });
 
   it('is a DIFFERENT sentence from the board\'s own PR failure', () => {
@@ -2555,6 +2682,20 @@ describe('issueNote — the note never claims a check it did not run', () => {
     expect(note).toContain('rate limit');
     expect(note).toContain('8 min');
     expect(note).not.toContain('could not be read');
+  });
+
+  it('borrows the refused wording for a secondary limit, and NOT the reset', () => {
+    // A burst refusal refused the same way a spent budget did, so *could not be
+    // read* is as wrong here as there. But `prNextInSeconds` is the primary
+    // bucket's reset and says nothing about a ceiling on simultaneous calls.
+    const note = issueNote(at({
+      issueError: 'You have exceeded a secondary rate limit',
+      prNextInSeconds: 480,
+    }));
+    expect(note).toContain('refused a burst');
+    expect(note).not.toContain('could not be read');
+    expect(note).not.toContain('8 min');
+    expect(note).not.toContain('service returns');
   });
 });
 

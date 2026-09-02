@@ -111,6 +111,54 @@ describe('a host that refuses', () => {
   });
 });
 
+/**
+ * THE TWO LIMITS SURVIVE THE TRIP FROM THE SCRIPT.
+ *
+ * `plot-host.sh` splits its refusals off the host's wording — exit 5 for a spent
+ * quota, exit 6 for a secondary limit — and that split is worth nothing if the
+ * adapter folds them back into one word. Asserted through a real spawn of a real
+ * script, so the exit code travels the production path.
+ */
+describe('a refusal names which limit it hit', () => {
+  it('reads exit 5 as a spent quota', async () => {
+    const host = hostShell(hostThat('echo "API rate limit already exceeded" >&2; exit 5'));
+    await host.prList('open');
+    expect(host.lastRefusal()?.kind).toBe('throttled');
+  });
+
+  it('reads exit 6 as a secondary limit', async () => {
+    const host = hostShell(
+      hostThat('echo "You have exceeded a secondary rate limit" >&2; exit 6'),
+    );
+    await host.prList('open');
+    expect(host.lastRefusal()?.kind).toBe('secondary');
+  });
+
+  /**
+   * The whole point of the split: the two arrive as different words. A single
+   * assertion on either alone passes just as well against a mapping that
+   * answers `throttled` for both.
+   */
+  it('keeps the two apart rather than answering one word for both', async () => {
+    const quota = hostShell(hostThat('exit 5'));
+    const secondary = hostShell(hostThat('exit 6'));
+    await quota.prList('open');
+    await secondary.prList('open');
+    expect(quota.lastRefusal()?.kind).not.toBe(secondary.lastRefusal()?.kind);
+  });
+
+  /**
+   * THE SPLIT FALLS ONE WAY ONLY. An exit code the mapping does not know must
+   * not be promoted into a limit: both limit words counsel a wait, and a wait
+   * does not fix an auth error.
+   */
+  it('gives no exit code it does not know the more specific name', async () => {
+    const host = hostShell(hostThat('exit 7'));
+    await host.prList('open');
+    expect(host.lastRefusal()?.kind).toBe('failed');
+  });
+});
+
 describe('a healthy host that holds nothing', () => {
   it('reads an empty list as an answer, not a failure', async () => {
     // ABSENT IS NOT NONE. This is the assertion the two above exist to be
