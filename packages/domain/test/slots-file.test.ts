@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -166,16 +166,24 @@ describe('slotsFile', () => {
     expect(readdirSync(join(home, 'slots', 'jwloka'))).toEqual(['0']);
   });
 
-  it('fails rather than guessing where no home can be resolved', async () => {
+  it('prefers an explicit home over the environment', async () => {
+    // The seam a suite uses so it never touches the operator's own claims —
+    // the same one `budgetFile` documents, and the same variable, because two
+    // halves of one budget must not resolve to two places.
+    process.env[SLOTS_HOME_ENV] = join(home, 'from-the-environment');
+    const caller = slotsFile({ home, pid: 11, isAlive: () => true });
+    expect(answer(await caller.acquire('jwloka', 1))).toBe(0);
+    expect(readdirSync(join(home, 'slots', 'jwloka'))).toEqual(['0']);
+    expect(existsSync(join(home, 'from-the-environment'))).toBe(false);
+  });
+
+  it('falls back to the home directory where neither is given', async () => {
+    // `homedir()` answers on every platform this runs on, so this asserts the
+    // fallback resolves rather than that it fails — and it never CLAIMS there,
+    // because a suite writing under the operator's home would leave real files.
     const caller = slotsFile({ env: {}, pid: 11 });
-    const nowhere = { ...caller };
-    // An empty HOME leaves `homedir()` with nothing to answer on some
-    // platforms; the explicit empty override is the reachable form of it.
-    const explicit = slotsFile({ home: '', env: { [SLOTS_HOME_ENV]: '' }, pid: 11 });
-    expect(nowhere).toBeDefined();
-    // The environment override is empty and `homedir()` still answers on this
-    // machine, so this asserts the override path rather than the failure.
-    expect(isAnswered(await explicit.acquire('jwloka', 1))).toBe(true);
+    const where = caller.held('never-spent-anywhere');
+    expect(isAnswered(await where)).toBe(true);
   });
 
   it('fails where the claims directory cannot be created', async () => {
