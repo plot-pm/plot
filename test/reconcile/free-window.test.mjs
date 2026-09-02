@@ -180,9 +180,14 @@ test('free window: the manifest names no branch between the finish and the hop',
       },
     });
 
-    // THE HOP HAPPENED: only the hop creates the second desk.
-    assert.ok(fs.existsSync(path.join(wtRoot, 'plot-wt-feature-api')),
+    // THE HOP HAPPENED, and since `an-agent-decides-create-or-reset` it happens
+    // WITHOUT a second desk: the agent resets the one it holds. The precondition
+    // is therefore that the second slice RAN — its marker file, written by the
+    // fixture agent — rather than that a second directory exists.
+    assert.ok(fs.existsSync(path.join(wt, 'work-api.txt')),
       'precondition: the worker must have hopped, or there is no window to have passed through');
+    assert.equal(fs.existsSync(path.join(wtRoot, 'plot-wt-feature-api')), false,
+      'the hop resets the desk it holds; a second desk would mean it did not');
 
     const snaps = fs.readFileSync(snapshotLog, 'utf8')
       .split('\n--SNAP--\n').filter((s) => s.trim() !== '').map((s) => JSON.parse(s));

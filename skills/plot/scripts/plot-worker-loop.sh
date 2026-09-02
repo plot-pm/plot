@@ -5,8 +5,15 @@
 #
 # This is the looping shell the Worker command calls. After each branch
 # completes, it asks `--next` for another claimable branch OF THE SAME PLAN,
-# claims it, creates its worktree, and loops. Exit 1 from `--next` is
-# "nothing to start" and breaks the loop cleanly.
+# takes its desk over for that branch, claims it, and loops. Exit 1 from
+# `--next` is "nothing to start" and breaks the loop cleanly.
+#
+# ONE DESK PER AGENT, NOT ONE PER SLICE. The loop used to `git worktree add` on
+# every hop and leave the previous checkout on disk; measured 2026-09-02, that
+# gave 2 manifests 11 worktrees. The agent now decides create-or-reset from its
+# own tree — the only place a `PLOT-BLOCKED` marker, an uncommitted change or an
+# unpushed commit can be seen — and creates a desk only where its own holds
+# something nobody has accounted for. `git worktree add` is the exception.
 #
 # THE PROMPT is read from `.plot/worker-prompt.sh` in the repo root. That file
 # contains the literal `claude -p "..."` invocation the loop runs each
@@ -30,8 +37,11 @@
 #
 # THE CLAIM is the same ref push dispatch uses: an empty commit titled
 # `plot: claim <branch>`, which diverges from any other claim attempt so only
-# one push succeeds. A failed push means another worker won the race; the loop
-# removes that worktree and tries `--next` again.
+# one push succeeds. A REJECTED push is a registry-lock violation rather than a
+# race lost: the registry is the assignment lock and this push is its backstop,
+# so a rejection means two agents were handed one branch. The loop says so
+# loudly and asks `--next` again; it removes no desk, because on the reset path
+# the desk is the one the agent is standing in.
 #
 # A worker that hops takes NO NEW SLOT: the cap counts sessions, and a hopping
 # worker is one session continuing, not a second one spawning. This is why the
@@ -39,10 +49,12 @@
 # through the workers already running.
 #
 # THE MANIFEST IS UPDATED ON EACH HOP. When a worker moves to a new branch,
-# the manifest's `branch` and `worktree` fields are updated, and `wavesCount`
-# is incremented. This keeps the registry accurate: a reader sees where the
-# worker IS, not where it started. The `session` and `pid` stay fixed — it is
-# the same worker, in a new place.
+# the manifest's `branch` and `worktree` fields are written and `wavesCount` is
+# incremented. This keeps the registry accurate: a reader sees where the worker
+# IS, not where it started. The `session` and `pid` stay fixed — it is the same
+# worker. `worktree` is written on both paths even though a reset does not move
+# it, so the call's contract stays *the manifest names where the agent is* and
+# the caller needs no knowledge of which path it took.
 set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -239,6 +251,132 @@ clear_manifest_branch() { # $1=manifest
   mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
+# ---------------------------------------------------------------------------
+# THE DESK — create or reset, decided from the tree
+# ---------------------------------------------------------------------------
+#
+# THE READINGS COME FROM `plot-worker-state.sh` AND ARE NOT REWRITTEN HERE.
+# `plot_worker_blocked` reads the marker file and `plot_worker_dirty` reads the
+# uncommitted work, both already tuned by measurement — the marker is a FILE
+# rather than a token any file may contain, and editor leftovers and Plot's own
+# `.plot-worker.*` records are excluded from the dirty count. A second
+# implementation of either would drift, and the two would then disagree about
+# the same desk: the scan would call it `stalled` while this guard called it
+# clean, and the guard is the one that acts.
+. "$script_dir/plot-worker-state.sh"
+
+# WHY THE DESK IS NAMED — the reason it could not be reset, for the log.
+#
+# A refusal that says only "unlanded work" sends its reader to go looking. This
+# names which of the three readings held the desk, in the order the guard asks
+# them, so an operator reading `.plot-worker.log` knows whether to answer a
+# question, commit something, or push it.
+desk_hold_reason() { # $1=worktree → a phrase naming what holds it
+  local wt="$1" marker dirty
+  if marker=$(plot_worker_blocked_file "$wt"); then
+    printf 'a %s marker asking a person a question' "$marker"
+    return 0
+  fi
+  dirty=$(plot_worker_dirty "$wt")
+  if [ -n "$dirty" ]; then
+    printf 'uncommitted changes in %s file(s)' "$(printf '%s\n' "$dirty" | wc -l | tr -d ' ')"
+    return 0
+  fi
+  printf 'commits not pushed to its upstream'
+}
+
+# May this desk be taken over for the next slice?
+#
+# THREE MEASUREMENTS, NEVER A JUDGEMENT — the shape every refusal in
+# `plot-reap.sh` takes. The guard answers *is there anything here nobody has
+# accounted for?* and nothing about whether the work was any good:
+#
+#   a PLOT-BLOCKED marker      a person owes this desk an answer
+#   uncommitted changes        work on the floor
+#   commits above the upstream work that exists only here
+#
+# THE BRANCH BEING MERGED IS NOT ASKED, and that is deliberate. `--offline`
+# above means the host was never consulted, so a merge check here would be an
+# inference rather than a reading — and a branch whose PR is open but whose work
+# is fully pushed has left nothing behind on the desk. What the desk holds is
+# the question; where the branch stands in review is the sweep's.
+#
+# AN UNANSWERABLE UPSTREAM YIELDS NO VERDICT, the same rule
+# `plot_worker_task_state` reaches: with no `@{upstream}` the count cannot be
+# taken, and a failure to observe is not evidence of something to see. A branch
+# with no upstream reaches here only when its claim push never happened, and
+# that desk's own commits are the claim commit the next reset would rewrite.
+desk_is_resettable() { # $1=worktree → 0 when the desk may be taken over
+  local wt="$1" ahead
+  [ -n "$wt" ] && [ -d "$wt" ] || return 1
+  plot_worker_blocked "$wt" && return 1
+  [ -n "$(plot_worker_dirty "$wt")" ] && return 1
+  if ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null); then
+    case "$ahead" in
+      ''|0|*[!0-9]*) ;;
+      *) return 1 ;;
+    esac
+  fi
+  return 0
+}
+
+# Take the desk over for a new branch.
+#
+# THE BASE IS CHECKED OUT FIRST, AND THE ORDER IS THE DELIVERABLE.
+# `.gitignore` is per-checkout: a worktree sees an ignore entry only once the
+# branch it holds carries it. That stranded 19 desks on 2026-09-02 — every one
+# held back by a single untracked artifact the ignore list had gained after
+# those desks were cut, so the desk's own rules predated the rule that would
+# have made it clean. A desk switching STRAIGHT to a branch that already exists
+# from an earlier attempt inherits that branch's rules for the same reason, and
+# an earlier attempt is exactly the case where those rules are stalest.
+#
+# So: `origin/<main>` first, then the slice's branch. One extra checkout buys a
+# desk whose state is independent of whatever it held before.
+#
+# IT DOES NOT `reset --hard` AND IT DOES NOT `clean -fdx`. Those destroy
+# whatever `desk_is_resettable` failed to notice, and the guard being wrong is
+# precisely the case where the destruction cannot be undone. A guard that
+# misjudges must leave a desk the sweep reports, not deleted work — a leftover
+# desk costs a sweep, lost work costs the work. Every checkout here is plain, so
+# a file the guard missed makes git REFUSE rather than overwrite, and the caller
+# falls back to creating a new desk.
+reset_desk() { # $1=worktree $2=branch → 0 when the desk now holds the branch
+  local wt="$1" branch="$2"
+
+  # STEP 0 — THE PREVIOUS SLICE'S DECLARATION LEAVES WITH THE SLICE.
+  #
+  # `seal_declaration` MERGES into whatever file it finds: it keeps the
+  # agent's own `artifacts`, `pr`, `summary` and `status`, because the agent is
+  # the only party that knows what it produced. That is right when the file
+  # belongs to the branch being sealed and wrong the moment two branches share a
+  # desk — the second slice would inherit the first slice's PR number and call
+  # it its own. One desk per agent creates that sharing, so the removal is this
+  # slice's to make.
+  #
+  # THIS IS NOT THE WORK THE GUARD PROTECTS. It is Plot's own bookkeeping,
+  # already excluded from `plot_worker_dirty` by `PLOT_WORKER_RECORD` for the
+  # same reason: a file the fleet dropped in the tree is not something an agent
+  # left on the floor. The declaration for the finished branch has done its job
+  # by the time the hop reaches here — `seal_declaration` ran before `--next`
+  # was asked.
+  rm -f "$wt/$DECLARATION_FILE_NAME" 2>/dev/null || true
+
+  # STEP 1 — the base, detached. Detached because the desk may not hold
+  # `$main_branch` (another worktree usually does, and git refuses to check out
+  # a branch twice), and because nothing here wants the base as a branch: it is
+  # a floor to stand on for one command.
+  git -C "$wt" checkout --detach "origin/$main_branch" 2>/dev/null || return 1
+
+  # STEP 2 — the slice's branch, created from the base where it does not exist
+  # yet and attached where it does. The `-B` form is not used: it would MOVE an
+  # existing branch onto the base, discarding commits an earlier attempt left on
+  # it, which is the destruction this function refuses everywhere else.
+  git -C "$wt" checkout -b "$branch" 2>/dev/null && return 0
+  git -C "$wt" checkout "$branch" 2>/dev/null && return 0
+  return 1
+}
+
 # THE DECLARATION FILE, per branch. `.plot-worker.exit`, `.plot-worker.pid`,
 # `.plot-worker.log` and `.plot-worker.monitor.*.jsonl` are already the
 # convention; this joins them rather than inventing a location.
@@ -309,6 +447,25 @@ seal_declaration() { # $1=worktree $2=branch
 
   mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
+
+# ---------------------------------------------------------------------------
+# EVERYTHING ABOVE IS DEFINITIONS; EVERYTHING BELOW STARTS A WORKER
+# ---------------------------------------------------------------------------
+#
+# `PLOT_WORKER_LOOP_SOURCED=1` STOPS HERE, so a test can take the definitions
+# without launching anything. The desk decision — `desk_is_resettable`,
+# `desk_hold_reason`, `reset_desk` — needs one tree per case, each in a
+# different state, and driving a whole loop per case would spend a two-minute
+# fixture to observe one `if`. `plot-worker-state.sh` is sourced rather than run
+# for the same reason and states it in its own first paragraph; this is that
+# idiom applied to the file that already sources it.
+#
+# THE FLAG IS OPT-IN AND NAMED FOR THIS FILE. An unset variable leaves the
+# script exactly as it was — no caller changes, and a worker started by the
+# fleet cannot reach this return by accident. `return` rather than `exit`
+# because a sourced script returns to its sourcer; under `bash file` it would
+# be an error, which is why it is reached only when the caller asked for it.
+[ -n "${PLOT_WORKER_LOOP_SOURCED:-}" ] && return 0
 
 # Read the prompt from the dedicated file. A file rather than a config key
 # because plot-config.sh strips `(...)` as prose, and the prompt legitimately
@@ -771,22 +928,73 @@ while true; do
   # `--offline` means *the question was never put* rather than *the answer was
   # refused* — and a claim is re-checked by the push, which is rejected if the
   # ref already exists.
+  # ---------------------------------------------------------------------------
+  # CREATE OR RESET — the agent decides what happens to its desk
+  # ---------------------------------------------------------------------------
+  #
+  # THE HOP USED TO CREATE A DESK PER BRANCH and abandon the one it left.
+  # Measured 2026-09-02 on this estate: 2 manifests, 11 worktrees, 8 loop
+  # processes, 5 desks whose branch had already merged. An identity issued once
+  # per agent was being issued once per slice, and `plot-reap.sh` — a backstop
+  # with five refusals — was the only actor that ever removed one.
+  #
+  # THE AGENT DECIDES, BECAUSE IT IS THE ONLY PARTY THAT CAN SEE ITS OWN TREE.
+  # The registry sees identities and the machine sees processes; neither sees an
+  # uncommitted change, a `PLOT-BLOCKED` marker, or a checkout still holding
+  # unpushed commits. So the decision is made here, at the desk, from two
+  # readings `plot-worker-state.sh` already owns.
+  #
+  # TAKING OVER THE NEXT SLICE IS THE FREEING. When the desk is reset, the old
+  # checkout ceases to exist because it became the new one — nothing is
+  # abandoned, and `finished → reapable → gone` needs no separate step on the
+  # normal path. `git worktree add` becomes the EXCEPTION: a full checkout is
+  # paid once per agent rather than once per slice.
   next_branch=$("$script_dir/plot-fleet-scan.sh" --offline --next "$PLOT_SLUG" 2>/dev/null) || break
 
-  # Create worktree for the next branch.
   wt_root=$(dirname "$PLOT_WORKTREE")
   suffix=$(printf '%s' "$next_branch" | tr '/' '-')
-  new_wt="$wt_root/plot-wt-$suffix"
 
-  git worktree add -b "$next_branch" "$new_wt" "origin/$main_branch" 2>/dev/null || \
-    git worktree add "$new_wt" "$next_branch" 2>/dev/null || break
+  if desk_is_resettable "$PLOT_WORKTREE"; then
+    hop_wt="$PLOT_WORKTREE"
+    if ! reset_desk "$hop_wt" "$next_branch"; then
+      echo "plot-worker-loop: could not reset the desk at $hop_wt onto $next_branch — leaving it as it is and creating a new one" >&2
+      hop_wt="$wt_root/plot-wt-$suffix"
+      git worktree add -b "$next_branch" "$hop_wt" "origin/$main_branch" 2>/dev/null || \
+        git worktree add "$hop_wt" "$next_branch" 2>/dev/null || break
+    fi
+  else
+    # THE DESK HOLDS SOMETHING NOBODY HAS ACCOUNTED FOR, so it is left exactly
+    # as it is and a new one is cut. `feature/the-sweep-names-every-leftover`
+    # owns what happens to it next; this loop's job is to not destroy it.
+    echo "plot-worker-loop: the desk at $PLOT_WORKTREE holds unlanded work ($(desk_hold_reason "$PLOT_WORKTREE")) — creating a new desk for $next_branch and leaving this one for the sweep" >&2
+    hop_wt="$wt_root/plot-wt-$suffix"
+    git worktree add -b "$next_branch" "$hop_wt" "origin/$main_branch" 2>/dev/null || \
+      git worktree add "$hop_wt" "$next_branch" 2>/dev/null || break
+  fi
 
   # Claim the branch with an empty commit.
-  git -C "$new_wt" commit --allow-empty -m "plot: claim $next_branch" 2>/dev/null
+  git -C "$hop_wt" commit --allow-empty -m "plot: claim $next_branch" 2>/dev/null
 
-  # Push the claim — if it fails, another worker won the race.
-  if ! git -C "$new_wt" push -u origin "$next_branch" 2>/dev/null; then
-    git worktree remove --force "$new_wt" 2>/dev/null || true
+  # THE PUSH IS REJECTED, AND THAT IS NOT ROUTINE.
+  #
+  # This line read *"another worker won the race"* and removed the worktree
+  # silently. Under the model this plan installs, the registry is the assignment
+  # lock and the push is a backstop that should never fire — so a rejection is a
+  # BUG REPORTING ITSELF: two agents were handed one slice. The estate is
+  # already broken at the moment this branch is taken, and a silent `continue`
+  # is the one response that guarantees nobody learns it.
+  #
+  # THE RETRY STAYS; the silence does not. The loop still asks `--next` again,
+  # because taking a different branch is the right recovery for the agent even
+  # though it is not the fix for the estate.
+  #
+  # THE DESK IS NOT REMOVED HERE ANY MORE, and that follows from the reset: on
+  # the reset path `$hop_wt` IS the agent's own desk, so removing it would
+  # destroy the checkout the agent is standing in. A desk cut on the create path
+  # is left for the sweep, which is the same treatment every other unaccounted
+  # desk gets — one rule rather than two.
+  if ! git -C "$hop_wt" push -u origin "$next_branch" 2>/dev/null; then
+    echo "plot-worker-loop: REGISTRY LOCK VIOLATION — the claim push for $next_branch was rejected, so another agent already holds a slice this agent was handed. The registry is the assignment lock and this push is only its backstop; a rejection here means two agents were given one branch. Asking for another branch, but the estate needs the double assignment found." >&2
     continue
   fi
 
@@ -794,12 +1002,21 @@ while true; do
   # The manifest tracks where the worker IS, so it must update before the worker
   # starts on the new branch. Without this, the registry would show the worker
   # on its starting branch forever.
+  #
+  # `worktree` IS STILL WRITTEN even though a reset does not move it. The
+  # function's contract is *the manifest names where the agent is*, and passing
+  # the desk it actually holds keeps that true on both paths without the caller
+  # having to know which one it took. On a reset the write is a no-op in value
+  # and `branch` and `wavesCount` still change, which is what
+  # `packages/board/src/server/registry.ts:114` reads.
   if [ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ]; then
-    update_manifest_on_hop "$PLOT_MANIFEST_FILE" "$next_branch" "$new_wt"
+    update_manifest_on_hop "$PLOT_MANIFEST_FILE" "$next_branch" "$hop_wt"
   fi
 
-  # Move to the new worktree and update environment for the next iteration.
-  cd "$new_wt" || break
+  # Move to the desk and update environment for the next iteration. On a reset
+  # this `cd` lands where the loop already stood; the export is what makes the
+  # next pass read the new branch.
+  cd "$hop_wt" || break
   export PLOT_BRANCH="$next_branch"
-  export PLOT_WORKTREE="$new_wt"
+  export PLOT_WORKTREE="$hop_wt"
 done
