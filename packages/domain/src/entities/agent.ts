@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Headroom } from './machine.js';
+import { isAgentFree } from '../rules/free.js';
 
 /**
  * What the worker process is doing.
@@ -112,6 +113,12 @@ export const isLive = (agent: Agent): boolean => LIVE_STATES.includes(agent.stat
  * running with no branch and is available. `waiting` is not free — it is live
  * and blocked on a person, so it occupies a slot and can take nothing.
  *
+ * **The derivation lives in `rules/free.ts`** and this delegates to it. The rule
+ * is what the board's registry reader asks, and every rendered state is a domain
+ * property — two implementations of *is this agent free?* is how the entity's
+ * answer and the board's would drift on the one word the fleet dispatches on.
+ * This signature stays because `auto-dispatch.ts` reads it.
+ *
  * Takes the two fields it reads rather than a whole {@link Agent}, so a caller
  * holding a narrower record of the same facts can ask without inventing the
  * rest. The board's registry entry is exactly that: it carries `state` and
@@ -125,10 +132,10 @@ export const isLive = (agent: Agent): boolean => LIVE_STATES.includes(agent.stat
  *   it holds none.
  * @returns true when the agent can be given a slice.
  */
-export const isFree = (agent: Pick<Agent, 'branch'> & { state: string }, sliceHasMerged: boolean): boolean => {
-  if (agent.state !== 'running') return false;
-  return agent.branch === '' || sliceHasMerged;
-};
+export const isFree = (
+  agent: Pick<Agent, 'branch'> & { state: string },
+  sliceHasMerged: boolean,
+): boolean => isAgentFree({ state: agent.state, branch: agent.branch, sliceHasMerged });
 
 /**
  * Whether a reader can trust this row to say who the agent is.
