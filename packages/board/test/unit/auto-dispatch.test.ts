@@ -12,6 +12,7 @@ import {
   dispatchCandidates,
   machineDefers,
   machineIsClear,
+  skippedPlans,
   type AutoDispatchPlan,
 } from '../../src/server/auto-dispatch.js';
 import { measureMachine, type Machine as MachineEntity } from '@plot-pm/domain';
@@ -1144,5 +1145,147 @@ describe('machineIsClear — the other machine question, and not the gate', () =
     expect(machineIsClear(reading(287))).toBe(false);
     expect(machineIsClear(reading(null))).toBe(false);
     expect(machineIsClear(undefined)).toBe(false);
+  });
+});
+
+// The reporting wave of `a-refused-dispatch-asks-for-a-brief`. `skippedPlans`
+// records the PLAN-level decision `planAutoDispatch` makes at
+// `if (startable === 0) continue;` — until now made in silence.
+//
+// The load-bearing property is DISTINGUISHABILITY: a plan skipped for briefs
+// must not read the same as one skipped for anything else, or the reason is not
+// a reason. The second property is AGREEMENT: every plan `skippedPlans` names
+// is one `planAutoDispatch` declines, so the board never explains a plan it
+// dispatched.
+describe('skippedPlans — the plan-level skip says why', () => {
+  const p = (waves: ReturnType<typeof wave>[], phase = 'approved') =>
+    pulse([['2026-09-01-p.md', phase, waves]]);
+
+  it('says nothing about a plan that has something startable', () => {
+    expect(skippedPlans(
+      p([wave('W', 'eligible', [['feature/a', 'open']])]),
+      new Set(),
+      new Set(),
+    )).toEqual([]);
+  });
+
+  it('names the plan and `no-brief` when every branch lacks one', () => {
+    expect(skippedPlans(
+      p([wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]),
+      new Set(),
+      new Set(['feature/a', 'feature/b']),
+    )).toEqual([{ slug: 'p', reason: 'no-brief' }]);
+  });
+
+  it('names `ref-held` when every branch is already claimed by its own ref', () => {
+    expect(skippedPlans(
+      p([wave('W', 'eligible', [['feature/a', 'open', true], ['feature/b', 'wip']])]),
+      new Set(),
+      new Set(),
+    )).toEqual([{ slug: 'p', reason: 'ref-held' }]);
+  });
+
+  it('names `in-flight` when this board already dispatched them', () => {
+    expect(skippedPlans(
+      p([wave('W', 'eligible', [['feature/a', 'open']])]),
+      new Set(['feature/a']),
+      new Set(),
+    )).toEqual([{ slug: 'p', reason: 'in-flight' }]);
+  });
+
+  it('names `no-eligible-wave` when no wave is eligible at all', () => {
+    expect(skippedPlans(
+      p([wave('W', 'blocked', [['feature/a', 'open']])]),
+      new Set(),
+      new Set(),
+    )).toEqual([{ slug: 'p', reason: 'no-eligible-wave' }]);
+  });
+
+  it('names `no-eligible-wave` when the eligible wave holds only merged work', () => {
+    // A wave with branches but none startable answers the same as no wave at
+    // all, from a dispatch's point of view — there is nothing to claim and
+    // nothing to ask a person for.
+    expect(skippedPlans(
+      p([wave('W', 'eligible', [['feature/a', 'merged'], ['feature/b', 'deferred']])]),
+      new Set(),
+      new Set(),
+    )).toEqual([{ slug: 'p', reason: 'no-eligible-wave' }]);
+  });
+
+  it('says nothing about a plan that is not approved', () => {
+    expect(skippedPlans(
+      p([wave('W', 'eligible', [['feature/a', 'open']])], 'draft'),
+      new Set(),
+      new Set(['feature/a']),
+    )).toEqual([]);
+  });
+
+  it('a brief skip and a ref skip are two different sentences', () => {
+    // THE PROPERTY THE WAVE EXISTS FOR. Two plans dropped on the same pulse for
+    // two different reasons must not read alike.
+    const two = pulse([
+      ['2026-09-01-briefless.md', 'approved', [
+        wave('W', 'eligible', [['feature/a', 'open']]),
+      ]],
+      ['2026-09-01-held.md', 'approved', [
+        wave('W', 'eligible', [['feature/b', 'open', true]]),
+      ]],
+    ]);
+    expect(skippedPlans(two, new Set(), new Set(['feature/a']))).toEqual([
+      { slug: 'briefless', reason: 'no-brief' },
+      { slug: 'held', reason: 'ref-held' },
+    ]);
+  });
+
+  it('reports the reason accounting for the most branches, ties to the actionable one', () => {
+    // One branch of each kind. `no-brief` wins the tie because it is the one a
+    // person can act on; `in-flight` asks for nothing at all.
+    expect(skippedPlans(
+      p([wave('W', 'eligible', [
+        ['feature/nobrief', 'open'],
+        ['feature/held', 'open', true],
+        ['feature/flying', 'open'],
+      ])]),
+      new Set(['feature/flying']),
+      new Set(['feature/nobrief']),
+    )).toEqual([{ slug: 'p', reason: 'no-brief' }]);
+  });
+
+  it('names exactly the plans planAutoDispatch declines', () => {
+    // AGREEMENT. The two read the same filters, so a plan named here must be
+    // absent from the planner's output and vice versa.
+    const two = pulse([
+      ['2026-09-01-goes.md', 'approved', [
+        wave('W', 'eligible', [['feature/ok', 'open']]),
+      ]],
+      ['2026-09-01-stays.md', 'approved', [
+        wave('W', 'eligible', [['feature/nobrief', 'open']]),
+      ]],
+    ]);
+    const missing = new Set(['feature/nobrief']);
+    const planned = planAutoDispatch({
+      controls: controls(true, 5),
+      pulse: two,
+      liveCount: 0,
+      inFlight: new Set(),
+      missingBriefs: missing,
+    });
+    expect(planned.map((x) => x.slug)).toEqual(['goes']);
+    expect(skippedPlans(two, new Set(), missing).map((x) => x.slug)).toEqual(['stays']);
+  });
+
+  it('is silent about a plan the budget never reached', () => {
+    // The budget is not a property of the plan, and the cap refusal is already
+    // its own sentence. A plan with startable branches is never named here, no
+    // matter how spent the budget is — this function is not given one.
+    const two = pulse([
+      ['2026-09-01-first.md', 'approved', [
+        wave('W', 'eligible', [['feature/a', 'open']]),
+      ]],
+      ['2026-09-01-second.md', 'approved', [
+        wave('W', 'eligible', [['feature/b', 'open']]),
+      ]],
+    ]);
+    expect(skippedPlans(two, new Set(), new Set())).toEqual([]);
   });
 });
