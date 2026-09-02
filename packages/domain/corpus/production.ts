@@ -85,3 +85,38 @@ export const readFleetScan = (estate: Estate): Record<string, unknown> =>
       stdio: ['ignore', 'pipe', 'ignore'],
     }),
   ) as Record<string, unknown>;
+
+/**
+ * Runs `plot-fleet-scan.sh --list-eligible` and returns every branch it names.
+ *
+ * THE CLAIM `--next` ACTS ON. `--list-eligible` is the same computation as
+ * `--next` with the head not taken — one flag sets both (`--list-eligible`
+ * implies `--next`), so a difference between them is impossible by
+ * construction while a difference between either and the pulse is exactly what
+ * this tier is for.
+ *
+ * Exit 1 means *nothing to start*, which is an ANSWER and not a failure — the
+ * scan is deliberate about it, because exiting 0 with no output would hand a
+ * caller an empty branch name as if it were work. So a non-zero exit yields an
+ * empty list here, and the caller distinguishes the two by comparing against
+ * what the pulse offers rather than by the exit code.
+ *
+ * @param estate - the repository to read.
+ * @returns the claimable branch names, in the order the scan offered them.
+ */
+export const readListEligible = (estate: Estate): string[] => {
+  try {
+    return execFileSync('bash', [scriptIn(estate, 'plot-fleet-scan.sh'), '--list-eligible'], {
+      cwd: estate.root,
+      encoding: 'utf8',
+      maxBuffer: MAX_BUFFER,
+      timeout: TIMEOUT_MS,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  } catch {
+    return [];
+  }
+};
