@@ -4,11 +4,12 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-02, Jan Wloka, in-session
 
 ## Changelog
 
@@ -18,7 +19,9 @@ Board impact: real. The `idle` state is one of the eight `plot-worker-state.sh` 
 
 ## Motivation
 
-**Measured 2026-09-01.** Seven desks on this estate carry `reported idle on` in their logs. Every one held real commits when it was ended, and five had to be finished by hand:
+**Measured 2026-09-01, and again 2026-09-02.** Seven desks carried `reported idle on` when this plan was written; three more were killed on 2026-09-02 within minutes of dispatch — `bug/the-host-adapter-counts-what-it-spends`, `feature/an-agent-remembers-its-session` and `feature/dispatch-refuses-a-waiting-slice` — each holding uncommitted work including new test files, which makes ten. The rule now ends workers faster than they finish.
+
+Every one of the original seven held real commits when it was ended, and five had to be finished by hand:
 
 ```
 a-budget-belongs-to-the-computer            5 commits, clean     → #621
