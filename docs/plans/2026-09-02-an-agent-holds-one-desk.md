@@ -152,7 +152,7 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 ### Saying so in the specs
 
-- `docs/the-desk-belongs-to-the-agent` — amend the two sentences this plan contradicts. `DESIGN-worktree.md:60` says the dispatcher creates the desk; the agent does. `DESIGN-branch.md:52` says the push is *the whole* locking mechanism; it stops being that the moment the registry assigns, and becomes a backstop that should never fire. Record the measurement that settled the first and the reasoning that demoted the second — neither sentence was wrong when written.
+- `docs/the-desk-belongs-to-the-agent` — amend the two sentences this plan contradicts. `DESIGN-worktree.md:60` says the dispatcher creates the desk; the agent does. `DESIGN-branch.md:52` says the push is *the whole* locking mechanism; it stops being that the moment the registry assigns, and becomes a backstop that should never fire. Record the measurement that settled the first and the reasoning that demoted the second — neither sentence was wrong when written. (#673)
 
 ### Handing work over
 
