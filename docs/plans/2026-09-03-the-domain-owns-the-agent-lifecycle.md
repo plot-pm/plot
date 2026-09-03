@@ -279,6 +279,8 @@ A declaration is a fact a person wrote.
   available"* — and then ends the worker because nothing could tell. One
   argument, and it unblocks both the reading below and resume.
 
+### Knowing what it spent
+
 - `feature/an-agent-knows-what-it-spent` — the context reading: the transcript
   yields `message.usage`, and the domain turns it into a verdict.
   **Read PER SESSION, never per worktree.** Quiet-detection deliberately takes
