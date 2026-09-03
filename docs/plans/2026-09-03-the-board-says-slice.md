@@ -173,7 +173,7 @@ implies.
   `slices` and accepts `waves`, using the `readEitherSpelling` shape
   (`entities/fleet.ts:563`, seven lines). **Asserted: a payload carrying the
   old spelling still parses**, because that assertion is the only thing
-  standing between a rename and a silent runtime disagreement.
+  standing between a rename and a silent runtime disagreement. → #680
 
 ### Binding to it
 
