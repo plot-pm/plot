@@ -109,7 +109,7 @@ describe('the wave name stays in its cell', () => {
    * missing, which the caller asserts against rather than coercing.
    */
   async function nameVsStatus(page: Page) {
-    const sliceRow = page.locator(`[data-wave-row="${LONG_SLICE}"]`);
+    const sliceRow = page.locator(`[data-slice-row="${LONG_SLICE}"]`);
     await expect.poll(() => sliceRow.count()).toBe(1);
     return sliceRow.evaluate((rowEl) => {
       const name = rowEl.querySelector('[data-tuple-text],[data-tuple-link]') as HTMLElement | null;
@@ -168,7 +168,7 @@ describe('the wave name stays in its cell', () => {
   it('does not push the page into a horizontal scroll to fit the name', async () => {
     const page = await open();
     try {
-      await page.locator(`[data-wave-row="${LONG_SLICE}"]`).first().waitFor({ timeout: 15_000 });
+      await page.locator(`[data-slice-row="${LONG_SLICE}"]`).first().waitFor({ timeout: 15_000 });
       const overflow = await page.evaluate(() =>
         document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(1);

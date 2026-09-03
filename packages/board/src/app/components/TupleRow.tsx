@@ -153,7 +153,7 @@ function valueAttr(link: TupleLink): Record<string, string> {
   // has one producer — the slice a blocked slice waits on — and the hook is what
   // lets a test assert *the blocker is a REFERENCE* rather than matching the
   // sentence `blocked by Relocated` that this replaced.
-  if (link.what === 'wave') return { 'data-wave-link': link.label };
+  if (link.what === 'wave') return { 'data-slice-link': link.label };
   // A PR QUALIFIES ON THE SAME TEST, and the docstring above already said so —
   // *a `pr` link's identity is its number, which `data-pr-link` marked on the
   // anchor rather than on the row*. The stamp was missing while the sentence

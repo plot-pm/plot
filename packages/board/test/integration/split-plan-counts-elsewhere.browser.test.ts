@@ -148,7 +148,7 @@ describe('a split plan counts what is elsewhere', () => {
     const page = await open();
     try {
       await expect.poll(() =>
-        planHead(notStarted(page), SPLIT).locator('[data-wave-summary]').textContent(),
+        planHead(notStarted(page), SPLIT).locator('[data-slice-summary]').textContent(),
         { timeout: 10_000 })
         .toMatch(/1 slice elsewhere/);
     } finally {
@@ -171,7 +171,7 @@ describe('a split plan counts what is elsewhere', () => {
     const page = await open();
     try {
       await openDone(page);
-      const summary = planHead(done(page), SPLIT).locator('[data-wave-summary]');
+      const summary = planHead(done(page), SPLIT).locator('[data-slice-summary]');
       await expect.poll(() => summary.textContent(), { timeout: 10_000 })
         .toMatch(/1 slice · 1 slice elsewhere/);
       // The join itself: no dangling separator at either end.
@@ -188,7 +188,7 @@ describe('a split plan counts what is elsewhere', () => {
     // none of them. Each section renders its own waves ONLY — a wave is one row in
     // one section — so the merged wave's row belongs to DONE and the unstarted
     // wave's row to NOT STARTED, and neither appears under the other's head. The
-    // rows are WAVE rows (`data-wave-row`) here, not branch rows: a plan head
+    // rows are WAVE rows (`data-slice-row`) here, not branch rows: a plan head
     // groups its branches by wave, so `data-branch` is gone and the wave name is
     // the hook. Open every fold first, so this is not passing merely because a row
     // sits behind a shut one.
@@ -197,14 +197,14 @@ describe('a split plan counts what is elsewhere', () => {
       await openDone(page);
       // The merged wave lives in DONE, never NOT STARTED.
       await expect.poll(() =>
-        done(page).locator('[data-wave-row="Sown"]').count(), { timeout: 10_000 })
+        done(page).locator('[data-slice-row="Sown"]').count(), { timeout: 10_000 })
         .toBe(1);
-      expect(await notStarted(page).locator('[data-wave-row="Sown"]').count()).toBe(0);
+      expect(await notStarted(page).locator('[data-slice-row="Sown"]').count()).toBe(0);
       // The unstarted wave lives in NOT STARTED, never DONE.
       await expect.poll(() =>
-        notStarted(page).locator('[data-wave-row="Grown"]').count(), { timeout: 10_000 })
+        notStarted(page).locator('[data-slice-row="Grown"]').count(), { timeout: 10_000 })
         .toBe(1);
-      expect(await done(page).locator('[data-wave-row="Grown"]').count()).toBe(0);
+      expect(await done(page).locator('[data-slice-row="Grown"]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -234,7 +234,7 @@ describe('a split plan counts what is elsewhere', () => {
         }));
       await page.goto(`${cat.mock.baseURL}?tab=agents`);
       await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
-      const summary = planHead(notStarted(page), 'whole-plan').locator('[data-wave-summary]');
+      const summary = planHead(notStarted(page), 'whole-plan').locator('[data-slice-summary]');
       await expect.poll(() => summary.textContent(), { timeout: 10_000 })
         .toBe('2 slices, first eligible');
       // No middot, no "elsewhere" — the whole plan says only what it holds.

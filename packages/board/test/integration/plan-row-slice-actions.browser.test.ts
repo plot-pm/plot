@@ -14,7 +14,7 @@ import { type AgentRow, type Fleet, type Slice } from '../../src/contract/schema
  * dispatching that single wave. Hiding the row must not hide the control.
  *
  * So a one-wave ELIGIBLE plan's row offers *Start work* (the `SliceActions` `⋯`,
- * `data-wave-actions`), exactly as its hidden wave row would have. A MULTI-wave
+ * `data-slice-actions`), exactly as its hidden wave row would have. A MULTI-wave
  * plan's row does NOT — its wave rows still render and still carry their own,
  * and a plan-row control would have to guess which wave it meant.
  *
@@ -153,9 +153,9 @@ describe('the plan row carries the sole wave’s actions', () => {
     try {
       await expect.poll(() => planRow(page, 'beans').count(), { timeout: 10_000 }).toBe(1);
       // The wave row IS present — a one-wave plan's wave is still a wave.
-      await expect.poll(() => page.locator('li[data-wave-row="Solo"]').count()).toBe(1);
+      await expect.poll(() => page.locator('li[data-slice-row="Solo"]').count()).toBe(1);
       // The wave row has NO Start-work control — the plan row carries it.
-      expect(await page.locator('li[data-wave-row="Solo"] [data-wave-actions]').count()).toBe(0);
+      expect(await page.locator('li[data-slice-row="Solo"] [data-slice-actions]').count()).toBe(0);
 
       // ONE menu trigger on the plan row, not two.
       const triggers = planRow(page, 'beans').locator('button[aria-haspopup="menu"]');
@@ -166,7 +166,7 @@ describe('the plan row carries the sole wave’s actions', () => {
       // The wave's act is inside, under a section that NAMES the wave — so a
       // reader can tell which items act on the plan and which on the wave
       // without opening two controls to compare.
-      await expect.poll(() => menu.locator('[data-wave-section="Solo"]').count()).toBe(1);
+      await expect.poll(() => menu.locator('[data-slice-section="Solo"]').count()).toBe(1);
       await expect.poll(() => menu.getByRole('button', { name: /Start work/ }).count())
         .toBeGreaterThanOrEqual(1);
     } finally {
@@ -182,7 +182,7 @@ describe('the plan row carries the sole wave’s actions', () => {
     try {
       await expect.poll(() => planRow(page, 'peas').count(), { timeout: 10_000 }).toBe(1);
       // The wave rows are present…
-      await expect.poll(() => page.locator('li[data-wave-row="First"]').count()).toBe(1);
+      await expect.poll(() => page.locator('li[data-slice-row="First"]').count()).toBe(1);
       // …and the plan row carries NO wave section, however many `⋯` it wears.
       //
       // NEVER MORE THAN ONE TRIGGER — the property this suite exists for. Not
@@ -194,11 +194,11 @@ describe('the plan row carries the sole wave’s actions', () => {
       // No wave section exists anywhere under this row — a multi-wave plan's
       // row cannot know which wave a *Start work* would mean, so it offers none.
       //
-      // Asserted on the SECTION, not on `[data-wave-actions]`. That attribute
+      // Asserted on the SECTION, not on `[data-slice-actions]`. That attribute
       // now lives only on real wave rows, so a plan-row query for it returns 0
       // however this component behaves — the assertion it used to make became
       // vacuous the moment the sibling menu went away.
-      expect(await planRow(page, 'peas').locator('[data-wave-section]').count()).toBe(0);
+      expect(await planRow(page, 'peas').locator('[data-slice-section]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -209,8 +209,8 @@ describe('the plan row carries the sole wave’s actions', () => {
     // control — hiding a plan's sole-wave control must not touch a real wave row.
     const page = await open();
     try {
-      const firstSlice = page.locator('li[data-wave-row="First"]');
-      await expect.poll(() => firstSlice.locator('[data-wave-actions]').count(), { timeout: 10_000 })
+      const firstSlice = page.locator('li[data-slice-row="First"]');
+      await expect.poll(() => firstSlice.locator('[data-slice-actions]').count(), { timeout: 10_000 })
         .toBe(1);
     } finally {
       await page.close();

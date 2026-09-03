@@ -1113,7 +1113,7 @@ export function AgentList({
             <ul
               role="grid"
               aria-label={`${label} — agent branches`}
-              {...(workingSliceListPlan ? { 'data-wave-list': workingSliceListPlan } : {})}
+              {...(workingSliceListPlan ? { 'data-slice-list': workingSliceListPlan } : {})}
               className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
             >
               <HeaderRow />
@@ -1350,7 +1350,7 @@ export function AgentList({
                           // whitespace.
                           <ul
                             role="presentation"
-                            data-wave-list={group.plan}
+                            data-slice-list={group.plan}
                             className="ml-6 border-l border-slate-200 dark:border-slate-800"
                           >
                             {/* SLICES, NOT BRANCHES — the eighth kind, and the
@@ -1431,7 +1431,7 @@ export function AgentList({
                                   {many && sliceOpen && (
                                     <ul
                                       role="presentation"
-                                      data-wave-branch-list={wg.wave || '(unnamed)'}
+                                      data-slice-branch-list={wg.wave || '(unnamed)'}
                                       className="ml-6 border-l border-slate-200 dark:border-slate-800"
                                     >
                                       {wg.rows.map((r) => (
@@ -1715,16 +1715,16 @@ export function AgentList({
                     <ul
                       role="presentation"
                       // THE SAME SLICE-LIST WRAPPER NOT STARTED ALREADY CARRIES.
-                      // `BlockedByMark`'s jump is `[data-wave-list="…"]
-                      // [data-wave-row="…"]` — a slice row is only reachable when
+                      // `BlockedByMark`'s jump is `[data-slice-list="…"]
+                      // [data-slice-row="…"]` — a slice row is only reachable when
                       // it sits UNDER its plan's slice-list. NOT STARTED tagged
                       // its `<ul>` with this; the other sections did not, so a
-                      // blocker completing into DONE rendered a `data-wave-row`
-                      // with no `data-wave-list` above it and the query — correct,
+                      // blocker completing into DONE rendered a `data-slice-row`
+                      // with no `data-slice-list` above it and the query — correct,
                       // document-wide, unchanged — found nothing to scroll to.
                       // Tagging every section's wrapper is the DOM half of the
                       // fix the folded-section unfold is the other half of.
-                      data-wave-list={group.plan}
+                      data-slice-list={group.plan}
                       className={headed || planHeads
                         ? 'ml-6 border-l border-slate-200 dark:border-slate-800'
                         : undefined}
@@ -1816,7 +1816,7 @@ export function AgentList({
                             {many && sliceOpen && (
                               <ul
                                 role="presentation"
-                                data-wave-branch-list={wg.wave || '(unnamed)'}
+                                data-slice-branch-list={wg.wave || '(unnamed)'}
                                 className="ml-6 border-l border-slate-200 dark:border-slate-800"
                               >
                                 {wg.rows.map((r) => (

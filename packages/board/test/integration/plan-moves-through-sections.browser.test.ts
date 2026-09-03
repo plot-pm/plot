@@ -249,9 +249,9 @@ describe('a plan moves through the sections — approve it, and Start work takes
     });
     try {
       await expandAgentFolds(page);
-      // The eligible wave's menu — `SliceActions` renders `data-wave-actions` for
+      // The eligible wave's menu — `SliceActions` renders `data-slice-actions` for
       // an eligible wave once a card and a dispatch verdict exist.
-      const menuButton = notStarted(page).locator('[data-wave-actions="Sown"]');
+      const menuButton = notStarted(page).locator('[data-slice-actions="Sown"]');
       await menuButton.waitFor({ timeout: 10_000 });
       await menuButton.click();
 

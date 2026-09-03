@@ -673,7 +673,7 @@ export function PlanRow({
           // was not.
           <button
             type="button"
-            data-wave-toggle={group.plan}
+            data-slice-toggle={group.plan}
             aria-expanded={expanded}
             aria-label={`${expanded ? 'Hide' : 'Show'} the branches of ${group.plan}`}
             onClick={onToggle}
@@ -787,7 +787,7 @@ export function PlanRow({
           <span className="flex items-center gap-2 truncate">
             {summary && (
               <span
-                data-wave-summary
+                data-slice-summary
                 className="truncate text-slate-500 dark:text-slate-400"
                 title="Slices of this plan in this section — and how many sit in another"
               >
@@ -1162,10 +1162,10 @@ export function SliceRow({
         waitingDays,
       })}
       rowAttr={{
-        'data-wave-row': group.wave || UNNAMED_SLICE,
+        'data-slice-row': group.wave || UNNAMED_SLICE,
         // A SPIKE says so as an attribute too, so a test asserts the KIND of slice
         // rather than the colour of a glyph.
-        ...(isSpikeSlice(group.wave) ? { 'data-wave-spike': '' } : {}),
+        ...(isSpikeSlice(group.wave) ? { 'data-slice-spike': '' } : {}),
       }}
       // AMBER FOR A SPIKE, slate for an implementation slice — and never colour
       // alone: the word `spike` rides beside the name in `beside` below. A tracer
@@ -1180,7 +1180,7 @@ export function SliceRow({
         // `Tracer bullet`), and the slice's own name is right beside it.
         isSpikeSlice(group.wave) ? (
           <span
-            data-wave-kind="spike"
+            data-slice-kind="spike"
             className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
             title="A spike — its outcome may be a refined plan, not merged work"
           >
@@ -1405,7 +1405,7 @@ export function SliceRow({
           {foldable ? (
             <button
               type="button"
-              data-wave-branch-toggle={group.wave || '(unnamed)'}
+              data-slice-branch-toggle={group.wave || '(unnamed)'}
               aria-expanded={expanded}
               aria-label={`${expanded ? 'Hide' : 'Show'} the branches of slice ${group.wave || '(unnamed)'}`}
               onClick={onToggle}
@@ -1868,7 +1868,7 @@ export function Row({
               property of the ROW alone — see `sliceLabel`. */}
           {sliceName && (
             <span
-              data-wave={sliceName}
+              data-slice={sliceName}
               className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
               // The word `wave` is in the TITLE and not in the badge, because
               // the badge is read beside a branch name where the relation is
@@ -2329,8 +2329,8 @@ export function RegistryRow({
           'data-agent-row': '',
           // THE SLICE HOOK, so a blocker being WORKED ON stays reachable.
           //
-          // `BlockedByMark` scrolls to `[data-wave-list="<plan>"]
-          // [data-wave-row="<slice>"]`. A blocker that has not completed sits in
+          // `BlockedByMark` scrolls to `[data-slice-list="<plan>"]
+          // [data-slice-row="<slice>"]`. A blocker that has not completed sits in
           // WORKING with a live worker — exactly the case a reader needs, since
           // that is where attention has to go. WORKING used to render slice rows
           // and carried this attribute; the registry keying replaced them with
@@ -2342,7 +2342,7 @@ export function RegistryRow({
           // does not make it a slice row — it makes the slice it is working on
           // addressable. A row with no branch, or whose branch belongs to no
           // slice, carries neither: absent is not empty.
-          ...(row?.wave ? { 'data-wave-row': row.wave } : {}),
+          ...(row?.wave ? { 'data-slice-row': row.wave } : {}),
           // FREE IS RENDERED AS AN ATTRIBUTE, NOT AS THE STATUS WORD. The two
           // are different questions — *what is it doing?* and *can it take
           // work?* — and a `running` agent between slices answers `running` and

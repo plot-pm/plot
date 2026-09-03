@@ -405,7 +405,7 @@ export function menuState(items: {
  * and plan through `soleRow`. Its menu was the one thing left behind.
  *
  * Measured on the mock before this existed: every slice row had zero menus of
- * any kind (`data-row-actions`, `data-wave-actions` and `data-op` all absent),
+ * any kind (`data-row-actions`, `data-slice-actions` and `data-op` all absent),
  * while every branch row had one. So for a one-branch plan — which is most of
  * them — Review, Open and the worker log were unreachable, and the reader's
  * only route to the PR was the artifact link.
@@ -1070,7 +1070,7 @@ export function SliceActions({
     <div className="relative w-5 shrink-0 text-right" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
-        data-wave-actions={wave}
+        data-slice-actions={wave}
         aria-haspopup="menu"
         aria-expanded={open}
         // Never the native attribute — a natively disabled control leaves the
@@ -1609,7 +1609,7 @@ export function PlanActions({
             <>
               <div
                 role="separator"
-                data-wave-section={soleSlice}
+                data-slice-section={soleSlice}
                 className="mt-1 border-t border-slate-200 px-2 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-700 dark:text-slate-500"
               >
                 Slice {soleSlice}

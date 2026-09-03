@@ -623,14 +623,14 @@ describe('the row says what it knows', () => {
     const page = await open();
     try {
       // MEASURED 2026-08-19 at 1480px: 37 elements under 24 px in one
-      // direction. `data-wave-toggle` was 5 x 10 at `font-size: 10px` — a fifth
+      // direction. `data-slice-toggle` was 5 x 10 at `font-size: 10px` — a fifth
       // of the smallest published minimum, and the control that answers *is
       // there more here?*
       //
       // The sweep runs over the SELECTORS the plan measured, so a target that
       // regresses is named rather than counted.
       // OPEN WHATEVER FOLDS, rather than one named plan. This clicked
-      // `[data-wave-toggle="strawberry-netting"]`, and that plan draws no fold:
+      // `[data-slice-toggle="strawberry-netting"]`, and that plan draws no fold:
       // measured, only `zucchini-glut` and `fix-leaky-hose` carry one, because a
       // fold is drawn per foldable GROUP and these four plans sit in different
       // sections. The click waited out its 30s timeout on a control that was
@@ -641,7 +641,7 @@ describe('the row says what it knows', () => {
       await expandAgentFolds(page);
       const small = await page.evaluate((min) => {
         const selectors = [
-          '[data-wave-toggle]',
+          '[data-slice-toggle]',
           '[data-row-actions]',
           '[data-plan-actions] button',
           '[data-pr-link]',
@@ -684,12 +684,12 @@ describe('the row says what it knows', () => {
       // the standalone `rotate` property, and asserting on only one of the two
       // would make this test pass for the wrong reason if that ever changes.
       const orientation = () =>
-        page.locator('[data-wave-toggle="zucchini-glut"] span[aria-hidden]')
+        page.locator('[data-slice-toggle="zucchini-glut"] span[aria-hidden]')
           .evaluate((el) => {
             const s = getComputedStyle(el);
             return `${s.rotate}|${s.transform}`;
           });
-      const toggle = page.locator('[data-wave-toggle="zucchini-glut"]');
+      const toggle = page.locator('[data-slice-toggle="zucchini-glut"]');
       // Start from a KNOWN state rather than from whichever one the page
       // happens to be in — the fold is remembered across sessions, so a test
       // that assumes "shut" asserts on the wrong half whenever it is not.
@@ -713,7 +713,7 @@ describe('the row says what it knows', () => {
       // `transition-transform` means the quarter turn takes a frame or two, and
       // reading mid-flight reports an angle nobody designed.
       await page.waitForFunction(() => {
-        const el = document.querySelector('[data-wave-toggle="zucchini-glut"] span[aria-hidden]');
+        const el = document.querySelector('[data-slice-toggle="zucchini-glut"] span[aria-hidden]');
         return !!el && getComputedStyle(el).rotate === '90deg';
       }, undefined, { timeout: 5_000 });
       const turned = await orientation();
@@ -722,7 +722,7 @@ describe('the row says what it knows', () => {
       // And `aria-expanded` still carries it for a reader who sees no geometry
       // at all.
       await expect.poll(() =>
-        page.locator('[data-wave-toggle="zucchini-glut"]').getAttribute('aria-expanded'))
+        page.locator('[data-slice-toggle="zucchini-glut"]').getAttribute('aria-expanded'))
         .toBe('true');
     } finally {
       await page.close();

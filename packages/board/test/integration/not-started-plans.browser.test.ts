@@ -161,7 +161,7 @@ describe('NOT STARTED renders one row per plan', () => {
     const page = await open();
     try {
       await expect.poll(() =>
-        planRow(page, 'activity-shows-itself').locator('[data-wave-summary]').textContent())
+        planRow(page, 'activity-shows-itself').locator('[data-slice-summary]').textContent())
         .toBe('3 slices, first eligible');
     } finally {
       await page.close();
@@ -175,7 +175,7 @@ describe('NOT STARTED renders one row per plan', () => {
       // away passes the one-row assertion above and loses the plan's own words
       // for what it will do. A reader who wants them must not have to open the
       // plan file.
-      await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
+      await page.locator('[data-slice-toggle="activity-shows-itself"]').click();
       for (const branch of [
         'feature/activity-marker-glows',
         'feature/group-shows-inner-activity',
@@ -192,7 +192,7 @@ describe('NOT STARTED renders one row per plan', () => {
   it('folds it shut again, and says which state it is in', async () => {
     const page = await open();
     try {
-      const toggle = page.locator('[data-wave-toggle="activity-shows-itself"]');
+      const toggle = page.locator('[data-slice-toggle="activity-shows-itself"]');
       // `aria-expanded` is what tells a screen reader the fold is shut — the
       // caret alone is a visual fact.
       await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('false');
@@ -214,7 +214,7 @@ describe('NOT STARTED renders one row per plan', () => {
       // still be reachable: hiding it behind a control the reader was never
       // given would lose it entirely.
       await expect.poll(() =>
-        page.locator('[data-wave-toggle="plot-sprint-support"]').count()).toBe(0);
+        page.locator('[data-slice-toggle="plot-sprint-support"]').count()).toBe(0);
       await expect.poll(() =>
         section(page).locator('[data-branch="feature/plot-sprint-support"]').count()).toBe(1);
     } finally {
@@ -351,11 +351,11 @@ describe('NOT STARTED renders one row per plan', () => {
       // So the claim splits. **Children align with each other** — one grid, and
       // a column a reader can scan down. **The parent sits 24px to their left**,
       // matching its own fold control, which is the shape a file tree uses.
-      await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
+      await page.locator('[data-slice-toggle="activity-shows-itself"]').click();
       // A WAVE ROW, not a branch row. NOT STARTED renders one row per wave, and
       // this plan's three branches are three waves — see the fixture, which now
       // names them.
-      const branchRow = section(page).locator('[data-wave-row="Truth"]');
+      const branchRow = section(page).locator('[data-slice-row="Truth"]');
       await branchRow.waitFor({ timeout: 5_000 });
       const planRowEl = planRow(page, 'activity-shows-itself');
       // THE PARENT IS OUTDENTED, by the width of its own fold control. One
@@ -371,7 +371,7 @@ describe('NOT STARTED renders one row per plan', () => {
       // one grid buys and what a reader scanning a column depends on. A single
       // matching cell could be a coincidence of content width; the claim is
       // about the grid.
-      const siblings = section(page).locator('[data-wave-list] [data-wave-row]');
+      const siblings = section(page).locator('[data-slice-list] [data-slice-row]');
       const n = await siblings.count();
       expect(n, 'more than one wave, or this asserts nothing').toBeGreaterThan(1);
       for (const slot of [0, 1, 2, 3, 4, 5, 6]) {
@@ -402,12 +402,12 @@ describe('NOT STARTED renders one row per plan', () => {
     // outside NOT STARTED gets no waiting-state at all.
     const page = await open();
     try {
-      await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
+      await page.locator('[data-slice-toggle="activity-shows-itself"]').click();
       // BY WAVE, since NOT STARTED renders one row per wave. `waitingOn` is a
       // fact the server puts on the branch, and the wave row that stands for a
       // single-branch wave is where it now reaches the DOM.
       const noteOf = (wave: string) =>
-        section(page).locator(`[data-wave-row="${wave}"]`).locator('[data-row-note]');
+        section(page).locator(`[data-slice-row="${wave}"]`).locator('[data-row-note]');
 
       const eligible = noteOf('Truth');
       const blocked = noteOf('Shown');
@@ -452,9 +452,9 @@ describe('NOT STARTED renders one row per plan', () => {
     // plan row is never the last child of its own group.
     const page = await open();
     try {
-      await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
+      await page.locator('[data-slice-toggle="activity-shows-itself"]').click();
       // A WAVE ROW: the rows inside a plan group are its waves.
-      const branchRow = section(page).locator('[data-wave-row="Truth"]');
+      const branchRow = section(page).locator('[data-slice-row="Truth"]');
       await branchRow.waitFor({ timeout: 5_000 });
 
       const widthOf = (loc: ReturnType<typeof branchRow.first>) =>
@@ -498,10 +498,10 @@ describe('NOT STARTED renders one row per plan', () => {
     // times and reads like three measurements.
     const page = await open();
     try {
-      await page.locator('[data-wave-toggle="activity-shows-itself"]').click();
+      await page.locator('[data-slice-toggle="activity-shows-itself"]').click();
       // A WAVE ROW: the rows under a plan are its waves, and the claim is
       // unchanged — the phase is the PLAN's and appears once.
-      const branchRow = section(page).locator('[data-wave-row="Truth"]');
+      const branchRow = section(page).locator('[data-slice-row="Truth"]');
       await branchRow.waitFor({ timeout: 5_000 });
 
       // The wave row's phase cell is empty — the cell still RENDERS, so the

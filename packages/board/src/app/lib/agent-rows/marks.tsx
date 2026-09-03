@@ -450,7 +450,7 @@ export function BlockedByMark({
     let framesLeft = 10;
     const find = () => {
       const target = document.querySelector<HTMLElement>(
-        `[data-wave-list="${CSS.escape(plan)}"] [data-wave-row="${CSS.escape(wave)}"]`,
+        `[data-slice-list="${CSS.escape(plan)}"] [data-slice-row="${CSS.escape(wave)}"]`,
       );
       if (target) {
         scrollToTarget(target);
@@ -478,7 +478,7 @@ export function BlockedByMark({
     >
       <button
         type="button"
-        data-wave-blocked-by={wave}
+        data-slice-blocked-by={wave}
         aria-haspopup="dialog"
         aria-expanded={open}
         // THE NAME IS IN THE LABEL, not only in the overlay. A reader on a
@@ -506,13 +506,13 @@ export function BlockedByMark({
         // the row menus' `z-10`.
         <span
           role="dialog"
-          data-wave-blocked-panel={wave}
+          data-slice-blocked-panel={wave}
           className="absolute bottom-full right-0 z-20 mb-1 w-max whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900"
         >
           <span className="text-slate-500 dark:text-slate-400">blocked by </span>
           <button
             type="button"
-            data-wave-goto={wave}
+            data-slice-goto={wave}
             onClick={goToSlice}
             className="font-medium text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
           >
