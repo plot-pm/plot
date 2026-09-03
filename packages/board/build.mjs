@@ -150,6 +150,35 @@ await esbuild.build({
 fs.copyFileSync(transitionArtifact, shippedTransition);
 fs.chmodSync(shippedTransition, 0o755);
 
+// Which prompt an agent runs, reachable from the loop that launches it.
+//
+// A SIXTH artifact, for the reason the third, fourth and fifth ones give:
+// plot-ask.mjs answers by RUNNING plot-fleet-scan.sh, so a worker loop asking
+// it which prompt to source would start a whole scan on its launch path.
+//
+// Vendored beside plot-worker-loop.sh, which resolves it from its own
+// $script_dir. The loop is shipped in the published npm package, where
+// `packages/` does not exist, so an inline import of the domain source would
+// resolve only in the plot checkout — and every worker elsewhere would take the
+// fallback prompt without anything saying it had.
+const promptArtifact = path.join(here, 'dist/plot-prompt.mjs');
+const shippedPrompt = path.join(here, '../../skills/plot/scripts/board/plot-prompt.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/prompt.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: promptArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(promptArtifact, shippedPrompt);
+fs.chmodSync(shippedPrompt, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -214,9 +243,11 @@ const askKb = (fs.statSync(shippedAsk).size / 1024).toFixed(1);
 const verdictsKb = (fs.statSync(shippedVerdicts).size / 1024).toFixed(1);
 const movableKb = (fs.statSync(shippedMovable).size / 1024).toFixed(1);
 const transitionKb = (fs.statSync(shippedTransition).size / 1024).toFixed(1);
+const promptKb = (fs.statSync(shippedPrompt).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-movable.mjs (${movableKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-transition.mjs (${transitionKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-prompt.mjs (${promptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
