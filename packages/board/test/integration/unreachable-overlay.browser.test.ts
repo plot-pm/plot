@@ -214,7 +214,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // An eligible branch renders as its WAVE since `a-wave-is-a-kind`, and the
     // wave row carries the menu — `Start work` acts on a plan and a dispatch
     // binding, never on a branch, so the wave is where it belongs. `data-row-actions`
-    // was the branch row's hook; `data-wave-actions` is the wave's, and this
+    // was the branch row's hook; `data-slice-actions` is the wave's, and this
     // accepts either so the test asks *is the menu reachable* rather than *which
     // component drew it*.
     // FOUND BY `data-branch`, not by exact text. A branch name is folded in the
@@ -224,7 +224,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     // the name whole, which is what it is for.
     page.locator('li')
       .filter({ has: page.locator('[data-branch="feature/untaken"]') })
-      .locator('[data-row-actions], [data-wave-actions]')
+      .locator('[data-row-actions], [data-slice-actions]')
       .last();
 
   /**

@@ -248,7 +248,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // the name is now folded in the middle across two spans, so no single
     // element holds it as exact text.
     //
-    // ## `li[data-agent-row], li:has([data-wave-row])` — the row OR its wave
+    // ## `li[data-agent-row], li:has([data-slice-row])` — the row OR its wave
     //
     // A branch that belongs to a wave is rendered as its WAVE since
     // `a-wave-is-a-kind`: the wave row names the wave and links the branch as an
@@ -304,8 +304,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    *
    * ## TWO LEVELS OF FOLD, and this opens both
    *
-   * It opened `[data-wave-toggle]` only, which folds a PLAN. Since the wave kind
-   * landed there is a second fold one level down — `[data-wave-branch-toggle]`,
+   * It opened `[data-slice-toggle]` only, which folds a PLAN. Since the wave kind
+   * landed there is a second fold one level down — `[data-slice-branch-toggle]`,
    * which folds the branches of a WAVE — and a plan opened over waves that are
    * themselves shut still shows no branch rows.
    *
@@ -322,7 +322,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    * would miss every wave under a folded plan.
    */
   async function expandPlans(page: Page) {
-    for (const selector of ['[data-wave-toggle]', '[data-wave-branch-toggle]']) {
+    for (const selector of ['[data-slice-toggle]', '[data-slice-branch-toggle]']) {
       const toggles = page.locator(selector);
       for (let i = 0; i < (await toggles.count()); i += 1) {
         const toggle = toggles.nth(i);
@@ -1105,10 +1105,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     try {
       const li = rowFor(page, 'feature/blocked');
       // NAMES THE WAVE — and the answer is a MARK rather than a sentence:
-      // `BlockedByMark` renders an icon carrying `data-wave-blocked-by` plus the
+      // `BlockedByMark` renders an icon carrying `data-slice-blocked-by` plus the
       // accessible name *Blocked by wave Truth — show it*, which scrolls to that
       // wave. Asserted on the field's rendering, not on prose.
-      const blockedMark = group(page, 'Not started').locator('[data-wave-blocked-by="Truth"]');
+      const blockedMark = group(page, 'Not started').locator('[data-slice-blocked-by="Truth"]');
       await expect.poll(() => blockedMark.count()).toBeGreaterThan(0);
       // AND IT SAYS SO TO A SCREEN READER — the half a mark loses in silence.
       expect(await blockedMark.first().getAttribute('aria-label'))
@@ -1123,7 +1123,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('reveals a blocker that has completed into a COLLAPSED section', async () => {
     // THE BUG THIS FIXES. The blocking wave is usually finished — so it sits in
     // DONE, which is folded by default for every reader on every load. A folded
-    // section is REMOVED from the tree, so `[data-wave-row="Shaped"]` matched
+    // section is REMOVED from the tree, so `[data-slice-row="Shaped"]` matched
     // nothing and `if (!target) return` fired: the ⓘ was a dead control.
     //
     // DONE IS LEFT FOLDED HERE ON PURPOSE. A test that opens it first passes
@@ -1173,16 +1173,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // DONE is folded on arrival, so its rows are NOT in the document — the
       // exact state that used to silence the mark.
       await expect.poll(() => groupRows(page, 'Done').count()).toBe(0);
-      expect(await group(page, 'Done').locator('[data-wave-row="Shaped"]').count()).toBe(0);
+      expect(await group(page, 'Done').locator('[data-slice-row="Shaped"]').count()).toBe(0);
 
       // Click the ⓘ on the blocked `Moved` wave, in NOT STARTED.
-      const mark = group(page, 'Not started').locator('[data-wave-blocked-by="Shaped"]');
+      const mark = group(page, 'Not started').locator('[data-slice-blocked-by="Shaped"]');
       await expect.poll(() => mark.count()).toBeGreaterThan(0);
       await mark.first().click();
 
       // The mark opened DONE and the blocker's row is now on the page — the
       // reveal that was silently impossible before.
-      const target = group(page, 'Done').locator('[data-wave-row="Shaped"]');
+      const target = group(page, 'Done').locator('[data-slice-row="Shaped"]');
       await expect.poll(() => target.count()).toBeGreaterThan(0);
       // And it FLASHED, the same amber ring the mark already used for a sibling.
       await expect.poll(() => target.first().getAttribute('class'))
@@ -1195,7 +1195,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('reveals a blocker that is being WORKED on right now', async () => {
     // The WORKING case. A blocker that has not completed sits in WORKING with a
     // live worker, not in DONE. The jump must find it there, which requires
-    // WORKING to carry the same `data-wave-list` wrapper the other sections do.
+    // WORKING to carry the same `data-slice-list` wrapper the other sections do.
     //
     // This is the case `the-blocking-wave-is-found-wherever-it-is` (#383) could
     // not catch: its fix was "tag every section's wrapper", and WORKING had no
@@ -1243,16 +1243,16 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // WORKING is open on arrival, and the blocker's wave row is already in
       // the document — this is NOT about unfolding, it is about finding a row
       // in a section that does not group by plan.
-      await expect.poll(() => group(page, 'Working').locator('[data-wave-row="Named"]').count())
+      await expect.poll(() => group(page, 'Working').locator('[data-slice-row="Named"]').count())
         .toBeGreaterThan(0);
 
       // Click the ⓘ on the blocked `Spoken` wave, in NOT STARTED.
-      const mark = group(page, 'Not started').locator('[data-wave-blocked-by="Named"]');
+      const mark = group(page, 'Not started').locator('[data-slice-blocked-by="Named"]');
       await expect.poll(() => mark.count()).toBeGreaterThan(0);
       await mark.first().click();
 
       // The blocker's row flashes — the jump found its target in WORKING.
-      const target = group(page, 'Working').locator('[data-wave-row="Named"]');
+      const target = group(page, 'Working').locator('[data-slice-row="Named"]');
       await expect.poll(() => target.first().getAttribute('class'))
         .toContain('ring-amber-400');
     } finally {
@@ -1296,7 +1296,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // from prose — the contract reserves the sentence for humans and the field
       // for consumers, and this test is a consumer.
       await expect.poll(() =>
-        group(page, 'Not started').locator('[data-wave-blocked-by="Truth"]').count())
+        group(page, 'Not started').locator('[data-slice-blocked-by="Truth"]').count())
         .toBeGreaterThan(0);
       expect(await menu(page, 'feature/blocked').count()).toBe(0);
       // A different row, a different reason — so the words are read from the
@@ -1928,7 +1928,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
         .toBe(DONE_ROWS + DONE_PLANS * 2);
       // And the parts, so a wrong TOTAL says which half moved.
       expect(await group(page, 'Done').locator('li[data-plan-row]').count()).toBe(DONE_PLANS);
-      expect(await group(page, 'Done').locator('li[data-wave-row]').count()).toBe(DONE_PLANS);
+      expect(await group(page, 'Done').locator('li[data-slice-row]').count()).toBe(DONE_PLANS);
       const opened = await footer(page).evaluate((el) => {
         const r = el.getBoundingClientRect();
         return { top: r.top, viewport: window.innerHeight };
@@ -2652,14 +2652,14 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // WORKING RENDERS THE AGENT, NOT THE BRANCH, since
       // `the-working-section-shows-every-worker`. `truth-a`'s WORKING row is now
       // its worker's row, joined to the branch row, and it carries the wave as
-      // an artifact LINK (`data-wave-link`) rather than the branch-cell BADGE
-      // (`data-wave`) a branch row draws. The reachability the badge existed for
+      // an artifact LINK (`data-slice-link`) rather than the branch-cell BADGE
+      // (`data-slice`) a branch row draws. The reachability the badge existed for
       // survives whole — the wave is beside the branch either way — and the
       // running worker's row NAMING its wave as its own subject is a later wave
       // (`Named`). So the WORKING half of this claim checks the link.
-      await expect.poll(() => truth.locator('[data-wave-link]').getAttribute('data-wave-link')).toBe('Truth');
+      await expect.poll(() => truth.locator('[data-slice-link]').getAttribute('data-slice-link')).toBe('Truth');
       // IN NOT STARTED THE WAVE IS A ROW, not a badge — and the branch is
-      // reachable under it. Measured: `fold-a` renders with zero `[data-wave]`
+      // reachable under it. Measured: `fold-a` renders with zero `[data-slice]`
       // badges, and that is the design rather than a loss.
       //
       // A section that GROUPS states the wave once, in the row heading the
@@ -2671,20 +2671,20 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       //
       // The claim that survives is the one the badge existed for: a branch's
       // wave is REACHABLE beside it, whichever of the two shapes states it.
-      const foldSlice = group(page, 'Not started').locator('li[data-wave-row="Fold"]');
+      const foldSlice = group(page, 'Not started').locator('li[data-slice-row="Fold"]');
       await expect.poll(() => foldSlice.count()).toBe(1);
       for (const b of ['feature/fold-a', 'feature/fold-b']) {
         const li = rowFor(page, b);
         await expect.poll(() => li.count()).toBe(1);
         // No badge, because the row above carries it — the same containment
         // rule that drops a grouped row's plan link.
-        expect(await li.locator('[data-wave]').count(), `${b} repeats its wave`).toBe(0);
+        expect(await li.locator('[data-slice]').count(), `${b} repeats its wave`).toBe(0);
       }
       // THE WAVE LINK RIDES IN SLOT 4, the agent row's artifact slot — reachable
       // beside the branch, the whole point of the move. And slot 2 holds the
       // KIND, not the wave and not a phase.
       const kindCell = truth.locator('[role="gridcell"]').nth(KIND_CELL);
-      expect(await kindCell.locator('[data-wave-link], [data-wave]').count()).toBe(0);
+      expect(await kindCell.locator('[data-slice-link], [data-slice]').count()).toBe(0);
       expect(await kindCell.locator('[data-kind]').count()).toBe(1);
       expect(await truth.locator('[data-phase]').count()).toBe(0);
     } finally {
@@ -2707,8 +2707,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // `flat-a` is a WORKING row, so its worker's row carries the wave as an
       // artifact LINK now — the branch-cell badge is a branch row's, and WORKING
       // renders the agent. The named single wave still prints; the count gate
-      // that suppressed it is gone. (`data-wave-link`, not `data-wave`.)
-      await expect.poll(() => flat.locator('[data-wave-link]').getAttribute('data-wave-link')).toBe('Layout');
+      // that suppressed it is gone. (`data-slice-link`, not `data-slice`.)
+      await expect.poll(() => flat.locator('[data-slice-link]').getAttribute('data-slice-link')).toBe('Layout');
     } finally {
       await page.close();
     }
@@ -2723,7 +2723,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       try {
         const plain = rowFor(page, 'feature/plain-a');
         await expect.poll(() => plain.count()).toBe(1);
-        expect(await plain.locator('[data-wave]').count()).toBe(0);
+        expect(await plain.locator('[data-slice]').count()).toBe(0);
         expect(await plain.textContent()).not.toContain('unnamed');
       } finally {
         await page.close();
@@ -2745,11 +2745,11 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     const page = await openAgents(sliceFleet());
     try {
       const notStarted = group(page, 'Not started');
-      const fold = notStarted.locator('li[data-wave-row="Fold"]');
+      const fold = notStarted.locator('li[data-slice-row="Fold"]');
       await expect.poll(() => fold.count()).toBe(1);
       // ONE RUN: both branches sit under that head, and nothing else does.
-      const under = notStarted.locator('li[data-wave-row="Fold"] ~ * [data-branch], '
-        + 'li[data-wave-row="Fold"] [data-branch]');
+      const under = notStarted.locator('li[data-slice-row="Fold"] ~ * [data-branch], '
+        + 'li[data-slice-row="Fold"] [data-branch]');
       const names = await under.evaluateAll(
         (els) => els.map((e) => e.getAttribute('data-branch')));
       expect(new Set(names)).toEqual(new Set(['feature/fold-a', 'feature/fold-b']));
@@ -2757,7 +2757,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       expect(await notStarted.getByRole('heading', { name: /^Fold/ }).count()).toBe(0);
       // And no branch beneath it repeats the wave as a badge.
       for (const b of ['feature/fold-a', 'feature/fold-b']) {
-        expect(await rowFor(page, b).locator('[data-wave]').count()).toBe(0);
+        expect(await rowFor(page, b).locator('[data-slice]').count()).toBe(0);
       }
     } finally {
       await page.close();

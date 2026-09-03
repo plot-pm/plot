@@ -198,7 +198,7 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // worker — and it used to render the columns for all three because it was
       // laid on `ROW_TRACKS`.
       expect(await ticket.locator('[data-branch]').count()).toBe(0);
-      expect(await ticket.locator('[data-wave]').count()).toBe(0);
+      expect(await ticket.locator('[data-slice]').count()).toBe(0);
       // And the cell that used to hold a plan PHASE on a row that is not a plan
       // now holds the KIND, in a word, which is the fact that cell was always
       // failing to state.

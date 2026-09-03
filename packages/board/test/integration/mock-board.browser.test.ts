@@ -63,7 +63,7 @@ describe('the mock board serves named states', () => {
       const doneToggle = page.locator('[data-group-toggle]').filter({ hasText: 'Done' });
       if ((await doneToggle.getAttribute('aria-expanded')) === 'false') await doneToggle.click();
 
-      const sliceRow = page.locator('[data-wave-row="Complete"]');
+      const sliceRow = page.locator('[data-slice-row="Complete"]');
       await sliceRow.waitFor({ timeout: 10_000 });
       // The state is what its NAME says: a done wave of two merged branches,
       // whose own verdict is `complete`.
@@ -84,7 +84,7 @@ describe('the mock board serves named states', () => {
       await base.getByText('Done').first().waitFor({ timeout: 15_000 });
       const t = base.locator('[data-group-toggle]').filter({ hasText: 'Done' });
       if ((await t.getAttribute('aria-expanded')) === 'false') await t.click();
-      baseStatus = await base.locator('[data-wave-row="Complete"] [data-tuple-status]')
+      baseStatus = await base.locator('[data-slice-row="Complete"] [data-tuple-status]')
         .textContent();
     } finally {
       await base.close();
@@ -123,7 +123,7 @@ describe('the mock board serves named states', () => {
       const t = page.locator('[data-group-toggle]').filter({ hasText: 'Done' });
       if ((await t.getAttribute('aria-expanded')) === 'false') await t.click();
 
-      const sliceRow = page.locator('[data-wave-row="Complete"]');
+      const sliceRow = page.locator('[data-slice-row="Complete"]');
       await sliceRow.waitFor({ timeout: 10_000 });
       // CHANGED: the branch the override named. A wave's branches sit behind
       // two folds (plan, then wave), so this opens them the way the rest of the

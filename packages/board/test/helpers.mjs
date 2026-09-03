@@ -509,6 +509,23 @@ export function rmTree(target, { retries = 10, delayMs = 25 } = {}) {
 }
 
 /**
+ * The attribute a Slice row carries, and the two folds that hide it.
+ *
+ * ## Why these are constants
+ *
+ * A renamed attribute with an un-renamed selector produces a test that finds
+ * nothing and passes: `querySelectorAll` returning an empty list is not an
+ * error. Naming the selector once means the rename has one site per selector
+ * rather than one per call, and a stale literal is a missing import rather
+ * than a silent zero.
+ *
+ * `SLICE_FOLDS` is ordered and the order is load-bearing — see
+ * {@link expandAgentFolds}.
+ */
+export const SLICE_ROW = '[data-slice-row]';
+export const SLICE_FOLDS = ['[data-slice-toggle]', '[data-slice-branch-toggle]'];
+
+/**
  * Open every fold on the Agents tab, plans first and then waves.
  *
  * ## Why this is shared rather than copied
@@ -532,11 +549,31 @@ export function rmTree(target, { retries = 10, delayMs = 25 } = {}) {
  * expander and its rows are visible already.
  */
 export async function expandAgentFolds(page) {
-  for (const selector of ['[data-wave-toggle]', '[data-wave-branch-toggle]']) {
+  for (const selector of SLICE_FOLDS) {
     const toggles = page.locator(selector);
     for (let i = 0; i < (await toggles.count()); i += 1) {
       const toggle = toggles.nth(i);
       if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
     }
   }
+}
+
+/**
+ * How many Slice rows the open page renders.
+ *
+ * ## Why a count, and not a match
+ *
+ * A selector that grips a renamed attribute matches nothing, and matching
+ * nothing is not an error — `count()` returns 0 and every `toBe(0)` assertion
+ * in the suite goes green. So the guard against a rename into silence cannot be
+ * "the selector runs"; it has to be "a fixture known to render N rows still
+ * yields N".
+ *
+ * Opens the folds first, because a Slice row under a shut plan is not in the
+ * DOM and would count as zero for a reason that has nothing to do with the
+ * selector.
+ */
+export async function countSliceRows(page) {
+  await expandAgentFolds(page);
+  return page.locator(SLICE_ROW).count();
 }
