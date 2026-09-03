@@ -369,7 +369,7 @@ const oneRowPerKind = (): Scenario => ({
   fleet: fleet({
     rows: [
       // ONE WAVE PER ROW, not one wave over all eight. The consuming test
-      // asserts a named wave renders as EXACTLY ONE `data-wave-row`; eight rows
+      // asserts a named wave renders as EXACTLY ONE `data-slice-row`; eight rows
       // sharing a name render eight heads, which fails a property that is about
       // the wave's home rather than about its population.
       ...KINDS.map((kind) => row({

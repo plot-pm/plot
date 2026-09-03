@@ -1,0 +1,1 @@
+../2026-09-03-the-board-says-slice.md

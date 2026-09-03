@@ -202,7 +202,7 @@ describe('a folded plan folds its branches PR states onto its head', () => {
     try {
       // This is the "Wo ist 304?" case: a red PR under a plan head over wave
       // groups. Fold it if it is open, then read the head.
-      const toggle = page.locator('[data-wave-toggle="lone-failure"]');
+      const toggle = page.locator('[data-slice-toggle="lone-failure"]');
       if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
       await expect.poll(() => fold(page, 'lone-failure').getAttribute('data-plan-pr-fold'))
         .toBe('failing');
@@ -218,7 +218,7 @@ describe('a folded plan folds its branches PR states onto its head', () => {
   it('planHeads PATH: conflicts wins over failing on a plan carrying both', async () => {
     const page = await open();
     try {
-      const toggle = page.locator('[data-wave-toggle="conflict-wins"]');
+      const toggle = page.locator('[data-slice-toggle="conflict-wins"]');
       if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
       await expect.poll(() => fold(page, 'conflict-wins').getAttribute('data-plan-pr-fold'))
         .toBe('conflicts');
@@ -234,7 +234,7 @@ describe('a folded plan folds its branches PR states onto its head', () => {
   it('planHeads PATH: pending renders in the DIMMER tone, not the actionable one', async () => {
     const page = await open();
     try {
-      const toggle = page.locator('[data-wave-toggle="just-pending"]');
+      const toggle = page.locator('[data-slice-toggle="just-pending"]');
       if (await toggle.getAttribute('aria-expanded') === 'true') await toggle.click();
       await expect.poll(() => fold(page, 'just-pending').getAttribute('data-plan-pr-fold'))
         .toBe('pending');
@@ -246,7 +246,7 @@ describe('a folded plan folds its branches PR states onto its head', () => {
       expect(cls).not.toContain('rose');
       // And the actionable states DO wear rose, which is what makes the contrast
       // a fact rather than an assumption.
-      const failToggle = page.locator('[data-wave-toggle="lone-failure"]');
+      const failToggle = page.locator('[data-slice-toggle="lone-failure"]');
       if (await failToggle.getAttribute('aria-expanded') === 'true') await failToggle.click();
       const failCls = (await fold(page, 'lone-failure').getAttribute('class')) ?? '';
       expect(failCls).toContain('rose');
@@ -261,7 +261,7 @@ describe('a folded plan folds its branches PR states onto its head', () => {
       // A long group scrolls its head off screen either way, so the fact must
       // not vanish on expand — the rule the change mark's own docstring names as
       // the shape it should have had.
-      const toggle = page.locator('[data-wave-toggle="conflict-wins"]');
+      const toggle = page.locator('[data-slice-toggle="conflict-wins"]');
       if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
       await expect.poll(() => toggle.getAttribute('aria-expanded')).toBe('true');
       // Branches are on screen now — and the head still carries the fold.

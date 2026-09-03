@@ -80,6 +80,20 @@ export interface Catalogue {
 const DEFAULT_VIEWPORT = { width: 1400, height: 1200 };
 
 /**
+ * The Slice row's attribute and its two folds — a copy of `helpers.mjs`'s
+ * constants of the same names, copied for the same reason its
+ * `expandAgentFolds` is: that module exports `startServer`, and importing it
+ * here would put the board-spawning helper one auto-import away from every
+ * catalogue consumer.
+ *
+ * Two lines of duplication, and the rename that produced them touched both in
+ * one commit. A drift between the two shows up as a catalogue-backed test
+ * finding no rows, which is what {@link countSliceRows} exists to catch.
+ */
+const SLICE_ROW = '[data-slice-row]';
+const SLICE_FOLDS = ['[data-slice-toggle]', '[data-slice-branch-toggle]'];
+
+/**
  * Open every fold on the Agents tab, plans first and then waves.
  *
  * A copy of `helpers.mjs`'s helper of the same name, and copied DELIBERATELY:
@@ -93,13 +107,33 @@ const DEFAULT_VIEWPORT = { width: 1400, height: 1200 };
  * under a folded plan.
  */
 export const expandAgentFolds = async (page: Page): Promise<void> => {
-  for (const selector of ['[data-wave-toggle]', '[data-wave-branch-toggle]']) {
+  for (const selector of SLICE_FOLDS) {
     const toggles = page.locator(selector);
     for (let i = 0; i < (await toggles.count()); i += 1) {
       const toggle = toggles.nth(i);
       if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
     }
   }
+};
+
+/**
+ * How many Slice rows the open page renders.
+ *
+ * ## Why a count, and not a match
+ *
+ * A selector that grips a renamed attribute matches nothing, and matching
+ * nothing is not an error — `count()` returns 0 and every `toBe(0)` assertion
+ * in the suite goes green. So the guard against a rename into silence cannot be
+ * "the selector runs"; it has to be "a fixture known to render N rows still
+ * yields N".
+ *
+ * Opens the folds first, because a Slice row under a shut plan is not in the
+ * DOM and would count as zero for a reason that has nothing to do with the
+ * selector.
+ */
+export const countSliceRows = async (page: Page): Promise<number> => {
+  await expandAgentFolds(page);
+  return page.locator(SLICE_ROW).count();
 };
 
 /**

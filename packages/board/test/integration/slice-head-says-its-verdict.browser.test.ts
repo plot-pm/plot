@@ -112,7 +112,7 @@ describe('a folded multi-branch wave head renders its verdict, not a claim', () 
 
   /** The head of a folded wave — the row that carries `sliceNote`. */
   const headNote = (page: Page, wave: string) =>
-    page.locator(`[data-wave-row="${wave}"]`).locator('[data-row-note]');
+    page.locator(`[data-slice-row="${wave}"]`).locator('[data-row-note]');
 
   it('a blocked wave in review reads its verdict, never that work landed', async () => {
     const page = await open();

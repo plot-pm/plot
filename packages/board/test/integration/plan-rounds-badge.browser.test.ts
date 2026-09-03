@@ -185,7 +185,7 @@ describe('the rounds ride beside the phase', () => {
       await expect.poll(() => badge(page, 'interrogated').count(), { timeout: 10_000 }).toBe(1);
       // The wave summary still says what the plan holds, and says nothing about
       // rounds. A badge that ALSO stayed in the run passes every test above.
-      const aside = planRow(page, 'interrogated').locator('[data-wave-summary]');
+      const aside = planRow(page, 'interrogated').locator('[data-slice-summary]');
       if (await aside.count()) {
         expect(await aside.textContent()).not.toContain('round');
       }

@@ -191,11 +191,11 @@ describe('the plan head carries the plan decisions, and no row does', () => {
     try {
       // Both blocked and eligible branch/wave rows are present…
       await expect
-        .poll(() => page.locator('li[data-wave-row]').count(), { timeout: 10_000 })
+        .poll(() => page.locator('li[data-slice-row]').count(), { timeout: 10_000 })
         .toBeGreaterThan(0);
       await expect.poll(() => page.locator('li[data-agent-row]').count()).toBeGreaterThan(0);
       // …and NONE of them exposes the plan-actions control.
-      expect(await page.locator('li[data-wave-row] [data-plan-actions]').count()).toBe(0);
+      expect(await page.locator('li[data-slice-row] [data-plan-actions]').count()).toBe(0);
       expect(await page.locator('li[data-agent-row] [data-plan-actions]').count()).toBe(0);
       // Every plan-actions control that exists sits on a plan head.
       const total = await page.locator('[data-plan-actions]').count();
@@ -235,7 +235,7 @@ describe('the plan head carries the plan decisions, and no row does', () => {
     // to the branch on the host) — and still no plan act.
     const page = await open();
     try {
-      const w1 = page.locator('li[data-wave-row]')
+      const w1 = page.locator('li[data-slice-row]')
         .filter({ has: page.locator('[data-branch="feature/beans-w1"]') });
       const menuBtn = w1.locator('[data-row-actions]');
       await menuBtn.waitFor({ timeout: 10_000 });

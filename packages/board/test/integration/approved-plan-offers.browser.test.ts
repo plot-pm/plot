@@ -252,10 +252,10 @@ describe('an approved plan offers Implement and Dispatch', () => {
     try {
       // Branch/wave rows exist…
       await expect
-        .poll(() => page.locator('li[data-wave-row], li[data-agent-row]').count(), { timeout: 10_000 })
+        .poll(() => page.locator('li[data-slice-row], li[data-agent-row]').count(), { timeout: 10_000 })
         .toBeGreaterThan(0);
       // …and NONE of them has a plan-actions control (the Implement/Dispatch home).
-      expect(await page.locator('li[data-wave-row] [data-plan-actions]').count()).toBe(0);
+      expect(await page.locator('li[data-slice-row] [data-plan-actions]').count()).toBe(0);
       expect(await page.locator('li[data-agent-row] [data-plan-actions]').count()).toBe(0);
       // Every plan-actions control sits on a plan head.
       const total = await page.locator('[data-plan-actions]').count();

@@ -93,7 +93,7 @@ function fleet(): Fleet {
  * the hooks match `TupleRow.tsx`.
  */
 async function slotsOf(page: Page, wave: string) {
-  const sliceRow = page.locator(`[data-wave-row="${wave}"]`);
+  const sliceRow = page.locator(`[data-slice-row="${wave}"]`);
   await expect.poll(() => sliceRow.count()).toBe(1);
   return sliceRow.evaluate((rowEl) => {
     const kind = rowEl.getAttribute('data-tuple-kind');
@@ -183,7 +183,7 @@ describe('a wave row is a wave row in every section', () => {
       over: { fleet: fleet() },
       viewport: { width: 1480, height: 1400 },
     });
-    await page.locator(`[data-wave-row="${NOT_STARTED_SLICE}"]`).first().waitFor({ timeout: 15_000 });
+    await page.locator(`[data-slice-row="${NOT_STARTED_SLICE}"]`).first().waitFor({ timeout: 15_000 });
     return page;
   }
 
@@ -194,7 +194,7 @@ describe('a wave row is a wave row in every section', () => {
       // rows at all, but a wave in a wave-grouped section still must: the defect
       // #392 fixed was a wave rendering through `<Row>` and losing its name to a
       // badge, and NOT STARTED is where that is still observable.
-      const ns = page.locator(`[data-wave-row="${NOT_STARTED_SLICE}"]`);
+      const ns = page.locator(`[data-slice-row="${NOT_STARTED_SLICE}"]`);
       await expect.poll(() => ns.count()).toBe(1);
       expect(await ns.getAttribute('data-tuple-kind')).toBe('wave');
 

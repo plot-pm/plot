@@ -63,7 +63,7 @@ describe('a wave row speaks its own verdict in the status slot', () => {
 
   /** The status cell of a wave row. */
   const sliceStatus = (page: Page, wave: string) =>
-    page.locator(`[data-wave-row="${wave}"]`).locator('[data-tuple-status]');
+    page.locator(`[data-slice-row="${wave}"]`).locator('[data-tuple-status]');
 
   it('a multi-branch wave in DONE shows "complete", not "delivered"', async () => {
     const page = await open();

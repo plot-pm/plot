@@ -3,14 +3,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
-import { openCatalogue, type Catalogue } from '../catalogue/index.js';
+import { openCatalogue, countSliceRows, type Catalogue } from '../catalogue/index.js';
+import { RowKindSchema } from '../../src/contract/schema.js';
 
 /**
  * THE WAVE LEAVES THE KIND ALONE — a regression lock, not a fix.
  *
  * The plan's defect #3 measured a wave name (`Shaped`, `Inverted`) rendered
  * BESIDE the kind slot on `PR`/`BRANCH`/`AGENT` rows — *"the wave did not move,
- * it was joined"*, `8 data-tuple-kind-label` and `3 data-wave` both rendered.
+ * it was joined"*, `8 data-tuple-kind-label` and `3 data-slice` both rendered.
  * That state no longer exists: the wave-as-kind work (`a349130e`, `028e4311`)
  * and #339 (*a wave renders as exactly one row in exactly one section*) replaced
  * it. Every named-wave branch now groups under one `SliceRow` whose SUBJECT is
@@ -67,7 +68,7 @@ describe('the wave leaves the kind alone', () => {
     return page;
   }
 
-  it('places NO data-wave element in the kind\'s track, on any row', async () => {
+  it('places NO data-slice element in the kind\'s track, on any row', async () => {
     const page = await open();
     try {
       // THE ASSERTION THE PLAN NAMES AS LOAD-BEARING. The kind slot is the cell
@@ -75,7 +76,7 @@ describe('the wave leaves the kind alone', () => {
       // one, on any kind of row. This is the assertion that catches a move that
       // left a copy behind.
       const kindCells = page.locator('[role="gridcell"]:has([data-tuple-kind-label])');
-      const stray = kindCells.locator('[data-wave]');
+      const stray = kindCells.locator('[data-slice]');
       expect(await stray.count()).toBe(0);
     } finally {
       await page.close();
@@ -93,7 +94,7 @@ describe('the wave leaves the kind alone', () => {
       expect(count).toBeGreaterThan(0);
       for (let i = 0; i < count; i += 1) {
         const cell = labels.nth(i).locator('xpath=ancestor::*[@role="gridcell"][1]');
-        expect(await cell.locator('[data-wave]').count(),
+        expect(await cell.locator('[data-slice]').count(),
           `kind cell ${i} carries a wave`).toBe(0);
       }
     } finally {
@@ -106,10 +107,10 @@ describe('the wave leaves the kind alone', () => {
     try {
       // The board-wide negative. Every named wave in the mock — `Shaped`,
       // `Modelled`, `Tracer`, `Relocated`, `Moved` — renders as its own row; none
-      // is a `data-wave` badge sitting beside another kind's name. Measured on the
-      // mock before this: 3 stray `data-wave` badges; after the wave-as-kind work:
+      // is a `data-slice` badge sitting beside another kind's name. Measured on the
+      // mock before this: 3 stray `data-slice` badges; after the wave-as-kind work:
       // 0.
-      expect(await page.locator('[data-wave]').count()).toBe(0);
+      expect(await page.locator('[data-slice]').count()).toBe(0);
     } finally {
       await page.close();
     }
@@ -125,7 +126,7 @@ describe('the wave leaves the kind alone', () => {
         .toBeGreaterThanOrEqual(1);
       const count = await planRows.count();
       for (let i = 0; i < count; i += 1) {
-        expect(await planRows.nth(i).locator('[data-wave]').count(),
+        expect(await planRows.nth(i).locator('[data-slice]').count(),
           `plan row ${i} shows a wave`).toBe(0);
       }
     } finally {
@@ -139,12 +140,12 @@ describe('the wave leaves the kind alone', () => {
       // An `agent`, a `pr` and a `build` carry the wave as an ARTIFACT LINK in
       // slot 4 — see `SLICE_LINKING_KINDS`. A badge on them is a second copy of a
       // fact the row already states, measured on the mock as `Inverted` twice on
-      // the agent row. None may wear the `data-wave` badge.
+      // the agent row. None may wear the `data-slice` badge.
       for (const kind of ['agent', 'pr', 'build'] as const) {
         const rows = page.locator(`li[data-tuple-kind="${kind}"]`);
         const count = await rows.count();
         for (let i = 0; i < count; i += 1) {
-          expect(await rows.nth(i).locator('[data-wave]').count(),
+          expect(await rows.nth(i).locator('[data-slice]').count(),
             `${kind} row ${i} wears a wave badge`).toBe(0);
         }
       }
@@ -163,14 +164,72 @@ describe('the wave leaves the kind alone', () => {
       // THE NAMES ARE THE SERVED STATE'S, not a fixture's. This read five wave
       // names out of `PLOT_BOARD_MOCK`'s data (`Shaped`, `Modelled`, `Tracer`,
       // `Relocated`, `Moved`); the state now says which waves it holds, so the
-      // assertion names those. The claim is unchanged — one `data-wave-row` per
+      // assertion names those. The claim is unchanged — one `data-slice-row` per
       // named wave, and never a mark beside a kind — and it is now a claim about
       // a state the test states rather than about whatever the mock happened to
       // contain.
       for (const wave of ['Kind-wave', 'Kind-branch', 'Kind-plan']) {
-        await expect.poll(() => page.locator(`[data-wave-row="${wave}"]`).count(),
+        await expect.poll(() => page.locator(`[data-slice-row="${wave}"]`).count(),
           { timeout: 10_000 }).toBe(1);
       }
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('yields one Slice row per kind — the count that catches a rename into silence', async () => {
+    const page = await open();
+    try {
+      // THE GUARD IS A COUNT, NOT A MATCH.
+      //
+      // Every assertion above grips `[data-slice-row]` or `[data-slice]`, and
+      // all but one of them expect ZERO. A selector whose attribute was renamed
+      // out from under it matches nothing, and matching nothing is not an
+      // error — `count()` returns 0, every negative goes green, and the suite
+      // reports a rename it never checked. That is the one failure mode this
+      // slice can produce and the prose and identifier slices cannot.
+      //
+      // So this asserts the POSITIVE number. `one-row-per-kind` gives each kind
+      // in `RowKindSchema` its own named Slice, so the expected count is the
+      // schema's own length rather than a literal: a kind added to the enum
+      // joins the fixture and this bound moves with it. Measured 2026-09-03: 8.
+      //
+      // The fixture's ninth Slice — `Waiting`, the sole Slice of `not-yet` —
+      // is deliberately not counted. A plan with one Slice renders it as the
+      // PLAN row, which is settled behaviour asserted in
+      // `plan-row-slice-actions.browser.test.ts`.
+      //
+      // WHICH RENDER SITE THIS COVERS. Every row here sits in WORKING, so all
+      // eight are AGENT rows carrying the slice hook (`rows.tsx`'s
+      // `...(row?.wave ? { 'data-slice-row': row.wave } : {})`). The SliceRow
+      // path is a SECOND site with its own copy of the attribute, and the test
+      // below binds it — measured 2026-09-03 by renaming the SliceRow site
+      // alone: this assertion stayed green and that one went red.
+      await expect.poll(() => countSliceRows(page), { timeout: 10_000 })
+        .toBe(RowKindSchema.options.length);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it('yields a Slice row per not-started Slice — the SliceRow site, counted', async () => {
+    // THE OTHER RENDER SITE. `data-slice-row` is written in two places, and the
+    // count above reaches only one of them. `a-plan-in-waves` is a plan of three
+    // named Slices, so none collapses into its plan row and the two that are NOT
+    // STARTED render through `SliceRow` itself — the site the assertion above
+    // leaves uncovered.
+    //
+    // TWO, not three: `Foundations` is complete and sits in DONE, which this
+    // count deliberately excludes by naming the section. A guard that counted
+    // the whole page would move whenever a section's membership rules changed,
+    // and this test is about an attribute, not about grouping.
+    const page = await cat.open('a-plan-in-waves', {
+      tab: 'agents',
+      viewport: { width: 1400, height: 1200 },
+    });
+    try {
+      await page.locator('li[data-tuple-kind]').first().waitFor({ timeout: 10_000 });
+      await expect.poll(() => countSliceRows(page), { timeout: 10_000 }).toBe(2);
     } finally {
       await page.close();
     }

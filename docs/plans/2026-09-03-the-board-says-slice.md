@@ -5,13 +5,14 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-03, Jan Wloka, pr
+- **Delivered:** 2026-09-03
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
@@ -181,7 +182,7 @@ implies.
 - `infra/the-tests-select-slice` — `data-wave-row` and its siblings, with the
   browser tests that bind to them, moved in lockstep. Last because a selector
   and its test must change in one commit, and because the two slices above
-  deliver the benefit without touching what tests grip.
+  deliver the benefit without touching what tests grip. → #682
 
 ## Notes
 

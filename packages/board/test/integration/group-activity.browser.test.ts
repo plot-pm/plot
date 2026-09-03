@@ -154,7 +154,7 @@ describe('a group heading carries the activity of the rows behind it', () => {
       }),
     ]);
     // Fold the plan, so the branch's own row leaves the tree.
-    for (const t of await page.locator('[data-wave-toggle]').all()) {
+    for (const t of await page.locator('[data-slice-toggle]').all()) {
       if (await t.getAttribute('aria-expanded') === 'true') await t.click();
     }
     await expect.poll(() => page.locator('[data-plan-row]').count()).toBeGreaterThan(0);
