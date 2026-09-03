@@ -146,6 +146,10 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 - `feature/the-sweep-names-every-leftover` — extend the estate sweep past worktrees. **Measured 2026-09-02: 85 of 98 local branches already merged, and nothing sweeps them** — the largest leftover population here, and the one no script looks at. Orphaned claim refs and unowned dirty trees are the same shape: something nobody is coming back for, with no actor. Keep the reaper's five refusals and its per-kind licence. A local branch is deleted on two measurements — the host says merged, and no worktree holds it — never on `git branch -d` alone, which refuses a squash-merged branch for the wrong reason. (#672)
 
+### Wiring the sweep
+
+- `feature/the-reaper-sweeps-every-kind` — give `packages/domain/src/rules/sweepable.ts` a caller. **Measured 2026-09-03, after `the-sweep-names-every-leftover` merged as `ec634c2a`: the rule is complete and tested, and nothing outside the domain imports it** — `plot-reap.sh` still sweeps worktrees only, and this estate carries 109 local branches. The rule decides; an adapter has to reach the world, which is the layering rule working as intended and a job only half done. Wire the three kinds it names — `local-branch`, `claim-ref`, `dirty-tree` — keeping the reaper's shape: `--dry-run` by default, `--yes` to act, `--max N` per kind.
+
 ### Saying so in the specs
 
 - `docs/the-desk-belongs-to-the-agent` — amend the two sentences this plan contradicts. `DESIGN-worktree.md:60` says the dispatcher creates the desk; the agent does. `DESIGN-branch.md:52` says the push is *the whole* locking mechanism; it stops being that the moment the registry assigns, and becomes a backstop that should never fire. Record the measurement that settled the first and the reasoning that demoted the second — neither sentence was wrong when written.
