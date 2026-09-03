@@ -11,7 +11,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
@@ -224,11 +224,16 @@ A declaration is a fact a person wrote.
 - `feature/an-agent-declares-what-it-is` — the record: location, fields, and
   what it refuses. Capability only; **a test asserts it carries no run fact**,
   because a second copy of the manifest is the defect this removes.
-  **It ships with one consumer, so it cannot be a record nobody reads:**
-  `plot-dispatch.sh:503-509` reads a single global `Worker command` and launches
-  it for every agent; it reads the declaration's `harness` and `model` instead.
-  A branch with no declaration keeps the global, so nothing on the estate
-  changes until a declaration exists.
+  **Its consumer is the PROMPT, not the `Worker command`.** Round 3 measured
+  the seam and found it one level deeper than round 2 assumed: `Worker command`
+  is `plot-worker-loop.sh` — the loop, not a harness — and the real invocation
+  is one shell file, `.plot/worker-prompt.sh:6`, where `claude -p`, the model
+  and the whole instruction string are fused into a single line. `prompt_file`
+  is hardcoded at `plot-worker-loop.sh:526`: **one prompt per repo, not one per
+  agent.** So the declaration's first consumer is the prompt's *resolution* —
+  the loop asks which prompt this agent runs instead of assuming the repo's
+  one. A branch with no declaration keeps `.plot/worker-prompt.sh`, so nothing
+  on the estate changes until a declaration exists.
 
 ### Deciding in the domain
 
@@ -264,13 +269,28 @@ A declaration is a fact a person wrote.
 
 ### Reading what an agent has spent
 
+- `feature/a-worker-names-its-session` — **the prerequisite round 3 found.**
+  `plot-dispatch.sh:774` exports `PLOT_SESSION_ID` and the loop forwards it, but
+  `.plot/worker-prompt.sh` never passes `--session-id`, so no transcript can be
+  attributed to an agent. `plot-worker-loop.sh:1063` already reports this in
+  prose — *"Pass --session-id from .plot/worker-prompt.sh to make the reading
+  available"* — and then ends the worker because nothing could tell. One
+  argument, and it unblocks both the reading below and resume.
+
 - `feature/an-agent-knows-what-it-spent` — the context reading: the transcript
-  line Plot already parses yields `message.usage`, and the domain turns it into
-  a verdict. **Asserted: the domain exposes no percentage** — a threshold in a
-  value is a threshold every consumer owns, which is why `Machine` reports
-  `Headroom` and not milliseconds. **Also asserted: a missing or unreadable
-  transcript answers *unknown*, never *ample*** — silence is not headroom, the
-  rule `plot-worker-state.sh` already applies to an unreadable worktree.
+  yields `message.usage`, and the domain turns it into a verdict.
+  **Read PER SESSION, never per worktree.** Quiet-detection deliberately takes
+  *"the newest line across ALL of a worktree's sessions"*
+  (`plot-transcript-quiet.sh:44`), which is right for *is anything happening*
+  and wrong for *what has this agent spent*: one project directory measured
+  2026-09-03 held **45 session files, 30 of them subagents**, and a sum across
+  them belongs to no one. Same file, opposite joins — which is why the slice
+  above comes first.
+  **Asserted: the domain exposes no percentage** — a threshold in a value is a
+  threshold every consumer owns, which is why `Machine` reports `Headroom` and
+  not milliseconds. **Also asserted: a missing or unattributable transcript
+  answers *unknown*, never *ample*** — silence is not headroom, the rule
+  `plot-worker-state.sh` already applies to an unreadable worktree.
 
 ## Notes
 
