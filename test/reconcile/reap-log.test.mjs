@@ -139,6 +139,20 @@ const manifest = (registryDir, session, wt) => {
 
 const run = (repo, ...args) => execFileSync('bash', [reap, ...args], { encoding: 'utf8', cwd: repo });
 
+/**
+ * The WORKTREE half of the report — everything before the first `-- kind --`
+ * heading.
+ *
+ * The sweep grew three more kinds on 2026-09-03 (local branches, orphaned
+ * claim refs, dirty trees nobody owns), and they report on the same stdout.
+ * This file's refusals are all about worktrees, so an assertion that a name is
+ * absent from the WHOLE report now over-claims: a hand-made checkout's branch
+ * legitimately appears under `-- local branches --`, as a branch KEPT because a
+ * worktree holds it. Slicing the section keeps each assertion about the kind it
+ * was written for.
+ */
+const worktreeSection = (out) => out.split('\n-- ')[0];
+
 test('item 1: reaping a worktree removes its log', () => {
   const { repo, logDir } = makeRepo();
   const wt = worktree(repo, 'feature/landed');
@@ -415,7 +429,12 @@ test('refusal 5 unchanged: a hand-made worktree is not looked at, log and all', 
 
   const out = run(repo, '--yes');
 
-  assert.ok(!/feature\/handmade/.test(out), `a non-dispatch tree is not reported:\n${out}`);
+  assert.ok(!/feature\/handmade/.test(worktreeSection(out)),
+    `a non-dispatch tree is not reported as a worktree:\n${out}`);
+  // Its BRANCH is a different kind's population, and there it is reported —
+  // kept, because a worktree holds it. That is the branch sweep's second
+  // measurement doing its job, not this refusal leaking.
+  assert.match(out, /feature\/handmade\s+checked out in a worktree/);
   assert.ok(fs.existsSync(wt), 'a hand-made checkout stays');
   assert.ok(fs.existsSync(files.log), 'and nothing of its is swept');
 });
