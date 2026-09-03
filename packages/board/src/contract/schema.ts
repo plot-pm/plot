@@ -1791,7 +1791,7 @@ export const StuckStateSchema = z.enum([
   // `rowKey` (`repo/branch`, no plan), so each pulse one overwrote the other's
   // remembered `wave`, saw a difference, and lit the change mark — for hours,
   // on a branch nobody had touched. Reported as *"why do always the same two
-  // slices flash if no one is changing them"*.
+  // waves flash if no one is changing them"*.
   'double-claimed',
   // A SLICE HOLDING SEVERAL BRANCHES — invalid, and the sixth reason a branch
   // cannot move cleanly.

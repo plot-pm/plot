@@ -228,7 +228,7 @@ export interface AgentListProps {
    */
   commission?: DispatchInfo;
   /**
-   * Whether this server will act on `Slice this wave`, and why not — the sixth
+   * Whether this server will act on `Slice this plan`, and why not — the sixth
    * capability, reaching the `unsliced-wave` slice rows. Same binding as `idea`
    * and `commission` today (all spawn a plot agent that writes to this disk),
    * kept its own prop for the reason those are: one flag for two capabilities is
@@ -1137,7 +1137,7 @@ export function WaveRow({
         // siblings. Reported from a screenshot.
         //
         // A PARENT NAMES ITS COUNT, NOT ITS MEMBERS. That is the rule the plan
-        // row already follows — `3 waves`, never three slice names — and the fold
+        // row already follows — `3 slices`, never three slice names — and the fold
         // is what discloses them. The original design made branches the slice's
         // artifact links, written when a slice of one was the case in view: there
         // the single link IS the row's content and there is no fold at all.
@@ -1336,7 +1336,7 @@ export function WaveRow({
       // nothing to click. Reported from a screenshot.
       //
       // The plan warned that a dispatch control on a PLAN row *"would have to
-      // guess which of the plan's slices it meant"*, and one level down the same
+      // guess which of the plan's waves it meant"*, and one level down the same
       // worry does not apply — because `StartWorkButton` takes a **`Card`** and
       // a `dispatch` binding, NOT a branch. Dispatch is a plan-level act:
       // `plot-dispatch.sh` fans out the eligible slice, which is this row. There
@@ -1999,7 +1999,7 @@ export function Row({
           {/* NOT A SLICE-LEVEL STUCK STATE, which is a fact about the SLICE and
               would print once per branch.
               
-              Measured 2026-08-21: `wave not sliced` and its five-branch list
+              Measured 2026-08-21: `slice not cut` and its five-branch list
               rendered on all FIVE branches of `opus5 :: Implementation` — the
               same sentence five times, naming the same five branches each time.
               Exactly the defect `blockedNote` had, one level down.

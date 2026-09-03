@@ -1208,7 +1208,7 @@ export function AgentList({
                   // rather than handling a mixture.
                   //
                   // The operator's observation, 2026-08-20: *"a plan group will
-                  // barely have mixed SLICES. Once a plan is approved the slices
+                  // barely have mixed WAVES. Once a plan is approved the waves
                   // land in NOT STARTED."* A plan's branches move through the
                   // lifecycle together — in review here, then dispatchable in NOT
                   // STARTED, then working, then done — so a group holding some
@@ -1369,7 +1369,7 @@ export function AgentList({
 
                                 `isUnbegun` already draws this line and
                                 `waveSummaryFor` already refuses to count a
-                                deferred branch as a slice: *"not a slice nobody
+                                deferred branch as a slice: *"not a wave nobody
                                 reached, a branch somebody set down"*. The slice
                                 grouping has to honour it, because a slice row
                                 shows the SLICE's verdict and clock — and a
@@ -1555,7 +1555,7 @@ export function AgentList({
                         its rows are slices.
                         
                         *"We need to group branches for plans. Which should be
-                        Plan group with SLICES"* and *"PLANS are missing with their
+                        Plan group with WAVES"* and *"PLANS are missing with their
                         age"*. NOT STARTED has drawn exactly this since the slice
                         kind landed: a plan row carrying the plan's phase and its
                         approval clock, with its slices indented beneath. A text
@@ -1732,8 +1732,8 @@ export function AgentList({
                       {/* SLICES OVER THEIR REVIEWABLE BRANCHES, in this section
                           only — and only where a slice holds MORE THAN ONE.
                           
-                          *"Technically the PR with branch and the slice is a
-                          SLICE"*, and the qualifier is the section: WAITING ON YOU
+                          *"Technically the PR with branch and the wave is a
+                          WAVE"*, and the qualifier is the section: WAITING ON YOU
                           asks *what needs a decision*, and where three PRs are
                           three slices of one slice the thing being decided is the
                           slice. `opus5-longhorizon-hardening :: Implementation`
@@ -1784,7 +1784,7 @@ export function AgentList({
                               // this row says the act it wants is a merge.
                               //
                               // RESLICE IS STILL PASSED, and it is not `dispatch`
-                              // in disguise: `Slice this wave` takes only the
+                              // in disguise: `Slice this plan` takes only the
                               // plan slug, so it needs no card and no merge —
                               // it is the act an `unsliced-wave` here (five
                               // landed branches, `blocked`) actually wants.
@@ -1941,7 +1941,7 @@ export function AgentList({
                           //
                           // The badge STAYS on a BRANCH row, and the distinction
                           // is not a compromise. Its docstring argues that *"the
-                          // slice qualifies THIS BRANCH, and the association is
+                          // wave qualifies THIS BRANCH, and the association is
                           // positional… A MARK, not a link"* — sound while a slice
                           // had no row to point at. A branch row's artifact slot
                           // holds its plan and its PR, not its slice, so there the

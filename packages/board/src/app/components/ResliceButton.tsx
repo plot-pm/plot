@@ -53,7 +53,7 @@ type State =
  * What the armed button says — the consequence, named as precisely as the slug
  * allows.
  *
- * `Slice this wave — spawns /plot-reslice for <slug>?` states both halves: an
+ * `Slice this plan — spawns /plot-reslice for <slug>?` states both halves: an
  * agent will run, and which plan it acts on. A label repeating the verb would
  * leave a reader to wonder whether the click rewrites the plan itself — precisely
  * the thing this deliberately does NOT do (`/plot-reslice` asks first).

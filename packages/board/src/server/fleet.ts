@@ -4937,8 +4937,8 @@ export function carriesDraftPlan(f: Pick<BranchFacts, 'branch'>): boolean {
  * **THE PLAN IS THE TEST, and it replaced the slice's NAME on 2026-08-21.** This
  * read `wave !== UNNAMED_WAVE`, on the reasoning that *a slice with no name
  * cannot head a row, so a branch in one is just a branch*. That was true while a
- * slice was a heading. It is not true of a carrier: `MANIFESTO.md` states *"a plan
- * with no subheadings is one slice"*, so a plan nobody cut into `### ` sections
+ * slice was a heading. It is not true of a carrier: `MANIFESTO.md` gives a plan
+ * with no subheadings one slice, so a plan nobody cut into `### ` sections
  * still has exactly one slice — an unnamed one — and its branch is that slice's
  * work.
  *
@@ -4946,12 +4946,12 @@ export function carriesDraftPlan(f: Pick<BranchFacts, 'branch'>): boolean {
  * plan `the-no-ref-arm-asks-once-too`, with PR #255, rendering as `BRANCH`. Its
  * plan carries no `### ` heading, so its slice parsed as `(unnamed)` and the arm
  * refused it. 23 of this repo's 83 plans with a `## Branches` section have no
- * named slice — a template rule (*"EVERY slice gets a `### <Name>` heading"*) with
+ * named slice — a template rule (*"EVERY wave gets a `### <Name>` heading"*) with
  * no gate behind it, violated 27% of the time.
  *
  * The operator's two rules settle both halves:
  *
- *   *"Ein branch der zu keinem Plan gehört ist keine SLICE"* — no plan, no slice.
+ *   *"Ein branch der zu keinem Plan gehört ist keine WAVE"* — no plan, no slice.
  *   *"Ein PR der einen Branch hat der zu keinem Plan gehört ist ein PR"* — and
  *   what such a row IS instead is decided by the arm below this one.
  *

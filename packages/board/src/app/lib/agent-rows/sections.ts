@@ -321,8 +321,8 @@ export function waveGroupsFor(
   // beside 51 plan-headed siblings. Reported from a screenshot of DONE.
   //
   // Same correction as `carriesWave` on the server: the slice's NAME is not the
-  // test for a slice. `MANIFESTO.md` — *"a plan with no subheadings is one slice"*
-  // — so a plan nobody cut has one slice, unnamed, and its branches are that
+  // test for a slice. `MANIFESTO.md` gives a plan with no subheadings one
+  // slice — so a plan nobody cut has one slice, unnamed, and its branches are that
   // slice's work. What it lacks is a label, and `waveLabel` still withholds that:
   // printing `(unnamed)` beside a branch names nothing.
   return groupByWave(rows.filter(claims)).filter((wg) => wg.wave);
@@ -397,8 +397,8 @@ export function showPlanHeading(group: PlanGroup): boolean {
  *
  * **`differ`** is the whole point of returning both. Where the two agree — an
  * ungrouped section, or an empty one — the caller renders a single number, so
- * `QUIET (0)` never grows into `QUIET (0 plans · 0 waves)`. Where they diverge,
- * the header states each and says which: `DONE (10 plans · 19 waves)`.
+ * `QUIET (0)` never grows into `QUIET (0 plans · 0 slices)`. Where they diverge,
+ * the header states each and says which: `DONE (10 plans · 19 slices)`.
  *
  * `issues` are rows the reader sees and reaches (unplanned tickets in WAITING ON
  * YOU), so they count toward BOTH figures — the NOT STARTED lesson, that a tally

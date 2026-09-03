@@ -179,7 +179,7 @@ export function runLinkLabel(row: Pick<AgentRow, 'pr' | 'stuck'>): string {
  *      board click'
  *
  * and its own comment called that permanent — *"not an oversight to be filled
- * by a later slice … There is nothing to lift: the decision is the point."*
+ * by a later wave … There is nothing to lift: the decision is the point."*
  *
  * Measured against `skills/story-tracking/SKILL.md` on 2026-08-20, neither named
  * decision is what the refusal says it is. The skill states its own escape —

@@ -644,14 +644,14 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
       name: plan ?? branchLink(row),
       // PR THEN BRANCH — narrowest first, container last.
       //
-      // Reported from the live board: *"Plan shows PR before Branch, but Slice
+      // Reported from the live board: *"Plan shows PR before Branch, but Wave
       // shows Branch before PR — how do we align that"*, on a screen holding
       // both. `PLAN the-plan-is-the-wave  305  idea/the-plan-is-the-wave` sat
       // four rows above `WAVE Modelled  feature/a-wave-is-a-kind  304`, the
       // same two artifacts in opposite orders.
       //
-      // The rule is stated on the `pr` arm — *"ordered plan → slice → branch,
-      // which is the chain narrowing: the plan holds the slice, the slice holds
+      // The rule is stated on the `pr` arm — *"ordered plan → wave → branch,
+      // which is the chain narrowing: the plan holds the wave, the wave holds
       // the branch"* — and the `wave` arm adds where the PR falls: *"AND ITS
       // PR, last — the destination a reader goes to in order to act"*. Both
       // halves put the container before the thing it contains and the ACTION
@@ -736,7 +736,7 @@ export function tupleFromRow(row: AgentRow, agent?: AgentEntry | null): TupleRow
     //
     // ## Its artifacts are SLICE, BRANCH and WORKTREE
     //
-    // *"ein AGENT hat als zu bearbeitende artefakte eine slice (mit branch),
+    // *"ein AGENT hat als zu bearbeitende artefakte eine wave (mit branch),
     // worktree, plan und einen status"* — and all of it is on the wire, on two
     // objects that join by branch: `AgentRow` holds `wave` and `branch`, while
     // `fleet.agents` holds `session`, `worktree` and `command`. That join is
