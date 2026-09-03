@@ -165,6 +165,51 @@ case "$MONITOR_POLL_SECONDS" in (*[!0-9]*|''|0) MONITOR_POLL_SECONDS=5 ;; esac
 MONITOR_ENDS_WORKER="${PLOT_MONITOR_ENDS_WORKER:-1}"
 case "$MONITOR_ENDS_WORKER" in (0|1) ;; (*) MONITOR_ENDS_WORKER=1 ;; esac
 
+# HOW LONG A FREE AGENT WAITS BETWEEN ASKS, in seconds. The wait is a POLL of
+# `--next`, and the interval is what the poll costs.
+#
+# A POLL IS THE HONEST SHAPE WHILE NOTHING CAN PUSH. An agent with no work
+# should be handed the next brief by the registry, and
+# `feature/the-registry-supervises-its-agents` is the branch that will do the
+# handing — it is startable and unbuilt. Until it exists there is no channel to
+# block on, and a stand-in for it (a fifo, a lock file, a socket) would be a
+# second registry that the real one then has to displace. So the agent asks,
+# and the ask is `--next` — the same question dispatch puts, answered by the
+# same scan, with no new protocol between them.
+#
+# 60s BECAUSE THE THING BEING WAITED FOR IS A MERGE. A `not-yet` clears when a
+# branch ahead of this one lands on the host, which is a human-scale event
+# (review, CI, a merge click) measured in minutes here, never in seconds. The
+# scan itself costs 12.7 s of git against `origin` even offline, so a 5 s poll
+# would spend most of a minute asking about a world that had not moved.
+WAIT_POLL_SECONDS="${PLOT_WAIT_POLL_SECONDS:-60}"
+case "$WAIT_POLL_SECONDS" in (*[!0-9]*|''|0) WAIT_POLL_SECONDS=60 ;; esac
+
+# HOW LONG A FREE AGENT MAY WAIT AT ALL, in seconds — `Worker bound`, the same
+# clock that bounds a prompt, deliberately reused rather than given a key of its
+# own.
+#
+# THE WAIT MUST BE BOUNDED BY SOMETHING A PERSON CAN SEE. An agent waiting on a
+# channel nothing can reach is a stalled agent, and the difference between the
+# two is whether anybody knows how long it will be there. `Worker bound` is
+# already the answer this project gives to *how long may one of my agents hold a
+# machine slot* — it is declared in CLAUDE.md, read by the operator, and
+# defaulted to a working day, which is the operator's own review cadence. A
+# second key would ask them to tune a number they have no separate opinion
+# about.
+#
+# `Worker bound: 0` DISABLES THIS TOO, and that follows from what the key means
+# rather than from convenience: a project that removed the wall-clock kill asked
+# for agents whose lifetime it manages itself, which is the same request. The
+# monitor is untouched either way — it reads a finding, and a waiting agent runs
+# no prompt for it to have a finding about.
+#
+# THE BOUND IS SPENT ON WAITING, NOT RESET BY IT. Each pass subtracts what it
+# slept, so an agent that ran a 7-hour prompt has an hour of waiting left rather
+# than a fresh day of it. The bound answers *how long may this worker live*, and
+# an agent that waits is living.
+WAIT_BUDGET_SECONDS="$WORKER_BOUND_SECONDS"
+
 # Update the manifest when the worker hops to a new branch.
 #
 # The manifest already carries `session`, `pid`, `startedAt` — these stay fixed.
@@ -532,6 +577,10 @@ main_branch=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | se
 _prompt_child=""
 _watchdog_pid=""
 _monitor_watcher_pid=""
+# THE WAIT'S SLEEP JOINS THEM, and for the reason the block above gives rather
+# than a new one: a free agent spends its time in `sleep` exactly as a bounded
+# prompt does, and a sleep that outlived the worker would be the same leak.
+_wait_sleep_pid=""
 _timed_out=0
 
 # WHICH READING ENDED THE WORKER. Both the floor and the monitor watcher end the
@@ -723,9 +772,14 @@ _cleanup_on_exit() {
   [ -n "$_watchdog_pid" ] && _kill_tree "$_watchdog_pid"
   [ -n "$_monitor_watcher_pid" ] && _kill_tree "$_monitor_watcher_pid"
   [ -n "$_prompt_child" ] && _kill_tree "$_prompt_child"
+  # A STOPPED AGENT MAY HAVE BEEN WAITING RATHER THAN WORKING. `--stop` sends
+  # SIGTERM and this trap runs; the sleep it was inside is a child, so it must
+  # be reaped here like every other one.
+  [ -n "$_wait_sleep_pid" ] && _kill_tree "$_wait_sleep_pid"
   _watchdog_pid=""
   _monitor_watcher_pid=""
   _prompt_child=""
+  _wait_sleep_pid=""
 }
 trap _cleanup_on_exit EXIT
 
@@ -828,6 +882,115 @@ run_bounded() {
 
   [ "$_timed_out" = 1 ] && return 124
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# WAITING — what a free agent does instead of dying
+# ---------------------------------------------------------------------------
+#
+# THE LINE THIS REPLACES WAS `|| break`. An agent that found no claimable slice
+# ended itself, and two departures from the model rode on that one word.
+# Measured 2026-09-03 on this estate: 0 live workers, 0 manifests, 4 desks
+# standing, and eligible work on the board. Every agent had exited; none had
+# failed.
+#
+#   AN AGENT HAD NO IDLE STATE. `an-agent-says-when-it-is-free` made `free`
+#   derivable — `isAgentFree` in `packages/domain/src/rules/free.ts`, alive and
+#   naming no branch — and `clear_manifest_branch` writes the empty value the
+#   rule reads. But nothing survived long enough to BE free, because the loop
+#   terminated on the same condition that would have reported it. The window
+#   existed for the length of one `--next` call.
+#
+#   TERMINATION WAS THE AGENT'S OWN JUDGEMENT. Ending an agent is something
+#   done TO it. `:891`'s bound and `:786`'s idle finding stay exactly as they
+#   are, and the distinction is what they measure: a clock that expired and a
+#   monitor that found nothing running are both readings about THIS AGENT. "No
+#   work exists for my plan" is a judgement about the ESTATE, made by the one
+#   party with no standing to make it.
+#
+# SO THE AGENT WAITS, AND THE WAIT REPORTS ITSELF. The manifest already names
+# no branch — `clear_manifest_branch` ran before `--next` was asked — so an
+# agent inside this function is `free` by the rule as written, with no flag to
+# set and nothing new for a reader to learn. That is the whole reason `free`
+# was made derivable first: this function had to add no state to be visible.
+#
+# WHAT IT WAITS ON, AND WHY IT IS A POLL. See `WAIT_POLL_SECONDS`. There is no
+# channel to block on until the registry daemon exists, and building a stand-in
+# for `feature/the-registry-supervises-its-agents` here would be a second
+# registry the real one then has to displace.
+#
+# IT IS INTERRUPTIBLE, BY CONSTRUCTION. The sleep runs as a BACKGROUND child
+# that the loop `wait`s on — the same shape `run_bounded` uses, for the same
+# reason. Bash defers signal handling until a FOREGROUND command returns, so a
+# plain `sleep 60` would swallow `plot-dispatch.sh --stop` for up to a minute
+# and the EXIT trap would run late; a backgrounded sleep leaves the loop in
+# `wait`, where a signal arrives at once. The sleep is killed on the way out so
+# no orphan outlives the agent.
+#
+# IT IS BOUNDED, BY `Worker bound`. See `WAIT_BUDGET_SECONDS`. An exhausted
+# budget ends the worker the same way an exhausted prompt does — exit 124, the
+# floor's own convention — because it is the same floor.
+#
+# THE SLUG SCOPE STAYS, AND THIS IS WHERE IT IS ARGUED. `--next "$PLOT_SLUG"`
+# still bounds the ask, so an agent whose plan is finished waits beside an
+# eligible slice of another plan. That is a real cost and it is not fixed here:
+# taking a slice of a DIFFERENT plan means arriving at a desk with no brief,
+# and `feature/the-registry-queues-a-brief` owns the hand-over that would carry
+# one. An agent that widened its own ask would claim across plans and then have
+# to invent the brief it was never given — the same overreach `|| break` made in
+# the other direction. The scope is the registry's to widen, once it can hand
+# something over.
+#
+# @param $1 the reason `--next` was silent, as `--why-nothing` reported it
+# @return 0 when a slice became available (the caller re-asks `--next`),
+#         124 when the budget ran out
+wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
+  # THE SEPARATOR IS A VARIABLE, not a literal in a `case` pattern. A bare tab
+  # inside `case ... in (*<TAB>*)` is read as a word separator by bash and the
+  # script does not parse at all — measured on the first draft of this function.
+  local tab=$'\t'
+  local outlook="${1%%$tab*}" blockers="" slept=0
+
+  case "$1" in (*"$tab"*) blockers="${1#*$tab}" ;; esac
+
+  # WHAT IT IS WAITING ON, NAMED, ONCE. A wait an operator cannot see the end
+  # of is the stall this function exists to avoid being. `not-yet` names the
+  # branches whose landing would open the slice; `none` has none to name, and
+  # says so rather than printing an empty list.
+  case "$outlook" in
+    not-yet)
+      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — no claimable slice, waiting on $(printf '%s' "$blockers" | tr "$tab" ' ') to land. Asking every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with plot-dispatch.sh --stop ${PLOT_BRANCH:-<branch>}" >&2
+      ;;
+    *)
+      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — no claimable slice and none blocked behind one, so nothing on this plan will open by itself. Waiting to be handed work: asking every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with plot-dispatch.sh --stop ${PLOT_BRANCH:-<branch>}" >&2
+      ;;
+  esac
+
+  while :; do
+    # A NON-POSITIVE BUDGET IS NO BOUND, exactly as it is for the floor — the
+    # same key, so the same reading of `0`. The agent then waits until it is
+    # stopped, which is what a project disabling the wall-clock kill asked for.
+    if [ "$WAIT_BUDGET_SECONDS" -gt 0 ] && [ "$slept" -ge "$WAIT_BUDGET_SECONDS" ]; then
+      echo "plot-worker-loop: the bound expired on ${PLOT_SLUG:-?} — free and waiting for ${slept}s with no slice offered, past the ${WORKER_BOUND_SECONDS}s bound; ending worker. Nothing was left on the desk: the agent holds no branch and its work is pushed." >&2
+      return 124
+    fi
+
+    sleep "$WAIT_POLL_SECONDS" &
+    _wait_sleep_pid=$!
+    wait "$_wait_sleep_pid" 2>/dev/null
+    _kill_tree "$_wait_sleep_pid"
+    _wait_sleep_pid=""
+    slept=$((slept + WAIT_POLL_SECONDS))
+
+    # THE ASK IS `--next` AND NOTHING ELSE. `--why-nothing` decided the
+    # SENTENCE above and decides nothing here: a second question per pass would
+    # double a 12.7 s scan to refine a message nobody is reading yet, and the
+    # answer that matters — a branch name — is the one `--next` gives.
+    if "$script_dir/plot-fleet-scan.sh" --offline --next "$PLOT_SLUG" >/dev/null 2>&1; then
+      echo "plot-worker-loop: taken up on ${PLOT_SLUG:-?} after waiting ${slept}s — a slice became claimable." >&2
+      return 0
+    fi
+  done
 }
 
 while true; do
@@ -949,7 +1112,28 @@ while true; do
   # abandoned, and `finished → reapable → gone` needs no separate step on the
   # normal path. `git worktree add` becomes the EXCEPTION: a full checkout is
   # paid once per agent rather than once per slice.
-  next_branch=$("$script_dir/plot-fleet-scan.sh" --offline --next "$PLOT_SLUG" 2>/dev/null) || break
+  #
+  # SILENCE IS NOT A REASON TO DIE. This line read `|| break` until 2026-09-03
+  # and that word was the whole of an agent's idle handling: no claimable slice
+  # meant the process ended. It is now a wait — see `wait_for_work`, which owns
+  # the argument, the bound and the sentence an operator reads.
+  #
+  # THE LOOP RE-ASKS RATHER THAN BEING HANDED THE ANSWER. `wait_for_work`
+  # returns 0 when `--next` has just answered, and this line asks again instead
+  # of taking that answer through. One extra scan per wake-up buys a single
+  # claim path: every branch this loop claims came from the ask on THIS line,
+  # so nothing downstream has to know whether the agent waited. It also
+  # re-reads a world that moved during the wait, which is the world it is about
+  # to push a claim into.
+  #
+  # A SECOND SILENCE WAITS AGAIN. The re-ask can come back empty — another
+  # agent took the slice in the seconds between — and `continue` sends it back
+  # to `wait_for_work` rather than out. Falling through to `break` there would
+  # restore the old behaviour for exactly the case a fleet makes common.
+  if ! next_branch=$("$script_dir/plot-fleet-scan.sh" --offline --next "$PLOT_SLUG" 2>/dev/null); then
+    wait_for_work "$("$script_dir/plot-fleet-scan.sh" --offline --why-nothing "$PLOT_SLUG" 2>/dev/null)" || exit 124
+    continue
+  fi
 
   wt_root=$(dirname "$PLOT_WORKTREE")
   suffix=$(printf '%s' "$next_branch" | tr '/' '-')
