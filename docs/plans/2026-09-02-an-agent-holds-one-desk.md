@@ -15,6 +15,7 @@
 - **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-decides-create-or-reset`
 - **Started:** 2026-09-03, Jan Wloka, `feature/the-sweep-names-every-leftover`
 - **Started:** 2026-09-03, Jan Wloka, `docs/the-desk-belongs-to-the-agent`
+- **Started:** 2026-09-03, Jan Wloka, `feature/the-reaper-sweeps-every-kind`
 
 ## Changelog
 
