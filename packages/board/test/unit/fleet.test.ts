@@ -834,7 +834,11 @@ describe('classify', () => {
       'deferred', 'blocked', null, QUIET, null, false, 0, 'draft',
       '', '', '', false, '', '', false, '', false, reason,
     );
-    expect(r.group).toBe('waiting-on-you');
+    // AND IT LEAVES WAITING ON YOU. The note alone was the first fix and it was
+    // half of one: the row said the decision was made while sitting in the
+    // section that means one is owed. QUIET is where a record of work nobody is
+    // coming back for belongs.
+    expect(r.group).toBe('quiet');
     expect(r.note).toBe(reason);
   });
 
