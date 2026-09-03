@@ -14,7 +14,7 @@ import { localCapability } from './controllers/caller.js';
  * **It is the entrance a person walks, run from the board.** `/plot-implement`
  * is the preparation that comes before writing code: the staleness preflight,
  * the branch, the hand-off brief, the `Started:` record. Dispatch fans a plan
- * out to detached workers; this prepares ONE wave the way a person picking the
+ * out to detached workers; this prepares ONE slice the way a person picking the
  * plan up would, and then stops. The board offers both on the plan row because
  * *am I picking this up, or is the fleet taking it?* is the operator's question
  * and has no default a server can compute.
@@ -53,7 +53,7 @@ import { localCapability } from './controllers/caller.js';
  *
  * OPTIONAL, and an absent key is a REFUSAL that names itself. `/plot-implement`
  * is skill-only and cannot have a script — every step is judgement (is the plan
- * stale? which wave is next? what belongs in the brief?), which is exactly what
+ * stale? which slice is next? what belongs in the brief?), which is exactly what
  * a script must not decide. So a board with no runner cannot act on this click,
  * and accepting it and doing nothing would be this repo's recurring defect (an
  * unobserved thing reported as observed) wearing a button.
@@ -271,7 +271,7 @@ export async function handleImplement(
         // that tool is not even registered — so a skill that improvises here
         // exits 0 having written nothing. Setting it makes each skipped question
         // take the shape its author chose and name itself in the log. This is
-        // exactly the case wave 2's SKILL.md change prepared `/plot-implement`
+        // exactly the case slice 2's SKILL.md change prepared `/plot-implement`
         // step 2 for: on drift it stops and reports rather than asking.
         PLOT_UNATTENDED: '1',
         PLOT_PLAN_SLUG: slug,

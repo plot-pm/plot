@@ -209,12 +209,12 @@ async function handleRequest(
     // Draft exactly as Approve is. It ships the `Design` phase minimally rather
     // than as a refusal: #259 landed the phase and nothing filled it.
     { path: '/api/commission', verb: 'commissioning design', handle: handleCommission },
-    // POST /api/reslice — a plan's tangled wave is sliced into one wave per branch.
+    // POST /api/reslice — a plan's tangled slice is sliced into one slice per branch.
     //
     // The same class of route as /api/commission, and the same binding: it
     // spawns a plot agent that writes to this disk. It is SLUG-scoped — it acts
     // on the plan the `unsliced-wave` row already names — and it asks the plan's
-    // own waves (through `plot-plan-meta.sh`) whether one holds more than one
+    // own slices (through `plot-plan-meta.sh`) whether one holds more than one
     // live branch before spawning, because reslicing is a repair for exactly the
     // shape the row reports.
     //
@@ -229,7 +229,7 @@ async function handleRequest(
     // The same class of route as /api/reslice, and the same binding: it spawns a
     // plot agent (`/plot-deliver`) that flips a plan's phase on this disk. It is
     // SLUG-scoped — it acts on the plan the Testing card already names — and it
-    // asks the plan's own waves (through `plot-plan-meta.sh`, against the pulse
+    // asks the plan's own slices (through `plot-plan-meta.sh`, against the pulse
     // the board renders from) whether every non-deferred branch has merged before
     // spawning, because delivering a plan whose work is not done is the gate #350
     // kept.
@@ -247,7 +247,7 @@ async function handleRequest(
     // plot agent (`/plot-implement`) on this disk. It is SLUG-scoped — it acts on
     // the plan the approved row names — and it is the entrance a person walks:
     // the staleness preflight, the branch, the hand-off brief, the `Started:`
-    // record, prepared for ONE wave rather than fanned out. Dispatch (above, via
+    // record, prepared for ONE slice rather than fanned out. Dispatch (above, via
     // /api/dispatch) is the other start; the board offers both on the plan row
     // because which one applies is the operator's call, not the server's.
     //
@@ -291,8 +291,8 @@ async function handleRequest(
     // A PARTIAL WRITE, returning STATE. The switch and the stepper post
     // independently; the body names only the field it changes, and the response
     // is the resulting controls — never a bare acknowledgement, the /api/claim
-    // contract. This wave dispatches NOTHING: the switch records an intention
-    // wave 3 reads, and turning it on here starts no agent.
+    // contract. This slice dispatches NOTHING: the switch records an intention
+    // slice 3 reads, and turning it on here starts no agent.
     { path: '/api/fleet-controls', verb: 'setting fleet controls', handle: handleFleetSettings },
     // POST /api/registry/drop — remove a registry entry that is no longer running.
     //
@@ -429,7 +429,7 @@ async function handleRequest(
   // A running worker's own console output, on demand.
   //
   // **Served here and pushed nowhere.** The pulse carries not one byte of this,
-  // and that is the point of the wave rather than an optimisation: a 4 s poll
+  // and that is the point of the slice rather than an optimisation: a 4 s poll
   // shipping every agent's console output to every open tab is a different
   // product, and one nobody asked for. The row offers the log; this answers when
   // a person asks.
@@ -529,7 +529,7 @@ async function handleRequest(
   // GET /api/agent-panel?branch=… — what one WORKING row can say about its agent.
   //
   // A SECOND on-demand route rather than new fields on the row, and the choice
-  // is the wave's central one. The panel wants pid, uptime, worktree, command
+  // is the slice's central one. The panel wants pid, uptime, worktree, command
   // and the transcript's model and context — per-agent facts that would
   // otherwise ride the 4 s pulse to every open tab whether or not anyone had a
   // panel open. `/api/worker-log` established the pattern for exactly this
@@ -674,7 +674,7 @@ async function handleRequest(
   // shape `/api/deliver/<slug>` has, slug-keyed. `/plot-implement` moves no
   // card (it prepares work rather than changing a plan's phase), so the button
   // has nothing to watch move and reads this for the command's own words —
-  // whether it stopped on drift, or prepared a wave.
+  // whether it stopped on drift, or prepared a slice.
   if (url.pathname.startsWith('/api/implement/')) {
     const slug = url.pathname.slice('/api/implement/'.length);
     res.writeHead(SLUG_RE.test(slug) ? 200 : 400, { 'Content-Type': 'application/json' });

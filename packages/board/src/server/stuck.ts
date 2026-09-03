@@ -62,10 +62,10 @@ export interface StuckInput {
    */
   claimedBy?: readonly string[];
   /**
-   * The other branches sharing this branch's wave, where the wave holds more than
+   * The other branches sharing this branch's slice, where the slice holds more than
    * one — otherwise empty.
    *
-   * Passed in for the reason `claimedBy` is: only the caller walks the wave, and
+   * Passed in for the reason `claimedBy` is: only the caller walks the slice, and
    * this function is given one branch.
    */
   waveSiblings?: readonly string[];
@@ -218,15 +218,15 @@ export function stuckState(input: StuckInput): Stuck | null {
     };
   }
 
-  // A WAVE HOLDING SEVERAL BRANCHES — the plan was never sliced.
+  // A SLICE HOLDING SEVERAL BRANCHES — the plan was never sliced.
   //
   // AFTER the double claim (which plan owns this branch at all outranks how that
   // plan is shaped) and BEFORE the conflict arm, because this is a defect in the
-  // PLAN rather than in the work: the branches cannot be dispatched one-per-wave
+  // PLAN rather than in the work: the branches cannot be dispatched one-per-slice
   // as the model expects until somebody slices it, and a conflict inside an
-  // unsliced wave is a symptom of that rather than a separate thing to fix.
+  // unsliced slice is a symptom of that rather than a separate thing to fix.
   //
-  // Reported and never repaired: slicing needs NAMES for the new waves, which is
+  // Reported and never repaired: slicing needs NAMES for the new slices, which is
   // judgement — so it is neither a licensed deterministic repair nor a script to
   // wrap. See `StuckStateSchema`.
   if ((input.waveSiblings?.length ?? 0) > 1) {
@@ -273,7 +273,7 @@ export function stuckState(input: StuckInput): Stuck | null {
   // the host says *this does not merge* without saying where. Calling it
   // artifact-only would be the "is the artifact among the conflicts?" mistake in
   // its worst form — a guess with no set behind it at all, handed to the one
-  // state a later wave is licensed to resolve without a human.
+  // state a later slice is licensed to resolve without a human.
   //
   // Placed after the observed set and before the failing check, for the reason
   // the ordering already gives: GitHub starts no workflow for a branch that does
@@ -290,7 +290,7 @@ export function stuckState(input: StuckInput): Stuck | null {
   if (input.prState === 'failing') {
     return {
       state: 'ci-failing',
-      // One plan claims it and its wave is its own, like every state but the two
+      // One plan claims it and its slice is its own, like every state but the two
       // that name those conditions.
       claimedBy: [],
       waveSiblings: [],

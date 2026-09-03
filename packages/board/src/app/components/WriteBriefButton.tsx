@@ -22,7 +22,7 @@ import { ImplementButton } from './ImplementButton.js';
  * copies had nothing to keep them honest with each other.
  */
 export interface WriteBriefButtonProps {
-  /** The plan slug whose wave needs the brief — the POST body. */
+  /** The plan slug whose slice needs the brief — the POST body. */
   slug: string;
   /** The branch this row shows — named in the hover title, for context. */
   branch: string;

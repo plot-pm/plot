@@ -27,7 +27,7 @@ export type AgentPanel =
       worktree: string;
       /** The plan governing the branch, as the scan reported it — or "". */
       plan: string;
-      /** The wave the branch belongs to, or "". */
+      /** The slice the branch belongs to, or "". */
       wave: string;
       /** The worker's state, forwarded from the scan — never re-derived here. */
       worker: string;

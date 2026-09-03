@@ -90,10 +90,10 @@ export function changedFilesLabel(count: number): string {
  * else's uncommitted judgement is not a mechanical act. It is reported in words
  * and that is the entire treatment.
  *
- * **`artifact-conflict` offers nothing IN THIS WAVE.** Wave 3 resolves it — the
+ * **`artifact-conflict` offers nothing IN THIS SLICE.** Slice 3 resolves it — the
  * only automatic write this plan ever grants — and until that exists the state
  * is reported like any other, with no action. Offering one here would be this
- * wave building the thing it is fenced away from.
+ * slice building the thing it is fenced away from.
  *
  * Exported for test: the two negatives are what a blanket "stuck rows get a
  * button" implementation gets wrong, and both pass every positive assertion.

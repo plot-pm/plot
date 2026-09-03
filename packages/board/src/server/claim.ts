@@ -32,7 +32,7 @@ import { DISPATCH_SCRIPT } from './dispatch.js';
  * the doing.
  */
 
-/** `--max 1`: one call reserves ONE branch. Fanning out a wave stays with /plot-dispatch. */
+/** `--max 1`: one call reserves ONE branch. Fanning out a slice stays with /plot-dispatch. */
 const MAX_PER_CALL = '1';
 
 /**

@@ -4,12 +4,12 @@ import type { DispatchInfo } from '../../contract/schema.js';
 import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
 
 /**
- * *Slice this wave* — the answer to a wave the board reports `unsliced-wave`.
+ * *Slice this plan* — the answer to a slice the board reports `unsliced-wave`.
  *
- * A wave that holds more than one live branch cannot be dispatched: the fleet
- * hands out one branch per worker, and a wave of several has no single branch to
+ * A slice that holds more than one live branch cannot be dispatched: the fleet
+ * hands out one branch per worker, and a slice of several has no single branch to
  * hand out. `/plot-reslice` reads those branches' diffs and PRs and proposes one
- * named wave per branch in an argued order — but naming is judgement, so it ASKS
+ * named slice per branch in an argued order — but naming is judgement, so it ASKS
  * a person before it rewrites the plan's `## Branches`. This control spawns that
  * command; it does not itself change the plan.
  *
@@ -22,20 +22,20 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * part a reader needs before committing to it.
  *
  * **Nothing is asserted from the reply.** A reslice that a person confirms moves
- * no row here — it rewrites `## Branches`, and the board re-derives its waves
+ * no row here — it rewrites `## Branches`, and the board re-derives its slices
  * from git on the next refresh. So the click's outcome is read back from
  * `GET /api/reslice/<slug>` only to surface the command's own words on a
- * refusal; success is the wave splitting, which the board sees for itself.
+ * refusal; success is the slice splitting, which the board sees for itself.
  */
 
 /** How often to ask what happened, once a click is outstanding. */
 const POLL_MS = 700;
 
-/** Long enough for an agent to read the branches and propose waves; then the log. */
+/** Long enough for an agent to read the branches and propose slices; then the log. */
 const GIVE_UP_MS = 300_000;
 
 export interface ResliceButtonProps {
-  /** The plan slug whose tangled wave this slices — the POST body, and nothing else. */
+  /** The plan slug whose tangled slice this cuts — the POST body, and nothing else. */
   slug: string;
   /** Whether the server will act, and why not — the board's `reslice`. */
   reslice: DispatchInfo;
@@ -127,7 +127,7 @@ export function ResliceButton({ slug, reslice, onActing }: ResliceButtonProps) {
         }
         if (body.state === 'done') {
           // Nothing to assert: the command exited 0, and whether it rewrote
-          // `## Branches` is answered by the wave splitting on the next board
+          // `## Branches` is answered by the slice splitting on the next board
           // poll — derived from git, never from this reply.
           setState({ kind: 'idle' });
           return;
@@ -157,7 +157,7 @@ export function ResliceButton({ slug, reslice, onActing }: ResliceButtonProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // THE SLUG, AND NOTHING ELSE. The server reads the plan from disk and
-        // checks its own waves, so no text this page holds becomes the plan an
+        // checks its own slices, so no text this page holds becomes the plan an
         // agent acts on — the same rule Commission design follows.
         body: JSON.stringify({ slug }),
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),

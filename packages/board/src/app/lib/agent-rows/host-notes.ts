@@ -271,7 +271,7 @@ export function hostErrorState(error: string | null): HostErrorState | null {
  * is known.
  *
  * `prNextInSeconds` is the reset the fetch already waits for: *backoff
- * included*, per the contract, which after the sibling wave is the host's real
+ * included*, per the contract, which after the sibling slice is the host's real
  * `rate_limit` reset rather than the nominal cadence. Rounded to the minute
  * above a minute, because the wait is minute-scale and second-precision would
  * flicker every render; kept in seconds below that, where a minute would read
@@ -419,7 +419,7 @@ export function issueNote(fleet: Pick<Fleet, 'issueError' | 'prNextInSeconds'>):
  *
  * Why this needs saying at all: `pr-list` is ONE GraphQL call in place of ~186
  * REST calls, so a spent budget takes out EVERY PR answer at once rather than
- * degrading row by row. The fleet then reads unmerged, every wave stays
+ * degrading row by row. The fleet then reads unmerged, every slice stays
  * blocked, and the board shows a busy estate with nothing eligible —
  * indistinguishable from work genuinely in flight. Measured 2026-08-29: three
  * merged branches read as unlanded while GraphQL was refusing.
@@ -482,7 +482,7 @@ export function scanHostNote(
  * The PR a row carries, derived from the row rather than imported.
  *
  * `AgentRowSchema` names the shape inline, so there is no exported alias to
- * import — and adding one is a change to the contract, which this wave is
+ * import — and adding one is a change to the contract, which this slice is
  * deliberately not making. Derived, so it cannot drift from the field it
  * describes: a seventh state or a new flag arrives here without an edit.
  */
@@ -520,7 +520,7 @@ export function prStateWord(state: AgentPr['state']): string {
  * The note, with the PR clause the CELL now renders taken off the front.
  *
  * The server still composes `PR #158, draft · awaiting review` — that sentence
- * is `fleet.ts`'s, and this wave does not touch it. But the PR's number, its
+ * is `fleet.ts`'s, and this slice does not touch it. But the PR's number, its
  * draft flag and its state now travel as fields and are rendered by their own
  * cell, so printing the whole sentence beside that cell would say the same
  * thing twice on every row that has a PR.
@@ -534,7 +534,7 @@ export function prStateWord(state: AgentPr['state']): string {
  * link. Nothing depends on it — the PR cell renders from the fields either way.
  *
  * **Everything after the separator survives**, because that is what a PR state
- * cannot say: *uncommitted work*, *blocked by an earlier wave*, *claimed
+ * cannot say: *uncommitted work*, *blocked by an earlier slice*, *claimed
  * elsewhere*, *awaiting review*. The note is not being replaced, only relieved
  * of one duty.
  *

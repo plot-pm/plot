@@ -79,13 +79,13 @@ export function isUnbegun(row: Pick<AgentRow, 'group' | 'state'>): boolean {
  * Does this row offer work a person can start right now?
  *
  * READS THE FIELD, not re-derives. `startability` is computed in `classify`
- * from plan phase, branch state, wave verdict, and brief state — four facts
+ * from plan phase, branch state, slice verdict, and brief state — four facts
  * that are only all in scope there. Reading the field rather than re-deriving
  * it is what makes the row and the menu unable to disagree: both ask one value,
  * computed once, from the same reading of the same pulse.
  *
  * Before this field existed, the board read `waitingOn === 'click'`, which
- * answered *wave ordering satisfied* — one of the four facts, and the one that
+ * answered *slice ordering satisfied* — one of the four facts, and the one that
  * was measured: 26 rows said `eligible` and 5 could be started. The operator
  * report named the gap: *"I see this row says 'eligible' — why won't dispatch
  * start it?"* Because `eligible` means something, and that something is not
@@ -175,10 +175,10 @@ export function briefGapNote(branch: string): string {
  *   `you`    amber — a person must act, and nothing in git will change it
  *   `click`  the ordinary note colour — available, and taking it is optional
  *   `time`   dimmer still — nothing to do, ever, and the most common state in
- *            a multi-wave plan
+ *            a multi-slice plan
  *
  * A section where every row is coloured has coloured nothing. Measured for
- * scale: this session's pulse held 43 rows, with multi-wave plans routinely
+ * scale: this session's pulse held 43 rows, with multi-slice plans routinely
  * showing two blocked rows for every eligible one — so `time` is the state the
  * section is mostly made of, and making it quiet is what lets `you` read.
  *
@@ -243,9 +243,9 @@ export function waitingTone(waitingOn: WaitingOn | null): string {
  * **`localAhead` is NOT part of this, and its absence is the load-bearing
  * half.** Unpushed commits are finished work sitting STILL: a real condition
  * with a real remedy (push it) and no motion behind it. An implementation
- * OR-ing all three passes every positive assertion this wave makes and marks a
+ * OR-ing all three passes every positive assertion this slice makes and marks a
  * branch nobody has touched for hours as though someone were typing into it.
- * It earns a static mark of its own in a later wave; it does not earn this one.
+ * It earns a static mark of its own in a later slice; it does not earn this one.
  * (The field is not even forwarded onto the row, so the mistake cannot be made
  * absent-mindedly here.)
  *
@@ -265,7 +265,7 @@ export function waitingTone(waitingOn: WaitingOn | null): string {
  *
  * This file carried one from 2026-08-21 to 2026-08-22. It began as *WAITING ON
  * YOU never carries an activity mark*, reported from the live board: a plan
- * head and the wave beneath it pulsing while, it seemed, nothing was running.
+ * head and the slice beneath it pulsing while, it seemed, nothing was running.
  * It was then narrowed once, because 28 tests across two suites showed QUIET
  * and DONE need the mark most — *"QUIET's own purpose is 'go check whether this
  * died'"*.
@@ -310,7 +310,7 @@ export function waitingTone(waitingOn: WaitingOn | null): string {
  * worktree brings it back looking like a new bug. The defect is the CATEGORY,
  * asking a live question of finished work, and this names the category.
  *
- * Exported for test, and reused: `isActive` and the wave-of-one status read are
+ * Exported for test, and reused: `isActive` and the slice-of-one status read are
  * the two places that were asking the live question, and they ask this instead.
  */
 export function isFinished(row: Pick<AgentRow, 'state'>): boolean {

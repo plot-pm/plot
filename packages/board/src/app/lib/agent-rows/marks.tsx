@@ -121,7 +121,7 @@ export function ActivityMark({ pace, place = 'row', inTrack = false }: { pace: A
  * **It is NOT `[data-live-dot]`, NOT `[data-change-mark]`, NOT
  * `[data-activity-mark]` and NOT `[data-stuck-cue]`.** Five marks, five
  * meanings, and no mark implemented by modifying another — the precedent #180
- * set and every wave since has kept.
+ * set and every slice since has kept.
  *
  * The title carries the same local-only limit its field does: this is what THIS
  * checkout can see, and a branch worked on elsewhere reports nothing here.
@@ -223,7 +223,7 @@ export function ChangeMark() {
  * Why this row offers no action — in the row's own words.
  *
  * A disabled control without a reason is the kind that makes people guess, and
- * this row already knows: the note beside it says *blocked by an earlier wave*
+ * this row already knows: the note beside it says *blocked by an earlier slice*
  * or *no commit for 22 days*. So the `title` says that, turning a dead
  * affordance into an explanation rather than a generic "no actions".
  *
@@ -253,7 +253,7 @@ export function ChangeMark() {
  *
  * **`null` is the common case and costs nothing.** Most rows are not stuck, and
  * this renders exactly nothing for them — the caller does not even mount it. A
- * healthy row is byte-for-byte the row it was before this wave.
+ * healthy row is byte-for-byte the row it was before this slice.
  */
 export function StuckCell({
   row,
@@ -358,25 +358,25 @@ export function StuckCell({
 }
 
 /**
- * The info mark on a blocked wave, and the overlay that names what blocks it.
+ * The info mark on a blocked slice, and the overlay that names what blocks it.
  *
  * ## Why an overlay rather than a `title`
  *
  * This was a native `title` for one commit, and it could not do the job asked
  * of it: *show the LINK on hover*. A `title` renders plain text, waits about a
  * second before appearing, cannot be styled, and — the part that decides it —
- * **cannot hold a control**. The blocking wave is a row on screen; a reference
+ * **cannot hold a control**. The blocking slice is a row on screen; a reference
  * to it should be able to take the reader there.
  *
  * ## Why the target is always reachable
  *
- * The blocking wave is a SIBLING in the same list — a plan's waves all render
+ * The blocking slice is a SIBLING in the same list — a plan's slices all render
  * together, so `Shaped` is one or two rows above `Moved` whenever `Moved` says
  * it is blocked. That is why this needs none of App's reveal machinery
  * (`revealBranch`, `highlightBranch`, the nonce): those exist to cross tabs and
  * sections to find a row that may not be rendered. Here the row is a query away.
  *
- * Scoped by PLAN as well as by wave name, because wave names repeat across
+ * Scoped by PLAN as well as by slice name, because slice names repeat across
  * plans — `Shaped` appears in several of this estate's plans, `Says` in three.
  * The same reason `openWaves` keys on `plan\0wave`.
  *
@@ -396,9 +396,9 @@ export function BlockedByMark({
   plan: string;
   wave: string;
   /**
-   * The SECTION the blocking wave sits in — the payload's own `Wave.section`,
-   * resolved by the wave row before it renders this. Null where the payload
-   * carries no wave to answer (a pre-#349 server casts `waves` and never fills
+   * The SECTION the blocking slice sits in — the payload's own `Wave.section`,
+   * resolved by the slice row before it renders this. Null where the payload
+   * carries no slice to answer (a pre-#349 server casts `waves` and never fills
    * it), in which case the blocker is assumed to be in an open section and the
    * query below finds it as it always did.
    */
@@ -418,7 +418,7 @@ export function BlockedByMark({
 
   // The sibling row, found by the two attributes that identify it. `scrollIntoView`
   // with a flash rather than a persistent highlight: the reader asked *which
-  // wave*, and the answer is a glance, not a new state to dismiss.
+  // slice*, and the answer is a glance, not a new state to dismiss.
   //
   // THE SELECTOR IS UNCHANGED — it already searches the whole document with both
   // attributes in one query, so it crosses sections already. What silenced it was
@@ -457,7 +457,7 @@ export function BlockedByMark({
         return;
       }
       // Still unreachable after the frames run out — filtered out, or on another
-      // tab. Never silent: the mark already NAMES the wave in its label and
+      // tab. Never silent: the mark already NAMES the slice in its label and
       // panel, so the reader keeps that answer; only the jump could not be made.
       if (framesLeft-- > 0) window.requestAnimationFrame(find);
     };

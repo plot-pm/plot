@@ -33,12 +33,12 @@ import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
  * Whether a row offers its worker's log.
  *
  * **WORKING membership, and nothing else.** WORKING lists AGENTS — that is the
- * section's definition, restated by the plan this wave comes from — and an
+ * section's definition, restated by the plan this slice comes from — and an
  * agent is the thing that writes a log. Every other section lists results or
  * processes, which have none.
  *
  * Deliberately NOT keyed on whether a log exists, because the row cannot know:
- * it carries no worktree path and no worker state, and this wave adds neither.
+ * it carries no worktree path and no worker state, and this slice adds neither.
  * The alternative — infer from `isLive` or from `localDirty` — would hide the
  * log on exactly the rows a reader most wants it: a claimed branch whose agent
  * is quiet is the one you open a log to understand, and an activity predicate
@@ -179,7 +179,7 @@ export function runLinkLabel(row: Pick<AgentRow, 'pr' | 'stuck'>): string {
  *      board click'
  *
  * and its own comment called that permanent — *"not an oversight to be filled
- * by a later wave … There is nothing to lift: the decision is the point."*
+ * by a later slice … There is nothing to lift: the decision is the point."*
  *
  * Measured against `skills/story-tracking/SKILL.md` on 2026-08-20, neither named
  * decision is what the refusal says it is. The skill states its own escape —
@@ -294,7 +294,7 @@ export function menuState(items: {
   // APPROVE AND COMMISSION DESIGN ARE NOT HERE, and their absence is the point.
   // Both are PLAN-level acts — approving a plan, or sending it to design — and a
   // branch row is never the honest place for either: a branch BLOCKED by an
-  // earlier wave is in `waiting-on-you` when its plan is Draft, so any gate that
+  // earlier slice is in `waiting-on-you` when its plan is Draft, so any gate that
   // put them on a row would put them on a row whose own available act is not its
   // own. They live on the plan head (`PlanActions`), gated on the card's
   // `isDraft` alone. So this menu — the BRANCH row's menu — no longer carries
@@ -383,7 +383,7 @@ export function menuState(items: {
  * deliberate exception recorded here, and the reversal was earned rather than
  * assumed. The old argument was layout: rendering nothing would leave the right
  * edge ragged and MOVING, since the pulse re-scans every five seconds. That
- * argument was answered by a later wave — the cell has a fixed `1.25rem` track
+ * argument was answered by a later slice — the cell has a fixed `1.25rem` track
  * of its own, so the column holds still whether or not a button is inside it,
  * and the gridcell below still renders unconditionally. What remains is the
  * cost: a `⋯` that opens nothing is a control that lies, and it was measured
@@ -399,19 +399,19 @@ export function menuState(items: {
 /**
  * A branch's MENU and the panels it opens, as one unit.
  *
- * Extracted so a WAVE ROW can carry it. A wave row is not decoration beside a
- * branch row — where a plan divides into one wave of one branch, the wave row
+ * Extracted so a SLICE ROW can carry it. A slice row is not decoration beside a
+ * branch row — where a plan divides into one slice of one branch, the slice row
  * IS that branch's row, and it already renders the branch's status, note, PR
  * and plan through `soleRow`. Its menu was the one thing left behind.
  *
- * Measured on the mock before this existed: every wave row had zero menus of
+ * Measured on the mock before this existed: every slice row had zero menus of
  * any kind (`data-row-actions`, `data-wave-actions` and `data-op` all absent),
  * while every branch row had one. So for a one-branch plan — which is most of
  * them — Review, Open and the worker log were unreachable, and the reader's
  * only route to the PR was the artifact link.
  *
  * `WaveActions` beside it is NOT the same control and does not substitute for
- * it: that one dispatches the WAVE, and its own call site is gated on
+ * it: that one dispatches the SLICE, and its own call site is gated on
  * `verdict === 'eligible'` for a good reason. This one acts on the BRANCH.
  * Two subjects, two menus, and a row that is both wears both.
  *
@@ -556,7 +556,7 @@ export function RowActions({
   // `/api/implement`, which runs `/plot-implement`, which writes the brief.
   // Same route as the plan head's Implement button, different label because the
   // reader's question is different: "I need this branch's brief" rather than
-  // "prepare the whole wave".
+  // "prepare the whole slice".
   //
   // Needs a card (for the slug) and an implement binding (for availability).
   const canWriteBrief = Boolean(card && implement && needsBrief(row));
@@ -569,7 +569,7 @@ export function RowActions({
   // APPROVE IS NOT HERE ANY LONGER — it belongs to the PLAN, and a branch row is
   // never the honest place for it. Every gate tried on this row failed the same
   // way: `isDraft(card)` alone put Approve on a branch BLOCKED by an earlier
-  // wave (its plan is genuinely Draft, so the card said yes) and adding
+  // slice (its plan is genuinely Draft, so the card said yes) and adding
   // `waitingOn === 'you'` did not fix it — a blocked branch of a Draft plan
   // reads `waiting-on-you` too, so the button came back on a row whose own
   // available act is not its own. No narrowing makes a plan-level act correct on
@@ -583,7 +583,7 @@ export function RowActions({
   // `canStart` answers "is this row startable"; it does not answer "will the
   // server act", and the two came apart the moment the board learned to dim.
   // Without this the three-dot menu still opened on a frozen page and still
-  // offered `Start work` on data minutes old — the exact invitation this wave
+  // offered `Start work` on data minutes old — the exact invitation this slice
   // exists to withdraw, and one that a scrim alone does not reach, because a
   // keyboard reader never touches the scrim.
   //
@@ -619,7 +619,7 @@ export function RowActions({
   const runUrl = row.stuck?.runHistory.find((r) => r.url)?.url ?? '';
   // THE CONFLICT, through the route that already exists — the same
   // `/api/dispatch` a Start work click uses, with the same script deciding
-  // which branch and whether the wave is open. Moving it here added no route
+  // which branch and whether the slice is open. Moving it here added no route
   // and granted the board no new authority.
   //
   // Unlike the run link this asks for a card and a dispatch verdict, because a
@@ -658,7 +658,7 @@ export function RowActions({
   // Whether the menu EXISTS, and whether anything in it can act — two questions,
   // and the old code asked only the second. See {@link menuState}.
   // A READ, offered on membership and answered by the server. The row carries
-  // no worktree and no worker state — deliberately, since this wave adds no
+  // no worktree and no worker state — deliberately, since this slice adds no
   // field to the contract — so nothing here can know whether a log exists. It
   // does not guess: the item asks *is this an agent*, and the panel reports
   // which of no-worktree / no-log / empty / here-it-is turned out to be true.
@@ -830,7 +830,7 @@ export function RowActions({
           )}
           {/* APPROVE AND COMMISSION DESIGN ARE NOT RENDERED HERE — both are
               PLAN decisions and live on the plan head (`PlanActions`), not on a
-              branch row. A branch BLOCKED by an earlier wave reads
+              branch row. A branch BLOCKED by an earlier slice reads
               `waiting-on-you` when its plan is Draft, so any gate that kept
               either here would put a plan-level act on a row whose own available
               act is not its own — the very defect the row-level gates chased and
@@ -862,7 +862,7 @@ export function RowActions({
               startable but lacks the specification a worker reads first. Calls
               `/api/implement`, which runs `/plot-implement`, which writes the
               brief. Same route as the plan head's Implement button — the slug
-              is the plan's, so `/plot-implement` prepares the whole wave — but
+              is the plan's, so `/plot-implement` prepares the whole slice — but
               the label says what the click does for THIS row.
 
               THE MENU ITEM REPLACES THE TEXT in the "needs a brief" line. The
@@ -1009,12 +1009,12 @@ export function RowActions({
 }
 
 /**
- * The wave row's `⋯` menu — one act, `Start work`.
+ * The slice row's `⋯` menu — one act, `Start work`.
  *
  * BORROWED FROM `PlanActions` rather than from `RowActions`, and the reason is
  * the same one recorded there: `RowActions` is typed on `AgentRow` and asks four
  * questions about a branch (startable? resolvable? a run? a log?), none of which
- * a wave row can answer. A wave is not a branch, so it takes the pattern —
+ * a slice row can answer. A slice is not a branch, so it takes the pattern —
  * same glyph, same `aria-haspopup`, same close-on-outside-click, same
  * fixed-width cell — and not the component.
  *
@@ -1022,7 +1022,7 @@ export function RowActions({
  * consequence, which is why this is a popup and not an inline control: the label
  * does not fit a cell.
  *
- * Only ever rendered for an ELIGIBLE wave — see the `menu` prop — so there is no
+ * Only ever rendered for an ELIGIBLE slice — see the `menu` prop — so there is no
  * *can I* question left to ask here. What remains is whether the SERVER will
  * act, and where it refuses, `StartWorkButton` says so on itself.
  */
@@ -1103,20 +1103,20 @@ export function WaveActions({
 }
 
 /**
- * The `⋯` menu on a wave the board reports `unsliced-wave` — the ONE act such a
- * wave offers: *Slice this wave*.
+ * The `⋯` menu on a slice the board reports `unsliced-wave` — the ONE act such a
+ * slice offers: *Slice this plan*.
  *
  * A `⋯` of its own rather than a slot in `WaveActions`, because the two answer
- * disjoint waves. `WaveActions` is gated on `verdict === 'eligible'` — a wave
- * ready to dispatch — and an unsliced wave is precisely the wave that CANNOT be
+ * disjoint slices. `WaveActions` is gated on `verdict === 'eligible'` — a slice
+ * ready to dispatch — and an unsliced slice is precisely the slice that CANNOT be
  * dispatched (several live branches, no single one to hand a worker). They never
  * co-occur, so one row never wears both, and folding reslice into the dispatch
- * menu would put an item on `eligible` waves that can never apply to them.
+ * menu would put an item on `eligible` slices that can never apply to them.
  *
  * The shell is `PlanActions`', with ONE difference that is the whole point: this
  * menu opens even when `reslice` is refused. `PlanActions` gates its open on
  * `willAct` because a Draft plan has other reasons to exist and a dead `⋯`
- * there would be noise. An unsliced wave has exactly one errand — this one — so
+ * there would be noise. An unsliced slice has exactly one errand — this one — so
  * a refused binding must still open to NAME the refusal, or the operator meets a
  * dead control with its explanation one hover away and unreachable by keyboard.
  * `ResliceButton` states its own refusal inside, the way every `DispatchInfo`
@@ -1194,7 +1194,7 @@ export function ResliceMenu({
  * Whether the card has work that could be started now.
  *
  * The gate for Implement and Dispatch: an approved plan (`phase === 'Development'`)
- * with at least one eligible branch. A plan with nothing eligible — every wave
+ * with at least one eligible branch. A plan with nothing eligible — every slice
  * is blocked, claimed, merged or deferred — offers neither act.
  *
  * Returns false for any card without a pulse yet (`eligible` is undefined), which
@@ -1208,7 +1208,7 @@ export function hasEligibleWork(card: Card | null): boolean {
  * Dispatch all: fans out all eligible branches of this plan in one click.
  *
  * The difference from `StartWorkButton` is the CAP: Start work posts with
- * `--max 1` because it is on a wave row and means *this wave, now*; Dispatch
+ * `--max 1` because it is on a slice row and means *this slice, now*; Dispatch
  * posts with no cap because it is on a plan row and means *all of it*.
  * `plot-dispatch.sh --max 0` is its own default, so omitting the cap is how the
  * call expresses *no limit*.
@@ -1332,15 +1332,15 @@ export function DispatchAllButton({
  * creates a Design-phase plan to hold that work. Both belong to the PLAN, and
  * the plan row — the row that NAMES the plan — is the only honest place for
  * either. Neither was ever right on a branch row: a branch BLOCKED by an earlier
- * wave reads `waiting-on-you` when its plan is Draft, so any branch-row gate put
+ * slice reads `waiting-on-you` when its plan is Draft, so any branch-row gate put
  * a plan act on a row whose own available act is not its own. That is why the
  * two row-level twins are deleted, not merely re-gated, and why they live here.
  *
  * **An approved plan with eligible work offers Implement and Dispatch.** Both
- * are plan-level: Implement prepares one wave, Dispatch fans out all eligible
+ * are plan-level: Implement prepares one slice, Dispatch fans out all eligible
  * branches. Neither appears on a branch row; neither appears on a plan with
  * nothing eligible (blocked or finished). Implement is present-but-refused
- * until its route exists (Wave 2); Dispatch posts to `/api/dispatch` with no
+ * until its route exists (Slice 2); Dispatch posts to `/api/dispatch` with no
  * cap.
  *
  * `ApproveButton` arms itself on the first click and its armed label names the
@@ -1376,14 +1376,14 @@ export function PlanActions({
   plan: string;
   card: Card | null;
   /**
-   * The name of the plan's ONE eligible wave, where it has exactly one and that
-   * wave's row is folded into this one.
+   * The name of the plan's ONE eligible slice, where it has exactly one and that
+   * slice's row is folded into this one.
    *
-   * Present, it adds a *Wave* section to this menu holding the `Start work` that
-   * the wave's own row would have carried. Absent — the ordinary case — nothing
+   * Present, it adds a *Slice* section to this menu holding the `Start work` that
+   * the slice's own row would have carried. Absent — the ordinary case — nothing
    * changes.
    *
-   * **This exists so a row wears ONE `⋯`.** A sole-wave plan row used to render
+   * **This exists so a row wears ONE `⋯`.** A sole-slice plan row used to render
    * `WaveActions` as a SIBLING of this component, so the row grew two adjacent
    * three-dot buttons with no way to tell which held which act: the operator had
    * to open both to find out. Two controls that look identical and do different
@@ -1391,11 +1391,11 @@ export function PlanActions({
    * branch chip had, one grammar over.
    *
    * The acts do not merge into one list, because they answer different subjects:
-   * everything else here acts on the PLAN, and this acts on a WAVE. They are
+   * everything else here acts on the PLAN, and this acts on a SLICE. They are
    * separated by a labelled rule rather than flattened.
    */
   soleWave?: string;
-  /** Threaded to the wave section's `StartWorkButton`; see {@link WaveActions}. */
+  /** Threaded to the slice section's `StartWorkButton`; see {@link WaveActions}. */
   onStarting?: (active: boolean) => void;
   approve?: DispatchInfo;
   /**
@@ -1459,8 +1459,8 @@ export function PlanActions({
   const canDeliver = Boolean(card?.deliverable && deliver);
   // The APPROVED acts: Implement and Dispatch. Both gate on an approved plan
   // with eligible work. The two together are the complement of Start work, which
-  // sits on a wave row and dispatches one branch — this menu sits on the plan
-  // row and offers either *prepare one wave* (Implement) or *fan out all of it*
+  // sits on a slice row and dispatches one branch — this menu sits on the plan
+  // row and offers either *prepare one slice* (Implement) or *fan out all of it*
   // (Dispatch).
   const hasEligible = hasEligibleWork(card);
   const approveWillAct = approve?.available ?? false;
@@ -1521,9 +1521,9 @@ export function PlanActions({
       onClick={(e) => e.stopPropagation()}
     >
       {/* `soleWave` joins the render gate, and must: it is the row's ONLY act
-          in the ordinary sole-wave case. `hasEligible` reads
+          in the ordinary sole-slice case. `hasEligible` reads
           `card.waveSummary.eligible`, which a payload can leave at 0 while the
-          fleet still reports one eligible wave — and before this the row's
+          fleet still reports one eligible slice — and before this the row's
           trigger came from the SIBLING `WaveActions`, which had no such gate.
           Folding the act inward without widening the gate would delete the
           control on exactly the rows this fix is about. */}
@@ -1599,8 +1599,8 @@ export function PlanActions({
               />
             </div>
           )}
-          {/* THE WAVE SECTION — the acts of the one wave folded into this row.
-              Everything above acts on the PLAN; this acts on a WAVE, so it sits
+          {/* THE SLICE SECTION — the acts of the one slice folded into this row.
+              Everything above acts on the PLAN; this acts on a SLICE, so it sits
               under a labelled rule rather than joining the list. A reader
               scanning the menu can see which subject each item takes without
               opening it, which is exactly what two identical `⋯` buttons could

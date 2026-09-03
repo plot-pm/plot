@@ -9,7 +9,7 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * `/plot-implement` is the preparation that comes before writing code: the
  * staleness preflight, the branch, the hand-off brief, the `Started:` record.
  * It is the complement of Dispatch on the same plan row — Dispatch fans a plan
- * out to detached workers, this prepares ONE wave the way a person picking the
+ * out to detached workers, this prepares ONE slice the way a person picking the
  * plan up would, then stops. Which of the two applies is the operator's call
  * (*am I picking this up, or is the fleet taking it?*), so the board offers
  * both and defaults to neither.
@@ -26,7 +26,7 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * on success. That makes this control unlike Dispatch (which confirms by a
  * claim landing) and like Deliver (which reads a status route): the ONLY signal
  * of what the click did is `GET /api/implement/<slug>` — whether the agent
- * stopped on drift, or prepared the wave. So it polls, and reports.
+ * stopped on drift, or prepared the slice. So it polls, and reports.
  *
  * This is rendered ONLY where the plan has eligible work (see `PlanActions`'s
  * `hasEligibleWork` gate), so the per-plan "is there work to start" question

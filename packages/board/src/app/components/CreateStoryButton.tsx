@@ -11,7 +11,7 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * carried a constant: *"a story is a decision you make — where it lives, whether
  * it is wanted yet — so it is created with /story-tracking at a terminal, not
  * from a board click"*, and its comment said this was *"not an oversight to be
- * filled by a later wave"*. Measured against the skill it describes, neither
+ * filled by a later slice"*. Measured against the skill it describes, neither
  * named decision is what it claims:
  *
  * - **Where it lives** — `story-tracking` names its own escape: *"Skip the

@@ -9,7 +9,7 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  *
  * A plan whose every non-deferred branch has merged is bumped into Testing by
  * the server on its own; that bump is a MEASUREMENT (*docs/board-domain-model.md*:
- * every wave being complete is a measurement, delivering is a decision). This
+ * every slice being complete is a measurement, delivering is a decision). This
  * control is where the decision is made: it spawns `/plot-deliver`, which
  * re-verifies the merges, flips the phase to Delivered and moves the plan. It
  * does not itself change the plan — and it is never fired automatically, so
@@ -17,7 +17,7 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  *
  * The interaction is `ResliceButton`'s, to the letter and deliberately: arm on
  * the first click, act on the second, cancel on a click elsewhere or Escape. It
- * spawns a plot agent — the same class of act as Slice this wave and Commission
+ * spawns a plot agent — the same class of act as Slice this plan and Commission
  * design — and controls on one board that confirmed differently would be things
  * to learn twice. The armed label names the CONSEQUENCE
  * (`spawns /plot-deliver for <slug>?`), because what the click starts is the
@@ -164,8 +164,8 @@ export function DeliverButton({ slug, deliver, onActing }: DeliverButtonProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // THE SLUG, AND NOTHING ELSE. The server reads the plan from disk and
-        // checks its own waves against the pulse, so no text this page holds
-        // becomes the plan an agent acts on — the same rule Slice this wave
+        // checks its own slices against the pulse, so no text this page holds
+        // becomes the plan an agent acts on — the same rule Slice this plan
         // follows.
         body: JSON.stringify({ slug }),
         signal: AbortSignal.timeout(ACTION_TIMEOUT_MS),

@@ -21,7 +21,7 @@ import { localCapability } from './controllers/caller.js';
  * are designed rather than added:
  *
  *   - It runs `plot-dispatch.sh`, and DECIDES NOTHING itself. Which branch,
- *     whether the wave is open, whether the phase gate allows it, whether the
+ *     whether the slice is open, whether the phase gate allows it, whether the
  *     claim wins its race — all of that lives in the script and its own chain.
  *     The board expresses an intent about a plan; it cannot bypass a rule it
  *     never evaluates.
@@ -38,7 +38,7 @@ import { localCapability } from './controllers/caller.js';
 /** The fan-out Plot ships — the one this package starts, never a path a caller holds. */
 export const DISPATCH_SCRIPT = 'plot-dispatch.sh';
 
-/** `--max 1`: a button is ONE decision. Fanning out a wave stays with /plot-dispatch. */
+/** `--max 1`: a button is ONE decision. Fanning out a slice stays with /plot-dispatch. */
 const MAX_PER_CLICK = '1';
 
 export interface DispatchOptions extends BuildBoardOptions {
@@ -245,7 +245,7 @@ export interface DispatchDeps {
 /**
  * Handle `POST /api/dispatch`. Refuses, or spawns and answers 202 — never both.
  *
- * ## The brief gate — wave 2 of a-dispatch-hands-over-a-brief
+ * ## The brief gate — slice 2 of a-dispatch-hands-over-a-brief
  *
  * A dispatch now calls `/plot-implement` FIRST and waits for it to complete
  * before spawning `plot-dispatch.sh`. The implement command creates the

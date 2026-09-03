@@ -20,10 +20,10 @@ import { DISPATCH_SCRIPT } from './dispatch.js';
 export { briefPath };
 
 /**
- * WAVE 3: the switch does something.
+ * SLICE 3: the switch does something.
  *
- * Waves 1 and 2 made the fleet controls a stored intention nobody read. This is
- * the reader. While `autoDispatch` is on, eligible waves of approved plans fan
+ * Slices 1 and 2 made the fleet controls a stored intention nobody read. This is
+ * the reader. While `autoDispatch` is on, eligible slices of approved plans fan
  * out with no click, wrapping `plot-dispatch.sh` — which still owns the claim,
  * the abandoned-desk refusal, the in-flight file report and the worktree
  * fan-out, so every refusal that protects a watched dispatch protects an
@@ -223,7 +223,7 @@ function freeAgents(agents: AgentEntry[], pulse: FleetReading): AgentEntry[] {
  * branch is one no ref has taken and no merge has closed.
  *
  * STATE-ONLY, and it stays that way. `wip` means *there is work here*, and
- * accepting it is deliberate — a wave someone began and abandoned should be
+ * accepting it is deliberate — a slice someone began and abandoned should be
  * resumable. This is the ROW predicate's original purpose and the client's
  * `isStartable(row)` keeps the same shape; auto-dispatch layers a second
  * question on top of it in {@link dispatchable}, never inside here.
@@ -242,7 +242,7 @@ function isStartable(state: string): boolean {
  * mechanism. So auto-dispatch spending budget on a branch whose ref exists buys
  * a dispatch the script immediately discards, every pulse, forever.
  *
- * THE FIX FOR `a-claimed-branch-is-not-startable`. Before this wave, the check
+ * THE FIX FOR `a-claimed-branch-is-not-startable`. Before this slice, the check
  * was `state === 'wip'`, which ASSUMES a ref because `wip` is derived by walking
  * `origin/<branch>`. But a branch can be `open` (no work commits) AND have a
  * claim ref — three of four branches measured in the plan had that exact shape.
@@ -309,7 +309,7 @@ export interface PlanAutoDispatchInput {
    */
   inFlight: Set<string>;
   /**
-   * Branches whose brief does not exist on `origin/main`. A wave with no brief
+   * Branches whose brief does not exist on `origin/main`. A slice with no brief
    * is not started — see `a-worker-starts-with-its-brief.md`.
    *
    * INJECTED, not computed here, so `planAutoDispatch` stays pure. The caller
@@ -334,11 +334,11 @@ export interface PlanAutoDispatchInput {
  * through comment in the body.
  *
  * The budget is `parallelAgents − (liveCount + inFlight.size)`, clamped at zero.
- * It is spent across approved plans' eligible waves in document order, each plan
+ * It is spent across approved plans' eligible slices in document order, each plan
  * taking `min(remaining budget, its startable branches not already in flight)`,
  * and a plan that would take zero is not named at all. The SUM of every returned
  * `max` never exceeds the budget — that sum, held below the cap across every
- * pulse, is the property the whole wave exists to guarantee.
+ * pulse, is the property the whole slice exists to guarantee.
  */
 /**
  * Whether the machine is clear enough that a dispatch costs nothing to explain.
@@ -430,8 +430,8 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
     // so the phase is read from the pulse first.
     if (plan.phase !== 'approved') continue;
 
-    // Every startable branch across this plan's ELIGIBLE waves, minus the ones
-    // already in flight or missing a brief. A blocked or complete wave
+    // Every startable branch across this plan's ELIGIBLE slices, minus the ones
+    // already in flight or missing a brief. A blocked or complete slice
     // contributes nothing: the scan's verdict is the eligibility arithmetic,
     // not re-derived here.
     let startable = 0;
@@ -462,7 +462,7 @@ export function planAutoDispatch(input: PlanAutoDispatchInput): AutoDispatchPlan
 }
 
 /**
- * The branches an eligible wave of an approved plan currently offers to start —
+ * The branches an eligible slice of an approved plan currently offers to start —
  * the set that should enter `inFlight` when this pulse's plan is dispatched.
  *
  * Kept beside the planner because both read the same "startable, eligible,
@@ -505,8 +505,8 @@ export function startableBranches(
  * The branches auto-dispatch DECLINED to start because their own ref already
  * blocks a claim — `ref_held` is true. See {@link refBlocksClaim}.
  *
- * Named across every approved plan's eligible waves so the refusal can be
- * reported once per pulse: a budget that buys nothing is the failure this wave
+ * Named across every approved plan's eligible slices so the refusal can be
+ * reported once per pulse: a budget that buys nothing is the failure this slice
  * removes, and a budget WITHHELD for a stated reason is a decision the operator
  * can act on. Skips branches already in flight — those are this board's own
  * dispatches, not a claim it is declining.
@@ -539,7 +539,7 @@ export function skippedClaimedBranches(pulse: FleetReading, inFlight: Set<string
  *   `plot-dispatch.sh` would push. Nothing to do until those refs are reaped.
  * - `in-flight` — this board already dispatched them and the pulse cannot yet
  *   confirm it. The next pulse resolves it; no action.
- * - `no-eligible-wave` — the plan has no eligible wave at all. Its waves are
+ * - `no-eligible-wave` — the plan has no eligible slice at all. Its slices are
  *   complete, blocked, or its branches are merged, claimed or deferred.
  * - `budget-spent` is NOT a plan reason and is not listed here: the cap refusal
  *   already has its own sentence, and a plan the budget never reached was not
@@ -598,7 +598,7 @@ export function skippedPlans(
     let flying = 0;
     let eligibleBranches = 0;
     // Merged, claimed or deferred: counted so the totals still add up, and
-    // never a reason on its own — a plan whose eligible wave holds only these
+    // never a reason on its own — a plan whose eligible slice holds only these
     // falls through to `no-eligible-wave`, which is what the final `else` says.
     let unstartable = 0;
     for (const wave of plan.slices) {
@@ -613,7 +613,7 @@ export function skippedPlans(
         // `dispatchable` is `isStartable(state) && !refBlocksClaim(b)`, so a
         // merged or deferred branch fails it on STATE and counting that as
         // `held` sends an operator to reap work that is already finished.
-        // Measured 2026-09-02: a wave of one merged and one deferred branch
+        // Measured 2026-09-02: a slice of one merged and one deferred branch
         // reported `ref-held`, and the reason this function exists is to name
         // somebody's next move.
         if (!isStartable(b.state)) unstartable += 1;
@@ -635,8 +635,8 @@ export function skippedPlans(
     else if (noBrief >= held && noBrief >= flying && noBrief > 0) reason = 'no-brief';
     else if (held >= flying && held > 0) reason = 'ref-held';
     else if (flying > 0) reason = 'in-flight';
-    // Every eligible branch is merged, claimed or deferred — the wave has work
-    // but none of it startable, which is the same answer as no eligible wave
+    // Every eligible branch is merged, claimed or deferred — the slice has work
+    // but none of it startable, which is the same answer as no eligible slice
     // from a dispatch's point of view.
     else reason = 'no-eligible-wave';
 
@@ -649,7 +649,7 @@ export function skippedPlans(
  * All branches that auto-dispatch would consider starting this pulse — the
  * candidates whose briefs must exist before a dispatch is allowed.
  *
- * Returns every dispatchable branch across approved plans' eligible waves, minus
+ * Returns every dispatchable branch across approved plans' eligible slices, minus
  * those already in flight. The result is the set `findMissingBriefs` checks.
  */
 export function dispatchCandidates(pulse: FleetReading, inFlight: Set<string>): string[] {
@@ -719,7 +719,7 @@ export function pruneInFlight(
   agents: AgentEntry[],
 ): Set<string> {
   if (inFlight.size === 0) return inFlight;
-  // A branch the pulse still shows as startable in an eligible wave, and which
+  // A branch the pulse still shows as startable in an eligible slice, and which
   // no live registry entry holds, is one whose dispatch has not landed yet — it
   // stays in flight. Everything else is confirmed and drops.
   const stillPending = new Set<string>();
@@ -804,7 +804,7 @@ export function runAutoDispatch(
  * rule.
  *
  * AT THE CAP, REFUSES AND NAMES THE BRANCHES. Refusing silently is what made
- * the cap invisible — see `a-worker-asks-for-the-next-wave.md`, "Counted" wave.
+ * the cap invisible — see `a-worker-asks-for-the-next-wave.md`, "Counted" slice.
  * The log line names the branches occupying the slots, not just the count.
  */
 export function maybeAutoDispatch(
@@ -907,7 +907,7 @@ export function maybeAutoDispatch(
     }
   }
 
-  // Check which dispatchable branches lack a brief on origin/main. A wave with
+  // Check which dispatchable branches lack a brief on origin/main. A slice with
   // no brief is not started — see `a-worker-starts-with-its-brief.md`.
   //
   // This is the impure side: `findMissingBriefs` spawns `git cat-file -e` per
@@ -925,7 +925,7 @@ export function maybeAutoDispatch(
 
   // Log which branches auto-dispatch is skipping for missing briefs, once per
   // pulse. Same pattern as the claimed-branch skip above: a refusal nobody sees
-  // is the defect this wave removes.
+  // is the defect this slice removes.
   if (controls.autoDispatch && missingBriefs.size > 0) {
     const missing = [...missingBriefs];
     console.log(

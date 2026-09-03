@@ -83,17 +83,17 @@ export function isDraft(card: Card): boolean {
 }
 
 /**
- * The wave badge's text, or "" when there is nothing worth saying.
+ * The slice badge's text, or "" when there is nothing worth saying.
  *
  * Answers the question a tile is actually asked — how much work is left, and is
  * anyone on it? — from two halves with different rules:
  *
- * **Shape** (`N waves · M branches`) only where shape says something. "1 waves ·
- * 1 branches" is noise, so it is kept to multi-wave plans. Deferred branches are
+ * **Shape** (`N waves · M branches`) only where shape says something. "1 slices ·
+ * 1 branches" is noise, so it is kept to multi-slice plans. Deferred branches are
  * already excluded upstream: they are not outstanding.
  *
  * **Occupancy** (`claimed`, `ready`) renders for every plan that has it,
- * single-wave included — that question is worth answering whether a plan has one
+ * single-slice included — that question is worth answering whether a plan has one
  * branch or nine.
  *
  * Both occupancy counts are optional, and **absent means unknown, never zero**.

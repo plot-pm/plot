@@ -685,7 +685,7 @@ export function groupPace(
  * and the board does not know whether anyone is there. The reader learns one
  * rule and both states are ones the board can defend. See `activityPace`.
  *
- * **This reverses the wave before it, and the reversal is the point.** That wave
+ * **This reverses the slice before it, and the reversal is the point.** That slice
  * gave the mark the smallest honest rendering — a static glowing bar — so the
  * marker could be proven to read the right thing before it got loud, and argued
  * that a fifth moving element at a fifth scale would compete with the four
@@ -777,7 +777,7 @@ export const ACTIVITY_MARK_PLACE = {
   // THE TUPLE'S OWN CELL, borrowed rather than restated — see `MARKS_CELL`.
   // The row is what renders this track, so the row is what owns the string; a
   // second copy here is how a heading's marks and a row's marks come to sit
-  // differently, which is the drift this whole wave exists to remove.
+  // differently, which is the drift this whole slice exists to remove.
   row: MARKS_CELL,
   // In a HEADING the mark simply FLOWS. The `<h2>` is a flex row and the mark
   // takes its place after the tally like any other child — there is no grid
