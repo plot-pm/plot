@@ -129,7 +129,7 @@ describe('a row renders from plan facts before any git fact exists', () => {
 
   it('counts waves and branches with no pulse at all', () => {
     const s = summariseFromPulse(meta, null);
-    expect(s.waves).toBe(1);
+    expect(s.slices).toBe(1);
     expect(s.branches).toBe(2);
     // ABSENT, not zero. A count of 0 rendered before anything was counted is a
     // measurement never taken displayed as one that was.
@@ -148,7 +148,7 @@ describe('a row renders from plan facts before any git fact exists', () => {
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
     };
     const s = summariseFromPulse(meta, partial);
-    expect(s.waves).toBe(1);
+    expect(s.slices).toBe(1);
     expect(s.branches).toBe(2);
     expect(s.claimed).toBeUndefined();
     expect(s.eligible).toBeUndefined();

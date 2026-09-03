@@ -3850,7 +3850,7 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
     ];
     const tally = sectionTally(rows, 'done', waves, 0);
     expect(tally.plans).toBe(2);
-    expect(tally.waves).toBe(3);
+    expect(tally.slices).toBe(3);
     expect(tally.differ).toBe(true);
   });
 
@@ -3859,7 +3859,7 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
     // agree must not read `0 plans · 0 waves`.
     const tally = sectionTally([], 'quiet', [], 0);
     expect(tally.plans).toBe(0);
-    expect(tally.waves).toBe(0);
+    expect(tally.slices).toBe(0);
     expect(tally.differ).toBe(false);
   });
 
@@ -3876,7 +3876,7 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
     ];
     const tally = sectionTally(rows, 'done', waves, 0);
     expect(tally.plans).toBe(2);
-    expect(tally.waves).toBe(2);
+    expect(tally.slices).toBe(2);
     expect(tally.differ).toBe(false);
   });
 
@@ -3895,7 +3895,7 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
     // One plan head plus two issue rows visible → three; two waves in scope plus
     // the two issues → four.
     expect(tally.plans).toBe(3);
-    expect(tally.waves).toBe(4);
+    expect(tally.slices).toBe(4);
     expect(tally.differ).toBe(true);
   });
 });

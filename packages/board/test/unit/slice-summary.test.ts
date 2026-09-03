@@ -104,7 +104,7 @@ describe('summariseFromPulse — the card reads claims from git', () => {
     expect(s.claimed).toBeUndefined();
     expect(s.eligible).toBeUndefined();
     // Shape still renders: it comes from the plan and is true without git.
-    expect(s).toMatchObject({ waves: 1, branches: 1, deferred: 0 });
+    expect(s).toMatchObject({ slices: 1, branches: 1, deferred: 0 });
   });
 
   it('omits the counts when the pulse does not know this plan', () => {
@@ -232,7 +232,7 @@ describe('summariseFromPulse — shape comes from the plan', () => {
       wave('Fixes', 'eligible', [['feature/a', 'claimed']]),
     ]);
     expect(summariseFromPulse(m, p)).toEqual({
-      waves: 1, branches: 1, deferred: 0, claimed: 1, eligible: 0,
+      slices: 1, branches: 1, deferred: 0, claimed: 1, eligible: 0,
     });
   });
 });

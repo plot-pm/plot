@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { deriveSlices } from '../../src/server/fleet.js';
-import { FleetReadingSchema, FleetSchema, SliceSchema, type FleetReading } from '../../src/contract/schema.js';
+import {
+  FleetReadingSchema, FleetSchema, PlanMetaSchema, SliceSchema, SliceSummarySchema,
+  type FleetReading,
+} from '../../src/contract/schema.js';
 
 // The wave the contract now carries. `the-wave-is-a-thing-the-board-can-hold`
 // settles that a wave is a THING with identity, branches, a verdict, ONE
@@ -238,7 +241,7 @@ describe('the Wave contract', () => {
     expect(w).not.toHaveProperty('phase');
   });
 
-  it('defaults waves to [] on the fleet payload for an older server', () => {
+  it('defaults slices to [] on the fleet payload for an older server', () => {
     // A payload from a server predating this wave still validates — the issues /
     // agents precedent. The default fires at PARSE time; a client that CASTS
     // gets undefined and must guard, which is why the server emits it always
@@ -249,6 +252,112 @@ describe('the Wave contract', () => {
       summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
       prAgeSeconds: null, prError: null,
     });
-    expect(parsed.waves).toEqual([]);
+    expect(parsed.slices).toEqual([]);
+  });
+});
+
+/**
+ * THE RENAME'S ONLY GUARD. `Wave` became `Slice` and the payload field followed;
+ * a running client and a freshly deployed server therefore disagree for one
+ * deploy, and `plot-plan-meta.sh` ships separately and emits `waves`
+ * indefinitely. A field rename with no reader fails at RUNTIME and says
+ * nothing — the schema simply finds no `slices`, applies the default, and every
+ * slice silently disappears from the board.
+ *
+ * So the three schemas emit `slices` and accept `waves`. These assertions are
+ * what stand between the rename and that silence.
+ */
+describe('the wire accepts both spellings', () => {
+  it('parses a fleet payload carrying the OLD `waves` spelling', () => {
+    const slice = {
+      plan: 'a-plan', name: 'Tracer', branches: ['feature/x'],
+      verdict: 'eligible', section: 'working', complete: false,
+    };
+    const parsed = FleetSchema.parse({
+      generatedAt: '', ageSeconds: 0, ready: true, error: null,
+      rows: [],
+      waves: [slice],
+      summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
+      prAgeSeconds: null, prError: null,
+    });
+    // Read back under the NEW name: the reader resolves the spelling, it does
+    // not merely tolerate it. A consumer sees one field, whichever arrived.
+    expect(parsed.slices).toHaveLength(1);
+    expect(parsed.slices[0].name).toBe('Tracer');
+    expect(parsed.slices[0].branches).toEqual(['feature/x']);
+    expect(parsed).not.toHaveProperty('waves');
+  });
+
+  it('parses a fleet payload carrying the NEW `slices` spelling', () => {
+    const parsed = FleetSchema.parse({
+      generatedAt: '', ageSeconds: 0, ready: true, error: null,
+      rows: [],
+      slices: [{
+        plan: 'a-plan', name: 'Tracer', branches: ['feature/x'],
+        verdict: 'eligible', section: 'working', complete: false,
+      }],
+      summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
+      prAgeSeconds: null, prError: null,
+    });
+    expect(parsed.slices).toHaveLength(1);
+  });
+
+  it('prefers `slices` where a payload carries both', () => {
+    // Not a shape any producer emits — the assertion pins WHICH wins, so a
+    // future reader does not have to run it to find out.
+    const parsed = FleetSchema.parse({
+      generatedAt: '', ageSeconds: 0, ready: true, error: null,
+      rows: [],
+      slices: [{
+        plan: 'a-plan', name: 'New', branches: [],
+        verdict: null, section: 'done', complete: true,
+      }],
+      waves: [{
+        plan: 'a-plan', name: 'Old', branches: [],
+        verdict: null, section: 'done', complete: true,
+      }],
+      summary: { plans: 1, waves: 1, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+      prAgeSeconds: null, prError: null,
+    });
+    expect(parsed.slices[0].name).toBe('New');
+  });
+
+  it('parses plan-meta output carrying `waves`, which its script still emits', () => {
+    // `plot-plan-meta.sh` is out of this rename's scope and emits `waves`
+    // today. This is not a transitional case: it is the steady state until that
+    // script changes, so the reader is permanent rather than a deploy-window
+    // courtesy.
+    const parsed = PlanMetaSchema.parse({
+      file: 'a-plan.md', format: 'v2', phase: 'approved',
+      waves: [{ name: 'Tracer', branches: [{ branch: 'feature/x' }] }],
+    });
+    expect(parsed.slices).toHaveLength(1);
+    expect(parsed.slices[0].name).toBe('Tracer');
+  });
+
+  it('parses a slice summary carrying `waves`', () => {
+    const parsed = SliceSummarySchema.parse({      waves: 3, branches: 7, deferred: 1,
+    });
+    expect(parsed.slices).toBe(3);
+  });
+
+  it('reports a malformed value under whichever key carried it', () => {
+    // The reader RENAMES and validates nothing, so Zod still rejects bad data
+    // that arrived under the old spelling. A preprocess that swallowed errors
+    // would make the old spelling parse things the new one refuses.
+    expect(() => FleetSchema.parse({
+      generatedAt: '', ageSeconds: 0, ready: true, error: null,
+      rows: [],
+      waves: [{ plan: 'a-plan' }],
+      summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
+      prAgeSeconds: null, prError: null,
+    })).toThrow();
+  });
+
+  it('leaves a non-object payload to the schema behind it', () => {
+    // `null`, arrays and primitives pass through untouched so the type error
+    // comes from Zod rather than from the reader.
+    expect(() => FleetSchema.parse(null)).toThrow();
+    expect(() => FleetSchema.parse([])).toThrow();
   });
 });

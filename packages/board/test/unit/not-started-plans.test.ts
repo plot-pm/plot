@@ -497,7 +497,7 @@ describe('sliceGroupsFor — which sections group by wave, and from which rows',
 describe('sliceGroupsFor — asks the server-derived wave, not a per-section state predicate', () => {
   const pr = (n: number) => ({ number: n, url: `https://h/pr/${n}`, draft: false, state: 'green' as const });
 
-  /** A server-derived Wave, the entity #349 put on `fleet.waves`. */
+  /** A server-derived Slice, the entity #349 put on `fleet.slices`. */
   const wave = (over: Partial<Slice> = {}): Slice => ({
     plan: 'a-plan', name: 'Modelled', branches: [], verdict: 'complete',
     section: 'done', complete: true, ...over,

@@ -103,7 +103,7 @@ describe('board: a claimed branch is claimed on the card', () => {
     for (let i = 0; i < 40; i++) {
       const board = await fetchBoard(server.port);
       card = board.columns.flatMap((c) => c.cards).find((c) => c.slug === 'board-reads-git');
-      const s = card?.waveSummary;
+      const s = card?.sliceSummary;
       if (s && (s.claimed ?? 0) + (s.eligible ?? 0) === s.branches) break;
       await new Promise((r) => setTimeout(r, 250));
     }
@@ -119,20 +119,20 @@ describe('board: a claimed branch is claimed on the card', () => {
     // annotation nobody writes, so it was 0 here — permanently, not merely
     // stale — while the Agents tab showed the same claim correctly.
     assert.ok(card, 'the plan should render as a card');
-    assert.equal(card.waveSummary.claimed, 1);
+    assert.equal(card.sliceSummary.claimed, 1);
   });
 
   it('reports the unclaimed branch of an eligible wave as ready to start', () => {
     // A number WaveSummary could not carry at all before, which is why the
     // previous plan had to leave "should Start work be disabled?" unanswered.
-    assert.equal(card.waveSummary.eligible, 1);
+    assert.equal(card.sliceSummary.eligible, 1);
   });
 
   it('carries the counts on a SINGLE-wave plan', () => {
     // The old `meta.waves.length > 1` guard would have withheld everything
     // above from this plan — and from most plans in this repo.
-    assert.equal(card.waveSummary.waves, 1);
-    assert.equal(card.waveSummary.branches, 2);
+    assert.equal(card.sliceSummary.slices, 1);
+    assert.equal(card.sliceSummary.branches, 2);
   });
 
   it('counts the claim even though the plan file annotates none', () => {
@@ -142,7 +142,7 @@ describe('board: a claimed branch is claimed on the card', () => {
       path.join(fixture.repo, 'docs/plans', fixture.planName), 'utf8',
     );
     assert.ok(!/claimed:/i.test(raw), 'fixture plan must carry no claim annotation');
-    assert.equal(card.waveSummary.claimed, 1);
+    assert.equal(card.sliceSummary.claimed, 1);
   });
 });
 
@@ -174,9 +174,9 @@ describe('board: no pulse means no counts, never zero counts', () => {
     const board = await fetchBoard(server.port);
     const card = board.columns.flatMap((c) => c.cards).find((c) => c.slug === 'board-reads-git');
     assert.ok(card, 'the plan should still render as a card without git');
-    assert.equal(card.waveSummary.claimed, undefined);
-    assert.equal(card.waveSummary.eligible, undefined);
+    assert.equal(card.sliceSummary.claimed, undefined);
+    assert.equal(card.sliceSummary.eligible, undefined);
     // Plan-derived shape survives: it never needed git.
-    assert.equal(card.waveSummary.branches, 2);
+    assert.equal(card.sliceSummary.branches, 2);
   });
 });
