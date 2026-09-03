@@ -24,9 +24,9 @@ import type { Fleet, RegistryInfo } from '../../contract/schema.js';
  * value the operator just set. Once no write is outstanding, the poll is the
  * truth again — which is what keeps two boards agreeing.
  *
- * ## This wave dispatches nothing
+ * ## This slice dispatches nothing
  *
- * The switch records an intention wave 3 reads; turning it on here starts no
+ * The switch records an intention slice 3 reads; turning it on here starts no
  * agent. Turning either off is a promise about the FUTURE only — it never stops
  * a running worker, whose home is the agent panel.
  */
@@ -233,7 +233,7 @@ export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry
         </span>
       )}
       {/*
-        THE GAP A FILTER HIDES — `the-filter-does-not-hide-a-worker`, wave
+        THE GAP A FILTER HIDES — `the-filter-does-not-hide-a-worker`, slice
         Named. The WORKING section shows workers regardless of sprint filter
         (a worker is a fact about the fleet, not about a reader's focus), but
         the control should name when a filter WOULD hide workers if it were

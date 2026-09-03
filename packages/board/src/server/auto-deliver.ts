@@ -205,7 +205,7 @@ function joinKey(file: string): PlanMeta {
  *    copy it.
  *
  *  - **At least one branch actually merged.** `allSlicesMerged`'s own `merged > 0`
- *    guard, and the reason a plan whose remaining waves are ALL `deferred` is not
+ *    guard, and the reason a plan whose remaining slices are ALL `deferred` is not
  *    delivered here. Shelved is not finished: delivering it would record a
  *    completion nobody decided, and that call stays with a person.
  *
@@ -242,7 +242,7 @@ export function planAutoDeliver(input: PlanAutoDeliverInput): AutoDeliverPlan[] 
 /**
  * Retire the slugs whose delivery has landed, so the set does not grow forever.
  *
- * A plan still reading `approved` with every wave merged is one whose delivery
+ * A plan still reading `approved` with every slice merged is one whose delivery
  * has not taken effect yet — it stays in flight. Anything else is confirmed:
  * either the phase moved (the delivery worked) or the plan stopped being
  * deliverable (a branch reopened, and the next pulse will decide afresh).

@@ -7,13 +7,13 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * WHAT THE BUTTON WATCHES — the count its own action moves.
  *
  * `card.started` describes the PLAN; a dispatch starts a BRANCH. A plan with
- * three waves is `started: true` for ever after its first branch is dispatched,
- * so a button waiting on that flag can never see a second wave land: it sat
+ * three slices is `started: true` for ever after its first branch is dispatched,
+ * so a button waiting on that flag can never see a second slice land: it sat
  * through three pulses and reported *no change — see log* about a dispatch that
  * had prepared a worktree and pushed a claim. Measured on 2026-08-17 on the
  * exact card `started: true, claimed: 0, eligible: 1`.
  *
- * `waveSummary.claimed` is the count a dispatch moves, on EVERY wave — a claim
+ * `waveSummary.claimed` is the count a dispatch moves, on EVERY slice — a claim
  * is a pushed ref, and claiming one more branch is precisely what succeeded.
  *
  * Still DERIVED, never asserted. What changes is which fact is read, not
@@ -40,7 +40,7 @@ export function claimedCount(card: Card): number | undefined {
  *    about whether anything may act at all.
  * 2. **No pulse has landed.** Both counts are `.optional()` in the contract —
  *    *"Absent when there is no pulse"* — and without a scan the board does not
- *    know which wave is eligible, so a dispatch would be a click into the dark
+ *    know which slice is eligible, so a dispatch would be a click into the dark
  *    that it also could not report on afterwards. It says it is waiting for the
  *    first scan: the same posture the board takes when it has lost contact,
  *    rather than a fourth vocabulary for *I don't know*.
@@ -48,11 +48,11 @@ export function claimedCount(card: Card): number | undefined {
  *    It deliberately does NOT fall back to `card.started` here. That would keep
  *    the defect alive in precisely the window where it is most likely — a
  *    freshly restarted board — hidden behind an apparently-working button.
- * 3. **Nothing is eligible.** With `eligible: 0` every wave is claimed, merged
+ * 3. **Nothing is eligible.** With `eligible: 0` every slice is claimed, merged
  *    or blocked and there is no branch to take. Saying so before the click is
  *    the whole improvement over accepting and going quiet.
  *
- * A card with no `waveSummary` at all is a pre-wave plan, not a missing pulse:
+ * A card with no `waveSummary` at all is a pre-slice plan, not a missing pulse:
  * `plot-dispatch.sh` is the authority on those and refuses in its own words, so
  * the button lets the click through rather than inventing a precondition.
  */
@@ -214,9 +214,9 @@ export function StartWorkButton({ card, dispatch, pulse, onStarting }: StartWork
   // What "it worked" means for this card: ONE MORE BRANCH IS CLAIMED.
   //
   // Not `card.started`, which this used to watch. That flag describes the PLAN
-  // and the action starts a BRANCH, so on a plan of more than one wave it is
+  // and the action starts a BRANCH, so on a plan of more than one slice it is
   // already true when the button is clicked and can never change again — see
-  // `claimedCount` for the measurement. `claimed` moves on every wave, because
+  // `claimedCount` for the measurement. `claimed` moves on every slice, because
   // claiming a branch is exactly what a dispatch does.
   const claimedRef = useRef(claimedCount(card));
   const claimed = claimedCount(card);

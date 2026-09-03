@@ -768,7 +768,7 @@ const collectBranchPlans = async (
 };
 
 /**
- * Condense a plan's wave state for its card, reading each source where that
+ * Condense a plan's slice state for its card, reading each source where that
  * source is authoritative.
  *
  * Shape comes from the plan (`waves`, `branches`, `deferred`): the plan file is
@@ -783,7 +783,7 @@ const collectBranchPlans = async (
  * indistinguishability IS the bug.
  *
  * `eligible` counts branches that could be started right now: still `open` (not
- * claimed, not merged), in a wave the scan judged `eligible`. A blocked wave's
+ * claimed, not merged), in a slice the scan judged `eligible`. A blocked slice's
  * open branches are outstanding work but not startable work, and conflating
  * them would answer a different question than the one a tile is asked.
  */
@@ -851,7 +851,7 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetReading | null): boolean {
  * Composed from the plan file (`meta`: phase, review channel, `Started:` count)
  * and the pulse (merge state, claim refs). It returns a string and touches
  * nothing — no phase is flipped, no record written — exactly as `allSlicesMerged`
- * returns a boolean and `deriveWaves` returns waves.
+ * returns a boolean and `deriveWaves` returns slices.
  *
  * The phase is read FIRST, and three of the seven are read straight off it:
  * `released`, `delivered`, and the two draft-side values. Those three can never
@@ -1044,7 +1044,7 @@ const SPRINT_MEMBER_LINE = /^- \[( |x)\] \[([^\]]+)\]/;
 /**
  * Read a sprint file's members: the `- [ ] [slug]` / `- [x] [slug]` lines, the
  * MoSCoW tier each sits under, and whether it is ticked. A plan sliced across
- * waves lists its slug once per wave; the sprint contains it once, so members
+ * slices lists its slug once per slice; the sprint contains it once, so members
  * are deduped by slug with the FIRST occurrence winning — the file is read
  * top-down and the sections run Must → Should → Could → Deferred, so a plan
  * keeps its strongest tier.
@@ -1209,8 +1209,8 @@ const addSprint = (
  * `SyncProcessRunner::Spawn` under a request handler, and `readdirSync` is not
  * one. Keeping it callable without an await is what lets `fleet.ts`'s
  * `sprintMembership` stay synchronous, and `/api/fleet` with it: that route is
- * a later wave's, and reaching into it here to thread one await would be the
- * wave-2 migration done badly, in the wrong plan.
+ * a later slice's, and reaching into it here to thread one await would be the
+ * slice-2 migration done badly, in the wrong plan.
  *
  * It reads the CHECKOUT, so its answer can be older than the ref's. That is
  * why {@link collectSprints} exists and why the board calls that one: this is
@@ -1733,7 +1733,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     if (meta.rounds !== undefined) card.rounds = meta.rounds;
     // Kept for the tile's Ready/In-progress badge; the column now says the same
     // thing, but a Development card still benefits from the explicit flag. Gated
-    // on the card's OWN phase, not the plan's: an approved plan whose waves have
+    // on the card's OWN phase, not the plan's: an approved plan whose slices have
     // all merged has been bumped out of Development, and the Ready/In-progress
     // badge is a Development affordance that must not ride along into Testing.
     //
@@ -1741,7 +1741,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // is KEPT, not moved onto `started_raw`. The two conditions — `phase ===
     // 'Development'` here and `started` (`started_raw.length > 0`) above — agree
     // on every plan today and diverge in exactly one case: a plan bumped out of
-    // Development that still carries `Started:` records (all its waves merged, so
+    // Development that still carries `Started:` records (all its slices merged, so
     // its card sits in Testing as `deliverable`). There, `started` is true but
     // the phase is not Development, and the gate is RIGHT to withhold the badge:
     // Ready/In-progress answers *can an agent pick this up*, and a plan whose
@@ -1749,11 +1749,11 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // ride the Development affordance into Testing — the very thing this comment
     // forbids. The phase is the correct gate; the record is not.
     if (phase === 'Development') card.started = started;
-    // Computed for every plan that HAS waves, single-wave ones included. The
-    // old `> 1` guard was right about "2 waves · 3 branches" being noise on a
-    // one-wave plan and wrong about the rest: whether anyone is working on a
-    // single-wave plan's one branch is the same question, and this repo's plans
-    // are mostly single-wave. What the tile renders stays a display decision.
+    // Computed for every plan that HAS slices, single-slice ones included. The
+    // old `> 1` guard was right about "2 slices · 3 branches" being noise on a
+    // one-slice plan and wrong about the rest: whether anyone is working on a
+    // single-slice plan's one branch is the same question, and this repo's plans
+    // are mostly single-slice. What the tile renders stays a display decision.
     if (meta.waves.length > 0) card.waveSummary = summariseFromPulse(meta, pulse);
     // Only where this machine actually has one. An empty array and "no
     // worktrees here" are the same statement, so the field is simply absent
@@ -1849,7 +1849,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // same hand overwriting it in index.ts. Unavailable here means *this walker
     // cannot say*, never *the answer is no*, exactly as the four above.
     commission: { available: false, reason: '' },
-    // And once more for reslicing a tangled wave — the same socket question,
+    // And once more for reslicing a tangled slice — the same socket question,
     // the same hand overwriting it in index.ts. Unavailable here means *this
     // walker cannot say*, never *the answer is no*, exactly as the five above.
     reslice: { available: false, reason: '' },
@@ -1913,7 +1913,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
  * The pulse supplies merge and claim state; `planStatus` composes it with each
  * plan's phase, review channel and `Started:` count. A null pulse yields the
  * plan-only answer — `deliverable` collapses to `in-progress`/`approved`, since
- * nothing can say a wave merged — exactly as `planStatus` specifies.
+ * nothing can say a slice merged — exactly as `planStatus` specifies.
  */
 export async function planStatusBySlug(
   opts: BuildBoardOptions,

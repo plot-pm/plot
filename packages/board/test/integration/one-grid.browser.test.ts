@@ -332,11 +332,11 @@ describe('one grid renders a plan row, a branch row and a ticket row', () => {
       // MEMBERSHIP CARRIES THAT CLAIM, and a count never did. This asserted
       // `size <= 4` beside the check below, which is the number of kinds this
       // fixture happened to render rather than a property of the column; a
-      // plan growing a head and its branches becoming waves pushed it to 5
+      // plan growing a head and its branches becoming slices pushed it to 5
       // without changing anything the assertion was about. Every word being a
       // KIND is the whole claim — the failure it pairs against is a cell
-      // holding a wave NAME or a plan PHASE, and neither is in the list.
-      const KINDS = ['plan', 'branch', 'pr', 'ticket', 'wave', 'release', 'build', 'agent'];
+      // holding a slice NAME or a plan PHASE, and neither is in the list.
+      const KINDS = ['plan', 'branch', 'pr', 'ticket', 'slice', 'release', 'build', 'agent'];
       for (const w of new Set(words)) {
         expect(KINDS, `kind word: ${w}`).toContain(w.toLowerCase());
       }

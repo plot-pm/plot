@@ -10,7 +10,7 @@ import type { PlanSource } from '../../contract/schema.js';
  *
  * IT EXISTS BECAUSE ITS ABSENCE WAS THE BUG'S SECOND HALF. Two operator reports
  * that day — a `2 rounds` badge beside phase Development, and a Deliver button
- * refusing a plan whose every wave had merged — were both this one cause, and
+ * refusing a plan whose every slice had merged — were both this one cause, and
  * neither renderer was wrong: each behaved correctly on a plan parsed from an
  * old file. Nothing on screen said the estate had been read from a commit
  * sixteen behind, so two symptoms twenty minutes apart read as two unrelated

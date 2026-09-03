@@ -225,7 +225,7 @@ describe('classify', () => {
     const blocked = classify('open', 'blocked', null, QUIET);
     expect(eligible.group).toBe(blocked.group);
     expect(eligible.note).not.toBe(blocked.note);
-    expect(blocked.note).toMatch(/earlier wave/);
+    expect(blocked.note).toMatch(/earlier slice/);
   });
 
   // A claim with no progress is either a worker still thinking or a dead one,
@@ -320,7 +320,7 @@ describe('classify', () => {
     expect(classify('merged', 'complete', 1, QUIET).group).toBe('done');
     expect(classify('merged', 'eligible', 1, QUIET).group).toBe('done');
     expect(classify('merged', 'complete', 1, QUIET).note).toBe('merged');
-    expect(classify('merged', 'eligible', 1, QUIET).note).toMatch(/wave still open/);
+    expect(classify('merged', 'eligible', 1, QUIET).note).toMatch(/slice still open/);
   });
 
   // --- a worktree with uncommitted work is not quiet ------------------------
@@ -1009,13 +1009,13 @@ describe('classify', () => {
   });
 
   it('does not withhold the verdict for a blocked wave even when prUnknown is true', () => {
-    // `blocked` is the scan's answer about wave ordering, not about the host.
+    // `blocked` is the scan's answer about slice ordering, not about the host.
     // A blocked branch stays blocked whether or not the PR is readable.
     const r = classify(
       'open', 'blocked', null, QUIET,
       null, false, 0, 'approved', 'none', '', '', false, [], '', false, '', true);
     expect(r.group).toBe('not-started');
-    expect(r.note).toMatch(/earlier wave/);
+    expect(r.note).toMatch(/earlier slice/);
   });
 });
 
@@ -4102,7 +4102,7 @@ describe('the row carries its verdict', () => {
 
     const blocked = classify('open', 'blocked', null, QUIET, null, false, 0, 'approved');
     expect(blocked.verdict).toBe('blocked');
-    expect(blocked.note).toMatch(/earlier wave/);
+    expect(blocked.note).toMatch(/earlier slice/);
 
     // And they never cross: the eligible sentence appears on no row whose
     // verdict is not `eligible`, which is the half a naive implementation gets
@@ -4263,9 +4263,9 @@ describe('an eligible wave is not a blocker', () => {
     const b = rows.find((r) => r.branch === 'feature/b')!;
     expect(b.blockedBy).toBeNull();
     // No name, so no count either: the count answers "how many left in THAT
-    // wave", and an unnamed wave gives the reader nothing to attach it to. The
+    // slice", and an unnamed slice gives the reader nothing to attach it to. The
     // bare sentence is the whole of what can honestly be said.
-    expect(b.note).toBe('blocked by an earlier wave');
+    expect(b.note).toBe('blocked by an earlier slice');
   });
 });
 

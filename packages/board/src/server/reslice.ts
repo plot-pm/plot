@@ -15,19 +15,19 @@ import {
 } from './idea.js';
 
 /**
- * Reslicing a plan whose wave holds several branches — the board's SIXTH
+ * Reslicing a plan whose slice holds several branches — the board's SIXTH
  * state-changing route, and the third that spawns a plot agent to make a
  * judgement the board cannot make itself.
  *
  * **It is the sibling of `/api/commission`, not a new mechanism.** Commission
  * takes a Draft plan and moves it into Design; this takes a plan whose
- * `## Branches` holds a wave of several branches and asks `/plot-reslice` to cut
- * it into one wave per branch. Both are SLUG-scoped — the request names an
+ * `## Branches` holds a slice of several branches and asks `/plot-reslice` to cut
+ * it into one slice per branch. Both are SLUG-scoped — the request names an
  * existing plan file, and the plan's text comes from disk, never from the
  * caller — and both refuse to act until a cheap, mechanical precondition holds.
  *
  * **What the agent produces is a sliced plan, and the board writes NONE of it.**
- * `/plot-reslice` reads the branches' diffs and PRs, proposes one named wave per
+ * `/plot-reslice` reads the branches' diffs and PRs, proposes one named slice per
  * branch in an argued order, and — this is the whole reason it is an agent and
  * not a script — ASKS a person before rewriting the plan's `## Branches`. The
  * order is judgement: a wrong order blocks work that could have run, a missing
@@ -105,14 +105,14 @@ function resliceStatePath(repoRoot: string, slug: string): string {
 export type ResliceRefusal =
   /** No `Idea command` is configured, so no agent can be started. */
   | 'no-idea-command'
-  /** The plan could not be found or its waves could not be read. */
+  /** The plan could not be found or its slices could not be read. */
   | 'plan-unreadable'
   /**
-   * The plan has no wave holding more than one branch, so there is nothing to
-   * slice. A `complete` wave whose branches have all merged is history and does
+   * The plan has no slice holding more than one branch, so there is nothing to
+   * slice. A `complete` slice whose branches have all merged is history and does
    * not count — the board's `unsliced-wave` detector already suppresses it, and
    * the row that offers this control is only shown where a live multi-branch
-   * wave exists.
+   * slice exists.
    */
   | 'nothing-to-slice';
 
@@ -129,7 +129,7 @@ export interface ResliceOptions extends BuildBoardOptions {
  * for the reason `commission.ts` states about its own copy: that module does not
  * export it, and this route needs the same two candidates in the same order (the
  * active index first, then the date-prefixed file in the plan directory) so that
- * the waves it reads back belong to the file the resliced agent will act on.
+ * the slices it reads back belong to the file the resliced agent will act on.
  * Reaching across to export it there would edit a module another worker owns; a
  * four-line copy that agrees by construction is the smaller change.
  */
@@ -152,15 +152,15 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
 }
 
 /**
- * How many branches the plan's largest wave holds, counting only branches that
+ * How many branches the plan's largest slice holds, counting only branches that
  * are NOT deferred — or null when the plan cannot be found or parsed.
  *
  * **This is the precondition the route rests on, and it is deliberately the same
- * arithmetic `stuck.ts`'s `unsliced-wave` arm applies** — a wave with more than
+ * arithmetic `stuck.ts`'s `unsliced-wave` arm applies** — a slice with more than
  * one live branch is the shape the model forbids and the row offers to repair.
  * A deferred branch is a branch set down on purpose, so it does not count toward
- * the tangle: a wave with one live branch and one deferred one is already the
- * one-branch wave the model wants.
+ * the tangle: a slice with one live branch and one deferred one is already the
+ * one-branch slice the model wants.
  *
  * Read through `plot-plan-meta.sh`, the one parser that owns the plan format —
  * never inferred — for the same reason `readPhase` reads the phase through it.
@@ -168,7 +168,7 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
  * contract, it only asks the contract what it says.
  *
  * Null on any failure, and the caller then REFUSES rather than proceeding: a
- * plan whose waves cannot be read is a plan whose shape is unknown, and spawning
+ * plan whose slices cannot be read is a plan whose shape is unknown, and spawning
  * an agent to reslice an unknown shape is the write nobody asked for.
  */
 export function maxLiveWaveWidth(opts: BuildBoardOptions, slug: string): number | null {
@@ -192,8 +192,8 @@ export function maxLiveWaveWidth(opts: BuildBoardOptions, slug: string): number 
 }
 
 /**
- * The prompt handed to the agent: read the plan's tangled wave, and slice it
- * into one wave per branch — asking before it writes.
+ * The prompt handed to the agent: read the plan's tangled slice, and slice it
+ * into one slice per branch — asking before it writes.
  *
  * Three instructions ride with it, and each answers a property this route rests
  * on:
@@ -205,7 +205,7 @@ export function maxLiveWaveWidth(opts: BuildBoardOptions, slug: string): number 
  * 2. **Rewrite ONLY `## Branches`.** The branch names are already in the file
  *    and have PRs pointing at them — a rename breaks every claim ref — so only
  *    the `### ` headings above them change, and the rest of the file stays
- *    byte-identical. A `complete` wave whose work has landed is left untouched.
+ *    byte-identical. A `complete` slice whose work has landed is left untouched.
  *
  * 3. **Slice, never build.** The repair produces a sliced plan; it merges
  *    nothing and dispatches nothing. Whether anyone then builds the branches is
@@ -221,10 +221,10 @@ export function composeReslicePrompt(input: { slug: string; planFile: string }):
   parts.push(
     `/plot-reslice ${slug}`,
     '',
-    `Read the plan at ${planFile}. One of its \`## Branches\` waves — a \`### \``,
-    'heading — carries several branch lines, which the model forbids: a wave is',
+    `Read the plan at ${planFile}. One of its \`## Branches\` slices — a \`### \``,
+    'heading — carries several branch lines, which the model forbids: a slice is',
     'the unit of ordering and a branch the unit of work, and the two are',
-    'one-to-one. Your job is to slice that wave into one wave per branch.',
+    'one-to-one. Your job is to cut that slice into one slice per branch.',
     '',
   );
 
@@ -234,7 +234,7 @@ export function composeReslicePrompt(input: { slug: string; planFile: string }):
     '1. Read the entangled branches themselves — their diffs, their PRs, their',
     '   conflicts — so the slice NAMES describe what each branch is about, not',
     '   just restate the branch name.',
-    '2. Propose one wave per branch in a dependency order you ARGUE for, then',
+    '2. Propose one slice per branch in a dependency order you ARGUE for, then',
     '   **ask a person to confirm the order before writing anything**. The order',
     '   is the judgement this command exists for: a wrong order blocks work that',
     '   could have run, and a missing dependency lets two agents collide. If you',
@@ -244,8 +244,8 @@ export function composeReslicePrompt(input: { slug: string; planFile: string }):
     '   `### ` headings above the branch lines; leave the branch lines',
     '   byte-identical (they have PRs and claim refs pointing at their names, and',
     '   a rename breaks both), and leave the rest of the file untouched.',
-    '4. Do NOT reorder a wave whose work has already landed — a `complete` wave',
-    '   is history, and its ordering already happened. Slice nothing there.',
+    '4. Do NOT reorder a slice whose work has already landed — a `complete`',
+    '   slice is history, and its ordering already happened. Cut nothing there.',
     '5. Slice, never build. Merge nothing, dispatch nothing: the repair produces',
     '   a sliced plan, and `/plot-dispatch` then does what it always does.',
     '',
@@ -296,7 +296,7 @@ export function resliceStatus(opts: BuildBoardOptions, slug: string): ResliceSta
 /**
  * The one fact this route reads from outside itself, injectable for test.
  *
- * `width` is how a slug's widest live wave is read back; it defaults to
+ * `width` is how a slug's widest live slice is read back; it defaults to
  * `maxLiveWaveWidth`. Injecting it lets the tests assert the refusals —
  * nothing-to-slice, plan-unreadable — without standing up a real plan estate
  * and a real `/plot-reslice` run.
@@ -304,20 +304,20 @@ export function resliceStatus(opts: BuildBoardOptions, slug: string): ResliceSta
 export interface ResliceDeps {
   /** The configured `Idea command`. */
   config?: (opts: BuildBoardOptions, key: string, fallback: string) => string;
-  /** The plan's widest live wave, or null when it cannot be read. */
+  /** The plan's widest live slice, or null when it cannot be read. */
   width?: (opts: BuildBoardOptions, slug: string) => number | null;
 }
 
 /**
  * Handle `POST /api/reslice` — refuse, or write the prompt and spawn the agent
- * that slices a tangled wave into one wave per branch.
+ * that slices a tangled slice into one slice per branch.
  *
  * Detached and answered 202 immediately, for the reason `/api/commission`
  * documents: this server is single-threaded, and awaiting an agent would freeze
  * every viewer's board. The outcome is read back from the status route; and
  * because `/plot-reslice` ASKS before it writes, a click here does not
  * necessarily move the row at all — success is the plan's `## Branches` growing
- * one wave per branch on the next refresh, which the board re-derives from git.
+ * one slice per branch on the next refresh, which the board re-derives from git.
  *
  * ## What it refuses, and why each refusal exists
  *
@@ -325,8 +325,8 @@ export interface ResliceDeps {
  * |---|---|
  * | cross-origin | any page can POST to localhost; the binding cannot cover that |
  * | `no-idea-command` | no script can do a plot agent's job; accepting the click and doing nothing is the silent failure |
- * | `plan-unreadable` | a plan whose waves cannot be read cannot be sliced; guessing would spawn an agent against an unknown plan |
- * | `nothing-to-slice` | reslicing is a repair for a wave of several live branches; a plan with none is answered differently |
+ * | `plan-unreadable` | a plan whose slices cannot be read cannot be sliced; guessing would spawn an agent against an unknown plan |
+ * | `nothing-to-slice` | reslicing is a repair for a slice of several live branches; a plan with none is answered differently |
  */
 export async function handleReslice(
   req: http.IncomingMessage,
@@ -386,10 +386,10 @@ export async function handleReslice(
     return;
   }
 
-  // THE PLAN MUST HAVE A WAVE TO SLICE. Its waves are read from the file through
+  // THE PLAN MUST HAVE A SLICE TO SLICE. Its slices are read from the file through
   // the one parser that owns the format — never inferred — because reslicing is
   // a repair for the exact shape `unsliced-wave` names, and offering it on a
-  // plan with no tangled wave would spawn an agent to do nothing. A null width
+  // plan with no tangled slice would spawn an agent to do nothing. A null width
   // means the plan could not be found or read, which is refused rather than
   // guessed at.
   const width = readWidth(opts, slug);
@@ -398,7 +398,7 @@ export async function handleReslice(
       409,
       'plan-unreadable',
       slug,
-      `plan \`${slug}\` could not be found or its waves could not be read — refusing rather than reslicing a plan whose shape is unknown`,
+      `plan \`${slug}\` could not be found or its slices could not be read — refusing rather than reslicing a plan whose shape is unknown`,
     );
     return;
   }
@@ -407,7 +407,7 @@ export async function handleReslice(
       409,
       'nothing-to-slice',
       slug,
-      `plan \`${slug}\` has no wave holding more than one live branch — there is nothing to slice, and a wave whose work has landed is history the reslice must not touch`,
+      `plan \`${slug}\` has no slice holding more than one live branch — there is nothing to cut, and a slice whose work has landed is history the reslice must not touch`,
     );
     return;
   }

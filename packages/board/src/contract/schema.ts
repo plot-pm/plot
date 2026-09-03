@@ -32,16 +32,16 @@ export const PlanMetaSchema = z.object({
   assignee: z.string().default(''),
   branches: z.array(z.string()).default([]),
   /**
-   * Branches grouped into waves by `### ` subheading under `## Branches`, in
-   * document order. A wave is eligible once every non-deferred branch in every
-   * prior wave is merged — that arithmetic lives in `plot-fleet-scan.sh`, not
+   * Branches grouped into slices by `### ` subheading under `## Branches`, in
+   * document order. A slice is eligible once every non-deferred branch in every
+   * prior slice is merged — that arithmetic lives in `plot-fleet-scan.sh`, not
    * here; the board only renders what the helper reports.
    *
    * `claimed` is a REFLECTION of a claim, not the claim itself: a worker takes
    * a branch by pushing its ref (atomic), then writes this annotation for
    * humans and the board. Where the two disagree, git wins.
    *
-   * Defaults to empty so output from a pre-wave `plot-plan-meta.sh` still
+   * Defaults to empty so output from a pre-slice `plot-plan-meta.sh` still
    * validates. `branches` above stays the complete flat set — never derive one
    * from the other at this layer.
    */
@@ -194,7 +194,7 @@ export const STORY_STATUSES = ['draft', 'ready', 'active', 'in-review', 'paused'
 export type StoryStatus = (typeof STORY_STATUSES)[number];
 
 /**
- * Wave state condensed to the numbers a board tile can show — from TWO sources,
+ * Slice state condensed to the numbers a board tile can show — from TWO sources,
  * deliberately, and the split is the whole point.
  *
  * `waves`, `branches` and `deferred` are plan-derived: they say how the plan is
@@ -213,7 +213,7 @@ export const WaveSummarySchema = z.object({
   branches: z.number(),
   /** Branches whose git state is `claimed`. Absent when there is no pulse. */
   claimed: z.number().optional(),
-  /** Open branches in an eligible wave — startable now. Absent without a pulse. */
+  /** Open branches in an eligible slice — startable now. Absent without a pulse. */
   eligible: z.number().optional(),
   deferred: z.number(),
 });
@@ -251,7 +251,7 @@ export type CardPr = z.infer<typeof CardPrSchema>;
  * | storage    | none; re-derived       | recorded in the plan   |
  * | wrong by   | a stale scan           | nobody running the cmd |
  *
- * `status` is DERIVED EVERY SCAN and STORED NOWHERE, exactly like a wave's
+ * `status` is DERIVED EVERY SCAN and STORED NOWHERE, exactly like a slice's
  * `verdict`. Storing it would create a second source of truth for something git
  * already answers, and it could go stale — the failure `phase` has and this
  * field exists to compensate for, not to reproduce. Nothing new is written to
@@ -265,7 +265,7 @@ export type CardPr = z.infer<typeof CardPrSchema>;
  * | `open`        | discovery done; out for approval         | phase draft, `Review: pr`|
  * | `approved`    | development possible, not started        | phase approved, no start |
  * | `in-progress` | implementation under way                 | ≥1 `Started:` or a claim |
- * | `deliverable` | all waves merged; ready for /plot-deliver| every wave complete, still approved |
+ * | `deliverable` | all slices merged; ready for /plot-deliver| every slice complete, still approved |
  * | `delivered`   | reviewed and /plot-deliver was called    | phase delivered          |
  * | `released`    | released — terminal                      | phase released           |
  *
@@ -326,14 +326,14 @@ export const CardSchema = z.object({
    */
   prs: z.array(CardPrSchema).default([]),
   /**
-   * Glanceable wave state for a card: how many waves, how much outstanding
+   * Glanceable slice state for a card: how many slices, how much outstanding
    * work, how much of it is taken, and how much could be started now.
    * Deliberately a summary rather than the nested `waves` structure — a tile
    * answers "how much is left and is anyone on it?", not "which branch sits in
-   * which wave".
+   * which slice".
    *
-   * Optional: pre-wave plans and older helper output produce cards without it.
-   * Present for single-wave plans too — "is anyone working on this?" is the same
+   * Optional: pre-slice plans and older helper output produce cards without it.
+   * Present for single-slice plans too — "is anyone working on this?" is the same
    * question whether a plan has one branch or nine.
    */
   waveSummary: WaveSummarySchema.optional(),
@@ -375,7 +375,7 @@ export const CardSchema = z.object({
    * Whether this plan is DELIVERABLE — every non-deferred branch merged, and the
    * plan not yet delivered. The affordance signal the Deliver control reads.
    *
-   * **A measurement, not a decision.** *Every wave being complete is a
+   * **A measurement, not a decision.** *Every slice being complete is a
    * measurement; delivering is a decision* (`docs/board-domain-model.md`). This
    * bit says the measurement holds — the code has landed and git can prove it —
    * and nothing more: reaching it flips no phase and writes no `Delivered:`
@@ -395,7 +395,7 @@ export const CardSchema = z.object({
   deliverable: z.boolean().optional(),
   /**
    * The plan's MEASURED status — one of the seven {@link PlanStatus} values,
-   * derived every scan from this plan's waves and stored nowhere.
+   * derived every scan from this plan's slices and stored nowhere.
    *
    * The GENERALISATION of `deliverable` above, not a replacement for it. That
    * boolean names one of these seven states (`deliverable`); this names which
@@ -604,7 +604,7 @@ export const SprintCardSchema = z.object({
   end: z.string().default(''),
   /**
    * The plans the sprint names, one per distinct slug. A slug sliced across
-   * several waves lists once here (first, highest tier wins). Defaults to `[]`
+   * several slices lists once here (first, highest tier wins). Defaults to `[]`
    * so a sprint file with no member list — or a hand-built SprintCard — is valid.
    */
   members: z.array(SprintMemberSchema).default([]),
@@ -646,7 +646,7 @@ export type SprintRef = z.infer<typeof SprintRefSchema>;
 /**
  * Input type for StoryCard — the minimal fields the existing `parseStoryFile`
  * function provides. New fields added by this schema are optional with defaults,
- * so backward compatibility is preserved until the Backend wave populates them.
+ * so backward compatibility is preserved until the Backend slice populates them.
  */
 export const StoryCardSchema = z.object({
   slug: z.string(),
@@ -659,7 +659,7 @@ export const StoryCardSchema = z.object({
    * field warns about such conflicts.
    *
    * Typed as string rather than enum so the existing `collectStories` function
-   * continues to work — the Backend wave (`feature/story-file-parsing`) will
+   * continues to work — the Backend slice (`feature/story-file-parsing`) will
    * add validation. Renderers should treat unknown values as 'draft'.
    */
   status: z.string(),
@@ -934,7 +934,7 @@ export const BoardSchema = z.object({
    */
   commission: DispatchInfoSchema.default({ available: false, reason: '' }),
   /**
-   * Whether "Slice this wave" will act — the sixth capability, twin of `idea`
+   * Whether "Slice this plan" will act — the sixth capability, twin of `idea`
    * and `commission`: it spawns a plot agent (`/plot-reslice`) that rewrites a
    * plan's `## Branches` on this disk, so it answers the same localhost binding
    * they do. It stays its own field for the reason `approve`/`commission`
@@ -1068,7 +1068,7 @@ export { toBoardPhase } from '@plot-pm/domain';
 // A different time axis from the board above: minutes rather than days,
 // processes rather than artifacts.
 //
-// The ENTITIES of that axis — branch, wave, plan, pulse — now live in
+// The ENTITIES of that axis — branch, slice, plan, pulse — now live in
 // `@plot-pm/domain` and are re-exported further down this file. What remains
 // here is what the board says ABOUT them: the row vocabulary, the notes the
 // server composes, and the view schemas. Views reference domain objects and do
@@ -1106,9 +1106,9 @@ export { toBoardPhase } from '@plot-pm/domain';
  * named `changeset-release/main`, so any renderer-side rule must either
  * hardcode that name or misclassify the one row nobody should merge by reflex.
  *
- * The board has already paid for this once. The phase column read a wave name,
+ * The board has already paid for this once. The phase column read a slice name,
  * a plan phase, nothing, or a plan phase on a ticket — four meanings in one
- * column — and it was a derivation, from the plan's wave count. `kind` is set
+ * column — and it was a derivation, from the plan's slice count. `kind` is set
  * where the row is CREATED, because the server is the only place that knows why
  * the row exists.
  *
@@ -1135,11 +1135,11 @@ export { toBoardPhase } from '@plot-pm/domain';
  *
  * It began as a client-side grouping — assembled from the branches under a plan,
  * the way `plan` is assembled by `groupByPlan` — and it was ranked last in
- * `rowKind` on the argument that a wave is *"the weakest claim"*, saying only
+ * `rowKind` on the argument that a slice is *"the weakest claim"*, saying only
  * which slice of a plan a branch fell into. That was a mis-classification of the
  * model rather than a mis-ordering within it.
  *
- * **A wave is the process construct that carries a plan forward**, and the
+ * **A slice is the process construct that carries a plan forward**, and the
  * published method says so in the words this kind should have been built on.
  * *Ein Team, ein Plan, viele Agenten* (Quatico factsheet, 2026) states the defect
  * directly: *"Pull Request und Branch stehen in dieser Liste an der falschen
@@ -1147,32 +1147,32 @@ export { toBoardPhase } from '@plot-pm/domain';
  * Zeile mit dem Branchnamen führt, zeigt allen dreien dasselbe Gesicht — und der
  * Mensch muss jedes Mal erst herausfinden, was von ihm verlangt wird."*
  *
- * Its table of what a person waits on names five subjects — ticket, plan, wave,
- * branch-in-flight, release — and for the wave it names the vehicle separately:
- * a wave *"fährt auf einem Branch mit Pull Request und eigenem Worktree auf"*.
+ * Its table of what a person waits on names five subjects — ticket, plan, slice,
+ * branch-in-flight, release — and for the slice it names the vehicle separately:
+ * a slice *"fährt auf einem Branch mit Pull Request und eigenem Worktree auf"*.
  * Subject and vehicle are different columns of that table, and `rowKind` had them
  * in one.
  *
- * Plot's model is `plan → wave → branch`: the wave is what a plan is sliced into,
+ * Plot's model is `plan → wave → branch`: the slice is what a plan is cut into,
  * what `plot-dispatch` claims by ref push, what a worktree is created for, and
- * what has to complete before the next wave becomes eligible — *"Eine Welle
+ * what has to complete before the next slice becomes eligible — *"Eine Welle
  * öffnet erst, wenn jeder Branch aller früheren Wellen gemerged ist."* Work
- * advances one wave at a time. A PR, a CI run, a review and an agent are EVENTS
- * at a branch while its wave is being carried out: each can appear and vanish
- * without the wave changing, and the wave cannot change without the plan's
+ * advances one slice at a time. A PR, a CI run, a review and an agent are EVENTS
+ * at a branch while its slice is being carried out: each can appear and vanish
+ * without the slice changing, and the slice cannot change without the plan's
  * progress changing with it. So the row is about the carrier, and the events are
  * its status, its links and its notes.
  *
  * **The one exception is deliberate and the factsheet argues for it too.** The
- * conflict arm still outranks the wave, because there the vehicle IS the subject:
+ * conflict arm still outranks the slice, because there the vehicle IS the subject:
  * *"Branch in Flug — fährt auf sich selbst — das Vehikel ist das Problem"*, the
  * only row in that table needing no decision about content and still costing a
  * person their attention.
  *
  * That is why `build` and `agent` below no longer have arms in `rowKind`. Both
  * existed to make a row's kind track what a machine or an agent was doing, and a
- * wave row states the same fact without a second kind: *CI is running* and
- * *worked on by X* are things happening to a wave. `build` never rendered outside
+ * slice row states the same fact without a second kind: *CI is running* and
+ * *worked on by X* are things happening to a slice. `build` never rendered outside
  * `mock-fleet.ts`, and `agent` named a branch and printed the branch's state,
  * which its own comment admits *"says nothing about an agent"*.
  *
@@ -1189,7 +1189,7 @@ export const RowKindSchema = z.enum([
 export type RowKind = z.infer<typeof RowKindSchema>;
 
 /**
- * What the server writes where a plan divides its work into no named waves.
+ * What the server writes where a plan divides its work into no named slices.
  *
  * IN THE CONTRACT because three modules need it and it was defined **twice** —
  * `AgentList.tsx` and `tuple-row.ts` each held a copy, and the server was about
@@ -1200,16 +1200,16 @@ export type RowKind = z.infer<typeof RowKindSchema>;
 export const UNNAMED_WAVE = '(unnamed)';
 
 /**
- * The wave names that mean a SPIKE — a wave whose product may be a changed plan.
+ * The slice names that mean a SPIKE — a slice whose product may be a changed plan.
  *
- * ## Why a tracer is a different kind of wave
+ * ## Why a tracer is a different kind of slice
  *
  * `tracer-bullets` Step 4 states the two outcomes: *"if validating a design,
  * **refine the plan**. If implementing, merge the tracer and build on it."* So a
  * tracer is **pre-planning**: a spike that informs how the plan is sliced, and a
  * failure sends the reader back to the plan rather than to a rebase.
  *
- * An implementation wave carries out a slice a tracer has already de-risked. The
+ * An implementation slice carries out work a tracer has already de-risked. The
  * two differ in the KIND of outcome, not merely in their order — and the board
  * showed them identically until 2026-08-21: measured, `Tracer` read `green` and
  * `Implementation` read `5 stalled`, with nothing saying which failure means
@@ -1219,7 +1219,7 @@ export const UNNAMED_WAVE = '(unnamed)';
  *
  * `### Tracer` is a documented convention `plot-approve` Step 2b recommends by
  * name — *"Add a `### Tracer` subsection"* — and `plot-plan-meta.sh` already
- * carries the heading through as the wave's name. The signal is free; three plans
+ * carries the heading through as the slice's name. The signal is free; three plans
  * in this estate use it today.
  *
  * `Spike` is the same idea under the name most teams use. Matching is
@@ -1228,28 +1228,28 @@ export const UNNAMED_WAVE = '(unnamed)';
  */
 export const SPIKE_WAVES = ['tracer', 'spike'] as const;
 
-/** Is this wave a spike — one whose outcome may be a refined plan? */
+/** Is this slice a spike — one whose outcome may be a refined plan? */
 export function isSpikeWave(wave: string): boolean {
   const w = wave.trim().toLowerCase();
   return SPIKE_WAVES.some((s) => w === s || w === `${s} bullet` || w === `${s} bullets`);
 }
 
 /**
- * Is this wave the SOLE wave of its plan — so the plan row carries its status?
+ * Is this slice the SOLE slice of its plan — so the plan row carries its status?
  *
- * A plan with exactly one wave renders that wave's status on the plan row
- * rather than nesting a wave row beneath it: the wave adds no information
+ * A plan with exactly one slice renders that slice's status on the plan row
+ * rather than nesting a slice row beneath it: the slice adds no information
  * beyond what the plan itself says. The test is `planWaveCount === 1`,
- * evaluated on DECLARED waves (the plan's `### ` headings), not on how many
+ * evaluated on DECLARED slices (the plan's `### ` headings), not on how many
  * remain unfinished.
  *
- * Measured on this estate: 35 of 54 plans have exactly one wave. Every plan
- * that shipped before the multi-wave convention (2026-03-15) is one-wave by
+ * Measured on this estate: 35 of 54 plans have exactly one slice. Every plan
+ * that shipped before the multi-slice convention (2026-03-15) is one-slice by
  * construction, and 19 of the 35 are that vintage. The other 16 are genuinely
  * small plans whose scope never needed slicing.
  *
- * A Wave whose `planWaveCount` defaults (because the server predates this
- * field) answers `false` — show the wave row, the safe reading of unknown.
+ * A Slice whose `planWaveCount` defaults (because the server predates this
+ * field) answers `false` — show the slice row, the safe reading of unknown.
  */
 export function isOneWavePlan(wave: { planWaveCount?: number }): boolean {
   return wave.planWaveCount === 1;
@@ -1260,7 +1260,7 @@ export function isOneWavePlan(wave: { planWaveCount?: number }): boolean {
  *
  * Introduced by `the-row-says-whether-you-can-start-it`: measured on the live
  * board, 26 rows said `eligible` and 5 could be started. `eligible` answers
- * *has every prior wave landed*, a true answer to a question nobody asked. This
+ * *has every prior slice landed*, a true answer to a question nobody asked. This
  * answers *can I start this*, with four honest values:
  *
  *   `start-work`           the branch can be started now
@@ -1277,14 +1277,14 @@ export function isOneWavePlan(wave: { planWaveCount?: number }): boolean {
  *
  * THE SCAN'S `eligible` NOW MEANS STARTABILITY TOO, which this note previously
  * recorded as deliberately NOT the case. `an-eligible-wave-can-be-started`
- * changed it: the scan withholds `eligible` from a wave whose plan is not
+ * changed it: the scan withholds `eligible` from a slice whose plan is not
  * approved and says `unapproved` instead, because `--next` and
  * `plot-dispatch.sh` read that verdict and a word cannot mean two things.
  *
  * THIS ENUM SURVIVES THAT CHANGE AND IS NOT REDUNDANT. It answers a different
- * question at a different grain: `unapproved` is one WAVE-level fact, while
+ * question at a different grain: `unapproved` is one SLICE-level fact, while
  * these four are the ROW-level answer for a BRANCH — `needs-brief` and
- * `someone-is-on-it` are branch facts no wave verdict carries. The two agree
+ * `someone-is-on-it` are branch facts no slice verdict carries. The two agree
  * where they overlap (`waiting-on-approval` and `unapproved` come from one
  * phase) and neither is derived from the other.
  */
@@ -1294,11 +1294,11 @@ export const StartabilityVerdictSchema = z.enum([
 export type StartabilityVerdict = z.infer<typeof StartabilityVerdictSchema>;
 
 /**
- * The note the server composes for a branch no earlier wave blocks — the one
+ * The note the server composes for a branch no earlier slice blocks — the one
  * kind of `not-started` row a person can actually pick up.
  *
  * In the CONTRACT rather than in `fleet.ts`, because both sides read it: the
- * server writes it from the wave verdict, and two copies of it would let a
+ * server writes it from the slice verdict, and two copies of it would let a
  * reword turn every startable row into a blocked-looking one. (It cannot live
  * in `fleet.ts`: that module imports `node:child_process`, and the client
  * bundle must not reach it.)
@@ -1319,7 +1319,7 @@ export const ELIGIBLE_NOTE = 'eligible — nobody has taken it';
  * The note for a branch whose PLAN has not been approved yet.
  *
  * A third thing `not-started` holds, beside "nobody has taken it" and "blocked
- * by an earlier wave" — and the one the row had no word for. Seen live twice:
+ * by an earlier slice" — and the one the row had no word for. Seen live twice:
  * a plan drafted minutes earlier, its plan PR still in CI, and its branches
  * immediately reading *eligible — nobody has taken it*, indistinguishable from
  * work that had been waiting since February.
@@ -1366,7 +1366,7 @@ export const DRAFT_PLAN_NOTE = 'plan not approved yet — still in review';
  * board. The REASON is identical either way and the sentence already says it:
  * the work landed elsewhere, so no branch was needed. A second constant for the
  * shelved case would split one fact in two and re-open the gap that let
- * `deferred` rows skip the phase check for a wave.
+ * `deferred` rows skip the phase check for a slice.
  */
 export const FINISHED_PLAN_NOTE = 'plan finished — no branch was needed';
 
@@ -1396,7 +1396,7 @@ export function unknownPhaseNote(phase: string): string {
  *   `you`   a person must act — the plan is still Draft, or the branch was
  *           shelved. No clock is running; nothing in git can change it.
  *   `click` eligible and unclaimed. Available, and taking it is optional.
- *   `time`  blocked by an earlier wave. Nothing to do, ever — it resolves
+ *   `time`  blocked by an earlier slice. Nothing to do, ever — it resolves
  *           itself when its predecessor lands.
  *
  * THREE, NOT FOUR: deferred joins Draft. Both wait on a person, and they differ
@@ -1408,7 +1408,7 @@ export function unknownPhaseNote(phase: string): string {
  * "parser for a format nobody declared" shape #175 removed from the PR cell,
  * which drops its answer silently the moment the wording drifts. It reads this
  * field now, and the prediction that made the case for the field came true in
- * the same change that added it: *blocked by an earlier wave* gained the wave's
+ * the same change that added it: *blocked by an earlier slice* gained the slice's
  * name, so a rule matching that sentence would have gone quiet rather than
  * failed. Deriving a COLOUR that way would have been worse still.
  *
@@ -1453,10 +1453,10 @@ export const BriefStateSchema = z.enum(['present', 'missing', 'unknown']);
 export type BriefState = z.infer<typeof BriefStateSchema>;
 
 /**
- * The note for a branch an earlier wave is holding back — without the name.
+ * The note for a branch an earlier slice is holding back — without the name.
  *
  * The unnamed form is the FALLBACK, not the default: a plan with no `###`
- * sub-headings has an unnamed wave and this is all that can honestly be said.
+ * sub-headings has an unnamed slice and this is all that can honestly be said.
  * Where the name exists, `blockedNote` appends it, because *blocked by which
  * one?* is the reader's unavoidable next question and it costs one string.
  *
@@ -1467,20 +1467,20 @@ export type BriefState = z.infer<typeof BriefStateSchema>;
  * which spellings exist.
  *
  * THE COUNT RIDES WITH THE NAME, never without it. *blocked by Fold* answers
- * *which wave*; *— 2 outstanding* answers *how many branches are left in that
- * wave* — and "that wave" is only referable once it is named. So the count
+ * *which slice*; *— 2 outstanding* answers *how many branches are left in that
+ * slice* — and "that slice" is only referable once it is named. So the count
  * decorates the named form and the unnamed fallback stays bare: a dangling
- * *— 2 outstanding* on *blocked by an earlier wave* would attach a number to a
- * wave the reader was never given. The number is the blocker wave's
+ * *— 2 outstanding* on *blocked by an earlier slice* would attach a number to a
+ * slice the reader was never given. The number is the blocker slice's
  * non-deferred, unmerged branch count, matching `plot-fleet-scan.sh`'s own
  * arithmetic; the caller derives it, this only spells it.
  */
-export const BLOCKED_NOTE = 'blocked by an earlier wave';
+export const BLOCKED_NOTE = 'blocked by an earlier slice';
 
 /**
- * `blocked by `Truth` — 2 outstanding` where the wave has a name and a count,
+ * `blocked by `Truth` — 2 outstanding` where the slice has a name and a count,
  * `blocked by `Truth`` where the count is absent, the bare sentence where the
- * wave itself is unnamed.
+ * slice itself is unnamed.
  */
 export function blockedNote(wave: string | null, outstanding?: number): string {
   if (!wave) return BLOCKED_NOTE;
@@ -1500,7 +1500,7 @@ export function blockedNote(wave: string | null, outstanding?: number): string {
  * wrong in the reassuring direction is the worst way to be wrong.
  *
  * A row carrying this note belongs in `waiting-on-you`, not `not-started`.
- * The wave verdict is WITHHELD, not negated: git answered and the branch
+ * The slice verdict is WITHHELD, not negated: git answered and the branch
  * might well be eligible, but the board cannot say so without the host.
  *
  * Unlike `ELIGIBLE_NOTE`, this note does NOT make a row startable. The
@@ -1518,7 +1518,7 @@ export const PR_UNKNOWN_NOTE = 'cannot read the PR — the host could not be ask
  *
  * `SourceBranch`, `PlanSlice`, `Plan` and `FleetReading` — with the enums
  * they are built from — moved out of this file into the domain package. They
- * were never the board's: they are what a branch, a wave and a plan ARE, and
+ * were never the board's: they are what a branch, a slice and a plan ARE, and
  * they lived here only because the board was the first thing to need a name for
  * them. The view schemas below still reference them, and so do 53 importers.
  *
@@ -1632,11 +1632,11 @@ export const WaitingGroupSchema = z.enum([
 export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
 
 /**
- * A WAVE the contract carries — the entity `plan → wave → branch` names in the
+ * A SLICE the contract carries — the entity `plan → wave → branch` names in the
  * middle, given a place to live for the first time.
  *
- * Until now a wave existed only as ROWS THAT SHARE A STRING: every `AgentRow`
- * carries `wave` (its name) and `verdict`, and anything a wave *has* — its
+ * Until now a slice existed only as ROWS THAT SHARE A STRING: every `AgentRow`
+ * carries `wave` (its name) and `verdict`, and anything a slice *has* — its
  * section, its completeness, the branches under it — was re-derived at every
  * call site that asked, from a predicate the asker chose. Measured: 33 call
  * sites reached for `.wave`, and five defects were those derivations
@@ -1650,35 +1650,35 @@ export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
  * same rule `kind` settled: *a derivation is a guess with a rule attached, and
  * the server is the only place that knows why the row exists.*
  *
- * A WAVE HAS A `verdict` AND INHERITS A `phase`; IT NEVER HAS A PHASE OF ITS
- * OWN. Every wave of a plan shares that plan's phase — measured across the
- * estate, zero plans have waves reporting different phases — so a phase on the
- * Wave would be a field that only ever repeats the plan's. It is deliberately
- * absent; read the plan's phase where a wave's phase is wanted.
+ * A SLICE HAS A `verdict` AND INHERITS A `phase`; IT NEVER HAS A PHASE OF ITS
+ * OWN. Every slice of a plan shares that plan's phase — measured across the
+ * estate, zero plans have slices reporting different phases — so a phase on the
+ * Slice would be a field that only ever repeats the plan's. It is deliberately
+ * absent; read the plan's phase where a slice's phase is wanted.
  */
 export const WaveSchema = z.object({
   /**
-   * WHICH PLAN this wave belongs to — the plan's basename, exactly as a row
-   * carries it in `plan`. Half of a wave's identity: names repeat across plans
-   * (`Tracer`, `Implementation`), so `plan` alone does not name a wave and
+   * WHICH PLAN this slice belongs to — the plan's basename, exactly as a row
+   * carries it in `plan`. Half of a slice's identity: names repeat across plans
+   * (`Tracer`, `Implementation`), so `plan` alone does not name a slice and
    * `name` alone does not either. The pair is the id `openWaves` already keys
    * on and `waveKeyOf` already spells; this field is its first half.
    */
   plan: z.string(),
   /**
-   * THE WAVE'S NAME — its `### ` heading in the plan file, or `(unnamed)` where
-   * the plan divided its work into no named waves. `UNNAMED_WAVE` is the value
+   * THE SLICE'S NAME — its `### ` heading in the plan file, or `(unnamed)` where
+   * the plan divided its work into no named slices. `UNNAMED_WAVE` is the value
    * the server already substitutes on a row (`fleet.ts`, `wave.name || …`), and
-   * the same value is carried here so a consumer joining a Wave to its rows
-   * reads one spelling from both. A wave with no name is NOT hidden and does not
-   * fail — six such waves exist, all in plans predating the naming convention.
+   * the same value is carried here so a consumer joining a Slice to its rows
+   * reads one spelling from both. A slice with no name is NOT hidden and does not
+   * fail — six such slices exist, all in plans predating the naming convention.
    */
   name: z.string(),
   /**
-   * THE BRANCHES this wave HOLDS, by name — its contents, whatever each
-   * branch's individual state. The containment link, pointing DOWN: a wave has
-   * branches, a branch does not have a wave. Zero-or-more, and this is the kind
-   * that uses the upper end of that: a five-branch wave lists five.
+   * THE BRANCHES this slice HOLDS, by name — its contents, whatever each
+   * branch's individual state. The containment link, pointing DOWN: a slice has
+   * branches, a branch does not have a slice. Zero-or-more, and this is the kind
+   * that uses the upper end of that: a five-branch slice lists five.
    *
    * Names rather than whole rows, because the rows already travel in `rows` and
    * a consumer that wants a branch's full state joins on the name. Carrying the
@@ -1687,42 +1687,42 @@ export const WaveSchema = z.object({
    */
   branches: z.array(z.string()),
   /**
-   * THE SCAN'S VERDICT for the wave — `complete | eligible | blocked`,
+   * THE SCAN'S VERDICT for the slice — `complete | eligible | blocked`,
    * forwarded UNCHANGED from `plot-fleet-scan.sh`. Never re-derived here: the
    * scan aggregated every branch and answered, and this is that answer
    * travelling outward.
    *
    * NULL WHERE THE SCAN REPORTED NONE — a pulse from a scan whose verdict this
    * board does not recognise, the same honest absence `AgentRow.verdict`
-   * keeps. Absent is not a guess; a wave with null here has no verdict a
+   * keeps. Absent is not a guess; a slice with null here has no verdict a
    * consumer may assert.
    */
   verdict: SliceVerdictSchema.nullable(),
   /**
-   * THE ONE SECTION this wave belongs in — derived once, here, so no consumer
+   * THE ONE SECTION this slice belongs in — derived once, here, so no consumer
    * has to pick a predicate and disagree with the next one.
    *
-   * A wave whose every non-deferred branch is merged is `done`; otherwise the
-   * wave is where its UNFINISHED work is, which for a wave is `not-started` —
-   * `the-wave-is-a-thing-the-board-can-hold` settles that a wave never reaches
-   * `working` (an agent works, a wave does not) or `waiting-on-machine` (a wave
-   * is not a build). This is the wave-level answer; a branch's own `group` is
+   * A slice whose every non-deferred branch is merged is `done`; otherwise the
+   * slice is where its UNFINISHED work is, which for a slice is `not-started` —
+   * `the-wave-is-a-thing-the-board-can-hold` settles that a slice never reaches
+   * `working` (an agent works, a slice does not) or `waiting-on-machine` (a slice
+   * is not a build). This is the slice-level answer; a branch's own `group` is
    * finer and stays on the row.
    *
    * Derived from `complete` below rather than from `verdict`, and the two agree
    * on a healthy fleet — but completeness reads the branch states directly, so
-   * a wave with a merged branch and an open one cannot report `done` however
-   * its verdict reads. The mixed `Inverted` wave is the case this closes: one
-   * merged branch, one open, and the scan still calling the wave unfinished.
+   * a slice with a merged branch and an open one cannot report `done` however
+   * its verdict reads. The mixed `Inverted` slice is the case this closes: one
+   * merged branch, one open, and the scan still calling the slice unfinished.
    */
   section: WaitingGroupSchema,
   /**
-   * WHETHER EVERY NON-DEFERRED BRANCH IS MERGED — the wave's completeness,
+   * WHETHER EVERY NON-DEFERRED BRANCH IS MERGED — the slice's completeness,
    * asked once and answered the same everywhere it is read.
    *
    * A deferred branch is exempt: `plot-deliver` skips deferred branches in its
-   * own completeness gate, so `{merged, deferred}` is a complete wave and
-   * `{merged, open}` is not. A wave with only deferred branches (nothing to
+   * own completeness gate, so `{merged, deferred}` is a complete slice and
+   * `{merged, open}` is not. A slice with only deferred branches (nothing to
    * merge) is complete — there is no unfinished work in it.
    *
    * SEPARATE FROM `verdict`, deliberately. `verdict` is the scan's aggregate;
@@ -1732,21 +1732,21 @@ export const WaveSchema = z.object({
    */
   complete: z.boolean(),
   /**
-   * HOW MANY WAVES THE PLAN DECLARES — the count a plan row needs to decide
-   * whether to show a separate wave row.
+   * HOW MANY SLICES THE PLAN DECLARES — the count a plan row needs to decide
+   * whether to show a separate slice row.
    *
-   * A plan with exactly one wave renders that wave's status on the PLAN row
-   * rather than nesting a wave row beneath it: the wave adds no information
+   * A plan with exactly one slice renders that slice's status on the PLAN row
+   * rather than nesting a slice row beneath it: the slice adds no information
    * beyond what the plan itself says, and a second row costs vertical space
    * without earning it. The test is `planWaveCount === 1`, evaluated on the
-   * DECLARED wave count (the plan's `### ` headings), not on how many remain
+   * DECLARED slice count (the plan's `### ` headings), not on how many remain
    * unfinished.
    *
    * Defaulted so a pulse from a server predating this field still validates:
-   * absent means *show every wave row*, and 2 is the minimal count at which
-   * every wave row appears. Null would be the honest shape for *unknown*, but
+   * absent means *show every slice row*, and 2 is the minimal count at which
+   * every slice row appears. Null would be the honest shape for *unknown*, but
    * a client ternary that read `planWaveCount === 1` would treat `null` as
-   * *multi-wave* anyway, and a default of 2 is that same rule spelled once.
+   * *multi-slice* anyway, and a default of 2 is that same rule spelled once.
    */
   planWaveCount: z.number().default(2),
 });
@@ -1793,21 +1793,21 @@ export const StuckStateSchema = z.enum([
   // on a branch nobody had touched. Reported as *"why do always the same two
   // waves flash if no one is changing them"*.
   'double-claimed',
-  // A WAVE HOLDING SEVERAL BRANCHES — invalid, and the sixth reason a branch
+  // A SLICE HOLDING SEVERAL BRANCHES — invalid, and the sixth reason a branch
   // cannot move cleanly.
   //
   // The model, settled with the operator 2026-08-21: a tracer or spike produces a
-  // REFINED PLAN; that plan is sliced into waves; and **each wave is carried out
+  // REFINED PLAN; that plan is cut into slices; and **each slice is carried out
   // in exactly one branch and one worktree**. So `plan → * wave → 1 branch`, and a
-  // wave with five branches means the plan was never re-sliced after its spike.
+  // slice with five branches means the plan was never re-sliced after its spike.
   //
-  // Measured on this estate: **49 waves hold one branch, 8 hold more** — and 7 of
+  // Measured on this estate: **49 slices hold one branch, 8 hold more** — and 7 of
   // those 8 are already `complete`, so they shipped before the model was stated.
   // The one unfinished case is `opus5-longhorizon-hardening :: Implementation`:
   // five branches, `blocked`, 26 days, behind a tracer whose PR is green and
   // unmerged. Exactly the failure the tracer exists to prevent.
   //
-  // REPORTED, never repaired here. Re-slicing needs NAMES for the new waves, and
+  // REPORTED, never repaired here. Re-slicing needs NAMES for the new slices, and
   // naming is judgement — so the repair cannot be the licensed deterministic kind
   // (`plot-resolve-artifact.sh`, whose permission *is* judgement's absence) and
   // there is no script to wrap. It is its own plan.
@@ -1852,11 +1852,11 @@ export const StuckSchema = z.object({
    */
   claimedBy: z.array(z.string()).default([]),
   /**
-   * The sibling branches sharing this branch's wave — two or more on
+   * The sibling branches sharing this branch's slice — two or more on
    * `unsliced-wave`, empty on every other state.
    *
    * NAMED rather than counted, for the reason `claimedBy` states: repairing this
-   * means slicing the wave into one per branch, so the row has to say which
+   * means slicing the slice into one per branch, so the row has to say which
    * branches are entangled.
    */
   waveSiblings: z.array(z.string()).default([]),
@@ -2069,7 +2069,7 @@ export const AgentRowSchema = z.object({
    *
    * Set by the server at every site that creates a row, and read by the tuple
    * row as slot 2. It ends two defects in one move: the phase column that read
-   * four different sorts of word depending on the plan's wave count, and the
+   * four different sorts of word depending on the plan's slice count, and the
    * hover-only tooltip that was the only place a row said what kind of thing it
    * was. A label the reader can see, stated once.
    *
@@ -2112,7 +2112,7 @@ export const AgentRowSchema = z.object({
    * ONE SLUG, not a list: where two sprints are Active and both list a plan, the
    * FIRST active sprint wins — deterministic, matching the first-wins dedup the
    * member list itself uses. The filter that renders one control per active
-   * sprint is a later wave's concern; this field only records which sprint claims
+   * sprint is a later slice's concern; this field only records which sprint claims
    * the row.
    *
    * A VIEW, never a fetch: this field exists so the client can HIDE out-of-sprint
@@ -2267,7 +2267,7 @@ export const AgentRowSchema = z.object({
     //
     // Measured 2026-08-21: PRs #51-#55, closed as drafts 26 days earlier, all
     // rendered `green` + `draft`, so the board read *five reviews are waiting on
-    // you* about a wave somebody deliberately dropped. They reach a row because
+    // you* about a slice somebody deliberately dropped. They reach a row because
     // `prsByHead` keeps finished PRs on purpose — right about the LINK, and it
     // was silently deciding the STATUS too.
     state: z.enum(['green', 'pending', 'failing', 'none', 'conflicts', 'unknown', 'closed'])
@@ -2440,7 +2440,7 @@ export const AgentRowSchema = z.object({
    * WHETHER THIS BRANCH HAS ITS BRIEF — see `BriefStateSchema`.
    *
    * The fact the row was missing, and the one that decides whether *eligible*
-   * can be acted on. `waitingOn: 'click'` above says the WAVE ordering is
+   * can be acted on. `waitingOn: 'click'` above says the SLICE ordering is
    * satisfied; this says whether the branch has the specification a worker is
    * told to read first. Both are true of a startable branch and only the first
    * was ever reported, so nine rows read *eligible — nobody has taken it* on
@@ -2468,26 +2468,26 @@ export const AgentRowSchema = z.object({
    */
   brief: BriefStateSchema.default('unknown'),
   /**
-   * The name of the earlier wave blocking this row — `waitingOn: 'time'` only,
+   * The name of the earlier slice blocking this row — `waitingOn: 'time'` only,
    * null everywhere else.
    *
    * *Blocked by which one?* is the reader's unavoidable next question, and the
-   * server is the only place that can answer it: `verdict` lives on the WAVE
+   * server is the only place that can answer it: `verdict` lives on the SLICE
    * (`PlanSliceSchema`) while the row carries only `wave`, its own name. So a
    * row cannot see that it is blocked, let alone by what — the fact must travel.
    *
-   * Null rather than "" for absence, because a wave can legitimately be unnamed
+   * Null rather than "" for absence, because a slice can legitimately be unnamed
    * (a plan with no `###` sub-headings). The note then reads *blocked by an
-   * earlier wave* with no name — the old sentence, and still true.
+   * earlier slice* with no name — the old sentence, and still true.
    */
   blockedBy: z.string().nullable().default(null),
   /**
-   * The verdict of the WAVE this row sits in — `complete`, `eligible`,
+   * The verdict of the SLICE this row sits in — `complete`, `eligible`,
    * `blocked` or `unapproved`, forwarded from `PlanSliceSchema.verdict`.
    *
    * THE SAME VALUES AS THE SCAN'S, and reusing `SliceVerdictSchema` is the
    * decision rather than the default. A row does not classify itself here: it
-   * repeats what the scan already decided about its wave, so a value this enum
+   * repeats what the scan already decided about its slice, so a value this enum
    * carries is one the scan can say. That was written as "the same THREE
    * values, and a fourth would have to mean something the scan cannot say" —
    * and the fourth arrived by the only route that clause allowed: the SCAN
@@ -2499,11 +2499,11 @@ export const AgentRowSchema = z.object({
    *
    * A FIELD RATHER THAN A STRING MATCH — the shape `ELIGIBLE_NOTE` proposed
    * above and declined to build, and the same argument `worker`, `waitingOn`
-   * and `pr.state` each settled before it. Until this field existed the wave's
+   * and `pr.state` each settled before it. Until this field existed the slice's
    * verdict survived onto the row only as PROSE: `ELIGIBLE_NOTE` for eligible,
-   * `blockedNote()` for blocked, and NOTHING for complete — a `complete` wave's
+   * `blockedNote()` for blocked, and NOTHING for complete — a `complete` slice's
    * merged branch says *merged*, which is true of the branch and silent about
-   * the wave. So a consumer wanting the verdict had two sentences to match and
+   * the slice. So a consumer wanting the verdict had two sentences to match and
    * one case it could not reach at all.
    *
    * FORWARDED, NEVER RE-DERIVED, like its neighbours. `classify` returns it
@@ -2511,10 +2511,10 @@ export const AgentRowSchema = z.object({
    * sentence cannot disagree — which is the entire point of having both, and
    * what the tests assert as a pair.
    *
-   * NULL WHERE THERE IS NO WAVE, which is two cases and both are honest
+   * NULL WHERE THERE IS NO SLICE, which is two cases and both are honest
    * absences rather than defaults:
    *
-   *   - a planless row (built from the PR map) belongs to no plan, so no wave
+   *   - a planless row (built from the PR map) belongs to no plan, so no slice
    *     has a verdict about it;
    *   - a pulse from a scan whose verdict this board does not recognise. ""
    *     and an unknown word are not the three values, and guessing one would
@@ -2541,7 +2541,7 @@ export const AgentRowSchema = z.object({
    * never computed it, so the client defaults gracefully.
    *
    * THE ROW RENDERS THIS, NOT `eligible`. `eligible` answers *has every prior
-   * wave landed*, which is true on 26 rows and actionable on 5. This answers
+   * slice landed*, which is true on 26 rows and actionable on 5. This answers
    * *can I start this*, and every value is either actionable or explicitly
    * closes the question.
    *
@@ -2748,7 +2748,7 @@ export const PulseShrinkSchema = z.object({
   /**
    * Branches that were in the previous pulse and are not in this one, by branch
    * name — including branches whose PLAN survived. A plan that keeps its file
-   * but loses a wave's branches produces no plan-level difference at all, and
+   * but loses a slice's branches produces no plan-level difference at all, and
    * that is precisely the reported symptom: WORKING rows for agents that were
    * demonstrably running, gone and then back.
    */
@@ -3225,21 +3225,21 @@ export const FleetSchema = z.object({
   shrink: PulseShrinkSchema.nullable().default(null),
   rows: z.array(AgentRowSchema),
   /**
-   * THE WAVES this fleet holds — one entry per `(plan, wave)`, derived once on
-   * the server beside the rows. See {@link WaveSchema} for what a wave is and
+   * THE SLICES this fleet holds — one entry per `(plan, wave)`, derived once on
+   * the server beside the rows. See {@link WaveSchema} for what a slice is and
    * why it is a thing the contract carries rather than a string re-grouped by
    * every consumer.
    *
    * BESIDE `rows`, NOT DERIVED FROM THEM BY THE CLIENT — the `issues`/`agents`
    * precedent, and the whole point of the entity. A row is a branch that names
-   * its wave; this is the wave that holds branches, and the section/completeness
+   * its slice; this is the slice that holds branches, and the section/completeness
    * it carries are the answers a consumer would otherwise re-derive from the
    * rows and disagree about.
    *
    * Defaults to [] so a client talking to an older server still validates. BUT
    * THE DEFAULT DOES NOT SAVE A CLIENT THAT CASTS: a Zod `.default()` fires only
    * at parse time, and the board CASTS this payload (`board as Board`) rather
-   * than parsing it, so a renderer reading `fleet.waves` on a pre-wave pulse
+   * than parsing it, so a renderer reading `fleet.waves` on a pre-slice pulse
    * gets `undefined`, not `[]`. This repo has shipped that bug before
    * (`FLEET_CONTROLS_DEFAULT`, 2026-08-22). A consumer must guard for the
    * absent case, and the server emits this field unconditionally — cold cache
@@ -3422,9 +3422,9 @@ export const FleetSchema = z.object({
    * `/api/fleet-controls`, holding no authoritative copy of its own.
    *
    * Defaults `{ autoDispatch: false, parallelAgents: 3 }` so a payload from a
-   * server predating this wave still validates and reads as a fleet that is not
-   * serving its queue — the safe direction, since this wave dispatches nothing
-   * and wave 3 acts only while the switch is on.
+   * server predating this slice still validates and reads as a fleet that is not
+   * serving its queue — the safe direction, since this slice dispatches nothing
+   * and slice 3 acts only while the switch is on.
    */
   fleetControls: z
     .object({
@@ -3712,7 +3712,7 @@ export const ClaimableSchema = z.object({
   branch: z.string(),
   /** The plan's filename, as `/plan/<file>` wants it. */
   plan: z.string(),
-  /** The wave this branch sits in — `(unnamed)` where the plan has no `###`. */
+  /** The slice this branch sits in — `(unnamed)` where the plan has no `###`. */
   wave: z.string(),
   /**
    * Where this branch's hand-off brief IS or WOULD BE — a path, always, plus
@@ -3784,7 +3784,7 @@ export const AttentionSchema = z.object({
    * fact, so it needs the provenance at least as much: *restart this branch* is
    * advice, and advice about a world three pushes old is worse than none.
    * Never filled in from `localHead` to avoid a null — those are different
-   * commits, and substituting one is the original defect wave 1 removed.
+   * commits, and substituting one is the original defect slice 1 removed.
    */
   readRef: z.string().nullable().default(null),
   /** Last scan error, if any — a failed refresh never clears a good result. */
@@ -3824,7 +3824,7 @@ export type Attention = z.infer<typeof AttentionSchema>;
  * `claimed` is the fact; `branch` is what the claim mechanism CHOSE. The
  * endpoint takes a plan slug and not a branch name because `plot-dispatch.sh`
  * picks the branch itself, by asking the fleet scan which one is eligible —
- * eligibility is wave arithmetic and lives in one place. A caller that wants a
+ * eligibility is slice arithmetic and lives in one place. A caller that wants a
  * specific branch is asking for a rule this system deliberately does not have.
  */
 export const ClaimResultSchema = z.object({

@@ -268,7 +268,7 @@ export function passesSprintFilter(
  *
  * The plan "the-sprint-filter-says-what-it-filters" measured: the Agents tab
  * filtered on `r.sprint === '' || sprintFilter.has(r.sprint)`, which admitted
- * 53 plan rows (waves/branches with empty sprint fields) alongside the 2
+ * 53 plan rows (slices/branches with empty sprint fields) alongside the 2
  * genuine plan-less rows. This function joins on the sprint file's membership
  * list instead.
  *

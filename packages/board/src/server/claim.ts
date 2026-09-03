@@ -32,7 +32,7 @@ import { DISPATCH_SCRIPT } from './dispatch.js';
  * the doing.
  */
 
-/** `--max 1`: one call reserves ONE branch. Fanning out a wave stays with /plot-dispatch. */
+/** `--max 1`: one call reserves ONE branch. Fanning out a slice stays with /plot-dispatch. */
 const MAX_PER_CALL = '1';
 
 /**
@@ -115,7 +115,7 @@ export function parseClaim(slug: string, stdout: string): ClaimResult {
     // be asked for, while nothing means this plan has no work left to take.
     reason:
       skipped ??
-      'nothing eligible to claim for this plan — every branch is already claimed, merged, deferred, or blocked by an earlier wave',
+      'nothing eligible to claim for this plan — every branch is already claimed, merged, deferred, or blocked by an earlier slice',
     summary,
   };
 }

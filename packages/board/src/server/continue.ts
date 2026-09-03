@@ -56,7 +56,7 @@ import { briefPath } from './brief-path.js';
  * so a continuation prompt that quotes the worker's own question cannot be
  * mistaken for a new one. Naming it `.plot-continue.md` instead would make
  * every continuation look like a fresh unanswered question — the exact defect
- * this wave was measured against.
+ * this slice was measured against.
  */
 export const CONTINUATION_NAME = '.plot-worker.continue.md';
 
@@ -144,7 +144,7 @@ export const COMMIT_MAX = 40;
  * What the previous run left in git, as one line per commit — newest last.
  *
  * **THIS IS THE "what already landed" HALF OF THE PROMPT, and it is read from
- * git rather than carried from the previous run.** That choice is the wave's
+ * git rather than carried from the previous run.** That choice is the slice's
  * central one, and the reasoning is worth keeping next to the code: a worker
  * that ran an hour produces a six-figure-token transcript, and handing it over
  * fills the new worker's context before it begins. What the previous run

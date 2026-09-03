@@ -8,7 +8,7 @@ import { ContinueWithAnAnswer } from './ContinueWithAnAnswer.js';
  * How often an open panel re-fetches, in ms.
  *
  * **The polling lives HERE, in the panel, and never in the pulse.** That
- * placement is the whole wave: a log is fetched while someone is looking at it
+ * placement is the whole slice: a log is fetched while someone is looking at it
  * and not at all otherwise, so the cost is one open panel rather than every
  * agent's output multiplied by every open tab, four times a minute, forever.
  * Closing the panel stops the traffic completely — see the effect below.
@@ -32,7 +32,7 @@ export function sizeLabel(bytes: number): string {
  *
  * The three-way distinction the server draws is worth nothing if the client
  * renders all of them as an empty box, which is precisely the collapse this
- * wave exists to prevent. Each sentence names what is true and what to do about
+ * slice exists to prevent. Each sentence names what is true and what to do about
  * it, because "no log" without "the worktree is here, look in it" sends the
  * reader nowhere.
  *
@@ -372,8 +372,8 @@ export function WorkerLogModal({
             waiting on an answer, and the route would refuse it anyway; hiding
             the control is how that refusal is stated before it is clicked.
             
-            The panel still ACTS ON NOTHING ELSE. This wave is the only acting
-            wave in a deliberately read-only sprint, and the blast radius is
+            The panel still ACTS ON NOTHING ELSE. This slice is the only acting
+            slice in a deliberately read-only sprint, and the blast radius is
             continuation. */}
         {panel?.ok && panel.worker === 'waiting' && (
           <ContinueWithAnAnswer

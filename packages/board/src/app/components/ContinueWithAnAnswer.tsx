@@ -159,7 +159,7 @@ export function ContinueWithAnAnswer({
 
         {/* THE CONFIRMATION NAMES BOTH PIDS. "Started" alone would leave a
             reader unable to tell a new run from a reused one, which is exactly
-            the distinction this wave exists to make visible. */}
+            the distinction this slice exists to make visible. */}
         {phase.at === 'started' && (
           <span data-continue-started className="text-xs text-emerald-700 dark:text-emerald-400">
             New worker started (pid {phase.pid}

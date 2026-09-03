@@ -789,7 +789,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // outranks the PR as well: the wave carries the plan forward and the PR is
       // an event at its branch. The word is what this test is about, and it is
       // still spelled in full.
-      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Wave');
+      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Slice');
       const cell = li.locator('[data-kind]');
       const fits = await cell.evaluate(
         (el) => el.scrollWidth <= (el.parentElement as HTMLElement).clientWidth,
@@ -855,7 +855,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // `Wave` since 2026-08-21 — this row carries PR #130 and a plan, and the
       // wave now outranks the PR. What this test is about is unaffected: the kind
       // is named by its COLUMN and stated in no tooltip, whichever word it holds.
-      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Wave');
+      await expect.poll(() => li.locator('[data-kind]').textContent()).toBe('Slice');
       const headers = group(page, 'Waiting on you').getByRole('columnheader');
       // THE TUPLE'S SEVEN, and two of the old six could not be true of every
       // row beneath them: a plan has no branch and a ticket has no pull
@@ -872,10 +872,10 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // name is what is RENDERED. Asserting `Branch` would make this a claim
       // about a CSS utility rather than about the column naming the kind.
       //
-      // `wave`, because this row's branch belongs to a plan. What the test is
+      // `slice`, because this row's branch belongs to a plan. What the test is
       // about — the column NAMES the kind, in full and in no tooltip — does not
       // depend on which kind that is.
-      expect(name.trim().toLowerCase()).toBe('wave');
+      expect(name.trim().toLowerCase()).toBe('slice');
       // The word is visible, and it is the label — not a tooltip.
       const word = li.locator('[data-kind]');
       expect((await word.boundingBox())?.width ?? 0).toBeGreaterThan(1);
@@ -920,9 +920,9 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // What the test still catches is a column that prints nothing, or prints
       // one word for a row and blank for its neighbour.
       await expect.poll(() => rowFor(page, 'feature/has-pr').locator('[data-kind]')
-        .textContent()).toBe('Wave');
+        .textContent()).toBe('Slice');
       expect(await rowFor(page, 'feature/no-pr').locator('[data-kind]').textContent())
-        .toBe('Wave');
+        .toBe('Slice');
       // And NEITHER is given the phase both their plans have — the same fixture
       // phase on both rows, printed on neither.
       expect(await rowFor(page, 'feature/has-pr').locator('[data-phase]').count()).toBe(0);
@@ -1112,7 +1112,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       await expect.poll(() => blockedMark.count()).toBeGreaterThan(0);
       // AND IT SAYS SO TO A SCREEN READER — the half a mark loses in silence.
       expect(await blockedMark.first().getAttribute('aria-label'))
-        .toBe('Blocked by wave Truth — show it');
+        .toBe('Blocked by slice Truth — show it');
       expect(await menu(page, 'feature/blocked').count()).toBe(0);
       expect(await li.getByRole('button', { name: 'Start work' }).count()).toBe(0);
     } finally {
@@ -3595,7 +3595,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // `wave` for the same reason as the desktop assertion: this row's branch
       // is a plan's work. The card must NAME its kind where no column does,
       // which is what this asserts and is unaffected by which word it is.
-      expect(heard).toContain('wave');
+      expect(heard).toContain('slice');
       // And NOT the plan's phase, which the fixture still carries — the card is
       // where a relocation is most tempting to skip, because the row is already
       // a stack of everything and one more word looks free.

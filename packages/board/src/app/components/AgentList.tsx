@@ -39,7 +39,7 @@ import { slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.j
 //
 // `Row`, `PlanRow` and `IssueRowView` used to live in this file, on TWO grid
 // definitions between the three of them — and the third, a TICKET, rendered
-// through the tracks of a BRANCH: no wave, no worker, no branch, wearing the
+// through the tracks of a BRANCH: no slice, no worker, no branch, wearing the
 // columns of something it is not. Three fill sites is how the two grids drifted
 // apart, and a shared grid with three fillers would have kept that possible
 // while adding a contract.
@@ -53,7 +53,7 @@ import { slugPassesSprintFilter, sprintMembershipLookup } from '../lib/filters.j
 import { splitBranch } from '../lib/tuple-row.js';
 // RE-EXPORTED, not redefined. `splitBranch` moved to the module that owns the
 // slot rules when the collapse deleted `BranchName`; the unit suite imports it
-// from here, and a second definition is exactly the drift this wave removed.
+// from here, and a second definition is exactly the drift this slice removed.
 export { splitBranch };
 import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
@@ -79,11 +79,11 @@ export type { AgentListProps };
 
 
 /**
- * Find the sole wave for a plan, if the plan has exactly one wave.
+ * Find the sole slice for a plan, if the plan has exactly one slice.
  *
- * Returns the wave object when `planWaveCount === 1`, null otherwise.
- * Used to decide whether a plan row should carry the wave's status —
- * which it does when the wave adds no information beyond what the plan
+ * Returns the slice object when `planWaveCount === 1`, null otherwise.
+ * Used to decide whether a plan row should carry the slice's status —
+ * which it does when the slice adds no information beyond what the plan
  * row already says.
  *
  * Looks up by the plan's DISPLAY name (the basename with date stripped),
@@ -91,14 +91,14 @@ export type { AgentListProps };
  */
 export function soleWaveFor(planName: string, waves: Wave[] | undefined): Wave | null {
   if (!waves) return null;
-  // A plan may have multiple waves. Find ANY wave for this plan and check
-  // its planWaveCount — every wave of a plan shares the same count.
+  // A plan may have multiple slices. Find ANY slice for this plan and check
+  // its planWaveCount — every slice of a plan shares the same count.
   const w = waves.find((wave) => wave.plan === planName);
   return w && isOneWavePlan(w) ? w : null;
 }
 
 /**
- * What the server writes where a plan divides its work into no waves at all.
+ * What the server writes where a plan divides its work into no slices at all.
  *
  * `waveLabel` declines to print it, and this is why the string is named rather
  * than inlined: it is a value the SERVER writes (`wave.name || '(unnamed)'`),
@@ -198,7 +198,7 @@ function useActivity(rows: readonly AgentRow[]): ReadonlySet<string> {
   // silently depend on grouping.
   //
   // Applied here because this hook is what every render site reads through —
-  // including the plan and wave HEADS, which aggregate with `rows.some(...)`
+  // including the plan and slice HEADS, which aggregate with `rows.some(...)`
   // and would otherwise need the guard spelled twice more.
   const active = activeRowKeys(rows, echoing);
   const keys = new Set<string>();
@@ -320,7 +320,7 @@ export function AgentList({
   // completed into a section a reader keeps closed (DONE, folded by default),
   // and a folded section is REMOVED from the tree, so its row is unreachable by
   // any selector until this runs. One direction only: the reader asked which
-  // wave, and the mark may open a section to answer, never close one out from
+  // slice, and the mark may open a section to answer, never close one out from
   // under them. Persisted through `writeCollapsed`, the same as `toggle` — the
   // reveal changes the reader's layout because silence was the defect being
   // removed, not a cost to design away. A no-op where the section is already
@@ -340,7 +340,7 @@ export function AgentList({
   //
   // Collapsed by default and NOT persisted, unlike the section-level fold. The
   // two are different in kind: folding QUIET is a standing preference about a
-  // section a reader has decided not to watch, while opening one plan's waves is
+  // section a reader has decided not to watch, while opening one plan's slices is
   // a momentary question — *what were the three branches again* — asked and
   // answered. Persisting it would restore an opened plan on a board reloaded
   // several times an hour, which rebuilds the crowding the fold removes.
@@ -357,16 +357,16 @@ export function AgentList({
     });
   };
 
-  // THE SAME FOLD, ONE LEVEL DOWN — a wave's branches, where it holds more than
+  // THE SAME FOLD, ONE LEVEL DOWN — a slice's branches, where it holds more than
   // one. Every argument above applies unchanged: collapsed by default, not
   // persisted, never derived from the rows.
   //
-  // A SEPARATE SET rather than a shared one, keyed `plan\0wave`. Wave names
+  // A SEPARATE SET rather than a shared one, keyed `plan\0wave`. Slice names
   // repeat across plans — `Shaped` and `Sized` each appear in several of this
   // estate's plans, and `Says` in three — so one namespace would fold every
   // `Shaped` in the section on one click. The NUL separator cannot occur in
   // either name, so the key is unambiguous where `plan/wave` would not be
-  // (branch-shaped wave names exist).
+  // (branch-shaped slice names exist).
   /**
    * The agent registry, by branch — the join `fleet.agents` never had.
    *
@@ -381,7 +381,7 @@ export function AgentList({
   const agentByBranch = new Map((fleet?.agents ?? []).map((a) => [a.branch, a]));
 
   // THE WORKING SECTION IS THE REGISTRY, joined BACK to branch rows —
-  // `the-working-section-shows-every-worker`, wave 1. `agentByBranch` above maps
+  // `the-working-section-shows-every-worker`, slice 1. `agentByBranch` above maps
   // the registry onto branch rows and is read by every OTHER section to name the
   // agent that holds a branch; this is the inverse the WORKING section needs — a
   // branch→row map, so an entry can find the row it joins to. A worker renders
@@ -485,7 +485,7 @@ export function AgentList({
   // PLAN-LESS ROWS ALWAYS PASS. The exemption is by KIND, not by empty sprint:
   //   - `kind: 'release'` — the release row (changeset-release/main)
   //   - `kind: 'pr'` AND `row.plan === ''` — an unplanned PR
-  // The old filter `r.sprint === ''` admitted 53 plan rows (waves/branches
+  // The old filter `r.sprint === ''` admitted 53 plan rows (slices/branches
   // whose sprint field was empty) alongside the 2 genuine plan-less rows.
   //
   // Applied BEFORE `rowsBySection`: the filter is about WHICH plans a reader
@@ -507,7 +507,7 @@ export function AgentList({
   const filteredIssues = fleet.issues;
 
   // HOW MANY WORKERS THE FILTER HIDES — `the-filter-does-not-hide-a-worker`,
-  // wave Named. The WORKING section deliberately shows ALL live workers (a
+  // slice Named. The WORKING section deliberately shows ALL live workers (a
   // worker is a fact about the fleet, not about a reader's focus), but the
   // control should name when a filter WOULD hide workers if applied. This
   // count is passed to `ParallelAgentsStepper` to show "(N hidden by filter)".
@@ -645,7 +645,7 @@ export function AgentList({
     });
   }
   // `prNote` owns the WORDING — an unreachable host keeps the plain sentence, a
-  // spent rate limit says so and names when service returns (the sibling wave
+  // spent rate limit says so and names when service returns (the sibling slice
   // `bug/the-note-names-the-rate-limit`). The panel owns the FRAME and the
   // placement. `prNote` is non-null exactly when `prError` is set, so the guard
   // and the text agree.
@@ -693,7 +693,7 @@ export function AgentList({
           list.
 
           Estate totals are shown when the filter is OFF; sprint numbers when
-          ON. This is the "Compared" wave of the-sprint-filter-says-what-it-
+          ON. This is the "Compared" slice of the-sprint-filter-says-what-it-
           filters plan: a reader sees the effect of turning the filter on
           before touching it. */}
       <SprintFilter
@@ -707,7 +707,7 @@ export function AgentList({
 
           Placed above the sections because it answers "where am I", which is
           context for the rows that follow rather than one of them. It is NOT a
-          row in any section — it has no PR, no worker, no wave — and placing
+          row in any section — it has no PR, no worker, no slice — and placing
           it inside one would make it look like it belongs there.
 
           ONLY when non-empty. An empty `masterAgentBranch` means detached HEAD,
@@ -767,7 +767,7 @@ export function AgentList({
         const unfilteredSectionedRows = sprintFilter.size > 0
           ? rowsBySection(fleet.rows)
           : sectionedRows;
-        // THE SERVER-DERIVED WAVES, bound once beside the rows so every
+        // THE SERVER-DERIVED SLICES, bound once beside the rows so every
         // `waveGroupsFor`/`ungroupedRows` call below asks the same list rather
         // than re-reading `fleet.waves` seven times. `undefined` on a cast
         // payload from a pre-#349 server — the field the client CASTS rather
@@ -783,12 +783,12 @@ export function AgentList({
         // the thing that plan settled, and a reader who follows the rule back
         // should land on the argument rather than on a bare comparison.
         //
-        // FILTERED OVER `sectionedRows`, NOT `fleet.rows`. A wave whose branches
+        // FILTERED OVER `sectionedRows`, NOT `fleet.rows`. A slice whose branches
         // disagree on `state` carries two `group`s on its rows and would split
-        // across two sections; `rowsBySection` rewrites every row of such a wave
-        // to the ONE section the wave belongs in (a wave is where its unfinished
+        // across two sections; `rowsBySection` rewrites every row of such a slice
+        // to the ONE section the slice belongs in (a slice is where its unfinished
         // work is), so `Inverted`'s merged and open branches land together. A
-        // uniform wave is untouched — its rows already share a group.
+        // uniform slice is untouched — its rows already share a group.
         const rows = key === 'waiting-on-machine'
           ? sectionedRows.filter(inMachineSection)
           : sectionedRows.filter((r) => r.group === key);
@@ -821,7 +821,7 @@ export function AgentList({
         // The plan scope the blocked-by jump needs ABOVE the row. WORKING orders
         // by agent, so there is no per-plan `<ul>` to tag the way the grouped
         // sections have; the section's own grid carries it instead. First match
-        // wins — a jump names ONE wave, and where several plans have live waves
+        // wins — a jump names ONE slice, and where several plans have live slices
         // the mark still names its target in its label, which is the same
         // degradation the query already has for a row on another tab.
         const workingWaveListPlan = workingSection
@@ -916,14 +916,14 @@ export function AgentList({
                 ? HOST_CANNOT_REPORT_HINT
                 : hint;
         // THE TALLY COUNTS WHAT THE SECTION SHOWS — and where a grouped section
-        // renders plan heads over more waves than heads, it names both units and
+        // renders plan heads over more slices than heads, it names both units and
         // says which is which.
         //
         // A count beside a section must be derivable from that section's rows,
         // or say what else it counts. Everywhere the section renders one line
         // per row, the number is that count and matches what a reader sees. But
-        // a grouped section renders plan HEADS, each folded with its own wave
-        // count — so `DONE (19)` sat above ten heads, the header counting waves
+        // a grouped section renders plan HEADS, each folded with its own slice
+        // count — so `DONE (19)` sat above ten heads, the header counting slices
         // while the reader counted plans. `sectionTally` derives both figures
         // the way the component renders, group by group, so the header equals
         // the section by construction: `plans` is the visible-line count,
@@ -931,16 +931,16 @@ export function AgentList({
         //
         // WORKING is the exception the plan preserves (Done when #4): it renders
         // the REGISTRY, one row per agent, and its number is `agents.length` —
-        // `the-working-section-shows-every-worker`, wave Counted (#403). It has
+        // `the-working-section-shows-every-worker`, slice Counted (#403). It has
         // no plan grouping to fold, so it keeps the single figure.
         const tallyOf = workingSection
           ? { plans: countOf, waves: countOf, differ: false }
           : sectionTally(rows, key, waves, issues.length);
         // WHERE THE TWO AGREE, ONE NUMBER — an ungrouped or empty section gains
         // no redundant clause, so QUIET at 0/0 stays `(0)` and never
-        // `(0 plans · 0 waves)` (Done when #3). Where they differ, both, named.
+        // `(0 plans · 0 slices)` (Done when #3). Where they differ, both, named.
         const shownLabel = tallyOf.differ
-          ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.waves} wave${tallyOf.waves === 1 ? '' : 's'})`
+          ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.waves} slice${tallyOf.waves === 1 ? '' : 's'})`
           : `(${tallyOf.plans})`;
         // THE HIDDEN SUFFIX. A filtered section says what it withheld, so
         // `none` is never the whole answer when rows exist and the reader has
@@ -1089,7 +1089,7 @@ export function AgentList({
                   The switch belongs to NOT STARTED (*is the queue served?*) and
                   the stepper to WORKING (*how many at once?*). Both read the
                   SHARED state off `fleet.fleetControls` and write it back through
-                  /api/fleet-controls; neither dispatches anything in this wave. */}
+                  /api/fleet-controls; neither dispatches anything in this slice. */}
               {key === 'not-started' && (
                 <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
               )}
@@ -1120,8 +1120,8 @@ export function AgentList({
               {workingSection ? (
                 // WORKING IS THE REGISTRY. One row per entry, joined to a branch
                 // row where one exists and standing alone where none does —
-                // `the-working-section-shows-every-worker`, wave 1. This section
-                // does NOT group by plan or fold into waves the way the branch
+                // `the-working-section-shows-every-worker`, slice 1. This section
+                // does NOT group by plan or fold into slices the way the branch
                 // sections do: an agent is a WHO, not a slice of a plan, and its
                 // row names what it is working on rather than being nested under
                 // it. The five registry states each render their own word, and a
@@ -1165,7 +1165,7 @@ export function AgentList({
                   // In NOT STARTED the PLAN ROW carries the name instead, so no
                   // sub-heading is drawn: the heading exists to save the rows
                   // repeating the plan, and here the plan row already does that
-                  // job with a clock and a wave summary the heading has no room
+                  // job with a clock and a slice summary the heading has no room
                   // for. Two labels for one plan would be the repetition this
                   // section is removing, one level up.
                   // NOT IN WAITING ON YOU, and this is the operator's call
@@ -1194,17 +1194,17 @@ export function AgentList({
                   // was built for.
                   const headed = !countsPlans && key !== 'waiting-on-you'
                     && showPlanHeading(group);
-                  // A PLAN ROW HEADS ITS WAVES, where every row in the group is
+                  // A PLAN ROW HEADS ITS SLICES, where every row in the group is
                   // one. That is the shape NOT STARTED already draws, and the one
                   // a text heading cannot: a plan has a phase, an approval clock
                   // and a menu, none of which an `h3` can carry.
                   //
                   // `group.plan` must be named — a group of rows no plan claims
-                  // has no plan row to draw — and the wave groups must account
+                  // has no plan row to draw — and the slice groups must account
                   // for every row, or a plan row would head a set it does not
                   // describe.
                   // A PLAN GROUP IS HOMOGENEOUS BY CONSTRUCTION, which is why
-                  // this predicate can require that EVERY row be wave-grouped
+                  // this predicate can require that EVERY row be slice-grouped
                   // rather than handling a mixture.
                   //
                   // The operator's observation, 2026-08-20: *"a plan group will
@@ -1212,7 +1212,7 @@ export function AgentList({
                   // land in NOT STARTED."* A plan's branches move through the
                   // lifecycle together — in review here, then dispatchable in NOT
                   // STARTED, then working, then done — so a group holding some
-                  // waves and some loose rows is a transient, not a shape to
+                  // slices and some loose rows is a transient, not a shape to
                   // design for.
                   //
                   // So the `=== 0` is a GATE rather than a limitation: where a
@@ -1306,19 +1306,19 @@ export function AgentList({
                           dispatch={dispatch}
                           pulse={pulse}
                           onApproving={onStarting}
-                          // HOW MANY OF THIS PLAN'S WAVES ARE NOT UNDER THIS HEAD.
-                          // Counted against the waves this head's own ROWS belong
-                          // to, not against the section it renders in: a wave
+                          // HOW MANY OF THIS PLAN'S SLICES ARE NOT UNDER THIS HEAD.
+                          // Counted against the slices this head's own ROWS belong
+                          // to, not against the section it renders in: a slice
                           // carries one of two sections while a row carries one of
                           // six, so the section comparison called a head's own
-                          // wave elsewhere whenever the row needed attention.
+                          // slice elsewhere whenever the row needed attention.
                           elsewhere={wavesElsewhere(fleet.waves, group.plan, key,
                             new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
-                          // A ONE-WAVE plan shows its wave's verdict on this row
-                          // instead of nesting a wave row beneath it.
+                          // A ONE-SLICE plan shows its slice's verdict on this row
+                          // instead of nesting a slice row beneath it.
                           soleWave={soleWaveFor(group.plan, waves)}
-                          // …and the hidden wave row's *Start work* rides here
-                          // too, dispatching that one wave.
+                          // …and the hidden slice row's *Start work* rides here
+                          // too, dispatching that one slice.
                           onStarting={onStarting}
                         />
                         {/* The branches, folded. Removed from the tree rather
@@ -1353,35 +1353,35 @@ export function AgentList({
                             data-wave-list={group.plan}
                             className="ml-6 border-l border-slate-200 dark:border-slate-800"
                           >
-                            {/* WAVES, NOT BRANCHES — the eighth kind, and the
+                            {/* SLICES, NOT BRANCHES — the eighth kind, and the
                                 one this section had been rendering as its own
                                 branches all along.
 
                                 `groupByWave` partitions the plan's rows; each
-                                partition is ONE row naming the wave, carrying
+                                partition is ONE row naming the slice, carrying
                                 the scan's verdict as its status and its branches
-                                as its artifact links. A wave holding one branch
-                                (20 of 21 unfinished waves) is therefore one row
+                                as its artifact links. A slice holding one branch
+                                (20 of 21 unfinished slices) is therefore one row
                                 and no fold; one holding several gets the
                                 disclosure and its branches beneath. */}
-                            {/* A DEFERRED BRANCH IS NOT PART OF A WAVE'S WORK,
+                            {/* A DEFERRED BRANCH IS NOT PART OF A SLICE'S WORK,
                                 and it keeps its own row.
 
                                 `isUnbegun` already draws this line and
                                 `waveSummaryFor` already refuses to count a
-                                deferred branch as a wave: *"not a wave nobody
-                                reached, a branch somebody set down"*. The wave
-                                grouping has to honour it, because a wave row
-                                shows the WAVE's verdict and clock — and a
+                                deferred branch as a slice: *"not a wave nobody
+                                reached, a branch somebody set down"*. The slice
+                                grouping has to honour it, because a slice row
+                                shows the SLICE's verdict and clock — and a
                                 deferred branch carries a PR and an age of its
                                 own that appear nowhere else. Folded into a
-                                single-branch wave they would be unreachable,
+                                single-branch slice they would be unreachable,
                                 which is exactly the loss `fleet.ts` warns of:
                                 *"a branch started and then shelved read as never
                                 begun, with its age and its PR erased."* */}
-                            {/* WAVE ROWS NAME THEIR WAVES, however many waves
-                                the plan has. A one-wave plan's branches belong to
-                                that wave, and its name is part of their identity —
+                            {/* SLICE ROWS NAME THEIR SLICES, however many slices
+                                the plan has. A one-slice plan's branches belong to
+                                that slice, and its name is part of their identity —
                                 the verdict migrated to the plan row, the name did
                                 not. */}
                             {(() => {
@@ -1407,11 +1407,11 @@ export function AgentList({
                                     // act, so the card is the plan's, exactly as
                                     // it is on the plan row above.
                                     //
-                                    // NO DISPATCH for a one-wave plan: the plan
-                                    // row carries its wave's Start-work, so the
-                                    // wave row withholds it. The wave row exists
+                                    // NO DISPATCH for a one-slice plan: the plan
+                                    // row carries its slice's Start-work, so the
+                                    // slice row withholds it. The slice row exists
                                     // for its NAME — a branch row cannot carry a
-                                    // wave name — not for its controls.
+                                    // slice name — not for its controls.
                                     card={oneWave ? null : (cardForPlanFile?.(group.planFile) ?? null)}
                                     dispatch={oneWave ? undefined : dispatch}
                                     reslice={reslice}
@@ -1420,10 +1420,10 @@ export function AgentList({
                                     waves={waves}
                                     onExpandSection={expandSection}
                                   />
-                                  {/* The branches of a MULTI-branch wave, folded
+                                  {/* The branches of a MULTI-branch slice, folded
                                       and indented again — the same `ml-6` and the
                                       same rule the plan's own list draws, one
-                                      level deeper. A single-branch wave renders
+                                      level deeper. A single-branch slice renders
                                       none: its branch is already the artifact
                                       link on the row above, and a fold over one
                                       row the reader can see is the control this
@@ -1440,7 +1440,7 @@ export function AgentList({
                                           row={r}
                                           onOpenPlan={onOpenPlan}
                                           inPlanGroup
-                                          // Inside a WAVE's fold: the verdict is
+                                          // Inside a SLICE's fold: the verdict is
                                           // one line up, so a bare `open` here
                                           // contradicts it rather than adding to
                                           // it.
@@ -1455,11 +1455,11 @@ export function AgentList({
                                           active={active.has(rowKey(r))}
                                           section={key}
                                           agent={agentByBranch.get(r.branch) ?? null}
-                                          // NO WAVE BADGE. The row is nested
-                                          // under the wave that names it, so the
+                                          // NO SLICE BADGE. The row is nested
+                                          // under the slice that names it, so the
                                           // badge would repeat one line up —
                                           // which is the duplication this whole
-                                          // wave removes.
+                                          // slice removes.
                                           onRevealBranch={onRevealBranch}
                                           highlighted={r.branch === highlightBranch}
                                         />
@@ -1470,7 +1470,7 @@ export function AgentList({
                               );
                             });
                             })()}
-                            {/* The rows that are not a wave's unbegun work —
+                            {/* The rows that are not a slice's unbegun work —
                                 a deferred branch, with its own PR and its own
                                 age. Rendered as BRANCH rows, because that is
                                 what they are: something somebody started. */}
@@ -1552,17 +1552,17 @@ export function AgentList({
                         printed a bare "(3)", a label that labels nothing.
                         `showPlanHeading` already refuses those. */}
                     {/* THE PLAN, as a ROW rather than as a text heading — where
-                        its rows are waves.
+                        its rows are slices.
                         
                         *"We need to group branches for plans. Which should be
                         Plan group with WAVES"* and *"PLANS are missing with their
-                        age"*. NOT STARTED has drawn exactly this since the wave
+                        age"*. NOT STARTED has drawn exactly this since the slice
                         kind landed: a plan row carrying the plan's phase and its
-                        approval clock, with its waves indented beneath. A text
+                        approval clock, with its slices indented beneath. A text
                         heading carries neither — it is a label, and a plan has a
                         phase, an age and a menu.
                         
-                        Only where every row under it is a wave. A group holding a
+                        Only where every row under it is a slice. A group holding a
                         release and a ticket has no plan to head it with, and the
                         `h3` below still serves the mixed case. */}
                     {planHeads && (
@@ -1580,7 +1580,7 @@ export function AgentList({
                         // row while `ageMinutes` reads 178, 127, 120 — so the
                         // plan row showed no age at all.
                         //
-                        // The freshest of its branches, which is what a wave row
+                        // The freshest of its branches, which is what a slice row
                         // already uses: the plan's clock is the clock of the work
                         // in it.
                         ageMinutes={Math.min(
@@ -1589,9 +1589,9 @@ export function AgentList({
                         )}
                         // FOLDABLE, and OPEN by default — the reverse of NOT
                         // STARTED, where a plan is collapsed because its list is
-                        // there to browse. Here the waves are what the section is
+                        // there to browse. Here the slices are what the section is
                         // showing, so hiding them would hide the rows a reader
-                        // came for; but eight plans of four waves is 40 lines,
+                        // came for; but eight plans of four slices is 40 lines,
                         // and a reader who has dealt with one plan wants it out
                         // of the way.
                         //
@@ -1599,11 +1599,11 @@ export function AgentList({
                         // rather than what is expanded — one Set, two defaults,
                         // and the same click either way.
                         // COLLAPSED BY DEFAULT WHERE IT HOLDS MORE THAN ONE
-                        // WAVE, open where it holds one.
+                        // SLICE, open where it holds one.
                         //
-                        // A plan of one wave collapsed shows a reader nothing
+                        // A plan of one slice collapsed shows a reader nothing
                         // they did not already have — the plan row states its
-                        // phase and its clock, and the one wave beneath is the
+                        // phase and its clock, and the one slice beneath is the
                         // only content. A plan of four is 5 lines, and eight such
                         // plans are 40: that is the crowding the fold answers.
                         //
@@ -1636,18 +1636,18 @@ export function AgentList({
                         dispatch={dispatch}
                         pulse={pulse}
                         onApproving={onStarting}
-                        // HOW MANY OF THIS PLAN'S WAVES ARE ELSEWHERE — the same
+                        // HOW MANY OF THIS PLAN'S SLICES ARE ELSEWHERE — the same
                         // count the NOT STARTED head carries, keyed on THIS
                         // section (`key`). A DONE head whose plan also has an
-                        // unstarted wave says so here rather than reading as a
+                        // unstarted slice says so here rather than reading as a
                         // plan wholly done.
                         elsewhere={wavesElsewhere(fleet.waves, group.plan, key,
                           new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
-                        // A ONE-WAVE plan shows its wave's verdict on this row
-                        // instead of nesting a wave row beneath it.
+                        // A ONE-SLICE plan shows its slice's verdict on this row
+                        // instead of nesting a slice row beneath it.
                         soleWave={soleWaveFor(group.plan, waves)}
-                        // …and the hidden wave row's *Start work* rides here
-                        // too, dispatching that one wave.
+                        // …and the hidden slice row's *Start work* rides here
+                        // too, dispatching that one slice.
                         onStarting={onStarting}
                       />
                     )}
@@ -1655,7 +1655,7 @@ export function AgentList({
                       // AND WHERE THE `h3` SURVIVES, IT KEEPS THE SIZE #302 GAVE IT.
                       // The plan row above answers the grouped case; this
                       // heading answers the MIXED one, where a group holds a
-                      // release or a ticket beside its waves and no single plan
+                      // release or a ticket beside its slices and no single plan
                       // heads it. That case still had the original defect: at
                       // `text-[11px]` this label sat under the 13px branch names
                       // it labels, the section's defect one level down.
@@ -1686,7 +1686,7 @@ export function AgentList({
                     )}
                     {/* INDENTED WHERE THERE IS A HEADING, and only there —
                         *grouping means indented*, the same `ml-6` and left rule
-                        the wave list carries one section over.
+                        the slice list carries one section over.
 
                         Measured before it: a headed group rendered box, tint and
                         heading with its rows at **x=17, the same x as the
@@ -1714,10 +1714,10 @@ export function AgentList({
                       : !openPlans.has(`shut:${group.plan}`))) && (
                     <ul
                       role="presentation"
-                      // THE SAME WAVE-LIST WRAPPER NOT STARTED ALREADY CARRIES.
+                      // THE SAME SLICE-LIST WRAPPER NOT STARTED ALREADY CARRIES.
                       // `BlockedByMark`'s jump is `[data-wave-list="…"]
-                      // [data-wave-row="…"]` — a wave row is only reachable when
-                      // it sits UNDER its plan's wave-list. NOT STARTED tagged
+                      // [data-wave-row="…"]` — a slice row is only reachable when
+                      // it sits UNDER its plan's slice-list. NOT STARTED tagged
                       // its `<ul>` with this; the other sections did not, so a
                       // blocker completing into DONE rendered a `data-wave-row`
                       // with no `data-wave-list` above it and the query — correct,
@@ -1729,41 +1729,41 @@ export function AgentList({
                         ? 'ml-6 border-l border-slate-200 dark:border-slate-800'
                         : undefined}
                     >
-                      {/* WAVES OVER THEIR REVIEWABLE BRANCHES, in this section
-                          only — and only where a wave holds MORE THAN ONE.
+                      {/* SLICES OVER THEIR REVIEWABLE BRANCHES, in this section
+                          only — and only where a slice holds MORE THAN ONE.
                           
                           *"Technically the PR with branch and the wave is a
                           WAVE"*, and the qualifier is the section: WAITING ON YOU
                           asks *what needs a decision*, and where three PRs are
-                          three slices of one wave the thing being decided is the
-                          wave. `opus5-longhorizon-hardening :: Implementation`
+                          three slices of one slice the thing being decided is the
+                          slice. `opus5-longhorizon-hardening :: Implementation`
                           holds five landed branches and reads `blocked` — five
                           reviews the board was filing as *nothing to do*.
                           
-                          The earlier objection to calling a PR a wave was that a
-                          five-branch wave would render five rows all named
-                          `Implementation`. Grouping is what answers it: one wave
+                          The earlier objection to calling a PR a slice was that a
+                          five-branch slice would render five rows all named
+                          `Implementation`. Grouping is what answers it: one slice
                           row, its PRs beneath. A LONE reviewable branch stays a
                           PR row, because there is no set to name — the same rule
                           `showsWaveFold` applies, and the same one that makes a
-                          single-branch wave one row in NOT STARTED.
+                          single-branch slice one row in NOT STARTED.
                           
-                          The wave can appear in BOTH sections, deliberately: the
+                          The slice can appear in BOTH sections, deliberately: the
                           branches with PRs group here, the ones nobody started
                           group under the plan in NOT STARTED. Each section shows
                           only the branches its own question is about. */}
                       {(() => {
-                        /* WAVE ROWS NAME THEIR WAVES, however many waves
-                           the plan has. A one-wave plan's branches belong to
-                           that wave, and its name is part of their identity —
+                        /* SLICE ROWS NAME THEIR SLICES, however many slices
+                           the plan has. A one-slice plan's branches belong to
+                           that slice, and its name is part of their identity —
                            the verdict migrated to the plan row, the name did
                            not. See NOT STARTED for the longer form. */
                         const waveGroups = waveGroupsFor(group.rows, key, waves);
                         return waveGroups.map((wg) => {
-                        // A WAVE OF ONE NEEDS NO FOLD — its single branch is
+                        // A SLICE OF ONE NEEDS NO FOLD — its single branch is
                         // already named in slot 4, so a control revealing a row
                         // the reader can see is the noise this estate removed
-                        // twice. Measured: all 12 waves here hold one branch.
+                        // twice. Measured: all 12 slices here hold one branch.
                         const many = wg.rows.length > 1;
                         const waveOpen = many
                           ? openWaves.has(waveKey(group.plan, wg.wave))
@@ -1784,7 +1784,7 @@ export function AgentList({
                               // this row says the act it wants is a merge.
                               //
                               // RESLICE IS STILL PASSED, and it is not `dispatch`
-                              // in disguise: `Slice this wave` takes only the
+                              // in disguise: `Slice this plan` takes only the
                               // plan slug, so it needs no card and no merge —
                               // it is the act an `unsliced-wave` here (five
                               // landed branches, `blocked`) actually wants.
@@ -1794,15 +1794,15 @@ export function AgentList({
                               // THE COUNT ONLY WHERE THERE IS MORE THAN ONE.
                               // `1 to review` beside a single branch link states
                               // what that link already shows, and it would hide
-                              // what a reader wants on a wave of one: that
+                              // what a reader wants on a slice of one: that
                               // branch's own condition, which no verdict carries
                               // and no fold exists to reach.
                               groupedCount={wg.rows.length > 1 ? wg.rows.length : undefined}
-                              // THE WORD IS THE WAVE'S VERDICT. A wave row states
+                              // THE WORD IS THE SLICE'S VERDICT. A slice row states
                               // what the scan says about it — `complete`, `eligible`,
                               // `blocked` — not a section-chosen word that differs
                               // from its siblings' verdicts. `delivered` stays a
-                              // branch row's word; a wave speaks for itself.
+                              // branch row's word; a slice speaks for itself.
                               groupedWord={wg.verdict ?? undefined}
                               soleRow={wg.rows.length > 1 ? undefined : wg.rows[0]}
                               implement={implement}
@@ -1851,27 +1851,27 @@ export function AgentList({
                         //
                         // `waveGroupsFor` returns nothing for WORKING and WAITING
                         // ON A MACHINE on purpose — those sections order by agent
-                        // and by build, and must not bury unrelated waves under
+                        // and by build, and must not bury unrelated slices under
                         // plan heads. That grouping decision is right and stays.
                         //
-                        // But a row whose `kind` is `wave` is a wave WHEREVER it
+                        // But a row whose `kind` is `wave` is a slice WHEREVER it
                         // renders. Routing every ungrouped row through `<Row>` — a
                         // BRANCH row — was the defect: in WORKING the branch took
-                        // slot 3 and the wave's name was demoted to a badge, so the
-                        // same wave read as a wave in NOT STARTED and as a branch
+                        // slot 3 and the slice's name was demoted to a badge, so the
+                        // same slice read as a slice in NOT STARTED and as a branch
                         // here. `groupByWave([r])` builds the one-row `WaveGroup`
                         // `WaveRow` already renders in NOT STARTED, and `soleRow`
                         // is what carries the branch, its PR, and the worker facts
                         // (`worker running (pid …)`, the live-worker status) onto
-                        // the wave row. `planHeaded={planHeads}` is `false` here,
-                        // so slot 4 keeps the plan link a WORKING wave would lose.
+                        // the slice row. `planHeaded={planHeads}` is `false` here,
+                        // so slot 4 keeps the plan link a WORKING slice would lose.
                         r.kind === 'wave' ? (
                           <WaveRow
                             key={rowKey(r)}
                             group={groupByWave([r])[0]}
                             plan={r.plan}
                             waitingDays={r.waitingDays}
-                            // No fold — a wave of one has nothing hidden to reveal.
+                            // No fold — a slice of one has nothing hidden to reveal.
                             expanded={null}
                             active={active.has(rowKey(r))}
                             marked={marked.has(rowKey(r))}
@@ -1880,15 +1880,15 @@ export function AgentList({
                             implement={implement}
                             pulse={pulse}
                             onStarting={onStarting}
-                            // The one branch this wave holds — its status, age, PR,
-                            // and note (the worker's condition) render on the wave
-                            // row, exactly as a NOT STARTED wave of one does.
+                            // The one branch this slice holds — its status, age, PR,
+                            // and note (the worker's condition) render on the slice
+                            // row, exactly as a NOT STARTED slice of one does.
                             soleRow={r}
                             continueWith={continueWith}
                             onOpenPlan={onOpenPlan}
                             onRevealBranch={onRevealBranch}
                             // WORKING draws no plan head, so the plan link belongs
-                            // on the wave row's slot 4.
+                            // on the slice row's slot 4.
                             planHeaded={planHeads}
                             waves={waves}
                             onExpandSection={expandSection}
@@ -1926,15 +1926,15 @@ export function AgentList({
                           // agent rather than the branch. WORKING is where those
                           // rows are, so this is the site that matters most.
                           agent={agentByBranch.get(r.branch) ?? null}
-                          // The same wave label as inside a plan group, and
+                          // The same slice label as inside a plan group, and
                           // the same rule: a fact about the branch, beside the
                           // branch. This row used to differ from one in a plan
                           // group — it printed the plan's PHASE where the other
                           // printed nothing — which is the inconsistency the
                           // relocation removes.
-                          // ONLY WHERE THE ROW DOES NOT ALREADY LINK ITS WAVE.
+                          // ONLY WHERE THE ROW DOES NOT ALREADY LINK ITS SLICE.
                           //
-                          // An `agent` and a `pr` row both carry the wave as an
+                          // An `agent` and a `pr` row both carry the slice as an
                           // artifact link now, so the badge is a second copy —
                           // measured on the mock as `Inverted` twice on the agent
                           // row and `Modelled` twice on PR 304.
@@ -1942,13 +1942,13 @@ export function AgentList({
                           // The badge STAYS on a BRANCH row, and the distinction
                           // is not a compromise. Its docstring argues that *"the
                           // wave qualifies THIS BRANCH, and the association is
-                          // positional… A MARK, not a link"* — sound while a wave
+                          // positional… A MARK, not a link"* — sound while a slice
                           // had no row to point at. A branch row's artifact slot
-                          // holds its plan and its PR, not its wave, so there the
-                          // badge is still the wave's only statement.
+                          // holds its plan and its PR, not its slice, so there the
+                          // badge is still the slice's only statement.
                           //
                           // Keyed on the KIND rather than on *does slot 4 contain
-                          // a wave*, because the projection is what decides that
+                          // a slice*, because the projection is what decides that
                           // and this adapter must not form a second opinion about
                           // it — the rule `tupleFromRow` states about `row.kind`.
                           waveName={WAVE_LINKING_KINDS.has(r.kind) ? null : waveLabel(r)}

@@ -732,7 +732,7 @@ describe('every kind fills all six slots', () => {
       branches: [{ branch: 'feature/the-scan-asks-once', branchUrl: 'https://host/tree/x' }],
       ageMinutes: 1440, waitingDays: 1,
     });
-    expect(t.kindLabel).toBe('Wave');                 // not `Plan`
+    expect(t.kindLabel).toBe('Slice');                 // not `Plan`
     expect(t.name.label).toBe('Shaped');              // the wave, not the branch
     // NO PLAN LINK. Containment needs no prefix AND no link — the row the wave
     // sits under IS the link, and a `PLAN x` label on a row nested under `x`

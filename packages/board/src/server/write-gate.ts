@@ -13,7 +13,7 @@ import { dispatchAvailability } from './dispatch.js';
  * It was never enforced. `HOST` was read once (`index.ts`), passed to the
  * handlers as a fact about the binding, and each handler chose to consult it.
  * Verified 2026-08-19: nothing stopped `HOST=0.0.0.0`, and the plan that
- * licensed this wave says *"loopback is the boundary and already in force"* —
+ * licensed this slice says *"loopback is the boundary and already in force"* —
  * which held only while nobody set it.
  *
  * ONE CHECK IN THE ROUTER, NOT FIVE IN THE HANDLERS. The per-handler shape is

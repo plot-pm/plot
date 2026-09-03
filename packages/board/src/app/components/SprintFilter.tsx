@@ -8,14 +8,14 @@ import type { FleetSprint, SprintCounts } from '../../contract/schema.js';
  * **disabled but visible**, showing estate totals — a control that vanishes
  * teaches a reader it does not exist.
  *
- * ## What this wave implements (Compared)
+ * ## What this slice implements (Compared)
  *
  * - Estate totals shown when filter is OFF; sprint numbers when ON
  * - "Off: `Total — 112 plans · 9 open · 2 WIP · 101 done`"
  * - "On: `Sprint — 21 members · 4 open · 0 WIP · 17 done`"
  * - The effect of the toggle is visible BEFORE touching it
  *
- * ## What earlier waves implemented
+ * ## What earlier slices implemented
  *
  * - Three exhaustive buckets: open (not started), WIP (in progress), done
  *   (delivered) — replacing the old four status buckets
@@ -69,7 +69,7 @@ function formatCounts(counts: SprintCounts, isEstate: boolean): string {
  * a toggle, release target, and three exhaustive counts.
  *
  * Shows estate totals when filter is OFF, sprint numbers when ON — the
- * "Compared" wave of the-sprint-filter-says-what-it-filters plan.
+ * "Compared" slice of the-sprint-filter-says-what-it-filters plan.
  */
 export function SprintFilter({ sprints, selected, onToggle, estateTotals }: SprintFilterProps) {
   // No active sprints: show disabled state with estate totals

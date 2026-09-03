@@ -16,19 +16,19 @@ import {
 } from './idea.js';
 
 /**
- * Delivering a plan whose every wave has merged — the board's SEVENTH
+ * Delivering a plan whose every slice has merged — the board's SEVENTH
  * state-changing route, and the fourth that spawns a plot agent to make a
  * commitment the board cannot make itself.
  *
  * **It is the sibling of `/api/reslice`, not a new mechanism.** Reslice takes a
- * plan with a tangled wave and asks `/plot-reslice` to slice it; this takes a
+ * plan with a tangled slice and asks `/plot-reslice` to slice it; this takes a
  * plan the board has already MEASURED complete — every non-deferred branch
  * merged — and asks `/plot-deliver` to make the DECISION to deliver it. Both are
  * SLUG-scoped, both refuse until a cheap mechanical precondition holds, and both
  * write none of the transition themselves.
  *
  * **Delivery is a DECISION, and this button is a person making it.** The domain
- * model is explicit (`docs/board-domain-model.md`): *every wave being complete
+ * model is explicit (`docs/board-domain-model.md`): *every slice being complete
  * is a measurement; delivering is a decision. A measurement cannot make a
  * commitment.* The board bumps a fully-merged plan's card into Testing on its
  * own — that is the measurement — but flips no phase and writes no `Delivered:`
@@ -101,7 +101,7 @@ function deliverStatePath(repoRoot: string, slug: string): string {
 export type DeliverRefusal =
   /** No `Idea command` is configured, so no agent can be started. */
   | 'no-deliver-command'
-  /** The plan could not be found or its waves could not be read. */
+  /** The plan could not be found or its slices could not be read. */
   | 'plan-unreadable'
   /**
    * The plan has an open (not merged, not deferred) branch, or no landed work at
@@ -141,7 +141,7 @@ export interface DeliverOptions extends BuildBoardOptions {
  * export it, and this route needs the same candidates in the same order (the
  * active index first, then the date-prefixed file in the plan directory, then
  * the delivered index — because a plan being delivered may already have moved)
- * so the waves it reads back belong to the file the delivering agent will act
+ * so the slices it reads back belong to the file the delivering agent will act
  * on. Reaching across to export it there would edit a module another worker
  * owns; a short copy that agrees by construction is the smaller change.
  */
@@ -174,7 +174,7 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
  * A discriminated verdict rather than a bare boolean, because the route owes
  * three different refusals to three different states, and the card that offers
  * the control is gated on the same distinction:
- *  - `not-found` — the slug resolves to no file, or its waves cannot be parsed.
+ *  - `not-found` — the slug resolves to no file, or its slices cannot be parsed.
  *  - `already-delivered` — the plan's own phase is `delivered` or past it; the
  *    decision was already made, and re-making it is not what the button does.
  *  - `not-merged` — a non-deferred branch has not merged, or the plan has no
@@ -216,7 +216,7 @@ export function deliverability(opts: BuildBoardOptions, slug: string): Deliverab
     return { verdict: 'not-found' };
   }
   // The plan's own phase decides `already-delivered` FIRST — a delivered plan
-  // has every wave merged too, so `allSlicesMerged` alone would read it as
+  // has every slice merged too, so `allSlicesMerged` alone would read it as
   // deliverable. `delivered`/`released` are the phases past Development where
   // the decision is already recorded.
   const phase = meta.phase.toLowerCase();
@@ -365,7 +365,7 @@ export interface DeliverDeps {
  * |---|---|
  * | cross-origin | any page can POST to localhost; the binding cannot cover that |
  * | `no-deliver-command` | no script can do a plot agent's job; accepting the click and doing nothing is the silent failure |
- * | `plan-unreadable` | a plan whose waves cannot be read cannot be delivered; guessing would spawn an agent against an unknown plan |
+ * | `plan-unreadable` | a plan whose slices cannot be read cannot be delivered; guessing would spawn an agent against an unknown plan |
  * | `not-deliverable` | #350's gate: a plan with an open branch is not deliverable, and this must not weaken it |
  * | `already-delivered` | the decision was already made; re-making it is not what the button does |
  */
@@ -426,7 +426,7 @@ export async function handleDeliver(
     return;
   }
 
-  // THE PLAN MUST BE DELIVERABLE. Its waves are read from the file through the
+  // THE PLAN MUST BE DELIVERABLE. Its slices are read from the file through the
   // one parser that owns the format, against the same pulse the board renders
   // from — never inferred — because delivering a plan whose work is not done is
   // exactly the gate #350 kept, and offering it on such a plan would spawn an
@@ -437,7 +437,7 @@ export async function handleDeliver(
       409,
       'plan-unreadable',
       slug,
-      `plan \`${slug}\` could not be found or its waves could not be read — refusing rather than delivering a plan whose shape is unknown`,
+      `plan \`${slug}\` could not be found or its slices could not be read — refusing rather than delivering a plan whose shape is unknown`,
     );
     return;
   }

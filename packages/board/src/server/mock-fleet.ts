@@ -25,7 +25,7 @@ export function mockRequested(env: NodeJS.ProcessEnv = process.env): boolean {
  * from a payload — so a fixture that skipped the payload would prove the
  * component works while the board still showed something else. Measured
  * 2026-08-20: every kind rendered correctly in a component harness while the
- * live board showed wave names in the kind slot. The harness was right and
+ * live board showed slice names in the kind slot. The harness was right and
  * useless.
  *
  * So these are `AgentRow`s, validated by the same schema a real pulse is, and
@@ -53,25 +53,25 @@ function row(over: Partial<AgentRow> & Pick<AgentRow, 'kind'>): AgentRow {
 /** One row per kind, each in the section its kind belongs to. */
 export function mockFleet(): Fleet {
   const rows: AgentRow[] = [
-    // THREE WAVES ON ONE PLAN, because a one-wave plan hides the two questions
-    // that matter: does the grouping read as a set, and does a blocked wave say
+    // THREE SLICES ON ONE PLAN, because a one-slice plan hides the two questions
+    // that matter: does the grouping read as a set, and does a blocked slice say
     // what it waits on. Their verdicts are the three the scan emits —
     // `eligible`, `blocked`, `complete` — so the mock shows all of them.
     //
-    // `kind: 'branch'`, and these carried `kind: 'plan'` until the wave row
+    // `kind: 'branch'`, and these carried `kind: 'plan'` until the slice row
     // existed. It read correctly while a not-started row STOOD FOR its plan;
-    // once the wave row took that job these became the branches inside a wave's
+    // once the slice row took that job these became the branches inside a slice's
     // fold and rendered `Kind: Plan` two levels deep. The mock was wrong the
     // whole time and nothing could see it: `rowKind` returns only `release`,
     // `branch` or `pr` — never `plan` — so no real pulse has ever carried a
     // `kind: 'plan'` row. A mock is only worth what its fidelity is.
-    // `start-work` — the only row that can be started. Brief present, wave
+    // `start-work` — the only row that can be started. Brief present, slice
     // eligible, plan approved. The green row in NOT STARTED.
     row({
       kind: 'branch', group: 'not-started',
       plan: 'fleet-scan-asks-the-host',
       planFile: 'docs/plans/2026-08-20-fleet-scan-asks-the-host.md',
-      // `Tracer`, so the SPIKE marking is visible in the mock — the wave whose
+      // `Tracer`, so the SPIKE marking is visible in the mock — the slice whose
       // outcome may be a refined plan rather than merged work.
       phase: 'Design', wave: 'Tracer', waitingDays: 1, ageMinutes: 1440,
       branch: 'feature/the-scan-asks-once',
@@ -91,10 +91,10 @@ export function mockFleet(): Fleet {
       verdict: 'blocked', blockedBy: 'Tracer',
       note: 'blocked by Tracer — 1 outstanding',
     }),
-    // A MULTI-BRANCH WAVE, because it is the case the estate has exactly one of
+    // A MULTI-BRANCH SLICE, because it is the case the estate has exactly one of
     // (`opus5-longhorizon-hardening :: Implementation`, five branches, blocked)
-    // and the only one that exercises the wave's own fold. Two branches under
-    // one wave name: the wave row states `blocked` once and discloses both,
+    // and the only one that exercises the slice's own fold. Two branches under
+    // one slice name: the slice row states `blocked` once and discloses both,
     // where three separate rows would have said `blocked` three times.
     row({
       kind: 'branch', group: 'not-started',
@@ -116,9 +116,9 @@ export function mockFleet(): Fleet {
       verdict: 'blocked', blockedBy: 'Relocated',
       note: 'blocked by Relocated — 1 outstanding',
     }),
-    // A PR THAT BELONGS TO A WAVE — the ordinary case, and the one whose wave
-    // was on the row and unrendered. A branch cut for a plan's wave keeps that
-    // membership through review, so the PR's artifacts are plan, wave and
+    // A PR THAT BELONGS TO A SLICE — the ordinary case, and the one whose slice
+    // was on the row and unrendered. A branch cut for a plan's slice keeps that
+    // membership through review, so the PR's artifacts are plan, slice and
     // branch.
     row({
       kind: 'pr', group: 'waiting-on-you',
@@ -134,9 +134,9 @@ export function mockFleet(): Fleet {
         states: ['green'],
       },
     }),
-    // A SECOND PR IN THE SAME WAVE, so `Modelled` has a SET to name and earns a
-    // wave row in WAITING ON YOU. One PR is a PR — there is nothing to group —
-    // and two are a wave whose work is landed and waiting to be merged, which is
+    // A SECOND PR IN THE SAME SLICE, so `Modelled` has a SET to name and earns a
+    // slice row in WAITING ON YOU. One PR is a PR — there is nothing to group —
+    // and two are a slice whose work is landed and waiting to be merged, which is
     // the real shape the estate carries: `opus5-longhorizon-hardening ::
     // Implementation` holds five such branches and reads `blocked`.
     row({
@@ -177,9 +177,9 @@ export function mockFleet(): Fleet {
       plan: 'a-row-is-a-tuple', planFile: 'docs/plans/2026-08-20-a-row-is-a-tuple.md',
       wave: 'Shaped', ageMinutes: 3 * 1440, note: 'pushed, no PR yet',
     }),
-    // A BUILD RUNNING A WAVE'S BRANCH — the ordinary case, since almost every
-    // branch CI runs on was cut for a wave. Its artifacts are the PR it reports
-    // to, the wave the work belongs to, and the branch it built.
+    // A BUILD RUNNING A SLICE'S BRANCH — the ordinary case, since almost every
+    // branch CI runs on was cut for a slice. Its artifacts are the PR it reports
+    // to, the slice the work belongs to, and the branch it built.
     row({
       kind: 'build', group: 'waiting-on-machine',
       branch: 'feature/a-build-is-running',
@@ -194,7 +194,7 @@ export function mockFleet(): Fleet {
         states: ['pending'],
       },
     }),
-    // AND ONE ON A BRANCH THAT BELONGS TO NO WAVE — the release branch, whose CI
+    // AND ONE ON A BRANCH THAT BELONGS TO NO SLICE — the release branch, whose CI
     // runs for a PR no plan names. The pair shows the middle link is optional on
     // a build exactly as it is on a PR.
     row({
@@ -209,10 +209,10 @@ export function mockFleet(): Fleet {
         states: ['pending'],
       },
     }),
-    // A PLAN WITH WAVES IN QUIET — two branches of one wave that stopped moving.
-    // QUIET is *nothing has happened here for a while*, so the wave grouping has
+    // A PLAN WITH SLICES IN QUIET — two branches of one slice that stopped moving.
+    // QUIET is *nothing has happened here for a while*, so the slice grouping has
     // to hold there too: without it a reader sees two unrelated stale branches
-    // rather than one wave that stalled.
+    // rather than one slice that stalled.
     row({
       kind: 'branch', group: 'quiet',
       branch: 'feature/the-scan-reads-refs-in-one-call',
@@ -231,8 +231,8 @@ export function mockFleet(): Fleet {
       wave: 'Batched', state: 'wip',
       ageMinutes: 8 * 1440, note: 'last commit 8d ago',
     }),
-    // AND A DELIVERED WAVE IN DONE — `state: 'merged'`, which the row displays as
-    // `delivered`. Two branches of one wave, so DONE shows the wave that landed
+    // AND A DELIVERED SLICE IN DONE — `state: 'merged'`, which the row displays as
+    // `delivered`. Two branches of one slice, so DONE shows the slice that landed
     // rather than two branches that each did.
     row({
       kind: 'branch', group: 'done',
@@ -289,7 +289,7 @@ export function mockFleet(): Fleet {
     // read `Plan`.
     //
     // Shaped exactly as `rowsFromPulse` builds it: the slug recovered from the
-    // branch name, `wave: ''` (an idea branch belongs to no wave), `state: 'wip'`.
+    // branch name, `wave: ''` (an idea branch belongs to no slice), `state: 'wip'`.
     row({
       kind: 'plan', group: 'waiting-on-you',
       branch: 'idea/a-wave-is-a-thing-not-a-label',
@@ -502,7 +502,7 @@ export function mockPlans(): PlanRecord[] {
       story: card?.story ?? '',
       branches,
       prs: [...new Set(mine.flatMap((row) => (row.pr ? [row.pr.number] : [])))],
-      // One slice per wave name the plan's rows carry, holding that wave's
+      // One slice per slice name the plan's rows carry, holding that slice's
       // branches — the shape `plot-plan-meta.sh` reports and the fleet reads.
       slices: [...new Set(mine.map((row) => row.wave))]
         .filter((wave) => wave.length > 0)

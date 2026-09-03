@@ -2,7 +2,7 @@
 //
 // The board reached seven kinds of row through three components and two
 // competing grid definitions, and the third component — a TICKET — rendered
-// through the tracks of a BRANCH: no wave, no worker, no branch, but wearing
+// through the tracks of a BRANCH: no slice, no worker, no branch, but wearing
 // the columns of something it is not, because there was no third grid to give
 // it. Three fill sites is how the two grids drifted apart, and a shared grid
 // with three fillers would have kept that possible while adding a contract —
@@ -11,8 +11,8 @@
 //
 // This renders a {@link TupleRow} — six slots, projected from whatever the kind
 // is by `src/app/lib/tuple-row.ts`. `Row`, `PlanRow` and `IssueRowView` are
-// GONE: the wave that landed this component deleted nothing on purpose, and the
-// wave that deleted them moved rendering only, because the shape and the
+// GONE: the slice that landed this component deleted nothing on purpose, and the
+// slice that deleted them moved rendering only, because the shape and the
 // projection were already landed and tested.
 //
 // What the collapse added here is the pass-through set below — `id`, `rowAttr`,
@@ -21,7 +21,7 @@
 // scroll anchor, an arrival ring and a rule between groups are the section's
 // business, and the six slots are the row's. They are props rather than
 // hardcoded because the three call sites disagree about all four, and a
-// component that guessed would be the fourth fill site this wave exists to
+// component that guessed would be the fourth fill site this slice exists to
 // remove.
 import type { MouseEvent, ReactNode } from 'react';
 import type { TupleLink, TupleRow as TupleRowData } from '../lib/tuple-row.js';
@@ -149,8 +149,8 @@ export const MARKS_CELL =
 function valueAttr(link: TupleLink): Record<string, string> {
   if (link.what === 'branch') return { 'data-branch': link.label };
   // `wave` qualifies on the same test `branch` does: every `what: 'wave'` link
-  // is a wave, on every kind, with no second thing wearing the value. Today it
-  // has one producer — the wave a blocked wave waits on — and the hook is what
+  // is a slice, on every kind, with no second thing wearing the value. Today it
+  // has one producer — the slice a blocked slice waits on — and the hook is what
   // lets a test assert *the blocker is a REFERENCE* rather than matching the
   // sentence `blocked by Relocated` that this replaced.
   if (link.what === 'wave') return { 'data-wave-link': link.label };
@@ -161,9 +161,9 @@ function valueAttr(link: TupleLink): Record<string, string> {
   // supplied somewhere else.
   //
   // It was: the PR number lived on BRANCH rows, which stamp their own hooks at
-  // the call site. A plan with one branch renders a plan head and a WAVE row
+  // the call site. A plan with one branch renders a plan head and a SLICE row
   // carrying that branch — no branch row at all — so the call site left the
-  // path and took the hook with it. Measured: the wave row rendered `pr 157`
+  // path and took the hook with it. Measured: the slice row rendered `pr 157`
   // as text with `[data-pr-number]` and `[data-pr-link]` both absent.
   //
   // TWO HOOKS, and they answer different questions. `data-pr-number` says WHICH
@@ -477,14 +477,14 @@ export function TupleLinkView({
  *      `statusExtra`, `statusAttr`, `nameAttr`, `ageTitle`, `menu`, `extra`.
  *      Each names the slot it lands in, and each is a React node or an
  *      attribute rather than a value, which is exactly why it cannot live in
- *      group 1. A wave badge, a `⋯` menu and a stuck row's second line are
+ *      group 1. A slice badge, a `⋯` menu and a stuck row's second line are
  *      renderings; putting them in the projection would put React in the module
  *      that deliberately has none.
  *   3. **Where the row SITS** — `id`, `rowAttr`, `highlighted`, `bordered`. A
  *      scroll anchor, a test hook, an arrival ring and a rule between groups.
  *      All four are the section's business rather than the row's, and the three
  *      call sites disagree about all four — a component that guessed would be
- *      the fourth fill site this wave exists to remove.
+ *      the fourth fill site this slice exists to remove.
  *
  * `marks` and `menu` in particular are passed in rather than built here. The
  * tuple says what a row IS; the menu says what can be DONE to it, and that
@@ -518,10 +518,10 @@ function KindIcon({ kind, tone }: { kind: RowKind; tone?: string }) {
       height="14"
       fill="currentColor"
       // `tone` COLOURS THE GLYPH where a kind has a variant worth telling apart —
-      // today only a SPIKE wave, which is amber against the ordinary slate.
+      // today only a SPIKE slice, which is amber against the ordinary slate.
       //
       // Never the only channel: the row also carries the word (`spike` beside the
-      // wave's name), because colour alone fails a reader who cannot see it and
+      // slice's name), because colour alone fails a reader who cannot see it and
       // the two-channel rule slot 2 established applies to a variant as much as
       // to a kind.
       className={`shrink-0 self-center ${tone ?? 'text-slate-400 dark:text-slate-500'}`}
@@ -561,8 +561,8 @@ export function TupleRowView({
   /**
    * What a kind adds INSIDE slot 4, after its artifact links.
    *
-   * A branch row's WAVE badge and its `deferred` badge, both of which qualify
-   * the branch name rather than pointing anywhere — a wave is a heading inside
+   * A branch row's SLICE badge and its `deferred` badge, both of which qualify
+   * the branch name rather than pointing anywhere — a slice is a heading inside
    * a plan file and has no page of its own. They sit in the links slot because
    * that is what they are adjacent to and what they are about, which is the
    * association rule applied to a mark instead of to a link.
@@ -575,16 +575,16 @@ export function TupleRowView({
   /**
    * What a kind adds INSIDE slot 3, beside the item's own name.
    *
-   * A branch row's WAVE badge and its `deferred` badge, and the placement is
+   * A branch row's SLICE badge and its `deferred` badge, and the placement is
    * `a-branch-row-names-its-wave`'s (#275) decision, kept: *a fact about the
-   * branch belongs beside the branch.* The wave qualifies THIS BRANCH, and the
+   * branch belongs beside the branch.* The slice qualifies THIS BRANCH, and the
    * association is positional and needs no rule — the way `deferred` beside it
    * qualifies the branch's state.
    *
    * NOT slot 4. An earlier draft of the collapse put both there on the reasoning
    * that slot 4 holds *things about the item*; a test measured the cost, and it
    * is one cell of distance between a word and the thing it is about. Slot 4
-   * holds LINKS to other objects — a plan, a PR — and a wave is neither: it is
+   * holds LINKS to other objects — a plan, a PR — and a slice is neither: it is
    * a heading inside a plan file with no page of its own.
    */
   beside?: ReactNode;
@@ -682,7 +682,7 @@ export function TupleRowView({
       {/* SLOT 2 — THE KIND, as a word, VISIBLE. Not a tooltip and not a badge to
           decode: the defect this replaces was a kind stated only on hover, and
           before that a column whose word meant four different things depending
-          on the plan's wave count. `data-tuple-kind-label` is what a test reads
+          on the plan's slice count. `data-tuple-kind-label` is what a test reads
           to assert the kind is present without hovering.
 
           `data-kind` IS THE SAME CLAIM, and it is here because the fleet's
@@ -766,7 +766,7 @@ export function TupleRowView({
           `statusExtra` is what a kind adds BESIDE the word, never instead of it
           — the draft badge a PR carries, the sentence a branch's note holds
           that no status word can say (*uncommitted work*, *blocked by an
-          earlier wave*). It sits here rather than in the projection because a
+          earlier slice*). It sits here rather than in the projection because a
           badge is a rendering and `tuple-row.ts` carries no React: that
           separation is what lets the unit suite test the slot rules as data. */}
       <span

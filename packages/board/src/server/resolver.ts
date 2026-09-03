@@ -43,7 +43,7 @@ import { scriptsFor, type BuildBoardOptions } from './board.js';
  *
  * ## This module DECIDES nothing about the state
  *
- * It consumes `stuck.state === 'artifact-conflict'` as wave 1 classified it and
+ * It consumes `stuck.state === 'artifact-conflict'` as slice 1 classified it and
  * never re-derives it. Re-deriving would be a second implementation of the
  * `length === 1` fence, and the two would drift the first time one of them was
  * edited. The script re-checks the set once more against the REAL merge, which
@@ -80,7 +80,7 @@ export function mayResolve(stuck: Stuck | null | undefined): stuck is Stuck {
   if (!stuck) return false;
   if (stuck.state !== 'artifact-conflict') return false;
   // The set travels with the state, so it can be COUNTED rather than trusted —
-  // and this is the count. `length === 1 && [0] === artifact` is wave 1's fence
+  // and this is the count. `length === 1 && [0] === artifact` is slice 1's fence
   // restated at the point of action, not a re-derivation of the state: if the
   // two ever disagree, nothing is written.
   return stuck.conflicts.length === 1 && stuck.conflicts[0] === BOARD_ARTIFACT_PATH;

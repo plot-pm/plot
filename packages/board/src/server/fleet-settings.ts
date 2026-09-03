@@ -14,7 +14,7 @@ import { isSameOrigin, readJsonBody } from './dispatch.js';
  *
  * A switch — *is the queue being served?* — and a cap — *how many agents at
  * once?* Two numbers behind the two section headers they describe, and the one
- * departure this wave makes from the board's usual state rules.
+ * departure this slice makes from the board's usual state rules.
  *
  * ## Shared, not per-viewer — deliberately, against the board's convention
  *
@@ -39,9 +39,9 @@ import { isSameOrigin, readJsonBody } from './dispatch.js';
  * DEFAULT at startup and nothing more. The file is the running answer; the
  * config is where that answer begins on a machine that has never touched it.
  *
- * ## This wave dispatches nothing
+ * ## This slice dispatches nothing
  *
- * A switch that is on starts no agent here. It records an intention that wave 3
+ * A switch that is on starts no agent here. It records an intention that slice 3
  * reads. Turning either control off is a promise about the FUTURE only — it
  * never signals a running worker, whose home is the agent panel.
  */
@@ -52,7 +52,7 @@ import { isSameOrigin, readJsonBody } from './dispatch.js';
  * Read through `readConfigAsync` — the one door to `plot-config.sh` — so an adopting
  * project can seed a different starting point without this file knowing where
  * Plot configuration lives. The switch defaults OFF: a board that has never been
- * told to serve the queue must not begin serving it, and wave 3 will only act
+ * told to serve the queue must not begin serving it, and slice 3 will only act
  * while it is on. The cap defaults to 3.
  */
 export const AUTO_DISPATCH_KEY = 'Auto-dispatch';
@@ -88,7 +88,7 @@ export const MIN_PARALLEL_AGENTS = 1;
 
 /** The current settings, as every reader sees them. */
 export interface FleetSettings {
-  /** Whether the queue is being served. This wave records it; wave 3 acts on it. */
+  /** Whether the queue is being served. This slice records it; slice 3 acts on it. */
   autoDispatch: boolean;
   /** How many agents may run at once — never below {@link MIN_PARALLEL_AGENTS}. */
   parallelAgents: number;

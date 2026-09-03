@@ -147,7 +147,7 @@ describe('the unsliced wave carries Slice this wave, and no other row does', () 
       await expect.poll(() => btn.count(), { timeout: 10_000 }).toBe(1);
       await btn.click();
       const menu = page.locator('[role="menu"]').filter({ has: page.locator('[data-reslice="tangled"]') });
-      await expect.poll(() => menu.getByRole('button', { name: /Slice this wave/ }).count()).toBe(1);
+      await expect.poll(() => menu.getByRole('button', { name: /Slice this plan/ }).count()).toBe(1);
     } finally {
       await page.close();
     }

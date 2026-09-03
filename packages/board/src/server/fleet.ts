@@ -1019,7 +1019,7 @@ export function runStreaming(
  * Keyed by `file` because that is the key every consumer already joins on —
  * `summariseFromPulse` and `worktreesFromPulse` both find a plan by basename.
  * Replacement rather than append keeps a re-scan of the same plan idempotent,
- * so a scan that emits a plan twice cannot double a card's wave count.
+ * so a scan that emits a plan twice cannot double a card's slice count.
  */
 export function mergePlan(plans: FleetReading['plans'], plan: FleetReading['plans'][number]): FleetReading['plans'] {
   const at = plans.findIndex((p) => p.file === plan.file);
@@ -1047,8 +1047,8 @@ export function mergePlan(plans: FleetReading['plans'], plan: FleetReading['plan
  */
 export function partialSummary(plans: FleetReading['plans']): FleetReading['summary'] {
   let waves = 0, branches = 0, claimed = 0, eligible = 0, blocked = 0, deferred = 0;
-  // BRANCH counters, beside the WAVE `blocked` above. A branch held by its
-  // `waits:` annotation is in exactly one of these and in neither of the wave
+  // BRANCH counters, beside the SLICE `blocked` above. A branch held by its
+  // `waits:` annotation is in exactly one of these and in neither of the slice
   // tallies.
   let waiting = 0, prereqMissing = 0;
   for (const plan of plans) {
@@ -2531,7 +2531,7 @@ async function maybeRefreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Prom
  * Offer every branch in a landed pulse to the resolver, which refuses all but
  * one state.
  *
- * **This function classifies NOTHING.** It calls `stuckState` — wave 1's
+ * **This function classifies NOTHING.** It calls `stuckState` — slice 1's
  * detector, the same call `rowsFromPulse` makes with the same inputs — and hands
  * the answer to `mayResolve`. Two consequences, both deliberate:
  *
@@ -2609,7 +2609,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // `0 manifests, 12 synthesized` knows immediately that the drop menu is absent
     // because the board is reading an empty directory, not because nothing is broken.
     //
-    // AWAITED, and the await is the wave's point rather than a detail. This
+    // AWAITED, and the await is the slice's point rather than a detail. This
     // call sits FIRST in `refresh`, before any other, and `refresh` is started
     // — never awaited — by `ensureCache`, which every `/api/fleet` request goes
     // through. An async function runs synchronously up to its first `await`, so
@@ -2822,7 +2822,7 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     // refuses all but one state — see `mayResolve`.
     maybeRepair(opts, complete, entry.prs);
 
-    // THE SECOND AUTOMATIC WRITE — wave 3, the switch that does something.
+    // THE SECOND AUTOMATIC WRITE — slice 3, the switch that does something.
     //
     // Beside `maybeRepair` and of the same kind: on the SCAN's clock, inside its
     // success path, from a pulse that actually landed — a dispatch from a failed
@@ -3177,9 +3177,9 @@ export { rowPhase };
  * `classify` placed elsewhere gets `null` by construction instead of by a
  * matching rule that could drift.
  *
- * The order is the same as `classify`'s and that is deliberate: an earlier wave
- * outranks a Draft plan, because both are true of a Draft plan's later waves
- * and the wave is the more specific statement. Saying the weaker of two true
+ * The order is the same as `classify`'s and that is deliberate: an earlier slice
+ * outranks a Draft plan, because both are true of a Draft plan's later slices
+ * and the slice is the more specific statement. Saying the weaker of two true
  * things is how a note stops being worth reading — and the colour must not
  * contradict the note beside it.
  *
@@ -3247,11 +3247,11 @@ export function waitingOnFor(
   // colour says which action.
   if (state === 'deferred') return 'you';
   if (state !== 'open') return null;
-  // An earlier wave, WITHIN an approved plan — which is now the only kind of
+  // An earlier slice, WITHIN an approved plan — which is now the only kind of
   // plan whose open branches reach this section at all.
   if (verdict !== 'eligible') return 'time';
   // THE DRAFT ARM IS GONE, and its absence is the point rather than an
-  // oversight. It used to answer `you` for a Draft plan's first wave, because a
+  // oversight. It used to answer `you` for a Draft plan's first slice, because a
   // Draft plan's branches sat in NOT STARTED and needed a colour saying they
   // could not be taken. They no longer sit here: `classify` sends the whole
   // plan to WAITING ON YOU, so the guard above returns null before this line
@@ -3261,7 +3261,7 @@ export function waitingOnFor(
   // asserting that Draft rows belong in this section — the drift this function
   // exists to prevent, and the reason it derives from `group` rather than
   // re-deciding it. The concern the old arm answered is answered better by the
-  // move: a four-wave Draft plan no longer puts four loud rows on the board for
+  // move: a four-slice Draft plan no longer puts four loud rows on the board for
   // one pending approval, because it puts none.
   //
   // `planPhase` stays in the signature: the caller reads it from the same pair
@@ -3283,14 +3283,14 @@ export function waitingOnFor(
  *
  * ## The four verdicts
  *
- *   `start-work`           brief present, wave eligible, plan approved
- *   `needs-brief`          wave eligible, plan approved, no brief
+ *   `start-work`           brief present, slice eligible, plan approved
+ *   `needs-brief`          slice eligible, plan approved, no brief
  *   `waiting-on-approval`  plan is Draft — approve it or leave it
  *   `someone-is-on-it`     `wip` or `claimed` — not yours to start
  *
  * NULL where the question does not apply: a merged branch is finished work, a
  * deferred branch was deliberately shelved, a blocked branch cannot advance
- * until an earlier wave lands. The row renders no startability word for any of
+ * until an earlier slice lands. The row renders no startability word for any of
  * them, rather than a word that closes the question.
  *
  * ## Why the branch state gates the whole function
@@ -3322,7 +3322,7 @@ export function waitingOnFor(
  */
 
 /**
- * The wave verdict as a VALUE, or null where the scan did not report one this
+ * The slice verdict as a VALUE, or null where the scan did not report one this
  * board recognises.
  *
  * `classify` takes `verdict` as a `string` — it is a field off a JSON pulse, and
@@ -3332,7 +3332,7 @@ export function waitingOnFor(
  *
  * NULL FOR EVERYTHING ELSE, including "". Absent is not a guess, which is the
  * rule `planPhase` already follows a few dozen lines below: a pulse that
- * reported no verdict licenses no claim about a wave, and a row with null here
+ * reported no verdict licenses no claim about a slice, and a row with null here
  * renders exactly as the board did before the field existed.
  */
 // THE VERDICTS ARE DOMAIN RULES, RE-EXPORTED HERE. `startabilityVerdict` and
@@ -3363,10 +3363,10 @@ export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
 
 
 /**
- * The one WAVE ENTITY, assembled from the pulse where the verdicts already are.
+ * The one SLICE ENTITY, assembled from the pulse where the verdicts already are.
  *
- * The scan emits `plan → wave → branch` with a verdict per wave; this flattens
- * it to one {@link Wave} per `(plan, wave)`, carrying what a wave is asked
+ * The scan emits `plan → wave → branch` with a verdict per slice; this flattens
+ * it to one {@link Slice} per `(plan, wave)`, carrying what a slice is asked
  * about — its identity, its branches, its verdict, its ONE section, its
  * completeness — so no consumer has to re-derive any of it from the rows. That
  * re-derivation, at 33 call sites choosing 33 predicates, is the defect
@@ -3381,10 +3381,10 @@ export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
  *
  * The plan identity is the DISPLAY name — the basename with its date prefix and
  * `.md` stripped — the exact spelling `rowsFromPulse` writes into a row's
- * `plan`, so a consumer joining a wave to its rows reads one string from both.
+ * `plan`, so a consumer joining a slice to its rows reads one string from both.
  */
 /**
- * The waves the payload carries, from the domain's readings.
+ * The slices the payload carries, from the domain's readings.
  *
  * THE JUDGEMENT IS THE DOMAIN'S AND THE SECTION IS THIS FILE'S. `sliceReadings`
  * decides what a slice IS — its branches, its verdict, whether it is complete —
@@ -3645,7 +3645,7 @@ function classifyGroup(
    * a branch held on another machine has no path here at all.
    *
    * A BROKEN AGENT IS THE ONE ROW THAT NEEDS IT. Every other section either
-   * says what it means without a place (a PR is on the host, a wave is in a
+   * says what it means without a place (a PR is on the host, a slice is in a
    * plan) or is not a row anyone opens a directory about. A reader told an
    * agent crashed and not told where its log is has been informed, not helped —
    * they must go find the worktree themselves, which is the work the row
@@ -3663,12 +3663,12 @@ function classifyGroup(
   localWorktree = '',
   /**
    * Whether this branch's PR could not be read from the origin — see
-   * `PR_UNKNOWN_NOTE`. When true and the wave verdict would otherwise be
+   * `PR_UNKNOWN_NOTE`. When true and the slice verdict would otherwise be
    * `eligible`, the verdict is WITHHELD: the row says the host could not be
    * asked rather than claiming the branch is ready for an agent.
    *
    * Withholds the VERDICT, not the row. A branch with an unknown PR still
-   * names its wave, plan, and branch, and still reads `merged` where git says
+   * names its slice, plan, and branch, and still reads `merged` where git says
    * merged. Only the verdict — the claim that an agent may take it — is what
    * the host's answer supplies, and only that part is withheld.
    *
@@ -3707,7 +3707,7 @@ function classifyGroup(
   // WHICH section it lands in is decided inside, and by the plan's phase before
   // anything else. See there.
   if (state === 'deferred') {
-    // THE PHASE ANSWERS FIRST HERE TOO, and that is the whole of wave 2.
+    // THE PHASE ANSWERS FIRST HERE TOO, and that is the whole of slice 2.
     //
     // #231 put the phase check at the top of the `open` arm below, and it
     // worked for every row that reached NOT STARTED through it. Deferred rows
@@ -3955,8 +3955,8 @@ function classifyGroup(
     // branch has a ref, and it was wrong here, where none does. See the note
     // at the condition itself.
     //
-    // Ordered ABOVE the wave verdict on purpose: someone editing a branch of a
-    // blocked wave is still someone editing. The board reports what is, not
+    // Ordered ABOVE the slice verdict on purpose: someone editing a branch of a
+    // blocked slice is still someone editing. The board reports what is, not
     // what the ordering says should be. A DRAFT plan keeps that too — a plan
     // under review whose branch is being edited has someone working on it; the
     // review is what is outstanding, not the work.
@@ -3991,7 +3991,7 @@ function classifyGroup(
     // WORKING IS ABOUT AGENTS. Agentless local activity goes to NOT STARTED
     // — the branch is eligible for dispatch but nobody has taken it yet. The
     // section means *an agent is working on this*, not *local activity
-    // observed*. See `every-section-has-one-subject`, wave Inverted.
+    // observed*. See `every-section-has-one-subject`, slice Inverted.
     if (localDirty || localLocked || held) {
       return localActivity(localDirty, localAhead, localLocked, held);
     }
@@ -4030,7 +4030,7 @@ function classifyGroup(
     // `draft` and an unrecognised phase answer HERE, below it: a plan under
     // review whose branch is being edited has someone working on it, and a
     // phase the board cannot read is not evidence of anything. Both still sit
-    // ABOVE the wave verdict, because a wave's ordering is a question about an
+    // ABOVE the slice verdict, because a slice's ordering is a question about an
     // approved plan and neither of these is one — the verdict refines the
     // answer WITHIN `approved`, which is exactly the scope it keeps below.
     //
@@ -4065,14 +4065,14 @@ function classifyGroup(
       // claim that live editing is debris.
       return { group: 'done', note: unknownPhaseNote(planPhase) };
     }
-    // An earlier wave keeps the first word, WITHIN an approved plan. That scope
+    // An earlier slice keeps the first word, WITHIN an approved plan. That scope
     // is what the phase check above establishes: every row reaching here is one
-    // an agent may actually take, so the wave verdict is now the only thing
+    // an agent may actually take, so the slice verdict is now the only thing
     // left to refine.
     //
     // THE BLOCKED CASE IS NAMED, not inferred from everything-but-eligible.
     // This read `verdict !== 'eligible'`, which sent three inputs to one
-    // sentence: `blocked` (true), `complete` (FALSE — a finished wave blocks
+    // sentence: `blocked` (true), `complete` (FALSE — a finished slice blocks
     // nobody), and an unrecognised or absent verdict (unknowable). The middle
     // one is the defect the plan measured, and it is the same blocklist-collapse
     // shape as the blocker search above — an allowlist of one good value, so
@@ -4080,7 +4080,7 @@ function classifyGroup(
     if (verdict === 'blocked') return { group: 'not-started', note: BLOCKED_NOTE };
     // AN UNKNOWN PR WITHHOLDS THE VERDICT, NOT THE ROW.
     //
-    // The wave verdict from the scan says `eligible`, but the host could not
+    // The slice verdict from the scan says `eligible`, but the host could not
     // answer — a spent quota, an unreachable server, a backend the board
     // cannot ask. The row may not claim readiness from a gap: `eligible` is
     // an answer about the host, and the host did not answer.
@@ -4091,7 +4091,7 @@ function classifyGroup(
     // section an unreadable `mergeable` field goes to, for the same reason.
     //
     // EVERYTHING ELSE STAYS. Git answered, and the branch still carries its
-    // wave, its plan, its git state. Only the PR-derived verdict is withheld;
+    // slice, its plan, its git state. Only the PR-derived verdict is withheld;
     // Done-when 4 is the assertion that a naive fix does not blank the row.
     if (prUnknown && verdict === 'eligible') {
       return { group: 'waiting-on-you', note: PR_UNKNOWN_NOTE };
@@ -4100,13 +4100,13 @@ function classifyGroup(
     // `complete` AND EVERY UNRECOGNISED VERDICT, INCLUDING "", and the answer is
     // deliberately the OLD sentence rather than a new one.
     //
-    // An `open` branch of a `complete` wave is a contradiction: the scan counts
-    // an `open` branch as outstanding, so a wave holding one cannot be
+    // An `open` branch of a `complete` slice is a contradiction: the scan counts
+    // an `open` branch as outstanding, so a slice holding one cannot be
     // complete. So this arm is unreachable from a scan that agrees with itself,
     // and the row it would build is one nobody has ever seen — which is exactly
     // why it may not invent a sentence. `BLOCKED_NOTE` says *blocked by an
-    // earlier wave*: not startable, ordering not satisfied, no claim about
-    // WHICH wave. That is the honest reading of a verdict this board cannot
+    // earlier slice*: not startable, ordering not satisfied, no claim about
+    // WHICH slice. That is the honest reading of a verdict this board cannot
     // place, and it is what every such row already said.
     //
     // What changed is that the reasoning is now recorded at the arm instead of
@@ -4361,7 +4361,7 @@ function classifyGroup(
     // WORKING IS ABOUT AGENTS, NOT BRANCHES. A claimed branch with no known
     // worker is NOT STARTED — an agent may take it. The claim ref exists, but
     // until `worker === 'running'` or `worker === 'waiting'`, no agent is on
-    // it. See `every-section-has-one-subject`, wave Inverted.
+    // it. See `every-section-has-one-subject`, slice Inverted.
     if (ageMinutes !== null && ageMinutes <= quietMinutes) {
       return { group: 'not-started', note: unstarted };
     }
@@ -4386,14 +4386,14 @@ function classifyGroup(
     // than a cosmetic one.
     return verdict === 'complete'
       ? { group: 'done', note: 'merged' }
-      : { group: 'done', note: 'merged — wave still open' };
+      : { group: 'done', note: 'merged — slice still open' };
   }
   // state === 'wip'
   //
   // WORKING IS ABOUT AGENTS. A branch with recent commits but no known agent
   // is NOT STARTED — an agent may take it. The commit shows activity, but
   // until `worker === 'running'` or `worker === 'waiting'`, no agent is on it.
-  // See `every-section-has-one-subject`, wave Inverted.
+  // See `every-section-has-one-subject`, slice Inverted.
   if (ageMinutes !== null && ageMinutes <= quietMinutes) {
     return { group: 'not-started', note: `last commit ${humanAge(ageMinutes)} ago` };
   }
@@ -4487,14 +4487,14 @@ export function machineProcesses(
 
 /**
  * What kind of row this branch is: its section, its sentence, and the verdict of
- * the wave it sits in.
+ * the slice it sits in.
  *
  * THE THIRD ANSWER TRAVELS WITH THE OTHER TWO, and that is the whole reason it
- * is returned here rather than read off the wave by the caller. The note and the
+ * is returned here rather than read off the slice by the caller. The note and the
  * verdict are two renderings of one input, and a consumer that finds them
  * disagreeing has found a bug it cannot act on — so they leave this function
  * together, from one reading of one `verdict` argument. `rowsFromPulse` has the
- * wave in hand and could take the field from there; that would be a SECOND
+ * slice in hand and could take the field from there; that would be a SECOND
  * derivation, and the pair would then be able to drift.
  *
  * The signature is unchanged. Every caller — including the spread-tuple ones in
@@ -4504,8 +4504,8 @@ export function machineProcesses(
 export function classify(
   ...args: Parameters<typeof classifyGroup>
 ): { group: WaitingGroup; note: string; verdict: SliceVerdict | null } {
-  // The verdict is WITHHELD when the PR is unknown and the wave verdict would
-  // be `eligible`. `args[16]` is `prUnknown`; `args[1]` is the wave verdict
+  // The verdict is WITHHELD when the PR is unknown and the slice verdict would
+  // be `eligible`. `args[16]` is `prUnknown`; `args[1]` is the slice verdict
   // string. See the arm in `classifyGroup` for the group/note side; this is
   // the verdict side, and both must agree.
   const prUnknown = args[16] ?? false;
@@ -4523,7 +4523,7 @@ export function classify(
  * WORKING IS ABOUT AGENTS. A branch with local activity but no known worker is
  * an invitation to dispatch, not evidence that an agent is on it. The section
  * means *who is working*, and a dirty worktree or a lock does not answer that.
- * See `every-section-has-one-subject`, wave Inverted.
+ * See `every-section-has-one-subject`, slice Inverted.
  *
  * The note describes WHAT was observed — uncommitted work, unpushed commits, a
  * write lock, a held checkout — and the reader infers whose. The section is
@@ -4623,7 +4623,7 @@ export function draftNote(pr: PrRecord): string {
  *
  * The same facts `classify` spells into a sentence, stated as one of six words
  * instead. The note keeps everything a PR state cannot say — *uncommitted work*,
- * *blocked by an earlier wave*, *claimed elsewhere* — and is only relieved of
+ * *blocked by an earlier slice*, *claimed elsewhere* — and is only relieved of
  * this one duty; what changes is that the PR's condition stops existing SOLELY
  * inside prose that a consumer would have to parse back apart.
  *
@@ -4714,7 +4714,7 @@ export function prStates(pr: PrRecord): [PrStateWord, ...PrStateWord[]] {
   //
   // Measured on the live board 2026-08-21: PRs #51-#55, all CLOSED as drafts 26
   // days ago, rendered `green` + `draft` on five rows — the board reading *five
-  // reviews are waiting on you* about a wave that was deliberately dropped.
+  // reviews are waiting on you* about a slice that was deliberately dropped.
   //
   // ALONE IN THE SET, not appended to. The set exists to report conditions a
   // reader can act on separately, and there is no errand beneath abandonment:
@@ -4868,18 +4868,18 @@ export const IDEA_BRANCH = /^idea\//;
  * ## The branch abstraction
  *
  * The operator's rule, 2026-08-21: *"the branch is carrying the information, but
- * we should only see a branch row if the branch does not carry a wave, and the
+ * we should only see a branch row if the branch does not carry a slice, and the
  * branch does not carry a draft plan, and the branch does not have a PR, and the
  * branch is not a release branch. These are distinct tests."*
  *
  * So a branch row is the FALLBACK, reached by answering no four times — and each
  * test is a property of the branch, named here rather than spelled as a
  * condition at a call site. `carriesWave` and `carriesDraftPlan` are the two that
- * were previously implicit: the wave test lived in the CLIENT (`waveGroupsFor`
+ * were previously implicit: the slice test lived in the CLIENT (`waveGroupsFor`
  * grouping rows per section), and the draft-plan test was an inline regex.
  *
  * Splitting the decision across server and client is what cost tonight: a
- * wave-grouped branch lost its plan link, its stuck cell and its accessible name
+ * slice-grouped branch lost its plan link, its stuck cell and its accessible name
  * one at a time, because the client was deciding a kind the server did not know
  * about. `RowKindSchema` states the rule this restores — the kind is the server's
  * judgement and must not be remade in the renderer.
@@ -4891,14 +4891,14 @@ export interface BranchFacts {
   hasPr: boolean;
   /** Whether the SCAN found a conflict — never *whether one was looked for*. */
   conflicts: boolean;
-  /** The wave it belongs to, or "" — a name only, never the test for one. */
+  /** The slice it belongs to, or "" — a name only, never the test for one. */
   wave: string;
   /**
    * The plan this branch belongs to, or "" where none names it.
    *
-   * THE TEST FOR A WAVE, and the wave's own name is not. A wave is the unit a
+   * THE TEST FOR A SLICE, and the slice's own name is not. A slice is the unit a
    * plan is cut into, so a branch no plan names cannot be in one whatever the
-   * wave field says.
+   * slice field says.
    */
   plan: string;
 }
@@ -4932,30 +4932,30 @@ export function carriesDraftPlan(f: Pick<BranchFacts, 'branch'>): boolean {
 }
 
 /**
- * Does it belong to a wave — that is, does a plan name it?
+ * Does it belong to a slice — that is, does a plan name it?
  *
- * **THE PLAN IS THE TEST, and it replaced the wave's NAME on 2026-08-21.** This
- * read `wave !== UNNAMED_WAVE`, on the reasoning that *a wave with no name
+ * **THE PLAN IS THE TEST, and it replaced the slice's NAME on 2026-08-21.** This
+ * read `wave !== UNNAMED_WAVE`, on the reasoning that *a slice with no name
  * cannot head a row, so a branch in one is just a branch*. That was true while a
- * wave was a heading. It is not true of a carrier: `MANIFESTO.md` states *"a plan
- * with no subheadings is one wave"*, so a plan nobody cut into `### ` sections
- * still has exactly one wave — an unnamed one — and its branch is that wave's
+ * slice was a heading. It is not true of a carrier: `MANIFESTO.md` gives a plan
+ * with no subheadings one slice, so a plan nobody cut into `### ` sections
+ * still has exactly one slice — an unnamed one — and its branch is that slice's
  * work.
  *
  * Measured when the operator caught it on the live board: a merged branch under
  * plan `the-no-ref-arm-asks-once-too`, with PR #255, rendering as `BRANCH`. Its
- * plan carries no `### ` heading, so its wave parsed as `(unnamed)` and the arm
+ * plan carries no `### ` heading, so its slice parsed as `(unnamed)` and the arm
  * refused it. 23 of this repo's 83 plans with a `## Branches` section have no
- * named wave — a template rule (*"EVERY wave gets a `### <Name>` heading"*) with
+ * named slice — a template rule (*"EVERY wave gets a `### <Name>` heading"*) with
  * no gate behind it, violated 27% of the time.
  *
  * The operator's two rules settle both halves:
  *
- *   *"Ein branch der zu keinem Plan gehört ist keine WAVE"* — no plan, no wave.
+ *   *"Ein branch der zu keinem Plan gehört ist keine WAVE"* — no plan, no slice.
  *   *"Ein PR der einen Branch hat der zu keinem Plan gehört ist ein PR"* — and
  *   what such a row IS instead is decided by the arm below this one.
  *
- * So the unnamed wave is a naming defect in the plan file, repaired by
+ * So the unnamed slice is a naming defect in the plan file, repaired by
  * `/plot-reslice`, and never a reason for the board to call a plan's work a bare
  * branch.
  */
@@ -4989,12 +4989,12 @@ export function rowKind(
    */
   conflicts: boolean,
   /**
-   * The PLAN this branch belongs to, or "" — the test for a wave.
+   * The PLAN this branch belongs to, or "" — the test for a slice.
    *
-   * It took the wave's NAME until 2026-08-21, and a name cannot answer the
-   * question: a plan with no `### ` heading has one unnamed wave, and its branch
-   * is that wave's work. `carriesWave` states the operator's rule in full — no
-   * plan, no wave.
+   * It took the slice's NAME until 2026-08-21, and a name cannot answer the
+   * question: a plan with no `### ` heading has one unnamed slice, and its branch
+   * is that slice's work. `carriesWave` states the operator's rule in full — no
+   * plan, no slice.
    *
    * Last in the parameter list because it is the newest, so every existing caller
    * is unchanged and a caller that says nothing about a plan gets the behaviour
@@ -5005,7 +5005,7 @@ export function rowKind(
   // ## A BRANCH ROW IS THE FALLBACK, and it takes four distinct negatives
   //
   // The operator's rule, 2026-08-21: *"we should only see a branch row if the
-  // branch does not carry a wave, and the branch does not carry a draft plan, and
+  // branch does not carry a slice, and the branch does not carry a draft plan, and
   // the branch does not have a PR, and the branch is not a release branch. These
   // are distinct tests."*
   //
@@ -5013,12 +5013,12 @@ export function rowKind(
   // a weaker one. Everything that answers no to all four is a branch — a name
   // somebody pushed and nothing else is true of yet.
   //
-  // **The WAVE test was being made in the CLIENT** until now, by `waveGroupsFor`
+  // **The SLICE test was being made in the CLIENT** until now, by `waveGroupsFor`
   // grouping rows per section. That split the one decision across two places, and
   // the client's half could not see what the server had decided — which is why a
-  // wave-grouped branch lost its plan link, its stuck cell and its accessible
+  // slice-grouped branch lost its plan link, its stuck cell and its accessible
   // name one at a time. `RowKindSchema` says this judgement is the server's and
-  // must not be remade in the renderer; the wave arm belongs here with the rest.
+  // must not be remade in the renderer; the slice arm belongs here with the rest.
   if (isReleaseBranch({ branch })) return 'release';
   // A PLAN AWAITING APPROVAL, not code awaiting review — see arm 1b. Ordered
   // ABOVE the conflict arm on purpose: a conflicting plan PR is still a plan,
@@ -5040,9 +5040,9 @@ export function rowKind(
   // that answers *yes* to a later test and still returns `branch`, and it is
   // deliberate — see the rule `the-row-leads-with-its-subject` settled.
   if (conflicts) return 'branch';
-  // ## THE WAVE IS WHAT CARRIES THE PLAN, so it outranks what happens to it
+  // ## THE SLICE IS WHAT CARRIES THE PLAN, so it outranks what happens to it
   //
-  // This arm was LAST until 2026-08-21, on the argument that a wave is *"the
+  // This arm was LAST until 2026-08-21, on the argument that a slice is *"the
   // weakest claim"* because it only says *which slice of a plan* a branch belongs
   // to. That was a mis-classification rather than a mis-ranking, and the method
   // this board serves had already written down why.
@@ -5051,15 +5051,15 @@ export function rowKind(
   // defect in the row: *"Sie sind nicht der Gegenstand, sie sind das Vehikel …
   // Wer die Zeile mit dem Branchnamen führt, zeigt allen dreien dasselbe
   // Gesicht."* Its table of what a person waits on keeps subject and vehicle in
-  // separate columns: a WAVE is the subject, and it *"fährt auf einem Branch mit
+  // separate columns: a SLICE is the subject, and it *"fährt auf einem Branch mit
   // Pull Request und eigenem Worktree auf"*. `rowKind` had the two in one column
   // and let the vehicle win.
   //
-  // The model says the same: `plan → wave → branch`. A wave is what a plan is cut
+  // The model says the same: `plan → wave → branch`. A slice is what a plan is cut
   // into, what `plot-dispatch` claims, what a worktree exists for, and what must
   // finish before the next one opens. A PR, a run, a review are EVENTS at a
-  // branch while its wave is carried out — each comes and goes without the wave
-  // changing, and the wave cannot change without the plan's progress changing.
+  // branch while its slice is carried out — each comes and goes without the slice
+  // changing, and the slice cannot change without the plan's progress changing.
   // So the row is about the carrier; the events are its status, links and notes.
   //
   // The conflict arm above is the deliberate exception, and the same table argues
@@ -5076,8 +5076,8 @@ export function rowKind(
   // That arm was added because WAITING ON A MACHINE showed a row labelled `PR`
   // whose note read *"CI is running for PR #304"* — the section knew and the kind
   // did not. Making the kind track the machine was one way to close the gap;
-  // making the kind the WAVE closes it permanently, because a wave row cannot
-  // contradict a section that is asking what is happening to a wave.
+  // making the kind the SLICE closes it permanently, because a slice row cannot
+  // contradict a section that is asking what is happening to a slice.
   if (carriesWave({ plan })) return 'wave';
   if (hasPr) return 'pr';
   return 'branch';
@@ -5354,7 +5354,7 @@ export function rowsFromPulse(
     //
     // DROPPED HERE, at the PLAN, not filtered per row in `classify`. Three
     // reasons this is the plan's decision and not the branch's:
-    //   - The scope is the plan's. A plan releases with ALL its waves at once —
+    //   - The scope is the plan's. A plan releases with ALL its slices at once —
     //     there is no partial release — so a released plan's every branch is out
     //     of scope together, and asking the question once per plan says that.
     //   - `classify` answers with one of six WaitingGroups and has no "not
@@ -5367,7 +5367,7 @@ export function rowsFromPulse(
     //
     // `released` ONLY, never `delivered`: a delivered plan is complete and
     // unreleased — the core of the scope, ready for the endgame — and it stays.
-    // The asymmetry is the design: every wave being complete is a MEASUREMENT,
+    // The asymmetry is the design: every slice being complete is a MEASUREMENT,
     // releasing is a DECISION, and only the decision drains the queue.
     //
     // The rolling window is why this fires at all: the scan admits plans
@@ -5375,52 +5375,52 @@ export function rowsFromPulse(
     // reaches this loop and would otherwise crowd DONE with shipped work — 41 of
     // 61 DONE rows, measured 2026-08-23.
     if (plan.phase === 'released') continue;
-    // WHICH earlier wave is blocking — the plan's FIRST incomplete one, read
+    // WHICH earlier slice is blocking — the plan's FIRST incomplete one, read
     // once per plan rather than searched per row.
     //
-    // The first, not the nearest: a row three waves down is released by its
+    // The first, not the nearest: a row three slices down is released by its
     // predecessors in order, so the one a reader can do something about is the
-    // one at the front of the queue. Naming a nearer wave that is itself
+    // one at the front of the queue. Naming a nearer slice that is itself
     // blocked would answer *blocked by which one* with another blocked thing.
     //
     // Empty name → null, never "": a plan with no `###` sub-headings has an
-    // unnamed wave, and the row then keeps the old sentence (*blocked by an
-    // earlier wave*) rather than printing `blocked by ``.
+    // unnamed slice, and the row then keeps the old sentence (*blocked by an
+    // earlier slice*) rather than printing `blocked by ``.
     //
-    // TWO SEARCHES, NOT ONE — the split this wave exists for. The predicate was
+    // TWO SEARCHES, NOT ONE — the split this slice exists for. The predicate was
     // `verdict !== 'complete'`, which is the blocklist-collapse shape
     // `green-never-outranks-unknown` removed from `prState`: it catches
     // everything but one good value, so `eligible` and `blocked` arrive as the
-    // same answer. They are not. An ELIGIBLE wave is the one a person can start
+    // same answer. They are not. An ELIGIBLE slice is the one a person can start
     // — startable, unclaimed, at the front of the queue — and it is the honest
-    // answer to *blocked by which one*. A BLOCKED wave is not: naming it
+    // answer to *blocked by which one*. A BLOCKED slice is not: naming it
     // answers that question with another blocked thing, which the paragraph
     // above forbids and the old predicate permitted.
     //
     // They agree on today's pulses and that is precisely the danger. The scan
-    // clears `prior_ok` at the first incomplete wave, so exactly one wave per
+    // clears `prior_ok` at the first incomplete slice, so exactly one slice per
     // plan can be `eligible` and it is the first non-complete one — the two
-    // predicates pick the same wave by an INVARIANT OF THE SCAN that this file
+    // predicates pick the same slice by an INVARIANT OF THE SCAN that this file
     // never states and does not own. A scan that ever reports two eligible
-    // waves, or a blocked wave ahead of an eligible one, would make the old
+    // slices, or a blocked slice ahead of an eligible one, would make the old
     // predicate wrong silently. This one is right by its own reasoning.
     //
     // The fallback keeps the first-not-nearest property for the case the split
-    // opens up: no eligible wave at all. That happens where every wave is
+    // opens up: no eligible slice at all. That happens where every slice is
     // complete (no row is blocked, so nothing reads this) or where the scan
-    // reports blocked waves with none eligible — and there the front of the
+    // reports blocked slices with none eligible — and there the front of the
     // queue is still the most useful thing a reader can be pointed at.
     const eligibleWave = plan.slices.find((w) => w.verdict === 'eligible');
     const blocker = eligibleWave ?? plan.slices.find((w) => w.verdict !== 'complete');
     const blockerName = blocker?.name?.trim() ? blocker.name.trim() : null;
-    // HOW MANY branches are left in the blocking wave — the second half of the
+    // HOW MANY branches are left in the blocking slice — the second half of the
     // sentence *blocked by Fold — 2 outstanding*. The scan already decides this
     // number (`plot-fleet-scan.sh` Pass 2); it just ships the list rather than
     // the count, and Principle 3 puts the counting on this side. A branch is
     // outstanding when it is neither deferred nor merged — the SAME predicate the
-    // scan uses to settle a wave, so the board's count and the scan's verdict
+    // scan uses to settle a slice, so the board's count and the scan's verdict
     // read one fact. Derived per plan beside the name, since both answer the same
-    // reader's question about the same wave.
+    // reader's question about the same slice.
     const blockerOutstanding = blocker
       ? blocker.branches.filter((w) => !w.deferred && w.state !== 'merged').length
       : 0;
@@ -5444,15 +5444,15 @@ export function rowsFromPulse(
         //
         // Measured 2026-08-24: ten branches were in exactly that state, every
         // one of them with a single closed PR. `feature/the-plan-row-carries-
-        // wave-actions` rendered `worker finished — review it` over a PR closed
+        // slice-actions` rendered `worker finished — review it` over a PR closed
         // as superseded an hour earlier, so the board asked a reader to review
         // something that had been withdrawn.
         //
-        // THE WAVE LIVES ON IN THE BRANCH. Work continues toward another PR, so
+        // THE SLICE LIVES ON IN THE BRANCH. Work continues toward another PR, so
         // hiding the closed one leaves the row saying what remains true — the
-        // branch, its wave, its git state — and stops it citing an artifact that
+        // branch, its slice, its git state — and stops it citing an artifact that
         // ended. This is a display decision and touches no verdict: `classify`
-        // already receives `pr` (open-only), so the wave arithmetic is
+        // already receives `pr` (open-only), so the slice arithmetic is
         // unchanged either way.
         const held = prsByHeadMap?.get(b.branch) ?? null;
         const linked = held && held.state === 'CLOSED' ? pr : (held ?? pr);
@@ -5501,7 +5501,7 @@ export function rowsFromPulse(
           // unknown alike), so `state === 'unknown'` here means the host
           // answered but could not report the PR's state — a spent quota, an
           // unreachable server, a backend that returned successfully with no
-          // data. When true and the wave verdict would be `eligible`, the
+          // data. When true and the slice verdict would be `eligible`, the
           // verdict is withheld: the row says the host could not be asked
           // rather than claiming the branch is ready for an agent.
           held?.state === 'unknown',
@@ -5514,16 +5514,16 @@ export function rowsFromPulse(
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
         const waitingOn = waitingOnFor(group, b.state, wave.verdict, plan.phase);
-        // The blocking wave's NAME goes into the sentence too, not only into
+        // The blocking slice's NAME goes into the sentence too, not only into
         // the field. `classify` cannot do it — the name lives on the plan's
-        // wave list, which that function has never been given — so the note is
+        // slice list, which that function has never been given — so the note is
         // refined here, at the one place both are in hand.
         //
         // Through `blockedNote` rather than by concatenation: the unnamed form
         // stays a single declared constant, so a future reader can see which
         // spellings exist instead of finding three assembled variants.
         //
-        // The COUNT rides with the name — `blockedNote` drops it where the wave
+        // The COUNT rides with the name — `blockedNote` drops it where the slice
         // is unnamed, so an unnamed blocker keeps the bare sentence with nothing
         // dangling off it. It is the blocker's own outstanding count, derived
         // once per plan above.
@@ -5556,8 +5556,8 @@ export function rowsFromPulse(
             // `classify` states — *the row's word and its sentence must not be
             // able to disagree*.
             b.conflicts_known && b.conflicts.length > 0 && pr?.state !== 'CLOSED',
-            // THE PLAN, which is what says this branch is a wave's work. Not the
-            // wave's NAME: a plan with no `### ` heading has one unnamed wave and
+            // THE PLAN, which is what says this branch is a slice's work. Not the
+            // slice's NAME: a plan with no `### ` heading has one unnamed slice and
             // its branch belongs to it all the same. Passing the name here sent a
             // merged branch under a real plan to `BRANCH`, which is the defect
             // this replaced.
@@ -5640,7 +5640,7 @@ export function rowsFromPulse(
           // from one reading of one scan, or a row can carry a marker its own
           // group disagrees with.
           //
-          // `local_ahead` travels too, as of the wave that gave it its own mark
+          // `local_ahead` travels too, as of the slice that gave it its own mark
           // — and it travels SEPARATELY on purpose. It is finished work sitting
           // still rather than activity, so it must never be OR-ed into the
           // activity predicate: that would mark a branch nobody has touched for
@@ -5662,7 +5662,7 @@ export function rowsFromPulse(
           // WHETHER THE BRANCH HAS ITS BRIEF — the second half of *can this be
           // started*, and the half the row could not say.
           //
-          // `waitingOn` above answers whether the WAVE ordering is satisfied;
+          // `waitingOn` above answers whether the SLICE ordering is satisfied;
           // this answers whether the branch has the specification a worker is
           // told to read first. Both must hold, and only the first was ever
           // reported — which is how nine rows read *eligible* on 2026-08-19
@@ -5678,12 +5678,12 @@ export function rowsFromPulse(
           // `unknown` where no root was passed: a caller that did not look, and
           // the renderer says nothing at all for it.
           brief: repoRoot ? briefState(repoRoot, b.branch) : 'unknown',
-          // And by WHICH wave, where that is the answer. Only the server can
-          // say: `verdict` lives on the wave, the row carries only its own
+          // And by WHICH slice, where that is the answer. Only the server can
+          // say: `verdict` lives on the slice, the row carries only its own
           // name. Null on every row that is not blocked, and on a blocked row
           // whose blocker has no name.
           blockedBy: waitingOn === 'time' ? blockerName : null,
-          // THE WAVE'S VERDICT, as a value — from `classify`, which composed the
+          // THE SLICE'S VERDICT, as a value — from `classify`, which composed the
           // note beside it from the same reading. Not taken from `wave.verdict`
           // here, though it is in hand: that would be a second derivation of one
           // fact, and the field and the sentence could then drift apart. The
@@ -5692,18 +5692,18 @@ export function rowsFromPulse(
           //
           // On EVERY row, not only the blocked ones. `blockedBy` above is null
           // outside its one case because a name for a thing that is not
-          // blocking is a false claim; a verdict is a fact about the wave
+          // blocking is a false claim; a verdict is a fact about the slice
           // whatever the branch is doing, and a merged branch of a still-open
-          // wave is precisely the row that had no way to say so.
+          // slice is precisely the row that had no way to say so.
           verdict,
           // WHETHER THIS ROW CAN BE STARTED — from the same facts `waitingOnFor`
           // reads, and answering the question a reader asks: *can I start this*.
           //
           // Four verdicts: `start-work`, `needs-brief`, `waiting-on-approval`,
           // `someone-is-on-it`. Null where the question does not apply — merged,
-          // deferred, or blocked by an earlier wave.
+          // deferred, or blocked by an earlier slice.
           //
-          // THE ROW RENDERS THIS, NOT `eligible`. `eligible` answered a wave-
+          // THE ROW RENDERS THIS, NOT `eligible`. `eligible` answered a slice-
           // ordering question; this answers an actionability question. Measured:
           // 26 rows said `eligible` and 5 could be started. `isStartable` reads
           // this field rather than re-deriving it, so the row and the menu cannot
@@ -5741,9 +5741,9 @@ export function rowsFromPulse(
             // TWO PLANS CLAIMING ONE BRANCH — from the estate-wide index, since
             // the collision is invisible from inside either plan.
             claimedBy: doubleClaimed.get(b.branch) ?? [],
-            // AND THE WAVE'S OTHER BRANCHES, where it holds more than one. A wave
+            // AND THE SLICE'S OTHER BRANCHES, where it holds more than one. A slice
             // is carried out in ONE branch and one worktree, so several means the
-            // plan was never sliced after its spike. Read from the wave in hand —
+            // plan was never sliced after its spike. Read from the slice in hand —
             // no index needed, unlike the double claim.
             waveSiblings: wave.branches.length > 1
               ? wave.branches.map((x) => x.branch)
@@ -5791,7 +5791,7 @@ export function rowsFromPulse(
           // Derived here rather than in `classify` because `classify` answers a
           // SINGLE placement by contract, and threading a list out of its
           // thirty returns would put thirty chances to forget it where there is
-          // one. Same argument the wave verdict settled by computing at one
+          // one. Same argument the slice verdict settled by computing at one
           // exit.
           processes: machineProcesses(b.worker, b.worker_pid, pr),
           // WHAT THE MONITORS FOUND, forwarded onto the row exactly as
@@ -5951,7 +5951,7 @@ export function rowsFromPulse(
       // branch has nothing unpushed on the strength of never having looked is
       // the same invented observation, one field along.
       localAhead: 0,
-      // A PLANLESS branch has no plan to be waiting on, and no wave to be
+      // A PLANLESS branch has no plan to be waiting on, and no slice to be
       // blocked by. Null is the answer rather than a value, and it is the same
       // answer `waitingOnFor` gives every row outside `not-started` — which
       // this row always is, since it reaches the board through the PR map.
@@ -5967,21 +5967,21 @@ export function rowsFromPulse(
       // brief question should show.
       brief: 'unknown',
       blockedBy: null,
-      // NO WAVE, SO NO VERDICT — null, and for the same reason as the two
+      // NO SLICE, SO NO VERDICT — null, and for the same reason as the two
       // fields above rather than as a placeholder. This row is built from the PR
-      // map: no plan names the branch, so there is no wave to hold a verdict
+      // map: no plan names the branch, so there is no slice to hold a verdict
       // about it.
       //
       // Explicitly NOT the `'eligible'` handed to `classify` a few lines up.
       // That argument exists to steer the function into its PR arm, where an
       // open PR's checks decide the group — it is a routing value, not a claim
-      // about a wave, and putting it on the row would state that the ordering
+      // about a slice, and putting it on the row would state that the ordering
       // of a plan that does not exist has been satisfied.
       verdict: null,
       // NO PLAN, so no startability question — null, the same as `verdict`
       // above and for the same reason. A planless row is a branch no plan
       // names, so there is no approval to wait on, no brief to require, and no
-      // wave ordering to satisfy.
+      // slice ordering to satisfy.
       startability: null,
       // `elsewhere` — NOWHERE TO LOOK, which is the exact truth for this row
       // and not a stand-in for one. The worker pid lives in the worktree, and
@@ -6149,7 +6149,7 @@ export function rowsFromPulse(
       changedAt: null,
       localLocked: false,
       localAhead: 0,
-      // No plan, so no wave to be blocked by and no ordering to be waiting on —
+      // No plan, so no slice to be blocked by and no ordering to be waiting on —
       // the same answer `waitingOnFor` gives every row outside a plan.
       waitingOn: null,
       // A brief is written by `/plot-implement` FOR A BRANCH A PLAN NAMES, and
@@ -6234,12 +6234,12 @@ const EMPTY_SUMMARY = {
  * FIRST active sprint wins where two list one plan, matching the first-wins dedup
  * the member list itself uses. Two Active sprints are permitted (two teams, one
  * train); the field records one, and the control that renders both is a later
- * wave's concern.
+ * slice's concern.
  */
 export async function sprintMembership(opts: BuildBoardOptions): Promise<Map<string, string>> {
   // The CONFIG read is awaited; the directory walk below is not, and the split
   // is the whole of it. `workingTreeSprints` is a `readdirSync`, which is not a
-  // spawn — `board.ts` says so where it is defined, and wave 1 kept it
+  // spawn — `board.ts` says so where it is defined, and slice 1 kept it
   // synchronous deliberately. What blocked the loop here was the `bash
   // plot-config.sh` fork this line used to make.
   const sprintDir = await readConfigAsync(opts, 'Sprint directory', 'docs/sprints/');
@@ -6468,7 +6468,7 @@ export async function buildFleet(
     error: entry.error,
     shrink: entry.shrink,
     rows,
-    // THE WAVES, derived once from the same pulse the rows came from — beside
+    // THE SLICES, derived once from the same pulse the rows came from — beside
     // `rows`, not left for the client to re-group. Emitted unconditionally: []
     // on a cold cache, because the client CASTS this payload and a Zod
     // `.default([])` never fires client-side. A field the server left off would
