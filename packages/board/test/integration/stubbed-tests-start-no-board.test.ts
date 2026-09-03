@@ -378,10 +378,19 @@ const EXPECTED_FILES = 44;
  * point — a plan with no file is a state `story-overlay` asserts on, and the
  * mock answering it means that file needs no fixture on disk.
  *
+ * 462 → 464 is the count that guards the `data-wave-*` → `data-slice-*` rename.
+ * A renamed attribute with an un-renamed selector matches nothing, and matching
+ * nothing is not an error — every negative assertion in the suite stays green
+ * while the rename goes unchecked. So the guard has to be a POSITIVE count, and
+ * `data-slice-row` is written at two render sites: one test binds the agent-row
+ * hook through `one-row-per-kind`, the other binds `SliceRow` itself through
+ * `a-plan-in-waves`. One site each, because breaking either alone leaves the
+ * other assertion green.
+ *
  * Raised deliberately, in the commit that adds them, which is the whole
  * mechanism this pair exists for.
  */
-const EXPECTED_TESTS = 462;
+const EXPECTED_TESTS = 464;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
