@@ -26,7 +26,9 @@ Measured 2026-09-03 on this estate: **17** branches whose PR closed without merg
 
 ### What it does NOT own
 
-**`classifyGroup`.** Wave 2 wires it. This branch changes no rendering and no placement.
+**`classifyGroup`.** The rendering slice wires it. This branch changes no rendering and no placement.
+
+**One reading the rule must take: `prState`.** The closed case is not decided in `classifyGroup` — that function is open-only by construction and says so — so the rule reads the PR state it is given rather than expecting to find a closed PR itself.
 
 **The sweep.** `plot-reap.sh` already refuses these correctly — six of them hold unlanded work. This is a display problem sitting on top of a real one.
 
