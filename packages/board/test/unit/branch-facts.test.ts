@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   carriesDraftPlan,
-  carriesWave,
+  carriesSlice,
   isReleaseBranch,
   rowKind,
 } from '../../src/server/fleet.js';
-import { RowKindSchema, UNNAMED_WAVE, isSpikeWave } from '../../src/contract/schema.js';
+import { RowKindSchema, UNNAMED_SLICE, isSpikeSlice } from '../../src/contract/schema.js';
 import { stuckState } from '../../src/server/stuck.js';
 import { prState } from '../../src/server/fleet.js';
 
@@ -59,24 +59,24 @@ describe('the four tests a branch answers', () => {
     });
   });
 
-  describe('carriesWave', () => {
+  describe('carriesSlice', () => {
     it('is true for any branch a PLAN names, named wave or not', () => {
       // The test is the plan, not the wave's name — a plan with no `### `
       // heading has one unnamed wave, and its branch is that wave's work.
-      expect(carriesWave({ plan: 'a-wave-is-a-kind' })).toBe(true);
-      expect(carriesWave({ plan: 'the-no-ref-arm-asks-once-too' })).toBe(true);
+      expect(carriesSlice({ plan: 'a-wave-is-a-kind' })).toBe(true);
+      expect(carriesSlice({ plan: 'the-no-ref-arm-asks-once-too' })).toBe(true);
     });
 
     it('is false where no plan names the branch', () => {
       // *"Ein branch der zu keinem Plan gehört ist keine WAVE."*
-      expect(carriesWave({ plan: '' })).toBe(false);
+      expect(carriesSlice({ plan: '' })).toBe(false);
     });
 
     it('is false for `(unnamed)`, which cannot head a row', () => {
       // Six of this estate's 71 waves have no name, all in plans written before
       // the naming convention. A wave row named `(unnamed)` labels nothing, so a
-      // branch in one is just a branch — the same rule `waveGroupsFor` applies.
-      expect(carriesWave({ wave: UNNAMED_WAVE })).toBe(false);
+      // branch in one is just a branch — the same rule `sliceGroupsFor` applies.
+      expect(carriesSlice({ wave: UNNAMED_SLICE })).toBe(false);
     });
   });
 });
@@ -205,7 +205,7 @@ describe('rowKind — a branch row is what is left when all four say no', () => 
       for (const hasPr of [false, true]) {
         for (const conflicts of [false, true]) {
           {
-            for (const wave of ['', 'Modelled', UNNAMED_WAVE]) {
+            for (const wave of ['', 'Modelled', UNNAMED_SLICE]) {
               const k = kind({ branch, hasPr, conflicts, wave });
               expect(kinds.has(k), `${branch} ${hasPr} ${conflicts} ${wave} -> ${k}`)
                 .toBe(true);
@@ -225,32 +225,32 @@ describe('rowKind — a branch row is what is left when all four say no', () => 
   });
 });
 
-describe('isSpikeWave — a tracer is a different KIND of wave', () => {
+describe('isSpikeSlice — a tracer is a different KIND of wave', () => {
   it('recognises the documented convention', () => {
     // `### Tracer` is what `plot-approve` Step 2b recommends by name, and
     // `plot-plan-meta.sh` carries the heading through as the wave's name — so the
     // signal is free and needs no contract field. Three plans use it today.
-    expect(isSpikeWave('Tracer')).toBe(true);
-    expect(isSpikeWave('tracer')).toBe(true);
-    expect(isSpikeWave('Spike')).toBe(true);
-    expect(isSpikeWave('Tracer bullet')).toBe(true);
-    expect(isSpikeWave('  Tracer  ')).toBe(true);
+    expect(isSpikeSlice('Tracer')).toBe(true);
+    expect(isSpikeSlice('tracer')).toBe(true);
+    expect(isSpikeSlice('Spike')).toBe(true);
+    expect(isSpikeSlice('Tracer bullet')).toBe(true);
+    expect(isSpikeSlice('  Tracer  ')).toBe(true);
   });
 
   it('is false for an implementation wave', () => {
     // The distinction that matters: an implementation wave carries out a slice a
     // tracer has already de-risked, so its failure means a rebase. A tracer's
     // failure means *refine the plan* — `tracer-bullets` Step 4.
-    expect(isSpikeWave('Implementation')).toBe(false);
-    expect(isSpikeWave('Shaped')).toBe(false);
-    expect(isSpikeWave('')).toBe(false);
+    expect(isSpikeSlice('Implementation')).toBe(false);
+    expect(isSpikeSlice('Shaped')).toBe(false);
+    expect(isSpikeSlice('')).toBe(false);
   });
 
   it('matches the WHOLE name, never a substring', () => {
     // A wave whose name merely mentions a tracer is not one — the same rule
     // `isReleaseBranch` follows about a prefix having to lead.
-    expect(isSpikeWave('Tracer-adjacent refactor')).toBe(false);
-    expect(isSpikeWave('post-spike cleanup')).toBe(false);
+    expect(isSpikeSlice('Tracer-adjacent refactor')).toBe(false);
+    expect(isSpikeSlice('post-spike cleanup')).toBe(false);
   });
 });
 
@@ -262,11 +262,11 @@ describe('stuckState — an unsliced wave is invalid', () => {
     // sliced.
     const s = stuckState({
       state: 'wip', conflicts: [], conflictsKnown: true, localAhead: 0,
-      waveSiblings: ['feature/b', 'feature/a', 'feature/c'],
+      sliceSiblings: ['feature/b', 'feature/a', 'feature/c'],
     });
     expect(s?.state).toBe('unsliced-wave');
     // SORTED, so the row reads the same on every pulse.
-    expect(s?.waveSiblings).toEqual(['feature/a', 'feature/b', 'feature/c']);
+    expect(s?.sliceSiblings).toEqual(['feature/a', 'feature/b', 'feature/c']);
   });
 
   it('says nothing about a wave holding ONE branch', () => {
@@ -274,7 +274,7 @@ describe('stuckState — an unsliced wave is invalid', () => {
     // model describes. A watcher that flags everything flags nothing.
     expect(stuckState({
       state: 'wip', conflicts: [], conflictsKnown: true, localAhead: 0,
-      waveSiblings: ['feature/only'],
+      sliceSiblings: ['feature/only'],
     })).toBeNull();
   });
 
@@ -285,7 +285,7 @@ describe('stuckState — an unsliced wave is invalid', () => {
     const s = stuckState({
       state: 'wip', conflicts: [], conflictsKnown: true, localAhead: 0,
       claimedBy: ['plan-a', 'plan-b'],
-      waveSiblings: ['feature/a', 'feature/b'],
+      sliceSiblings: ['feature/a', 'feature/b'],
     });
     expect(s?.state).toBe('double-claimed');
   });
@@ -296,7 +296,7 @@ describe('stuckState — an unsliced wave is invalid', () => {
     // one-per-wave as the model expects until somebody slices it.
     const s = stuckState({
       state: 'wip', conflicts: ['a.ts'], conflictsKnown: true, localAhead: 0,
-      waveSiblings: ['feature/a', 'feature/b'],
+      sliceSiblings: ['feature/a', 'feature/b'],
     });
     expect(s?.state).toBe('unsliced-wave');
   });

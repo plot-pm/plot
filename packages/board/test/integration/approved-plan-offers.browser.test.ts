@@ -13,7 +13,7 @@ import { type AgentRow, type Fleet, type Card, type Column } from '../../src/con
  *   - **Implement** — posts to `/api/implement` (wave 2 gave it its route)
  *   - **Dispatch** — posts to `/api/dispatch` with no `--max` cap
  *
- * Both gate on **approved AND waveSummary.eligible > 0**. This is the test suite
+ * Both gate on **approved AND sliceSummary.eligible > 0**. This is the test suite
  * for that gate:
  *   - both appear on an approved plan with an eligible wave
  *   - both are absent where `eligible === 0` (the blocked-plan case)
@@ -39,7 +39,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 
 /**
  * An approved plan (`beans`) with eligible branches. The card must have
- * `phase: 'Development'` and `waveSummary.eligible > 0` for the gate to open.
+ * `phase: 'Development'` and `sliceSummary.eligible > 0` for the gate to open.
  */
 function approvedFleet(over: Partial<Fleet> = {}): Fleet {
   const rows: AgentRow[] = [
@@ -80,7 +80,7 @@ function blockedFleet(over: Partial<Fleet> = {}): Fleet {
 function approvedCard(slug: string, file: string, eligible = 1): Card {
   return {
     slug, title: slug, type: 'feature', phase: 'Development', path: file, prs: [],
-    waveSummary: { waves: 2, branches: 2, eligible, deferred: 0 },
+    sliceSummary: { waves: 2, branches: 2, eligible, deferred: 0 },
   } as Card;
 }
 
@@ -88,7 +88,7 @@ function approvedCard(slug: string, file: string, eligible = 1): Card {
 function draftCard(slug: string, file: string): Card {
   return {
     slug, title: slug, type: 'feature', phase: 'Discovery', path: file, prs: [],
-    waveSummary: { waves: 2, branches: 2, eligible: 1, deferred: 0 },
+    sliceSummary: { waves: 2, branches: 2, eligible: 1, deferred: 0 },
   } as Card;
 }
 
@@ -96,7 +96,7 @@ function draftCard(slug: string, file: string): Card {
 function deliveredCard(slug: string, file: string): Card {
   return {
     slug, title: slug, type: 'feature', phase: 'Delivered', path: file, prs: [],
-    waveSummary: { waves: 2, branches: 2, eligible: 0, deferred: 0 },
+    sliceSummary: { waves: 2, branches: 2, eligible: 0, deferred: 0 },
   } as Card;
 }
 

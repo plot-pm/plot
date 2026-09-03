@@ -71,7 +71,7 @@ describe('summariseFromPulse — the card reads claims from git', () => {
     const s = summariseFromPulse(m, p);
     expect(s.claimed).toBe(1);
     // ...and the other branch is startable, which the card could not say at all
-    // before: WaveSummary carried no `eligible`.
+    // before: SliceSummary carried no `eligible`.
     expect(s.eligible).toBe(1);
   });
 

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
-import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Wave } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';
 
 /**
  * A PLAN SPREAD ACROSS SECTIONS SAYS HOW MANY OF ITS WAVES ARE NOT HERE — and
@@ -13,13 +13,13 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Wave } from '../../src/c
  * A plan may legitimately span sections: a wave merged into DONE while a later
  * wave waits in NOT STARTED. The board draws it one head per section, and until
  * now each head was SILENT about the waves the other section holds —
- * `waveSummaryFor` counts what its section has and says nothing of the rest. The
+ * `sliceSummaryFor` counts what its section has and says nothing of the rest. The
  * visible half of a two-wave plan therefore read indistinguishably from a plan
  * that only ever had one wave, which is the confusion `a-split-plan-says-it-is-split`
  * was filed for.
  *
  * The count itself is a pure function of `fleet.waves` — asserted over its whole
- * shape in `test/unit/agent-list.test.ts` (`wavesElsewhere`, `elsewhereNote`).
+ * shape in `test/unit/agent-list.test.ts` (`slicesElsewhere`, `elsewhereNote`).
  * What only a rendered page can settle is the CONNECTION: that each section's
  * head STATES the count, and that the rows of a wave in another section do NOT
  * appear under the head here. The numerator was undefined until a wave had ONE
@@ -27,7 +27,7 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Wave } from '../../src/c
  *
  * `/api/fleet` is stubbed at the network boundary, the sibling suites' way, and
  * the client CASTS the fleet — so the fixture carries the `waves` array the
- * server would have derived (`deriveWaves`), each entry naming its ONE section,
+ * server would have derived (`deriveSlices`), each entry naming its ONE section,
  * plus the branch rows already grouped the way the pulse would have grouped them.
  * Route callbacks are SYNCHRONOUS: the board polls on a timer and an awaited
  * `route.fetch()` can still be in flight when the page closes.
@@ -51,7 +51,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 });
 
 /** One derived wave, carrying its ONE section — what the server writes beside the rows. */
-const wave = (name: string, section: Wave['section'], over: Partial<Wave> = {}): Wave => ({
+const wave = (name: string, section: Slice['section'], over: Partial<Slice> = {}): Slice => ({
   plan: SPLIT, name, branches: [], verdict: section === 'done' ? 'complete' : 'eligible',
   section, complete: section === 'done', ...over,
 });
@@ -157,7 +157,7 @@ describe('a split plan counts what is elsewhere', () => {
   });
 
   it('states in the DONE head that a wave is elsewhere', async () => {
-    // The other end of the split. Both clauses speak here: `waveSummaryFor` reads
+    // The other end of the split. Both clauses speak here: `sliceSummaryFor` reads
     // the server's waves (`the-head-asks-the-wave`) so the DONE head counts its
     // OWN wave too, and `elsewhereNote` adds the one that is not here.
     //
@@ -165,7 +165,7 @@ describe('a split plan counts what is elsewhere', () => {
     // that `PlanRow` composes the two clauses without a stray leading or
     // trailing middot — the failure mode when one half is empty. An earlier
     // version pinned the whole text with `toBe('1 slice elsewhere')`, which
-    // encoded a premise that held only while `waveSummaryFor` counted ROWS and
+    // encoded a premise that held only while `sliceSummaryFor` counted ROWS and
     // returned nothing in DONE; reading the server's wave list made the count
     // real here, and the pin then failed on correct output.
     const page = await open();

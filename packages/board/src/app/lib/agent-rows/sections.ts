@@ -1,9 +1,9 @@
 import {
   type AgentRow,
   type WaitingGroup,
-  type Wave,
+  type Slice,
 } from '../../../contract/schema.js';
-import { type WaveGroup, groupByWave } from './waves.js';
+import { type SliceGroup, groupBySlice } from './slices.js';
 import { isStartable, isUnbegun } from './row-identity.js';
 
 /**
@@ -100,7 +100,7 @@ export const GROUPS: { key: WaitingGroup; icon: string; label: string; hint: str
  * Exported for test — the mixed slice is the case an implementation that reads
  * branch state gets wrong while passing every uniform-slice assertion.
  */
-export function waveSection(rows: AgentRow[]): WaitingGroup | null {
+export function sliceSection(rows: AgentRow[]): WaitingGroup | null {
   // The scan's verdict for the slice — every branch carries the same one, so the
   // first non-null answers. No verdict, or `complete`, is not the `Inverted`
   // defect: don't relocate.
@@ -119,14 +119,14 @@ export function waveSection(rows: AgentRow[]): WaitingGroup | null {
 }
 
 /**
- * A slice's identity as a Map key — plan plus name, the pair `openWaves` keys on
+ * A slice's identity as a Map key — plan plus name, the pair `openSlices` keys on
  * and the pair the domain model calls a slice's id. The `\0` separator cannot
  * appear in either half, so the join is unambiguous. Module-level and exported
  * so the re-sectioning here and the fold state in the component form one
  * spelling of the identity — two would let a slice move sections here but keep
  * its old fold key there.
  */
-export function waveKeyOf(plan: string, wave: string): string {
+export function sliceKeyOf(plan: string, wave: string): string {
   return `${plan}\0${wave}`;
 }
 
@@ -134,9 +134,9 @@ export function waveKeyOf(plan: string, wave: string): string {
  * The fleet's rows re-sectioned so every slice lands in exactly ONE section.
  *
  * The board filters rows into sections by `r.group`. This rewrites `group` on
- * every row of a slice that `waveSection` says has a split to resolve, so
+ * every row of a slice that `sliceSection` says has a split to resolve, so
  * `Inverted`'s merged and open branches move together instead of splitting. A
- * slice with no split (`waveSection` returns null) is untouched — its rows keep
+ * slice with no split (`sliceSection` returns null) is untouched — its rows keep
  * their own groups, which is what leaves a running build on the machine section.
  *
  * Keyed on `(plan, wave)` because a slice's identity is that pair and names
@@ -147,22 +147,22 @@ export function waveKeyOf(plan: string, wave: string): string {
  * not mutated, because the fleet is cast from the payload and shared.
  */
 export function rowsBySection(rows: AgentRow[]): AgentRow[] {
-  const byWave = new Map<string, AgentRow[]>();
+  const bySlice = new Map<string, AgentRow[]>();
   for (const r of rows) {
     if (r.wave === '') continue;
-    const key = waveKeyOf(r.plan, r.wave);
-    const list = byWave.get(key);
+    const key = sliceKeyOf(r.plan, r.wave);
+    const list = bySlice.get(key);
     if (list) list.push(r);
-    else byWave.set(key, [r]);
+    else bySlice.set(key, [r]);
   }
   const sectionOf = new Map<string, WaitingGroup>();
-  for (const [key, waveRows] of byWave) {
-    const section = waveSection(waveRows);
+  for (const [key, sliceRows] of bySlice) {
+    const section = sliceSection(sliceRows);
     if (section !== null) sectionOf.set(key, section);
   }
   return rows.map((r) => {
     if (r.wave === '') return r;
-    const section = sectionOf.get(waveKeyOf(r.plan, r.wave));
+    const section = sectionOf.get(sliceKeyOf(r.plan, r.wave));
     return section === undefined || section === r.group ? r : { ...r, group: section };
   });
 }
@@ -239,7 +239,7 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
  *
  * A slice earns a row here when it holds **more than one reviewable branch**: a
  * lone PR is a PR, because there is no set for a slice row to name and a heading
- * over one row saves nothing. That is `showsWaveFold`'s rule, and the same one
+ * over one row saves nothing. That is `showsSliceFold`'s rule, and the same one
  * that makes a single-branch slice exactly one row in NOT STARTED.
  *
  * SCOPED TO ONE SECTION on purpose. WORKING holds agents, WAITING ON A MACHINE
@@ -251,16 +251,16 @@ export function groupByPlan(rows: AgentRow[]): PlanGroup[] {
  * their branch is a label that labels nothing, the same reason
  * `showPlanHeading` refuses a nameless plan.
  */
-export function waveGroupsFor(
+export function sliceGroupsFor(
   rows: AgentRow[],
   section: WaitingGroup,
-  waves?: Wave[],
-): WaveGroup[] {
+  slices?: Slice[],
+): SliceGroup[] {
   // WHICH ROWS a slice may claim, per section. This is now a LOOKUP against the
   // server-derived slice, not a per-section computation — `the-sections-ask-the-wave`.
   //
   // The slice carries the ONE answer to *which section does this slice belong in*
-  // (`Wave.section`, derived once in `deriveWaves` from completeness). The four
+  // (`Wave.section`, derived once in `deriveSlices` from completeness). The four
   // grouping sections used to re-derive that answer from a row's `state`, and
   // three of them spelled the identical predicate `r.state !== 'merged'` while
   // DONE spelled its inverse. That IS the derivation this plan removes: a slice
@@ -284,25 +284,25 @@ export function waveGroupsFor(
   // not have.
   if (section === 'working' || section === 'waiting-on-machine') return [];
   // THE CAST GUARD. The client CASTS the fleet payload (`board as Board`), so a
-  // Zod `.default([])` never fires and `fleet.waves` is `undefined` on a pulse
+  // Zod `.default([])` never fires and `fleet.slices` is `undefined` on a pulse
   // from a server predating #349 — not `[]`. An absent slice list, or a slice a
   // partial pulse has not carried yet, falls back to the row's own state: the
   // exact behaviour this replaces, so a pre-slice board renders as it did before
   // rather than dropping every slice. Guarded, per `FLEET_CONTROLS_DEFAULT`.
   const wantsDone = section === 'done';
   const sectionOf = new Map<string, WaitingGroup>();
-  for (const w of waves ?? []) sectionOf.set(waveKeyOf(w.plan, w.name), w.section);
+  for (const w of slices ?? []) sectionOf.set(sliceKeyOf(w.plan, w.name), w.section);
   const claims = (r: AgentRow): boolean => {
-    const waveSection = sectionOf.get(waveKeyOf(r.plan, r.wave));
+    const sliceSection = sectionOf.get(sliceKeyOf(r.plan, r.wave));
     // The slice answered: keep the row iff the slice's section matches what THIS
     // section wants (DONE ⇔ the slice is done).
-    if (waveSection !== undefined) return (waveSection === 'done') === wantsDone;
+    if (sliceSection !== undefined) return (sliceSection === 'done') === wantsDone;
     // No slice to ask — the fallback, byte-for-byte the old predicate.
     return wantsDone ? r.state === 'merged' : r.state !== 'merged';
   };
   // NO `length > 1` THRESHOLD, and its removal is the correction that matters.
   //
-  // It was there on `showsWaveFold`'s reasoning — *a heading over one row saves
+  // It was there on `showsSliceFold`'s reasoning — *a heading over one row saves
   // no repetition* — and that argument answers a different question. A fold is
   // about SAVING REPETITION; a kind is about **what the row is ABOUT**. A branch
   // cut for the slice `Surfaced` is that slice's work whether the slice holds one
@@ -313,32 +313,32 @@ export function waveGroupsFor(
   // only through the mock's hand-made two-branch slice. A rule that fires only in
   // a fixture is a rule nothing tests.
   //
-  // A slice holding several still folds — `expanded` is what the WaveRow does with
+  // A slice holding several still folds — `expanded` is what the SliceRow does with
   // a set. What changed is that a slice of one is a slice, not a PR.
   // AN UNNAMED SLICE IS STILL A SLICE, and it still groups. This filtered
   // `(unnamed)` out until 2026-08-21, which left its rows ungrouped — so the plan
   // holding them got no `PlanRow` head and the branch led the row on its own,
   // beside 51 plan-headed siblings. Reported from a screenshot of DONE.
   //
-  // Same correction as `carriesWave` on the server: the slice's NAME is not the
+  // Same correction as `carriesSlice` on the server: the slice's NAME is not the
   // test for a slice. `MANIFESTO.md` gives a plan with no subheadings one
   // slice — so a plan nobody cut has one slice, unnamed, and its branches are that
-  // slice's work. What it lacks is a label, and `waveLabel` still withholds that:
+  // slice's work. What it lacks is a label, and `sliceLabel` still withholds that:
   // printing `(unnamed)` beside a branch names nothing.
-  return groupByWave(rows.filter(claims)).filter((wg) => wg.wave);
+  return groupBySlice(rows.filter(claims)).filter((wg) => wg.wave);
 }
 
 /**
  * The rows a section renders on their own — everything no slice group claimed.
  *
- * The complement of `waveGroupsFor` over the same input, so every row appears
+ * The complement of `sliceGroupsFor` over the same input, so every row appears
  * exactly once: a row inside a grouped slice renders in that slice's fold, and
  * everything else renders as itself. Computed as a SET of the claimed rows
  * rather than by re-deriving the predicate, because two spellings of *which rows
  * are grouped* is how a row ends up rendered twice or not at all.
  */
-export function ungroupedRows(rows: AgentRow[], section: WaitingGroup, waves?: Wave[]): AgentRow[] {
-  const claimed = new Set(waveGroupsFor(rows, section, waves).flatMap((wg) => wg.rows));
+export function ungroupedRows(rows: AgentRow[], section: WaitingGroup, slices?: Slice[]): AgentRow[] {
+  const claimed = new Set(sliceGroupsFor(rows, section, slices).flatMap((wg) => wg.rows));
   return rows.filter((r) => !claimed.has(r));
 }
 
@@ -373,7 +373,7 @@ export function showPlanHeading(group: PlanGroup): boolean {
 }
 
 /**
- * What a section's header must say beneath itself — `{ plans, waves, differ }`.
+ * What a section's header must say beneath itself — `{ plans, slices, differ }`.
  *
  * **THE RULE:** any count the board renders beside a section is derivable from
  * that section's rows, or says what else it counts. The defect this closes was
@@ -390,7 +390,7 @@ export function showPlanHeading(group: PlanGroup): boolean {
  * row. Summing the per-group render keeps the header equal to the section BY
  * CONSTRUCTION, so a section that only partly folds cannot drift.
  *
- * **`waves` IS THE SCOPE THE BARE NUMBER WAS REACHING FOR** — the count of
+ * **`slices` IS THE SCOPE THE BARE NUMBER WAS REACHING FOR** — the count of
  * top-level rows a reader reaches by expanding every head: one row per slice the
  * section groups, plus each loose branch (a deferred branch is its own row, not
  * a slice nobody reached). Derivable from the same rows, one level down.
@@ -415,19 +415,19 @@ export function showPlanHeading(group: PlanGroup): boolean {
 export function sectionTally(
   rows: AgentRow[],
   section: WaitingGroup,
-  waves: Wave[] | undefined,
+  slices: Slice[] | undefined,
   issueCount: number,
-): { plans: number; waves: number; differ: boolean } {
+): { plans: number; slices: number; differ: boolean } {
   const countsPlans = section === 'not-started';
   let planLines = 0;
-  let waveLines = 0;
+  let sliceLines = 0;
   for (const group of groupByPlan(rows)) {
-    const grouped = waveGroupsFor(group.rows, section, waves);
-    const loose = ungroupedRows(group.rows, section, waves);
+    const grouped = sliceGroupsFor(group.rows, section, slices);
+    const loose = ungroupedRows(group.rows, section, slices);
     // The top-level rows a reader reaches by expanding this group's head: one
     // per grouped slice, plus every row no slice claimed.
-    const groupWaves = grouped.length + loose.length;
-    waveLines += groupWaves;
+    const groupSlices = grouped.length + loose.length;
+    sliceLines += groupSlices;
     // Does this group RENDER AS ONE HEAD, or as its own lines? The three
     // predicates the component decides with, read here so the count cannot
     // disagree with the render.
@@ -435,11 +435,11 @@ export function sectionTally(
       && loose.length === 0 && grouped.length > 0;
     const headed = !countsPlans && section !== 'waiting-on-you'
       && showPlanHeading(group);
-    planLines += countsPlans || planHeads || headed ? 1 : groupWaves;
+    planLines += countsPlans || planHeads || headed ? 1 : groupSlices;
   }
   const plans = planLines + issueCount;
-  const wavesCount = waveLines + issueCount;
-  return { plans, waves: wavesCount, differ: plans !== wavesCount };
+  const slicesCount = sliceLines + issueCount;
+  return { plans, slices: slicesCount, differ: plans !== slicesCount };
 }
 
 /**
@@ -530,8 +530,8 @@ export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
  * `Wave` on the payload: one entry per `(plan, wave)`, carrying the ONE section
  * the server placed it in. The count is a fact about the plan's slices, and the
  * server already knows how many of them are unstarted — so this reads
- * `fleet.waves` rather than re-grouping the rows in front of it with
- * `groupByWave`, which was a second answer to a question the server answers.
+ * `fleet.slices` rather than re-grouping the rows in front of it with
+ * `groupBySlice`, which was a second answer to a question the server answers.
  * That re-grouping was the derivation `the-wave-is-a-thing-the-board-can-hold`
  * exists to remove: a slice whose branches span sections could be counted
  * differently here than the server counted it in DONE.
@@ -560,11 +560,11 @@ export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
  * while a particular branch in it is not the one to start), so it is read where
  * the menu reads it.
  *
- * `waves` ABSENT falls back to the row derivation. The board CASTS the payload
- * (`board as Board`) rather than parsing it, so `fleet.waves` is `undefined` —
+ * `slices` ABSENT falls back to the row derivation. The board CASTS the payload
+ * (`board as Board`) rather than parsing it, so `fleet.slices` is `undefined` —
  * not `[]` — on a pulse from a pre-slice server (`FLEET_CONTROLS_DEFAULT`,
  * 2026-08-22). The fallback keeps such a server working; a live server emits
- * `waves` unconditionally, so the fallback is the safety net and not the path.
+ * `slices` unconditionally, so the fallback is the safety net and not the path.
  *
  * Empty string where there is nothing to summarise, so the caller renders
  * nothing rather than a bare count of zero.
@@ -572,19 +572,19 @@ export function sortByWaiting(groups: PlanGroup[]): PlanGroup[] {
  * Exported for test — the section-scoped count is the half that reads like a bug
  * until it is stated.
  */
-export function waveSummaryFor(group: PlanGroup, waves?: Wave[]): string {
+export function sliceSummaryFor(group: PlanGroup, slices?: Slice[]): string {
   const unbegun = group.rows.filter(isUnbegun);
   // COUNTED FROM THE SERVER'S SLICES where the payload carries them: the entries
-  // the server placed in `not-started` for this plan. `deriveWaves` gives an
+  // the server placed in `not-started` for this plan. `deriveSlices` gives an
   // incomplete slice exactly one home — `not-started` — so this is every slice of
   // the plan that is not yet done, counted once however many branches it holds.
-  const count = waves
-    ? waves.filter((w) => w.plan === group.plan && w.section === 'not-started').length
+  const count = slices
+    ? slices.filter((w) => w.plan === group.plan && w.section === 'not-started').length
     : // FALLBACK for a pre-slice server: count the unbegun rows' slices, the way
-      // the head did before the contract carried the slice. `groupByWave`
+      // the head did before the contract carried the slice. `groupBySlice`
       // collapses a multi-branch slice to one, which is the reading the count
       // needs.
-      groupByWave(unbegun).length;
+      groupBySlice(unbegun).length;
   if (count === 0) return '';
   const label = `${count} slice${count === 1 ? '' : 's'}`;
   return unbegun.some(isStartable) ? `${label}, first eligible` : label;
@@ -596,13 +596,13 @@ export function waveSummaryFor(group: PlanGroup, waves?: Wave[]): string {
  * A plan may legitimately span sections — a slice merged into DONE while a later
  * one waits in NOT STARTED — and the board draws it one head per section, each
  * heading only the slices that section holds. That is right, but until now the
- * omission was SILENT: `waveSummaryFor` counts the slices in THIS section and says
+ * omission was SILENT: `sliceSummaryFor` counts the slices in THIS section and says
  * nothing of the rest, so the visible half of a three-slice plan reads
  * indistinguishably from a plan that only ever had two. The reader cannot tell a
  * split plan from a whole one, which is the exact confusion
  * `a-split-plan-says-it-is-split` was filed for.
  *
- * READS THE SERVER-DERIVED SLICES, never re-derives them. `deriveWaves` already
+ * READS THE SERVER-DERIVED SLICES, never re-derives them. `deriveSlices` already
  * answered which ONE section each `(plan, wave)` belongs in — the whole point of
  * `the-wave-is-a-thing-the-board-can-hold` — so this counts that answer rather
  * than picking a predicate and disagreeing with it. Before that entity existed
@@ -613,23 +613,23 @@ export function waveSummaryFor(group: PlanGroup, waves?: Wave[]): string {
  * JOINED ON `plan`, which is half a slice's identity — slice names repeat across
  * plans, so a namesake slice of another plan must not count as this plan's.
  *
- * GUARDS THE ABSENT PAYLOAD. `fleet.waves` defaults to `[]` at parse time, but
+ * GUARDS THE ABSENT PAYLOAD. `fleet.slices` defaults to `[]` at parse time, but
  * the board CASTS the payload rather than parsing it (`board as Board`), so a
- * pre-slice pulse leaves `waves` `undefined` — the `FLEET_CONTROLS_DEFAULT` trap,
+ * pre-slice pulse leaves `slices` `undefined` — the `FLEET_CONTROLS_DEFAULT` trap,
  * shipped once already. A missing list is *nothing to report*, which is zero.
  *
  * Exported for test — the namesake and absent-payload cases are the two a naive
- * `waves.length - here` gets wrong while looking right on a single split plan.
+ * `slices.length - here` gets wrong while looking right on a single split plan.
  */
-export function wavesElsewhere(
-  waves: Wave[] | undefined, plan: string, section: WaitingGroup, here?: Set<string>,
+export function slicesElsewhere(
+  slices: Slice[] | undefined, plan: string, section: WaitingGroup, here?: Set<string>,
 ): number {
-  if (!waves) return 0;
-  const mine = waves.filter((w) => w.plan === plan);
+  if (!slices) return 0;
+  const mine = slices.filter((w) => w.plan === plan);
   // COUNTED AGAINST THE HEAD'S OWN SLICES where the caller can name them, and
   // against the rendered section only as a fallback.
   //
-  // The section comparison alone is wrong, and measurably so. `deriveWaves`
+  // The section comparison alone is wrong, and measurably so. `deriveSlices`
   // gives a slice TWO possible sections — `complete ? 'done' : 'not-started'` —
   // while `classify` places rows across SIX groups, so a row needing attention
   // is GUARANTEED to sit in a section no slice can carry. Measured 2026-08-24:
@@ -651,7 +651,7 @@ export function wavesElsewhere(
  * the empty string where nothing is elsewhere, so the caller renders nothing
  * rather than a bare *0 elsewhere*.
  *
- * A sibling of `waveSummaryFor`'s own empty-string contract: the count belongs to
+ * A sibling of `sliceSummaryFor`'s own empty-string contract: the count belongs to
  * the plan, and a count of zero is a fact the head has no reason to state.
  */
 export function elsewhereNote(count: number): string {
@@ -675,7 +675,7 @@ export function elsewhereNote(count: number): string {
  * Exported for test: the one-slice case is the one an implementation that always
  * renders the expander gets wrong while passing every assertion about folding.
  */
-export function showsWaveFold(group: PlanGroup): boolean {
+export function showsSliceFold(group: PlanGroup): boolean {
   // COUNTED IN SLICES, not in rows — since NOT STARTED renders one row per SLICE
   // rather than one per branch. A plan whose single slice holds five branches has
   // five rows and ONE child row, so the row count promised a fold that revealed
@@ -683,5 +683,5 @@ export function showsWaveFold(group: PlanGroup): boolean {
   //
   // Measured on the estate: `opus5-longhorizon-hardening :: Implementation`
   // holds five branches, and it is the plan this got wrong.
-  return groupByWave(group.rows).length > 1;
+  return groupBySlice(group.rows).length > 1;
 }

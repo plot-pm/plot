@@ -4,7 +4,7 @@ import {
   expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  UNNAMED_WAVE,
+  UNNAMED_SLICE,
   noActionReason,
   menuState,
   openTarget,
@@ -19,11 +19,11 @@ import {
 import { CARD_BELOW_PX, COLLAPSED_BY_DEFAULT, isCollapsible, readCollapsed, writeCollapsed } from '../../src/app/lib/agent-rows/collapse.js';
 import { ACTIVITY_MARK_PLACE, ActivityEcho, CHANGE_MARK_MS, ChangeMarks, LOCK_ECHO_MS, activeRowKeys, activityPace, changedRows, groupPace, isUnreadable, sameWatched, type WatchedState, watchedState } from '../../src/app/lib/agent-rows/activity.js';
 import { isActive, isLive, soleRowStatus } from '../../src/app/lib/agent-rows/stuck.js';
-import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, sectionTally, showPlanHeading, type PlanGroup, waveKeyOf, waveSection, wavesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
+import { GROUPS, elsewhereNote, groupByPlan, rowsBySection, sectionTally, showPlanHeading, type PlanGroup, sliceKeyOf, sliceSection, slicesElsewhere } from '../../src/app/lib/agent-rows/sections.js';
 import { countdown } from '../../src/app/lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, hostErrorState, issueNote, noteWithoutPr, prNote, prStateWord, scanHostNote } from '../../src/app/lib/agent-rows/host-notes.js';
 import { isFinished, isStartable, rowKey, waitingLabel, waitingTone } from '../../src/app/lib/agent-rows/row-identity.js';
-import { groupByWave, groupedNote, waveDissent, waveLabel } from '../../src/app/lib/agent-rows/waves.js';
+import { groupBySlice, groupedNote, sliceDissent, sliceLabel } from '../../src/app/lib/agent-rows/slices.js';
 // THE ONE GRID, from the component that owns it. It was `ROW_TRACKS` in
 // `AgentList.tsx` beside a second grid; `one-component-renders-every-row`
 // collapsed both into this.
@@ -31,7 +31,7 @@ import { TUPLE_TRACKS } from '../../src/app/components/TupleRow.js';
 import { GROUP_ORDER } from '../../src/server/fleet.js';
 import type { DispatchInfo } from '../../src/contract/schema.js';
 import {
-  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow, type Fleet, type Wave,
+  AgentRowSchema, DRAFT_PLAN_NOTE, ELIGIBLE_NOTE, type AgentRow, type Fleet, type Slice,
 } from '../../src/contract/schema.js';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
@@ -93,11 +93,11 @@ describe('groupByPlan', () => {
   });
 });
 
-describe('waveSection — resolves the Inverted split, gated on the verdict', () => {
+describe('sliceSection — resolves the Inverted split, gated on the verdict', () => {
   // A wave's rows: same plan, same wave name, branches described by their state,
   // per-branch group (what `classify` gave each), and the wave verdict every
   // branch shares.
-  const waveRows = (
+  const sliceRows = (
     branches: { state: AgentRow['state']; group: AgentRow['group'] }[],
     verdict: AgentRow['verdict'] = 'eligible',
   ): AgentRow[] => branches.map((b, i) => row({
@@ -108,13 +108,13 @@ describe('waveSection — resolves the Inverted split, gated on the verdict', ()
     // Verdict eligible (not finished), one merged (→ done), one open (→
     // not-started). A wave with unmerged work is where its unfinished work is, so
     // the merged branch joins NOT STARTED — never the reverse.
-    expect(waveSection(waveRows(
+    expect(sliceSection(sliceRows(
       [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
     ))).toBe('not-started');
   });
 
   it('reads the unfinished branch\'s own section — quiet where that is where it sits', () => {
-    expect(waveSection(waveRows(
+    expect(sliceSection(sliceRows(
       [{ state: 'merged', group: 'done' }, { state: 'wip', group: 'quiet' }],
       'blocked',
     ))).toBe('quiet');
@@ -123,14 +123,14 @@ describe('waveSection — resolves the Inverted split, gated on the verdict', ()
   it('returns null when the wave carries NO verdict — nothing to aggregate on', () => {
     // A pre-verdict pulse, or a synthetic row: the scan said nothing, so a merged
     // branch beside an open one is not proof of an Inverted split. Don't guess.
-    expect(waveSection(waveRows(
+    expect(sliceSection(sliceRows(
       [{ state: 'merged', group: 'done' }, { state: 'open', group: 'not-started' }],
       null,
     ))).toBeNull();
   });
 
   it('returns null for a COMPLETE wave — every branch merged, no split', () => {
-    expect(waveSection(waveRows(
+    expect(sliceSection(sliceRows(
       [{ state: 'merged', group: 'done' }, { state: 'merged', group: 'done' }],
       'complete',
     ))).toBeNull();
@@ -140,14 +140,14 @@ describe('waveSection — resolves the Inverted split, gated on the verdict', ()
     // The Modelled shape: a PR in review and a build on the machine, both wip, no
     // merged branch. Not a placement defect; collapsing them would move the build
     // off WAITING ON A MACHINE, which is where the board means to show it.
-    expect(waveSection(waveRows([
+    expect(sliceSection(sliceRows([
       { state: 'wip', group: 'waiting-on-you' },
       { state: 'wip', group: 'waiting-on-machine' },
     ]))).toBeNull();
   });
 
   it('does not treat {merged, deferred} as a split — a deferred branch is exempt', () => {
-    expect(waveSection(waveRows(
+    expect(sliceSection(sliceRows(
       [{ state: 'merged', group: 'done' }, { state: 'deferred', group: 'not-started' }],
     ))).toBeNull();
   });
@@ -202,23 +202,23 @@ describe('rowsBySection — Inverted stops splitting across two sections', () =>
   });
 });
 
-describe('waveDissent — the collapsed row does not read `merged` for a half-open wave', () => {
+describe('sliceDissent — the collapsed row does not read `merged` for a half-open wave', () => {
   it('reports how many merged when branches disagree — the Inverted case', () => {
     // One merged, one open: the row speaks for both, so it must state that some
     // landed and some did not, not a plain `merged`.
-    expect(waveDissent([
+    expect(sliceDissent([
       row({ state: 'merged' }), row({ state: 'open' }),
     ])).toBe(1);
   });
 
   it('is null when every branch agrees — the count already tells the story', () => {
-    expect(waveDissent([row({ state: 'merged' }), row({ state: 'merged' })])).toBeNull();
-    expect(waveDissent([row({ state: 'open' }), row({ state: 'wip' })])).toBeNull();
+    expect(sliceDissent([row({ state: 'merged' }), row({ state: 'merged' })])).toBeNull();
+    expect(sliceDissent([row({ state: 'open' }), row({ state: 'wip' })])).toBeNull();
   });
 
   it('does not count a DEFERRED branch as disagreement — it is exempt by design', () => {
     // A wave of {merged, deferred} agrees that everything wanted has landed.
-    expect(waveDissent([row({ state: 'merged' }), row({ state: 'deferred' })])).toBeNull();
+    expect(sliceDissent([row({ state: 'merged' }), row({ state: 'deferred' })])).toBeNull();
   });
 
   it('feeds groupedNote, which then says so rather than the section word', () => {
@@ -240,15 +240,15 @@ describe('waveDissent — the collapsed row does not read `merged` for a half-op
   });
 });
 
-describe('wavesElsewhere — a split plan says how many of its waves are NOT here', () => {
-  // The defect this closes: `waveSummaryFor` counts the waves IN THIS SECTION and
+describe('slicesElsewhere — a split plan says how many of its waves are NOT here', () => {
+  // The defect this closes: `sliceSummaryFor` counts the waves IN THIS SECTION and
   // silently drops the rest, so a plan whose first wave merged into DONE reports
   // `2 waves` under its NOT STARTED head with nothing saying a third exists. The
   // count is honest for the section but the OMISSION is not legible — the reader
   // cannot tell a two-wave plan from the visible half of a three-wave one. This
   // reads the server-derived `fleet.waves`, where each wave carries its ONE
   // section, and counts the ones whose section is not the head's.
-  const wave = (over: Partial<Wave> = {}): Wave => ({
+  const wave = (over: Partial<Slice> = {}): Slice => ({
     plan: 'split-plan', name: 'w', branches: ['feature/x'],
     verdict: 'complete', section: 'done', complete: true, ...over,
   });
@@ -261,8 +261,8 @@ describe('wavesElsewhere — a split plan says how many of its waves are NOT her
       wave({ name: 'Grown', section: 'done', complete: true }),
       wave({ name: 'Reaped', section: 'not-started', complete: false }),
     ];
-    expect(wavesElsewhere(waves, 'split-plan', 'not-started')).toBe(2);
-    expect(wavesElsewhere(waves, 'split-plan', 'done')).toBe(1);
+    expect(slicesElsewhere(waves, 'split-plan', 'not-started')).toBe(2);
+    expect(slicesElsewhere(waves, 'split-plan', 'done')).toBe(1);
   });
 
   it('is zero for a plan whose every wave is in the head\'s own section', () => {
@@ -272,7 +272,7 @@ describe('wavesElsewhere — a split plan says how many of its waves are NOT her
       wave({ name: 'Sown', section: 'not-started', complete: false }),
       wave({ name: 'Grown', section: 'not-started', complete: false }),
     ];
-    expect(wavesElsewhere(waves, 'split-plan', 'not-started')).toBe(0);
+    expect(slicesElsewhere(waves, 'split-plan', 'not-started')).toBe(0);
   });
 
   it('counts only THIS plan\'s waves — a namesake wave of another plan is not ours', () => {
@@ -282,19 +282,19 @@ describe('wavesElsewhere — a split plan says how many of its waves are NOT her
       wave({ plan: 'split-plan', name: 'Tracer', section: 'not-started', complete: false }),
       wave({ plan: 'other-plan', name: 'Tracer', section: 'done', complete: true }),
     ];
-    expect(wavesElsewhere(waves, 'split-plan', 'not-started')).toBe(0);
+    expect(slicesElsewhere(waves, 'split-plan', 'not-started')).toBe(0);
   });
 
   it('is zero when the payload carries no waves — a pre-wave server, cast not parsed', () => {
     // `fleet.waves` defaults to [] only at PARSE time, and the board CASTS the
     // payload, so a pre-wave pulse leaves it `undefined`. The head must degrade to
     // "nothing to report" rather than throw — the FLEET_CONTROLS_DEFAULT lesson.
-    expect(wavesElsewhere(undefined, 'split-plan', 'not-started')).toBe(0);
-    expect(wavesElsewhere([], 'split-plan', 'not-started')).toBe(0);
+    expect(slicesElsewhere(undefined, 'split-plan', 'not-started')).toBe(0);
+    expect(slicesElsewhere([], 'split-plan', 'not-started')).toBe(0);
   });
 
   it('counts against the head\'s OWN waves, not the section it renders in', () => {
-    // THE MEASURED DEFECT. `deriveWaves` gives a wave two possible sections
+    // THE MEASURED DEFECT. `deriveSlices` gives a wave two possible sections
     // (`complete ? 'done' : 'not-started'`) while `classify` places rows across
     // six groups, so a row needing attention sits in a section NO wave can
     // carry. Passing the rendered key then matches nothing and every wave counts
@@ -309,10 +309,10 @@ describe('wavesElsewhere — a split plan says how many of its waves are NOT her
     ] as never;
     // The head renders in `waiting-on-you` — a section no wave carries — and
     // holds the `Offered` wave's row. One of its two waves is elsewhere.
-    expect(wavesElsewhere(waves, 'p', 'waiting-on-you', new Set(['Offered']))).toBe(1);
+    expect(slicesElsewhere(waves, 'p', 'waiting-on-you', new Set(['Offered']))).toBe(1);
     // Without the set, the old comparison calls BOTH elsewhere. Asserted so the
     // fallback's limit is recorded rather than mistaken for correct.
-    expect(wavesElsewhere(waves, 'p', 'waiting-on-you')).toBe(2);
+    expect(slicesElsewhere(waves, 'p', 'waiting-on-you')).toBe(2);
   });
 
   it('says nothing is elsewhere when the head holds every wave', () => {
@@ -321,7 +321,7 @@ describe('wavesElsewhere — a split plan says how many of its waves are NOT her
     const waves = [
       { plan: 'p', name: 'Only', section: 'not-started' },
     ] as never;
-    expect(wavesElsewhere(waves, 'p', 'waiting-on-you', new Set(['Only']))).toBe(0);
+    expect(slicesElsewhere(waves, 'p', 'waiting-on-you', new Set(['Only']))).toBe(0);
   });
 });
 
@@ -1879,7 +1879,7 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
 
   it('returns EMPTY for a note that is only its PR — which a caller must not read as "no row"', () => {
     // The empty string above is correct and it is a trap for whoever consumes
-    // it. `waveNote` guarded on `soleNote` rather than on `soleRow`, so a wave
+    // it. `sliceNote` guarded on `soleNote` rather than on `soleRow`, so a wave
     // whose one branch carried `PR #323 green` — nothing left after the strip —
     // fell through to a verdict sentence about STARTING work that was finished:
     // measured 2026-08-22, `green` rendered beside `approved — nobody has taken
@@ -3593,11 +3593,11 @@ describe('menuState — a refusal is not an absence', () => {
 
 // A branch row names its wave BESIDE ITS BRANCH NAME, and the gate is now a
 // property of that one branch: does it name a wave? The plan-wide
-// `waveCountByPlan` went with the cell the label used to sit in — it existed to
+// `sliceCountByPlan` went with the cell the label used to sit in — it existed to
 // answer *does this plan have more than one wave*, a question a reader could not
 // see the answer to, and it had no other reader.
 //
-// The count's own assertions are kept here as assertions about `waveLabel`,
+// The count's own assertions are kept here as assertions about `sliceLabel`,
 // because what they were really pinning is which STRINGS mean "no wave to name":
 // `''` for a planless row and `(unnamed)` for an undivided plan. Those are the
 // two the count used to collapse, and they are the two that must still not print.
@@ -3605,14 +3605,14 @@ describe('menuState — a refusal is not an absence', () => {
 // The DOM half — the name reaching the branch cell rather than the kind cell, in
 // every section, without moving the grid — is in
 // test/integration/agents-tab.browser.test.ts.
-describe('waveLabel — the wave name a branch row shows, or none', () => {
+describe('sliceLabel — the wave name a branch row shows, or none', () => {
   it('names the wave for any branch that has a named one', () => {
     // No count, and no plan: the branch alone answers it. This is the change —
-    // the label used to require `waveCount > 1`, so a branch of a plan divided
+    // the label used to require `sliceCount > 1`, so a branch of a plan divided
     // once showed nothing even though it had a wave to show, and the plan that
     // relocated the label requires it be reachable for EVERY branch that has one.
-    expect(waveLabel(row({ wave: 'Fold' }))).toBe('Fold');
-    expect(waveLabel(row({ wave: 'Truth' }))).toBe('Truth');
+    expect(sliceLabel(row({ wave: 'Fold' }))).toBe('Fold');
+    expect(sliceLabel(row({ wave: 'Truth' }))).toBe('Truth');
   });
 
   it('shows nothing for `(unnamed)` — the absence of a division, spelled', () => {
@@ -3623,14 +3623,14 @@ describe('waveLabel — the wave name a branch row shows, or none', () => {
     // This is the assertion that replaces the count: `(unnamed)` used to be
     // filtered by counting to one, and it is now filtered by being recognised
     // for what it is. Same rows suppressed, one fewer fact needed to do it.
-    expect(waveLabel(row({ wave: UNNAMED_WAVE }))).toBeNull();
-    expect(waveLabel(row({ wave: '(unnamed)' }))).toBeNull();
+    expect(sliceLabel(row({ wave: UNNAMED_SLICE }))).toBeNull();
+    expect(sliceLabel(row({ wave: '(unnamed)' }))).toBeNull();
   });
 
   it('shows nothing for a planless row', () => {
     // A row built from the PR map belongs to no plan and carries `wave: ''`. An
     // empty wave name is the absence of a wave, not a wave named "".
-    expect(waveLabel(row({ plan: '', wave: '' }))).toBeNull();
+    expect(sliceLabel(row({ plan: '', wave: '' }))).toBeNull();
   });
 
   it('names a wave for a plan divided ONCE, which the old gate suppressed', () => {
@@ -3639,7 +3639,7 @@ describe('waveLabel — the wave name a branch row shows, or none', () => {
     // nothing before, on the argument that a caption over a partition of one is
     // noise — sound while the label sat in a cell it shared with the plan phase,
     // and moot beside the branch name, where it displaces nothing.
-    expect(waveLabel(row({ plan: 'p', branch: 'a', wave: 'Layout' }))).toBe('Layout');
+    expect(sliceLabel(row({ plan: 'p', branch: 'a', wave: 'Layout' }))).toBe('Layout');
   });
 
   it('does not read the plan, so two branches of one plan cannot disagree', () => {
@@ -3648,8 +3648,8 @@ describe('waveLabel — the wave name a branch row shows, or none', () => {
     // in another as sibling rows appeared and vanished between polls. It is now
     // a function of the row, and the same row always answers the same way.
     const r = row({ plan: 'p', branch: 'a', wave: 'Fold' });
-    expect(waveLabel(r)).toBe(waveLabel({ ...r }));
-    expect(waveLabel(r)).toBe('Fold');
+    expect(sliceLabel(r)).toBe(sliceLabel({ ...r }));
+    expect(sliceLabel(r)).toBe('Fold');
   });
 });
 
@@ -3828,10 +3828,10 @@ describe('runLinkLabel — Show failure only where a failure is present', () => 
 describe('sectionTally — a header counts the things rendered beneath it', () => {
   // A server-derived wave, keyed on (plan, name), carrying the ONE section the
   // server placed it in. `section` is what a grouped header must count against,
-  // exactly as `waveSummaryFor` and `wavesElsewhere` already read it.
-  const wave = (over: Partial<Wave> = {}): Wave => ({
+  // exactly as `sliceSummaryFor` and `slicesElsewhere` already read it.
+  const wave = (over: Partial<Slice> = {}): Slice => ({
     plan: 'p', name: 'W', branches: ['feature/b'], verdict: 'complete',
-    section: 'done', complete: true, planWaveCount: 1, ...over,
+    section: 'done', complete: true, planSliceCount: 1, ...over,
   });
 
   it('counts plan heads and names both units where a grouped section folds waves', () => {
@@ -3843,7 +3843,7 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
       row({ plan: 'alpha', wave: 'Two', branch: 'a2', state: 'merged', group: 'done' }),
       row({ plan: 'beta', wave: 'One', branch: 'b1', state: 'merged', group: 'done' }),
     ];
-    const waves: Wave[] = [
+    const waves: Slice[] = [
       wave({ plan: 'alpha', name: 'One', branches: ['a1'] }),
       wave({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
       wave({ plan: 'beta', name: 'One', branches: ['b1'] }),
@@ -3870,7 +3870,7 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
       row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'merged', group: 'done' }),
       row({ plan: 'beta', wave: 'One', branch: 'b1', state: 'merged', group: 'done' }),
     ];
-    const waves: Wave[] = [
+    const waves: Slice[] = [
       wave({ plan: 'alpha', name: 'One', branches: ['a1'] }),
       wave({ plan: 'beta', name: 'One', branches: ['b1'] }),
     ];
@@ -3887,7 +3887,7 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
       row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'merged', group: 'done' }),
       row({ plan: 'alpha', wave: 'Two', branch: 'a2', state: 'merged', group: 'done' }),
     ];
-    const waves: Wave[] = [
+    const waves: Slice[] = [
       wave({ plan: 'alpha', name: 'One', branches: ['a1'] }),
       wave({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
     ];

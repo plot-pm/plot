@@ -17,7 +17,7 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet } from '../../src/contract/sch
  * ## This is a REGRESSION LOCK, not a fix.
  *
  * The overlap is already prevented on `main`. Since `a-wave-is-one-row` (#339)
- * the wave name is projected as an ordinary `plan` link (`tupleFromWave` →
+ * the wave name is projected as an ordinary `plan` link (`tupleFromSlice` →
  * slot 3) and rendered through the shared `min-w-0 truncate` chain, which clips
  * it at the cell edge. Measured 2026-08-23 on both the fixed `12rem` name track
  * AND the `minmax(12rem,auto)` growing track `the-name-track-holds-the-name`
@@ -109,9 +109,9 @@ describe('the wave name stays in its cell', () => {
    * missing, which the caller asserts against rather than coercing.
    */
   async function nameVsStatus(page: Page) {
-    const waveRow = page.locator(`[data-wave-row="${LONG_WAVE}"]`);
-    await expect.poll(() => waveRow.count()).toBe(1);
-    return waveRow.evaluate((rowEl) => {
+    const sliceRow = page.locator(`[data-wave-row="${LONG_WAVE}"]`);
+    await expect.poll(() => sliceRow.count()).toBe(1);
+    return sliceRow.evaluate((rowEl) => {
       const name = rowEl.querySelector('[data-tuple-text],[data-tuple-link]') as HTMLElement | null;
       const status = rowEl.querySelector('[data-tuple-status]') as HTMLElement | null;
       const n = name?.getBoundingClientRect();

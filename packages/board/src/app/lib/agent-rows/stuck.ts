@@ -5,7 +5,7 @@ import {
 } from '../../../contract/schema.js';
 import { prStatus, stateStatus, workerStatus } from '../tuple-row.js';
 import { agoLabel } from '../../components/AgentPanelFacts.js';
-import { LIVE_WORKERS } from './waves.js';
+import { LIVE_WORKERS } from './slices.js';
 import { isFinished } from './row-identity.js';
 
 /**
@@ -213,8 +213,8 @@ export function stuckEvidence(stuck: Stuck, now: number = Date.now()): string[] 
       // one per branch and the reader has to see which are entangled. The
       // sentence says what a slice IS rather than merely that the count is
       // wrong, since the count is the symptom: `plan → * slice → 1 branch`.
-      return stuck.waveSiblings.length > 0
-        ? [`one slice, ${stuck.waveSiblings.length} branches: ${stuck.waveSiblings.join(', ')}`
+      return stuck.sliceSiblings.length > 0
+        ? [`one slice, ${stuck.sliceSiblings.length} branches: ${stuck.sliceSiblings.join(', ')}`
            + ' — a slice is carried out in one branch, so this plan needs slicing']
         : ['this slice holds several branches — a slice is carried out in one branch'];
     case 'double-claimed':

@@ -11,7 +11,7 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  * and as a BRANCH row in WORKING — the branch leads slot 3 and the wave name is
  * demoted to a badge. Same kind, same payload, two grammars.
  *
- * The cause is one function deciding two questions: `waveGroupsFor` is scoped to
+ * The cause is one function deciding two questions: `sliceGroupsFor` is scoped to
  * one section on purpose (WORKING orders by agent, must not group by plan), and
  * `ungroupedRows` — its complement — renders everything it returns as `<Row>`, a
  * branch row. Skipping the GROUP should not skip the ROW's kind.
@@ -25,7 +25,7 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  *
  * **A literal payload, fulfilled synchronously.** The bug is a placement decision
  * in the adapter (`AgentList`), so the fixture is a fleet whose WORKING row is a
- * `kind: 'wave'` row the way the server emits one (`carriesWave` — the plan has
+ * `kind: 'wave'` row the way the server emits one (`carriesSlice` — the plan has
  * waves) — a route that awaits anything fails suites that already passed here.
  */
 
@@ -93,13 +93,13 @@ function fleet(): Fleet {
  * the hooks match `TupleRow.tsx`.
  */
 async function slotsOf(page: Page, wave: string) {
-  const waveRow = page.locator(`[data-wave-row="${wave}"]`);
-  await expect.poll(() => waveRow.count()).toBe(1);
-  return waveRow.evaluate((rowEl) => {
+  const sliceRow = page.locator(`[data-wave-row="${wave}"]`);
+  await expect.poll(() => sliceRow.count()).toBe(1);
+  return sliceRow.evaluate((rowEl) => {
     const kind = rowEl.getAttribute('data-tuple-kind');
     const kindLabel = rowEl.querySelector('[data-tuple-kind-label]');
     // Slot 3 — the item's own name. A wave projects its name as a text `plan`
-    // link with no href (`tupleFromWave`), so it is `[data-tuple-text="plan"]`.
+    // link with no href (`tupleFromSlice`), so it is `[data-tuple-text="plan"]`.
     const nameCell = rowEl.querySelector('[role="gridcell"]:nth-of-type(3)');
     const name = nameCell?.querySelector('[data-tuple-text],[data-tuple-link]') as HTMLElement | null;
     // Slot 4 — the artifact links. A wave of one carries its branch (and, off a
@@ -230,7 +230,7 @@ describe('a wave row is a wave row in every section', () => {
     try {
       // UNCHANGED BY THE RE-KEYING, and the reason it is kept verbatim: both
       // designs agree WORKING never groups by plan. Under #392 that held because
-      // `waveGroupsFor` returns [] for the section; under #398 it holds because
+      // `sliceGroupsFor` returns [] for the section; under #398 it holds because
       // the rows are agents, which no plan heads. A fix that started grouping
       // WORKING — for either design — fails here.
       const workingGrid = page.locator('ul[role="grid"][aria-label="Working — agent branches"]');

@@ -54,7 +54,7 @@ const WAVED_PLAN = `# ${WAVED_TITLE}
  * locates config by `git rev-parse --show-toplevel`, so a fixture nested inside
  * the plot checkout would read plot's own `CLAUDE.md`.
  */
-function gardenWithWaves(): string {
+function gardenWithSlices(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-claims-'));
   fs.cpSync(FIXTURE, dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'docs/plans/2026-08-17-raised-beds.md'), WAVED_PLAN, 'utf8');

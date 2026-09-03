@@ -50,7 +50,7 @@ describe('the agent row does NOT gain the count', () => {
   it('is not part of the row contract', () => {
     // The pairing that matters: most rows name a plan whose design phase closed
     // long ago, so putting a design-time count on the row would attach it to
-    // every one of them. This is a card-only badge, the same split waveSummary
+    // every one of them. This is a card-only badge, the same split sliceSummary
     // already follows.
     expect('rounds' in AgentRowSchema.shape).toBe(false);
     expect('rounds' in CardSchema.shape).toBe(true);

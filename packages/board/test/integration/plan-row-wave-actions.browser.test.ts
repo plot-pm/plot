@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
-import { type AgentRow, type Fleet, type Wave } from '../../src/contract/schema.js';
+import { type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';
 
 /**
  * WHERE A WAVE ROW IS HIDDEN, ITS CONTROL IS NOT — the half a rendered page
@@ -13,7 +13,7 @@ import { type AgentRow, type Fleet, type Wave } from '../../src/contract/schema.
  * wave row also carried an ACTION — *Start work*, the wave's own control,
  * dispatching that single wave. Hiding the row must not hide the control.
  *
- * So a one-wave ELIGIBLE plan's row offers *Start work* (the `WaveActions` `⋯`,
+ * So a one-wave ELIGIBLE plan's row offers *Start work* (the `SliceActions` `⋯`,
  * `data-wave-actions`), exactly as its hidden wave row would have. A MULTI-wave
  * plan's row does NOT — its wave rows still render and still carry their own,
  * and a plan-row control would have to guess which wave it meant.
@@ -37,14 +37,14 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   localDirty: false, localLocked: false, stuck: null, repair: null, ...over,
 });
 
-const wave = (over: Partial<Wave> = {}): Wave => ({
+const wave = (over: Partial<Slice> = {}): Slice => ({
   plan: 'beans', name: 'w1', branches: [], verdict: 'eligible',
-  section: 'not-started', complete: false, planWaveCount: 2, ...over,
+  section: 'not-started', complete: false, planSliceCount: 2, ...over,
 });
 
 /**
  * Two Approved plans in NOT STARTED:
- *   - `beans` declares ONE wave (`planWaveCount: 1`) — its wave row is hidden and
+ *   - `beans` declares ONE wave (`planSliceCount: 1`) — its wave row is hidden and
  *     the plan row carries the wave's verdict AND its *Start work*.
  *   - `peas` declares TWO waves — its wave rows render and carry their own
  *     controls, so the plan row must NOT offer *Start work*.
@@ -57,13 +57,13 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({ branch: 'feature/peas-b', plan: 'peas', planFile: 'p-peas.md', wave: 'Second',
       verdict: 'blocked', waitingOn: 'time', branchUrl: `${GH}/tree/feature/peas-b` }),
   ];
-  const waves: Wave[] = [
+  const waves: Slice[] = [
     // ONE wave — the plan row must carry Start work.
-    wave({ plan: 'beans', name: 'Solo', branches: ['feature/beans-only'], planWaveCount: 1 }),
+    wave({ plan: 'beans', name: 'Solo', branches: ['feature/beans-only'], planSliceCount: 1 }),
     // TWO waves — the wave rows carry their own; the plan row must not.
-    wave({ plan: 'peas', name: 'First', branches: ['feature/peas-a'], planWaveCount: 2 }),
+    wave({ plan: 'peas', name: 'First', branches: ['feature/peas-a'], planSliceCount: 2 }),
     wave({ plan: 'peas', name: 'Second', branches: ['feature/peas-b'],
-      verdict: 'blocked', planWaveCount: 2 }),
+      verdict: 'blocked', planSliceCount: 2 }),
   ];
   return {
     generatedAt: new Date().toISOString(),
@@ -143,7 +143,7 @@ describe('the plan row carries the sole wave’s actions', () => {
     // work*: the plan row carries that act.
     //
     // THE PLAN ROW WEARS EXACTLY ONE `⋯`. This test asserted the opposite until
-    // 2026-08-25: the plan row rendered `WaveActions` as a SIBLING of
+    // 2026-08-25: the plan row rendered `SliceActions` as a SIBLING of
     // `PlanActions`, so it grew two adjacent three-dot buttons — identical to
     // look at, different in what they held, and the operator had to open both
     // to find out which was which. The count below is the whole fix; without it
@@ -205,12 +205,12 @@ describe('the plan row carries the sole wave’s actions', () => {
   });
 
   it('leaves the eligible wave row’s own Start work in place where a wave row still renders', async () => {
-    // `peas`'s first wave is eligible, so its wave row keeps its `WaveActions`
+    // `peas`'s first wave is eligible, so its wave row keeps its `SliceActions`
     // control — hiding a plan's sole-wave control must not touch a real wave row.
     const page = await open();
     try {
-      const firstWave = page.locator('li[data-wave-row="First"]');
-      await expect.poll(() => firstWave.locator('[data-wave-actions]').count(), { timeout: 10_000 })
+      const firstSlice = page.locator('li[data-wave-row="First"]');
+      await expect.poll(() => firstSlice.locator('[data-wave-actions]').count(), { timeout: 10_000 })
         .toBe(1);
     } finally {
       await page.close();

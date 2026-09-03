@@ -410,7 +410,7 @@ export function menuState(items: {
  * them — Review, Open and the worker log were unreachable, and the reader's
  * only route to the PR was the artifact link.
  *
- * `WaveActions` beside it is NOT the same control and does not substitute for
+ * `SliceActions` beside it is NOT the same control and does not substitute for
  * it: that one dispatches the SLICE, and its own call site is gated on
  * `verdict === 'eligible'` for a good reason. This one acts on the BRANCH.
  * Two subjects, two menus, and a row that is both wears both.
@@ -1026,7 +1026,7 @@ export function RowActions({
  * *can I* question left to ask here. What remains is whether the SERVER will
  * act, and where it refuses, `StartWorkButton` says so on itself.
  */
-export function WaveActions({
+export function SliceActions({
   wave,
   card,
   dispatch,
@@ -1106,8 +1106,8 @@ export function WaveActions({
  * The `⋯` menu on a slice the board reports `unsliced-wave` — the ONE act such a
  * slice offers: *Slice this plan*.
  *
- * A `⋯` of its own rather than a slot in `WaveActions`, because the two answer
- * disjoint slices. `WaveActions` is gated on `verdict === 'eligible'` — a slice
+ * A `⋯` of its own rather than a slot in `SliceActions`, because the two answer
+ * disjoint slices. `SliceActions` is gated on `verdict === 'eligible'` — a slice
  * ready to dispatch — and an unsliced slice is precisely the slice that CANNOT be
  * dispatched (several live branches, no single one to hand a worker). They never
  * co-occur, so one row never wears both, and folding reslice into the dispatch
@@ -1165,7 +1165,7 @@ export function ResliceMenu({
         data-reslice-actions={wave}
         aria-haspopup="menu"
         aria-expanded={open}
-        // ALWAYS enabled, unlike `WaveActions`: the item inside always applies to
+        // ALWAYS enabled, unlike `SliceActions`: the item inside always applies to
         // an uncut slice, and where the server refuses, the item — not this
         // trigger — carries the reason.
         aria-label={`Actions for slice ${wave}`}
@@ -1201,7 +1201,7 @@ export function ResliceMenu({
  * is the same answer `startRefusal` gives: waiting for the first fleet scan.
  */
 export function hasEligibleWork(card: Card | null): boolean {
-  return Boolean(card && isApproved(card) && (card.waveSummary?.eligible ?? 0) > 0);
+  return Boolean(card && isApproved(card) && (card.sliceSummary?.eligible ?? 0) > 0);
 }
 
 /**
@@ -1246,8 +1246,8 @@ export function DispatchAllButton({
   // Watch claimed count, same as StartWorkButton — but give up after fewer
   // pulses because a plan-level dispatch may claim several branches and the
   // first claim landing is the confirmation.
-  const claimedRef = useRef(card.waveSummary?.claimed);
-  const claimed = card.waveSummary?.claimed;
+  const claimedRef = useRef(card.sliceSummary?.claimed);
+  const claimed = card.sliceSummary?.claimed;
   const PULSES_BEFORE_GIVING_UP = 3;
 
   useEffect(() => {
@@ -1370,7 +1370,7 @@ export function PlanActions({
   dispatch,
   pulse = 0,
   onApproving,
-  soleWave,
+  soleSlice,
   onStarting,
 }: {
   plan: string;
@@ -1384,7 +1384,7 @@ export function PlanActions({
    * changes.
    *
    * **This exists so a row wears ONE `⋯`.** A sole-slice plan row used to render
-   * `WaveActions` as a SIBLING of this component, so the row grew two adjacent
+   * `SliceActions` as a SIBLING of this component, so the row grew two adjacent
    * three-dot buttons with no way to tell which held which act: the operator had
    * to open both to find out. Two controls that look identical and do different
    * things is worse than either alone — the same defect the header's unlabelled
@@ -1394,8 +1394,8 @@ export function PlanActions({
    * everything else here acts on the PLAN, and this acts on a SLICE. They are
    * separated by a labelled rule rather than flattened.
    */
-  soleWave?: string;
-  /** Threaded to the slice section's `StartWorkButton`; see {@link WaveActions}. */
+  soleSlice?: string;
+  /** Threaded to the slice section's `StartWorkButton`; see {@link SliceActions}. */
   onStarting?: (active: boolean) => void;
   approve?: DispatchInfo;
   /**
@@ -1481,7 +1481,7 @@ export function PlanActions({
   // its own refusal inside — a refusal is not an absence. So the `⋯` opens when a
   // draft act will act OR the plan is deliverable OR it has eligible work, and
   // the buttons below render whenever their own gate passes.
-  const canOpen = draftWillAct || canDeliver || approvedWillShow || Boolean(soleWave);
+  const canOpen = draftWillAct || canDeliver || approvedWillShow || Boolean(soleSlice);
   // The dim button's tooltip names a refusal only when there IS one to name —
   // an act present and declined. The reason of whichever act this plan offers
   // leads, so the sentence points at a real binding rather than a generic one.
@@ -1520,14 +1520,14 @@ export function PlanActions({
       className="relative w-5 shrink-0 text-right"
       onClick={(e) => e.stopPropagation()}
     >
-      {/* `soleWave` joins the render gate, and must: it is the row's ONLY act
+      {/* `soleSlice` joins the render gate, and must: it is the row's ONLY act
           in the ordinary sole-slice case. `hasEligible` reads
-          `card.waveSummary.eligible`, which a payload can leave at 0 while the
+          `card.sliceSummary.eligible`, which a payload can leave at 0 while the
           fleet still reports one eligible slice — and before this the row's
-          trigger came from the SIBLING `WaveActions`, which had no such gate.
+          trigger came from the SIBLING `SliceActions`, which had no such gate.
           Folding the act inward without widening the gate would delete the
           control on exactly the rows this fix is about. */}
-      {(isDraftPlan || canDeliver || hasEligible || soleWave) && (
+      {(isDraftPlan || canDeliver || hasEligible || soleSlice) && (
         <button
           type="button"
           data-plan-actions={plan}
@@ -1605,14 +1605,14 @@ export function PlanActions({
               scanning the menu can see which subject each item takes without
               opening it, which is exactly what two identical `⋯` buttons could
               not tell them. */}
-          {soleWave && dispatch && (
+          {soleSlice && dispatch && (
             <>
               <div
                 role="separator"
-                data-wave-section={soleWave}
+                data-wave-section={soleSlice}
                 className="mt-1 border-t border-slate-200 px-2 pb-0.5 pt-1 text-[10px] uppercase tracking-wide text-slate-400 dark:border-slate-700 dark:text-slate-500"
               >
-                Wave {soleWave}
+                Slice {soleSlice}
               </div>
               <div role="menuitem" className="px-2 py-1 text-left">
                 <StartWorkButton

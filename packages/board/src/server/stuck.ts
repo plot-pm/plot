@@ -68,7 +68,7 @@ export interface StuckInput {
    * Passed in for the reason `claimedBy` is: only the caller walks the slice, and
    * this function is given one branch.
    */
-  waveSiblings?: readonly string[];
+  sliceSiblings?: readonly string[];
   /**
    * What the host says about the PR, or null where there is none.
    *
@@ -103,7 +103,7 @@ export interface StuckInput {
  */
 function noCiEvidence(): Pick<
   Stuck,
-  'changedPaths' | 'failingChecks' | 'runHistory' | 'claimedBy' | 'waveSiblings'
+  'changedPaths' | 'failingChecks' | 'runHistory' | 'claimedBy' | 'sliceSiblings'
 > {
   // `claimedBy: []` rides along here rather than being repeated in four arms:
   // every state but `double-claimed` has exactly one plan, so an empty list is
@@ -112,7 +112,7 @@ function noCiEvidence(): Pick<
     changedPaths: [], failingChecks: [], runHistory: [],
     // Empty on every state but the one it names — stated once here rather than
     // repeated in five arms.
-    claimedBy: [], waveSiblings: [],
+    claimedBy: [], sliceSiblings: [],
   };
 }
 
@@ -208,7 +208,7 @@ export function stuckState(input: StuckInput): Stuck | null {
     return {
       ...noCiEvidence(),
       state: 'double-claimed',
-      waveSiblings: [],
+      sliceSiblings: [],
       // NAMED, and sorted so the row reads the same on every pulse — the same
       // stability rule `conflicts` follows one arm down. AFTER the spread, which
       // supplies `claimedBy: []` for the four states that have one plan.
@@ -229,13 +229,13 @@ export function stuckState(input: StuckInput): Stuck | null {
   // Reported and never repaired: slicing needs NAMES for the new slices, which is
   // judgement — so it is neither a licensed deterministic repair nor a script to
   // wrap. See `StuckStateSchema`.
-  if ((input.waveSiblings?.length ?? 0) > 1) {
+  if ((input.sliceSiblings?.length ?? 0) > 1) {
     return {
       ...noCiEvidence(),
       state: 'unsliced-wave',
       // SORTED, so the row reads the same on every pulse — the stability rule
       // `conflicts` follows one arm down.
-      waveSiblings: [...input.waveSiblings!].sort(),
+      sliceSiblings: [...input.sliceSiblings!].sort(),
       conflicts: [],
       localAhead: 0,
     };
@@ -293,7 +293,7 @@ export function stuckState(input: StuckInput): Stuck | null {
       // One plan claims it and its slice is its own, like every state but the two
       // that name those conditions.
       claimedBy: [],
-      waveSiblings: [],
+      sliceSiblings: [],
       conflicts: [],
       localAhead: 0,
       // THE THREE LINES, AND NO FOURTH. What failed, what the branch touches,

@@ -4,9 +4,9 @@ import {
   type Fleet,
   type FleetSprint,
   type WaitingGroup,
-  type Wave,
-  UNNAMED_WAVE,
-  isOneWavePlan,
+  type Slice,
+  UNNAMED_SLICE,
+  isOneSlicePlan,
   FLEET_CONTROLS_DEFAULT,
 } from '../../contract/schema.js';
 
@@ -57,16 +57,16 @@ import { splitBranch } from '../lib/tuple-row.js';
 export { splitBranch };
 import { isCollapsible, readCollapsed, writeCollapsed } from '../lib/agent-rows/collapse.js';
 import { ActivityEcho, ChangeMarks, type WatchedState, activeRowKeys, changedRows, groupPace } from '../lib/agent-rows/activity.js';
-import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, showPlanHeading, showsWaveFold, sortByWaiting, ungroupedRows, waveGroupsFor, wavesElsewhere, waveKeyOf } from '../lib/agent-rows/sections.js';
+import { GROUPS, groupByPlan, planWaitingDays, rowsBySection, sectionTally, showPlanHeading, showsSliceFold, sortByWaiting, ungroupedRows, sliceGroupsFor, slicesElsewhere, sliceKeyOf } from '../lib/agent-rows/sections.js';
 import { shrinkNote } from '../lib/agent-rows/actions.js';
 import { HOST_ANSWER_HINT, HOST_CANNOT_REPORT_HINT, hostAnswer, hostCannotReportCi, inMachineSection, issueNote, prNote, scanHostNote } from '../lib/agent-rows/host-notes.js';
 import { isUnbegun, rowKey } from '../lib/agent-rows/row-identity.js';
-import { WAVE_LINKING_KINDS, groupByWave, waveLabel } from '../lib/agent-rows/waves.js';
+import { SLICE_LINKING_KINDS, groupBySlice, sliceLabel } from '../lib/agent-rows/slices.js';
 // THE ROW ESTATE, in three modules beside this one. `AgentList` is the shell:
 // it reads the fleet, decides the sections, and mounts the rows — the rows,
 // their marks and their menus are declared next door.
 import { ActivityMark } from '../lib/agent-rows/marks.js';
-import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, WaveRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
+import { HeaderRow, IssueRowView, PlanLink, PlanRow, Row, SliceRow, RegistryRow, type AgentListProps } from '../lib/agent-rows/rows.js';
 import { workingAgentRows, brokenAgentRows } from '../lib/agent-rows/working-agents.js';
 import { hasExceptions } from '../lib/agent-rows/stuck.js';
 // RE-EXPORTED, not redefined — the same allowance `splitBranch` above is given.
@@ -81,33 +81,33 @@ export type { AgentListProps };
 /**
  * Find the sole slice for a plan, if the plan has exactly one slice.
  *
- * Returns the slice object when `planWaveCount === 1`, null otherwise.
+ * Returns the slice object when `planSliceCount === 1`, null otherwise.
  * Used to decide whether a plan row should carry the slice's status —
  * which it does when the slice adds no information beyond what the plan
  * row already says.
  *
  * Looks up by the plan's DISPLAY name (the basename with date stripped),
- * matching what `deriveWaves` writes into `Wave.plan`.
+ * matching what `deriveSlices` writes into `Wave.plan`.
  */
-export function soleWaveFor(planName: string, waves: Wave[] | undefined): Wave | null {
-  if (!waves) return null;
+export function soleSliceFor(planName: string, slices: Slice[] | undefined): Slice | null {
+  if (!slices) return null;
   // A plan may have multiple slices. Find ANY slice for this plan and check
-  // its planWaveCount — every slice of a plan shares the same count.
-  const w = waves.find((wave) => wave.plan === planName);
-  return w && isOneWavePlan(w) ? w : null;
+  // its planSliceCount — every slice of a plan shares the same count.
+  const w = slices.find((wave) => wave.plan === planName);
+  return w && isOneSlicePlan(w) ? w : null;
 }
 
 /**
  * What the server writes where a plan divides its work into no slices at all.
  *
- * `waveLabel` declines to print it, and this is why the string is named rather
+ * `sliceLabel` declines to print it, and this is why the string is named rather
  * than inlined: it is a value the SERVER writes (`wave.name || '(unnamed)'`),
  * so the client is matching a protocol constant and not a display choice.
  */
 // The ONE definition lives in the contract — the server writes this value and
 // both clients test for it. Imported for local use and re-exported, because
 // modules already import it from here.
-export { UNNAMED_WAVE };
+export { UNNAMED_SLICE };
 
 
 
@@ -400,12 +400,12 @@ export function AgentList({
   // travel with it where one exists.
   const brokenRows = brokenAgentRows(fleet?.agents ?? [], rowByBranch);
 
-  const [openWaves, setOpenWaves] = useState<Set<string>>(() => new Set());
-  const waveKey = waveKeyOf;
-  const toggleWave = (plan: string, wave: string) => {
-    setOpenWaves((prev) => {
+  const [openSlices, setOpenSlices] = useState<Set<string>>(() => new Set());
+  const sliceKey = sliceKeyOf;
+  const toggleSlice = (plan: string, wave: string) => {
+    setOpenSlices((prev) => {
       const next = new Set(prev);
-      const k = waveKey(plan, wave);
+      const k = sliceKey(plan, wave);
       if (next.has(k)) next.delete(k);
       else next.add(k);
       return next;
@@ -768,13 +768,13 @@ export function AgentList({
           ? rowsBySection(fleet.rows)
           : sectionedRows;
         // THE SERVER-DERIVED SLICES, bound once beside the rows so every
-        // `waveGroupsFor`/`ungroupedRows` call below asks the same list rather
-        // than re-reading `fleet.waves` seven times. `undefined` on a cast
+        // `sliceGroupsFor`/`ungroupedRows` call below asks the same list rather
+        // than re-reading `fleet.slices` seven times. `undefined` on a cast
         // payload from a pre-#349 server — the field the client CASTS rather
         // than parses, so its schema `.default([])` never fired — and
-        // `waveGroupsFor` falls back to the row's own state for exactly that
+        // `sliceGroupsFor` falls back to the row's own state for exactly that
         // case. See `the-sections-ask-the-wave`.
-        const waves = fleet.waves; return GROUPS.map(({ key, icon, label, hint }) => {
+        const slices = fleet.slices; return GROUPS.map(({ key, icon, label, hint }) => {
         // EVERY SECTION IS ITS `group`, WAITING ON A MACHINE INCLUDED. It
         // asked a second question until 2026-08-20 — admitting any row that
         // carried a process — and that is what listed live agents as machines
@@ -824,7 +824,7 @@ export function AgentList({
         // wins — a jump names ONE slice, and where several plans have live slices
         // the mark still names its target in its label, which is the same
         // degradation the query already has for a row on another tab.
-        const workingWaveListPlan = workingSection
+        const workingSliceListPlan = workingSection
           ? workingRows.find(({ row: r }) => r?.wave && r?.plan)?.row?.plan
           : undefined;
         // WAITING ON YOU is the section for what needs a human DECISION, and an
@@ -927,20 +927,20 @@ export function AgentList({
         // while the reader counted plans. `sectionTally` derives both figures
         // the way the component renders, group by group, so the header equals
         // the section by construction: `plans` is the visible-line count,
-        // `waves` the scope a reader reaches by expanding every head.
+        // `slices` the scope a reader reaches by expanding every head.
         //
         // WORKING is the exception the plan preserves (Done when #4): it renders
         // the REGISTRY, one row per agent, and its number is `agents.length` —
         // `the-working-section-shows-every-worker`, slice Counted (#403). It has
         // no plan grouping to fold, so it keeps the single figure.
         const tallyOf = workingSection
-          ? { plans: countOf, waves: countOf, differ: false }
-          : sectionTally(rows, key, waves, issues.length);
+          ? { plans: countOf, slices: countOf, differ: false }
+          : sectionTally(rows, key, slices, issues.length);
         // WHERE THE TWO AGREE, ONE NUMBER — an ungrouped or empty section gains
         // no redundant clause, so QUIET at 0/0 stays `(0)` and never
         // `(0 plans · 0 slices)` (Done when #3). Where they differ, both, named.
         const shownLabel = tallyOf.differ
-          ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.waves} slice${tallyOf.waves === 1 ? '' : 's'})`
+          ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.slices} slice${tallyOf.slices === 1 ? '' : 's'})`
           : `(${tallyOf.plans})`;
         // THE HIDDEN SUFFIX. A filtered section says what it withheld, so
         // `none` is never the whole answer when rows exist and the reader has
@@ -1113,7 +1113,7 @@ export function AgentList({
             <ul
               role="grid"
               aria-label={`${label} — agent branches`}
-              {...(workingWaveListPlan ? { 'data-wave-list': workingWaveListPlan } : {})}
+              {...(workingSliceListPlan ? { 'data-wave-list': workingSliceListPlan } : {})}
               className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40"
             >
               <HeaderRow />
@@ -1136,7 +1136,7 @@ export function AgentList({
                       key={agent.session || `branch:${agent.branch}` || `wt:${agent.worktree}`}
                       agent={agent}
                       row={row}
-                      waves={waves}
+                      slices={slices}
                       onOpenPlan={onOpenPlan}
                       card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
                       dispatch={dispatch}
@@ -1208,7 +1208,7 @@ export function AgentList({
                   // rather than handling a mixture.
                   //
                   // The operator's observation, 2026-08-20: *"a plan group will
-                  // barely have mixed WAVES. Once a plan is approved the waves
+                  // barely have mixed WAVES. Once a plan is approved the slices
                   // land in NOT STARTED."* A plan's branches move through the
                   // lifecycle together — in review here, then dispatchable in NOT
                   // STARTED, then working, then done — so a group holding some
@@ -1220,10 +1220,10 @@ export function AgentList({
                   // and every row renders as itself. Nothing is hidden, and the
                   // plan row appears only where it describes the whole set.
                   const planHeads = !countsPlans && Boolean(group.plan)
-                    && ungroupedRows(group.rows, key, waves).length === 0
-                    && waveGroupsFor(group.rows, key, waves).length > 0;
+                    && ungroupedRows(group.rows, key, slices).length === 0
+                    && sliceGroupsFor(group.rows, key, slices).length > 0;
                   if (countsPlans) {
-                    const foldable = showsWaveFold(group);
+                    const foldable = showsSliceFold(group);
                     // A FOLD WITH EXCEPTIONS STAYS OPEN — the reader must see
                     // the conflict, claim, or structural issue the fold holds.
                     // The toggle still works (hasExceptions is a DEFAULT, not a
@@ -1286,7 +1286,7 @@ export function AgentList({
                       >
                         <PlanRow
                           group={group}
-                          waves={fleet.waves}
+                          slices={fleet.slices}
                           onOpenPlan={onOpenPlan}
                           expanded={expanded}
                           onToggle={foldable ? () => togglePlan(group.plan) : undefined}
@@ -1312,11 +1312,11 @@ export function AgentList({
                           // carries one of two sections while a row carries one of
                           // six, so the section comparison called a head's own
                           // slice elsewhere whenever the row needed attention.
-                          elsewhere={wavesElsewhere(fleet.waves, group.plan, key,
+                          elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
                             new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
                           // A ONE-SLICE plan shows its slice's verdict on this row
                           // instead of nesting a slice row beneath it.
-                          soleWave={soleWaveFor(group.plan, waves)}
+                          soleSlice={soleSliceFor(group.plan, slices)}
                           // …and the hidden slice row's *Start work* rides here
                           // too, dispatching that one slice.
                           onStarting={onStarting}
@@ -1357,7 +1357,7 @@ export function AgentList({
                                 one this section had been rendering as its own
                                 branches all along.
 
-                                `groupByWave` partitions the plan's rows; each
+                                `groupBySlice` partitions the plan's rows; each
                                 partition is ONE row naming the slice, carrying
                                 the scan's verdict as its status and its branches
                                 as its artifact links. A slice holding one branch
@@ -1368,7 +1368,7 @@ export function AgentList({
                                 and it keeps its own row.
 
                                 `isUnbegun` already draws this line and
-                                `waveSummaryFor` already refuses to count a
+                                `sliceSummaryFor` already refuses to count a
                                 deferred branch as a slice: *"not a wave nobody
                                 reached, a branch somebody set down"*. The slice
                                 grouping has to honour it, because a slice row
@@ -1385,21 +1385,21 @@ export function AgentList({
                                 the verdict migrated to the plan row, the name did
                                 not. */}
                             {(() => {
-                              const oneWave = soleWaveFor(group.plan, waves);
-                              const waveGroups = groupByWave(group.rows.filter(isUnbegun));
-                              return waveGroups.map((wg) => {
+                              const oneSlice = soleSliceFor(group.plan, slices);
+                              const sliceGroups = groupBySlice(group.rows.filter(isUnbegun));
+                              return sliceGroups.map((wg) => {
                               const many = wg.rows.length > 1;
-                              const waveOpen = many
-                                ? openWaves.has(waveKey(group.plan, wg.wave))
+                              const sliceOpen = many
+                                ? openSlices.has(sliceKey(group.plan, wg.wave))
                                 : null;
                               return (
                                 <li key={wg.wave} className="block">
-                                  <WaveRow
+                                  <SliceRow
                                     group={wg}
                                     plan={group.plan}
                                     waitingDays={planWaitingDays(group)}
-                                    expanded={waveOpen}
-                                    onToggle={many ? () => toggleWave(group.plan, wg.wave) : undefined}
+                                    expanded={sliceOpen}
+                                    onToggle={many ? () => toggleSlice(group.plan, wg.wave) : undefined}
                                     active={wg.rows.some((r) => active.has(rowKey(r)))}
                                     marked={wg.rows.some((r) => marked.has(rowKey(r)))}
                                     // THE PLAN'S CARD, looked up by the group's
@@ -1412,12 +1412,12 @@ export function AgentList({
                                     // slice row withholds it. The slice row exists
                                     // for its NAME — a branch row cannot carry a
                                     // slice name — not for its controls.
-                                    card={oneWave ? null : (cardForPlanFile?.(group.planFile) ?? null)}
-                                    dispatch={oneWave ? undefined : dispatch}
+                                    card={oneSlice ? null : (cardForPlanFile?.(group.planFile) ?? null)}
+                                    dispatch={oneSlice ? undefined : dispatch}
                                     reslice={reslice}
                                     pulse={pulse}
                                     onStarting={onStarting}
-                                    waves={waves}
+                                    slices={slices}
                                     onExpandSection={expandSection}
                                   />
                                   {/* The branches of a MULTI-branch slice, folded
@@ -1428,7 +1428,7 @@ export function AgentList({
                                       link on the row above, and a fold over one
                                       row the reader can see is the control this
                                       estate has removed twice. */}
-                                  {many && waveOpen && (
+                                  {many && sliceOpen && (
                                     <ul
                                       role="presentation"
                                       data-wave-branch-list={wg.wave || '(unnamed)'}
@@ -1444,7 +1444,7 @@ export function AgentList({
                                           // one line up, so a bare `open` here
                                           // contradicts it rather than adding to
                                           // it.
-                                          inWaveGroup
+                                          inSliceGroup
                                           card={cardForPlanFile?.(r.planFile) ?? null}
                                           dispatch={dispatch}
                                           implement={implement}
@@ -1568,7 +1568,7 @@ export function AgentList({
                     {planHeads && (
                       <PlanRow
                         group={group}
-                        waves={fleet.waves}
+                        slices={fleet.slices}
                         onOpenPlan={onOpenPlan}
                         // THE FRESHEST BRANCH CLOCK, because `waitingDays` is
                         // null here.
@@ -1618,12 +1618,12 @@ export function AgentList({
                         expanded={
                           hasExceptions(group.rows)
                             ? true
-                            : (waveGroupsFor(group.rows, key, waves).length > 1
+                            : (sliceGroupsFor(group.rows, key, slices).length > 1
                               ? openPlans.has(`open:${group.plan}`)
                               : !openPlans.has(`shut:${group.plan}`))
                         }
                         onToggle={() => togglePlan(
-                          waveGroupsFor(group.rows, key, waves).length > 1
+                          sliceGroupsFor(group.rows, key, slices).length > 1
                             ? `open:${group.plan}` : `shut:${group.plan}`,
                         )}
                         active={group.rows.some((r) => active.has(rowKey(r)))}
@@ -1641,11 +1641,11 @@ export function AgentList({
                         // section (`key`). A DONE head whose plan also has an
                         // unstarted slice says so here rather than reading as a
                         // plan wholly done.
-                        elsewhere={wavesElsewhere(fleet.waves, group.plan, key,
+                        elsewhere={slicesElsewhere(fleet.slices, group.plan, key,
                           new Set(group.rows.map((r) => r.wave).filter(Boolean)))}
                         // A ONE-SLICE plan shows its slice's verdict on this row
                         // instead of nesting a slice row beneath it.
-                        soleWave={soleWaveFor(group.plan, waves)}
+                        soleSlice={soleSliceFor(group.plan, slices)}
                         // …and the hidden slice row's *Start work* rides here
                         // too, dispatching that one slice.
                         onStarting={onStarting}
@@ -1709,7 +1709,7 @@ export function AgentList({
                         A FOLD WITH EXCEPTIONS STAYS OPEN — same logic as the
                         `expanded` prop above, and the two MUST agree or the
                         caret says one thing while the content says another. */}
-                    {(!planHeads || hasExceptions(group.rows) || (waveGroupsFor(group.rows, key, waves).length > 1
+                    {(!planHeads || hasExceptions(group.rows) || (sliceGroupsFor(group.rows, key, slices).length > 1
                       ? openPlans.has(`open:${group.plan}`)
                       : !openPlans.has(`shut:${group.plan}`))) && (
                     <ul
@@ -1745,7 +1745,7 @@ export function AgentList({
                           `Implementation`. Grouping is what answers it: one slice
                           row, its PRs beneath. A LONE reviewable branch stays a
                           PR row, because there is no set to name — the same rule
-                          `showsWaveFold` applies, and the same one that makes a
+                          `showsSliceFold` applies, and the same one that makes a
                           single-branch slice one row in NOT STARTED.
                           
                           The slice can appear in BOTH sections, deliberately: the
@@ -1758,24 +1758,24 @@ export function AgentList({
                            that slice, and its name is part of their identity —
                            the verdict migrated to the plan row, the name did
                            not. See NOT STARTED for the longer form. */
-                        const waveGroups = waveGroupsFor(group.rows, key, waves);
-                        return waveGroups.map((wg) => {
+                        const sliceGroups = sliceGroupsFor(group.rows, key, slices);
+                        return sliceGroups.map((wg) => {
                         // A SLICE OF ONE NEEDS NO FOLD — its single branch is
                         // already named in slot 4, so a control revealing a row
                         // the reader can see is the noise this estate removed
                         // twice. Measured: all 12 slices here hold one branch.
                         const many = wg.rows.length > 1;
-                        const waveOpen = many
-                          ? openWaves.has(waveKey(group.plan, wg.wave))
+                        const sliceOpen = many
+                          ? openSlices.has(sliceKey(group.plan, wg.wave))
                           : null;
                         return (
                           <li key={`wave:${wg.wave}`} className="block">
-                            <WaveRow
+                            <SliceRow
                               group={wg}
                               plan={group.plan}
                               waitingDays={planWaitingDays(group)}
-                              expanded={waveOpen}
-                              onToggle={many ? () => toggleWave(group.plan, wg.wave) : undefined}
+                              expanded={sliceOpen}
+                              onToggle={many ? () => toggleSlice(group.plan, wg.wave) : undefined}
                               active={wg.rows.some((r) => active.has(rowKey(r)))}
                               marked={wg.rows.some((r) => marked.has(rowKey(r)))}
                               // NO `Start work` HERE: these branches are already
@@ -1810,10 +1810,10 @@ export function AgentList({
                               onOpenPlan={onOpenPlan}
                               onRevealBranch={onRevealBranch}
                               planHeaded={planHeads}
-                              waves={waves}
+                              slices={slices}
                               onExpandSection={expandSection}
                             />
-                            {many && waveOpen && (
+                            {many && sliceOpen && (
                               <ul
                                 role="presentation"
                                 data-wave-branch-list={wg.wave || '(unnamed)'}
@@ -1825,7 +1825,7 @@ export function AgentList({
                                     row={r}
                                     onOpenPlan={onOpenPlan}
                                     inPlanGroup
-                                    inWaveGroup
+                                    inSliceGroup
                                     card={cardForPlanFile?.(r.planFile) ?? null}
                                     dispatch={dispatch}
                                     implement={implement}
@@ -1846,10 +1846,10 @@ export function AgentList({
                         );
                       });
                       })()}
-                      {ungroupedRows(group.rows, key, waves).map((r) =>
+                      {ungroupedRows(group.rows, key, slices).map((r) =>
                         // THE SECTION DECIDED GROUPING; THE ROW DECIDES ITS KIND.
                         //
-                        // `waveGroupsFor` returns nothing for WORKING and WAITING
+                        // `sliceGroupsFor` returns nothing for WORKING and WAITING
                         // ON A MACHINE on purpose — those sections order by agent
                         // and by build, and must not bury unrelated slices under
                         // plan heads. That grouping decision is right and stays.
@@ -1859,16 +1859,16 @@ export function AgentList({
                         // BRANCH row — was the defect: in WORKING the branch took
                         // slot 3 and the slice's name was demoted to a badge, so the
                         // same slice read as a slice in NOT STARTED and as a branch
-                        // here. `groupByWave([r])` builds the one-row `WaveGroup`
-                        // `WaveRow` already renders in NOT STARTED, and `soleRow`
+                        // here. `groupBySlice([r])` builds the one-row `SliceGroup`
+                        // `SliceRow` already renders in NOT STARTED, and `soleRow`
                         // is what carries the branch, its PR, and the worker facts
                         // (`worker running (pid …)`, the live-worker status) onto
                         // the slice row. `planHeaded={planHeads}` is `false` here,
                         // so slot 4 keeps the plan link a WORKING slice would lose.
                         r.kind === 'wave' ? (
-                          <WaveRow
+                          <SliceRow
                             key={rowKey(r)}
-                            group={groupByWave([r])[0]}
+                            group={groupBySlice([r])[0]}
                             plan={r.plan}
                             waitingDays={r.waitingDays}
                             // No fold — a slice of one has nothing hidden to reveal.
@@ -1890,7 +1890,7 @@ export function AgentList({
                             // WORKING draws no plan head, so the plan link belongs
                             // on the slice row's slot 4.
                             planHeaded={planHeads}
-                            waves={waves}
+                            slices={slices}
                             onExpandSection={expandSection}
                           />
                         ) : (
@@ -1951,7 +1951,7 @@ export function AgentList({
                           // a slice*, because the projection is what decides that
                           // and this adapter must not form a second opinion about
                           // it — the rule `tupleFromRow` states about `row.kind`.
-                          waveName={WAVE_LINKING_KINDS.has(r.kind) ? null : waveLabel(r)}
+                          sliceName={SLICE_LINKING_KINDS.has(r.kind) ? null : sliceLabel(r)}
                           onRevealBranch={onRevealBranch}
                           highlighted={r.branch === highlightBranch}
                         />
@@ -2014,7 +2014,7 @@ export function AgentList({
                   key={agent.session || `branch:${agent.branch}` || `wt:${agent.worktree}`}
                   agent={agent}
                   row={row}
-                  waves={waves}
+                  slices={slices}
                   onOpenPlan={onOpenPlan}
                   card={row ? cardForPlanFile?.(row.planFile) ?? null : null}
                   dispatch={dispatch}

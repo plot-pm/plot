@@ -156,7 +156,7 @@ describe('PlanMetaSchema — the ceremony fields the board carries', () => {
   });
 });
 
-describe('WaveSummarySchema — plan shape and git occupancy, kept apart', () => {
+describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () => {
   const base = {
     slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md',
   } as const;
@@ -166,14 +166,14 @@ describe('WaveSummarySchema — plan shape and git occupancy, kept apart', () =>
     // valid card.
     const card = CardSchema.parse({
       ...base,
-      waveSummary: { waves: 2, branches: 3, claimed: 1, eligible: 2, deferred: 0 },
+      sliceSummary: { waves: 2, branches: 3, claimed: 1, eligible: 2, deferred: 0 },
     });
-    expect(card.waveSummary?.claimed).toBe(1);
-    expect(card.waveSummary?.eligible).toBe(2);
+    expect(card.sliceSummary?.claimed).toBe(1);
+    expect(card.sliceSummary?.eligible).toBe(2);
     const bare = CardSchema.parse({
       slug: 'y', title: 'Y', type: 'docs', phase: 'Design', path: 'docs/plans/y.md',
     });
-    expect(bare.waveSummary).toBeUndefined();
+    expect(bare.sliceSummary).toBeUndefined();
   });
 
   it('accepts a summary with NO occupancy counts — absent is not zero', () => {
@@ -183,13 +183,13 @@ describe('WaveSummarySchema — plan shape and git occupancy, kept apart', () =>
     // exact confusion this schema was changed to remove — a card asserting
     // "nobody is working on this" when it has not looked.
     const card = CardSchema.parse({
-      ...base, waveSummary: { waves: 1, branches: 2, deferred: 0 },
+      ...base, sliceSummary: { waves: 1, branches: 2, deferred: 0 },
     });
-    expect(card.waveSummary?.claimed).toBeUndefined();
-    expect(card.waveSummary?.eligible).toBeUndefined();
+    expect(card.sliceSummary?.claimed).toBeUndefined();
+    expect(card.sliceSummary?.eligible).toBeUndefined();
     // Shape survives without git: these come from the plan file and stay true
     // when the scan cannot run at all.
-    expect(card.waveSummary?.branches).toBe(2);
+    expect(card.sliceSummary?.branches).toBe(2);
   });
 });
 

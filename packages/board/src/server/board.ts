@@ -19,7 +19,7 @@ import {
   type StoryCardInput,
   type FleetReading,
   type PlanMeta,
-  type WaveSummary } from '../contract/schema.js';
+  type SliceSummary } from '../contract/schema.js';
 import {
   allSlicesMerged,
   planStatus as decidePlanStatus,
@@ -787,15 +787,15 @@ const collectBranchPlans = async (
  * open branches are outstanding work but not startable work, and conflating
  * them would answer a different question than the one a tile is asked.
  */
-export function summariseFromPulse(meta: PlanMeta, pulse: FleetReading | null): WaveSummary {
+export function summariseFromPulse(meta: PlanMeta, pulse: FleetReading | null): SliceSummary {
   let branches = 0, deferred = 0;
-  for (const w of meta.waves) {
+  for (const w of meta.slices) {
     for (const b of w.branches) {
       if (b.deferred) deferred += 1;
       else branches += 1;
     }
   }
-  const summary: WaveSummary = { waves: meta.waves.length, branches, deferred };
+  const summary: SliceSummary = { slices: meta.slices.length, branches, deferred };
 
   // The pulse names plans by basename (symlink-resolved), while meta.file is an
   // absolute real path — so the basename is the join key both sides agree on.
@@ -818,7 +818,7 @@ export function summariseFromPulse(meta: PlanMeta, pulse: FleetReading | null): 
  * The deliverable rule, re-exported from `@plot-pm/domain`.
  *
  * Re-exported rather than imported directly by each caller so this module stays
- * the one place the board names the rule — the same shape `deriveWaves` and
+ * the one place the board names the rule — the same shape `deriveSlices` and
  * `planStatus` beside it already have.
  */
 export { allSlicesMerged, type Landed } from '@plot-pm/domain';
@@ -851,7 +851,7 @@ function anyBranchClaimed(meta: PlanMeta, pulse: FleetReading | null): boolean {
  * Composed from the plan file (`meta`: phase, review channel, `Started:` count)
  * and the pulse (merge state, claim refs). It returns a string and touches
  * nothing — no phase is flipped, no record written — exactly as `allSlicesMerged`
- * returns a boolean and `deriveWaves` returns slices.
+ * returns a boolean and `deriveSlices` returns slices.
  *
  * The phase is read FIRST, and three of the seven are read straight off it:
  * `released`, `delivered`, and the two draft-side values. Those three can never
@@ -1754,7 +1754,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // one-slice plan and wrong about the rest: whether anyone is working on a
     // single-slice plan's one branch is the same question, and this repo's plans
     // are mostly single-slice. What the tile renders stays a display decision.
-    if (meta.waves.length > 0) card.waveSummary = summariseFromPulse(meta, pulse);
+    if (meta.slices.length > 0) card.sliceSummary = summariseFromPulse(meta, pulse);
     // Only where this machine actually has one. An empty array and "no
     // worktrees here" are the same statement, so the field is simply absent
     // rather than present-and-empty — the modal then renders nothing, which is
@@ -1863,7 +1863,7 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     // the same hand overwriting it in index.ts. Unavailable here means *this
     // walker cannot say*, never *the answer is no*, exactly as the seven above.
     // Whether a given plan has eligible work rides on each card's own
-    // `waveSummary`, which the fleet fills in, not this walker.
+    // `sliceSummary`, which the fleet fills in, not this walker.
     implement: { available: false, reason: '' },
     // And once more for dropping a broken agent's manifest — the ninth write
     // route, and the same socket question: who can reach localhost can remove a

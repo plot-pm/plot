@@ -61,7 +61,7 @@ const WAVED_PLAN = `# ${WAVED_TITLE}
  * garden's plan count is asserted by a sibling suite, and a plan that exists
  * for one file's question should not make every other file re-count.
  */
-function gardenWithWaves(): string {
+function gardenWithSlices(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-waves-'));
   fs.cpSync(FIXTURE, dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'docs/plans/2026-08-17-raised-beds.md'), WAVED_PLAN, 'utf8');
@@ -71,9 +71,9 @@ function gardenWithWaves(): string {
 describe('Start work refuses before the click when it cannot know', () => {
   // THE STATE IS SERVED, and the refusal is on the CARD.
   //
-  // `startRefusal` reads `card.waveSummary`: a summary whose `claimed` and
+  // `startRefusal` reads `card.sliceSummary`: a summary whose `claimed` and
   // `eligible` are ABSENT is a plan no pulse has reached, which is what
-  // *waiting for the first fleet scan* means. `WaveSummarySchema` makes exactly
+  // *waiting for the first fleet scan* means. `SliceSummarySchema` makes exactly
   // those two optional for this reason — its own words: *`claimed: 0` and "no
   // pulse has landed yet" must not render identically*.
   //
@@ -104,7 +104,7 @@ describe('Start work refuses before the click when it cannot know', () => {
               slug: 'raised-beds', title: WAVED_TITLE, type: 'feature',
               phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
               // `claimed` and `eligible` absent: no pulse has reached this plan.
-              waveSummary: { waves: 2, branches: 2, deferred: 0 },
+              sliceSummary: { waves: 2, branches: 2, deferred: 0 },
             })],
           })],
         }),
@@ -162,7 +162,7 @@ describe('Start work refuses before the click when it cannot know', () => {
             cards: [buildCard({
               slug: 'raised-beds', title: WAVED_TITLE, type: 'feature',
               phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
-              waveSummary: { waves: 2, branches: 2, deferred: 0 },
+              sliceSummary: { waves: 2, branches: 2, deferred: 0 },
             })],
           })],
         }),

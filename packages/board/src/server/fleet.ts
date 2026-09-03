@@ -26,7 +26,7 @@ import {
   type StuckRun,
   type WaitingGroup,
   type WaitingOn,
-  type Wave,
+  type Slice,
   type SliceVerdict,
   type WorkerState,
   type SprintCounts,
@@ -3336,7 +3336,7 @@ export function waitingOnFor(
  * renders exactly as the board did before the field existed.
  */
 // THE VERDICTS ARE DOMAIN RULES, RE-EXPORTED HERE. `startabilityVerdict` and
-// `waveVerdict` moved to `packages/domain/src/rules/verdict.ts`: a verdict
+// `sliceVerdict` moved to `packages/domain/src/rules/verdict.ts`: a verdict
 // answers a question about a Slice, which is a judgement rather than a
 // rendering concern, and this file is the view layer.
 //
@@ -3344,6 +3344,14 @@ export function waitingOnFor(
 // that this file holds no COPY, and a re-export is not one — it is the same
 // function, named here for the callers that already import it. Changing forty
 // imports would make a move look like a rename.
+//
+// ALIASED, AND THE ALIAS IS LOAD-BEARING. The domain exports TWO different
+// functions whose names collide under this rename: `waveVerdict`
+// (`rules/verdict.ts`, one string argument, parses the scan's word) and
+// `sliceVerdict` (`rules/eligible.ts`, two arguments, decides a verdict from
+// readings). This file wants the FIRST. Dropping the alias binds the name to
+// the second, and tsc reports it as an arity error rather than as the wrong
+// function — which is what it actually is.
 import {
   createPulse,
   divisorFor,
@@ -3353,12 +3361,12 @@ import {
   sliceReadings,
   startabilityVerdict,
   startPulse,
-  waveVerdict,
+  waveVerdict as sliceVerdict,
   type RunningPulse,
 } from '@plot-pm/domain';
 import { clockSystem } from '@plot-pm/domain/adapters';
 
-export { startabilityVerdict, waveVerdict };
+export { startabilityVerdict, sliceVerdict };
 export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
 
 
@@ -3374,7 +3382,7 @@ export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
  * answer they read instead.
  *
  * DERIVED ONCE, HERE, FROM THE SCAN. `verdict` is the scan's own, parsed
- * through the same `waveVerdict` gate the row uses — never re-computed.
+ * through the same `sliceVerdict` gate the row uses — never re-computed.
  * `complete` reads the branch states this pulse already carries; `section`
  * follows from `complete`. No host call, no second scan: every field is a
  * reading of `pulse`, which `rowsFromPulse` has already been handed.
@@ -3391,15 +3399,15 @@ export type { StartabilityVerdict, BriefState } from '@plot-pm/domain';
  * and this maps that onto the `Wave` the view groups and renders. A rule that
  * named sections would be deciding where a row is drawn.
  */
-export function deriveWaves(pulse: FleetReading): Wave[] {
+export function deriveSlices(pulse: FleetReading): Slice[] {
   return sliceReadings(pulse).map((slice) => ({
     plan: slice.plan,
     name: slice.name,
     branches: [...slice.branches],
-    verdict: waveVerdict(slice.verdict),
+    verdict: sliceVerdict(slice.verdict),
     section: (slice.complete ? 'done' : 'not-started') as WaitingGroup,
     complete: slice.complete,
-    planWaveCount: slice.planSliceCount,
+    planSliceCount: slice.planSliceCount,
   }));
 }
 
@@ -4509,11 +4517,11 @@ export function classify(
   // string. See the arm in `classifyGroup` for the group/note side; this is
   // the verdict side, and both must agree.
   const prUnknown = args[16] ?? false;
-  const waveVerdictStr = args[1];
-  const withholdVerdict = prUnknown && waveVerdictStr === 'eligible';
+  const sliceVerdictStr = args[1];
+  const withholdVerdict = prUnknown && sliceVerdictStr === 'eligible';
   return {
     ...classifyGroup(...args),
-    verdict: withholdVerdict ? null : waveVerdict(waveVerdictStr),
+    verdict: withholdVerdict ? null : sliceVerdict(sliceVerdictStr),
   };
 }
 
@@ -4874,8 +4882,8 @@ export const IDEA_BRANCH = /^idea\//;
  *
  * So a branch row is the FALLBACK, reached by answering no four times — and each
  * test is a property of the branch, named here rather than spelled as a
- * condition at a call site. `carriesWave` and `carriesDraftPlan` are the two that
- * were previously implicit: the slice test lived in the CLIENT (`waveGroupsFor`
+ * condition at a call site. `carriesSlice` and `carriesDraftPlan` are the two that
+ * were previously implicit: the slice test lived in the CLIENT (`sliceGroupsFor`
  * grouping rows per section), and the draft-plan test was an inline regex.
  *
  * Splitting the decision across server and client is what cost tonight: a
@@ -4935,7 +4943,7 @@ export function carriesDraftPlan(f: Pick<BranchFacts, 'branch'>): boolean {
  * Does it belong to a slice — that is, does a plan name it?
  *
  * **THE PLAN IS THE TEST, and it replaced the slice's NAME on 2026-08-21.** This
- * read `wave !== UNNAMED_WAVE`, on the reasoning that *a slice with no name
+ * read `wave !== UNNAMED_SLICE`, on the reasoning that *a slice with no name
  * cannot head a row, so a branch in one is just a branch*. That was true while a
  * slice was a heading. It is not true of a carrier: `MANIFESTO.md` gives a plan
  * with no subheadings one slice, so a plan nobody cut into `### ` sections
@@ -4959,7 +4967,7 @@ export function carriesDraftPlan(f: Pick<BranchFacts, 'branch'>): boolean {
  * `/plot-reslice`, and never a reason for the board to call a plan's work a bare
  * branch.
  */
-export function carriesWave(f: Pick<BranchFacts, 'plan'>): boolean {
+export function carriesSlice(f: Pick<BranchFacts, 'plan'>): boolean {
   return Boolean(f.plan);
 }
 
@@ -4993,7 +5001,7 @@ export function rowKind(
    *
    * It took the slice's NAME until 2026-08-21, and a name cannot answer the
    * question: a plan with no `### ` heading has one unnamed slice, and its branch
-   * is that slice's work. `carriesWave` states the operator's rule in full — no
+   * is that slice's work. `carriesSlice` states the operator's rule in full — no
    * plan, no slice.
    *
    * Last in the parameter list because it is the newest, so every existing caller
@@ -5013,7 +5021,7 @@ export function rowKind(
   // a weaker one. Everything that answers no to all four is a branch — a name
   // somebody pushed and nothing else is true of yet.
   //
-  // **The SLICE test was being made in the CLIENT** until now, by `waveGroupsFor`
+  // **The SLICE test was being made in the CLIENT** until now, by `sliceGroupsFor`
   // grouping rows per section. That split the one decision across two places, and
   // the client's half could not see what the server had decided — which is why a
   // slice-grouped branch lost its plan link, its stuck cell and its accessible
@@ -5078,7 +5086,7 @@ export function rowKind(
   // did not. Making the kind track the machine was one way to close the gap;
   // making the kind the SLICE closes it permanently, because a slice row cannot
   // contradict a section that is asking what is happening to a slice.
-  if (carriesWave({ plan })) return 'wave';
+  if (carriesSlice({ plan })) return 'wave';
   if (hasPr) return 'pr';
   return 'branch';
 }
@@ -5410,8 +5418,8 @@ export function rowsFromPulse(
     // complete (no row is blocked, so nothing reads this) or where the scan
     // reports blocked slices with none eligible — and there the front of the
     // queue is still the most useful thing a reader can be pointed at.
-    const eligibleWave = plan.slices.find((w) => w.verdict === 'eligible');
-    const blocker = eligibleWave ?? plan.slices.find((w) => w.verdict !== 'complete');
+    const eligibleSlice = plan.slices.find((w) => w.verdict === 'eligible');
+    const blocker = eligibleSlice ?? plan.slices.find((w) => w.verdict !== 'complete');
     const blockerName = blocker?.name?.trim() ? blocker.name.trim() : null;
     // HOW MANY branches are left in the blocking slice — the second half of the
     // sentence *blocked by Fold — 2 outstanding*. The scan already decides this
@@ -5745,7 +5753,7 @@ export function rowsFromPulse(
             // is carried out in ONE branch and one worktree, so several means the
             // plan was never sliced after its spike. Read from the slice in hand —
             // no index needed, unlike the double claim.
-            waveSiblings: wave.branches.length > 1
+            sliceSiblings: wave.branches.length > 1
               ? wave.branches.map((x) => x.branch)
               : [],
           }),
@@ -6474,7 +6482,7 @@ export async function buildFleet(
     // `.default([])` never fires client-side. A field the server left off would
     // reach the renderer as `undefined`, the `fleetControls` lesson from
     // 2026-08-22.
-    waves: entry.pulse ? deriveWaves(entry.pulse) : [],
+    slices: entry.pulse ? deriveSlices(entry.pulse) : [],
     summary: entry.pulse?.summary ?? EMPTY_SUMMARY,
     // COUNTED FROM THE ROWS, never tallied beside the decision that made them.
     // A counter incremented in parallel with a classification is a second

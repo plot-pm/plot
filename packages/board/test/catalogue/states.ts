@@ -72,7 +72,7 @@ const KINDS: readonly RowKind[] = RowKindSchema.options;
  * in (`delivered`), and only a wave whose branches carry the other word can tell
  * the two apart.
  */
-const aDoneWave = (): Scenario => {
+const aDoneSlice = (): Scenario => {
   const rows = [
     row({
       plan: 'six-waves', planFile: '2026-08-24-six-waves.md',
@@ -93,7 +93,7 @@ const aDoneWave = (): Scenario => {
     }),
     fleet: fleet({
       rows,
-      waves: [wave({
+      slices: [wave({
         plan: 'six-waves', name: 'Complete', section: 'done',
         branches: ['feature/done-one', 'feature/done-two'],
         verdict: 'complete', complete: true,
@@ -111,7 +111,7 @@ const aDoneWave = (): Scenario => {
  * assertion against it times out. That failure is indistinguishable from a
  * selector typo, and it has been paid for once already in this suite.
  */
-const anEligibleWave = (): Scenario => {
+const anEligibleSlice = (): Scenario => {
   const rows = [
     row({
       plan: 'a-wave-is-a-thing-not-a-label',
@@ -134,7 +134,7 @@ const anEligibleWave = (): Scenario => {
     }),
     fleet: fleet({
       rows,
-      waves: [wave({
+      slices: [wave({
         plan: 'a-wave-is-a-thing-not-a-label', name: 'Anchored',
         branches: ['feature/anchor-the-wave'],
         verdict: 'eligible', section: 'not-started', complete: false,
@@ -293,11 +293,11 @@ const anEstateThatCannotAct = (): Scenario => {
  * whether a wave's own verdict survives the section it lands in. This holds
  * three at once: complete, eligible, blocked.
  *
- * `planWaveCount` is 3 on every wave here rather than the builder's default of
+ * `planSliceCount` is 3 on every wave here rather than the builder's default of
  * 2, because a wave row renders *"wave 1 of N"* from it, and a scenario whose
  * waves disagree with their own count is a fixture bug rather than a state.
  */
-const aPlanInWaves = (): Scenario => {
+const aPlanInSlices = (): Scenario => {
   const rows = [
     row({
       plan: 'six-waves', planFile: SIX_WAVES_FILE, branch: 'feature/first-wave',
@@ -329,10 +329,10 @@ const aPlanInWaves = (): Scenario => {
     }),
     fleet: fleet({
       rows,
-      waves: [
-        wave({ plan: 'six-waves', name: 'Foundations', branches: ['feature/first-wave'], verdict: 'complete', section: 'done', complete: true, planWaveCount: 3 }),
-        wave({ plan: 'six-waves', name: 'Building', branches: ['feature/second-wave'], verdict: 'eligible', section: 'not-started', complete: false, planWaveCount: 3 }),
-        wave({ plan: 'six-waves', name: 'Finishing', branches: ['feature/third-wave'], verdict: 'blocked', section: 'not-started', complete: false, planWaveCount: 3 }),
+      slices: [
+        wave({ plan: 'six-waves', name: 'Foundations', branches: ['feature/first-wave'], verdict: 'complete', section: 'done', complete: true, planSliceCount: 3 }),
+        wave({ plan: 'six-waves', name: 'Building', branches: ['feature/second-wave'], verdict: 'eligible', section: 'not-started', complete: false, planSliceCount: 3 }),
+        wave({ plan: 'six-waves', name: 'Finishing', branches: ['feature/third-wave'], verdict: 'blocked', section: 'not-started', complete: false, planSliceCount: 3 }),
       ],
     }),
   };
@@ -386,7 +386,7 @@ const oneRowPerKind = (): Scenario => ({
         wave: 'Waiting', ageMinutes: 30,
       }),
     ],
-    waves: [
+    slices: [
       ...KINDS.map((kind) => wave({
         plan: 'every-kind', name: `Kind-${kind}`, section: 'working',
         branches: [`feature/${kind}-row`], verdict: 'eligible', complete: false,
@@ -466,23 +466,23 @@ const tenRowsOneKindEach = (): Scenario => ({
       column({
         phase: 'Development',
         cards: [
-          // `waveSummary.eligible` IS THE MENU'S RENDER GATE.
+          // `sliceSummary.eligible` IS THE MENU'S RENDER GATE.
           //
           // `PlanActions` renders on `isDraftPlan || canDeliver || hasEligible
-          // || soleWave`, and `hasEligible` reads `card.waveSummary.eligible`.
+          // || soleSlice`, and `hasEligible` reads `card.sliceSummary.eligible`.
           // These plans are in Development, so the first two are false and the
           // summary is the only door — a card without one renders every row and
           // no `⋯`. `agents-tab` used to get this from the real fixture's git
           // scan, by clicking to the Plans tab and waiting for it.
           //
-          // `claimed` and `eligible` are OPTIONAL in `WaveSummarySchema`
+          // `claimed` and `eligible` are OPTIONAL in `SliceSummarySchema`
           // precisely so a card built before a pulse can omit them: `claimed: 0`
           // and *no pulse has landed yet* must not render identically. Stated
           // here, because this board HAS a pulse.
           card({
             slug: 'plant-tomatoes', title: 'Plant heirloom tomatoes', type: 'feature',
             phase: 'Development', path: `docs/plans/${TOMS_FILE}`,
-            waveSummary: { waves: 1, branches: 4, claimed: 1, eligible: 1, deferred: 0 },
+            sliceSummary: { waves: 1, branches: 4, claimed: 1, eligible: 1, deferred: 0 },
             // `Show in board` filters to the plan's STORY, so the card sits
             // among its neighbours rather than alone — and the story name is
             // what the resulting URL carries. The fixture plan records
@@ -493,7 +493,7 @@ const tenRowsOneKindEach = (): Scenario => ({
           card({
             slug: 'beans', title: 'Train the runner beans', type: 'feature',
             phase: 'Development', path: 'docs/plans/2026-04-02-beans.md',
-            waveSummary: { waves: 1, branches: 4, claimed: 2, eligible: 1, deferred: 1 },
+            sliceSummary: { waves: 1, branches: 4, claimed: 2, eligible: 1, deferred: 1 },
           }),
         ],
       }),
@@ -745,12 +745,12 @@ const aWholeSmallEstate = (): Scenario => ({
         phase: 'Development',
         cards: [
           // APPROVED AND UNSTARTED, which is what the Start button keys on —
-          // never the column. `waveSummary.eligible` opens the action menu.
+          // never the column. `sliceSummary.eligible` opens the action menu.
           card({
             slug: 'fix-leaky-hose', title: 'Fix the leaky soaker hose', type: 'bug',
             phase: 'Development', path: 'docs/plans/2026-03-05-fix-leaky-hose.md',
             sprint: 'spring-planting',
-            waveSummary: { waves: 1, branches: 1, claimed: 0, eligible: 1, deferred: 0 },
+            sliceSummary: { waves: 1, branches: 1, claimed: 0, eligible: 1, deferred: 0 },
           }),
           // The long badge's card, at the width the mobile bug was about.
           card({
@@ -870,7 +870,7 @@ const aBoardThatCanAct = (): Scenario => ({
         group: 'not-started', verdict: 'eligible', wave: 'Framing',
       }),
     ],
-    waves: [
+    slices: [
       wave({
         plan: 'fix-leaky-hose', name: 'Sealing', section: 'not-started',
         branches: ['bug/leaky-hose'], verdict: 'eligible', complete: false,
@@ -907,11 +907,11 @@ const aBoardThatCanAct = (): Scenario => ({
  * state a test replaced.
  */
 export const SCENARIOS = {
-  'a-done-wave': aDoneWave,
-  'an-eligible-wave': anEligibleWave,
+  'a-done-wave': aDoneSlice,
+  'an-eligible-wave': anEligibleSlice,
   'a-full-estate': aFullEstate,
   'an-estate-that-cannot-act': anEstateThatCannotAct,
-  'a-plan-in-waves': aPlanInWaves,
+  'a-plan-in-waves': aPlanInSlices,
   'one-row-per-kind': oneRowPerKind,
   'a-board-that-can-act': aBoardThatCanAct,
   'a-board-of-plans': aBoardOfPlans,

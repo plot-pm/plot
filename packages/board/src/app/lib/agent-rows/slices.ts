@@ -2,7 +2,7 @@ import {
   type AgentRow,
   type SliceVerdict,
   type RowKind,
-  UNNAMED_WAVE,
+  UNNAMED_SLICE,
 } from '../../../contract/schema.js';
 
 /**
@@ -17,7 +17,7 @@ import {
  * has landed. The split that matters is merged vs. genuinely-unfinished
  * (open · wip · claimed).
  */
-export function waveDissent(rows: AgentRow[]): number | null {
+export function sliceDissent(rows: AgentRow[]): number | null {
   const merged = rows.filter((r) => r.state === 'merged').length;
   const unfinished = rows.filter(
     (r) => r.state === 'open' || r.state === 'wip' || r.state === 'claimed',
@@ -51,7 +51,7 @@ export function waveDissent(rows: AgentRow[]): number | null {
  * default made absent WORSE than false — a positive claim about work that does
  * not exist.
  *
- * So an unknown word returns `''`. Empty is falsy, and the caller's `waveNote`
+ * So an unknown word returns `''`. Empty is falsy, and the caller's `sliceNote`
  * ternary falls through it to the VERDICT — the value that actually describes an
  * ungrouped-meaning slice, and the arm that was dead for every multi-branch slice
  * while this function answered for words it did not understand.
@@ -124,8 +124,8 @@ export function isReviewable(row: AgentRow): boolean {
  * Exported for test — the multi-branch slice is the case an implementation
  * assuming one-to-one gets wrong while passing every single-branch assertion.
  */
-export function groupByWave(rows: AgentRow[]): WaveGroup[] {
-  const groups = new Map<string, WaveGroup>();
+export function groupBySlice(rows: AgentRow[]): SliceGroup[] {
+  const groups = new Map<string, SliceGroup>();
   for (const row of rows) {
     const existing = groups.get(row.wave);
     if (existing) {
@@ -142,7 +142,7 @@ export function groupByWave(rows: AgentRow[]): WaveGroup[] {
 }
 
 /** One slice's rows within a plan group, in the order they arrived. */
-export interface WaveGroup {
+export interface SliceGroup {
   /** The slice's name as the plan file gave it, or "" where it named none. */
   wave: string;
   /** The scan's verdict for this slice, or null where no row carried one. */
@@ -163,7 +163,7 @@ export interface WaveGroup {
  *
  * This took a plan-wide slice COUNT until the slice moved out of the phase cell,
  * and the count is what the reader could not see. The gate was
- * `waveCount > 1`, justified — correctly, for where the label then sat — as
+ * `sliceCount > 1`, justified — correctly, for where the label then sat — as
  * *a caption over a partition of one is noise*: the slice shared a column with
  * the plan phase, so an uninformative slice name displaced a different fact, and
  * the cell's meaning therefore depended on how many slices the plan had.
@@ -192,13 +192,13 @@ export interface WaveGroup {
  * Null for that, and null for a planless row (`wave: ''`) — a row built from
  * the PR map belongs to no plan and has no slice to name.
  *
- * The `waveCount` parameter is GONE rather than ignored. A parameter no arm
+ * The `sliceCount` parameter is GONE rather than ignored. A parameter no arm
  * reads is a standing invitation to start reading it, which is how this gate
  * came to depend on a fact about the plan in the first place.
  *
- * `waveCountByPlan` went with it. It existed to feed this gate and had no other
+ * `sliceCountByPlan` went with it. It existed to feed this gate and had no other
  * reader — the plan row's own summary counts the slices in its OWN group
- * (`waveSummaryFor`), which is a statement about a plan and the place a count
+ * (`sliceSummaryFor`), which is a statement about a plan and the place a count
  * belongs. An exported pure function with only a test to call it is dead code
  * wearing a contract.
  */
@@ -206,7 +206,7 @@ export interface WaveGroup {
  * The kinds whose ROW already links its slice in slot 4 — so the badge would
  * repeat it.
  *
- * Stated as a set beside `waveLabel` rather than inline at the call site,
+ * Stated as a set beside `sliceLabel` rather than inline at the call site,
  * because it has to agree with `tupleFromRow`'s arms: an `agent` links slice,
  * branch, worktree and plan; a `pr` and a `build` each link the slice between
  * their other artifacts. If an arm gains or loses the slice link, this is the one
@@ -229,9 +229,9 @@ export interface WaveGroup {
 export const LIVE_WORKERS: ReadonlySet<AgentRow['worker']> =
   new Set(['running', 'waiting', 'stalled']);
 
-export const WAVE_LINKING_KINDS: ReadonlySet<RowKind> = new Set(['agent', 'pr', 'build']);
+export const SLICE_LINKING_KINDS: ReadonlySet<RowKind> = new Set(['agent', 'pr', 'build']);
 
-export function waveLabel(row: AgentRow): string | null {
-  if (row.wave === '' || row.wave === UNNAMED_WAVE) return null;
+export function sliceLabel(row: AgentRow): string | null {
+  if (row.wave === '' || row.wave === UNNAMED_SLICE) return null;
   return row.wave;
 }

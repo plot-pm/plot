@@ -67,7 +67,7 @@ const SERVED_PORT = 4711;
 const PLAN = 'a-wave-is-a-thing-not-a-label';
 const PLAN_FILE = '2026-08-24-a-wave-is-a-thing-not-a-label.md';
 
-/** The wave the eligible branch sits in — `anEligibleWave`'s own name. */
+/** The wave the eligible branch sits in — `anEligibleSlice`'s own name. */
 const WAVE = 'Anchored';
 
 /**
@@ -96,7 +96,7 @@ function localFleet(over: Partial<Fleet> = {}): Fleet {
     row({
       repo: 'garden', branch: 'feature/untaken', plan: PLAN, planFile: PLAN_FILE,
       // `kind: 'wave'` and `state: 'open'`, both load-bearing, both copied from
-      // `anEligibleWave` — the catalogue's WORKING example of this shape.
+      // `anEligibleSlice` — the catalogue's WORKING example of this shape.
       //
       // NOT STARTED groups only `isUnbegun` rows (`group === 'not-started' &&
       // state === 'open'`), and since `a-wave-is-a-kind` an eligible branch
@@ -163,7 +163,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     //
     // `BoardSchema.dispatch` defaults to `{ available: false }`, which is the
     // right default for the catalogue (a scenario that wants a button says so)
-    // and the wrong one here: `WaveActions` renders `aria-disabled` from
+    // and the wrong one here: `SliceActions` renders `aria-disabled` from
     // `dispatch.available`, so a board that cannot dispatch produces a menu
     // that is ALREADY disabled while the server is healthy. Two assertions
     // read that attribute as the thing the overlay changes — one expects

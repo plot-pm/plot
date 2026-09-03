@@ -13,8 +13,8 @@ import { openCatalogue, type Catalogue } from '../catalogue/index.js';
  * it was joined"*, `8 data-tuple-kind-label` and `3 data-wave` both rendered.
  * That state no longer exists: the wave-as-kind work (`a349130e`, `028e4311`)
  * and #339 (*a wave renders as exactly one row in exactly one section*) replaced
- * it. Every named-wave branch now groups under one `WaveRow` whose SUBJECT is
- * the wave — `waveGroupsFor` claims all of them — so no branch row wears a wave
+ * it. Every named-wave branch now groups under one `SliceRow` whose SUBJECT is
+ * the wave — `sliceGroupsFor` claims all of them — so no branch row wears a wave
  * badge and nothing lands in the kind's track.
  *
  * This test asserts the negative directly, which is the plan's own instruction:
@@ -22,7 +22,7 @@ import { openCatalogue, type Catalogue } from '../catalogue/index.js';
  * one rendering in some row kind, and only the 'nothing in the kind track'
  * assertion catches that."* A future change that reintroduces a branch-row wave
  * badge — re-adding a per-branch row for a named wave, or dropping a kind from
- * `WAVE_LINKING_KINDS` — is caught here.
+ * `SLICE_LINKING_KINDS` — is caught here.
  *
  * **Through the pipeline, never a component fixture.** The plan is explicit that
  * *a fixture that skips the pipeline tests the part that was not broken* — the
@@ -101,7 +101,7 @@ describe('the wave leaves the kind alone', () => {
     }
   });
 
-  it('shows NO wave BADGE on any row — a wave is a WaveRow, not a mark on a kind', async () => {
+  it('shows NO wave BADGE on any row — a wave is a SliceRow, not a mark on a kind', async () => {
     const page = await open();
     try {
       // The board-wide negative. Every named wave in the mock — `Shaped`,
@@ -137,7 +137,7 @@ describe('the wave leaves the kind alone', () => {
     const page = await open();
     try {
       // An `agent`, a `pr` and a `build` carry the wave as an ARTIFACT LINK in
-      // slot 4 — see `WAVE_LINKING_KINDS`. A badge on them is a second copy of a
+      // slot 4 — see `SLICE_LINKING_KINDS`. A badge on them is a second copy of a
       // fact the row already states, measured on the mock as `Inverted` twice on
       // the agent row. None may wear the `data-wave` badge.
       for (const kind of ['agent', 'pr', 'build'] as const) {
@@ -153,7 +153,7 @@ describe('the wave leaves the kind alone', () => {
     }
   });
 
-  it('renders each named wave as exactly one WaveRow head — the wave HAS a home', async () => {
+  it('renders each named wave as exactly one SliceRow head — the wave HAS a home', async () => {
     const page = await open();
     try {
       // The positive half, adapted to the model that replaced the badge: the wave

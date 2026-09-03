@@ -2,10 +2,10 @@ import {
   describe,
   it,
   expect } from 'vitest';
-import { groupByPlan, planWaitingDays, showsWaveFold, sortByWaiting, type PlanGroup, ungroupedRows, waveGroupsFor, waveSummaryFor } from '../../src/app/lib/agent-rows/sections.js';
-import { groupByWave } from '../../src/app/lib/agent-rows/waves.js';
+import { groupByPlan, planWaitingDays, showsSliceFold, sortByWaiting, type PlanGroup, ungroupedRows, sliceGroupsFor, sliceSummaryFor } from '../../src/app/lib/agent-rows/sections.js';
+import { groupBySlice } from '../../src/app/lib/agent-rows/slices.js';
 import { isUnbegun } from '../../src/app/lib/agent-rows/row-identity.js';
-import { ELIGIBLE_NOTE, type AgentRow, type Wave } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, type AgentRow, type Slice } from '../../src/contract/schema.js';
 
 /**
  * NOT STARTED counts PLANS — the decisions, as pure functions.
@@ -37,11 +37,11 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 const groupOf = (...rows: AgentRow[]): PlanGroup => groupByPlan(rows)[0];
 
 /**
- * A server-derived `Wave` the way `deriveWaves` writes it, for the head that
+ * A server-derived `Wave` the way `deriveSlices` writes it, for the head that
  * now reads `fleet.waves` rather than re-grouping rows. Defaults to an
  * unstarted, incomplete wave — the shape the count summarises.
  */
-const wave = (over: Partial<Wave> = {}): Wave => ({
+const wave = (over: Partial<Slice> = {}): Slice => ({
   plan: 'a-plan', name: 'w', branches: ['feature/x'],
   verdict: 'eligible', section: 'not-started', complete: false,
   ...over,
@@ -189,7 +189,7 @@ describe('sortByWaiting — oldest plan first', () => {
   });
 });
 
-describe('waveSummaryFor — counted from the group\'s own rows', () => {
+describe('sliceSummaryFor — counted from the group\'s own rows', () => {
   it('names how many waves remain and that the first is eligible', () => {
     // `activity-shows-itself`, the plan that printed three identical rows.
     // THREE DISTINCT WAVES, and the `wave` field is what makes them three.
@@ -197,13 +197,13 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     // default) until 2026-08-20, and counted as three while the count was of
     // ROWS. It is now of waves, so the fixture has to say what it means — a plan
     // with three branches in one wave is one wave, which is the reading
-    // `groupByWave` enforces and the one the estate's five-branch wave needs.
+    // `groupBySlice` enforces and the one the estate's five-branch wave needs.
     const group = groupOf(
       row({ plan: 'activity-shows-itself', wave: 'Shaped', branch: 'feature/activity-marker-glows', note: ELIGIBLE_NOTE }),
       row({ plan: 'activity-shows-itself', wave: 'Marked', branch: 'feature/group-shows-inner-activity', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
       row({ plan: 'activity-shows-itself', wave: 'Moved', branch: 'feature/unpushed-work-shows-still', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
     );
-    expect(waveSummaryFor(group)).toBe('3 slices, first eligible');
+    expect(sliceSummaryFor(group)).toBe('3 slices, first eligible');
   });
 
   it('omits "first eligible" where nothing in the plan can be started', () => {
@@ -213,11 +213,11 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
       row({ wave: 'Marked', branch: 'a', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
       row({ wave: 'Moved', branch: 'b', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
     );
-    expect(waveSummaryFor(group)).toBe('2 slices');
+    expect(sliceSummaryFor(group)).toBe('2 slices');
   });
 
   it('says "1 slice", not "1 slices"', () => {
-    expect(waveSummaryFor(groupOf(row()))).toBe('1 slice, first eligible');
+    expect(sliceSummaryFor(groupOf(row()))).toBe('1 slice, first eligible');
   });
 
   it('counts only what is in THIS SECTION', () => {
@@ -229,7 +229,7 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
       row({ plan: 'partly-done', wave: 'Second', branch: 'wave-2' }),
       row({ plan: 'partly-done', wave: 'Third', branch: 'wave-3' }),
     );
-    expect(waveSummaryFor(group)).toBe('2 slices, first eligible');
+    expect(sliceSummaryFor(group)).toBe('2 slices, first eligible');
   });
 
   it('does not count a deferred branch as an unstarted wave', () => {
@@ -240,13 +240,13 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
       row({ wave: 'Shaped', branch: 'never-begun' }),
       row({ wave: 'Shelved', branch: 'shelved', state: 'deferred', ageMinutes: 400, note: 'last commit 6h ago' }),
     );
-    expect(waveSummaryFor(group)).toBe('1 slice, first eligible');
+    expect(sliceSummaryFor(group)).toBe('1 slice, first eligible');
   });
 
   it('is empty where a plan holds nothing but a deferred branch', () => {
     // Nothing to summarise — the caller renders no summary rather than "0 slices".
     const group = groupOf(row({ state: 'deferred', ageMinutes: 400 }));
-    expect(waveSummaryFor(group)).toBe('');
+    expect(sliceSummaryFor(group)).toBe('');
   });
 
   it('falls back to the group\'s rows when no wave list is supplied', () => {
@@ -255,15 +255,15 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     // still answers, from the rows it already holds — the derivation stays as
     // the safety net for an older server, not the live path.
     const group = groupOf(row({ wave: 'Shaped' }), row({ wave: 'Moved', branch: 'b' }));
-    expect(waveSummaryFor(group, undefined)).toBe('2 slices, first eligible');
+    expect(sliceSummaryFor(group, undefined)).toBe('2 slices, first eligible');
   });
 });
 
-describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', () => {
+describe('sliceSummaryFor — reads the server Wave, not a re-grouping of rows', () => {
   // THE HEAD ASKS THE WAVE. `the-contract-carries-a-wave` put a server-derived
   // `Wave` on the payload — one entry per (plan, wave), carrying the ONE section
   // the server placed it in. The head's count was re-deriving that from rows via
-  // `groupByWave`, a second answer to a question the server already answered.
+  // `groupBySlice`, a second answer to a question the server already answered.
   // These pin that the count now comes from `fleet.waves`.
 
   it('counts the plan\'s waves the server placed in THIS section', () => {
@@ -280,7 +280,7 @@ describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', 
       wave({ plan: 'p', name: 'Done', section: 'done', complete: true }),
       wave({ plan: 'other', name: 'Elsewhere' }),
     ];
-    expect(waveSummaryFor(group, waves)).toBe('2 slices, first eligible');
+    expect(sliceSummaryFor(group, waves)).toBe('2 slices, first eligible');
   });
 
   it('counts a multi-branch wave as ONE, from the server entry', () => {
@@ -292,7 +292,7 @@ describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', 
       row({ plan: 'p', wave: 'Implementation', branch: 'c' }),
     );
     const waves = [wave({ plan: 'p', name: 'Implementation', branches: ['a', 'b', 'c'] })];
-    expect(waveSummaryFor(group, waves)).toBe('1 slice, first eligible');
+    expect(sliceSummaryFor(group, waves)).toBe('1 slice, first eligible');
   });
 
   it('counts a not-started wave whose rows are blocked, which the row filter drops', () => {
@@ -306,7 +306,7 @@ describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', 
       row({ plan: 'p', wave: 'Blocked', branch: 'b', state: 'wip', waitingOn: 'time', note: 'blocked by earlier wave', startability: 'someone-is-on-it' }),
     );
     const waves = [wave({ plan: 'p', name: 'Blocked', verdict: 'blocked' })];
-    expect(waveSummaryFor(group, waves)).toBe('1 slice');
+    expect(sliceSummaryFor(group, waves)).toBe('1 slice');
   });
 
   it('reads completeness once — the same answer the DONE section reads', () => {
@@ -317,13 +317,13 @@ describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', 
     const open = wave({ plan: 'p', name: 'Open' });
     const group = groupOf(row({ plan: 'p', wave: 'Open', branch: 'b' }));
     // Only the incomplete, not-started wave is summarised here.
-    expect(waveSummaryFor(group, [complete, open])).toBe('1 slice, first eligible');
+    expect(sliceSummaryFor(group, [complete, open])).toBe('1 slice, first eligible');
   });
 });
 
-describe('showsWaveFold — an expander only where it reveals something', () => {
+describe('showsSliceFold — an expander only where it reveals something', () => {
   it('gives a plan with three unstarted waves a fold', () => {
-    expect(showsWaveFold(groupOf(
+    expect(showsSliceFold(groupOf(
       row({ wave: 'Shaped', branch: 'a' }),
       row({ wave: 'Marked', branch: 'b' }),
       row({ wave: 'Moved', branch: 'c' }),
@@ -333,7 +333,7 @@ describe('showsWaveFold — an expander only where it reveals something', () => 
   it('gives a plan with ONE unstarted wave none', () => {
     // A control that reveals a row it already shows is noise — the same rule
     // `showPlanHeading` applies one level up.
-    expect(showsWaveFold(groupOf(row()))).toBe(false);
+    expect(showsSliceFold(groupOf(row()))).toBe(false);
   });
 
   it('gives a plan with three branches in ONE wave none', () => {
@@ -344,7 +344,7 @@ describe('showsWaveFold — an expander only where it reveals something', () => 
     // one level down.
     //
     // Real: `opus5-longhorizon-hardening :: Implementation` holds five branches.
-    expect(showsWaveFold(groupOf(
+    expect(showsSliceFold(groupOf(
       row({ wave: 'Implementation', branch: 'a' }),
       row({ wave: 'Implementation', branch: 'b' }),
       row({ wave: 'Implementation', branch: 'c' }),
@@ -361,14 +361,14 @@ describe('showsWaveFold — an expander only where it reveals something', () => 
     // row, and the deferred branch's PR and age are reached through the WAVE's
     // fold rather than the plan's. Either way it stays reachable, which is the
     // property this test defends.
-    expect(showsWaveFold(groupOf(
+    expect(showsSliceFold(groupOf(
       row({ wave: 'Shaped', branch: 'never-begun' }),
       row({ wave: 'Shelved', branch: 'shelved', state: 'deferred', ageMinutes: 400 }),
     ))).toBe(true);
   });
 });
 
-describe('waveGroupsFor — which sections group by wave, and from which rows', () => {
+describe('sliceGroupsFor — which sections group by wave, and from which rows', () => {
   const pr = (n: number) => ({ number: n, url: `https://h/pr/${n}`, draft: false, state: 'green' as const });
 
   it('groups reviewable branches in WAITING ON YOU', () => {
@@ -379,7 +379,7 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
       row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
       row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(307) }),
     ];
-    const groups = waveGroupsFor(rows, 'waiting-on-you');
+    const groups = sliceGroupsFor(rows, 'waiting-on-you');
     expect(groups).toHaveLength(1);
     expect(groups[0].wave).toBe('Modelled');
     expect(groups[0].rows).toHaveLength(2);
@@ -387,7 +387,7 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
 
   it('makes a LONE reviewable branch its wave, not a PR', () => {
     // THE REVERSAL, and the reasoning it corrects is my own. This asserted
-    // `toHaveLength(0)` on `showsWaveFold`'s rule — *a heading over one row saves
+    // `toHaveLength(0)` on `showsSliceFold`'s rule — *a heading over one row saves
     // no repetition* — which answers a different question. A fold is about
     // saving repetition; a KIND is about what the row is ABOUT, and a branch cut
     // for the wave `Modelled` is that wave's work whether the wave holds one
@@ -397,7 +397,7 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
     // one branch, so the threshold fired only through the mock's hand-made
     // two-branch wave — a rule reachable only from a fixture.
     const rows = [row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) })];
-    const groups = waveGroupsFor(rows, 'waiting-on-you');
+    const groups = sliceGroupsFor(rows, 'waiting-on-you');
     expect(groups).toHaveLength(1);
     expect(groups[0].wave).toBe('Modelled');
     // And nothing is left over, so the branch renders once — as its wave.
@@ -418,7 +418,7 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
       row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
       row({ wave: 'Modelled', branch: 'b', state: 'open', pr: null }),
     ];
-    const groups = waveGroupsFor(rows, 'waiting-on-you');
+    const groups = sliceGroupsFor(rows, 'waiting-on-you');
     expect(groups).toHaveLength(1);
     expect(groups[0].rows.map((r) => r.branch)).toEqual(['a', 'b']);
     expect(ungroupedRows(rows, 'waiting-on-you')).toHaveLength(0);
@@ -431,7 +431,7 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
       row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
       row({ wave: 'Modelled', branch: 'b', state: 'merged', pr: pr(300) }),
     ];
-    expect(waveGroupsFor(rows, 'waiting-on-you')[0].rows.map((r) => r.branch))
+    expect(sliceGroupsFor(rows, 'waiting-on-you')[0].rows.map((r) => r.branch))
       .toEqual(['a']);
   });
 
@@ -440,16 +440,16 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
       row({ wave: 'Batched', branch: 'a', state: 'wip', ageMinutes: 6 * 1440 }),
       row({ wave: 'Batched', branch: 'b', state: 'wip', ageMinutes: 8 * 1440 }),
     ];
-    expect(waveGroupsFor(stale, 'quiet')).toHaveLength(1);
+    expect(sliceGroupsFor(stale, 'quiet')).toHaveLength(1);
     const landed = [
       row({ wave: 'Slows', branch: 'a', state: 'merged' }),
       row({ wave: 'Slows', branch: 'b', state: 'merged' }),
     ];
-    expect(waveGroupsFor(landed, 'done')).toHaveLength(1);
+    expect(sliceGroupsFor(landed, 'done')).toHaveLength(1);
     // And DONE does not claim an unmerged branch, nor QUIET a merged one — each
     // section counts what its own word means.
-    expect(waveGroupsFor(stale, 'done')).toHaveLength(0);
-    expect(waveGroupsFor(landed, 'quiet')).toHaveLength(0);
+    expect(sliceGroupsFor(stale, 'done')).toHaveLength(0);
+    expect(sliceGroupsFor(landed, 'quiet')).toHaveLength(0);
   });
 
   it('groups NOTHING in WORKING or WAITING ON A MACHINE', () => {
@@ -460,8 +460,8 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
       row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(304) }),
       row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(307) }),
     ];
-    expect(waveGroupsFor(rows, 'working')).toHaveLength(0);
-    expect(waveGroupsFor(rows, 'waiting-on-machine')).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'working')).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'waiting-on-machine')).toHaveLength(0);
     // …and every row then renders as itself, so nothing is lost.
     expect(ungroupedRows(rows, 'working')).toHaveLength(2);
   });
@@ -473,12 +473,12 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
       row({ wave: '', branch: 'a', state: 'wip', pr: pr(1) }),
       row({ wave: '', branch: 'b', state: 'wip', pr: pr(2) }),
     ];
-    expect(waveGroupsFor(rows, 'waiting-on-you')).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'waiting-on-you')).toHaveLength(0);
   });
 
   it('renders every row exactly once, grouped or not', () => {
     // The property that matters: `ungroupedRows` is the complement of
-    // `waveGroupsFor` over the same input, computed from the claimed SET rather
+    // `sliceGroupsFor` over the same input, computed from the claimed SET rather
     // than by re-deriving the predicate — two spellings of *which rows are
     // grouped* is how a row ends up rendered twice or not at all.
     const rows = [
@@ -487,18 +487,18 @@ describe('waveGroupsFor — which sections group by wave, and from which rows', 
       row({ wave: 'Alone', branch: 'c', state: 'wip', pr: pr(9) }),
       row({ wave: '', branch: 'd', state: 'open', pr: null }),
     ];
-    const grouped = waveGroupsFor(rows, 'waiting-on-you').flatMap((g) => g.rows);
+    const grouped = sliceGroupsFor(rows, 'waiting-on-you').flatMap((g) => g.rows);
     const loose = ungroupedRows(rows, 'waiting-on-you');
     expect(grouped.length + loose.length).toBe(rows.length);
     expect(new Set([...grouped, ...loose]).size).toBe(rows.length);
   });
 });
 
-describe('waveGroupsFor — asks the server-derived wave, not a per-section state predicate', () => {
+describe('sliceGroupsFor — asks the server-derived wave, not a per-section state predicate', () => {
   const pr = (n: number) => ({ number: n, url: `https://h/pr/${n}`, draft: false, state: 'green' as const });
 
   /** A server-derived Wave, the entity #349 put on `fleet.waves`. */
-  const wave = (over: Partial<Wave> = {}): Wave => ({
+  const wave = (over: Partial<Slice> = {}): Slice => ({
     plan: 'a-plan', name: 'Modelled', branches: [], verdict: 'complete',
     section: 'done', complete: true, ...over,
   });
@@ -514,11 +514,11 @@ describe('waveGroupsFor — asks the server-derived wave, not a per-section stat
       row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(2) }),
     ];
     const waves = [wave({ name: 'Modelled', branches: ['a', 'b'], section: 'done', complete: true })];
-    const groups = waveGroupsFor(rows, 'done', waves);
+    const groups = sliceGroupsFor(rows, 'done', waves);
     expect(groups).toHaveLength(1);
     expect(groups[0].rows.map((r) => r.branch)).toEqual(['a', 'b']);
     // …and a non-done section does NOT also claim it — one wave, one section.
-    expect(waveGroupsFor(rows, 'not-started', waves)).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'not-started', waves)).toHaveLength(0);
   });
 
   it('keeps a NOT-STARTED wave out of DONE though a stray row is merged', () => {
@@ -532,8 +532,8 @@ describe('waveGroupsFor — asks the server-derived wave, not a per-section stat
       row({ wave: 'Inverted', branch: 'b', state: 'open' }),
     ];
     const waves = [wave({ name: 'Inverted', branches: ['a', 'b'], verdict: 'eligible', section: 'not-started', complete: false })];
-    expect(waveGroupsFor(rows, 'done', waves)).toHaveLength(0);
-    expect(waveGroupsFor(rows, 'not-started', waves).map((g) => g.rows.map((r) => r.branch)))
+    expect(sliceGroupsFor(rows, 'done', waves)).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'not-started', waves).map((g) => g.rows.map((r) => r.branch)))
       .toEqual([['a', 'b']]);
   });
 
@@ -546,8 +546,8 @@ describe('waveGroupsFor — asks the server-derived wave, not a per-section stat
       row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(2) }),
     ];
     const waves = [wave({ name: 'Modelled', branches: ['a', 'b'], section: 'not-started', complete: false })];
-    expect(waveGroupsFor(rows, 'working', waves)).toHaveLength(0);
-    expect(waveGroupsFor(rows, 'waiting-on-machine', waves)).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'working', waves)).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'waiting-on-machine', waves)).toHaveLength(0);
   });
 
   it('falls back to the row-state predicate when the wave list is ABSENT — a pre-wave pulse', () => {
@@ -559,7 +559,7 @@ describe('waveGroupsFor — asks the server-derived wave, not a per-section stat
       row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(1) }),
       row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(2) }),
     ];
-    const groups = waveGroupsFor(rows, 'waiting-on-you', undefined);
+    const groups = sliceGroupsFor(rows, 'waiting-on-you', undefined);
     expect(groups).toHaveLength(1);
     expect(groups[0].rows.map((r) => r.branch)).toEqual(['a', 'b']);
   });
@@ -573,16 +573,16 @@ describe('waveGroupsFor — asks the server-derived wave, not a per-section stat
       row({ wave: '', branch: 'c', state: 'merged' }),
     ];
     const waves = [wave({ name: 'Modelled', branches: ['a', 'b'], section: 'done', complete: true })];
-    const grouped = waveGroupsFor(rows, 'done', waves).flatMap((g) => g.rows);
+    const grouped = sliceGroupsFor(rows, 'done', waves).flatMap((g) => g.rows);
     const loose = ungroupedRows(rows, 'done', waves);
     expect(grouped.length + loose.length).toBe(rows.length);
     expect(new Set([...grouped, ...loose]).size).toBe(rows.length);
   });
 });
 
-describe('groupByWave — a wave has branches, not the other way round', () => {
+describe('groupBySlice — a wave has branches, not the other way round', () => {
   it('gives a wave holding three branches ONE group', () => {
-    const groups = groupByWave([
+    const groups = groupBySlice([
       row({ wave: 'Implementation', branch: 'a' }),
       row({ wave: 'Implementation', branch: 'b' }),
       row({ wave: 'Implementation', branch: 'c' }),
@@ -599,7 +599,7 @@ describe('groupByWave — a wave has branches, not the other way round', () => {
     // first-appearance order, which IS the age order they came in. Sorting here
     // would reintroduce that flicker one level down, and the wave sequence is the
     // plan file's order rather than something to recompute.
-    const groups = groupByWave([
+    const groups = groupBySlice([
       row({ wave: 'Shaped', branch: 'a' }),
       row({ wave: 'Marked', branch: 'b' }),
       row({ wave: 'Moved', branch: 'c' }),
@@ -612,7 +612,7 @@ describe('groupByWave — a wave has branches, not the other way round', () => {
     // so any of them answers. Taking the first NON-NULL rather than the first
     // row means a five-branch wave still reports its verdict where one row's is
     // absent.
-    const groups = groupByWave([
+    const groups = groupBySlice([
       row({ wave: 'Implementation', branch: 'a', verdict: null }),
       row({ wave: 'Implementation', branch: 'b', verdict: 'blocked' }),
     ]);
@@ -623,17 +623,17 @@ describe('groupByWave — a wave has branches, not the other way round', () => {
     // Six of this estate's 71 waves have no name — all in plans written before
     // the naming convention. A board that dropped them would make six real waves
     // invisible to punish six old plan files.
-    const groups = groupByWave([row({ wave: '', branch: 'a' })]);
+    const groups = groupBySlice([row({ wave: '', branch: 'a' })]);
     expect(groups).toHaveLength(1);
     expect(groups[0].wave).toBe('');
   });
 
   it('keeps a deferred branch reachable when it shares a wave with an unbegun one', () => {
-    // The pairing `showsWaveFold` defends, in the case where one wave holds
+    // The pairing `showsSliceFold` defends, in the case where one wave holds
     // both. The plan-level fold is gone (one wave), so the WAVE's fold is what
     // discloses them — and it exists, because the wave holds two rows. The
     // deferred branch's PR and age are one click further in, never lost.
-    const groups = groupByWave([
+    const groups = groupBySlice([
       row({ wave: 'Shaped', branch: 'never-begun' }),
       row({ wave: 'Shaped', branch: 'shelved', state: 'deferred', ageMinutes: 400 }),
     ]);

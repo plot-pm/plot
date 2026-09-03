@@ -4052,7 +4052,7 @@ describe('the row carries its verdict', () => {
   });
 
   it('reuses the WAVE verdict rather than inventing a fourth row state', () => {
-    // The decision, as an assertion. `WaveVerdictSchema` is the row's vocabulary
+    // The decision, as an assertion. `SliceVerdictSchema` is the row's vocabulary
     // too, so a value the wave can hold is a value the row accepts and nothing
     // else is. A second three-value enum meaning almost the same thing is what
     // this pins shut.

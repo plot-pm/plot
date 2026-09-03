@@ -15,7 +15,7 @@ import {
   tupleFromIssue,
   tupleFromPlan,
   tupleFromRow,
-  tupleFromWave,
+  tupleFromSlice,
 } from '../../src/app/lib/tuple-row.js';
 import {
   AgentRowSchema, IssueRowSchema, RowKindSchema,
@@ -675,7 +675,7 @@ describe('every kind fills all six slots', () => {
       branchUrl: 'https://host/tree/changeset-release/main', ageMinutes: 12,
       pr: { number: 300, url: 'https://host/pr/300', draft: false, state: 'none' },
     })),
-    wave: () => tupleFromWave({
+    wave: () => tupleFromSlice({
       name: 'Shaped', plan: 'a-plan', verdict: 'eligible',
       blockedBy: null, outstanding: 1,
       branches: [{ branch: 'feature/x', branchUrl: 'https://host/tree/feature/x' }],
@@ -727,7 +727,7 @@ describe('every kind fills all six slots', () => {
     // `PLAN`, each naming its BRANCH, each linking
     // `PLAN fleet-scan-asks-the-host` directly beneath the plan row heading
     // them, each showing `open` where the scan had computed the verdict.
-    const t = tupleFromWave({
+    const t = tupleFromSlice({
       name: 'Shaped', plan: 'fleet-scan-asks-the-host', verdict: 'eligible',
       branches: [{ branch: 'feature/the-scan-asks-once', branchUrl: 'https://host/tree/x' }],
       ageMinutes: 1440, waitingDays: 1,
@@ -745,7 +745,7 @@ describe('every kind fills all six slots', () => {
   it('links every branch a wave holds', () => {
     // Slot 4 is zero-or-more, and the wave is the kind that uses its upper end:
     // `opus5-longhorizon-hardening :: Implementation` holds five.
-    const t = tupleFromWave({
+    const t = tupleFromSlice({
       name: 'Implementation', plan: 'opus5-longhorizon-hardening', verdict: 'blocked',
       blockedBy: 'Tracer', outstanding: 5,
       branches: Array.from({ length: 5 }, (_, i) => ({
@@ -769,7 +769,7 @@ describe('every kind fills all six slots', () => {
     //
     // `blockedNote()` composed all three into prose and printed it in the note
     // column, one line below the very row it named. Each has a slot:
-    const t = tupleFromWave({
+    const t = tupleFromSlice({
       name: 'Moved', plan: 'a-plan', verdict: 'blocked',
       blockedBy: 'Relocated', outstanding: 1,
       branches: [{ branch: 'bug/the-old-column-goes', branchUrl: 'https://host/tree/x' }],
@@ -794,13 +794,13 @@ describe('every kind fills all six slots', () => {
     // its count three times, each time describing a row the reader had to find
     // by name. On its own row it is stated once, and only where it says
     // something a folded link does not.
-    const two = tupleFromWave({
+    const two = tupleFromSlice({
       name: 'Relocated', plan: 'a-plan', verdict: 'blocked',
       blockedBy: null, outstanding: 2,
       branches: [], ageMinutes: 60, waitingDays: null,
     });
     expect(two.status).toBe('blocked · 2 left');
-    const one = tupleFromWave({
+    const one = tupleFromSlice({
       name: 'Relocated', plan: 'a-plan', verdict: 'blocked',
       blockedBy: null, outstanding: 1,
       branches: [], ageMinutes: 60, waitingDays: null,
@@ -926,7 +926,7 @@ describe('every kind fills all six slots', () => {
     // the convention. Refusing to render them would make six real waves
     // invisible to punish six old plan files — and the board is not where an
     // authoring convention is enforced.
-    const t = tupleFromWave({
+    const t = tupleFromSlice({
       name: '', plan: 'a-blocked-wave-is-not-eligible', verdict: 'complete',
       blockedBy: null, outstanding: null,
       branches: [], ageMinutes: 60, waitingDays: null,
@@ -939,7 +939,7 @@ describe('every kind fills all six slots', () => {
     // A wave is a HEADING inside a plan file. Linking it to the plan would make
     // three sibling waves three links to one document — which is the same
     // repetition the missing plan prefix removes.
-    const t = tupleFromWave({
+    const t = tupleFromSlice({
       name: 'Shaped', plan: 'a-plan', verdict: 'eligible',
       blockedBy: null, outstanding: null,
       branches: [], ageMinutes: 60, waitingDays: null,
@@ -951,7 +951,7 @@ describe('every kind fills all six slots', () => {
     // The rule `prStatus` states for `unknown`: a row printing its own ignorance
     // in a column a reader scans has said nothing. Absent renders as absent —
     // and never as `open`, which is a fact about a BRANCH.
-    const t = tupleFromWave({
+    const t = tupleFromSlice({
       name: 'Shaped', plan: 'a-plan', verdict: null,
       blockedBy: null, outstanding: null,
       branches: [], ageMinutes: 60, waitingDays: null,
@@ -964,7 +964,7 @@ describe('every kind fills all six slots', () => {
     // Where none of its branches has moved, the plan's approval clock is the only
     // one running — and it wears its label, like every other exception to
     // *since last change*.
-    const t = tupleFromWave({
+    const t = tupleFromSlice({
       name: 'Relocated', plan: 'a-plan', verdict: 'blocked',
       blockedBy: null, outstanding: null,
       branches: [], ageMinutes: null, waitingDays: 3,

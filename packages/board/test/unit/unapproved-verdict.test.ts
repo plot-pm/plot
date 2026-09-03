@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   FleetReadingSchema, PlanSliceSchema, SliceVerdictSchema,
 } from '../../src/contract/schema.js';
-import { classify, waveVerdict } from '../../src/server/fleet.js';
-import { tupleFromWave, statusTone } from '../../src/app/lib/tuple-row.js';
+import { classify, sliceVerdict } from '../../src/server/fleet.js';
+import { tupleFromSlice, statusTone } from '../../src/app/lib/tuple-row.js';
 
 // The board's half of `an-eligible-wave-can-be-started`. The scan withholds
 // `eligible` from a wave whose plan is not approved and says `unapproved`
@@ -42,15 +42,15 @@ describe('the fleet payload accepts the unapproved verdict', () => {
       .toBe('unapproved');
   });
 
-  // `waveVerdict` is the one gate between the untyped pulse and the row's
+  // `sliceVerdict` is the one gate between the untyped pulse and the row's
   // typed field. It must forward the word rather than null it — a null here
   // would render as nothing, which is the silence the plan set out to end.
   it('forwards unapproved onto the row rather than nulling it', () => {
-    expect(waveVerdict('unapproved')).toBe('unapproved');
+    expect(sliceVerdict('unapproved')).toBe('unapproved');
   });
 
   it('still refuses a word the scan cannot say', () => {
-    expect(waveVerdict('probably-fine')).toBe(null);
+    expect(sliceVerdict('probably-fine')).toBe(null);
   });
 
   // Done-when 5, on the CONTRACT: the new state has its own word and did not
@@ -63,7 +63,7 @@ describe('the fleet payload accepts the unapproved verdict', () => {
 });
 
 describe('an unapproved wave renders as unstartable', () => {
-  const waveFacts = (verdict: 'eligible' | 'unapproved') => ({
+  const sliceFacts = (verdict: 'eligible' | 'unapproved') => ({
     name: 'Worded',
     plan: '2026-08-27-a-draft.md',
     verdict,
@@ -80,7 +80,7 @@ describe('an unapproved wave renders as unstartable', () => {
 
   // The verdict reaches slot 5 verbatim, so the word IS what the reader sees.
   it('prints the verdict in the status slot', () => {
-    expect(tupleFromWave(waveFacts('unapproved') as never).status)
+    expect(tupleFromSlice(sliceFacts('unapproved') as never).status)
       .toBe('unapproved');
   });
 

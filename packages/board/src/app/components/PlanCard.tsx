@@ -107,9 +107,9 @@ export function isDraft(card: Card): boolean {
  * plan with nothing claimed has nothing to show at all), and an empty badge on
  * screen is exactly the kind of thing prose promises and code forgets.
  */
-export function waveBadgeText(s: NonNullable<Card['waveSummary']>): string {
+export function sliceBadgeText(s: NonNullable<Card['sliceSummary']>): string {
   const parts: string[] = [];
-  if (s.waves > 1) parts.push(`${s.waves} slices · ${s.branches} branches`);
+  if (s.slices > 1) parts.push(`${s.slices} slices · ${s.branches} branches`);
   if ((s.claimed ?? 0) > 0) parts.push(`${s.claimed} claimed`);
   if ((s.eligible ?? 0) > 0) parts.push(`${s.eligible} ready`);
   return parts.join(' · ');
@@ -278,8 +278,8 @@ export function PlanCard({
             choice, and colouring it like a defect would re-create the
             obligation a story lint was deliberately dropped to avoid. */}
         {showStory && !card.story && <Badge variant="neutral">no story</Badge>}
-        {card.waveSummary && card.waveSummary.branches > 0 && waveBadgeText(card.waveSummary) && (
-          <Badge variant="neutral">{waveBadgeText(card.waveSummary)}</Badge>
+        {card.sliceSummary && card.sliceSummary.branches > 0 && sliceBadgeText(card.sliceSummary) && (
+          <Badge variant="neutral">{sliceBadgeText(card.sliceSummary)}</Badge>
         )}
         {/* How hard this plan has been questioned — a Discovery-column answer to
             "has anyone pushed on this yet?", which is the one thing a reader of
