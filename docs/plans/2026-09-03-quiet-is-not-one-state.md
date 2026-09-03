@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-03, Jan Wloka, in-session
 - **Started:** 2026-09-03, Jan Wloka, `feature/quiet-holds-one-kind-of-row`
+- **Started:** 2026-09-04, Jan Wloka, `feature/the-board-reads-the-quiet-kinds`
 
 ## Changelog
 
