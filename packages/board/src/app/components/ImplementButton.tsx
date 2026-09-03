@@ -190,7 +190,7 @@ export function ImplementButton({
         // the page has dimmed.
         aria-disabled={blocked || undefined}
         aria-busy={running}
-        title={implement.available ? (title ?? `Implement ${slug} — prepare a wave with /plot-implement`) : implement.reason}
+        title={implement.available ? (title ?? `Implement ${slug} — prepare a slice with /plot-implement`) : implement.reason}
         className={
           blocked
             ? `cursor-not-allowed text-xs font-medium text-slate-400 no-underline dark:text-slate-600${running ? ` ${ACTING_CLASS}` : ''}`

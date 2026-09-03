@@ -101,7 +101,7 @@ function deliverStatePath(repoRoot: string, slug: string): string {
 export type DeliverRefusal =
   /** No `Idea command` is configured, so no agent can be started. */
   | 'no-deliver-command'
-  /** The plan could not be found or its waves could not be read. */
+  /** The plan could not be found or its slices could not be read. */
   | 'plan-unreadable'
   /**
    * The plan has an open (not merged, not deferred) branch, or no landed work at
@@ -437,7 +437,7 @@ export async function handleDeliver(
       409,
       'plan-unreadable',
       slug,
-      `plan \`${slug}\` could not be found or its waves could not be read — refusing rather than delivering a plan whose shape is unknown`,
+      `plan \`${slug}\` could not be found or its slices could not be read — refusing rather than delivering a plan whose shape is unknown`,
     );
     return;
   }

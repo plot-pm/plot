@@ -938,9 +938,9 @@ export function AgentList({
           : sectionTally(rows, key, waves, issues.length);
         // WHERE THE TWO AGREE, ONE NUMBER — an ungrouped or empty section gains
         // no redundant clause, so QUIET at 0/0 stays `(0)` and never
-        // `(0 plans · 0 waves)` (Done when #3). Where they differ, both, named.
+        // `(0 plans · 0 slices)` (Done when #3). Where they differ, both, named.
         const shownLabel = tallyOf.differ
-          ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.waves} wave${tallyOf.waves === 1 ? '' : 's'})`
+          ? `(${tallyOf.plans} plan${tallyOf.plans === 1 ? '' : 's'} · ${tallyOf.waves} slice${tallyOf.waves === 1 ? '' : 's'})`
           : `(${tallyOf.plans})`;
         // THE HIDDEN SUFFIX. A filtered section says what it withheld, so
         // `none` is never the whole answer when rows exist and the reader has

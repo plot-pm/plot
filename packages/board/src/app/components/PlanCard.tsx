@@ -103,13 +103,13 @@ export function isDraft(card: Card): boolean {
  * excludes `undefined` along with 0, so a card says nothing rather than
  * something it cannot support.
  *
- * Exported for test: this is display logic with real edge cases (a single-wave
+ * Exported for test: this is display logic with real edge cases (a single-slice
  * plan with nothing claimed has nothing to show at all), and an empty badge on
  * screen is exactly the kind of thing prose promises and code forgets.
  */
 export function waveBadgeText(s: NonNullable<Card['waveSummary']>): string {
   const parts: string[] = [];
-  if (s.waves > 1) parts.push(`${s.waves} waves · ${s.branches} branches`);
+  if (s.waves > 1) parts.push(`${s.waves} slices · ${s.branches} branches`);
   if ((s.claimed ?? 0) > 0) parts.push(`${s.claimed} claimed`);
   if ((s.eligible ?? 0) > 0) parts.push(`${s.eligible} ready`);
   return parts.join(' · ');

@@ -1076,8 +1076,8 @@ export function WaveActions({
         // Never the native attribute — a natively disabled control leaves the
         // tab order and takes the explanation with it.
         aria-disabled={!willAct || undefined}
-        aria-label={willAct ? `Actions for wave ${wave}` : (dispatch.reason ?? `Cannot start ${wave} from here`)}
-        title={willAct ? `Actions for wave ${wave}` : (dispatch.reason ?? `Cannot start ${wave} from here`)}
+        aria-label={willAct ? `Actions for slice ${wave}` : (dispatch.reason ?? `Cannot start ${wave} from here`)}
+        title={willAct ? `Actions for slice ${wave}` : (dispatch.reason ?? `Cannot start ${wave} from here`)}
         onClick={() => { if (willAct) setOpen((v) => !v); }}
         className={`inline-flex h-6 w-5 items-center justify-center leading-none ${
           willAct
@@ -1166,10 +1166,10 @@ export function ResliceMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         // ALWAYS enabled, unlike `WaveActions`: the item inside always applies to
-        // an unsliced wave, and where the server refuses, the item — not this
+        // an uncut slice, and where the server refuses, the item — not this
         // trigger — carries the reason.
-        aria-label={`Actions for wave ${wave}`}
-        title={`Actions for wave ${wave}`}
+        aria-label={`Actions for slice ${wave}`}
+        title={`Actions for slice ${wave}`}
         onClick={() => setOpen((v) => !v)}
         className="inline-flex h-6 w-5 items-center justify-center leading-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100"
       >

@@ -749,7 +749,7 @@ export function PlanRow({
         {soleWave?.verdict ? (
         <span
           data-sole-wave-verdict={soleWave.verdict}
-          title={`This plan's sole wave: ${soleWave.verdict}`}
+          title={`This plan's sole slice: ${soleWave.verdict}`}
           className={`min-w-0 shrink-0 truncate ${statusTone(soleWave.verdict)}`}
         >
           {soleWave.verdict}
@@ -789,7 +789,7 @@ export function PlanRow({
               <span
                 data-wave-summary
                 className="truncate text-slate-500 dark:text-slate-400"
-                title="Waves of this plan in this section — and how many sit in another"
+                title="Slices of this plan in this section — and how many sit in another"
               >
                 {summary}
               </span>
@@ -1062,7 +1062,7 @@ export function WaveRow({
         ? groupedNote(groupedWord, waveDissent(group.rows))
         : '')
         || (group.verdict === 'eligible' ? 'approved — nobody has taken it'
-          : group.verdict === 'blocked' ? 'an earlier wave has to land first'
+          : group.verdict === 'blocked' ? 'an earlier slice has to land first'
           // THE SENTENCE NAMES THE ACTION, like its two siblings, and the
           // action here is not merging — it is approving. The `eligible`
           // sentence says *approved*, which is the fact this wave lacks, and
@@ -1294,7 +1294,7 @@ export function WaveRow({
       statusAttr={soleRow?.pr
         ? { 'data-pr-state': soleRow.pr.state }
         : group.verdict
-          ? { 'data-verdict': group.verdict, title: `The scan's verdict for this wave: ${group.verdict}` }
+          ? { 'data-verdict': group.verdict, title: `The scan's verdict for this slice: ${group.verdict}` }
           : undefined}
       // NO BORDER, the same reason the plan row takes none: a wave with a fold
       // heads its own little group, and a rule here would fall between a wave
@@ -1407,7 +1407,7 @@ export function WaveRow({
               type="button"
               data-wave-branch-toggle={group.wave || '(unnamed)'}
               aria-expanded={expanded}
-              aria-label={`${expanded ? 'Hide' : 'Show'} the branches of wave ${group.wave || '(unnamed)'}`}
+              aria-label={`${expanded ? 'Hide' : 'Show'} the branches of slice ${group.wave || '(unnamed)'}`}
               onClick={onToggle}
               // `-mt-1`, and it is a CENTRING correction rather than a nudge.
               // Measured on the mock: this control's box is 24px tall against
@@ -1873,9 +1873,9 @@ export function Row({
               // The word `wave` is in the TITLE and not in the badge, because
               // the badge is read beside a branch name where the relation is
               // already visible. This is not a tooltip standing in for a label
-              // — the wave NAME is rendered in text; the title only says what
+              // — the slice NAME is rendered in text; the title only says what
               // kind of name it is.
-              title={`Wave ${waveName} — the slice of the plan this branch belongs to`}
+              title={`Slice ${waveName} — the part of the plan this branch belongs to`}
             >
               {waveName}
             </span>

@@ -149,8 +149,8 @@ export const MARKS_CELL =
 function valueAttr(link: TupleLink): Record<string, string> {
   if (link.what === 'branch') return { 'data-branch': link.label };
   // `wave` qualifies on the same test `branch` does: every `what: 'wave'` link
-  // is a wave, on every kind, with no second thing wearing the value. Today it
-  // has one producer — the wave a blocked wave waits on — and the hook is what
+  // is a slice, on every kind, with no second thing wearing the value. Today it
+  // has one producer — the slice a blocked slice waits on — and the hook is what
   // lets a test assert *the blocker is a REFERENCE* rather than matching the
   // sentence `blocked by Relocated` that this replaced.
   if (link.what === 'wave') return { 'data-wave-link': link.label };

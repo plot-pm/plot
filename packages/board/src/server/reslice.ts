@@ -105,7 +105,7 @@ function resliceStatePath(repoRoot: string, slug: string): string {
 export type ResliceRefusal =
   /** No `Idea command` is configured, so no agent can be started. */
   | 'no-idea-command'
-  /** The plan could not be found or its waves could not be read. */
+  /** The plan could not be found or its slices could not be read. */
   | 'plan-unreadable'
   /**
    * The plan has no wave holding more than one branch, so there is nothing to
@@ -221,10 +221,10 @@ export function composeReslicePrompt(input: { slug: string; planFile: string }):
   parts.push(
     `/plot-reslice ${slug}`,
     '',
-    `Read the plan at ${planFile}. One of its \`## Branches\` waves — a \`### \``,
-    'heading — carries several branch lines, which the model forbids: a wave is',
+    `Read the plan at ${planFile}. One of its \`## Branches\` slices — a \`### \``,
+    'heading — carries several branch lines, which the model forbids: a slice is',
     'the unit of ordering and a branch the unit of work, and the two are',
-    'one-to-one. Your job is to slice that wave into one wave per branch.',
+    'one-to-one. Your job is to cut that slice into one slice per branch.',
     '',
   );
 
@@ -234,7 +234,7 @@ export function composeReslicePrompt(input: { slug: string; planFile: string }):
     '1. Read the entangled branches themselves — their diffs, their PRs, their',
     '   conflicts — so the slice NAMES describe what each branch is about, not',
     '   just restate the branch name.',
-    '2. Propose one wave per branch in a dependency order you ARGUE for, then',
+    '2. Propose one slice per branch in a dependency order you ARGUE for, then',
     '   **ask a person to confirm the order before writing anything**. The order',
     '   is the judgement this command exists for: a wrong order blocks work that',
     '   could have run, and a missing dependency lets two agents collide. If you',
@@ -244,8 +244,8 @@ export function composeReslicePrompt(input: { slug: string; planFile: string }):
     '   `### ` headings above the branch lines; leave the branch lines',
     '   byte-identical (they have PRs and claim refs pointing at their names, and',
     '   a rename breaks both), and leave the rest of the file untouched.',
-    '4. Do NOT reorder a wave whose work has already landed — a `complete` wave',
-    '   is history, and its ordering already happened. Slice nothing there.',
+    '4. Do NOT reorder a slice whose work has already landed — a `complete`',
+    '   slice is history, and its ordering already happened. Cut nothing there.',
     '5. Slice, never build. Merge nothing, dispatch nothing: the repair produces',
     '   a sliced plan, and `/plot-dispatch` then does what it always does.',
     '',
@@ -398,7 +398,7 @@ export async function handleReslice(
       409,
       'plan-unreadable',
       slug,
-      `plan \`${slug}\` could not be found or its waves could not be read — refusing rather than reslicing a plan whose shape is unknown`,
+      `plan \`${slug}\` could not be found or its slices could not be read — refusing rather than reslicing a plan whose shape is unknown`,
     );
     return;
   }
@@ -407,7 +407,7 @@ export async function handleReslice(
       409,
       'nothing-to-slice',
       slug,
-      `plan \`${slug}\` has no wave holding more than one live branch — there is nothing to slice, and a wave whose work has landed is history the reslice must not touch`,
+      `plan \`${slug}\` has no slice holding more than one live branch — there is nothing to cut, and a slice whose work has landed is history the reslice must not touch`,
     );
     return;
   }

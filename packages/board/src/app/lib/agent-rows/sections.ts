@@ -586,7 +586,7 @@ export function waveSummaryFor(group: PlanGroup, waves?: Wave[]): string {
       // needs.
       groupByWave(unbegun).length;
   if (count === 0) return '';
-  const label = `${count} wave${count === 1 ? '' : 's'}`;
+  const label = `${count} slice${count === 1 ? '' : 's'}`;
   return unbegun.some(isStartable) ? `${label}, first eligible` : label;
 }
 
@@ -656,7 +656,7 @@ export function wavesElsewhere(
  */
 export function elsewhereNote(count: number): string {
   if (count <= 0) return '';
-  return `${count} wave${count === 1 ? '' : 's'} elsewhere`;
+  return `${count} slice${count === 1 ? '' : 's'} elsewhere`;
 }
 
 /**

@@ -223,7 +223,7 @@ async function handleRequest(
     // order is judgement the board cannot make. This is the standing rule for
     // board writes: reuse the agent-spawn shape for a judgement act rather than
     // inventing a lifecycle transition.
-    { path: '/api/reslice', verb: 'reslicing a wave', handle: handleReslice },
+    { path: '/api/reslice', verb: 'slicing a plan', handle: handleReslice },
     // POST /api/deliver — a fully-merged plan is delivered.
     //
     // The same class of route as /api/reslice, and the same binding: it spawns a

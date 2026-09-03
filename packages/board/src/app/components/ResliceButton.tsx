@@ -61,7 +61,7 @@ type State =
  * Exported for test.
  */
 export function armedLabel(slug: string): string {
-  return `Slice this wave — spawns /plot-reslice for ${slug}?`;
+  return `Slice this plan — spawns /plot-reslice for ${slug}?`;
 }
 
 export function ResliceButton({ slug, reslice, onActing }: ResliceButtonProps) {
@@ -206,7 +206,7 @@ export function ResliceButton({ slug, reslice, onActing }: ResliceButtonProps) {
         aria-disabled={blocked || undefined}
         aria-busy={running}
         aria-pressed={armed}
-        title={reslice.available ? `Slice ${slug}'s wave into one wave per branch` : reslice.reason}
+        title={reslice.available ? `Cut ${slug}'s slice into one slice per branch` : reslice.reason}
         className={
           armed
             ? 'rounded-sm bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-900 hover:underline dark:bg-amber-900/40 dark:text-amber-200'
@@ -215,7 +215,7 @@ export function ResliceButton({ slug, reslice, onActing }: ResliceButtonProps) {
               : 'text-xs font-medium text-blue-600 hover:underline dark:text-blue-400'
         }
       >
-        {running ? 'slicing…' : armed ? armedLabel(slug) : 'Slice this wave'}
+        {running ? 'slicing…' : armed ? armedLabel(slug) : 'Slice this plan'}
         {/* Beside the word, never instead of it — motion must not be the only
             carrier of a fact, and the label is what a screen reader gets. */}
         {running && <ActingSpinner />}

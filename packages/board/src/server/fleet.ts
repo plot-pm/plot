@@ -4386,7 +4386,7 @@ function classifyGroup(
     // than a cosmetic one.
     return verdict === 'complete'
       ? { group: 'done', note: 'merged' }
-      : { group: 'done', note: 'merged — wave still open' };
+      : { group: 'done', note: 'merged — slice still open' };
   }
   // state === 'wip'
   //

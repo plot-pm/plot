@@ -15,7 +15,8 @@
  */
 const STOP_WORDS = new Set([
   // Plot implementation terms (too specific to the tool itself)
-  'plan', 'plans', 'branch', 'branches', 'wave', 'waves', 'sprint', 'sprints',
+  'plan', 'plans', 'branch', 'branches', 'wave', 'waves', 'slice', 'slices',
+  'sprint', 'sprints',
   'story', 'stories', 'board', 'agent', 'agents', 'fleet', 'dispatch',
   'ref', 'refs', 'scan', 'pulse', 'claim', 'claims', 'worktree', 'worktrees',
   'skill', 'skills', 'spoke', 'spokes', 'hub', 'phase', 'phases',

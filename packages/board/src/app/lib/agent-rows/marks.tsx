@@ -484,7 +484,7 @@ export function BlockedByMark({
         // THE NAME IS IN THE LABEL, not only in the overlay. A reader on a
         // screen reader gets the answer without opening anything, which is the
         // same rule slot 2 follows: recognition must not depend on a disclosure.
-        aria-label={`Blocked by wave ${wave} — show it`}
+        aria-label={`Blocked by slice ${wave} — show it`}
         onClick={goToWave}
         className="inline-flex items-center text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
       >

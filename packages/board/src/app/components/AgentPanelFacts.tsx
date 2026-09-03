@@ -401,7 +401,7 @@ export function AgentPanelFacts({ panel, now, onOpenPlan, onRevealBranch }: Agen
         value={panel.plan}
         onOpen={onOpenPlan && panel.plan ? () => onOpenPlan(panel.plan) : undefined}
       />
-      <Fact label="wave" value={panel.wave} />
+      <Fact label="slice" value={panel.wave} />
       {/* The three from the transcript. Each omits independently: a format that
           moved `usage` but kept `model` shows the model and no context, which
           is more useful than an all-or-nothing block and costs nothing. */}

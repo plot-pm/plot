@@ -1475,7 +1475,7 @@ export type BriefState = z.infer<typeof BriefStateSchema>;
  * non-deferred, unmerged branch count, matching `plot-fleet-scan.sh`'s own
  * arithmetic; the caller derives it, this only spells it.
  */
-export const BLOCKED_NOTE = 'blocked by an earlier wave';
+export const BLOCKED_NOTE = 'blocked by an earlier slice';
 
 /**
  * `blocked by `Truth` — 2 outstanding` where the wave has a name and a count,

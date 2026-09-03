@@ -147,7 +147,7 @@ export const KIND_LABEL: Record<RowKind, string> = {
   agent: 'Agent',
   branch: 'Branch',
   release: 'Release',
-  wave: 'Wave',
+  wave: 'Slice',
 };
 
 /**
