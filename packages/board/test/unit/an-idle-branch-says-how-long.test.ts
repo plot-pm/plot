@@ -125,23 +125,35 @@ describe('the row still lands where wave 1 put it', () => {
   // sections — but the section routing reads `ageMinutes`, so a change made
   // near it is exactly when to prove it did not.
 
-  it('sends nothing from this path to WAITING ON YOU, at either extreme', () => {
+  it('keeps a branch someone may still be writing out of WAITING ON YOU', () => {
     // Nothing is asked of the reader by a branch someone may still be writing,
-    // and WAITING ON YOU's whole value is that its rows need an answer. Both
-    // ends of the spread, because the routing is age-dependent and a format
-    // change is the moment to prove the classifier was untouched.
-    const rows = build();
-    expect(rows.find((r) => r.branch === 'bug/in-flight')!.group).not.toBe('waiting-on-you');
-    expect(rows.find((r) => r.branch === 'docs/abandoned')!.group).not.toBe('waiting-on-you');
+    // and WAITING ON YOU's whole value is that its rows need an answer.
+    //
+    // ONLY INSIDE THE QUIET WINDOW NOW, and the window is what bounds the
+    // change. `quiet-is-not-one-state` moved the two stale branches
+    // deliberately: commits under no PR, untouched for fourteen hours or four
+    // months, are not someone still writing — that is work needing a revive-or-
+    // drop call, and the call is a person's. A branch pushed five minutes ago
+    // is the one this still guards, and it is the case the sentence was always
+    // about.
+    expect(build().find((r) => r.branch === 'bug/fresh')!.group).not.toBe('waiting-on-you');
   });
 
-  it('leaves a recent branch in NOT STARTED and a stale one in QUIET', () => {
-    // The existing `wip` routing, unchanged: recent work is something to pick
-    // up, and a branch nobody has touched in four months is an errand to go
-    // check. Locked here because this wave edits the value that decides it.
+  it('leaves a recent branch in NOT STARTED and names a stale one ABANDONED', () => {
+    // Recent work is something to pick up. A branch nobody has touched in four
+    // months used to be *an errand to go check* — QUIET, described by its age —
+    // and the age was the whole of what the row said. It now says what the
+    // branch IS: real commits, no PR ever opened, nobody on it.
+    //
+    // THE AGE IS NOT LOST, which is this file's own subject. It follows the
+    // state rather than standing in for it, and the format this wave fixed is
+    // still what renders it.
     const rows = build();
     expect(rows.find((r) => r.branch === 'bug/fresh')!.group).toBe('not-started');
-    expect(rows.find((r) => r.branch === 'docs/abandoned')!.group).toBe('quiet');
+    const abandoned = rows.find((r) => r.branch === 'docs/abandoned')!;
+    expect(abandoned.group).toBe('waiting-on-you');
+    expect(abandoned.note).toMatch(/commits, no PR ever opened/);
+    expect(abandoned.note).toMatch(/119 days/);
   });
 });
 

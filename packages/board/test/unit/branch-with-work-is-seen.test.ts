@@ -117,18 +117,25 @@ describe('a branch with work on it is visible', () => {
     }
   });
 
-  it('sends nothing from this path to WAITING ON YOU', () => {
+  it('keeps a branch someone may still be writing out of WAITING ON YOU', () => {
     // Done when #5. Nothing is asked of the reader by a branch someone may still
     // be writing, and WAITING ON YOU's whole value is that its rows need an
     // answer — swamping it with ~31 branches destroys that.
     //
-    // Structural rather than incidental: no PR is handed to `classify`, and every
-    // one of its `waiting-on-you` arms requires a PR record. Asserted on the two
-    // rows this loop actually builds, so a change that started passing a PR here
-    // fails.
-    const rows = build();
-    expect(rows.find((r) => r.branch === 'bug/commits-only')!.group).not.toBe('waiting-on-you');
-    expect(rows.find((r) => r.branch === 'docs/long-abandoned')!.group).not.toBe('waiting-on-you');
+    // THE STRUCTURAL ARGUMENT NO LONGER HOLDS, and it is worth saying why
+    // rather than deleting the sentence. It read: *"no PR is handed to
+    // `classify`, and every one of its `waiting-on-you` arms requires a PR
+    // record."* `quiet-is-not-one-state` added an arm that requires the
+    // ABSENCE of one — abandoned work is *real commits, no PR ever opened* —
+    // so the absence of a PR is now itself a reason to ask a person.
+    //
+    // THE VOLUME CONCERN IS REAL AND IS BOUNDED BY THE WINDOW. Only branches
+    // past the quiet window reach it: a branch pushed within the window is
+    // NOT STARTED, which is where `bug/commits-only` stays and what this
+    // assertion still guards. The estate measured 6 abandoned rows against the
+    // 17 closed PRs the same change takes OUT of the reader's way, so the
+    // section that needs a person gets smaller overall, not larger.
+    expect(build().find((r) => r.branch === 'bug/commits-only')!.group).not.toBe('waiting-on-you');
   });
 
   it('lands a recently-pushed branch in NOT STARTED', () => {
@@ -139,13 +146,20 @@ describe('a branch with work on it is visible', () => {
     expect(build().find((r) => r.branch === 'bug/commits-only')!.group).toBe('not-started');
   });
 
-  it('lets an abandoned branch fall to QUIET, as every stale wip row does', () => {
-    // Four months old, so past the quiet window. QUIET means "go check whether
-    // this died", which is the correct errand for it — and it is the EXISTING
-    // routing, not an exception this loop carves. Two of the six branches the
-    // gap was measured on were four weeks and four months old: not in flight,
-    // abandoned, and the board is the place that would have said so.
-    expect(build().find((r) => r.branch === 'docs/long-abandoned')!.group).toBe('quiet');
+  it('names an abandoned branch ABANDONED, as every stale wip row now does', () => {
+    // Four months old, so past the quiet window. It used to fall to QUIET —
+    // *"go check whether this died"* — which was the existing routing and was
+    // the defect: the row answered with a duration where a state belonged, and
+    // the same sentence covered work somebody rejected and work nobody started.
+    //
+    // The errand is not "go check whether this died". It is revive it, or drop
+    // it — a decision, and the one kind of quiet that genuinely needs a person.
+    // Two of the six branches the gap was measured on were four weeks and four
+    // months old: not in flight, abandoned, and the board is the place that
+    // says so.
+    const row = build().find((r) => r.branch === 'docs/long-abandoned')!;
+    expect(row.group).toBe('waiting-on-you');
+    expect(row.note).toMatch(/commits, no PR ever opened/);
   });
 
   it('claims no plan, no wave and no worker it never looked for', () => {

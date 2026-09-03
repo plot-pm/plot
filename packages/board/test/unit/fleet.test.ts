@@ -251,36 +251,55 @@ describe('classify', () => {
     expect(r.note).toMatch(/claimed/);
   });
 
-  it('calls a claim that stayed silent past the quiet window quiet', () => {
+  it('names a claim that stayed silent past the quiet window an orphaned claim', () => {
+    // WAS `quiet`, WITH `claimed 31 min ago` FOR ITS WHOLE NOTE. Age is not a
+    // state: the same sentence was true of work somebody rejected and work
+    // nobody started. `state === 'claimed'` IS `isEmptyClaim` — the scan
+    // answers that word only for a branch whose commits beyond main are all
+    // empty claim markers — so the rule names it, and the age follows the
+    // state instead of standing in for it.
     const r = classify('claimed', 'eligible', QUIET + 1, QUIET);
-    expect(r.group).toBe('quiet');
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/claimed, no work committed/);
     expect(r.note).toMatch(/claimed 31 min ago/);
   });
 
   // Without an age there is nothing to judge, and guessing `working` would
-  // assert liveness the data does not support.
-  it('falls back to quiet when a claim has no age', () => {
-    expect(classify('claimed', 'eligible', null, QUIET).group).toBe('quiet');
+  // assert liveness the data does not support. The KIND is still known — it
+  // does not come from the clock — so the row says what the branch is and
+  // simply omits the duration.
+  it('still names the kind when a claim has no age', () => {
+    const r = classify('claimed', 'eligible', null, QUIET);
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/claimed, no work committed/);
   });
 
   // WORKING IS ABOUT AGENTS. A recent commit without a known worker is NOT
   // STARTED — an agent may take this. See `every-section-has-one-subject`.
-  it('puts a recent commit without a known worker into not-started, stale to quiet', () => {
+  // Past the window it is ABANDONED: real commits, no open PR (the PR arm
+  // above catches every branch carrying one), nobody on it.
+  it('puts a recent commit without a known worker into not-started, stale to abandoned', () => {
     expect(classify('wip', 'eligible', 5, QUIET).group).toBe('not-started');
-    expect(classify('wip', 'eligible', 200, QUIET).group).toBe('quiet');
+    const stale = classify('wip', 'eligible', 200, QUIET);
+    expect(stale.group).toBe('waiting-on-you');
+    expect(stale.note).toMatch(/commits, no PR ever opened/);
   });
 
-  it('respects the configured quiet window for the not-started/quiet boundary', () => {
+  it('respects the configured quiet window for the not-started/abandoned boundary', () => {
     // The default is a guess; a repo whose agents think for an hour raises it.
-    // WORKING IS ABOUT AGENTS, so the boundary is now not-started vs quiet.
-    expect(classify('wip', 'eligible', 45, 30).group).toBe('quiet');
+    // The window still decides WHEN the row stops reading as freshly touched;
+    // what changed is what it reads as afterwards.
+    expect(classify('wip', 'eligible', 45, 30).group).toBe('waiting-on-you');
     expect(classify('wip', 'eligible', 45, 60).group).toBe('not-started');
   });
 
   it('does not claim a branch is working when its age is unknown', () => {
-    // Unknown must not read as fresh — that shows a dead worker as busy.
+    // Unknown must not read as fresh — that shows a dead worker as busy. The
+    // kind is read from the branch rather than the clock, so an unknown age
+    // costs the duration and not the state.
     const r = classify('wip', 'eligible', null, QUIET);
-    expect(r.group).toBe('quiet');
+    expect(r.group).toBe('waiting-on-you');
+    expect(r.note).toMatch(/commits, no PR ever opened/);
     expect(r.note).toMatch(/unknown/);
   });
 
@@ -362,9 +381,13 @@ describe('classify', () => {
     // that never started, so it is not evidence of work and must lift nothing.
     // `false` is also what every branch on another machine reports, which makes
     // this the assertion that keeps the change additive.
-    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false).group).toBe('quiet');
-    expect(classify('wip', 'eligible', 200, QUIET, null, false).group).toBe('quiet');
-    expect(classify('wip', 'eligible', null, QUIET, null, false).group).toBe('quiet');
+    //
+    // The BASELINE these lift toward is `waiting-on-you` since the quiet rule
+    // landed — an orphaned claim and abandoned work each need a person. The
+    // property asserted is unchanged: a clean tree moves nothing.
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false).group).toBe('waiting-on-you');
+    expect(classify('wip', 'eligible', 200, QUIET, null, false).group).toBe('waiting-on-you');
+    expect(classify('wip', 'eligible', null, QUIET, null, false).group).toBe('waiting-on-you');
   });
 
   it('answers identically whether the field is false or simply not passed', () => {
@@ -463,10 +486,11 @@ describe('classify', () => {
   it('changes nothing at zero ahead', () => {
     // Zero is what every branch on a machine with no local ref reports — every
     // detached worker, every teammate's laptop, every CI run — so it is the
-    // assertion that keeps the change additive.
-    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0).group).toBe('quiet');
-    expect(classify('wip', 'eligible', 200, QUIET, null, false, 0).group).toBe('quiet');
-    expect(classify('wip', 'eligible', null, QUIET, null, false, 0).group).toBe('quiet');
+    // assertion that keeps the change additive. The baseline is the quiet
+    // rule's answer; the property is that zero ahead does not move it.
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0).group).toBe('waiting-on-you');
+    expect(classify('wip', 'eligible', 200, QUIET, null, false, 0).group).toBe('waiting-on-you');
+    expect(classify('wip', 'eligible', null, QUIET, null, false, 0).group).toBe('waiting-on-you');
   });
 
   it('answers identically whether local_ahead is 0 or simply not passed', () => {
@@ -717,11 +741,12 @@ describe('classify', () => {
   it('changes nothing when false', () => {
     // False is what every branch on a machine with no worktree reports — every
     // detached worker, every teammate's laptop, every CI run — so this is the
-    // assertion that keeps the change additive.
+    // assertion that keeps the change additive. The baseline is the quiet
+    // rule's answer; the property is that a false lock does not move it.
     expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0,
-      '', 'elsewhere', '', '', false).group).toBe('quiet');
+      '', 'elsewhere', '', '', false).group).toBe('waiting-on-you');
     expect(classify('wip', 'eligible', 200, QUIET, null, false, 0,
-      '', 'elsewhere', '', '', false).group).toBe('quiet');
+      '', 'elsewhere', '', '', false).group).toBe('waiting-on-you');
   });
 
   it('answers identically whether local_locked is false or simply not passed', () => {
@@ -1646,7 +1671,7 @@ describe('classify — whether a worker is actually running', () => {
     // Every caller predating the field. WORKING IS ABOUT AGENTS — no known
     // worker means NOT STARTED for a fresh claim or recent commit.
     expect(classify('claimed', 'eligible', 3, QUIET).group).toBe('not-started');
-    expect(classify('claimed', 'eligible', QUIET + 1, QUIET).group).toBe('quiet');
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET).group).toBe('waiting-on-you');
     expect(classify('wip', 'eligible', 5, QUIET).group).toBe('not-started');
   });
 
@@ -2044,10 +2069,11 @@ describe('rowsFromPulse', () => {
   it('orders groups by what they ask of you, not by plan', () => {
     const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
     const groups = rows.map((r) => r.group);
-    // WORKING IS ABOUT AGENTS. Without agent state in the fixture, `working`
-    // is empty. not-started is actionable (an opportunity to take), then quiet
-    // (an errand to run). Workable top to bottom.
-    expect(groups[0]).toBe('not-started');
+    // WAITING ON YOU LEADS: it is the section that asks for something. The
+    // fixture's `feature/d` is a 240-minute-old claim, which the quiet rule
+    // names an orphaned claim and hands to a person — it used to sit in QUIET
+    // under a note that gave its age and no state.
+    expect(groups[0]).toBe('waiting-on-you');
     // done sits last: it asks nothing of you at all.
     expect(groups.at(-1)).toBe('done');
   });
@@ -2057,8 +2083,35 @@ describe('rowsFromPulse', () => {
     // investigate something that may be dead. The previous order put the errand
     // first. Asserted on the sort itself, not merely on the constant, because
     // the constant is what a refactor moves and the order is what a reader sees.
-    const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
+    //
+    // THE QUIET ROW IS BUILT HERE RATHER THAN TAKEN FROM THE FIXTURE. Every
+    // branch the base pulse carries now has a name — `feature/d` is an
+    // orphaned claim, not silence — so reading `indexOf('quiet')` off it would
+    // compare against `-1` and pass on an empty section. A deferred branch of
+    // a draft plan with a written reason is what still reaches QUIET: somebody
+    // decided and wrote down why, so the row is a record rather than an errand.
+    const shelved = {
+      ...pulse,
+      plans: [{
+        ...pulse.plans[0],
+        phase: 'draft',
+        slices: [
+          ...pulse.plans[0].slices,
+          {
+            name: 'Shelved', verdict: 'eligible',
+            branches: [{
+              branch: 'feature/e', state: 'deferred', deferred: true, claimed: '',
+              deferred_reason: 'superseded by the rewrite',
+            }],
+          },
+        ],
+      }],
+    } as FleetReading;
+    const rows = rowsFromPulse(shelved, ages, 'plot', QUIET);
     const groups = rows.map((r) => r.group);
+    // The section must actually be populated, or the comparison below passes
+    // against `-1` and asserts nothing.
+    expect(groups).toContain('quiet');
     expect(groups.indexOf('not-started')).toBeLessThan(groups.indexOf('quiet'));
   });
 
@@ -2492,7 +2545,10 @@ describe('rowsFromPulse', () => {
       // Every branch on a machine with no worktree for it, which is nearly all
       // of them. The base fixture carries neither field.
       const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
-      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
+      // `feature/d` is a 240-minute-old CLAIM, so the quiet rule names it an
+      // orphaned claim and it needs a person. The property here is that the
+      // absent field moves nothing, not which section the baseline is.
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('waiting-on-you');
     });
   });
 
@@ -2534,7 +2590,10 @@ describe('rowsFromPulse', () => {
 
     it('leaves a pulse reporting zero answering exactly as before', () => {
       const rows = rowsFromPulse(ahead('feature/d', 0), ages, 'plot', QUIET);
-      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
+      // `feature/d` is a 240-minute-old CLAIM, so the quiet rule names it an
+      // orphaned claim and it needs a person. The property here is that the
+      // absent field moves nothing, not which section the baseline is.
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('waiting-on-you');
     });
   });
 
@@ -2719,7 +2778,10 @@ describe('rowsFromPulse', () => {
       // Every branch from a scan that predates the field. The base fixture
       // carries none of the three, and the answer must not move.
       const rows = rowsFromPulse(pulse, ages, 'plot', QUIET);
-      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('quiet');
+      // `feature/d` is a 240-minute-old CLAIM, so the quiet rule names it an
+      // orphaned claim and it needs a person. The property here is that the
+      // absent field moves nothing, not which section the baseline is.
+      expect(rows.find((r) => r.branch === 'feature/d')!.group).toBe('waiting-on-you');
     });
   });
 
@@ -3034,12 +3096,13 @@ describe('classify with PR data', () => {
   });
 
   it('falls back to git state when no PR exists', () => {
-    // The git-only behaviour survives for branches without a PR — including for
-    // claims, which now answer by age like everything else. WORKING IS ABOUT
-    // AGENTS: without agent state, recent commits go to not-started.
+    // The git-only behaviour survives for branches without a PR. WORKING IS
+    // ABOUT AGENTS: without agent state, recent commits go to not-started, and
+    // past the window the quiet rule names what the branch is — an orphaned
+    // claim here, since `claimed` IS the empty-claim reading.
     expect(classify('wip', 'eligible', 3, QUIET, null).group).toBe('not-started');
     expect(classify('claimed', 'eligible', 3, QUIET, null).group).toBe('not-started');
-    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null).group).toBe('quiet');
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null).group).toBe('waiting-on-you');
   });
 });
 
