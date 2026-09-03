@@ -32,8 +32,8 @@ const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const VIEWPORT = { width: 1280, height: 900 };
 
 /** An approved, waved plan so the card carries a wave summary and a startable row. */
-const WAVED_TITLE = 'Rebuild the raised beds';
-const WAVED_PLAN = `# ${WAVED_TITLE}
+const SLICED_TITLE = 'Rebuild the raised beds';
+const SLICED_PLAN = `# ${SLICED_TITLE}
 
 ## Status
 
@@ -57,7 +57,7 @@ const WAVED_PLAN = `# ${WAVED_TITLE}
 function gardenWithSlices(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-claims-'));
   fs.cpSync(FIXTURE, dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'docs/plans/2026-08-17-raised-beds.md'), WAVED_PLAN, 'utf8');
+  fs.writeFileSync(path.join(dir, 'docs/plans/2026-08-17-raised-beds.md'), SLICED_PLAN, 'utf8');
   return dir;
 }
 
@@ -79,7 +79,7 @@ describe('the button claims only what it knows', () => {
 
   it('a successful dispatch shows the reassurance, not a failure, and no log path', async () => {
     // The garden is not a git repo, so no pulse lands and `Start work` refuses
-    // on a WAVED plan (it cannot know which wave is eligible). A plan with NO
+    // on a SLICED plan (it cannot know which wave is eligible). A plan with NO
     // waves gets no summary and is left to `plot-dispatch.sh` — so that row's
     // button acts, which is the one this test needs.
     const page = await cat.open('a-board-that-can-act', { viewport: VIEWPORT });

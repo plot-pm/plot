@@ -41,7 +41,7 @@ const groupOf = (...rows: AgentRow[]): PlanGroup => groupByPlan(rows)[0];
  * now reads `fleet.waves` rather than re-grouping rows. Defaults to an
  * unstarted, incomplete wave — the shape the count summarises.
  */
-const wave = (over: Partial<Slice> = {}): Slice => ({
+const slice = (over: Partial<Slice> = {}): Slice => ({
   plan: 'a-plan', name: 'w', branches: ['feature/x'],
   verdict: 'eligible', section: 'not-started', complete: false,
   ...over,
@@ -274,13 +274,13 @@ describe('sliceSummaryFor — reads the server Wave, not a re-grouping of rows',
       row({ plan: 'p', wave: 'First', branch: 'a' }),
       row({ plan: 'p', wave: 'Second', branch: 'b' }),
     );
-    const waves = [
-      wave({ plan: 'p', name: 'First' }),
-      wave({ plan: 'p', name: 'Second' }),
-      wave({ plan: 'p', name: 'Done', section: 'done', complete: true }),
-      wave({ plan: 'other', name: 'Elsewhere' }),
+    const slices = [
+      slice({ plan: 'p', name: 'First' }),
+      slice({ plan: 'p', name: 'Second' }),
+      slice({ plan: 'p', name: 'Done', section: 'done', complete: true }),
+      slice({ plan: 'other', name: 'Elsewhere' }),
     ];
-    expect(sliceSummaryFor(group, waves)).toBe('2 slices, first eligible');
+    expect(sliceSummaryFor(group, slices)).toBe('2 slices, first eligible');
   });
 
   it('counts a multi-branch wave as ONE, from the server entry', () => {
@@ -291,8 +291,8 @@ describe('sliceSummaryFor — reads the server Wave, not a re-grouping of rows',
       row({ plan: 'p', wave: 'Implementation', branch: 'b' }),
       row({ plan: 'p', wave: 'Implementation', branch: 'c' }),
     );
-    const waves = [wave({ plan: 'p', name: 'Implementation', branches: ['a', 'b', 'c'] })];
-    expect(sliceSummaryFor(group, waves)).toBe('1 slice, first eligible');
+    const slices = [slice({ plan: 'p', name: 'Implementation', branches: ['a', 'b', 'c'] })];
+    expect(sliceSummaryFor(group, slices)).toBe('1 slice, first eligible');
   });
 
   it('counts a not-started wave whose rows are blocked, which the row filter drops', () => {
@@ -305,16 +305,16 @@ describe('sliceSummaryFor — reads the server Wave, not a re-grouping of rows',
     const group = groupOf(
       row({ plan: 'p', wave: 'Blocked', branch: 'b', state: 'wip', waitingOn: 'time', note: 'blocked by earlier wave', startability: 'someone-is-on-it' }),
     );
-    const waves = [wave({ plan: 'p', name: 'Blocked', verdict: 'blocked' })];
-    expect(sliceSummaryFor(group, waves)).toBe('1 slice');
+    const slices = [slice({ plan: 'p', name: 'Blocked', verdict: 'blocked' })];
+    expect(sliceSummaryFor(group, slices)).toBe('1 slice');
   });
 
   it('reads completeness once — the same answer the DONE section reads', () => {
     // The point is not the value but that there is ONE source. A wave the server
     // marked complete is complete for every consumer; the head does not compute a
     // second completeness from the rows and risk disagreeing.
-    const complete = wave({ plan: 'p', name: 'Done', section: 'done', complete: true });
-    const open = wave({ plan: 'p', name: 'Open' });
+    const complete = slice({ plan: 'p', name: 'Done', section: 'done', complete: true });
+    const open = slice({ plan: 'p', name: 'Open' });
     const group = groupOf(row({ plan: 'p', wave: 'Open', branch: 'b' }));
     // Only the incomplete, not-started wave is summarised here.
     expect(sliceSummaryFor(group, [complete, open])).toBe('1 slice, first eligible');
@@ -498,7 +498,7 @@ describe('sliceGroupsFor — asks the server-derived wave, not a per-section sta
   const pr = (n: number) => ({ number: n, url: `https://h/pr/${n}`, draft: false, state: 'green' as const });
 
   /** A server-derived Slice, the entity #349 put on `fleet.slices`. */
-  const wave = (over: Partial<Slice> = {}): Slice => ({
+  const slice = (over: Partial<Slice> = {}): Slice => ({
     plan: 'a-plan', name: 'Modelled', branches: [], verdict: 'complete',
     section: 'done', complete: true, ...over,
   });
@@ -513,12 +513,12 @@ describe('sliceGroupsFor — asks the server-derived wave, not a per-section sta
       row({ wave: 'Modelled', branch: 'a', state: 'merged', pr: pr(1) }),
       row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(2) }),
     ];
-    const waves = [wave({ name: 'Modelled', branches: ['a', 'b'], section: 'done', complete: true })];
-    const groups = sliceGroupsFor(rows, 'done', waves);
+    const slices = [slice({ name: 'Modelled', branches: ['a', 'b'], section: 'done', complete: true })];
+    const groups = sliceGroupsFor(rows, 'done', slices);
     expect(groups).toHaveLength(1);
     expect(groups[0].rows.map((r) => r.branch)).toEqual(['a', 'b']);
     // …and a non-done section does NOT also claim it — one wave, one section.
-    expect(sliceGroupsFor(rows, 'not-started', waves)).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'not-started', slices)).toHaveLength(0);
   });
 
   it('keeps a NOT-STARTED wave out of DONE though a stray row is merged', () => {
@@ -531,9 +531,9 @@ describe('sliceGroupsFor — asks the server-derived wave, not a per-section sta
       row({ wave: 'Inverted', branch: 'a', state: 'merged' }),
       row({ wave: 'Inverted', branch: 'b', state: 'open' }),
     ];
-    const waves = [wave({ name: 'Inverted', branches: ['a', 'b'], verdict: 'eligible', section: 'not-started', complete: false })];
-    expect(sliceGroupsFor(rows, 'done', waves)).toHaveLength(0);
-    expect(sliceGroupsFor(rows, 'not-started', waves).map((g) => g.rows.map((r) => r.branch)))
+    const slices = [slice({ name: 'Inverted', branches: ['a', 'b'], verdict: 'eligible', section: 'not-started', complete: false })];
+    expect(sliceGroupsFor(rows, 'done', slices)).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'not-started', slices).map((g) => g.rows.map((r) => r.branch)))
       .toEqual([['a', 'b']]);
   });
 
@@ -545,9 +545,9 @@ describe('sliceGroupsFor — asks the server-derived wave, not a per-section sta
       row({ wave: 'Modelled', branch: 'a', state: 'wip', pr: pr(1) }),
       row({ wave: 'Modelled', branch: 'b', state: 'wip', pr: pr(2) }),
     ];
-    const waves = [wave({ name: 'Modelled', branches: ['a', 'b'], section: 'not-started', complete: false })];
-    expect(sliceGroupsFor(rows, 'working', waves)).toHaveLength(0);
-    expect(sliceGroupsFor(rows, 'waiting-on-machine', waves)).toHaveLength(0);
+    const slices = [slice({ name: 'Modelled', branches: ['a', 'b'], section: 'not-started', complete: false })];
+    expect(sliceGroupsFor(rows, 'working', slices)).toHaveLength(0);
+    expect(sliceGroupsFor(rows, 'waiting-on-machine', slices)).toHaveLength(0);
   });
 
   it('falls back to the row-state predicate when the wave list is ABSENT — a pre-wave pulse', () => {
@@ -572,9 +572,9 @@ describe('sliceGroupsFor — asks the server-derived wave, not a per-section sta
       row({ wave: 'Modelled', branch: 'b', state: 'wip' }),
       row({ wave: '', branch: 'c', state: 'merged' }),
     ];
-    const waves = [wave({ name: 'Modelled', branches: ['a', 'b'], section: 'done', complete: true })];
-    const grouped = sliceGroupsFor(rows, 'done', waves).flatMap((g) => g.rows);
-    const loose = ungroupedRows(rows, 'done', waves);
+    const slices = [slice({ name: 'Modelled', branches: ['a', 'b'], section: 'done', complete: true })];
+    const grouped = sliceGroupsFor(rows, 'done', slices).flatMap((g) => g.rows);
+    const loose = ungroupedRows(rows, 'done', slices);
     expect(grouped.length + loose.length).toBe(rows.length);
     expect(new Set([...grouped, ...loose]).size).toBe(rows.length);
   });

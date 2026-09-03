@@ -17,7 +17,7 @@ import {
  * the state unless a fourth tuple element overrides it (a merged-but-deferred
  * branch is not a real shape, but the override keeps the helper honest).
  */
-const wave = (
+const slice = (
   name: string,
   verdict: string,
   branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred']>,
@@ -34,13 +34,13 @@ const wave = (
 
 /** A pulse carrying one plan and its waves, PARSED — so the fixture proves the
  *  contract accepts it and deriveSlices gets a properly-typed FleetReading. */
-const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetReading =>
+const pulse = (file: string, slices: ReturnType<typeof slice>[]): FleetReading =>
   FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
-    plans: [{ file, slices: waves }],
+    plans: [{ file, slices }],
     summary: {
-      plans: 1, waves: waves.length, branches: 0, claimed: 0,
+      plans: 1, waves: slices.length, branches: 0, claimed: 0,
       eligible: 0, blocked: 0, deferred: 0,
     },
   });
@@ -51,18 +51,18 @@ describe('deriveSlices — identity is plan plus name', () => {
     // names repeat across plans. `plan` is the DISPLAY name rowsFromPulse writes,
     // so a consumer joins a wave to its rows on one spelling.
     const [w] = deriveSlices(pulse('2026-08-20-a-wave-is-a-thing.md', [
-      wave('Tracer', 'eligible', [['feature/a', 'open']]),
+      slice('Tracer', 'eligible', [['feature/a', 'open']]),
     ]));
     expect(w.plan).toBe('a-wave-is-a-thing');
     expect(w.name).toBe('Tracer');
   });
 
   it('gives every (plan, wave) its own entry', () => {
-    const waves = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('Tracer', 'complete', [['feature/a', 'merged']]),
-      wave('Implementation', 'eligible', [['feature/b', 'open']]),
+    const slices = deriveSlices(pulse('2026-08-20-p.md', [
+      slice('Tracer', 'complete', [['feature/a', 'merged']]),
+      slice('Implementation', 'eligible', [['feature/b', 'open']]),
     ]));
-    expect(waves.map((w) => w.name)).toEqual(['Tracer', 'Implementation']);
+    expect(slices.map((w) => w.name)).toEqual(['Tracer', 'Implementation']);
   });
 });
 
@@ -71,7 +71,7 @@ describe('deriveSlices — branches are the wave contents', () => {
     // The containment link, pointing DOWN: a wave holds branches. Five branches,
     // five names — this is the kind that uses the upper end of zero-or-more.
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('Big', 'blocked', [
+      slice('Big', 'blocked', [
         ['feature/a', 'open'], ['feature/b', 'wip'], ['feature/c', 'open'],
         ['feature/d', 'claimed'], ['feature/e', 'open'],
       ]),
@@ -84,12 +84,12 @@ describe('deriveSlices — branches are the wave contents', () => {
 
 describe('deriveSlices — the verdict is the scan\'s, unchanged', () => {
   it('forwards complete, eligible and blocked verbatim', () => {
-    const waves = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('A', 'complete', [['feature/a', 'merged']]),
-      wave('B', 'eligible', [['feature/b', 'open']]),
-      wave('C', 'blocked', [['feature/c', 'open']]),
+    const slices = deriveSlices(pulse('2026-08-20-p.md', [
+      slice('A', 'complete', [['feature/a', 'merged']]),
+      slice('B', 'eligible', [['feature/b', 'open']]),
+      slice('C', 'blocked', [['feature/c', 'open']]),
     ]));
-    expect(waves.map((w) => w.verdict)).toEqual(['complete', 'eligible', 'blocked']);
+    expect(slices.map((w) => w.verdict)).toEqual(['complete', 'eligible', 'blocked']);
   });
 
   it('reports null where the scan verdict is unrecognised — absent is not a guess', () => {
@@ -115,7 +115,7 @@ describe('deriveSlices — the verdict is the scan\'s, unchanged', () => {
 describe('deriveSlices — completeness is every non-deferred branch merged', () => {
   it('is complete when every branch is merged', () => {
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('A', 'complete', [['feature/a', 'merged'], ['feature/b', 'merged']]),
+      slice('A', 'complete', [['feature/a', 'merged'], ['feature/b', 'merged']]),
     ]));
     expect(w.complete).toBe(true);
   });
@@ -124,21 +124,21 @@ describe('deriveSlices — completeness is every non-deferred branch merged', ()
     // plot-deliver skips deferred branches in its own completeness gate, so a
     // deferred branch is not outstanding work.
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('A', 'complete', [['feature/a', 'merged'], ['feature/gone', 'deferred']]),
+      slice('A', 'complete', [['feature/a', 'merged'], ['feature/gone', 'deferred']]),
     ]));
     expect(w.complete).toBe(true);
   });
 
   it('is complete when a wave holds only deferred branches — nothing to merge', () => {
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('A', 'complete', [['feature/gone', 'deferred']]),
+      slice('A', 'complete', [['feature/gone', 'deferred']]),
     ]));
     expect(w.complete).toBe(true);
   });
 
   it('is NOT complete while any branch is unmerged', () => {
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('A', 'eligible', [['feature/a', 'merged'], ['feature/b', 'open']]),
+      slice('A', 'eligible', [['feature/a', 'merged'], ['feature/b', 'open']]),
     ]));
     expect(w.complete).toBe(false);
   });
@@ -147,14 +147,14 @@ describe('deriveSlices — completeness is every non-deferred branch merged', ()
 describe('deriveSlices — one section, done or not-started', () => {
   it('puts a complete wave in done', () => {
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('A', 'complete', [['feature/a', 'merged']]),
+      slice('A', 'complete', [['feature/a', 'merged']]),
     ]));
     expect(w.section).toBe('done');
   });
 
   it('puts an eligible wave in not-started', () => {
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('A', 'eligible', [['feature/a', 'open']]),
+      slice('A', 'eligible', [['feature/a', 'open']]),
     ]));
     expect(w.section).toBe('not-started');
   });
@@ -163,7 +163,7 @@ describe('deriveSlices — one section, done or not-started', () => {
     // A wave never reaches working or waiting-on-machine; blocked is still where
     // its unfinished work is, which is not-started.
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('A', 'blocked', [['feature/a', 'open']]),
+      slice('A', 'blocked', [['feature/a', 'open']]),
     ]));
     expect(w.section).toBe('not-started');
   });
@@ -174,7 +174,7 @@ describe('deriveSlices — one section, done or not-started', () => {
     // whatever a per-branch reading would. Derived from completeness, so this
     // cannot report done however the verdict aggregates.
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('Inverted', 'eligible', [['feature/merged', 'merged'], ['feature/open', 'open']]),
+      slice('Inverted', 'eligible', [['feature/merged', 'merged'], ['feature/open', 'open']]),
     ]));
     expect(w.complete).toBe(false);
     expect(w.section).toBe('not-started');
@@ -187,14 +187,14 @@ describe('deriveSlices — completeness asked once, answered the same everywhere
     // The whole point of one derivation: section follows from complete, so the
     // two cannot disagree across the estate. Asserted over every state a branch
     // can be in — a done section implies a complete wave, always.
-    const waves = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('a', 'complete', [['x/1', 'merged']]),
-      wave('b', 'eligible', [['x/2', 'open']]),
-      wave('c', 'blocked', [['x/3', 'wip']]),
-      wave('d', 'eligible', [['x/4', 'merged'], ['x/5', 'claimed']]),
-      wave('e', 'complete', [['x/6', 'merged'], ['x/7', 'deferred']]),
+    const slices = deriveSlices(pulse('2026-08-20-p.md', [
+      slice('a', 'complete', [['x/1', 'merged']]),
+      slice('b', 'eligible', [['x/2', 'open']]),
+      slice('c', 'blocked', [['x/3', 'wip']]),
+      slice('d', 'eligible', [['x/4', 'merged'], ['x/5', 'claimed']]),
+      slice('e', 'complete', [['x/6', 'merged'], ['x/7', 'deferred']]),
     ]));
-    for (const w of waves) {
+    for (const w of slices) {
       if (w.section === 'done') expect(w.complete).toBe(true);
       if (!w.complete) expect(w.section).not.toBe('done');
     }
@@ -205,7 +205,7 @@ describe('deriveSlices — completeness asked once, answered the same everywhere
     // it is handed. Two runs on one pulse are identical, which is what lets a
     // consumer trust the single answer.
     const p = pulse('2026-08-20-p.md', [
-      wave('A', 'eligible', [['feature/a', 'merged'], ['feature/b', 'open']]),
+      slice('A', 'eligible', [['feature/a', 'merged'], ['feature/b', 'open']]),
     ]);
     expect(deriveSlices(p)).toEqual(deriveSlices(p));
   });
@@ -217,7 +217,7 @@ describe('deriveSlices — an unnamed wave is carried, not hidden', () => {
     // dropped them would make six real waves invisible; the wave is carried with
     // the value the row substitutes.
     const [w] = deriveSlices(pulse('2026-08-20-p.md', [
-      wave('', 'eligible', [['feature/a', 'open']]),
+      slice('', 'eligible', [['feature/a', 'open']]),
     ]));
     expect(w.name).toBe('(unnamed)');
   });

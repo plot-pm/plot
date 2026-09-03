@@ -37,7 +37,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 
 // A wave name long enough to overrun a 12rem (192px) cell — 53 characters, the
 // length reported on the board that filed this bug.
-const LONG_WAVE = 'the-implementation-that-hardens-the-long-horizon-scan';
+const LONG_SLICE = 'the-implementation-that-hardens-the-long-horizon-scan';
 
 const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   repo: 'garden', branch: 'feature/x', plan: 'a-plan', planFile: '2026-08-16-a-plan.md',
@@ -56,12 +56,12 @@ function fleet(): Fleet {
   const rows: AgentRow[] = [
     row({
       plan: 'longhorizon-hardening', planFile: '2026-08-16-longhorizon-hardening.md',
-      branch: 'feature/harden-the-scan', wave: LONG_WAVE,
+      branch: 'feature/harden-the-scan', wave: LONG_SLICE,
       group: 'not-started', waitingDays: 4,
     }),
     row({
       plan: 'longhorizon-hardening', planFile: '2026-08-16-longhorizon-hardening.md',
-      branch: 'feature/probe-the-horizon', wave: LONG_WAVE,
+      branch: 'feature/probe-the-horizon', wave: LONG_SLICE,
       group: 'not-started', waitingDays: 4,
     }),
   ];
@@ -109,7 +109,7 @@ describe('the wave name stays in its cell', () => {
    * missing, which the caller asserts against rather than coercing.
    */
   async function nameVsStatus(page: Page) {
-    const sliceRow = page.locator(`[data-wave-row="${LONG_WAVE}"]`);
+    const sliceRow = page.locator(`[data-wave-row="${LONG_SLICE}"]`);
     await expect.poll(() => sliceRow.count()).toBe(1);
     return sliceRow.evaluate((rowEl) => {
       const name = rowEl.querySelector('[data-tuple-text],[data-tuple-link]') as HTMLElement | null;
@@ -140,7 +140,7 @@ describe('the wave name stays in its cell', () => {
       // The name reads WHOLE on hover — containment must not cost the full text.
       // Asserted on the CONTENT, not on shortening: a fix that clips the string
       // would leave a reader unable to recover the name it hid.
-      expect(title).toContain(LONG_WAVE);
+      expect(title).toContain(LONG_SLICE);
     } finally {
       await page.close();
     }
@@ -168,7 +168,7 @@ describe('the wave name stays in its cell', () => {
   it('does not push the page into a horizontal scroll to fit the name', async () => {
     const page = await open();
     try {
-      await page.locator(`[data-wave-row="${LONG_WAVE}"]`).first().waitFor({ timeout: 15_000 });
+      await page.locator(`[data-wave-row="${LONG_SLICE}"]`).first().waitFor({ timeout: 15_000 });
       const overflow = await page.evaluate(() =>
         document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(1);

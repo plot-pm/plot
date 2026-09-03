@@ -409,7 +409,7 @@ import { TupleRowView } from ${JSON.stringify(path.resolve(here, '../../src/app/
 
 createRoot(document.getElementById('root')).render(
   React.createElement('ul', { role: 'rowgroup' },
-    React.createElement(TupleRowView, { tuple: window.__WAVE__, menu: null })),
+    React.createElement(TupleRowView, { tuple: window.__SLICE__, menu: null })),
 );
 `;
 
@@ -424,7 +424,7 @@ createRoot(document.getElementById('root')).render(
     page = await context.newPage();
     await page.setContent('<div id="root"></div>');
     await page.evaluate((wave) => {
-      (window as never as { __WAVE__: unknown }).__WAVE__ = wave;
+      (window as never as { __SLICE__: unknown }).__SLICE__ = wave;
     }, ELIGIBLE);
     await page.addScriptTag({ content: built.outputFiles[0].text, type: 'module' });
     await page.locator('li[data-tuple-kind="wave"]').first().waitFor({ timeout: 10_000 });

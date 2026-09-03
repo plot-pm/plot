@@ -89,7 +89,7 @@ export const row = (over: Partial<RowInput> = {}): AgentRow =>
   AgentRowSchema.parse({ ...ROW_DEFAULTS, ...over });
 
 /** One wave — the cohort a plan's branches sit in. */
-const WAVE_DEFAULTS: SliceInput = {
+const SLICE_DEFAULTS: SliceInput = {
   plan: 'a-plan',
   name: 'Wave',
   branches: ['feature/a-branch'],
@@ -98,8 +98,8 @@ const WAVE_DEFAULTS: SliceInput = {
   complete: false,
 };
 
-export const wave = (over: Partial<SliceInput> = {}): Slice =>
-  SliceSchema.parse({ ...WAVE_DEFAULTS, ...over });
+export const slice = (over: Partial<SliceInput> = {}): Slice =>
+  SliceSchema.parse({ ...SLICE_DEFAULTS, ...over });
 
 /** One plan card, as `/api/board` carries it. */
 const CARD_DEFAULTS: CardInput = {

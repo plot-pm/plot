@@ -90,7 +90,7 @@ const settle = (ms = 250) => new Promise((r) => setTimeout(r, ms));
  * defaults to false — but a `wip` state implies a ref (the scan derives `wip`
  * by walking one), so the fallback in `refBlocksClaim` still catches it.
  */
-const wave = (
+const slice = (
   name: string,
   verdict: 'complete' | 'eligible' | 'blocked',
   branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred', boolean?]>,
@@ -106,11 +106,11 @@ const wave = (
   })),
 });
 
-const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): FleetReading =>
+const pulse = (plans: Array<[string, string, ReturnType<typeof slice>[]]>): FleetReading =>
   FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
-    plans: plans.map(([file, phase, waves]) => ({ file, phase, slices: waves })),
+    plans: plans.map(([file, phase, slices]) => ({ file, phase, slices })),
     summary: { plans: plans.length, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
   });
 
@@ -128,7 +128,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
   it('spawns plot-dispatch.sh with --max and the slug for an eligible approved wave', async () => {
     // With brief for feature/a on origin/main.
     const { opts, runs } = fixture(['feature/a']);
-    const p = pulse([['2026-08-22-ship-it.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
+    const p = pulse([['2026-08-22-ship-it.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
     const next = maybeAutoDispatch(opts, p, on(5), [], new Set());
     await settle();
     expect(runs()).toEqual(['--max 1 ship-it']);
@@ -137,7 +137,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
 
   it('spawns NOTHING while the switch is off', async () => {
     const { opts, runs } = fixture(['feature/a']);
-    const p = pulse([['2026-08-22-ship-it.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
+    const p = pulse([['2026-08-22-ship-it.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
     const next = maybeAutoDispatch(opts, p, off(5), [], new Set());
     await settle();
     expect(runs()).toEqual([]);
@@ -152,7 +152,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
     // reach 2N.
     const { opts, runs } = fixture(['feature/a', 'feature/b']);
     const p = pulse([['2026-08-22-ship-it.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+      slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
     ]]]);
     const afterOne = maybeAutoDispatch(opts, p, on(1), [], new Set());
     await settle();
@@ -169,7 +169,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
     // starts, and this function has no kill path — the two are untouched.
     const { opts, runs } = fixture(['feature/a']);
     const agents = [running('feature/x'), running('feature/y')];
-    const p = pulse([['2026-08-22-ship-it.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
+    const p = pulse([['2026-08-22-ship-it.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
     maybeAutoDispatch(opts, p, on(1), agents, new Set());
     await settle();
     expect(runs()).toEqual([]);
@@ -180,7 +180,7 @@ describe('maybeAutoDispatch — the spawn half', () => {
     // registry has caught up — the in-flight mark is retired and the slot is
     // counted through the registry, not double-charged.
     const { opts, runs } = fixture(['feature/a']);
-    const p = pulse([['2026-08-22-ship-it.md', 'approved', [wave('W', 'eligible', [['feature/a', 'wip']])]]]);
+    const p = pulse([['2026-08-22-ship-it.md', 'approved', [slice('W', 'eligible', [['feature/a', 'wip']])]]]);
     const next = maybeAutoDispatch(opts, p, on(1), [running('feature/a')], new Set(['feature/a']));
     await settle();
     expect(runs()).toEqual([]);
@@ -196,8 +196,8 @@ describe('maybeAutoDispatch — the spawn half', () => {
     const { opts, runs } = fixture(['feature/fresh']);
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     const p = pulse([
-      ['2026-07-25-stale.md', 'approved', [wave('W', 'eligible', [['feature/stale', 'wip']])]],
-      ['2026-08-25-fresh.md', 'approved', [wave('W', 'eligible', [['feature/fresh', 'open']])]],
+      ['2026-07-25-stale.md', 'approved', [slice('W', 'eligible', [['feature/stale', 'wip']])]],
+      ['2026-08-25-fresh.md', 'approved', [slice('W', 'eligible', [['feature/fresh', 'open']])]],
     ]);
     maybeAutoDispatch(opts, p, on(1), [], new Set());
     await settle();
@@ -216,8 +216,8 @@ describe('maybeAutoDispatch — the spawn half', () => {
     // its share in document order: plan one takes 2, plan two takes 1.
     const { opts, runs } = fixture(['feature/a', 'feature/b', 'feature/c', 'feature/d']);
     const p = pulse([
-      ['2026-08-22-one.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]],
-      ['2026-08-22-two.md', 'approved', [wave('W', 'eligible', [['feature/c', 'open'], ['feature/d', 'open']])]],
+      ['2026-08-22-one.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]],
+      ['2026-08-22-two.md', 'approved', [slice('W', 'eligible', [['feature/c', 'open'], ['feature/d', 'open']])]],
     ]);
     maybeAutoDispatch(opts, p, on(3), [], new Set());
     await settle();

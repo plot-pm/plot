@@ -37,7 +37,7 @@ import type { FleetSettings } from '../../src/server/fleet-settings.js';
  * defaults to false — but a `wip` state implies a ref (the scan derives `wip`
  * by walking one), so the fallback in `refBlocksClaim` still catches it.
  */
-const wave = (
+const slice = (
   name: string,
   verdict: 'complete' | 'eligible' | 'blocked',
   branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred', boolean?]>,
@@ -55,12 +55,12 @@ const wave = (
 
 /** A parsed pulse of the given plans; each plan is [file, phase, waves]. */
 const pulse = (
-  plans: Array<[string, string, ReturnType<typeof wave>[]]>,
+  plans: Array<[string, string, ReturnType<typeof slice>[]]>,
 ): FleetReading =>
   FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
-    plans: plans.map(([file, phase, waves]) => ({ file, phase, slices: waves })),
+    plans: plans.map(([file, phase, slices]) => ({ file, phase, slices })),
     summary: {
       plans: plans.length, waves: 0, branches: 0, claimed: 0,
       eligible: 0, blocked: 0, deferred: 0,
@@ -126,7 +126,7 @@ describe('liveAgentCount — a slot is occupied by running OR waiting', () => {
     // landed agents from the cap while they held their machines.
     const agents = [agent('feature/a', 'running'), agent('feature/done', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
+      slice('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
     ]]]);
     // Both count, even though feature/done has merged — it still holds a slot.
     expect(liveAgentCount(agents, p)).toBe(2);
@@ -137,7 +137,7 @@ describe('liveAgentCount — a slot is occupied by running OR waiting', () => {
     // regardless of what the pulse says about its branch (or says nothing).
     // This test remains to verify the pulse argument is harmless.
     const agents = [agent('feature/unseen', 'running')];
-    const p = pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/other', 'open']])]]]);
+    const p = pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/other', 'open']])]]]);
     expect(liveAgentCount(agents, p)).toBe(1);
   });
 
@@ -160,7 +160,7 @@ describe('liveAgentBranches — names exactly what liveAgentCount counted', () =
       agent('feature/d', 'finished'),    // not live — not counted
     ];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
+      slice('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
     ]]]);
     // Count should be 3 (running + running + waiting)
     expect(liveAgentCount(agents, p)).toBe(3);
@@ -182,7 +182,7 @@ describe('liveAgentBranches — names exactly what liveAgentCount counted', () =
       agent('feature/b', 'running'),
     ];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'complete', [['feature/a', 'merged'], ['feature/b', 'merged']]),
+      slice('W', 'complete', [['feature/a', 'merged'], ['feature/b', 'merged']]),
     ]]]);
     // Both merged, but both live — both count
     expect(liveAgentCount(agents, p)).toBe(2);
@@ -194,7 +194,7 @@ describe('planAutoDispatch — the switch gate', () => {
   it('dispatches nothing while the switch is off, however eligible the wave', () => {
     const p = planAutoDispatch({
       controls: controls(false, 5),
-      pulse: pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]),
+      pulse: pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]),
       liveCount: 0,
       inFlight: new Set(),
       missingBriefs: new Set(),
@@ -205,7 +205,7 @@ describe('planAutoDispatch — the switch gate', () => {
   it('dispatches an eligible wave of an approved plan while the switch is on', () => {
     const p = planAutoDispatch({
       controls: controls(true, 5),
-      pulse: pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]),
+      pulse: pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]),
       liveCount: 0,
       inFlight: new Set(),
       missingBriefs: new Set(),
@@ -220,7 +220,7 @@ describe('planAutoDispatch — only approved plans, only eligible waves', () => 
   it('skips a DRAFT plan whose wave would otherwise be eligible', () => {
     const p = planAutoDispatch({
       controls: controls(true, 5),
-      pulse: pulse([['2026-08-22-d.md', 'draft', [wave('W', 'eligible', [['feature/a', 'open']])]]]),
+      pulse: pulse([['2026-08-22-d.md', 'draft', [slice('W', 'eligible', [['feature/a', 'open']])]]]),
       liveCount: 0,
       inFlight: new Set(),
       missingBriefs: new Set(),
@@ -231,7 +231,7 @@ describe('planAutoDispatch — only approved plans, only eligible waves', () => 
   it('skips a BLOCKED wave of an approved plan', () => {
     const p = planAutoDispatch({
       controls: controls(true, 5),
-      pulse: pulse([['2026-08-22-b.md', 'approved', [wave('W', 'blocked', [['feature/a', 'open']])]]]),
+      pulse: pulse([['2026-08-22-b.md', 'approved', [slice('W', 'blocked', [['feature/a', 'open']])]]]),
       liveCount: 0,
       inFlight: new Set(),
       missingBriefs: new Set(),
@@ -242,7 +242,7 @@ describe('planAutoDispatch — only approved plans, only eligible waves', () => 
   it('skips a COMPLETE wave — its work is merged, nothing to start', () => {
     const p = planAutoDispatch({
       controls: controls(true, 5),
-      pulse: pulse([['2026-08-22-c.md', 'approved', [wave('W', 'complete', [['feature/a', 'merged']])]]]),
+      pulse: pulse([['2026-08-22-c.md', 'approved', [slice('W', 'complete', [['feature/a', 'merged']])]]]),
       liveCount: 0,
       inFlight: new Set(),
       missingBriefs: new Set(),
@@ -256,7 +256,7 @@ describe('planAutoDispatch — only approved plans, only eligible waves', () => 
     const p = planAutoDispatch({
       controls: controls(true, 5),
       pulse: pulse([['2026-08-22-e.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'claimed'], ['feature/b', 'merged']]),
+        slice('W', 'eligible', [['feature/a', 'claimed'], ['feature/b', 'merged']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -273,8 +273,8 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
     const p = planAutoDispatch({
       controls: controls(true, 3),
       pulse: pulse([
-        ['2026-08-22-one.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]],
-        ['2026-08-22-two.md', 'approved', [wave('W', 'eligible', [['feature/c', 'open'], ['feature/d', 'open']])]],
+        ['2026-08-22-one.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]],
+        ['2026-08-22-two.md', 'approved', [slice('W', 'eligible', [['feature/c', 'open'], ['feature/d', 'open']])]],
       ]),
       liveCount: 0,
       inFlight: new Set(),
@@ -290,7 +290,7 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
     const p = planAutoDispatch({
       controls: controls(true, 3),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open'], ['feature/c', 'open']]),
+        slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open'], ['feature/c', 'open']]),
       ]]]),
       liveCount: 2,
       inFlight: new Set(),
@@ -306,7 +306,7 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
     const p = planAutoDispatch({
       controls: controls(true, 3),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open'], ['feature/c', 'open']]),
+        slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open'], ['feature/c', 'open']]),
       ]]]),
       liveCount: 1,
       inFlight: new Set(['feature/z', 'feature/y']),
@@ -320,7 +320,7 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
     const p = planAutoDispatch({
       controls: controls(true, 2),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'open']]),
+        slice('W', 'eligible', [['feature/a', 'open']]),
       ]]]),
       liveCount: 5, // over cap — lowering the number mid-flight
       inFlight: new Set(),
@@ -336,7 +336,7 @@ describe('planAutoDispatch — the cross-pulse cap', () => {
     const p = planAutoDispatch({
       controls: controls(true, 3),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+        slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(['feature/a']),
@@ -361,8 +361,8 @@ describe('planAutoDispatch — a wip branch whose ref exists buys nothing', () =
     const p = planAutoDispatch({
       controls: controls(true, 1),
       pulse: pulse([
-        ['2026-07-25-stale.md', 'approved', [wave('W', 'eligible', [['feature/stale', 'wip']])]],
-        ['2026-08-25-fresh.md', 'approved', [wave('W', 'eligible', [['feature/fresh', 'open']])]],
+        ['2026-07-25-stale.md', 'approved', [slice('W', 'eligible', [['feature/stale', 'wip']])]],
+        ['2026-08-25-fresh.md', 'approved', [slice('W', 'eligible', [['feature/fresh', 'open']])]],
       ]),
       liveCount: 0,
       inFlight: new Set(),
@@ -375,7 +375,7 @@ describe('planAutoDispatch — a wip branch whose ref exists buys nothing', () =
     const p = planAutoDispatch({
       controls: controls(true, 5),
       pulse: pulse([['2026-07-25-stale.md', 'approved', [
-        wave('W', 'eligible', [['feature/stale', 'wip']]),
+        slice('W', 'eligible', [['feature/stale', 'wip']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -391,7 +391,7 @@ describe('planAutoDispatch — a wip branch whose ref exists buys nothing', () =
     const p = planAutoDispatch({
       controls: controls(true, 5),
       pulse: pulse([['2026-08-25-mixed.md', 'approved', [
-        wave('W', 'eligible', [['feature/stale', 'wip'], ['feature/fresh', 'open']]),
+        slice('W', 'eligible', [['feature/stale', 'wip'], ['feature/fresh', 'open']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -404,7 +404,7 @@ describe('planAutoDispatch — a wip branch whose ref exists buys nothing', () =
 describe('startableBranches — a wip ref is not offered to start', () => {
   it('offers the open branch and withholds the wip one', () => {
     const p = pulse([['2026-08-25-mixed.md', 'approved', [
-      wave('W', 'eligible', [['feature/stale', 'wip'], ['feature/fresh', 'open']]),
+      slice('W', 'eligible', [['feature/stale', 'wip'], ['feature/fresh', 'open']]),
     ]]]);
     expect(startableBranches(p, 'mixed', new Set())).toEqual(['feature/fresh']);
   });
@@ -416,8 +416,8 @@ describe('planAutoDispatch — re-eligibility on a later pulse', () => {
     const before = planAutoDispatch({
       controls: controls(true, 5),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('One', 'eligible', [['feature/a', 'open']]),
-        wave('Two', 'blocked', [['feature/b', 'open']]),
+        slice('One', 'eligible', [['feature/a', 'open']]),
+        slice('Two', 'blocked', [['feature/b', 'open']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -431,8 +431,8 @@ describe('planAutoDispatch — re-eligibility on a later pulse', () => {
     const after = planAutoDispatch({
       controls: controls(true, 5),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('One', 'complete', [['feature/a', 'merged']]),
-        wave('Two', 'eligible', [['feature/b', 'open']]),
+        slice('One', 'complete', [['feature/a', 'merged']]),
+        slice('Two', 'eligible', [['feature/b', 'open']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -466,36 +466,36 @@ describe('briefPath — the path from branch to brief', () => {
 describe('dispatchCandidates — branches auto-dispatch would consider', () => {
   it('returns every dispatchable branch across approved plans', () => {
     const p = pulse([
-      ['2026-08-22-one.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]],
-      ['2026-08-22-two.md', 'approved', [wave('W', 'eligible', [['feature/c', 'open']])]],
+      ['2026-08-22-one.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]],
+      ['2026-08-22-two.md', 'approved', [slice('W', 'eligible', [['feature/c', 'open']])]],
     ]);
     expect(dispatchCandidates(p, new Set())).toEqual(['feature/a', 'feature/b', 'feature/c']);
   });
 
   it('excludes branches already in flight', () => {
     const p = pulse([['2026-08-22-one.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+      slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
     ]]]);
     expect(dispatchCandidates(p, new Set(['feature/a']))).toEqual(['feature/b']);
   });
 
   it('excludes wip branches whose ref blocks a claim', () => {
     const p = pulse([['2026-08-22-one.md', 'approved', [
-      wave('W', 'eligible', [['feature/wip', 'wip'], ['feature/open', 'open']]),
+      slice('W', 'eligible', [['feature/wip', 'wip'], ['feature/open', 'open']]),
     ]]]);
     expect(dispatchCandidates(p, new Set())).toEqual(['feature/open']);
   });
 
   it('excludes branches of draft plans', () => {
     const p = pulse([['2026-08-22-draft.md', 'draft', [
-      wave('W', 'eligible', [['feature/a', 'open']]),
+      slice('W', 'eligible', [['feature/a', 'open']]),
     ]]]);
     expect(dispatchCandidates(p, new Set())).toEqual([]);
   });
 
   it('excludes branches of blocked waves', () => {
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'blocked', [['feature/a', 'open']]),
+      slice('W', 'blocked', [['feature/a', 'open']]),
     ]]]);
     expect(dispatchCandidates(p, new Set())).toEqual([]);
   });
@@ -506,7 +506,7 @@ describe('planAutoDispatch — missingBriefs excludes branches', () => {
     const p = planAutoDispatch({
       controls: controls(true, 5),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+        slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -520,7 +520,7 @@ describe('planAutoDispatch — missingBriefs excludes branches', () => {
     const p = planAutoDispatch({
       controls: controls(true, 5),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+        slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -535,7 +535,7 @@ describe('planAutoDispatch — missingBriefs excludes branches', () => {
     const p = planAutoDispatch({
       controls: controls(true, 1),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('W', 'eligible', [['feature/nobr', 'open'], ['feature/yesbr', 'open']]),
+        slice('W', 'eligible', [['feature/nobr', 'open'], ['feature/yesbr', 'open']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -545,7 +545,7 @@ describe('planAutoDispatch — missingBriefs excludes branches', () => {
     // And the branch chosen is the one with a brief:
     expect(startableBranches(
       pulse([['2026-08-22-p.md', 'approved', [
-        wave('W', 'eligible', [['feature/nobr', 'open'], ['feature/yesbr', 'open']]),
+        slice('W', 'eligible', [['feature/nobr', 'open'], ['feature/yesbr', 'open']]),
       ]]]),
       'p',
       new Set(),
@@ -557,7 +557,7 @@ describe('planAutoDispatch — missingBriefs excludes branches', () => {
 describe('startableBranches — missingBriefs filter', () => {
   it('excludes branches with missing briefs from the startable list', () => {
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+      slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
     ]]]);
     expect(startableBranches(p, 'p', new Set(), new Set(['feature/a']))).toEqual(['feature/b']);
   });
@@ -565,7 +565,7 @@ describe('startableBranches — missingBriefs filter', () => {
   it('still works with an empty missingBriefs set', () => {
     // The default behavior — no briefs are missing.
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+      slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
     ]]]);
     expect(startableBranches(p, 'p', new Set())).toEqual(['feature/a', 'feature/b']);
   });
@@ -592,11 +592,11 @@ describe('planAutoDispatch — ref_held skips the claimed branch', () => {
         // Earlier plan has a claimed branch: ref_held=true, state=open (no work
         // commits, but a claim ref exists — the measured shape).
         ['2026-07-25-stale.md', 'approved', [
-          wave('W', 'eligible', [['feature/stale', 'open', true]]),
+          slice('W', 'eligible', [['feature/stale', 'open', true]]),
         ]],
         // Later plan has an unclaimed branch: ref_held=false (or absent).
         ['2026-08-25-fresh.md', 'approved', [
-          wave('W', 'eligible', [['feature/fresh', 'open']]),
+          slice('W', 'eligible', [['feature/fresh', 'open']]),
         ]],
       ]),
       liveCount: 0,
@@ -613,7 +613,7 @@ describe('planAutoDispatch — ref_held skips the claimed branch', () => {
     const p = planAutoDispatch({
       controls: controls(true, 5),
       pulse: pulse([['2026-08-22-p.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'open']]),
+        slice('W', 'eligible', [['feature/a', 'open']]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -634,7 +634,7 @@ describe('planAutoDispatch — ref_held skips the claimed branch', () => {
       controls: controls(true, 5),
       pulse: pulse([['2026-08-22-claimed.md', 'approved', [
         // state=open, but ref_held=true: claimed, no work commits.
-        wave('W', 'eligible', [['feature/claimed', 'open', true]]),
+        slice('W', 'eligible', [['feature/claimed', 'open', true]]),
       ]]]),
       liveCount: 0,
       inFlight: new Set(),
@@ -649,7 +649,7 @@ describe('planAutoDispatch — ref_held skips the claimed branch', () => {
     const p = planAutoDispatch({
       controls: controls(true, 5),
       pulse: pulse([['2026-08-22-mixed.md', 'approved', [
-        wave('W', 'eligible', [
+        slice('W', 'eligible', [
           ['feature/claimed', 'open', true],   // claimed
           ['feature/fresh', 'open'],           // not claimed
         ]),
@@ -665,7 +665,7 @@ describe('planAutoDispatch — ref_held skips the claimed branch', () => {
 describe('startableBranches — ref_held filter', () => {
   it('excludes ref_held branches from the startable list', () => {
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [
+      slice('W', 'eligible', [
         ['feature/claimed', 'open', true],
         ['feature/fresh', 'open'],
       ]),
@@ -677,7 +677,7 @@ describe('startableBranches — ref_held filter', () => {
 describe('dispatchCandidates — ref_held filter', () => {
   it('excludes ref_held branches from candidates', () => {
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [
+      slice('W', 'eligible', [
         ['feature/claimed', 'open', true],
         ['feature/fresh', 'open'],
       ]),
@@ -699,14 +699,14 @@ describe('mergedBranches — sliceHasMerged, sourced from the pulse', () => {
     // The pulse already carries this; asking the host again per agent is what
     // the slice's scope guard forbids.
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
-      wave('X', 'complete', [['feature/older', 'merged']]),
+      slice('W', 'eligible', [['feature/a', 'open'], ['feature/done', 'merged']]),
+      slice('X', 'complete', [['feature/older', 'merged']]),
     ]]]);
     expect(mergedBranches(p)).toEqual(new Set(['feature/done', 'feature/older']));
   });
 
   it('omits a branch the pulse never mentions, so silence is not "landed"', () => {
-    const p = pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
+    const p = pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
     expect(mergedBranches(p).has('feature/unseen')).toBe(false);
   });
 });
@@ -717,7 +717,7 @@ describe('freeAgentCount — can any agent take a slice?', () => {
     // take the next slice.
     const agents = [agent('feature/done', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/done', 'merged']]),
+      slice('W', 'eligible', [['feature/done', 'merged']]),
     ]]]);
     expect(freeAgentCount(agents, p)).toBe(1);
   });
@@ -730,14 +730,14 @@ describe('freeAgentCount — can any agent take a slice?', () => {
     // condition is unreachable in production today —
     // `a-working-agent-is-not-a-hung-one` is what makes it reachable.
     const agents = [agent('', 'running')];
-    const p = pulse([['2026-08-22-p.md', 'approved', [wave('W', 'eligible', [['feature/a', 'open']])]]]);
+    const p = pulse([['2026-08-22-p.md', 'approved', [slice('W', 'eligible', [['feature/a', 'open']])]]]);
     expect(freeAgentCount(agents, p)).toBe(1);
   });
 
   it('refuses a running agent still holding an unlanded branch', () => {
     const agents = [agent('feature/a', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open']]),
+      slice('W', 'eligible', [['feature/a', 'open']]),
     ]]]);
     expect(freeAgentCount(agents, p)).toBe(0);
   });
@@ -747,7 +747,7 @@ describe('freeAgentCount — can any agent take a slice?', () => {
     // branch has merged — the block is the person, not the branch.
     const agents = [agent('feature/done', 'waiting')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/done', 'merged']]),
+      slice('W', 'eligible', [['feature/done', 'merged']]),
     ]]]);
     expect(freeAgentCount(agents, p)).toBe(0);
   });
@@ -755,7 +755,7 @@ describe('freeAgentCount — can any agent take a slice?', () => {
   it('names the branches behind the number, and says why a slot is reusable', () => {
     const agents = [agent('feature/done', 'running'), agent('', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/done', 'merged']]),
+      slice('W', 'eligible', [['feature/done', 'merged']]),
     ]]]);
     // The count and the names must not diverge — the count is the decision and
     // the names are the explanation.
@@ -771,7 +771,7 @@ describe('planAutoDispatch — at the cap, but an agent is free', () => {
     // a slot instead of using the one it already held.
     const agents = [agent('', 'running'), agent('', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
+      slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']]),
     ]]]);
     const plans = planAutoDispatch({
       controls: controls(true, 2),
@@ -787,7 +787,7 @@ describe('planAutoDispatch — at the cap, but an agent is free', () => {
   it('DISPATCHES when every slot is taken and the agents hold landed branches', () => {
     const agents = [agent('feature/done', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/done', 'merged'], ['feature/next', 'open']]),
+      slice('W', 'eligible', [['feature/done', 'merged'], ['feature/next', 'open']]),
     ]]]);
     const plans = planAutoDispatch({
       controls: controls(true, 1),
@@ -805,7 +805,7 @@ describe('planAutoDispatch — at the cap, but an agent is free', () => {
     // be, so the cap is a real refusal and waiting is the right answer.
     const agents = [agent('feature/a', 'running'), agent('feature/b', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [
+      slice('W', 'eligible', [
         ['feature/a', 'open'], ['feature/b', 'open'], ['feature/c', 'open'],
       ]),
     ]]]);
@@ -823,7 +823,7 @@ describe('planAutoDispatch — at the cap, but an agent is free', () => {
   it('STILL REFUSES when the agents holding the slots are merely WAITING', () => {
     const agents = [agent('feature/done', 'waiting'), agent('feature/b', 'waiting')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/done', 'merged'], ['feature/c', 'open']]),
+      slice('W', 'eligible', [['feature/done', 'merged'], ['feature/c', 'open']]),
     ]]]);
     const plans = planAutoDispatch({
       controls: controls(true, 2),
@@ -847,7 +847,7 @@ describe('planAutoDispatch — at the cap, but an agent is free', () => {
       agent('feature/b', 'running'),    // busy
     ];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [
+      slice('W', 'eligible', [
         ['feature/done', 'merged'],
         ['feature/c', 'open'], ['feature/d', 'open'], ['feature/e', 'open'],
       ]),
@@ -873,7 +873,7 @@ describe('planAutoDispatch — at the cap, but an agent is free', () => {
       agent('feature/a', 'running'), agent('feature/b', 'running'),
     ];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [
+      slice('W', 'eligible', [
         ['feature/d1', 'merged'], ['feature/d2', 'merged'],
         ['feature/x', 'open'], ['feature/y', 'open'], ['feature/z', 'open'],
       ]),
@@ -894,7 +894,7 @@ describe('planAutoDispatch — at the cap, but an agent is free', () => {
     // `agents` is optional and absent means NO FREE AGENT rather than an error,
     // so a caller predating the field keeps the cap-only behaviour.
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open']]),
+      slice('W', 'eligible', [['feature/a', 'open']]),
     ]]]);
     const plans = planAutoDispatch({
       controls: controls(true, 1),
@@ -909,7 +909,7 @@ describe('planAutoDispatch — at the cap, but an agent is free', () => {
   it('leaves the switch-off answer alone — a free agent is not a reason to start', () => {
     const agents = [agent('', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/a', 'open']]),
+      slice('W', 'eligible', [['feature/a', 'open']]),
     ]]]);
     const plans = planAutoDispatch({
       controls: controls(false, 2),
@@ -937,7 +937,7 @@ describe('the two counts stay distinct — the 2026-08-25 regression lock', () =
     // fails if the two questions are ever collapsed into one.
     const agents = [agent('feature/done', 'running'), agent('feature/a', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [['feature/done', 'merged'], ['feature/a', 'open']]),
+      slice('W', 'eligible', [['feature/done', 'merged'], ['feature/a', 'open']]),
     ]]]);
 
     // Occupied: both hold a machine, so both count against the cap.
@@ -958,7 +958,7 @@ describe('the two counts stay distinct — the 2026-08-25 regression lock', () =
     // slots, never exceed them.
     const agents = [agent('feature/d1', 'running'), agent('feature/d2', 'running')];
     const p = pulse([['2026-08-22-p.md', 'approved', [
-      wave('W', 'eligible', [
+      slice('W', 'eligible', [
         ['feature/d1', 'merged'], ['feature/d2', 'merged'],
         ['feature/x', 'open'], ['feature/y', 'open'], ['feature/z', 'open'],
       ]),
@@ -1001,7 +1001,7 @@ const reading = (spawnCostMs: number | null): MachineEntity =>
 /** A pulse with one approved, eligible plan holding three startable branches. */
 const workToDo = () =>
   pulse([['2026-08-30-m.md', 'approved', [
-    wave('W', 'eligible', [
+    slice('W', 'eligible', [
       ['feature/x', 'open'], ['feature/y', 'open'], ['feature/z', 'open'],
     ]),
   ]]]);
@@ -1096,7 +1096,7 @@ describe('planAutoDispatch — a starved machine defers', () => {
     // free agent does not talk the fleet past a starving machine.
     const agents = [agent('feature/done', 'running')];
     const p = pulse([['2026-08-30-m.md', 'approved', [
-      wave('W', 'eligible', [['feature/done', 'merged'], ['feature/x', 'open']]),
+      slice('W', 'eligible', [['feature/done', 'merged'], ['feature/x', 'open']]),
     ]]]);
     expect(freeAgentCount(agents, p)).toBe(1);
     const plans = planAutoDispatch({
@@ -1158,12 +1158,12 @@ describe('machineIsClear — the other machine question, and not the gate', () =
 // is one `planAutoDispatch` declines, so the board never explains a plan it
 // dispatched.
 describe('skippedPlans — the plan-level skip says why', () => {
-  const p = (waves: ReturnType<typeof wave>[], phase = 'approved') =>
-    pulse([['2026-09-01-p.md', phase, waves]]);
+  const p = (slices: ReturnType<typeof slice>[], phase = 'approved') =>
+    pulse([['2026-09-01-p.md', phase, slices]]);
 
   it('says nothing about a plan that has something startable', () => {
     expect(skippedPlans(
-      p([wave('W', 'eligible', [['feature/a', 'open']])]),
+      p([slice('W', 'eligible', [['feature/a', 'open']])]),
       new Set(),
       new Set(),
     )).toEqual([]);
@@ -1171,7 +1171,7 @@ describe('skippedPlans — the plan-level skip says why', () => {
 
   it('names the plan and `no-brief` when every branch lacks one', () => {
     expect(skippedPlans(
-      p([wave('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]),
+      p([slice('W', 'eligible', [['feature/a', 'open'], ['feature/b', 'open']])]),
       new Set(),
       new Set(['feature/a', 'feature/b']),
     )).toEqual([{ slug: 'p', reason: 'no-brief' }]);
@@ -1179,7 +1179,7 @@ describe('skippedPlans — the plan-level skip says why', () => {
 
   it('names `ref-held` when every branch is already claimed by its own ref', () => {
     expect(skippedPlans(
-      p([wave('W', 'eligible', [['feature/a', 'open', true], ['feature/b', 'wip']])]),
+      p([slice('W', 'eligible', [['feature/a', 'open', true], ['feature/b', 'wip']])]),
       new Set(),
       new Set(),
     )).toEqual([{ slug: 'p', reason: 'ref-held' }]);
@@ -1187,7 +1187,7 @@ describe('skippedPlans — the plan-level skip says why', () => {
 
   it('names `in-flight` when this board already dispatched them', () => {
     expect(skippedPlans(
-      p([wave('W', 'eligible', [['feature/a', 'open']])]),
+      p([slice('W', 'eligible', [['feature/a', 'open']])]),
       new Set(['feature/a']),
       new Set(),
     )).toEqual([{ slug: 'p', reason: 'in-flight' }]);
@@ -1195,7 +1195,7 @@ describe('skippedPlans — the plan-level skip says why', () => {
 
   it('names `no-eligible-wave` when no wave is eligible at all', () => {
     expect(skippedPlans(
-      p([wave('W', 'blocked', [['feature/a', 'open']])]),
+      p([slice('W', 'blocked', [['feature/a', 'open']])]),
       new Set(),
       new Set(),
     )).toEqual([{ slug: 'p', reason: 'no-eligible-wave' }]);
@@ -1206,7 +1206,7 @@ describe('skippedPlans — the plan-level skip says why', () => {
     // all, from a dispatch's point of view — there is nothing to claim and
     // nothing to ask a person for.
     expect(skippedPlans(
-      p([wave('W', 'eligible', [['feature/a', 'merged'], ['feature/b', 'deferred']])]),
+      p([slice('W', 'eligible', [['feature/a', 'merged'], ['feature/b', 'deferred']])]),
       new Set(),
       new Set(),
     )).toEqual([{ slug: 'p', reason: 'no-eligible-wave' }]);
@@ -1214,7 +1214,7 @@ describe('skippedPlans — the plan-level skip says why', () => {
 
   it('says nothing about a plan that is not approved', () => {
     expect(skippedPlans(
-      p([wave('W', 'eligible', [['feature/a', 'open']])], 'draft'),
+      p([slice('W', 'eligible', [['feature/a', 'open']])], 'draft'),
       new Set(),
       new Set(['feature/a']),
     )).toEqual([]);
@@ -1225,10 +1225,10 @@ describe('skippedPlans — the plan-level skip says why', () => {
     // two different reasons must not read alike.
     const two = pulse([
       ['2026-09-01-briefless.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'open']]),
+        slice('W', 'eligible', [['feature/a', 'open']]),
       ]],
       ['2026-09-01-held.md', 'approved', [
-        wave('W', 'eligible', [['feature/b', 'open', true]]),
+        slice('W', 'eligible', [['feature/b', 'open', true]]),
       ]],
     ]);
     expect(skippedPlans(two, new Set(), new Set(['feature/a']))).toEqual([
@@ -1241,7 +1241,7 @@ describe('skippedPlans — the plan-level skip says why', () => {
     // One branch of each kind. `no-brief` wins the tie because it is the one a
     // person can act on; `in-flight` asks for nothing at all.
     expect(skippedPlans(
-      p([wave('W', 'eligible', [
+      p([slice('W', 'eligible', [
         ['feature/nobrief', 'open'],
         ['feature/held', 'open', true],
         ['feature/flying', 'open'],
@@ -1256,10 +1256,10 @@ describe('skippedPlans — the plan-level skip says why', () => {
     // absent from the planner's output and vice versa.
     const two = pulse([
       ['2026-09-01-goes.md', 'approved', [
-        wave('W', 'eligible', [['feature/ok', 'open']]),
+        slice('W', 'eligible', [['feature/ok', 'open']]),
       ]],
       ['2026-09-01-stays.md', 'approved', [
-        wave('W', 'eligible', [['feature/nobrief', 'open']]),
+        slice('W', 'eligible', [['feature/nobrief', 'open']]),
       ]],
     ]);
     const missing = new Set(['feature/nobrief']);
@@ -1280,10 +1280,10 @@ describe('skippedPlans — the plan-level skip says why', () => {
     // matter how spent the budget is — this function is not given one.
     const two = pulse([
       ['2026-09-01-first.md', 'approved', [
-        wave('W', 'eligible', [['feature/a', 'open']]),
+        slice('W', 'eligible', [['feature/a', 'open']]),
       ]],
       ['2026-09-01-second.md', 'approved', [
-        wave('W', 'eligible', [['feature/b', 'open']]),
+        slice('W', 'eligible', [['feature/b', 'open']]),
       ]],
     ]);
     expect(skippedPlans(two, new Set(), new Set())).toEqual([]);

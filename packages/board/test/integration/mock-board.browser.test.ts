@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  openCatalogue, expandAgentFolds, board, row, wave, fleet, scenario, SCENARIOS,
+  openCatalogue, expandAgentFolds, board, row, slice, fleet, scenario, SCENARIOS,
   startMockBoard, type Catalogue, type MockBoard, type Scenario,
 } from '../catalogue/index.js';
 import { AgentRowSchema, FleetSchema } from '../../src/contract/schema.js';
@@ -110,7 +110,7 @@ describe('the mock board serves named states', () => {
       over: {
         fleet: fleet({
           rows,
-          waves: [wave({
+          waves: [slice({
             plan: 'six-waves', name: 'Complete', section: 'done',
             branches: [renamed, 'feature/done-two'],
             verdict: 'complete', complete: true,

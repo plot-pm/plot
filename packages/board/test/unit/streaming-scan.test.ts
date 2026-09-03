@@ -20,7 +20,7 @@ import { FleetSchema, PlanMetaSchema, type FleetReading } from '../../src/contra
 // completed scan renders identically to a batch one.
 
 /** One wave's worth of scan output, in the shape `plot-fleet-scan.sh --json` emits. */
-const wave = (
+const slice = (
   name: string,
   verdict: 'complete' | 'eligible' | 'blocked',
   branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred']>,
@@ -33,8 +33,8 @@ const wave = (
   })),
 });
 
-const plan = (file: string, waves: ReturnType<typeof wave>[]) =>
-  ({ file, phase: 'approved', slices: waves });
+const plan = (file: string, slices: ReturnType<typeof slice>[]) =>
+  ({ file, phase: 'approved', slices });
 
 /**
  * A fake scan script that writes the lines it is given, with an optional pause
@@ -144,7 +144,7 @@ describe('a row renders from plan facts before any git fact exists', () => {
     // cold-cache case at least looked empty.
     const partial: FleetReading = {
       ...HEAD,
-      plans: [plan('2026-08-19-something-else.md', [wave('One', 'eligible', [['feature/z', 'open']])])],
+      plans: [plan('2026-08-19-something-else.md', [slice('One', 'eligible', [['feature/z', 'open']])])],
       summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
     };
     const s = summariseFromPulse(meta, partial);
@@ -160,7 +160,7 @@ describe('a row renders from plan facts before any git fact exists', () => {
     const arrived: FleetReading = {
       ...HEAD,
       plans: [plan('2026-08-19-streams.md',
-        [wave('One', 'eligible', [['feature/a', 'claimed'], ['feature/b', 'open']])])],
+        [slice('One', 'eligible', [['feature/a', 'claimed'], ['feature/b', 'open']])])],
       summary: { plans: 1, waves: 1, branches: 2, claimed: 1, eligible: 1, blocked: 0, deferred: 0 },
     };
     const s = summariseFromPulse(meta, arrived);
@@ -175,13 +175,13 @@ describe('the board renders plans as they arrive', () => {
     // took 18 s, so it rendered nothing for the whole scan. Here the scan
     // pauses between plans, and the board is asked mid-flight.
     const scripts = fakeScan([
-      planLine(plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])])),
-      planLine(plan('b.md', [wave('One', 'eligible', [['feature/b', 'claimed']])])),
+      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
+      planLine(plan('b.md', [slice('One', 'eligible', [['feature/b', 'claimed']])])),
       pulseLine({
         ...HEAD,
         plans: [
-          plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])]),
-          plan('b.md', [wave('One', 'eligible', [['feature/b', 'claimed']])]),
+          plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])]),
+          plan('b.md', [slice('One', 'eligible', [['feature/b', 'claimed']])]),
         ],
         summary: { plans: 2, waves: 2, branches: 2, claimed: 1, eligible: 1, blocked: 0, deferred: 0 },
       }),
@@ -204,10 +204,10 @@ describe('the board renders plans as they arrive', () => {
     // are coming. The UI hangs "so far" on it, so it has to be false for
     // exactly as long as that is true.
     const scripts = fakeScan([
-      planLine(plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])])),
+      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
       pulseLine({
         ...HEAD,
-        plans: [plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])])],
+        plans: [plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])],
         summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
       }),
     ], { delayMs: 300 });
@@ -229,8 +229,8 @@ describe('a scan that fails midway keeps what arrived', () => {
     // Discarding a partial result throws away facts that were correctly
     // measured. The scan below emits two good plans and then dies.
     const scripts = fakeScan([
-      planLine(plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])])),
-      planLine(plan('b.md', [wave('One', 'eligible', [['feature/b', 'claimed']])])),
+      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
+      planLine(plan('b.md', [slice('One', 'eligible', [['feature/b', 'claimed']])])),
     ], { exitCode: 1 });
     const opts = { repoRoot: scripts, scriptsDir: scripts };
 
@@ -252,7 +252,7 @@ describe('a scan that fails midway keeps what arrived', () => {
     // becomes untrustworthy — and a closed pipe cannot mean completion,
     // because a killed scan closes it too.
     const scripts = fakeScan([
-      planLine(plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])])),
+      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
     ], { exitCode: 0 });
     const opts = { repoRoot: scripts, scriptsDir: scripts };
 
@@ -266,12 +266,12 @@ describe('a scan that fails midway keeps what arrived', () => {
     // One bad line costs one line. Throwing would cost the whole partial
     // answer, including the plans that were correct.
     const scripts = fakeScan([
-      planLine(plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])])),
+      planLine(plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])),
       'this is not json',
       JSON.stringify({ kind: 'nonsense' }),
       pulseLine({
         ...HEAD,
-        plans: [plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])])],
+        plans: [plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])])],
         summary: { plans: 1, waves: 1, branches: 1, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
       }),
     ]);
@@ -289,9 +289,9 @@ describe('a completed scan renders identically to a batch one', () => {
   // about what they say. Both halves come from ONE document, so any drift is a
   // drift in the streaming path rather than in the fixture.
   const plans = [
-    plan('a.md', [wave('One', 'complete', [['feature/a', 'merged']]),
-      wave('Two', 'eligible', [['feature/b', 'open'], ['feature/c', 'claimed']])]),
-    plan('b.md', [wave('One', 'blocked', [['bug/x', 'wip'], ['bug/y', 'deferred']])]),
+    plan('a.md', [slice('One', 'complete', [['feature/a', 'merged']]),
+      slice('Two', 'eligible', [['feature/b', 'open'], ['feature/c', 'claimed']])]),
+    plan('b.md', [slice('One', 'blocked', [['bug/x', 'wip'], ['bug/y', 'deferred']])]),
   ];
   const whole: FleetReading = {
     ...HEAD,
@@ -347,15 +347,15 @@ describe('a completed scan renders identically to a batch one', () => {
 describe('mergePlan keeps a re-emitted plan idempotent', () => {
   // A scan that names one plan twice must not double a card's wave count. The
   // key is `file`, the same join key every consumer already uses.
-  const a = plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])]);
-  const b = plan('b.md', [wave('One', 'eligible', [['feature/b', 'open']])]);
+  const a = plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])]);
+  const b = plan('b.md', [slice('One', 'eligible', [['feature/b', 'open']])]);
 
   it('appends a plan it has not seen', () => {
     expect(mergePlan([a], b).map((p) => p.file)).toEqual(['a.md', 'b.md']);
   });
 
   it('replaces a plan it has seen, in place', () => {
-    const a2 = plan('a.md', [wave('One', 'complete', [['feature/a', 'merged']])]);
+    const a2 = plan('a.md', [slice('One', 'complete', [['feature/a', 'merged']])]);
     const merged = mergePlan([a, b], a2);
     expect(merged.map((p) => p.file)).toEqual(['a.md', 'b.md']);
     expect(merged[0].slices[0].verdict).toBe('complete');
@@ -419,8 +419,8 @@ describe('the shrink baseline is the last COMPLETE answer', () => {
   // function is pure, and the bug is entirely in WHICH document is handed to
   // it.
   const two = [
-    plan('a.md', [wave('One', 'eligible', [['feature/a', 'open']])]),
-    plan('b.md', [wave('One', 'eligible', [['feature/b', 'open']])]),
+    plan('a.md', [slice('One', 'eligible', [['feature/a', 'open']])]),
+    plan('b.md', [slice('One', 'eligible', [['feature/b', 'open']])]),
   ];
   const one = [two[0]];
   const pulseOf = (plans: ReturnType<typeof plan>[]): FleetReading => ({

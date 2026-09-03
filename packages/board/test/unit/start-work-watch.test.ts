@@ -83,9 +83,9 @@ describe('a dispatch on an ALREADY-STARTED plan reads as success', () => {
     // A fix tested only on a first click passes without touching the defect:
     // there `started` flips false → true and the old code saw the change. Wave
     // 2 is where it never could.
-    const wave1Claimed = card({ started: true, sliceSummary: { waves: 3, branches: 3, deferred: 0, claimed: 1, eligible: 1 } });
-    const wave2Claimed = card({ started: true, sliceSummary: { waves: 3, branches: 3, deferred: 0, claimed: 2, eligible: 0 } });
-    expect(claimedCount(wave2Claimed)!).toBeGreaterThan(claimedCount(wave1Claimed)!);
+    const slice1Claimed = card({ started: true, sliceSummary: { waves: 3, branches: 3, deferred: 0, claimed: 1, eligible: 1 } });
+    const slice2Claimed = card({ started: true, sliceSummary: { waves: 3, branches: 3, deferred: 0, claimed: 2, eligible: 0 } });
+    expect(claimedCount(slice2Claimed)!).toBeGreaterThan(claimedCount(slice1Claimed)!);
   });
 
   it('a dispatcher that really declined moves nothing', () => {

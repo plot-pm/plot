@@ -30,8 +30,8 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  */
 
 // The two wave names, on this repo's estate, so slot 3 can be asserted BY NAME.
-const WORKING_WAVE = 'Named';
-const NOT_STARTED_WAVE = 'Anchored';
+const WORKING_SLICE = 'Named';
+const NOT_STARTED_SLICE = 'Anchored';
 const WORKING_BRANCH = 'bug/a-wave-row-names-its-wave';
 const WORKER_PID_NOTE = 'worker running (pid 45678)';
 
@@ -57,7 +57,7 @@ function fleet(): Fleet {
       plan: 'one-wave-row-two-contents',
       planFile: '2026-08-24-one-wave-row-two-contents.md',
       branch: WORKING_BRANCH, branchUrl: `https://github.com/tiny/garden/tree/${WORKING_BRANCH}`,
-      wave: WORKING_WAVE, worker: 'running', ageMinutes: 33, note: WORKER_PID_NOTE,
+      wave: WORKING_SLICE, worker: 'running', ageMinutes: 33, note: WORKER_PID_NOTE,
     }),
     row({
       kind: 'wave', group: 'not-started',
@@ -73,7 +73,7 @@ function fleet(): Fleet {
       // a selector typo would look identical to. An unstarted, eligible wave is
       // `open` by definition, so this matches the row's own intent.
       state: 'open',
-      wave: NOT_STARTED_WAVE, verdict: 'eligible', waitingDays: 2, ageMinutes: null,
+      wave: NOT_STARTED_SLICE, verdict: 'eligible', waitingDays: 2, ageMinutes: null,
       note: 'approved — nobody has taken it',
     }),
   ];
@@ -183,7 +183,7 @@ describe('a wave row is a wave row in every section', () => {
       over: { fleet: fleet() },
       viewport: { width: 1480, height: 1400 },
     });
-    await page.locator(`[data-wave-row="${NOT_STARTED_WAVE}"]`).first().waitFor({ timeout: 15_000 });
+    await page.locator(`[data-wave-row="${NOT_STARTED_SLICE}"]`).first().waitFor({ timeout: 15_000 });
     return page;
   }
 
@@ -194,18 +194,18 @@ describe('a wave row is a wave row in every section', () => {
       // rows at all, but a wave in a wave-grouped section still must: the defect
       // #392 fixed was a wave rendering through `<Row>` and losing its name to a
       // badge, and NOT STARTED is where that is still observable.
-      const ns = page.locator(`[data-wave-row="${NOT_STARTED_WAVE}"]`);
+      const ns = page.locator(`[data-wave-row="${NOT_STARTED_SLICE}"]`);
       await expect.poll(() => ns.count()).toBe(1);
       expect(await ns.getAttribute('data-tuple-kind')).toBe('wave');
 
-      const slots = await slotsOf(page, NOT_STARTED_WAVE);
+      const slots = await slotsOf(page, NOT_STARTED_SLICE);
       // Slot 2 is the kind. The label is `Slice`, uppercased by CSS, and
       // `.innerText` honours the transform while the attribute does not.
       expect(slots.kindLabel).toBe('wave');
       expect(slots.kindLabelText).toBe('SLICE');
       // Slot 3 leads with the wave's OWN NAME — asserted BY NAME, because
       // "not the branch name" also passes on an empty slot.
-      expect(slots.name).toBe(NOT_STARTED_WAVE);
+      expect(slots.name).toBe(NOT_STARTED_SLICE);
     } finally {
       await page.close();
     }

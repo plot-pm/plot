@@ -248,7 +248,7 @@ describe('slicesElsewhere — a split plan says how many of its waves are NOT he
   // cannot tell a two-wave plan from the visible half of a three-wave one. This
   // reads the server-derived `fleet.waves`, where each wave carries its ONE
   // section, and counts the ones whose section is not the head's.
-  const wave = (over: Partial<Slice> = {}): Slice => ({
+  const slice = (over: Partial<Slice> = {}): Slice => ({
     plan: 'split-plan', name: 'w', branches: ['feature/x'],
     verdict: 'complete', section: 'done', complete: true, ...over,
   });
@@ -256,33 +256,33 @@ describe('slicesElsewhere — a split plan says how many of its waves are NOT he
   it('counts a plan\'s waves that sit in another section', () => {
     // Two waves done, one not started. The NOT STARTED head speaks for the one;
     // two are elsewhere. The DONE head speaks for the two; one is elsewhere.
-    const waves = [
-      wave({ name: 'Sown', section: 'done', complete: true }),
-      wave({ name: 'Grown', section: 'done', complete: true }),
-      wave({ name: 'Reaped', section: 'not-started', complete: false }),
+    const slices = [
+      slice({ name: 'Sown', section: 'done', complete: true }),
+      slice({ name: 'Grown', section: 'done', complete: true }),
+      slice({ name: 'Reaped', section: 'not-started', complete: false }),
     ];
-    expect(slicesElsewhere(waves, 'split-plan', 'not-started')).toBe(2);
-    expect(slicesElsewhere(waves, 'split-plan', 'done')).toBe(1);
+    expect(slicesElsewhere(slices, 'split-plan', 'not-started')).toBe(2);
+    expect(slicesElsewhere(slices, 'split-plan', 'done')).toBe(1);
   });
 
   it('is zero for a plan whose every wave is in the head\'s own section', () => {
     // The common case — a plan that has not split. Nothing is elsewhere, so the
     // head says nothing extra.
-    const waves = [
-      wave({ name: 'Sown', section: 'not-started', complete: false }),
-      wave({ name: 'Grown', section: 'not-started', complete: false }),
+    const slices = [
+      slice({ name: 'Sown', section: 'not-started', complete: false }),
+      slice({ name: 'Grown', section: 'not-started', complete: false }),
     ];
-    expect(slicesElsewhere(waves, 'split-plan', 'not-started')).toBe(0);
+    expect(slicesElsewhere(slices, 'split-plan', 'not-started')).toBe(0);
   });
 
   it('counts only THIS plan\'s waves — a namesake wave of another plan is not ours', () => {
     // `plan` is half of a wave's identity; names repeat across plans. A `Tracer`
     // in some other plan sitting in DONE must not inflate this plan's count.
-    const waves = [
-      wave({ plan: 'split-plan', name: 'Tracer', section: 'not-started', complete: false }),
-      wave({ plan: 'other-plan', name: 'Tracer', section: 'done', complete: true }),
+    const slices = [
+      slice({ plan: 'split-plan', name: 'Tracer', section: 'not-started', complete: false }),
+      slice({ plan: 'other-plan', name: 'Tracer', section: 'done', complete: true }),
     ];
-    expect(slicesElsewhere(waves, 'split-plan', 'not-started')).toBe(0);
+    expect(slicesElsewhere(slices, 'split-plan', 'not-started')).toBe(0);
   });
 
   it('is zero when the payload carries no waves — a pre-wave server, cast not parsed', () => {
@@ -303,25 +303,25 @@ describe('slicesElsewhere — a split plan says how many of its waves are NOT he
     // Measured 2026-08-24: 30 of 80 rows disagreed with their own wave's
     // section, and 16 plan heads reported EVERY wave elsewhere — including
     // one-wave plans announcing their only wave was somewhere else.
-    const waves = [
+    const slices = [
       { plan: 'p', name: 'Shown', section: 'done' },
       { plan: 'p', name: 'Offered', section: 'not-started' },
     ] as never;
     // The head renders in `waiting-on-you` — a section no wave carries — and
     // holds the `Offered` wave's row. One of its two waves is elsewhere.
-    expect(slicesElsewhere(waves, 'p', 'waiting-on-you', new Set(['Offered']))).toBe(1);
+    expect(slicesElsewhere(slices, 'p', 'waiting-on-you', new Set(['Offered']))).toBe(1);
     // Without the set, the old comparison calls BOTH elsewhere. Asserted so the
     // fallback's limit is recorded rather than mistaken for correct.
-    expect(slicesElsewhere(waves, 'p', 'waiting-on-you')).toBe(2);
+    expect(slicesElsewhere(slices, 'p', 'waiting-on-you')).toBe(2);
   });
 
   it('says nothing is elsewhere when the head holds every wave', () => {
     // The guard against over-reporting: a plan wholly under one head must not
     // claim a split. This is the case a naive `waves.length - 1` gets wrong.
-    const waves = [
+    const slices = [
       { plan: 'p', name: 'Only', section: 'not-started' },
     ] as never;
-    expect(slicesElsewhere(waves, 'p', 'waiting-on-you', new Set(['Only']))).toBe(0);
+    expect(slicesElsewhere(slices, 'p', 'waiting-on-you', new Set(['Only']))).toBe(0);
   });
 });
 
@@ -3829,7 +3829,7 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
   // A server-derived wave, keyed on (plan, name), carrying the ONE section the
   // server placed it in. `section` is what a grouped header must count against,
   // exactly as `sliceSummaryFor` and `slicesElsewhere` already read it.
-  const wave = (over: Partial<Slice> = {}): Slice => ({
+  const slice = (over: Partial<Slice> = {}): Slice => ({
     plan: 'p', name: 'W', branches: ['feature/b'], verdict: 'complete',
     section: 'done', complete: true, planSliceCount: 1, ...over,
   });
@@ -3843,12 +3843,12 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
       row({ plan: 'alpha', wave: 'Two', branch: 'a2', state: 'merged', group: 'done' }),
       row({ plan: 'beta', wave: 'One', branch: 'b1', state: 'merged', group: 'done' }),
     ];
-    const waves: Slice[] = [
-      wave({ plan: 'alpha', name: 'One', branches: ['a1'] }),
-      wave({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
-      wave({ plan: 'beta', name: 'One', branches: ['b1'] }),
+    const slices: Slice[] = [
+      slice({ plan: 'alpha', name: 'One', branches: ['a1'] }),
+      slice({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
+      slice({ plan: 'beta', name: 'One', branches: ['b1'] }),
     ];
-    const tally = sectionTally(rows, 'done', waves, 0);
+    const tally = sectionTally(rows, 'done', slices, 0);
     expect(tally.plans).toBe(2);
     expect(tally.slices).toBe(3);
     expect(tally.differ).toBe(true);
@@ -3870,11 +3870,11 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
       row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'merged', group: 'done' }),
       row({ plan: 'beta', wave: 'One', branch: 'b1', state: 'merged', group: 'done' }),
     ];
-    const waves: Slice[] = [
-      wave({ plan: 'alpha', name: 'One', branches: ['a1'] }),
-      wave({ plan: 'beta', name: 'One', branches: ['b1'] }),
+    const slices: Slice[] = [
+      slice({ plan: 'alpha', name: 'One', branches: ['a1'] }),
+      slice({ plan: 'beta', name: 'One', branches: ['b1'] }),
     ];
-    const tally = sectionTally(rows, 'done', waves, 0);
+    const tally = sectionTally(rows, 'done', slices, 0);
     expect(tally.plans).toBe(2);
     expect(tally.slices).toBe(2);
     expect(tally.differ).toBe(false);
@@ -3887,11 +3887,11 @@ describe('sectionTally — a header counts the things rendered beneath it', () =
       row({ plan: 'alpha', wave: 'One', branch: 'a1', state: 'merged', group: 'done' }),
       row({ plan: 'alpha', wave: 'Two', branch: 'a2', state: 'merged', group: 'done' }),
     ];
-    const waves: Slice[] = [
-      wave({ plan: 'alpha', name: 'One', branches: ['a1'] }),
-      wave({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
+    const slices: Slice[] = [
+      slice({ plan: 'alpha', name: 'One', branches: ['a1'] }),
+      slice({ plan: 'alpha', name: 'Two', branches: ['a2'] }),
     ];
-    const tally = sectionTally(rows, 'done', waves, 2);
+    const tally = sectionTally(rows, 'done', slices, 2);
     // One plan head plus two issue rows visible → three; two waves in scope plus
     // the two issues → four.
     expect(tally.plans).toBe(3);

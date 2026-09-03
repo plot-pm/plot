@@ -1,4 +1,4 @@
-import { board, card, column, fleet, row, sprint, story, wave } from './build.js';
+import { board, card, column, fleet, row, sprint, story, slice } from './build.js';
 import {
   BOARD_PHASES, ELIGIBLE_NOTE, RowKindSchema,
   type Board, type Fleet, type RowKind,
@@ -52,7 +52,7 @@ const GH = 'https://github.com/tiny/garden/tree/';
 const BEANS_FILE = '2026-03-01-beans.md';
 const TOMS_FILE = '2026-03-01-plant-tomatoes.md';
 const GHOST_FILE = '2099-01-01-ghost-plan.md';
-const SIX_WAVES_FILE = '2026-08-24-six-waves.md';
+const SIX_SLICES_FILE = '2026-08-24-six-waves.md';
 const KINDS_FILE = '2026-08-24-every-kind.md';
 
 /**
@@ -93,7 +93,7 @@ const aDoneSlice = (): Scenario => {
     }),
     fleet: fleet({
       rows,
-      slices: [wave({
+      slices: [slice({
         plan: 'six-waves', name: 'Complete', section: 'done',
         branches: ['feature/done-one', 'feature/done-two'],
         verdict: 'complete', complete: true,
@@ -134,7 +134,7 @@ const anEligibleSlice = (): Scenario => {
     }),
     fleet: fleet({
       rows,
-      slices: [wave({
+      slices: [slice({
         plan: 'a-wave-is-a-thing-not-a-label', name: 'Anchored',
         branches: ['feature/anchor-the-wave'],
         verdict: 'eligible', section: 'not-started', complete: false,
@@ -300,19 +300,19 @@ const anEstateThatCannotAct = (): Scenario => {
 const aPlanInSlices = (): Scenario => {
   const rows = [
     row({
-      plan: 'six-waves', planFile: SIX_WAVES_FILE, branch: 'feature/first-wave',
+      plan: 'six-waves', planFile: SIX_SLICES_FILE, branch: 'feature/first-wave',
       kind: 'wave', wave: 'Foundations', verdict: 'complete', state: 'merged',
       group: 'done', ageMinutes: 400, branchUrl: '',
     }),
     row({
-      plan: 'six-waves', planFile: SIX_WAVES_FILE, branch: 'feature/second-wave',
+      plan: 'six-waves', planFile: SIX_SLICES_FILE, branch: 'feature/second-wave',
       kind: 'wave', wave: 'Building', verdict: 'eligible', state: 'open',
       group: 'not-started', ageMinutes: null, waitingOn: 'click',
       note: ELIGIBLE_NOTE, waitingDays: 3, startability: 'start-work',
       branchUrl: `${GH}feature/second-wave`,
     }),
     row({
-      plan: 'six-waves', planFile: SIX_WAVES_FILE, branch: 'feature/third-wave',
+      plan: 'six-waves', planFile: SIX_SLICES_FILE, branch: 'feature/third-wave',
       kind: 'wave', wave: 'Finishing', verdict: 'blocked', state: 'open',
       group: 'not-started', ageMinutes: null, waitingOn: 'time',
       blockedBy: 'Building', waitingDays: 3, startability: null,
@@ -323,16 +323,16 @@ const aPlanInSlices = (): Scenario => {
     board: board({
       columns: [column({
         phase: 'Development',
-        cards: [card({ slug: 'six-waves', title: 'Six waves', path: `docs/plans/${SIX_WAVES_FILE}` })],
+        cards: [card({ slug: 'six-waves', title: 'Six waves', path: `docs/plans/${SIX_SLICES_FILE}` })],
       })],
       dispatch: { available: true, reason: '' },
     }),
     fleet: fleet({
       rows,
       slices: [
-        wave({ plan: 'six-waves', name: 'Foundations', branches: ['feature/first-wave'], verdict: 'complete', section: 'done', complete: true, planSliceCount: 3 }),
-        wave({ plan: 'six-waves', name: 'Building', branches: ['feature/second-wave'], verdict: 'eligible', section: 'not-started', complete: false, planSliceCount: 3 }),
-        wave({ plan: 'six-waves', name: 'Finishing', branches: ['feature/third-wave'], verdict: 'blocked', section: 'not-started', complete: false, planSliceCount: 3 }),
+        slice({ plan: 'six-waves', name: 'Foundations', branches: ['feature/first-wave'], verdict: 'complete', section: 'done', complete: true, planSliceCount: 3 }),
+        slice({ plan: 'six-waves', name: 'Building', branches: ['feature/second-wave'], verdict: 'eligible', section: 'not-started', complete: false, planSliceCount: 3 }),
+        slice({ plan: 'six-waves', name: 'Finishing', branches: ['feature/third-wave'], verdict: 'blocked', section: 'not-started', complete: false, planSliceCount: 3 }),
       ],
     }),
   };
@@ -387,11 +387,11 @@ const oneRowPerKind = (): Scenario => ({
       }),
     ],
     slices: [
-      ...KINDS.map((kind) => wave({
+      ...KINDS.map((kind) => slice({
         plan: 'every-kind', name: `Kind-${kind}`, section: 'working',
         branches: [`feature/${kind}-row`], verdict: 'eligible', complete: false,
       })),
-      wave({
+      slice({
         plan: 'not-yet', name: 'Waiting', section: 'not-started',
         branches: ['feature/not-yet-row'], verdict: 'eligible', complete: false,
       }),
@@ -871,11 +871,11 @@ const aBoardThatCanAct = (): Scenario => ({
       }),
     ],
     slices: [
-      wave({
+      slice({
         plan: 'fix-leaky-hose', name: 'Sealing', section: 'not-started',
         branches: ['bug/leaky-hose'], verdict: 'eligible', complete: false,
       }),
-      wave({
+      slice({
         plan: 'raised-beds', name: 'Framing', section: 'not-started',
         branches: ['feature/raised-beds'], verdict: 'eligible', complete: false,
       }),

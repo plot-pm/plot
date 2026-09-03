@@ -30,8 +30,8 @@ const FIXTURE = path.resolve(here, '../fixtures/tiny-garden');
 const VIEWPORT = { width: 1280, height: 900 };
 
 /** The approved plan this file adds — waves, and therefore a wave summary. */
-const WAVED_TITLE = 'Rebuild the raised beds';
-const WAVED_PLAN = `# ${WAVED_TITLE}
+const SLICED_TITLE = 'Rebuild the raised beds';
+const SLICED_PLAN = `# ${SLICED_TITLE}
 
 ## Status
 
@@ -64,7 +64,7 @@ const WAVED_PLAN = `# ${WAVED_TITLE}
 function gardenWithSlices(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-garden-waves-'));
   fs.cpSync(FIXTURE, dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'docs/plans/2026-08-17-raised-beds.md'), WAVED_PLAN, 'utf8');
+  fs.writeFileSync(path.join(dir, 'docs/plans/2026-08-17-raised-beds.md'), SLICED_PLAN, 'utf8');
   return dir;
 }
 
@@ -101,7 +101,7 @@ describe('Start work refuses before the click when it cannot know', () => {
           columns: [column({
             phase: 'Development',
             cards: [buildCard({
-              slug: 'raised-beds', title: WAVED_TITLE, type: 'feature',
+              slug: 'raised-beds', title: SLICED_TITLE, type: 'feature',
               phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
               // `claimed` and `eligible` absent: no pulse has reached this plan.
               sliceSummary: { waves: 2, branches: 2, deferred: 0 },
@@ -111,14 +111,14 @@ describe('Start work refuses before the click when it cannot know', () => {
         fleet: fleet({ ready: false, rows: [], waves: [] }),
       },
     });
-    await page.getByText(WAVED_TITLE).waitFor({ timeout: 10_000 });
+    await page.getByText(SLICED_TITLE).waitFor({ timeout: 10_000 });
     return page;
   }
 
   it('says it is waiting for the first scan, rather than going quiet', async () => {
     const page = await openBoard();
     try {
-      const button = cardFor(page, WAVED_TITLE).getByRole('button', { name: /Start work/ });
+      const button = cardFor(page, SLICED_TITLE).getByRole('button', { name: /Start work/ });
       await button.waitFor({ timeout: 10_000 });
 
       // On the control, for a pointer…
@@ -138,7 +138,7 @@ describe('Start work refuses before the click when it cannot know', () => {
     // click it could never report on.
     const page = await openBoard();
     try {
-      const button = cardFor(page, WAVED_TITLE).getByRole('button', { name: /Start work/ });
+      const button = cardFor(page, SLICED_TITLE).getByRole('button', { name: /Start work/ });
       await button.waitFor({ timeout: 10_000 });
       expect(await button.getAttribute('aria-disabled')).toBe('true');
     } finally {
@@ -160,7 +160,7 @@ describe('Start work refuses before the click when it cannot know', () => {
           columns: [column({
             phase: 'Development',
             cards: [buildCard({
-              slug: 'raised-beds', title: WAVED_TITLE, type: 'feature',
+              slug: 'raised-beds', title: SLICED_TITLE, type: 'feature',
               phase: 'Development', path: 'docs/plans/2026-08-17-raised-beds.md',
               sliceSummary: { waves: 2, branches: 2, deferred: 0 },
             })],
@@ -180,7 +180,7 @@ describe('Start work refuses before the click when it cannot know', () => {
         body: JSON.stringify({ slug: 'raised-beds', log: 'stubbed' }),
       }));
     try {
-      const button = cardFor(page, WAVED_TITLE).getByRole('button', { name: /Start work/ });
+      const button = cardFor(page, SLICED_TITLE).getByRole('button', { name: /Start work/ });
       await button.waitFor({ timeout: 10_000 });
       await button.click({ force: true });
       await button.click({ force: true });

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
 import {
-  openCatalogue, scenario, agent, row as buildRow, wave,
+  openCatalogue, scenario, agent, row as buildRow, slice,
   fleet as buildFleet, type Catalogue,
 } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';

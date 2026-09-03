@@ -37,7 +37,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
   localDirty: false, localLocked: false, stuck: null, repair: null, ...over,
 });
 
-const wave = (over: Partial<Slice> = {}): Slice => ({
+const slice = (over: Partial<Slice> = {}): Slice => ({
   plan: 'beans', name: 'w1', branches: [], verdict: 'eligible',
   section: 'not-started', complete: false, planSliceCount: 2, ...over,
 });
@@ -59,10 +59,10 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
   ];
   const slices: Slice[] = [
     // ONE wave — the plan row must carry Start work.
-    wave({ plan: 'beans', name: 'Solo', branches: ['feature/beans-only'], planSliceCount: 1 }),
+    slice({ plan: 'beans', name: 'Solo', branches: ['feature/beans-only'], planSliceCount: 1 }),
     // TWO waves — the wave rows carry their own; the plan row must not.
-    wave({ plan: 'peas', name: 'First', branches: ['feature/peas-a'], planSliceCount: 2 }),
-    wave({ plan: 'peas', name: 'Second', branches: ['feature/peas-b'],
+    slice({ plan: 'peas', name: 'First', branches: ['feature/peas-a'], planSliceCount: 2 }),
+    slice({ plan: 'peas', name: 'Second', branches: ['feature/peas-b'],
       verdict: 'blocked', planSliceCount: 2 }),
   ];
   return {
