@@ -16,6 +16,7 @@
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
+- **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-declares-what-it-is`
 -->
 
 ## Changelog
