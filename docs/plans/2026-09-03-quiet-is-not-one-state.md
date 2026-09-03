@@ -4,21 +4,24 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
+- **Approved:** 2026-09-03, Jan Wloka, in-session
+- **Started:** 2026-09-03, Jan Wloka, `feature/quiet-holds-one-kind-of-row`
 
 ## Changelog
 
-- The board tells a closed PR from an abandoned branch from an unworked claim, instead of filing all three under QUIET with a commit age. A closed PR leaves the board, because somebody already decided.
+- The board tells a closed PR from an abandoned branch from an unworked claim, instead of filing all three under QUIET with a commit age. A declined PR reads as declined rather than as silence — and stays visible, because its branch is still on the estate.
 
-Board impact: yes, and it is the whole change. `classifyGroup` in `packages/board/src/server/fleet.ts` decides the section; the rendered states must come out as domain properties, per the Layering Rule.
+Board impact: yes, and it is the whole change. `classifyGroup` in `packages/board/src/server/fleet.ts` decides the section and `prState` decides the closed case; the rendered states must come out as domain properties, per the Layering Rule.
 
 ## Motivation
 
-**QUIET is the fallthrough.** `fleet.ts:4392-4393` is the last pair of lines in `classifyGroup`:
+**QUIET is the fallthrough.** The last pair of lines in `classifyGroup` (`packages/board/src/server/fleet.ts`) is:
 
 ```ts
 if (ageMinutes === null) return { group: 'quiet', note: 'pushed work, age unknown' };
@@ -49,7 +52,11 @@ Anything the classifier cannot place lands there, described by commit age — be
 
 **Every state named here is a domain property**, per the Layering Rule: *"a view state that cannot be asserted without a browser is a domain property that has not been extracted yet."* The rule decides; `classifyGroup` reads it; a browser test proves the badge shows it.
 
-**A closed PR leaves the board.** It is `done` — the decision was taken, and a decision is not a thing to look at. It stays reachable through the plan it belongs to and through the host, which is where a reversal would be argued.
+**A closed PR is its own kind, and it stays visible.** Round 1 measured the population and the first draft was wrong about it: #53, #363 and #654 all still have **live refs**. The branch exists; only the PR was declined. So "leaving the board" would hide something that is still on the estate, still holds a worktree slot, and is still findable by everything except the surface a person acts through.
+
+**And it is NOT decided in `classifyGroup`.** That function states the rule twice: *"NO `CLOSED` ARM HERE… the `byHead` map is open-only, so a closed PR never arrives — an arm for it would be dead code."* It even records the mistake being made: *"I wrote one on 2026-08-21 before reading that line; `prState` is where the closed case belongs, and it is handled there."*
+
+`prState` already answers `closed` and already says *"CLOSED OUTRANKS EVERY CHECK."* **The machinery exists; only the reading of it is missing.** The rule in slice 1 therefore takes `prState` as one of its readings, and `classifyGroup` gains no closed arm — which is the same conclusion the code reached a fortnight ago.
 
 **A claim-only branch is an orphaned claim.** `packages/domain/src/rules/sweepable.ts` already names the kind — `ClaimRefReadings`, `isSweepableClaim`, `'not-an-empty-claim'` — and `plot-reap.sh` already sweeps it. **The board must use the word the sweep uses**, so a reader who sees one on the board finds it again in the sweep's output rather than meeting two names for one thing.
 
@@ -59,7 +66,7 @@ Anything the classifier cannot place lands there, described by commit age — be
 
 ### Open Questions
 
-- [ ] **Does a closed PR leave, or move to DONE?** Leaving is cleaner and loses the audit trail from the board's own surface; DONE keeps it visible and costs a row. The estate has 17, and DONE already holds delivered work — a rejected branch beside a merged one may read as an equal outcome when it is not.
+- [x] **Does a closed PR leave, or move to DONE?** *Answered round 1: neither.* It becomes its own kind and stays visible, because the branch is still there — measured, three of three sampled still have live refs. DONE would read a declined branch as an equal outcome to a merged one; leaving would hide a thing that still exists.
 - [ ] **Where does abandoned work belong?** It needs a decision, which argues WAITING ON YOU. But 6 rows of months-old work would sit permanently beside things that need an answer today, and a section that never empties stops being read.
 - [ ] **What reopens a closed PR's row?** If the host reopens it, the branch is live again. The board polls PR state, so this is a matter of not caching the disappearance rather than new machinery — but it should be stated.
 
@@ -67,11 +74,11 @@ Anything the classifier cannot place lands there, described by commit age — be
 
 ### Telling them apart
 
-- `feature/quiet-holds-one-kind-of-row` — a domain rule that classifies a branch nobody is on: `closed-pr`, `orphaned-claim`, `abandoned`, `quiet`. Readings as values, arrow functions, unit-tested without a browser. It decides only; nothing renders yet, and `classifyGroup` is untouched.
+- `feature/quiet-holds-one-kind-of-row` — a domain rule that classifies a branch nobody is on: `closed-pr`, `orphaned-claim`, `abandoned`, `quiet`. Readings as values, arrow functions, unit-tested without a browser. It decides only; nothing renders yet, and `classifyGroup` is untouched. → #681
 
 ### Reading it on the board
 
-- `feature/the-board-reads-the-quiet-kinds` — `classifyGroup` calls the rule instead of falling through to an age note. A closed PR leaves; an orphaned claim and abandoned work each get their placement and their sentence. One browser test per kind proves the badge shows what the rule decided — the rendering, not the deciding.
+- `feature/the-board-reads-the-quiet-kinds` — the two readers call the rule instead of falling through to an age note. **`classifyGroup` for the branch kinds; `prState` for the closed one** — round 1 established that `classifyGroup` cannot see a closed PR at all, because its `byHead` map is open-only and the function says so twice. An orphaned claim and abandoned work each get their placement and their sentence; a declined PR reads as declined and **stays visible**, because its branch is still on the estate. One browser test per kind proves the badge shows what the rule decided — the rendering, not the deciding.
 
 ## Notes
 

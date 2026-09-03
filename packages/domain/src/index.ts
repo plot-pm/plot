@@ -19,6 +19,7 @@ export * from './entities/worktree.js';
 export * from './entities/pr.js';
 export * from './entities/agent.js';
 export * from './entities/declaration.js';
+export * from './entities/charter.js';
 export * from './entities/release.js';
 export * from './entities/build.js';
 export * from './entities/story.js';
@@ -51,6 +52,7 @@ export * from './rules/sample.js';
 export * from './rules/acting.js';
 export * from './rules/free.js';
 export * from './rules/sweepable.js';
+export * from './rules/prompt.js';
 /**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
  * which `## Status` line a lifecycle step writes.

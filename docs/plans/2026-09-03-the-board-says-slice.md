@@ -17,6 +17,7 @@
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-09-03, Jan Wloka, `infra/the-board-reads-slice-to-people`
 - **Started:** 2026-09-03, Jan Wloka, `infra/the-board-names-slice-in-code`
+- **Started:** 2026-09-03, Jan Wloka, `infra/the-tests-select-slice`
 -->
 
 ## Changelog
