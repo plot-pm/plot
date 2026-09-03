@@ -79,7 +79,7 @@ Anything the classifier cannot place lands there, described by commit age — be
 
 ### Reading it on the board
 
-- `feature/the-board-reads-the-quiet-kinds` — the two readers call the rule instead of falling through to an age note. **`classifyGroup` for the branch kinds; `prState` for the closed one** — round 1 established that `classifyGroup` cannot see a closed PR at all, because its `byHead` map is open-only and the function says so twice. An orphaned claim and abandoned work each get their placement and their sentence; a declined PR reads as declined and **stays visible**, because its branch is still on the estate. One browser test per kind proves the badge shows what the rule decided — the rendering, not the deciding.
+- `feature/the-board-reads-the-quiet-kinds` — the two readers call the rule instead of falling through to an age note. **`classifyGroup` for the branch kinds; `prState` for the closed one** — round 1 established that `classifyGroup` cannot see a closed PR at all, because its `byHead` map is open-only and the function says so twice. An orphaned claim and abandoned work each get their placement and their sentence; a declined PR reads as declined and **stays visible**, because its branch is still on the estate. One browser test per kind proves the badge shows what the rule decided — the rendering, not the deciding. → #683
 
 ## Notes
 
