@@ -74,7 +74,7 @@ Anything the classifier cannot place lands there, described by commit age — be
 
 ### Telling them apart
 
-- `feature/quiet-holds-one-kind-of-row` — a domain rule that classifies a branch nobody is on: `closed-pr`, `orphaned-claim`, `abandoned`, `quiet`. Readings as values, arrow functions, unit-tested without a browser. It decides only; nothing renders yet, and `classifyGroup` is untouched.
+- `feature/quiet-holds-one-kind-of-row` — a domain rule that classifies a branch nobody is on: `closed-pr`, `orphaned-claim`, `abandoned`, `quiet`. Readings as values, arrow functions, unit-tested without a browser. It decides only; nothing renders yet, and `classifyGroup` is untouched. → #681
 
 ### Reading it on the board
 
