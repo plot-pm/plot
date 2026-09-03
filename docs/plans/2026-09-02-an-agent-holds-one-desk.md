@@ -154,7 +154,7 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 ### Outliving the slice
 
-- `feature/an-agent-waits-for-work` — an agent that finishes its slice STAYS ALIVE. `plot-worker-loop.sh:952` reads `next_branch=$(plot-fleet-scan.sh --offline --next "$PLOT_SLUG") || break` — so an agent whose plan has nothing claimable left kills itself, and **that is why every worker exited on 2026-09-03 with four desks standing and eligible work on the board**. Two departures from the model in one line: an agent has no idle state, and `--next` is scoped to `$PLOT_SLUG`, so it dies rather than take an eligible slice from another plan. Replace `|| break` with waiting to be handed work, and let the registry own termination — today all three exits are the worker's own (`:952` no work, `:891` bound expired, `:891`'s `exit 124`, `:786` monitor idle), and nothing outside the process can end it or keep it.
+- `feature/an-agent-waits-for-work` — an agent that finishes its slice STAYS ALIVE. `plot-worker-loop.sh:952` reads `next_branch=$(plot-fleet-scan.sh --offline --next "$PLOT_SLUG") || break` — so an agent whose plan has nothing claimable left kills itself, and **that is why every worker exited on 2026-09-03 with four desks standing and eligible work on the board**. Two departures from the model in one line: an agent has no idle state, and `--next` is scoped to `$PLOT_SLUG`, so it dies rather than take an eligible slice from another plan. Replace `|| break` with waiting to be handed work, and let the registry own termination — today all three exits are the worker's own (`:952` no work, `:891` bound expired, `:891`'s `exit 124`, `:786` monitor idle), and nothing outside the process can end it or keep it. (#674)
 
 ### Handing work over
 
