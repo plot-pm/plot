@@ -204,11 +204,19 @@ case "$WAIT_POLL_SECONDS" in (*[!0-9]*|''|0) WAIT_POLL_SECONDS=60 ;; esac
 # monitor is untouched either way — it reads a finding, and a waiting agent runs
 # no prompt for it to have a finding about.
 #
-# THE BOUND IS SPENT ON WAITING, NOT RESET BY IT. Each pass subtracts what it
-# slept, so an agent that ran a 7-hour prompt has an hour of waiting left rather
-# than a fresh day of it. The bound answers *how long may this worker live*, and
-# an agent that waits is living.
-WAIT_BUDGET_SECONDS="$WORKER_BOUND_SECONDS"
+# THE ENV OVERRIDE IS A TEST SEAM, and it is one for the reason
+# `PLOT_MONITOR_POLL_SECONDS` is: a test that wants to watch a worker reach the
+# END of its wait would otherwise have to lower `Worker bound`, which bounds the
+# PROMPT too — so it would be asking about the wait and measuring the prompt.
+# The loop's own tests set it to end a one-pass run that has nothing to hop to,
+# which is every fixture in `workerloop.test.mjs`.
+#
+# NOT A PLOT CONFIG KEY, for the reason recorded at `MONITOR_POLL_SECONDS`: a
+# project's declared policy about how long its agents may live is
+# `Worker bound`, and a second key would ask an operator to tune a number they
+# have no separate opinion about.
+WAIT_BUDGET_SECONDS="${PLOT_WAIT_BUDGET_SECONDS:-$WORKER_BOUND_SECONDS}"
+case "$WAIT_BUDGET_SECONDS" in (*[!0-9]*|'') WAIT_BUDGET_SECONDS="$WORKER_BOUND_SECONDS" ;; esac
 
 # Update the manifest when the worker hops to a new branch.
 #
@@ -971,7 +979,16 @@ wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
     # same key, so the same reading of `0`. The agent then waits until it is
     # stopped, which is what a project disabling the wall-clock kill asked for.
     if [ "$WAIT_BUDGET_SECONDS" -gt 0 ] && [ "$slept" -ge "$WAIT_BUDGET_SECONDS" ]; then
-      echo "plot-worker-loop: the bound expired on ${PLOT_SLUG:-?} — free and waiting for ${slept}s with no slice offered, past the ${WORKER_BOUND_SECONDS}s bound; ending worker. Nothing was left on the desk: the agent holds no branch and its work is pushed." >&2
+      # A FOURTH ENDING, AND IT IS NOT ONE OF THE THREE. The three readings
+      # above — the agent went quiet, the bound expired, nobody could tell —
+      # all say something ended a PROMPT, and an operator reading
+      # `.plot-worker.log` triages them by asking what state the desk is in.
+      # This one ends a WAIT: no prompt was running, nothing was cut short, and
+      # the desk is clean by construction because the agent got here by
+      # finishing. So it leads with its own clause and does not say "ending
+      # worker without hopping", which is the phrase that marks the other
+      # three. `workerloop.test.mjs` holds that partition.
+      echo "plot-worker-loop: the wait ran out on ${PLOT_SLUG:-?} — free for ${slept}s with no slice offered, past the ${WAIT_BUDGET_SECONDS}s wait bound; ending worker. Nothing was cut short: no prompt was running, the agent holds no branch, and its work is pushed." >&2
       return 124
     fi
 
