@@ -168,18 +168,33 @@ test('declaration: one hopping worker leaves one declaration per branch', () => 
     fs.mkdirSync(path.join(wt, '.plot'), { recursive: true });
     fs.writeFileSync(path.join(wt, '.plot', 'worker-prompt.sh'), prompt(sb.work, log));
 
-    execFileSync('bash', [loop], {
-      cwd: wt,
-      encoding: 'utf8',
-      timeout: 120000,
-      env: {
-        ...process.env,
-        PLOT_BRANCH: 'feature/seam',
-        PLOT_WORKTREE: wt,
-        PLOT_SLUG: 'hopdecl',
-        PLOT_MANIFEST_FILE: '',
-      },
-    });
+    // THE LOOP NOW ENDS ON ITS BOUND, NOT ON SILENCE. Since
+    // `an-agent-waits-for-work` a `--next` with nothing to hand over makes the
+    // agent WAIT rather than exit, so this fixture — whose plan has exactly two
+    // slices and both of them done by the time the loop asks again — would
+    // never return. The wait is bounded to one poll here, and the loop then
+    // exits 124 the way a real one does when `Worker bound` runs out while it
+    // is free. `execFileSync` throws on that, so it is caught: the exit code is
+    // not what any assertion below is about.
+    try {
+      execFileSync('bash', [loop], {
+        cwd: wt,
+        encoding: 'utf8',
+        timeout: 120000,
+        env: {
+          ...process.env,
+          PLOT_BRANCH: 'feature/seam',
+          PLOT_WORKTREE: wt,
+          PLOT_SLUG: 'hopdecl',
+          PLOT_MANIFEST_FILE: '',
+          PLOT_WAIT_POLL_SECONDS: '1',
+          PLOT_WAIT_BUDGET_SECONDS: '1',
+        },
+      });
+    } catch (err) {
+      assert.equal(err.status, 124,
+        'the loop may only end on its own bound here, never on any other failure');
+    }
 
     // THE HOP HAPPENED, and it happened WITHOUT a second desk. The prompt ran
     // once per branch, so its per-branch marker files are the count; the

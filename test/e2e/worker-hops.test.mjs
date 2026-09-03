@@ -140,21 +140,49 @@ git -C ${work} push -q origin main` : '# This agent lands nothing: the next wave
 `;
 }
 
-/** Run the real loop in the foreground, as the wrapper's command would. */
+/**
+ * Run the real loop in the foreground, as the wrapper's command would.
+ *
+ * THE LOOP NO LONGER ENDS ON A SILENT `--next`. Since
+ * `an-agent-waits-for-work` an agent with nothing to take reports itself free
+ * and WAITS, so every fixture here — each of which runs out of slices by
+ * design — would hold this call open until its timeout. The wait is bounded to
+ * one poll, and the loop then ends on its own bound the way a real one does
+ * after `Worker bound`.
+ *
+ * SO `execFileSync` THROWING STOPPED BEING THE ASSERTION. It threw on any
+ * non-zero exit, and 124 now means two different things: a watcher truncated a
+ * prompt, or a free agent waited out its bound having finished cleanly. The
+ * exit code cannot tell them apart, so the caller is handed the STDERR instead
+ * and asks the message — which was written to name the ending.
+ *
+ * @returns `{ stdout, stderr, code }` — `code` 0 or 124 on any healthy path
+ */
 function runLoop({ wt, manifest, branch, slug, timeout = 120000 }) {
-  const res = execFileSync('bash', [path.join(SCRIPTS, 'plot-worker-loop.sh')], {
-    cwd: wt,
-    encoding: 'utf8',
-    timeout,
-    env: {
-      ...process.env,
-      PLOT_BRANCH: branch,
-      PLOT_WORKTREE: wt,
-      PLOT_SLUG: slug,
-      PLOT_MANIFEST_FILE: manifest,
-    },
-  });
-  return res;
+  try {
+    const stdout = execFileSync('bash', [path.join(SCRIPTS, 'plot-worker-loop.sh')], {
+      cwd: wt,
+      encoding: 'utf8',
+      timeout,
+      env: {
+        ...process.env,
+        PLOT_BRANCH: branch,
+        PLOT_WORKTREE: wt,
+        PLOT_SLUG: slug,
+        PLOT_MANIFEST_FILE: manifest,
+        PLOT_WAIT_POLL_SECONDS: '1',
+        PLOT_WAIT_BUDGET_SECONDS: '1',
+      },
+    });
+    return { stdout, stderr: '', code: 0 };
+  } catch (err) {
+    if (err.status !== 124) throw err;
+    return {
+      stdout: err.stdout ? String(err.stdout) : '',
+      stderr: err.stderr ? String(err.stderr) : '',
+      code: 124,
+    };
+  }
 }
 
 test('flow: a worker finishes one slice and starts the next — one agent, two branches', () => {
@@ -254,14 +282,25 @@ test('flow: the manifest after the hop names the second branch and its worktree'
   }
 });
 
-test('flow: a worker with no next branch ends cleanly rather than looping', () => {
+test('flow: a worker with no next branch reports itself free and waits', () => {
   // `--next` exits 1 for "nothing to start", which is a NORMAL state — the
-  // fleet is simply out of work for this plan. The loop must break on it and
-  // return 0, not treat it as an error and not spin.
+  // fleet is simply out of work for this plan. THE LOOP USED TO BREAK ON IT.
+  //
+  // `an-agent-waits-for-work` changed what that means. Measured 2026-09-03 on
+  // the live estate: 0 live workers, 0 manifests, 4 desks standing, and
+  // eligible work on the board — every agent had exited on this condition and
+  // none had failed. "No work exists for my plan" is a judgement about the
+  // ESTATE, made by the one party with no standing to make it, so the agent now
+  // reports itself free and waits to be handed something.
+  //
+  // THIS TEST THEREFORE ASSERTS THE OPPOSITE OF ITS OLD SELF, and the two facts
+  // it kept are the ones that did not change: exactly one slice ran, and the
+  // agent deregistered when it finally ended. What is new is the middle — it
+  // said it was free before it ended, and it ended on its bound rather than on
+  // the silence.
   //
   // The fixture agent here lands nothing, so the second wave stays blocked and
-  // the only branch on offer is the one already claimed. That is the ordinary
-  // end of a worker's life, reached through the same code path as the hop.
+  // the only branch on offer is the one already claimed.
   const sb = makeSandbox({ name: 'worker-no-next', config: CONFIG });
   try {
     twoWavePlan(sb.work, { slug: 'nonext' });
@@ -274,13 +313,27 @@ test('flow: a worker with no next branch ends cleanly rather than looping', () =
     fs.writeFileSync(path.join(wt, '.plot', 'worker-prompt.sh'),
       fixturePrompt({ ranFile, snapshotDir, work: sb.work, manifest, land: false }));
 
-    // execFileSync throws on a non-zero exit, so returning at all is the
-    // assertion that the loop ended cleanly — 124 (a watcher fired) would throw.
-    runLoop({ wt, manifest, branch: 'feature/seam', slug: 'nonext' });
+    const r = runLoop({ wt, manifest, branch: 'feature/seam', slug: 'nonext' });
+
+    // IT SAID IT WAS FREE, and it named what it was waiting on. The second wave
+    // is blocked behind `feature/seam`, which this fixture never lands — so the
+    // outlook is `not-yet` and the blocker is nameable, which is the whole
+    // difference between waiting and stalling.
+    assert.match(r.stderr, /free on nonext/,
+      'a worker offered nothing reports itself free rather than exiting on the silence');
+    assert.match(r.stderr, /waiting on feature\/seam to land/,
+      'the wait names the branch whose landing would open the blocked slice');
+
+    // AND IT ENDED ON ITS BOUND, not on the silence. The two are different
+    // endings and the message keeps them apart: this one says nothing was cut
+    // short, because no prompt was running when the bound ran out.
+    assert.equal(r.code, 124, 'a wait that runs out ends the worker on the bound');
+    assert.match(r.stderr, /the wait ran out on nonext/,
+      'the ending names the wait, not one of the three prompt readings');
 
     const ran = fs.readFileSync(ranFile, 'utf8').trim().split('\n');
     assert.deepEqual(ran, ['feature/seam'],
-      'a worker with no next branch must run exactly one slice and stop');
+      'a worker with no next branch must run exactly one slice and take no other');
 
     // And it deregistered: ending is not the same as vanishing.
     assert.ok(!fs.existsSync(manifest),

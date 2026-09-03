@@ -3754,6 +3754,37 @@ for plan in "${plans[@]}"; do
   [ "$quiet" = 1 ] || echo
 done
 
+# --why-nothing: WHICH nothing, for a caller `--next` has just gone silent on.
+#
+# IT ANSWERS BEFORE `--next` DOES, and that ordering is the flag's whole
+# contract. `--why-nothing` sets `next_only` so it walks the same population,
+# but it must not fall into the block below: that block exits 1 on an empty
+# `claimable[]`, and a worker reading exit 1 from the flag it asked for a WORD
+# from learns nothing it did not already know. Measured 2026-09-03 on this
+# estate: `--why-nothing <slug>` printed nothing and exited 1 for every real
+# plan, because #642 shipped the parse, the accumulator and the rule and never
+# wired the emitter on this path. Only the empty-estate arm at ":2827" ever
+# answered.
+#
+# `available` IS REPORTED RATHER THAN HIDDEN. The rule reports it when a
+# claimable branch exists, which means this scan and the caller's `--next`
+# disagree — a real state (a branch landed in the seconds between the two
+# calls) and one a waiting caller should act on rather than sleep through.
+#
+# EXIT 0 EITHER WAY, INCLUDING WHEN THE RULE CANNOT BE ASKED. A silent or
+# missing artifact answers `none`, the same conservative default ":2827" takes:
+# `none` ends a wait, and a wait that cannot end is the one failure this flag
+# exists to prevent. That is the opposite of every other caller of
+# `plot-verdicts.mjs`, which refuses on a missing artifact — those callers
+# decide what may be STARTED and a wrong answer claims a branch; this one
+# decides whether a worker sleeps, and the wrong answer is the sleep.
+if [ "$why_nothing" = 1 ]; then
+  printf '%s' "$outlook_lines" \
+    | node "$script_dir/board/plot-verdicts.mjs" outlook 2>/dev/null \
+    || echo "none"
+  exit 0
+fi
+
 # --next: name ONE branch a worker may claim, or stay silent with exit 1.
 # "Nothing to start" is a normal state, not a failure — the exit code is what
 # distinguishes it from a name, so callers can branch on it without parsing.

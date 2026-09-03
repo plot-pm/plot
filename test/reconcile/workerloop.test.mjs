@@ -132,6 +132,15 @@ function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
         PLOT_SLUG: 'x',
         PLOT_WORKTREE: cwd,
         PLOT_MANIFEST_FILE: '',
+        // THE WAIT IS BOUNDED TO NOTHING HERE, because this fixture's loop has
+        // no second slice to hop to and the property under test is about the
+        // run it already made. Since `an-agent-waits-for-work` a silent
+        // `--next` makes the agent WAIT rather than exit — correct in
+        // production, and in a test it means the loop never returns. One poll
+        // then the budget: the agent reports itself free, asks once, and ends
+        // on the bound exactly as a real one does after `Worker bound`.
+        PLOT_WAIT_POLL_SECONDS: '1',
+        PLOT_WAIT_BUDGET_SECONDS: '1',
         ...env,
       },
     });
@@ -194,6 +203,38 @@ function runLoop(cwd, { env = {}, killAfterMs = 0, signal = 'SIGTERM' } = {}) {
   });
 }
 
+/**
+ * The prompt ran to its own end — nothing truncated it.
+ *
+ * THIS USED TO BE `assert.equal(r.code, 0)`, and the exit code stopped
+ * answering it on 2026-09-03. `an-agent-waits-for-work` replaced the loop's
+ * `|| break` on a silent `--next`: an agent with nothing to take now waits and
+ * ends on `Worker bound` rather than exiting, so every fixture here — a
+ * one-slice sandbox with no second slice to hop to — ends 124 whether or not
+ * its prompt was cut short. Exit 0 had become unreachable, which is why 11
+ * tests in this file failed at once on a change none of them is about.
+ *
+ * SO THE QUESTION IS ASKED OF THE MESSAGE INSTEAD, and the message is the
+ * better witness anyway: it was written to tell the three endings apart. A
+ * truncated prompt says the bound expired or the monitor reported idle, ABOUT
+ * THE PROMPT; a prompt that finished and left its agent with nothing to do says
+ * the agent was free first. The one thing no healthy run may say is that
+ * something ended the prompt.
+ *
+ * @param r the resolved `runLoop` result
+ * @param why what the caller is really asserting, for the failure message
+ */
+function assertRanToItsOwnEnd(r, why) {
+  assert.match(r.stderr, /free on /,
+    `${why} — the agent must have reported itself free, meaning its prompt finished: ${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /the agent went quiet on /,
+    `${why} — the monitor ended the prompt: ${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /the bound expired on \S+ — the prompt exceeded/,
+    `${why} — the bound ended the prompt: ${r.stderr}`);
+  assert.doesNotMatch(r.stderr, /nobody could tell on /,
+    `${why} — the bound ended the prompt with no reading available: ${r.stderr}`);
+}
+
 // Count live `sleep <secs>` processes — the marker for a leaked prompt or
 // watchdog. A unique per-test duration keeps tests from seeing each other's.
 function sleepCount(secs) {
@@ -247,7 +288,7 @@ test('worker-loop: an honest prompt under the bound is not truncated', serial, a
     assert.ok(fs.existsSync(path.join(dir, marker)), 'the prompt ran to completion');
     assert.doesNotMatch(r.stderr, /exceeded/, 'no false timeout');
     assert.match(r.stdout, /done/, 'the prompt printed its final line');
-    assert.equal(r.code, 0, 'an honest pass exits 0 once --next has nothing');
+    assertRanToItsOwnEnd(r, 'an honest pass');
   } finally {
     discard(dir);
   }
@@ -333,7 +374,7 @@ test('worker-loop: no stray sleep after a normal finish', serial, async () => {
   const dir = fixture('leak-finish', secs, `sleep 1\n`);
   try {
     const r = await runLoop(dir);
-    assert.equal(r.code, 0, 'honest finish');
+    assertRanToItsOwnEnd(r, 'honest finish');
     await wait(300);
     assert.equal(sleepCount(secs), 0, 'the watchdog sleep was reaped on finish');
   } finally {
@@ -462,7 +503,7 @@ test('worker-loop: a working agent is not ended at the default floor', serial, a
     assert.ok(fs.existsSync(path.join(dir, marker)),
       'the prompt ran to completion under the default floor');
     assert.doesNotMatch(r.stderr, /exceeded/, 'no wall-clock kill of a working agent');
-    assert.equal(r.code, 0, 'an honest pass exits 0 once --next has nothing');
+    assertRanToItsOwnEnd(r, 'an honest pass');
     assert.ok(elapsed > 4000, `the prompt really ran a while, took ${elapsed}ms`);
   } finally {
     discard(dir);
@@ -516,7 +557,7 @@ test('worker-loop: PLOT_MONITOR_ENDS_WORKER=0 publishes idle and does not end', 
     const started = Date.now();
     const r = await runLoop(dir, { env: { PLOT_MONITOR_ENDS_WORKER: '0' } });
     const elapsed = Date.now() - started;
-    assert.equal(r.code, 0, `the worker ran to its own end, got ${r.code}: ${r.stderr}`);
+    assertRanToItsOwnEnd(r, 'the worker ran to its own end');
     assert.doesNotMatch(r.stderr, /reported idle on/,
       'the loop ended the worker on a finding it was told not to end on');
     assert.ok(elapsed >= secs * 1000 - 1500,
@@ -573,7 +614,7 @@ test('worker-loop: a quiet agent with no idle finding is not ended', serial, asy
     }, 600);
     const r = await runLoop(dir);
     assert.ok(fs.existsSync(path.join(dir, marker)), 'the quiet prompt ran to completion');
-    assert.equal(r.code, 0, 'silence is not a verdict');
+    assertRanToItsOwnEnd(r, 'silence is not a verdict');
     assert.doesNotMatch(r.stderr, /WorkerMonitor/, 'nothing was read as a finding');
   } finally {
     discard(dir);
@@ -597,7 +638,7 @@ test('worker-loop: an idle finding superseded by clear does not end the worker',
     publishFinding(dir, 'clear');
     const r = await runLoop(dir);
     assert.ok(fs.existsSync(path.join(dir, marker)), 'the recovered prompt ran to completion');
-    assert.equal(r.code, 0, 'a superseded finding is not a verdict');
+    assertRanToItsOwnEnd(r, 'a superseded finding is not a verdict');
   } finally {
     discard(dir);
   }
@@ -620,7 +661,7 @@ test('worker-loop: an AgentMonitor finding is not a WorkerMonitor verdict', seri
     const r = await runLoop(dir);
     assert.ok(fs.existsSync(path.join(dir, marker)),
       'the prompt ran to completion despite an AgentMonitor idle');
-    assert.equal(r.code, 0, 'only the WorkerMonitor ends a worker');
+    assertRanToItsOwnEnd(r, 'only the WorkerMonitor ends a worker');
   } finally {
     discard(dir);
   }
@@ -640,7 +681,7 @@ test('worker-loop: a gone finding does not end the worker', serial, async () => 
     setTimeout(() => publishFinding(dir, 'gone'), 600);
     const r = await runLoop(dir);
     assert.ok(fs.existsSync(path.join(dir, marker)), 'the prompt ran to completion');
-    assert.equal(r.code, 0, 'gone is the monitor reporting, not the loop killing');
+    assertRanToItsOwnEnd(r, 'gone is the monitor reporting, not the loop killing');
   } finally {
     discard(dir);
   }
@@ -764,7 +805,7 @@ test('worker-loop: a finished branch leaves a declaration naming it', serial, as
   const dir = fixture('declare-ok', 60, 'echo working\n');
   try {
     const r = await runLoop(dir, { env: { PLOT_BRANCH: 'feature/declared' } });
-    assert.equal(r.code, 0, 'an honest pass exits 0 once --next has nothing');
+    assertRanToItsOwnEnd(r, 'an honest pass');
     const declared = declarationOf(dir);
     assert.ok(declared, 'a finished branch must leave a declaration');
     assert.equal(declared.branch, 'feature/declared',
@@ -1014,7 +1055,7 @@ test('worker-loop: an unreadable transcript does not end a worker early', serial
     const r = await runLoop(dir, { env: { PLOT_TRANSCRIPT_HOME: home } });
     assert.ok(fs.existsSync(path.join(dir, marker)),
       'the prompt ran to completion though its transcript could not be read');
-    assert.equal(r.code, 0, `an unreadable reading is not an ending: ${r.stderr}`);
+    assertRanToItsOwnEnd(r, 'an unreadable reading is not an ending');
     assert.doesNotMatch(r.stderr, /nobody could tell/,
       'the third sentence belongs to an ENDING, not to every quiet desk');
   } finally {
@@ -1074,4 +1115,20 @@ test('worker-loop: exactly three endings are spelled, one per reading', serial, 
     assert.equal(leads.filter((l) => e.includes(l)).length, 1,
       `each ending names exactly one reading: ${e.trim()}`);
   }
+
+  // THE WAIT'S ENDING IS A FOURTH, AND IT IS HELD OUTSIDE THE THREE.
+  // `an-agent-waits-for-work` added an ending that is not about a prompt: an
+  // agent that finished, found nothing to take and waited out its bound. It
+  // must not borrow any of the three leading clauses, because those are the
+  // operator's index into *what happened to the work in the worktree* and this
+  // ending's answer is "nothing was running". Nor may it carry
+  // `ending worker without hopping`, which is the phrase that marks a
+  // truncated prompt — the assertion above counts on that.
+  const waitEndings = printed.filter((l) => l.includes('the wait ran out'));
+  assert.equal(waitEndings.length, 1,
+    `exactly one printed line ends a wait, found ${waitEndings.length}`);
+  assert.equal(leads.filter((l) => waitEndings[0].includes(l)).length, 0,
+    `the wait's ending borrows none of the prompt readings: ${waitEndings[0].trim()}`);
+  assert.doesNotMatch(waitEndings[0], /ending worker without hopping/,
+    'the wait\'s ending is not one of the three, so it does not carry their phrase');
 });
