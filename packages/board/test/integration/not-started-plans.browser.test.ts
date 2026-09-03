@@ -157,12 +157,12 @@ describe('NOT STARTED renders one row per plan', () => {
     }
   });
 
-  it('names how many waves remain and that the first is eligible', async () => {
+  it('names how many slices remain and that the first is eligible', async () => {
     const page = await open();
     try {
       await expect.poll(() =>
         planRow(page, 'activity-shows-itself').locator('[data-wave-summary]').textContent())
-        .toBe('3 waves, first eligible');
+        .toBe('3 slices, first eligible');
     } finally {
       await page.close();
     }
@@ -389,9 +389,9 @@ describe('NOT STARTED renders one row per plan', () => {
       // form would make this a claim about a CSS utility rather than about the
       // two rows saying what they are.
       expect((await planRowEl.locator('[data-kind]').innerText()).toLowerCase()).toBe('plan');
-      // `wave`, and this is the assertion (4) could not make: its children said
+      // `slice`, and this is the assertion (4) could not make: its children said
       // `plan` too, which is why the indent was carrying the relationship alone.
-      expect((await branchRow.locator('[data-kind]').innerText()).toLowerCase()).toBe('wave');
+      expect((await branchRow.locator('[data-kind]').innerText()).toLowerCase()).toBe('slice');
     } finally {
       await page.close();
     }
@@ -543,7 +543,7 @@ describe('NOT STARTED renders one row per plan', () => {
     // (`a-section-counts-what-it-shows`, Done when #2). This fixture: three plan
     // heads over five waves — `activity-shows-itself` (Truth, Shown, Still),
     // `plot-sprint-support` (Supported), `shelved-work` (Set down) — so the
-    // header reads `(3 plans · 5 waves)`.
+    // header reads `(3 plans · 5 slices)`.
     //
     // The head number equals the plan rows the reader sees; nothing is hidden
     // by it — each plan row carries its own `N waves` summary, and the wave
@@ -555,7 +555,7 @@ describe('NOT STARTED renders one row per plan', () => {
       const planRows = section(page).locator('li[data-plan-row]');
       await expect.poll(() => planRows.count()).toBe(3);
       const plans = await planRows.count();
-      expect(await heading.textContent()).toContain(`(${plans} plans · 5 waves)`);
+      expect(await heading.textContent()).toContain(`(${plans} plans · 5 slices)`);
     } finally {
       await page.close();
     }

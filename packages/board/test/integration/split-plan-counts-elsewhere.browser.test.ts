@@ -143,14 +143,14 @@ describe('a split plan counts what is elsewhere', () => {
 
   it('states in the NOT STARTED head that a wave is elsewhere', async () => {
     // The head speaks for the one unstarted wave and says the other is elsewhere.
-    // A test reading only the section-scoped `1 wave, first eligible` passes with
+    // A test reading only the section-scoped `1 slice, first eligible` passes with
     // the OLD silent behaviour — this asserts the elsewhere clause specifically.
     const page = await open();
     try {
       await expect.poll(() =>
         planHead(notStarted(page), SPLIT).locator('[data-wave-summary]').textContent(),
         { timeout: 10_000 })
-        .toMatch(/1 wave elsewhere/);
+        .toMatch(/1 slice elsewhere/);
     } finally {
       await page.close();
     }
@@ -164,7 +164,7 @@ describe('a split plan counts what is elsewhere', () => {
     // ASSERTED AS A JOIN, NOT AS A STRING. The property this test exists for is
     // that `PlanRow` composes the two clauses without a stray leading or
     // trailing middot — the failure mode when one half is empty. An earlier
-    // version pinned the whole text with `toBe('1 wave elsewhere')`, which
+    // version pinned the whole text with `toBe('1 slice elsewhere')`, which
     // encoded a premise that held only while `waveSummaryFor` counted ROWS and
     // returned nothing in DONE; reading the server's wave list made the count
     // real here, and the pin then failed on correct output.
@@ -173,7 +173,7 @@ describe('a split plan counts what is elsewhere', () => {
       await openDone(page);
       const summary = planHead(done(page), SPLIT).locator('[data-wave-summary]');
       await expect.poll(() => summary.textContent(), { timeout: 10_000 })
-        .toMatch(/1 wave · 1 wave elsewhere/);
+        .toMatch(/1 slice · 1 slice elsewhere/);
       // The join itself: no dangling separator at either end.
       const text = (await summary.textContent()) ?? '';
       expect(text.trim().startsWith('·')).toBe(false);
@@ -236,7 +236,7 @@ describe('a split plan counts what is elsewhere', () => {
       await page.getByText('Not started').first().waitFor({ timeout: 10_000 });
       const summary = planHead(notStarted(page), 'whole-plan').locator('[data-wave-summary]');
       await expect.poll(() => summary.textContent(), { timeout: 10_000 })
-        .toBe('2 waves, first eligible');
+        .toBe('2 slices, first eligible');
       // No middot, no "elsewhere" — the whole plan says only what it holds.
       expect(await summary.textContent()).not.toMatch(/elsewhere/);
     } finally {

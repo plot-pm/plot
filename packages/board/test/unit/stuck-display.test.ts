@@ -262,6 +262,30 @@ describe('stuckEvidence — the evidence travels WITH the state', () => {
       .toContain('1 commit only');
   });
 
+  it('says a SLICE is carried out in one branch, never a wave', () => {
+    // THE SENTENCE, NOT THE ENUM. The state is spelled `unsliced-wave` and
+    // stays spelled that way, so an assertion on the state name passes while
+    // the prose teaches the model backwards — which is exactly what it did
+    // until 2026-09-03: *"a wave is carried out in one branch"* says a wave
+    // holds one branch, and a Wave is the fleet's cohort ACROSS plans. The
+    // thing that holds exactly one branch is a Slice.
+    const two = stuckEvidence(stuck({
+      state: 'unsliced-wave',
+      waveSiblings: ['feature/a', 'feature/b'],
+    })).join(' ');
+    expect(two).toContain('one slice, 2 branches');
+    expect(two).toContain('a slice is carried out in one branch');
+    expect(two).not.toMatch(/\bwave\b/i);
+
+    // The unnamed fallback carries the same claim and must not trail off
+    // mid-sentence, which it did while it said *"carried out in one"*.
+    const bare = stuckEvidence(stuck({ state: 'unsliced-wave' })).join(' ');
+    expect(bare).toBe('this slice holds several branches — a slice is carried out in one branch');
+
+    // And the WORD beside the evidence agrees with it.
+    expect(stuckWord('unsliced-wave')).not.toMatch(/\bwave\b/i);
+  });
+
   it('leaves no state without evidence', () => {
     // The pairing that matters: an implementation that names the state and
     // stops passes every "is the state visible" assertion and pays off none of

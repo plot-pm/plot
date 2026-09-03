@@ -8,11 +8,11 @@ import { waveBadgeText } from '../../src/app/components/PlanCard.js';
 describe('waveBadgeText', () => {
   it('shows shape and occupancy together for a multi-wave plan', () => {
     expect(waveBadgeText({ waves: 3, branches: 4, deferred: 0, claimed: 1, eligible: 2 }))
-      .toBe('3 waves · 4 branches · 1 claimed · 2 ready');
+      .toBe('3 slices · 4 branches · 1 claimed · 2 ready');
   });
 
   it('drops the shape half on a single-wave plan but keeps occupancy', () => {
-    // "1 waves · 1 branches" is noise. "1 claimed" is the answer someone
+    // "1 slices · 1 branches" is noise. "1 claimed" is the answer someone
     // actually wants, and withholding it from single-wave plans is what the old
     // `waves.length > 1` guard did to most of this repo.
     expect(waveBadgeText({ waves: 1, branches: 2, deferred: 0, claimed: 1, eligible: 1 }))
@@ -33,7 +33,7 @@ describe('waveBadgeText', () => {
     expect(waveBadgeText({ waves: 1, branches: 2, deferred: 0 })).toBe('');
     // A multi-wave plan still shows its shape, which git was never needed for.
     expect(waveBadgeText({ waves: 2, branches: 3, deferred: 0 }))
-      .toBe('2 waves · 3 branches');
+      .toBe('2 slices · 3 branches');
   });
 
   it('renders a known zero the same as an unknown one — by omitting both', () => {

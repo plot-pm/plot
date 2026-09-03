@@ -158,20 +158,20 @@ describe('the action slices a tangled wave, and writes the prompt before it answ
 });
 
 describe('the prompt says slice, ask before writing, and never build', () => {
-  it('asks the agent to slice one wave per branch and CONFIRM the order first', () => {
+  it('asks the agent to cut one slice per branch and CONFIRM the order first', () => {
     const prompt = composeReslicePrompt({
       slug: SLUG,
       planFile: `/repo/docs/plans/2026-08-21-${SLUG}.md`,
     });
     // The order is the judgement a person owns — the prompt must ask before it
     // writes, and must tell an unattended run to STOP rather than guess.
-    assert.match(prompt, /one wave per branch/i);
+    assert.match(prompt, /one slice per branch/i);
     assert.match(prompt, /confirm the order before writing/i);
     assert.match(prompt, /unattended/i);
     assert.match(prompt, /STOP/);
   });
 
-  it('rewrites only `## Branches`, keeps branch names, and leaves a complete wave alone', () => {
+  it('rewrites only `## Branches`, keeps branch names, and leaves a complete slice alone', () => {
     const prompt = composeReslicePrompt({ slug: 's', planFile: '/repo/docs/plans/s.md' });
     assert.match(prompt, /## Branches/);
     // Only the `### ` headings change; the branch lines stay byte-identical

@@ -327,8 +327,8 @@ describe('wavesElsewhere — a split plan says how many of its waves are NOT her
 
 describe('elsewhereNote — the fragment the head appends, or nothing', () => {
   it('names the count and pluralises', () => {
-    expect(elsewhereNote(1)).toBe('1 wave elsewhere');
-    expect(elsewhereNote(3)).toBe('3 waves elsewhere');
+    expect(elsewhereNote(1)).toBe('1 slice elsewhere');
+    expect(elsewhereNote(3)).toBe('3 slices elsewhere');
   });
 
   it('is empty at zero, so the head appends nothing rather than "0 elsewhere"', () => {
@@ -1626,7 +1626,7 @@ describe('isStartable — which NOT STARTED rows offer work', () => {
     expect(isStartable(notStarted())).toBe(true);
   });
 
-  it('offers NOTHING on a branch blocked by an earlier wave', () => {
+  it('offers NOTHING on a branch blocked by an earlier slice', () => {
     // The load-bearing negative, and the half a naive `group === 'not-started'`
     // implementation gets wrong: the group holds both kinds. A button here
     // would offer to skip the ordering waves exist to express, and
@@ -1787,8 +1787,8 @@ describe('noActionReason — the disabled menu says why', () => {
   it('names the ROW\'s own reason, not a generic "no actions"', () => {
     // A disabled control without a reason is the kind that makes people guess,
     // and the row already knows: its note is the whole explanation.
-    expect(noActionReason(row({ note: 'blocked by an earlier wave' })))
-      .toMatch(/blocked by an earlier wave/);
+    expect(noActionReason(row({ note: 'blocked by an earlier slice' })))
+      .toMatch(/blocked by an earlier slice/);
     expect(noActionReason(row({ note: 'no commit for 22 days' })))
       .toMatch(/no commit for 22 days/);
   });
@@ -1865,8 +1865,8 @@ describe('noteWithoutPr — the note is relieved of one duty, not replaced', () 
       .toBe('awaiting review');
     expect(noteWithoutPr('uncommitted work in a local worktree', null))
       .toBe('uncommitted work in a local worktree');
-    expect(noteWithoutPr('blocked by an earlier wave', null))
-      .toBe('blocked by an earlier wave');
+    expect(noteWithoutPr('blocked by an earlier slice', null))
+      .toBe('blocked by an earlier slice');
   });
 
   it('drops a PR clause that says only what the cell already says', () => {

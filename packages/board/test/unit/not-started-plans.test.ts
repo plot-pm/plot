@@ -203,7 +203,7 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
       row({ plan: 'activity-shows-itself', wave: 'Marked', branch: 'feature/group-shows-inner-activity', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
       row({ plan: 'activity-shows-itself', wave: 'Moved', branch: 'feature/unpushed-work-shows-still', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
     );
-    expect(waveSummaryFor(group)).toBe('3 waves, first eligible');
+    expect(waveSummaryFor(group)).toBe('3 slices, first eligible');
   });
 
   it('omits "first eligible" where nothing in the plan can be started', () => {
@@ -213,11 +213,11 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
       row({ wave: 'Marked', branch: 'a', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
       row({ wave: 'Moved', branch: 'b', waitingOn: 'time', note: 'blocked by Truth', startability: null }),
     );
-    expect(waveSummaryFor(group)).toBe('2 waves');
+    expect(waveSummaryFor(group)).toBe('2 slices');
   });
 
-  it('says "1 wave", not "1 waves"', () => {
-    expect(waveSummaryFor(groupOf(row()))).toBe('1 wave, first eligible');
+  it('says "1 slice", not "1 slices"', () => {
+    expect(waveSummaryFor(groupOf(row()))).toBe('1 slice, first eligible');
   });
 
   it('counts only what is in THIS SECTION', () => {
@@ -229,7 +229,7 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
       row({ plan: 'partly-done', wave: 'Second', branch: 'wave-2' }),
       row({ plan: 'partly-done', wave: 'Third', branch: 'wave-3' }),
     );
-    expect(waveSummaryFor(group)).toBe('2 waves, first eligible');
+    expect(waveSummaryFor(group)).toBe('2 slices, first eligible');
   });
 
   it('does not count a deferred branch as an unstarted wave', () => {
@@ -240,11 +240,11 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
       row({ wave: 'Shaped', branch: 'never-begun' }),
       row({ wave: 'Shelved', branch: 'shelved', state: 'deferred', ageMinutes: 400, note: 'last commit 6h ago' }),
     );
-    expect(waveSummaryFor(group)).toBe('1 wave, first eligible');
+    expect(waveSummaryFor(group)).toBe('1 slice, first eligible');
   });
 
   it('is empty where a plan holds nothing but a deferred branch', () => {
-    // Nothing to summarise — the caller renders no summary rather than "0 waves".
+    // Nothing to summarise — the caller renders no summary rather than "0 slices".
     const group = groupOf(row({ state: 'deferred', ageMinutes: 400 }));
     expect(waveSummaryFor(group)).toBe('');
   });
@@ -255,7 +255,7 @@ describe('waveSummaryFor — counted from the group\'s own rows', () => {
     // still answers, from the rows it already holds — the derivation stays as
     // the safety net for an older server, not the live path.
     const group = groupOf(row({ wave: 'Shaped' }), row({ wave: 'Moved', branch: 'b' }));
-    expect(waveSummaryFor(group, undefined)).toBe('2 waves, first eligible');
+    expect(waveSummaryFor(group, undefined)).toBe('2 slices, first eligible');
   });
 });
 
@@ -280,7 +280,7 @@ describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', 
       wave({ plan: 'p', name: 'Done', section: 'done', complete: true }),
       wave({ plan: 'other', name: 'Elsewhere' }),
     ];
-    expect(waveSummaryFor(group, waves)).toBe('2 waves, first eligible');
+    expect(waveSummaryFor(group, waves)).toBe('2 slices, first eligible');
   });
 
   it('counts a multi-branch wave as ONE, from the server entry', () => {
@@ -292,7 +292,7 @@ describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', 
       row({ plan: 'p', wave: 'Implementation', branch: 'c' }),
     );
     const waves = [wave({ plan: 'p', name: 'Implementation', branches: ['a', 'b', 'c'] })];
-    expect(waveSummaryFor(group, waves)).toBe('1 wave, first eligible');
+    expect(waveSummaryFor(group, waves)).toBe('1 slice, first eligible');
   });
 
   it('counts a not-started wave whose rows are blocked, which the row filter drops', () => {
@@ -306,7 +306,7 @@ describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', 
       row({ plan: 'p', wave: 'Blocked', branch: 'b', state: 'wip', waitingOn: 'time', note: 'blocked by earlier wave', startability: 'someone-is-on-it' }),
     );
     const waves = [wave({ plan: 'p', name: 'Blocked', verdict: 'blocked' })];
-    expect(waveSummaryFor(group, waves)).toBe('1 wave');
+    expect(waveSummaryFor(group, waves)).toBe('1 slice');
   });
 
   it('reads completeness once — the same answer the DONE section reads', () => {
@@ -317,7 +317,7 @@ describe('waveSummaryFor — reads the server Wave, not a re-grouping of rows', 
     const open = wave({ plan: 'p', name: 'Open' });
     const group = groupOf(row({ plan: 'p', wave: 'Open', branch: 'b' }));
     // Only the incomplete, not-started wave is summarised here.
-    expect(waveSummaryFor(group, [complete, open])).toBe('1 wave, first eligible');
+    expect(waveSummaryFor(group, [complete, open])).toBe('1 slice, first eligible');
   });
 });
 

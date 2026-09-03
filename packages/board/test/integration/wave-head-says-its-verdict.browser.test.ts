@@ -123,7 +123,7 @@ describe('a folded multi-branch wave head renders its verdict, not a claim', () 
       // so before the fix the head short-circuited to `groupedNote` and asserted
       // `work landed — waiting to be merged` over branches with no PR.
       await expect.poll(() => note.textContent())
-        .toBe('an earlier wave has to land first');
+        .toBe('an earlier slice has to land first');
       // Asserted directly and not merely by inequality: the old claim was a
       // specific sentence, and a reworded regression must still fail here.
       expect(await note.textContent()).not.toContain('work landed');

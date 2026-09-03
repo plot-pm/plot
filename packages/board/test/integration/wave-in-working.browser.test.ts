@@ -199,10 +199,10 @@ describe('a wave row is a wave row in every section', () => {
       expect(await ns.getAttribute('data-tuple-kind')).toBe('wave');
 
       const slots = await slotsOf(page, NOT_STARTED_WAVE);
-      // Slot 2 is the kind. The label is `Wave`, uppercased by CSS, and
+      // Slot 2 is the kind. The label is `Slice`, uppercased by CSS, and
       // `.innerText` honours the transform while the attribute does not.
       expect(slots.kindLabel).toBe('wave');
-      expect(slots.kindLabelText).toBe('WAVE');
+      expect(slots.kindLabelText).toBe('SLICE');
       // Slot 3 leads with the wave's OWN NAME — asserted BY NAME, because
       // "not the branch name" also passes on an empty slot.
       expect(slots.name).toBe(NOT_STARTED_WAVE);
