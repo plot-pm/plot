@@ -3356,12 +3356,14 @@ import {
   createPulse,
   divisorFor,
   doubleClaimedBranches,
+  quietNote,
   readingLoss,
   rowPhase,
   sliceReadings,
   startabilityVerdict,
   startPulse,
   waveVerdict as sliceVerdict,
+  type QuietBranchReadings,
   type RunningPulse,
 } from '@plot-pm/domain';
 import { clockSystem } from '@plot-pm/domain/adapters';
@@ -4376,15 +4378,39 @@ function classifyGroup(
     if (localDirty || localAhead > 0 || localLocked) {
       return localActivity(localDirty, localAhead, localLocked);
     }
+    // AN ORPHANED CLAIM, AND THE RULE NAMES IT. `state === 'claimed'` IS
+    // `isEmptyClaim`: the scan reaches that word only where a branch's commits
+    // beyond main are all empty `plot: claim` markers — *"A CLAIM is a branch
+    // whose only commits beyond main are claim commits"*, `plot-fleet-scan.sh`
+    // — which is the same definition `QuietBranchReadings.isEmptyClaim` takes
+    // from `ClaimRefReadings`. So the reading is read off the state rather than
+    // re-derived, and no new field crosses the pulse.
+    //
+    // WAITING ON YOU, NOT QUIET, and that move is the half this slice exists
+    // for. `quietNeedsPerson` says an orphaned claim is still somebody's to
+    // answer — a branch nobody started, holding a worktree slot — and the group
+    // is the half that asks. QUIET means *go check whether it died*; nothing
+    // died here, and there is nothing to check: the claim is the whole of what
+    // happened. #669 relabelled a row and left its group, and the row went on
+    // asking for a decision its own sentence said was made; this plan's own
+    // notes call that the error not to repeat.
+    //
+    // THE AGE RIDES BESIDE THE SENTENCE, never instead of it. Age is what the
+    // fallthrough said when it had nothing else, and it is the fact this rule
+    // exists to stop standing in for a state — but *how long has nobody
+    // started this* is exactly the question a reader answers a stale claim
+    // with, so it is appended where it is known. `quietNote` supplies the
+    // state; this supplies the duration; neither is asked to be the other.
+    const orphaned = quietNote(claimedReadings(pr));
     return {
-      group: 'quiet',
-      // The age is what the reader came for once the window has passed, so it
-      // leads and the worker fact follows it — the same ordering `workingLocally`
-      // uses when it has two things to say.
+      group: 'waiting-on-you',
       note:
         ageMinutes === null
-          ? unstarted
-          : `claimed ${humanAge(ageMinutes)} ago, ${elsewhere ? 'claimed elsewhere' : 'no known worker'}`,
+          ? withNote(orphaned, elsewhere ? 'claimed elsewhere' : '')
+          : withNote(
+            `${orphaned} — claimed ${humanAge(ageMinutes)} ago`,
+            elsewhere ? 'claimed elsewhere' : '',
+          ),
     };
   }
   if (state === 'merged') {
@@ -4408,9 +4434,97 @@ function classifyGroup(
   if (localDirty || localAhead > 0 || localLocked) {
     return localActivity(localDirty, localAhead, localLocked);
   }
-  if (ageMinutes === null) return { group: 'quiet', note: 'pushed work, age unknown' };
-  return { group: 'quiet', note: `no commit for ${humanAge(ageMinutes)}` };
+  // ABANDONED, AND THE RULE DECIDES WHICH. Reaching here with `state === 'wip'`
+  // means real commits, no local activity, and — because the PR arm far above
+  // catches every branch carrying an open one — NO OPEN PR. That is
+  // `quietKind`'s `abandoned` exactly: *real commits, no PR ever opened, nobody
+  // on it*, the six rows measured on this estate 2026-09-03.
+  //
+  // WAITING ON YOU, because it is the one kind that genuinely needs a person:
+  // revive it, or drop it. The plan says so and `quietNeedsPerson` says so, and
+  // QUIET's own hint — *still thinking, or dead?* — is a question this row has
+  // already answered.
+  //
+  // THE AGE FOLLOWS THE STATE rather than replacing it, the same shape as the
+  // orphaned claim above. *no commit for 126 days* was the whole note and it
+  // named a duration where a state belonged; *how long* is still the fact the
+  // revive-or-drop call turns on, so it is said second and only where known.
+  const abandoned = quietNote(wipReadings(pr));
+  if (ageMinutes === null) {
+    return { group: 'waiting-on-you', note: `${abandoned}, age unknown` };
+  }
+  return { group: 'waiting-on-you', note: `${abandoned} — last commit ${humanAge(ageMinutes)} ago` };
 }
+
+/**
+ * What a `claimed` branch is, as {@link QuietBranchReadings}.
+ *
+ * `isEmptyClaim: true` IS THE STATE, not an assumption about it.
+ * `plot-fleet-scan.sh` answers `claimed` only for a branch whose commits beyond
+ * the default branch are all empty `plot: claim` markers, which is the
+ * definition `ClaimRefReadings` gave the field. A branch carrying real work
+ * reads `wip` there and never reaches this function.
+ *
+ * `hasMergedPr: false` because a merged branch reads `merged` from the scan and
+ * is answered two arms above this one — it cannot arrive here.
+ *
+ * @param pr - the branch's OPEN PR, or null. Open-only by `classifyGroup`'s
+ * contract, so `'closed'` is not reachable from here; the closed case is
+ * `prState`'s and is read in `rowsFromPulse`.
+ * @returns the readings for a claim nobody has worked.
+ */
+const claimedReadings = (pr?: PrRecord | null): QuietBranchReadings => ({
+  branch: '',
+  prState: pr ? 'open' : 'none',
+  hasMergedPr: false,
+  isEmptyClaim: true,
+});
+
+/**
+ * What a `wip` branch nobody is on is, as {@link QuietBranchReadings}.
+ *
+ * `isEmptyClaim: false` IS THE STATE: `wip` is what the scan answers for a
+ * branch carrying real commits, and it is the state `claimed` exists to be
+ * distinguished from.
+ *
+ * @param pr - the branch's OPEN PR, or null. A branch WITH one never reaches
+ * the fallthrough — the PR arm above answers it — so this is `null` in
+ * practice and passed anyway rather than assumed, since an assumption here
+ * would be the rule re-derived on this side.
+ * @returns the readings for pushed work nobody is on.
+ */
+const wipReadings = (pr?: PrRecord | null): QuietBranchReadings => ({
+  branch: '',
+  prState: pr ? 'open' : 'none',
+  hasMergedPr: false,
+  isEmptyClaim: false,
+});
+
+/**
+ * What a branch whose PR the host CLOSED is, as {@link QuietBranchReadings}.
+ *
+ * Read in `rowsFromPulse`, never in `classifyGroup` — that function's `pr` is
+ * open-only and it says so twice. The caller establishes `prState(held) ===
+ * 'closed'` from the any-state map before asking, so this states the reading
+ * the rule is being handed rather than deciding anything itself.
+ *
+ * `hasMergedPr: false` is not an assumption: `prStates` answers `closed` for
+ * `state === 'CLOSED'`, and the caller excludes `b.state === 'merged'` beside
+ * it — the branch-side fact that outranks the word, since some hosts spell a
+ * merge `CLOSED`.
+ *
+ * `isEmptyClaim: false` because the decision outranks every fact about the
+ * branch's contents: it does not matter how much work is on a branch somebody
+ * rejected, which is the precedence `quietKind` states in its own second arm.
+ *
+ * @returns the readings for a declined PR.
+ */
+const closedReadings = (): QuietBranchReadings => ({
+  branch: '',
+  prState: 'closed',
+  hasMergedPr: false,
+  isEmptyClaim: false,
+});
 
 /**
  * The processes this machine can see running for a branch — the entities the
@@ -5464,7 +5578,7 @@ export function rowsFromPulse(
         // unchanged either way.
         const held = prsByHeadMap?.get(b.branch) ?? null;
         const linked = held && held.state === 'CLOSED' ? pr : (held ?? pr);
-        const { group, note, verdict } = classify(
+        const { group: openGroup, note: openNote, verdict } = classify(
           b.state, wave.verdict, age, quietMinutes, pr, b.local_dirty, b.local_ahead,
           // The plan's own phase, which the pulse has carried since #140 and
           // nothing read. It is the half git cannot answer: every branch of a
@@ -5518,6 +5632,40 @@ export function rowsFromPulse(
           // a `draft` plan only; empty everywhere else, and empty falls back to
           // the phase sentence.
           b.deferred_reason);
+        // THE CLOSED PR, READ HERE BECAUSE `classifyGroup` CANNOT SEE ONE.
+        //
+        // That function states the rule twice and records the mistake being
+        // made against it: *"NO `CLOSED` ARM HERE… the `byHead` map is
+        // open-only, so a closed PR never arrives — an arm for it would be dead
+        // code. I wrote one on 2026-08-21 before reading that line; `prState`
+        // is where the closed case belongs."* So the reading is taken from
+        // `prState(held)` — the any-state map — at the one place both maps are
+        // in hand, and `classifyGroup` gains nothing.
+        //
+        // IT STAYS ON THE BOARD. An earlier draft of this slice had a declined
+        // PR leave, and the measurement disproved it on 2026-09-03: #53, #363
+        // and #654 all still have LIVE REFS. The branch exists, still holds a
+        // worktree slot, and is still findable by everything except the surface
+        // a person acts through — so hiding it would make the board lie in the
+        // other direction. QUIET, not DONE: DONE would read a declined branch
+        // as an equal outcome to a merged one.
+        //
+        // AND IT ASKS FOR NOTHING, which is the move. `quietNeedsPerson` lets a
+        // closed PR go — somebody already decided, and a decision is not a
+        // thing to look at. It is the answer that empties 17 of this estate's
+        // 26 quiet rows and the reason the other kinds are readable at all.
+        //
+        // `hasMergedPr` OUTRANKS THE WORD, and it has to: a merged PR reports
+        // `CLOSED` through some hosts, so reading `state === 'CLOSED'` alone
+        // would file every merged branch as a rejection. `prState` already
+        // draws that line — it answers `closed` only where the host closed
+        // without merging — so the rule is handed its verdict rather than the
+        // raw field, and `merged` travels beside it for the rule to outrank.
+        const closedPr = held && prState(held) === 'closed' && b.state !== 'merged';
+        const group = closedPr ? 'quiet' : openGroup;
+        const note = closedPr
+          ? withNote(`PR #${held.number}, ${quietNote(closedReadings())}`, reviewNote(held))
+          : openNote;
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
