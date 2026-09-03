@@ -1155,7 +1155,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           branchUrl: `${GH}feature/cs-moved`, waitingDays: 3,
         }),
       ];
-      const waves: Slice[] = [
+      const slices: Slice[] = [
         {
           plan: blockerPlan, name: 'Shaped', branches: ['feature/cs-shaped'],
           verdict: 'complete', section: 'done', complete: true, planSliceCount: 2,
@@ -1165,7 +1165,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           verdict: 'blocked', section: 'not-started', complete: false, planSliceCount: 2,
         },
       ];
-      return { ...fleet({ rows }), waves };
+      return { ...fleet({ rows }), slices };
     };
 
     const page = await openAgents(crossSection());
@@ -1225,7 +1225,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           kind: 'wave' as const,
         }),
       ];
-      const waves: Slice[] = [
+      const slices: Slice[] = [
         {
           plan: blockerPlan, name: 'Named', branches: ['feature/named'],
           verdict: 'wip', section: 'working', complete: false, planSliceCount: 2,
@@ -1235,7 +1235,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           verdict: 'blocked', section: 'not-started', complete: false, planSliceCount: 2,
         },
       ];
-      return { ...fleet({ rows }), waves };
+      return { ...fleet({ rows }), slices };
     };
 
     const page = await openAgents(workingBlocker());

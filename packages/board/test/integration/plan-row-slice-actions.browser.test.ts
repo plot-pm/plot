@@ -57,7 +57,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({ branch: 'feature/peas-b', plan: 'peas', planFile: 'p-peas.md', wave: 'Second',
       verdict: 'blocked', waitingOn: 'time', branchUrl: `${GH}/tree/feature/peas-b` }),
   ];
-  const waves: Slice[] = [
+  const slices: Slice[] = [
     // ONE wave — the plan row must carry Start work.
     wave({ plan: 'beans', name: 'Solo', branches: ['feature/beans-only'], planSliceCount: 1 }),
     // TWO waves — the wave rows carry their own; the plan row must not.
@@ -67,7 +67,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
   ];
   return {
     generatedAt: new Date().toISOString(),
-    ageSeconds: 1, ready: true, error: null, rows, waves,
+    ageSeconds: 1, ready: true, error: null, rows, slices,
     summary: { plans: 2, waves: 3, branches: rows.length, claimed: 0, eligible: 2, blocked: 1, deferred: 0 },
     stuck: { stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 },
     prAgeSeconds: 1, prNextInSeconds: 59, scanNextInSeconds: 4, prError: null,

@@ -26,7 +26,7 @@ import { ELIGIBLE_NOTE, type AgentRow, type Fleet, type Slice } from '../../src/
  * section (`a-wave-is-one-row`); this walk proves the head reads that answer.
  *
  * `/api/fleet` is stubbed at the network boundary, the sibling suites' way, and
- * the client CASTS the fleet — so the fixture carries the `waves` array the
+ * the client CASTS the fleet — so the fixture carries the `slices` array the
  * server would have derived (`deriveSlices`), each entry naming its ONE section,
  * plus the branch rows already grouped the way the pulse would have grouped them.
  * Route callbacks are SYNCHRONOUS: the board polls on a timer and an awaited
@@ -51,7 +51,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 });
 
 /** One derived wave, carrying its ONE section — what the server writes beside the rows. */
-const wave = (name: string, section: Slice['section'], over: Partial<Slice> = {}): Slice => ({
+const slice = (name: string, section: Slice['section'], over: Partial<Slice> = {}): Slice => ({
   plan: SPLIT, name, branches: [], verdict: section === 'done' ? 'complete' : 'eligible',
   section, complete: section === 'done', ...over,
 });
@@ -86,7 +86,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds: 1, ready: true, error: null, rows,
-    waves: [wave('Sown', 'done'), wave('Grown', 'not-started')],
+    slices: [slice('Sown', 'done'), slice('Grown', 'not-started')],
     summary: { plans: 1, waves: 2, branches: rows.length, claimed: 0, eligible: 1, blocked: 0, deferred: 0 },
     stuck: { stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 },
     prAgeSeconds: 1, prNextInSeconds: 59, scanNextInSeconds: 4, prError: null,
@@ -225,7 +225,7 @@ describe('a split plan counts what is elsewhere', () => {
               row({ plan: 'whole-plan', planFile: 'w.md', branch: 'feature/a', wave: 'One', group: 'not-started', verdict: 'eligible' }),
               row({ plan: 'whole-plan', planFile: 'w.md', branch: 'feature/b', wave: 'Two', group: 'not-started', verdict: 'blocked', waitingOn: 'time', note: 'blocked by One' }),
             ],
-            waves: [
+            slices: [
               { plan: 'whole-plan', name: 'One', branches: ['feature/a'], verdict: 'eligible', section: 'not-started', complete: false },
               { plan: 'whole-plan', name: 'Two', branches: ['feature/b'], verdict: 'blocked', section: 'not-started', complete: false },
             ],
