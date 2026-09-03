@@ -158,7 +158,7 @@ implies.
   five strings above stop teaching the wrong model. **No identifier changes**,
   so the diff is reviewable as prose and `git blame` moves for text only.
   **Asserted: the message a two-branch heading produces names a slice**, which
-  is the failure that prompted this plan.
+  is the failure that prompted this plan. → #678
 
 ### Naming it
 
