@@ -11,7 +11,7 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  * and as a BRANCH row in WORKING — the branch leads slot 3 and the wave name is
  * demoted to a badge. Same kind, same payload, two grammars.
  *
- * The cause is one function deciding two questions: `waveGroupsFor` is scoped to
+ * The cause is one function deciding two questions: `sliceGroupsFor` is scoped to
  * one section on purpose (WORKING orders by agent, must not group by plan), and
  * `ungroupedRows` — its complement — renders everything it returns as `<Row>`, a
  * branch row. Skipping the GROUP should not skip the ROW's kind.
@@ -25,13 +25,13 @@ import type { AgentRow, Fleet } from '../../src/contract/schema.js';
  *
  * **A literal payload, fulfilled synchronously.** The bug is a placement decision
  * in the adapter (`AgentList`), so the fixture is a fleet whose WORKING row is a
- * `kind: 'wave'` row the way the server emits one (`carriesWave` — the plan has
+ * `kind: 'wave'` row the way the server emits one (`carriesSlice` — the plan has
  * waves) — a route that awaits anything fails suites that already passed here.
  */
 
 // The two wave names, on this repo's estate, so slot 3 can be asserted BY NAME.
-const WORKING_WAVE = 'Named';
-const NOT_STARTED_WAVE = 'Anchored';
+const WORKING_SLICE = 'Named';
+const NOT_STARTED_SLICE = 'Anchored';
 const WORKING_BRANCH = 'bug/a-wave-row-names-its-wave';
 const WORKER_PID_NOTE = 'worker running (pid 45678)';
 
@@ -57,7 +57,7 @@ function fleet(): Fleet {
       plan: 'one-wave-row-two-contents',
       planFile: '2026-08-24-one-wave-row-two-contents.md',
       branch: WORKING_BRANCH, branchUrl: `https://github.com/tiny/garden/tree/${WORKING_BRANCH}`,
-      wave: WORKING_WAVE, worker: 'running', ageMinutes: 33, note: WORKER_PID_NOTE,
+      wave: WORKING_SLICE, worker: 'running', ageMinutes: 33, note: WORKER_PID_NOTE,
     }),
     row({
       kind: 'wave', group: 'not-started',
@@ -73,7 +73,7 @@ function fleet(): Fleet {
       // a selector typo would look identical to. An unstarted, eligible wave is
       // `open` by definition, so this matches the row's own intent.
       state: 'open',
-      wave: NOT_STARTED_WAVE, verdict: 'eligible', waitingDays: 2, ageMinutes: null,
+      wave: NOT_STARTED_SLICE, verdict: 'eligible', waitingDays: 2, ageMinutes: null,
       note: 'approved — nobody has taken it',
     }),
   ];
@@ -93,13 +93,13 @@ function fleet(): Fleet {
  * the hooks match `TupleRow.tsx`.
  */
 async function slotsOf(page: Page, wave: string) {
-  const waveRow = page.locator(`[data-wave-row="${wave}"]`);
-  await expect.poll(() => waveRow.count()).toBe(1);
-  return waveRow.evaluate((rowEl) => {
+  const sliceRow = page.locator(`[data-wave-row="${wave}"]`);
+  await expect.poll(() => sliceRow.count()).toBe(1);
+  return sliceRow.evaluate((rowEl) => {
     const kind = rowEl.getAttribute('data-tuple-kind');
     const kindLabel = rowEl.querySelector('[data-tuple-kind-label]');
     // Slot 3 — the item's own name. A wave projects its name as a text `plan`
-    // link with no href (`tupleFromWave`), so it is `[data-tuple-text="plan"]`.
+    // link with no href (`tupleFromSlice`), so it is `[data-tuple-text="plan"]`.
     const nameCell = rowEl.querySelector('[role="gridcell"]:nth-of-type(3)');
     const name = nameCell?.querySelector('[data-tuple-text],[data-tuple-link]') as HTMLElement | null;
     // Slot 4 — the artifact links. A wave of one carries its branch (and, off a
@@ -183,7 +183,7 @@ describe('a wave row is a wave row in every section', () => {
       over: { fleet: fleet() },
       viewport: { width: 1480, height: 1400 },
     });
-    await page.locator(`[data-wave-row="${NOT_STARTED_WAVE}"]`).first().waitFor({ timeout: 15_000 });
+    await page.locator(`[data-wave-row="${NOT_STARTED_SLICE}"]`).first().waitFor({ timeout: 15_000 });
     return page;
   }
 
@@ -194,18 +194,18 @@ describe('a wave row is a wave row in every section', () => {
       // rows at all, but a wave in a wave-grouped section still must: the defect
       // #392 fixed was a wave rendering through `<Row>` and losing its name to a
       // badge, and NOT STARTED is where that is still observable.
-      const ns = page.locator(`[data-wave-row="${NOT_STARTED_WAVE}"]`);
+      const ns = page.locator(`[data-wave-row="${NOT_STARTED_SLICE}"]`);
       await expect.poll(() => ns.count()).toBe(1);
       expect(await ns.getAttribute('data-tuple-kind')).toBe('wave');
 
-      const slots = await slotsOf(page, NOT_STARTED_WAVE);
+      const slots = await slotsOf(page, NOT_STARTED_SLICE);
       // Slot 2 is the kind. The label is `Slice`, uppercased by CSS, and
       // `.innerText` honours the transform while the attribute does not.
       expect(slots.kindLabel).toBe('wave');
       expect(slots.kindLabelText).toBe('SLICE');
       // Slot 3 leads with the wave's OWN NAME — asserted BY NAME, because
       // "not the branch name" also passes on an empty slot.
-      expect(slots.name).toBe(NOT_STARTED_WAVE);
+      expect(slots.name).toBe(NOT_STARTED_SLICE);
     } finally {
       await page.close();
     }
@@ -230,7 +230,7 @@ describe('a wave row is a wave row in every section', () => {
     try {
       // UNCHANGED BY THE RE-KEYING, and the reason it is kept verbatim: both
       // designs agree WORKING never groups by plan. Under #392 that held because
-      // `waveGroupsFor` returns [] for the section; under #398 it holds because
+      // `sliceGroupsFor` returns [] for the section; under #398 it holds because
       // the rows are agents, which no plan heads. A fix that started grouping
       // WORKING — for either design — fails here.
       const workingGrid = page.locator('ul[role="grid"][aria-label="Working — agent branches"]');

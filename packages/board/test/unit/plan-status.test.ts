@@ -24,7 +24,7 @@ const meta = (over: Record<string, unknown> = {}) =>
   });
 
 /** One wave, whatever branches it holds — the state tuple is what varies. */
-const wave = (
+const slice = (
   name: string,
   verdict: 'complete' | 'eligible' | 'blocked',
   branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred']>,
@@ -41,19 +41,19 @@ const wave = (
   })),
 });
 
-const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetReading => ({
+const pulse = (file: string, slices: ReturnType<typeof slice>[]): FleetReading => ({
   main: 'main',
   head: 'abc1234',
-  plans: [{ file, slices: waves }],
+  plans: [{ file, slices }],
   summary: {
-    plans: 1, waves: waves.length, branches: 0, claimed: 0,
+    plans: 1, waves: slices.length, branches: 0, claimed: 0,
     eligible: 0, blocked: 0, deferred: 0,
   },
 });
 
 const SLUG = '2026-08-23-a-plan-has-a-phase-and-a-status.md';
-const oneOpen = pulse(SLUG, [wave('Measured', 'eligible', [['feature/a', 'open']])]);
-const oneMerged = pulse(SLUG, [wave('Measured', 'complete', [['feature/a', 'merged']])]);
+const oneOpen = pulse(SLUG, [slice('Measured', 'eligible', [['feature/a', 'open']])]);
+const oneMerged = pulse(SLUG, [slice('Measured', 'complete', [['feature/a', 'merged']])]);
 
 describe('planStatus — the seven values, each reachable', () => {
   it('draft — created, discovery going on, no plan PR', () => {
@@ -112,7 +112,7 @@ describe('planStatus — the pairings the plan insists on', () => {
     // signal means someone picked the plan up.
     const m = meta({ phase: 'approved', started_raw: [] });
     const claimed = pulse(SLUG, [
-      { ...wave('Measured', 'eligible', [['feature/a', 'claimed']]) },
+      { ...slice('Measured', 'eligible', [['feature/a', 'claimed']]) },
     ]);
     expect(planStatus(m, claimed, true)).toBe('in-progress');
   });
@@ -139,8 +139,8 @@ describe('planStatus — the pairings the plan insists on', () => {
   it('one wave open reports in-progress, not deliverable', () => {
     const m = meta({ phase: 'approved', started_raw: ['2026-08-23, jwloka'] });
     const mixed = pulse(SLUG, [
-      wave('Measured', 'complete', [['feature/a', 'merged']]),
-      wave('Verified', 'eligible', [['feature/b', 'open']]),
+      slice('Measured', 'complete', [['feature/a', 'merged']]),
+      slice('Verified', 'eligible', [['feature/b', 'open']]),
     ]);
     expect(planStatus(m, mixed, true)).toBe('in-progress');
   });
@@ -153,7 +153,7 @@ describe('planStatus — the pairings the plan insists on', () => {
   it('a deferred branch does not block deliverable — the scan exempts it', () => {
     const m = meta({ phase: 'approved', started_raw: ['2026-08-23, jwloka'] });
     const withShelf = pulse(SLUG, [
-      wave('Measured', 'complete', [['feature/a', 'merged'], ['feature/shelved', 'deferred']]),
+      slice('Measured', 'complete', [['feature/a', 'merged'], ['feature/shelved', 'deferred']]),
     ]);
     expect(planStatus(m, withShelf, true)).toBe('deliverable');
   });

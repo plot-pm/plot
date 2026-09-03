@@ -13,7 +13,7 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * had prepared a worktree and pushed a claim. Measured on 2026-08-17 on the
  * exact card `started: true, claimed: 0, eligible: 1`.
  *
- * `waveSummary.claimed` is the count a dispatch moves, on EVERY slice — a claim
+ * `sliceSummary.claimed` is the count a dispatch moves, on EVERY slice — a claim
  * is a pushed ref, and claiming one more branch is precisely what succeeded.
  *
  * Still DERIVED, never asserted. What changes is which fact is read, not
@@ -25,7 +25,7 @@ import { ACTING_CLASS, ActingSpinner } from './ui/ActingSpinner.js';
  * caller keeps waiting rather than concluding either way.
  */
 export function claimedCount(card: Card): number | undefined {
-  return card.waveSummary?.claimed;
+  return card.sliceSummary?.claimed;
 }
 
 /**
@@ -52,13 +52,13 @@ export function claimedCount(card: Card): number | undefined {
  *    or blocked and there is no branch to take. Saying so before the click is
  *    the whole improvement over accepting and going quiet.
  *
- * A card with no `waveSummary` at all is a pre-slice plan, not a missing pulse:
+ * A card with no `sliceSummary` at all is a pre-slice plan, not a missing pulse:
  * `plot-dispatch.sh` is the authority on those and refuses in its own words, so
  * the button lets the click through rather than inventing a precondition.
  */
 export function startRefusal(card: Card, dispatch: DispatchInfo): string | undefined {
   if (!dispatch.available) return dispatch.reason;
-  const summary = card.waveSummary;
+  const summary = card.sliceSummary;
   if (!summary) return undefined;
   if (summary.claimed === undefined || summary.eligible === undefined) {
     return 'waiting for the first fleet scan';

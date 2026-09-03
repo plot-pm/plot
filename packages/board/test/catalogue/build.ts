@@ -1,8 +1,8 @@
 import {
-  AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema,
-  SprintCardSchema, StoryCardSchema, WaveSchema,
+  AgentEntrySchema, AgentRowSchema, BoardSchema, CardSchema, ColumnSchema, FleetSchema, FleetShape,
+  SprintCardSchema, StoryCardSchema, SliceSchema,
   type AgentEntry, type AgentRow, type Board, type Card, type Column, type Fleet,
-  type SprintCard, type StoryCard, type Wave,
+  type SprintCard, type StoryCard, type Slice,
 } from '../../src/contract/schema.js';
 import type { z } from 'zod';
 
@@ -51,10 +51,10 @@ import type { z } from 'zod';
  * Every scenario inherits them, so this is the half that matters most.
  */
 type RowInput = z.input<typeof AgentRowSchema>;
-type WaveInput = z.input<typeof WaveSchema>;
+type SliceInput = z.input<typeof SliceSchema>;
 type CardInput = z.input<typeof CardSchema>;
 type ColumnInput = z.input<typeof ColumnSchema>;
-type FleetInput = z.input<typeof FleetSchema>;
+type FleetInput = z.input<typeof FleetShape>;
 type BoardInput = z.input<typeof BoardSchema>;
 type AgentInput = z.input<typeof AgentEntrySchema>;
 type StoryInput = z.input<typeof StoryCardSchema>;
@@ -89,7 +89,7 @@ export const row = (over: Partial<RowInput> = {}): AgentRow =>
   AgentRowSchema.parse({ ...ROW_DEFAULTS, ...over });
 
 /** One wave — the cohort a plan's branches sit in. */
-const WAVE_DEFAULTS: WaveInput = {
+const SLICE_DEFAULTS: SliceInput = {
   plan: 'a-plan',
   name: 'Wave',
   branches: ['feature/a-branch'],
@@ -98,8 +98,8 @@ const WAVE_DEFAULTS: WaveInput = {
   complete: false,
 };
 
-export const wave = (over: Partial<WaveInput> = {}): Wave =>
-  WaveSchema.parse({ ...WAVE_DEFAULTS, ...over });
+export const slice = (over: Partial<SliceInput> = {}): Slice =>
+  SliceSchema.parse({ ...SLICE_DEFAULTS, ...over });
 
 /** One plan card, as `/api/board` carries it. */
 const CARD_DEFAULTS: CardInput = {
@@ -160,7 +160,7 @@ const FLEET_DEFAULTS: FleetInput = {
   ready: true,
   error: null,
   rows: [],
-  waves: [],
+  slices: [],
   summary: { plans: 0, waves: 0, branches: 0, claimed: 0, eligible: 0, blocked: 0, deferred: 0 },
   stuck: { stuck: 0, artifact: 0, conflict: 0, unpushed: 0, ci: 0 },
   prAgeSeconds: 1,
@@ -171,7 +171,7 @@ const FLEET_DEFAULTS: FleetInput = {
 
 export const fleet = (over: Partial<FleetInput> = {}): Fleet => {
   const rows = (over.rows ?? []) as RowInput[];
-  const waves = (over.waves ?? []) as WaveInput[];
+  const slices = (over.slices ?? []) as SliceInput[];
   return FleetSchema.parse({
     ...FLEET_DEFAULTS,
     /**
@@ -189,7 +189,7 @@ export const fleet = (over: Partial<FleetInput> = {}): Fleet => {
       .map((r) => agent({ session: `s-${r.branch}`, branch: r.branch })),
     summary: {
       plans: new Set(rows.map((r) => r.plan)).size,
-      waves: waves.length,
+      waves: slices.length,
       branches: rows.length,
       claimed: rows.filter((r) => r.state === 'wip').length,
       eligible: rows.filter((r) => r.verdict === 'eligible').length,

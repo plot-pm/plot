@@ -73,7 +73,7 @@ export interface AutoDispatchPlan {
 /**
  * The plan slug `plot-dispatch.sh` will use to find the plan file — the basename
  * with its `YYYY-MM-DD-` prefix and `.md` suffix stripped, the exact spelling
- * the `/api/dispatch` route already sends and `deriveWaves` writes into a row's
+ * the `/api/dispatch` route already sends and `deriveSlices` writes into a row's
  * `plan`.
  */
 export function planSlug(file: string): string {

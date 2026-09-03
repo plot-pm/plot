@@ -171,7 +171,7 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
  * plan whose slices cannot be read is a plan whose shape is unknown, and spawning
  * an agent to reslice an unknown shape is the write nobody asked for.
  */
-export function maxLiveWaveWidth(opts: BuildBoardOptions, slug: string): number | null {
+export function maxLiveSliceWidth(opts: BuildBoardOptions, slug: string): number | null {
   const file = resolvePlanBySlug(opts, slug);
   if (!file) return null;
   try {
@@ -181,7 +181,7 @@ export function maxLiveWaveWidth(opts: BuildBoardOptions, slug: string): number 
     if (!line) return null;
     const meta = PlanMetaSchema.parse(JSON.parse(line));
     let widest = 0;
-    for (const wave of meta.waves) {
+    for (const wave of meta.slices) {
       const live = wave.branches.filter((b) => !b.deferred).length;
       if (live > widest) widest = live;
     }
@@ -297,7 +297,7 @@ export function resliceStatus(opts: BuildBoardOptions, slug: string): ResliceSta
  * The one fact this route reads from outside itself, injectable for test.
  *
  * `width` is how a slug's widest live slice is read back; it defaults to
- * `maxLiveWaveWidth`. Injecting it lets the tests assert the refusals —
+ * `maxLiveSliceWidth`. Injecting it lets the tests assert the refusals —
  * nothing-to-slice, plan-unreadable — without standing up a real plan estate
  * and a real `/plot-reslice` run.
  */
@@ -335,7 +335,7 @@ export async function handleReslice(
   deps: ResliceDeps = {},
 ): Promise<void> {
   const readCfg = deps.config ?? readConfig;
-  const readWidth = deps.width ?? maxLiveWaveWidth;
+  const readWidth = deps.width ?? maxLiveSliceWidth;
   const json = (status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(body));

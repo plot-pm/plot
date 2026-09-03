@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Browser, type Page } from 'playwright';
 import {
-  openCatalogue, expandAgentFolds, scenario, board, fleet, row, wave,
+  openCatalogue, expandAgentFolds, scenario, board, fleet, row, slice,
   type Catalogue,
 } from '../catalogue/index.js';
 import { ELIGIBLE_NOTE, type Fleet } from '../../src/contract/schema.js';
@@ -67,7 +67,7 @@ const SERVED_PORT = 4711;
 const PLAN = 'a-wave-is-a-thing-not-a-label';
 const PLAN_FILE = '2026-08-24-a-wave-is-a-thing-not-a-label.md';
 
-/** The wave the eligible branch sits in — `anEligibleWave`'s own name. */
+/** The wave the eligible branch sits in — `anEligibleSlice`'s own name. */
 const WAVE = 'Anchored';
 
 /**
@@ -77,7 +77,7 @@ const WAVE = 'Anchored';
  * `tsc` structurally while `.parse()` never runs, so every Zod default is
  * missing at render time and a wrong shape draws nothing instead of throwing —
  * which is exactly how this file came to assert against a row that could not
- * have had the menu it looked for. `fleet()`/`row()`/`wave()` take
+ * have had the menu it looked for. `fleet()`/`row()`/`slice()` take
  * `z.input<…>`, fill the defaults and parse, so the same mistake now fails
  * where it is written, naming the field.
  */
@@ -96,7 +96,7 @@ function localFleet(over: Partial<Fleet> = {}): Fleet {
     row({
       repo: 'garden', branch: 'feature/untaken', plan: PLAN, planFile: PLAN_FILE,
       // `kind: 'wave'` and `state: 'open'`, both load-bearing, both copied from
-      // `anEligibleWave` — the catalogue's WORKING example of this shape.
+      // `anEligibleSlice` — the catalogue's WORKING example of this shape.
       //
       // NOT STARTED groups only `isUnbegun` rows (`group === 'not-started' &&
       // state === 'open'`), and since `a-wave-is-a-kind` an eligible branch
@@ -139,7 +139,7 @@ function localFleet(over: Partial<Fleet> = {}): Fleet {
     // supplied waves this object never mentions. Serving the whole state is
     // what exposed the gap — the fixture always was incomplete, and only a real
     // dependency was hiding it.
-    waves: [wave({
+    waves: [slice({
       plan: PLAN, name: WAVE, branches: ['feature/untaken'],
       verdict: 'eligible', section: 'not-started', complete: false,
     })],
@@ -163,7 +163,7 @@ describe('tiny-garden: a frozen board stops inviting', () => {
     //
     // `BoardSchema.dispatch` defaults to `{ available: false }`, which is the
     // right default for the catalogue (a scenario that wants a button says so)
-    // and the wrong one here: `WaveActions` renders `aria-disabled` from
+    // and the wrong one here: `SliceActions` renders `aria-disabled` from
     // `dispatch.available`, so a board that cannot dispatch produces a menu
     // that is ALREADY disabled while the server is healthy. Two assertions
     // read that attribute as the thing the overlay changes — one expects

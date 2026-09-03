@@ -44,7 +44,7 @@ describe('the mock is a real payload', () => {
     // this test needed. `rowKind` returns `release`, `branch` or `pr`; `build`
     // and `agent` are created at their own sites. **`plan` and `wave` are
     // assembled by the CLIENT** from the branches grouped under them —
-    // `groupByPlan` + `tupleFromPlan`, `groupByWave` + `tupleFromWave` — and
+    // `groupByPlan` + `tupleFromPlan`, `groupBySlice` + `tupleFromSlice` — and
     // `ticket` arrives in the separate `issues` list.
     //
     // The mock carried four `kind: 'plan'` rows until 2026-08-20 and this loop
@@ -89,10 +89,10 @@ describe('the mock is a real payload', () => {
     // both a single-branch wave (the common case, no fold) and a multi-branch one
     // (the fold), or the fold goes unrendered wherever anyone looks.
     const notStarted = mockFleet().rows.filter((r) => r.group === 'not-started');
-    const byWave = new Map<string, number>();
-    for (const r of notStarted) byWave.set(r.wave, (byWave.get(r.wave) ?? 0) + 1);
-    assert.ok(byWave.size >= 3, `expected 3+ waves, got ${byWave.size}`);
-    const counts = [...byWave.values()];
+    const bySlice = new Map<string, number>();
+    for (const r of notStarted) bySlice.set(r.wave, (bySlice.get(r.wave) ?? 0) + 1);
+    assert.ok(bySlice.size >= 3, `expected 3+ waves, got ${bySlice.size}`);
+    const counts = [...bySlice.values()];
     assert.ok(counts.includes(1), 'no single-branch wave — the common case');
     assert.ok(counts.some((c) => c > 1), 'no multi-branch wave — the fold case');
     // Every one of them carries the verdict the wave row shows as its status.

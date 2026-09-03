@@ -62,13 +62,13 @@ describe('a wave row speaks its own verdict in the status slot', () => {
   }
 
   /** The status cell of a wave row. */
-  const waveStatus = (page: Page, wave: string) =>
+  const sliceStatus = (page: Page, wave: string) =>
     page.locator(`[data-wave-row="${wave}"]`).locator('[data-tuple-status]');
 
   it('a multi-branch wave in DONE shows "complete", not "delivered"', async () => {
     const page = await open();
     try {
-      const status = waveStatus(page, 'Complete');
+      const status = sliceStatus(page, 'Complete');
       await status.waitFor({ timeout: 5_000 });
       // The verdict word: `complete`, not `delivered`.
       // `2 complete` is the shape — count + word.

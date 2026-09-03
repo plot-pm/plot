@@ -6,7 +6,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import {
   tupleFromAgent, tupleFromBuild, tupleFromIssue, tupleFromPlan, tupleFromRow,
   type TupleRow,
-  tupleFromWave,
+  tupleFromSlice,
 } from '../../src/app/lib/tuple-row.js';
 import { AgentRowSchema, IssueRowSchema, RowKindSchema, type AgentRow } from '../../src/contract/schema.js';
 import { TUPLE_TRACKS } from '../../src/app/components/TupleRow.js';
@@ -118,7 +118,7 @@ const TUPLES: Record<string, TupleRow> = {
   // this kind exists to make: `blocked` in slot 5, the wave it waits on as a
   // LINK in slot 4, and its own outstanding count on its own row — the three
   // facts `blockedNote()` used to crush into one sentence.
-  wave: tupleFromWave({
+  wave: tupleFromSlice({
     name: 'Relocated', plan: 'a-wave-is-a-thing-not-a-label', verdict: 'blocked',
     branches: [
       { branch: 'feature/a-wave-is-a-kind', branchUrl: 'https://host/tree/feature/a-wave-is-a-kind' },
@@ -393,7 +393,7 @@ describe('an eligible wave carries the emerald tone', () => {
   let browser: Browser;
   let page: Page;
 
-  const ELIGIBLE = tupleFromWave({
+  const ELIGIBLE = tupleFromSlice({
     name: 'Shaped', plan: 'a-startable-wave-says-so', verdict: 'eligible',
     branches: [
       { branch: 'bug/an-eligible-wave-takes-the-actionable-tone', branchUrl: 'https://host/tree/bug/x' },
@@ -409,7 +409,7 @@ import { TupleRowView } from ${JSON.stringify(path.resolve(here, '../../src/app/
 
 createRoot(document.getElementById('root')).render(
   React.createElement('ul', { role: 'rowgroup' },
-    React.createElement(TupleRowView, { tuple: window.__WAVE__, menu: null })),
+    React.createElement(TupleRowView, { tuple: window.__SLICE__, menu: null })),
 );
 `;
 
@@ -424,7 +424,7 @@ createRoot(document.getElementById('root')).render(
     page = await context.newPage();
     await page.setContent('<div id="root"></div>');
     await page.evaluate((wave) => {
-      (window as never as { __WAVE__: unknown }).__WAVE__ = wave;
+      (window as never as { __SLICE__: unknown }).__SLICE__ = wave;
     }, ELIGIBLE);
     await page.addScriptTag({ content: built.outputFiles[0].text, type: 'module' });
     await page.locator('li[data-tuple-kind="wave"]').first().waitFor({ timeout: 10_000 });

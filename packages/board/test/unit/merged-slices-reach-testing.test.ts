@@ -21,7 +21,7 @@ const meta = (over: Record<string, unknown> = {}) =>
   });
 
 /** One wave, whatever branches it holds — the state tuple is what these tests vary. */
-const wave = (
+const slice = (
   name: string,
   verdict: 'complete' | 'eligible' | 'blocked',
   branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred']>,
@@ -38,12 +38,12 @@ const wave = (
   })),
 });
 
-const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetReading => ({
+const pulse = (file: string, slices: ReturnType<typeof slice>[]): FleetReading => ({
   main: 'main',
   head: 'abc1234',
-  plans: [{ file, slices: waves }],
+  plans: [{ file, slices }],
   summary: {
-    plans: 1, waves: waves.length, branches: 0, claimed: 0,
+    plans: 1, waves: slices.length, branches: 0, claimed: 0,
     eligible: 0, blocked: 0, deferred: 0,
   },
 });
@@ -65,8 +65,8 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       ],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'complete', [['feature/a', 'merged']]),
-      wave('Verified', 'complete', [['feature/b', 'merged'], ['feature/c', 'merged']]),
+      slice('Reached', 'complete', [['feature/a', 'merged']]),
+      slice('Verified', 'complete', [['feature/b', 'merged'], ['feature/c', 'merged']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
@@ -85,7 +85,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       }],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'complete', [['feature/a', 'merged'], ['feature/shelved', 'deferred']]),
+      slice('Reached', 'complete', [['feature/a', 'merged'], ['feature/shelved', 'deferred']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
@@ -106,8 +106,8 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       ],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'complete', [['feature/a', 'merged']]),
-      wave('Verified', 'eligible', [['feature/b', 'merged'], ['feature/c', 'open']]),
+      slice('Reached', 'complete', [['feature/a', 'merged']]),
+      slice('Verified', 'eligible', [['feature/b', 'merged'], ['feature/c', 'open']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
@@ -119,7 +119,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'eligible', [['feature/a', 'claimed']]),
+      slice('Reached', 'eligible', [['feature/a', 'claimed']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
@@ -136,7 +136,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       }],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'blocked', [['feature/shelved', 'deferred']]),
+      slice('Reached', 'blocked', [['feature/shelved', 'deferred']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
@@ -161,7 +161,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
     });
     const p = pulse('2026-01-01-some-other-plan.md', [
-      wave('Reached', 'complete', [['feature/z', 'merged']]),
+      slice('Reached', 'complete', [['feature/z', 'merged']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
@@ -207,7 +207,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'complete', [['feature/a', 'merged']]),
+      slice('Reached', 'complete', [['feature/a', 'merged']]),
     ]);
     expect(allSlicesMerged(m, p, false)).toBe('unknown');
     // The SAME pulse, once the scan finishes, is a measurement.
@@ -226,8 +226,8 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       ] }],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'complete', [['feature/a', 'merged']]),
-      wave('Pending', 'eligible', [['feature/unfinished', 'open']]),
+      slice('Reached', 'complete', [['feature/a', 'merged']]),
+      slice('Pending', 'eligible', [['feature/unfinished', 'open']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('not-merged');
     expect(allSlicesMerged(m, p, true)).not.toBe('merged');
@@ -247,7 +247,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       waves: [{ name: 'Told', branches: [{ branch: 'bug/an-unreachable-host-says-so', deferred: false, claimed: '' }] }],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Told', 'complete', [['bug/an-unreachable-host-says-so', 'merged']]),
+      slice('Told', 'complete', [['bug/an-unreachable-host-says-so', 'merged']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
@@ -266,7 +266,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'eligible', [['feature/a', 'merged']]),
+      slice('Reached', 'eligible', [['feature/a', 'merged']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('not-merged');
   });
@@ -280,7 +280,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'complete', [['feature/a', 'merged']]),
+      slice('Reached', 'complete', [['feature/a', 'merged']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('merged');
   });
@@ -295,7 +295,7 @@ describe('allSlicesMerged — every non-deferred branch has landed', () => {
       waves: [{ name: 'Reached', branches: [{ branch: 'feature/a', deferred: false, claimed: '' }] }],
     });
     const p = pulse('2026-08-21-done-means-delivered.md', [
-      wave('Reached', 'complete', [['feature/a', 'merged']]),
+      slice('Reached', 'complete', [['feature/a', 'merged']]),
     ]);
     expect(allSlicesMerged(m, p, true)).toBe('merged');
     // The file still says Approved — the function read it, the pulse said merged,

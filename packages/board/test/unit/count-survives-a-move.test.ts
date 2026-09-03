@@ -83,13 +83,13 @@ const census = (): Census => {
 /**
  * The file that moves, and why this one.
  *
- * `wave-in-working.browser.test.ts` — 2 `it(`, the smallest browser file that
+ * `slice-in-working.browser.test.ts` — 2 `it(`, the smallest browser file that
  * both drives a page and starts a board, so it is representative of the
  * population the later slices will move and cheap to name in a failure. It is
  * moved and moved back; nothing about it is edited, which is the scope guard's
  * line (*"no test migrates in this slice"*) kept literally.
  */
-const MOVER = 'integration/wave-in-working.browser.test.ts';
+const MOVER = 'integration/slice-in-working.browser.test.ts';
 const DESTINATION = 'unit/moved-browser-test.probe.test.ts';
 
 const abs = (rel: string) => path.join(TEST_ROOT, rel);

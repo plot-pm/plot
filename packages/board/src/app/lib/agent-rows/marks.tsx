@@ -378,7 +378,7 @@ export function StuckCell({
  *
  * Scoped by PLAN as well as by slice name, because slice names repeat across
  * plans — `Shaped` appears in several of this estate's plans, `Says` in three.
- * The same reason `openWaves` keys on `plan\0wave`.
+ * The same reason `openSlices` keys on `plan\0wave`.
  *
  * ## Hover AND focus
  *
@@ -436,7 +436,7 @@ export function BlockedByMark({
     window.setTimeout(() => target.classList.remove('ring-2', 'ring-amber-400'), 1200);
   };
 
-  const goToWave = () => {
+  const goToSlice = () => {
     if (section && onExpandSection) onExpandSection(section);
     // Find the row, then scroll and flash. The selector is unchanged — one
     // query, both attributes, document-wide, so it crosses sections already.
@@ -485,7 +485,7 @@ export function BlockedByMark({
         // screen reader gets the answer without opening anything, which is the
         // same rule slot 2 follows: recognition must not depend on a disclosure.
         aria-label={`Blocked by slice ${wave} — show it`}
-        onClick={goToWave}
+        onClick={goToSlice}
         className="inline-flex items-center text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
       >
         <svg
@@ -513,7 +513,7 @@ export function BlockedByMark({
           <button
             type="button"
             data-wave-goto={wave}
-            onClick={goToWave}
+            onClick={goToSlice}
             className="font-medium text-sky-700 underline decoration-dotted underline-offset-2 hover:decoration-solid dark:text-sky-300"
           >
             {wave}

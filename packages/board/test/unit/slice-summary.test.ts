@@ -21,7 +21,7 @@ const meta = (over: Record<string, unknown> = {}) =>
  * worktree path, which is absent for every branch this machine does not have
  * checked out — which is the common case, and the default here.
  */
-const wave = (
+const slice = (
   name: string,
   verdict: 'complete' | 'eligible' | 'blocked',
   branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred', string?]>,
@@ -38,12 +38,12 @@ const wave = (
   })),
 });
 
-const pulse = (file: string, waves: ReturnType<typeof wave>[]): FleetReading => ({
+const pulse = (file: string, slices: ReturnType<typeof slice>[]): FleetReading => ({
   main: 'main',
   head: 'abc1234',
-  plans: [{ file, slices: waves }],
+  plans: [{ file, slices }],
   summary: {
-    plans: 1, waves: waves.length, branches: 0, claimed: 0,
+    plans: 1, waves: slices.length, branches: 0, claimed: 0,
     eligible: 0, blocked: 0, deferred: 0,
   },
 });
@@ -63,7 +63,7 @@ describe('summariseFromPulse — the card reads claims from git', () => {
       }],
     });
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Fixes', 'eligible', [
+      slice('Fixes', 'eligible', [
         ['bug/board-claimed-from-git', 'claimed'],
         ['bug/dispatch-records-started', 'open'],
       ]),
@@ -71,7 +71,7 @@ describe('summariseFromPulse — the card reads claims from git', () => {
     const s = summariseFromPulse(m, p);
     expect(s.claimed).toBe(1);
     // ...and the other branch is startable, which the card could not say at all
-    // before: WaveSummary carried no `eligible`.
+    // before: SliceSummary carried no `eligible`.
     expect(s.eligible).toBe(1);
   });
 
@@ -86,7 +86,7 @@ describe('summariseFromPulse — the card reads claims from git', () => {
       }],
     });
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Fixes', 'eligible', [['feature/a', 'claimed']]),
+      slice('Fixes', 'eligible', [['feature/a', 'claimed']]),
     ]);
     expect(summariseFromPulse(m, p).claimed).toBe(1);
   });
@@ -104,7 +104,7 @@ describe('summariseFromPulse — the card reads claims from git', () => {
     expect(s.claimed).toBeUndefined();
     expect(s.eligible).toBeUndefined();
     // Shape still renders: it comes from the plan and is true without git.
-    expect(s).toMatchObject({ waves: 1, branches: 1, deferred: 0 });
+    expect(s).toMatchObject({ slices: 1, branches: 1, deferred: 0 });
   });
 
   it('omits the counts when the pulse does not know this plan', () => {
@@ -117,7 +117,7 @@ describe('summariseFromPulse — the card reads claims from git', () => {
       }],
     });
     const p = pulse('2026-01-01-some-other-plan.md', [
-      wave('Fixes', 'eligible', [['feature/z', 'claimed']]),
+      slice('Fixes', 'eligible', [['feature/z', 'claimed']]),
     ]);
     expect(summariseFromPulse(m, p).claimed).toBeUndefined();
   });
@@ -134,7 +134,7 @@ describe('summariseFromPulse — the card reads claims from git', () => {
       }],
     });
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Fixes', 'eligible', [['feature/a', 'claimed']]),
+      slice('Fixes', 'eligible', [['feature/a', 'claimed']]),
     ]);
     expect(summariseFromPulse(m, p).claimed).toBe(1);
   });
@@ -149,7 +149,7 @@ describe('summariseFromPulse — the card reads claims from git', () => {
       }],
     });
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Fixes', 'eligible', [['feature/a', 'open']]),
+      slice('Fixes', 'eligible', [['feature/a', 'open']]),
     ]);
     expect(summariseFromPulse(m, p).claimed).toBe(0);
   });
@@ -173,8 +173,8 @@ describe('summariseFromPulse — eligible means startable now', () => {
     // Outstanding work, but not startable work. Counting it would tell someone
     // to begin a branch whose seam has not landed.
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Tracer', 'eligible', [['feature/a', 'open']]),
-      wave('Implementation', 'blocked', [['feature/b', 'open'], ['feature/c', 'open']]),
+      slice('Tracer', 'eligible', [['feature/a', 'open']]),
+      slice('Implementation', 'blocked', [['feature/b', 'open'], ['feature/c', 'open']]),
     ]);
     expect(summariseFromPulse(m, p).eligible).toBe(1);
   });
@@ -183,8 +183,8 @@ describe('summariseFromPulse — eligible means startable now', () => {
     // Someone already took it, or it already landed. Neither is startable, and
     // a branch must never be counted in both buckets.
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Tracer', 'complete', [['feature/a', 'merged']]),
-      wave('Implementation', 'eligible', [['feature/b', 'claimed'], ['feature/c', 'open']]),
+      slice('Tracer', 'complete', [['feature/a', 'merged']]),
+      slice('Implementation', 'eligible', [['feature/b', 'claimed'], ['feature/c', 'open']]),
     ]);
     const s = summariseFromPulse(m, p);
     expect(s.claimed).toBe(1);
@@ -193,8 +193,8 @@ describe('summariseFromPulse — eligible means startable now', () => {
 
   it('reports nothing eligible once every wave is complete', () => {
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Tracer', 'complete', [['feature/a', 'merged']]),
-      wave('Implementation', 'complete', [['feature/b', 'merged'], ['feature/c', 'merged']]),
+      slice('Tracer', 'complete', [['feature/a', 'merged']]),
+      slice('Implementation', 'complete', [['feature/b', 'merged'], ['feature/c', 'merged']]),
     ]);
     expect(summariseFromPulse(m, p).eligible).toBe(0);
   });
@@ -229,10 +229,10 @@ describe('summariseFromPulse — shape comes from the plan', () => {
       }],
     });
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Fixes', 'eligible', [['feature/a', 'claimed']]),
+      slice('Fixes', 'eligible', [['feature/a', 'claimed']]),
     ]);
     expect(summariseFromPulse(m, p)).toEqual({
-      waves: 1, branches: 1, deferred: 0, claimed: 1, eligible: 0,
+      slices: 1, branches: 1, deferred: 0, claimed: 1, eligible: 0,
     });
   });
 });
@@ -256,7 +256,7 @@ describe('worktreesFromPulse — where the work is checked out HERE', () => {
 
   it('reports the path for every branch checked out on this machine', () => {
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Fixes', 'eligible', [
+      slice('Fixes', 'eligible', [
         ['bug/one', 'wip', '/Users/x/wt-one'],
         ['bug/two', 'claimed', '/Users/x/wt-two'],
       ]),
@@ -272,7 +272,7 @@ describe('worktreesFromPulse — where the work is checked out HERE', () => {
     // no group (it is not evidence of work) and still answers "where did I put
     // this" perfectly well.
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Fixes', 'eligible', [['bug/one', 'wip', '/Users/x/wt-one']]),
+      slice('Fixes', 'eligible', [['bug/one', 'wip', '/Users/x/wt-one']]),
     ]);
     expect(worktreesFromPulse(m, p)[0].path).toBe('/Users/x/wt-one');
   });
@@ -282,7 +282,7 @@ describe('worktreesFromPulse — where the work is checked out HERE', () => {
     // does not exist on the reader's machine is worse than no path. Every
     // detached worker and every teammate's laptop lands here.
     const p = pulse('2026-08-16-board-reads-git.md', [
-      wave('Fixes', 'eligible', [['bug/one', 'wip'], ['bug/two', 'open']]),
+      slice('Fixes', 'eligible', [['bug/one', 'wip'], ['bug/two', 'open']]),
     ]);
     expect(worktreesFromPulse(m, p)).toEqual([]);
   });
@@ -293,7 +293,7 @@ describe('worktreesFromPulse — where the work is checked out HERE', () => {
     // worktrees".
     expect(worktreesFromPulse(m, null)).toEqual([]);
     const other = pulse('2026-01-01-some-other-plan.md', [
-      wave('Fixes', 'eligible', [['bug/one', 'wip', '/Users/x/wt-one']]),
+      slice('Fixes', 'eligible', [['bug/one', 'wip', '/Users/x/wt-one']]),
     ]);
     expect(worktreesFromPulse(m, other)).toEqual([]);
   });

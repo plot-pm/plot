@@ -10,7 +10,7 @@
 //
 // **The precondition is READ THROUGH THE REAL PARSER once.** "A plan is
 // sliceable when a wave holds more than one live branch" is a claim about the
-// plan format, so one test runs `maxLiveWaveWidth` against real plan files
+// plan format, so one test runs `maxLiveSliceWidth` against real plan files
 // rather than a stubbed width — the refusals are then asserted with the width
 // injected, which is what keeps them raceless and independent of a plan estate.
 import { afterEach, describe, it } from 'vitest';
@@ -23,7 +23,7 @@ import { Readable } from 'node:stream';
 import {
   composeReslicePrompt,
   handleReslice,
-  maxLiveWaveWidth,
+  maxLiveSliceWidth,
   reslicePromptPath,
   resliceAvailability,
   type ResliceDeps,
@@ -68,7 +68,7 @@ const SLUG = 'a-tangled-plan';
 /**
  * A plan whose one wave holds SEVERAL branches — the shape reslice repairs. The
  * happy path needs a plan the locator can find, and one the real parser reads as
- * a multi-branch wave, so `maxLiveWaveWidth` on it returns > 1.
+ * a multi-branch wave, so `maxLiveSliceWidth` on it returns > 1.
  */
 function tangledPlan(dir: string): void {
   fs.writeFileSync(path.join(dir, 'docs/plans', `2026-08-21-${SLUG}.md`), [
@@ -260,14 +260,14 @@ describe('sliceability is read through the real plan parser', () => {
     const dir = repo();
     tangledPlan(dir);
     const opts = { repoRoot: dir, scriptsDir: SCRIPTS };
-    assert.equal(maxLiveWaveWidth(opts, SLUG), 3, 'a 3-branch wave is width 3');
+    assert.equal(maxLiveSliceWidth(opts, SLUG), 3, 'a 3-branch wave is width 3');
 
     fs.writeFileSync(path.join(dir, 'docs/plans', '2026-08-21-lonely.md'), [
       '# Lonely', '', '## Status', '', '- **Phase:** Approved', '- **Type:** feature',
       '', '## Branches', '', '### Only', '- `feature/alone` — the one branch',
       '', '## Changelog', '', '- one wave, one branch', '',
     ].join('\n'), 'utf8');
-    assert.equal(maxLiveWaveWidth(opts, 'lonely'), 1, 'a one-branch wave is width 1');
+    assert.equal(maxLiveSliceWidth(opts, 'lonely'), 1, 'a one-branch wave is width 1');
 
     // A deferred branch does not count toward the tangle: a wave with one live
     // branch and one deferred is already the one-branch wave the model wants.
@@ -278,10 +278,10 @@ describe('sliceability is read through the real plan parser', () => {
       '- `feature/gone` — set down <!-- deferred: not needed -->',
       '', '## Changelog', '', '- one live, one deferred', '',
     ].join('\n'), 'utf8');
-    assert.equal(maxLiveWaveWidth(opts, 'mixed'), 1, 'a deferred branch does not count');
+    assert.equal(maxLiveSliceWidth(opts, 'mixed'), 1, 'a deferred branch does not count');
 
     // A slug that resolves to no file is null, which the route refuses.
-    assert.equal(maxLiveWaveWidth(opts, 'does-not-exist'), null);
+    assert.equal(maxLiveSliceWidth(opts, 'does-not-exist'), null);
   });
 });
 

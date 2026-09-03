@@ -1113,7 +1113,7 @@ export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
 /**
  * The name a slice with no `###` heading shows — a LITERAL here, deliberately.
  *
- * The one definition lives in the contract as `UNNAMED_WAVE`, and this module
+ * The one definition lives in the contract as `UNNAMED_SLICE`, and this module
  * cannot import it: a gate asserts *"One import, and it is the contract's
  * types"*, because the projection must not reach for behaviour. That gate is
  * right, and a string is not worth bending it for.
@@ -1121,7 +1121,7 @@ export function tupleFromPlan(facts: PlanRowFacts): TupleRow {
  * This is a DISPLAY fallback. Nothing compares against it — the server decides
  * which slices are unnamed and the contract holds the value both sides test.
  */
-const UNNAMED_WAVE_LABEL = '(unnamed)';
+const UNNAMED_SLICE_LABEL = '(unnamed)';
 
 /**
  * What a tuple row needs about a SLICE — one part of a plan, with its own verdict.
@@ -1137,7 +1137,7 @@ const UNNAMED_WAVE_LABEL = '(unnamed)';
  * this is facts-in rather than a row-in, and the kind is declared here at the
  * construction site.
  */
-export interface WaveRowFacts {
+export interface SliceRowFacts {
   /** The slice's name, or "" where the plan file named none. */
   name: string;
   /** The plan the slice belongs to — for the row's identity, not for a link. */
@@ -1180,9 +1180,9 @@ export interface WaveRowFacts {
    *   `by Relocated`   a reference         → slot 5, as an info mark
    *   `1 outstanding`  a count             → the RELOCATED row, not this one
    *
-   * Carried on the facts rather than read by `tupleFromWave`, because slot 3's
+   * Carried on the facts rather than read by `tupleFromSlice`, because slot 3's
    * `beside` belongs to the renderer: the projection decides what a row SAYS
-   * and `TupleRowView` decides what sits inside a slot. `WaveRow` passes it.
+   * and `TupleRowView` decides what sits inside a slot. `SliceRow` passes it.
    *
    * The third fact is the one that says why this had to move at all. It counts
    * what is unfinished in the BLOCKER, so a slice holding three others back
@@ -1218,7 +1218,7 @@ export interface WaveRowFacts {
    * A slice of one has no fold, so this row is the only row that branch gets.
    * Measured when they were absent: `expected 'Kind: Slice w branch
    * feature/phone…' to contain 'lonely-plan'` — the plan link, gone from a row
-   * that had it. `WaveRow` was written for NOT STARTED, where a branch has
+   * that had it. `SliceRow` was written for NOT STARTED, where a branch has
    * neither; every other section's branches have both.
    *
    * Ordered plan → slice's branches → PR in the projection, the same chain a PR
@@ -1262,11 +1262,11 @@ export interface WaveRowFacts {
  * punish six old plan files, and the board is not where an authoring convention
  * is enforced.
  */
-export function tupleFromWave(facts: WaveRowFacts): TupleRow {
+export function tupleFromSlice(facts: SliceRowFacts): TupleRow {
   return {
     kind: 'wave',
     kindLabel: KIND_LABEL.wave,
-    name: { what: 'plan', label: facts.name || UNNAMED_WAVE_LABEL, href: '' },
+    name: { what: 'plan', label: facts.name || UNNAMED_SLICE_LABEL, href: '' },
     // SLOT 4 HOLDS WHAT THE SLICE CONTAINS, and only that. Its branches, and
     // nothing pointing the other way.
     //

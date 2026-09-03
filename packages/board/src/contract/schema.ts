@@ -17,10 +17,41 @@ import {
  * at that boundary — everything downstream is typed.
  */
 
+/**
+ * Rewrites a `waves` key to `slices` on one object, so both wire spellings
+ * parse to the same shape.
+ *
+ * The board renamed its `Wave` to `Slice` and its payloads followed. A running
+ * client and a freshly deployed server therefore disagree for one deploy, and
+ * `plot-plan-meta.sh` — a separate process on its own release cadence —
+ * still emits `waves` indefinitely. Emitting `slices` while accepting `waves`
+ * is what makes both survivable. Used as a `z.preprocess` step, so it runs
+ * before validation and Zod still reports a malformed value under whichever
+ * key carried it.
+ *
+ * The twin of `readEitherSpelling` in `@plot-pm/domain`
+ * (`entities/fleet.ts`), which does the same for the scan's plan documents.
+ * Duplicated rather than shared: that one is not exported, and the domain must
+ * not gain an export whose only caller is the board's contract.
+ *
+ * @param value The raw object about to be validated. Anything that is not a
+ *   plain object — including `null` and arrays — is returned untouched, so the
+ *   schema behind it reports the type error rather than this function.
+ * @returns `value` unchanged when it already has `slices` or has neither key;
+ *   otherwise a copy with `waves` renamed to `slices`.
+ */
+const readEitherSpelling = (value: unknown): unknown => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+  const object = value as Record<string, unknown>;
+  if ('slices' in object || !('waves' in object)) return value;
+  const { waves, ...rest } = object;
+  return { ...rest, slices: waves };
+};
+
 // ─── Helper output: one JSON object per plan file ────────────────────────────
 
 /** Raw record emitted by `plot-plan-meta.sh` (one JSON line per plan). */
-export const PlanMetaSchema = z.object({
+export const PlanMetaSchema = z.preprocess(readEitherSpelling, z.object({
   file: z.string(),
   format: z.string(),
   /** Normalized, lowercase: draft|approved|delivered|released|rejected|… */
@@ -45,7 +76,7 @@ export const PlanMetaSchema = z.object({
    * validates. `branches` above stays the complete flat set — never derive one
    * from the other at this layer.
    */
-  waves: z.array(z.object({
+  slices: z.array(z.object({
     name: z.string().default(''),
     branches: z.array(z.object({
       branch: z.string(),
@@ -125,7 +156,7 @@ export const PlanMetaSchema = z.object({
    * `0 rounds` reads as *interrogated and found nothing*; a missing block means
    * *nobody has looked*. Those want opposite reactions from a reader, so the
    * two must not render alike. Same rule, and the same reason, as `claimed` and
-   * `eligible` on `WaveSummarySchema`.
+   * `eligible` on `SliceSummarySchema`.
    *
    * `plot-plan-meta.sh` omits the key entirely rather than sending a sentinel,
    * so `undefined` here is the parser's own answer and not a decoding artifact.
@@ -133,7 +164,7 @@ export const PlanMetaSchema = z.object({
    */
   rounds: z.number().optional(),
   error: z.string().optional(),
-});
+}));
 export type PlanMeta = z.infer<typeof PlanMetaSchema>;
 
 // ─── Board output: what GET /api/board returns ───────────────────────────────
@@ -207,8 +238,8 @@ export type StoryStatus = (typeof STORY_STATUSES)[number];
  * must not render identically. A card built without a pulse omits them, and the
  * tile shows nothing rather than a zero it cannot stand behind.
  */
-export const WaveSummarySchema = z.object({
-  waves: z.number(),
+export const SliceSummarySchema = z.preprocess(readEitherSpelling, z.object({
+  slices: z.number(),
   /** Non-deferred branches only — deferred work is not outstanding. */
   branches: z.number(),
   /** Branches whose git state is `claimed`. Absent when there is no pulse. */
@@ -216,8 +247,8 @@ export const WaveSummarySchema = z.object({
   /** Open branches in an eligible slice — startable now. Absent without a pulse. */
   eligible: z.number().optional(),
   deferred: z.number(),
-});
-export type WaveSummary = z.infer<typeof WaveSummarySchema>;
+}));
+export type SliceSummary = z.infer<typeof SliceSummarySchema>;
 
 /**
  * A pull request as a card names it: the number the plan wrote down, and the
@@ -313,7 +344,7 @@ export const CardSchema = z.object({
    * Carried on the CARD only. The agent row deliberately does not gain it: a row
    * is a statement about one branch, and most rows name a plan whose design
    * phase closed long ago — attaching a design-time count to all of them would
-   * be the crowding this board keeps removing. Same split as `waveSummary`,
+   * be the crowding this board keeps removing. Same split as `sliceSummary`,
    * which is card-only for the same reason.
    */
   rounds: z.number().optional(),
@@ -336,7 +367,7 @@ export const CardSchema = z.object({
    * Present for single-slice plans too — "is anyone working on this?" is the same
    * question whether a plan has one branch or nine.
    */
-  waveSummary: WaveSummarySchema.optional(),
+  sliceSummary: SliceSummarySchema.optional(),
   /**
    * Where this plan's branches are checked out on THIS machine — one entry per
    * branch that has a local worktree, in the pulse's own order.
@@ -973,7 +1004,7 @@ export const BoardSchema = z.object({
    *
    * **It answers only half the question the control needs.** This field says
    * whether THIS BOARD can act; whether a given plan has work to start — approved
-   * and `waveSummary.eligible > 0` — is `hasEligibleWork`, computed per plan.
+   * and `sliceSummary.eligible > 0` — is `hasEligibleWork`, computed per plan.
    * The control gates on the card first, and reads this flag for its refusal.
    *
    * Same default as the seven above: an older server sends nothing and a newer
@@ -1197,7 +1228,7 @@ export type RowKind = z.infer<typeof RowKindSchema>;
  * disagree; the server writes this value (`fleet.ts`, `wave.name || …`) and both
  * clients test for it, so it belongs where both already import from.
  */
-export const UNNAMED_WAVE = '(unnamed)';
+export const UNNAMED_SLICE = '(unnamed)';
 
 /**
  * The slice names that mean a SPIKE — a slice whose product may be a changed plan.
@@ -1226,12 +1257,12 @@ export const UNNAMED_WAVE = '(unnamed)';
  * case-insensitive on the WHOLE name, so `Tracer bullet` and `spike` read as one
  * and `Tracer-adjacent refactor` does not.
  */
-export const SPIKE_WAVES = ['tracer', 'spike'] as const;
+export const SPIKE_SLICES = ['tracer', 'spike'] as const;
 
 /** Is this slice a spike — one whose outcome may be a refined plan? */
-export function isSpikeWave(wave: string): boolean {
+export function isSpikeSlice(wave: string): boolean {
   const w = wave.trim().toLowerCase();
-  return SPIKE_WAVES.some((s) => w === s || w === `${s} bullet` || w === `${s} bullets`);
+  return SPIKE_SLICES.some((s) => w === s || w === `${s} bullet` || w === `${s} bullets`);
 }
 
 /**
@@ -1239,7 +1270,7 @@ export function isSpikeWave(wave: string): boolean {
  *
  * A plan with exactly one slice renders that slice's status on the plan row
  * rather than nesting a slice row beneath it: the slice adds no information
- * beyond what the plan itself says. The test is `planWaveCount === 1`,
+ * beyond what the plan itself says. The test is `planSliceCount === 1`,
  * evaluated on DECLARED slices (the plan's `### ` headings), not on how many
  * remain unfinished.
  *
@@ -1248,11 +1279,11 @@ export function isSpikeWave(wave: string): boolean {
  * construction, and 19 of the 35 are that vintage. The other 16 are genuinely
  * small plans whose scope never needed slicing.
  *
- * A Slice whose `planWaveCount` defaults (because the server predates this
+ * A Slice whose `planSliceCount` defaults (because the server predates this
  * field) answers `false` — show the slice row, the safe reading of unknown.
  */
-export function isOneWavePlan(wave: { planWaveCount?: number }): boolean {
-  return wave.planWaveCount === 1;
+export function isOneSlicePlan(wave: { planSliceCount?: number }): boolean {
+  return wave.planSliceCount === 1;
 }
 
 /**
@@ -1567,8 +1598,11 @@ export type {
  * rename and the board's call-site churn could be reviewed as distinct claims.
  * Both have landed; the aliases are gone and the board says `Slice`.
  *
- * `WaveSchema` below is a DIFFERENT entity that keeps its name — the board's
- * own derived per-`(plan, wave)` render state, not the domain's slice.
+ * `SliceSchema` below is the board's own derived per-`(plan, name)` render
+ * state. It was called `WaveSchema` until every one of its 58 instances on this
+ * estate was measured holding exactly one branch — which is a Slice, not the
+ * fleet cohort. The domain's `Wave` (`entities/wave.js`) is the cohort and is
+ * untouched; nothing in the board means it.
  */
 export {
   PlanSliceSchema,
@@ -1645,7 +1679,7 @@ export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
  * components with one thing that has a `kind`: **the abstraction goes where the
  * repetition is, not into the renderer.**
  *
- * DERIVED ONCE, SERVER-SIDE — `deriveWaves` in `fleet.ts`, where the scan's
+ * DERIVED ONCE, SERVER-SIDE — `deriveSlices` in `fleet.ts`, where the scan's
  * verdicts already are. The renderer must not recompute any part of it. The
  * same rule `kind` settled: *a derivation is a guess with a rule attached, and
  * the server is the only place that knows why the row exists.*
@@ -1656,18 +1690,18 @@ export type WaitingGroup = z.infer<typeof WaitingGroupSchema>;
  * Slice would be a field that only ever repeats the plan's. It is deliberately
  * absent; read the plan's phase where a slice's phase is wanted.
  */
-export const WaveSchema = z.object({
+export const SliceSchema = z.object({
   /**
    * WHICH PLAN this slice belongs to — the plan's basename, exactly as a row
    * carries it in `plan`. Half of a slice's identity: names repeat across plans
    * (`Tracer`, `Implementation`), so `plan` alone does not name a slice and
-   * `name` alone does not either. The pair is the id `openWaves` already keys
-   * on and `waveKeyOf` already spells; this field is its first half.
+   * `name` alone does not either. The pair is the id `openSlices` already keys
+   * on and `sliceKeyOf` already spells; this field is its first half.
    */
   plan: z.string(),
   /**
    * THE SLICE'S NAME — its `### ` heading in the plan file, or `(unnamed)` where
-   * the plan divided its work into no named slices. `UNNAMED_WAVE` is the value
+   * the plan divided its work into no named slices. `UNNAMED_SLICE` is the value
    * the server already substitutes on a row (`fleet.ts`, `wave.name || …`), and
    * the same value is carried here so a consumer joining a Slice to its rows
    * reads one spelling from both. A slice with no name is NOT hidden and does not
@@ -1738,19 +1772,19 @@ export const WaveSchema = z.object({
    * A plan with exactly one slice renders that slice's status on the PLAN row
    * rather than nesting a slice row beneath it: the slice adds no information
    * beyond what the plan itself says, and a second row costs vertical space
-   * without earning it. The test is `planWaveCount === 1`, evaluated on the
+   * without earning it. The test is `planSliceCount === 1`, evaluated on the
    * DECLARED slice count (the plan's `### ` headings), not on how many remain
    * unfinished.
    *
    * Defaulted so a pulse from a server predating this field still validates:
    * absent means *show every slice row*, and 2 is the minimal count at which
    * every slice row appears. Null would be the honest shape for *unknown*, but
-   * a client ternary that read `planWaveCount === 1` would treat `null` as
+   * a client ternary that read `planSliceCount === 1` would treat `null` as
    * *multi-slice* anyway, and a default of 2 is that same rule spelled once.
    */
-  planWaveCount: z.number().default(2),
+  planSliceCount: z.number().default(2),
 });
-export type Wave = z.infer<typeof WaveSchema>;
+export type Slice = z.infer<typeof SliceSchema>;
 
 /**
  * The four ways a branch can be unable to MOVE — as distinct from what it IS.
@@ -1859,7 +1893,7 @@ export const StuckSchema = z.object({
    * means slicing the slice into one per branch, so the row has to say which
    * branches are entangled.
    */
-  waveSiblings: z.array(z.string()).default([]),
+  sliceSiblings: z.array(z.string()).default([]),
   /**
    * The conflicting paths, for the two conflict states — [] for the other two.
    *
@@ -3134,7 +3168,15 @@ export const FleetSprintSchema = z.object({
 });
 export type FleetSprint = z.infer<typeof FleetSprintSchema>;
 
-export const FleetSchema = z.object({
+/**
+ * `FleetSchema`'s shape, without the either-spelling preprocess in front of it.
+ *
+ * `z.preprocess` types its input as `unknown`, so `z.input<typeof FleetSchema>`
+ * is `unknown` and a fixture builder loses every field name. Consumers that
+ * want the INPUT type read this; consumers that PARSE read `FleetSchema`, which
+ * is the only one that accepts the old `waves` spelling.
+ */
+export const FleetShape = z.object({
   generatedAt: z.string(),
   /** Seconds since the cached scan completed — the tab shows this. */
   ageSeconds: z.number(),
@@ -3226,7 +3268,7 @@ export const FleetSchema = z.object({
   rows: z.array(AgentRowSchema),
   /**
    * THE SLICES this fleet holds — one entry per `(plan, wave)`, derived once on
-   * the server beside the rows. See {@link WaveSchema} for what a slice is and
+   * the server beside the rows. See {@link SliceSchema} for what a slice is and
    * why it is a thing the contract carries rather than a string re-grouped by
    * every consumer.
    *
@@ -3245,7 +3287,7 @@ export const FleetSchema = z.object({
    * absent case, and the server emits this field unconditionally — cold cache
    * included — so a live server never leaves it off.
    */
-  waves: z.array(WaveSchema).default([]),
+  slices: z.array(SliceSchema).default([]),
   summary: FleetReadingSchema.shape.summary,
   /**
    * How many branches cannot move, and in which of the four ways.
@@ -3535,6 +3577,7 @@ export const FleetSchema = z.object({
    */
   branchUrlBase: z.string().default(''),
 });
+export const FleetSchema = z.preprocess(readEitherSpelling, FleetShape);
 export type Fleet = z.infer<typeof FleetSchema>;
 
 /* ------------------------------------------------------------------ */

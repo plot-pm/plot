@@ -11,7 +11,7 @@ import { DRAFT_PLAN_NOTE, type AgentRow, type Fleet } from '../../src/contract/s
  *
  * `groupedNote` returning `''` for an unknown word is pure and asserted in
  * `test/unit/agent-list.test.ts`. What only a rendered page can settle is that a
- * MULTI-BRANCH wave reaches the verdict arms AT ALL: the `waveNote` call site
+ * MULTI-BRANCH wave reaches the verdict arms AT ALL: the `sliceNote` call site
  * used to take `groupedCount !== undefined ? groupedNote(groupedWord)` for every
  * wave with more than one branch — `groupedCount` is defined for all of them —
  * so the two verdict clauses below it were DEAD for exactly this population, and
@@ -110,7 +110,7 @@ describe('a folded multi-branch wave head renders its verdict, not a claim', () 
     return page;
   }
 
-  /** The head of a folded wave — the row that carries `waveNote`. */
+  /** The head of a folded wave — the row that carries `sliceNote`. */
   const headNote = (page: Page, wave: string) =>
     page.locator(`[data-wave-row="${wave}"]`).locator('[data-row-note]');
 
@@ -128,7 +128,7 @@ describe('a folded multi-branch wave head renders its verdict, not a claim', () 
       // specific sentence, and a reworded regression must still fail here.
       expect(await note.textContent()).not.toContain('work landed');
       // The waiting-TONE is deliberately `you` for a grouped head regardless of
-      // verdict — a merge is a decision — and that is `waveWaitingOn`'s call, a
+      // verdict — a merge is a decision — and that is `sliceWaitingOn`'s call, a
       // separate ternary this fix does not touch. Only the SENTENCE is this
       // branch's subject, so only the sentence is asserted.
     } finally {

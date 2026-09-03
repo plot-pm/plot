@@ -2,10 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { type Page } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
 import {
-  openCatalogue, scenario, agent, row as buildRow, wave,
+  openCatalogue, scenario, agent, row as buildRow, slice,
   fleet as buildFleet, type Catalogue,
 } from '../catalogue/index.js';
-import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type Wave } from '../../src/contract/schema.js';
+import { ELIGIBLE_NOTE, type AgentEntry, type AgentRow, type Fleet, type Slice } from '../../src/contract/schema.js';
 
 /**
  * The Agents tab, driven in a REAL browser against the shipped artifact.
@@ -423,7 +423,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // whatever the sort does.)
     //
     // IN WAITING ON YOU, not in WORKING, and the move is the point rather than
-    // a convenience. `waveGroupsFor` returns [] for `working` and
+    // a convenience. `sliceGroupsFor` returns [] for `working` and
     // `waiting-on-machine` BY DESIGN: those sections ask what is HAPPENING to
     // the work, so an agent or a run is the subject and a plan is not. This
     // read `[]` because there are no plan heads there to read — the fixture was
@@ -532,7 +532,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // grouping itself. The heading groups; the link opens.
       // THE PLAN LINK LIVES ON THE PLAN ROW, once for the group, and a grouped
       // branch row carries only its own name. Measured on `feature/beans-1`: one
-      // link, `feature/beans-1`, and nothing else — `inWaveGroup` empties the
+      // link, `feature/beans-1`, and nothing else — `inSliceGroup` empties the
       // row's links because the row above already holds them.
       //
       // The old assertion wanted the link on EVERY branch row, which was right
@@ -845,7 +845,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // 2. The row does not say it again: no `sr-only` prefix above `sm`, because
     //    the header is the structure that replaced it.
     // 3. NO `title` ANYWHERE ON THE CELL. The old phase cell carried
-    //    `title={waveName ? "Wave: …" : "Phase: …"}` — hover-only text that was
+    //    `title={sliceName ? "Wave: …" : "Phase: …"}` — hover-only text that was
     //    the ONLY place the cell said which of its four facts it was showing.
     //    A single-meaning cell has nothing to disambiguate, so the attribute is
     //    gone rather than reworded, and this asserts that it is gone.
@@ -1155,17 +1155,17 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           branchUrl: `${GH}feature/cs-moved`, waitingDays: 3,
         }),
       ];
-      const waves: Wave[] = [
+      const slices: Slice[] = [
         {
           plan: blockerPlan, name: 'Shaped', branches: ['feature/cs-shaped'],
-          verdict: 'complete', section: 'done', complete: true, planWaveCount: 2,
+          verdict: 'complete', section: 'done', complete: true, planSliceCount: 2,
         },
         {
           plan: blockerPlan, name: 'Moved', branches: ['feature/cs-moved'],
-          verdict: 'blocked', section: 'not-started', complete: false, planWaveCount: 2,
+          verdict: 'blocked', section: 'not-started', complete: false, planSliceCount: 2,
         },
       ];
-      return { ...fleet({ rows }), waves };
+      return { ...fleet({ rows }), slices };
     };
 
     const page = await openAgents(crossSection());
@@ -1225,17 +1225,17 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
           kind: 'wave' as const,
         }),
       ];
-      const waves: Wave[] = [
+      const slices: Slice[] = [
         {
           plan: blockerPlan, name: 'Named', branches: ['feature/named'],
-          verdict: 'wip', section: 'working', complete: false, planWaveCount: 2,
+          verdict: 'wip', section: 'working', complete: false, planSliceCount: 2,
         },
         {
           plan: blockerPlan, name: 'Spoken', branches: ['feature/spoken'],
-          verdict: 'blocked', section: 'not-started', complete: false, planWaveCount: 2,
+          verdict: 'blocked', section: 'not-started', complete: false, planSliceCount: 2,
         },
       ];
-      return { ...fleet({ rows }), waves };
+      return { ...fleet({ rows }), slices };
     };
 
     const page = await openAgents(workingBlocker());
@@ -1950,7 +1950,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // that line already says) or strips the heading off the several.
     const page = await openAgents(fleet({
       rows: [
-        // WAITING ON YOU, not WORKING. `waveGroupsFor` groups in three sections
+        // WAITING ON YOU, not WORKING. `sliceGroupsFor` groups in three sections
         // — waiting-on-you, quiet and done — and returns nothing for WORKING and
         // WAITING ON A MACHINE by design: those ask *what is happening to this
         // work*, and an agent or a run is the subject there, not a plan.
@@ -2214,7 +2214,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       // It counted plan heads in WORKING and expected one. Two premises under
       // that have since changed: a one-row plan earns a head now, and — the
       // reason the count is 0 rather than 2 — WORKING does not group at all.
-      // `waveGroupsFor` returns [] for it by design, because that section asks
+      // `sliceGroupsFor` returns [] for it by design, because that section asks
       // what is HAPPENING to the work, so an agent is the subject and a plan is
       // not. Measured after the failed poll: three flat branch rows, no heads.
       //
@@ -2595,7 +2595,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
    * of the wave count would get one of them wrong. The named single-wave plan is
    * the one a presence check leaks on — it HAS a name and must still show none.
    */
-  function waveFleet(): Fleet {
+  function sliceFleet(): Fleet {
     return fleet({
       // WORKING renders from the registry, so its own WORKING branches — the
       // ones this fixture asserts about — need entries, and the inherited
@@ -2646,7 +2646,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // Both sections, still — a branch of a plan names its wave whether it sits
     // in WORKING or NOT STARTED, and it used to be possible for those to differ
     // because the label was gated on a fleet-wide count.
-    const page = await openAgents(waveFleet());
+    const page = await openAgents(sliceFleet());
     try {
       const truth = rowFor(page, 'feature/truth-a');       // WORKING
       // WORKING RENDERS THE AGENT, NOT THE BRANCH, since
@@ -2671,8 +2671,8 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
       //
       // The claim that survives is the one the badge existed for: a branch's
       // wave is REACHABLE beside it, whichever of the two shapes states it.
-      const foldWave = group(page, 'Not started').locator('li[data-wave-row="Fold"]');
-      await expect.poll(() => foldWave.count()).toBe(1);
+      const foldSlice = group(page, 'Not started').locator('li[data-wave-row="Fold"]');
+      await expect.poll(() => foldSlice.count()).toBe(1);
       for (const b of ['feature/fold-a', 'feature/fold-b']) {
         const li = rowFor(page, b);
         await expect.poll(() => li.count()).toBe(1);
@@ -2695,13 +2695,13 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
   it('names the wave of a plan divided ONCE, which the count used to suppress', async () => {
     // THE BEHAVIOUR CHANGE, and it is the reverse of what this block asserted
     // before. `flat`'s only wave is called `Layout`, and it showed nothing: the
-    // gate was `waveCount > 1`, defended as *a caption over a partition of one
+    // gate was `sliceCount > 1`, defended as *a caption over a partition of one
     // is noise* — sound while the label shared a cell with the plan phase, moot
     // beside the branch name where it displaces nothing.
     //
     // The plan that relocated it requires the wave be reachable for EVERY branch
     // that has one, so a named single wave now prints.
-    const page = await openAgents(waveFleet());
+    const page = await openAgents(sliceFleet());
     try {
       const flat = rowFor(page, 'feature/flat-a');
       // `flat-a` is a WORKING row, so its worker's row carries the wave as an
@@ -2719,7 +2719,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // `plain`'s branches carry `(unnamed)`, which the server writes for a plan
     // with no `### ` sub-headings — most plans on this board. A parenthesised
     // non-answer beside a branch name is worse than nothing.
-    return openAgents(waveFleet()).then(async (page) => {
+    return openAgents(sliceFleet()).then(async (page) => {
       try {
         const plain = rowFor(page, 'feature/plain-a');
         await expect.poll(() => plain.count()).toBe(1);
@@ -2742,7 +2742,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // rows read as ONE RUN. Adjacency used to carry that on its own; the group
     // states it, which is strictly more legible — and still no `h3`, because a
     // wave is drawn as a ROW and not as chrome. That half never changed.
-    const page = await openAgents(waveFleet());
+    const page = await openAgents(sliceFleet());
     try {
       const notStarted = group(page, 'Not started');
       const fold = notStarted.locator('li[data-wave-row="Fold"]');
@@ -2774,7 +2774,7 @@ describe('tiny-garden: the Agents tab (real browser renders the shipped artifact
     // which is the obvious implementation and the one that re-opens the defect:
     // an eighth track crosses the `CARD_BELOW_PX` arithmetic `ROW_TRACKS`
     // records having already crossed once by 8px.
-    const page = await openAgents(waveFleet());
+    const page = await openAgents(sliceFleet());
     try {
       await expect.poll(() => rowFor(page, 'feature/truth-a').count()).toBe(1);
       // SEVEN TRACKS ON EVERY ROW — the claim, asked of all of them rather than

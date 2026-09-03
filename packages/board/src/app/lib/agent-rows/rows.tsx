@@ -8,24 +8,24 @@ import {
   type IssueAnswer,
   type IssueRow,
   type WaitingGroup,
-  type Wave,
+  type Slice,
   type AgentEntry,
-  UNNAMED_WAVE,
-  isSpikeWave,
+  UNNAMED_SLICE,
+  isSpikeSlice,
   isBrokenState,
   RELEASE_BRANCH,
 } from '../../../contract/schema.js';
-import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromWave, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, agentAvailability, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
+import { tupleFromIssue, tupleFromPlan, tupleFromRow, tupleFromSlice, planPrAggregate, statusTone, tupleAgeText, agentStateStatus, agentAvailability, shortSessionId, worktreeName, KIND_LABEL } from '../tuple-row.js';
 import { TupleLinkView, TupleRowView } from '../../components/TupleRow.js';
 import { activityPace } from './activity.js';
 import { soleRowStatus, exceptionSummary } from './stuck.js';
-import { type PlanGroup, elsewhereNote, planWaitingDays, waveKeyOf, waveSummaryFor } from './sections.js';
+import { type PlanGroup, elsewhereNote, planWaitingDays, sliceKeyOf, sliceSummaryFor } from './sections.js';
 import { roundsBadgeText } from '../../components/PlanCard.js';
 import { machineNote, noteWithoutPr } from './host-notes.js';
 import { briefGapNote, needsBrief, waitingTone } from './row-identity.js';
-import { type WaveGroup, groupedNote, waveDissent } from './waves.js';
+import { type SliceGroup, groupedNote, sliceDissent } from './slices.js';
 import { ActivityMark, BlockedByMark, ChangeMark, StuckCell, UnpushedMark } from './marks.js';
-import { BranchMenu, BrokenAgentMenu, IssueRowActions, PlanActions, ResliceMenu, WaveActions } from './menus.js';
+import { BranchMenu, BrokenAgentMenu, IssueRowActions, PlanActions, ResliceMenu, SliceActions } from './menus.js';
 import { WorkerLogModal } from '../../components/WorkerLogModal.js';
 import { DispatchLogModal } from '../../components/DispatchLogModal.js';
 import { ChangedFilesModal } from '../../components/ChangedFilesModal.js';
@@ -420,7 +420,7 @@ export function HeaderRow() {
  */
 export function PlanRow({
   group,
-  waves,
+  slices,
   onOpenPlan,
   expanded,
   onToggle,
@@ -435,22 +435,22 @@ export function PlanRow({
   onApproving,
   ageMinutes,
   elsewhere = 0,
-  soleWave,
+  soleSlice,
   dispatch,
   onStarting,
 }: {
   group: PlanGroup;
   /**
    * The fleet's server-derived slices — the list the head's count reads instead
-   * of re-grouping `group.rows`. See `waveSummaryFor`. Undefined on a pre-slice
+   * of re-grouping `group.rows`. See `sliceSummaryFor`. Undefined on a pre-slice
    * server's pulse (the board casts, so the field is absent rather than `[]`),
    * and the summary then falls back to the row derivation.
    */
-  waves?: Wave[];
+  slices?: Slice[];
   onOpenPlan?: AgentListProps['onOpenPlan'];
   /**
    * How many of this plan's slices belong in ANOTHER section — from
-   * `wavesElsewhere`, computed at the call site where the server's `fleet.waves`
+   * `slicesElsewhere`, computed at the call site where the server's `fleet.slices`
    * and this head's section are both in scope. The head states the number so a
    * plan split across sections is legible as split; zero appends nothing. See
    * `elsewhereNote`.
@@ -512,12 +512,12 @@ export function PlanRow({
    * verdict, and a second row would state the same thing twice. Measured on
    * this estate: 35 of 54 plans have exactly one slice.
    */
-  soleWave?: Wave | null;
+  soleSlice?: Slice | null;
   /**
    * Whether this server will dispatch, and why not — passed through to the
-   * `WaveActions` control the plan row carries for a ONE-SLICE plan.
+   * `SliceActions` control the plan row carries for a ONE-SLICE plan.
    *
-   * `soleWave` hides the slice row; this is how the *Start work* that row would
+   * `soleSlice` hides the slice row; this is how the *Start work* that row would
    * have carried rides onto the plan row instead. Dispatch is one board-level
    * binding, not a per-slice one: `plot-dispatch.sh` fans out the eligible slice,
    * which for a one-slice plan is the only slice there is — no guessing, the worry
@@ -525,19 +525,19 @@ export function PlanRow({
    * control cannot act anyway.
    */
   dispatch?: DispatchInfo;
-  /** The pulse counter, passed through to `StartWorkButton` inside `WaveActions`. */
+  /** The pulse counter, passed through to `StartWorkButton` inside `SliceActions`. */
   pulse?: number;
   /** A Start-work click became outstanding (true) or settled (false). */
   onStarting?: (active: boolean) => void;
 }) {
   const waiting = planWaitingDays(group);
-  // THE SECTION'S OWN SLICES, then how many are ELSEWHERE. `waveSummaryFor` counts
-  // what this section holds — from the server's `waves` where the payload
+  // THE SECTION'S OWN SLICES, then how many are ELSEWHERE. `sliceSummaryFor` counts
+  // what this section holds — from the server's `slices` where the payload
   // carries them — and is silent about the rest; `elsewhere` names the rest so a
   // plan split across sections reads as split rather than as a whole plan two
   // slices short. Joined with a middot when both speak; either alone stands on
   // its own, and both empty renders nothing (the aside guards on it).
-  const here = waveSummaryFor(group, waves);
+  const here = sliceSummaryFor(group, slices);
   const away = elsewhereNote(elsewhere);
   // THE INTERROGATION ROUNDS, where the plan has been through any.
   //
@@ -746,13 +746,13 @@ export function PlanRow({
             {rounds}
           </span>
         )}
-        {soleWave?.verdict ? (
+        {soleSlice?.verdict ? (
         <span
-          data-sole-wave-verdict={soleWave.verdict}
-          title={`This plan's sole slice: ${soleWave.verdict}`}
-          className={`min-w-0 shrink-0 truncate ${statusTone(soleWave.verdict)}`}
+          data-sole-wave-verdict={soleSlice.verdict}
+          title={`This plan's sole slice: ${soleSlice.verdict}`}
+          className={`min-w-0 shrink-0 truncate ${statusTone(soleSlice.verdict)}`}
         >
-          {soleWave.verdict}
+          {soleSlice.verdict}
         </span>
       ) : prFold ? (
         <span
@@ -821,14 +821,14 @@ export function PlanRow({
       // out the eligible slice, and here that is the only slice there is.
       //
       // A MULTI-slice plan keeps this off: its slice rows still render and still
-      // carry their own `WaveActions`, so a plan-row control would be the guess
-      // the old comment warned of. The gate is `soleWave` being present AND
+      // carry their own `SliceActions`, so a plan-row control would be the guess
+      // the old comment warned of. The gate is `soleSlice` being present AND
       // `eligible` — the same `verdict === 'eligible'` gate a slice row applies,
       // for the same reason (`isStartable`: a control whose usual state is "you
       // cannot" teaches people to ignore controls).
       //
-      // `WaveActions` is a SECOND `⋯` beside `PlanActions`, the same composition
-      // a slice row uses (`WaveActions` + `ResliceMenu` + `BranchMenu`): each
+      // `SliceActions` is a SECOND `⋯` beside `PlanActions`, the same composition
+      // a slice row uses (`SliceActions` + `ResliceMenu` + `BranchMenu`): each
       // disjoint act-family carries its own trigger. These are additional to the
       // plan acts, never in place of them — a Draft one-slice plan shows both.
       menu={
@@ -847,9 +847,9 @@ export function PlanRow({
           dispatch={dispatch}
           pulse={pulse}
           onApproving={onApproving}
-          soleWave={
-            soleWave?.verdict === 'eligible' && card && dispatch
-              ? (soleWave.name || UNNAMED_WAVE)
+          soleSlice={
+            soleSlice?.verdict === 'eligible' && card && dispatch
+              ? (soleSlice.name || UNNAMED_SLICE)
               : undefined
           }
           onStarting={onStarting}
@@ -882,12 +882,12 @@ export function PlanRow({
  * 20 of 21 unfinished slices, so it is the common case and not an edge. A slice
  * holding several gets the disclosure, with its branches beneath.
  *
- * `showsWaveFold` on the plan row asks the same question one level up and
+ * `showsSliceFold` on the plan row asks the same question one level up and
  * answers it from a row count; this asks it of a slice's branches. Both are
  * *does opening this reveal anything*, and neither renders a control over a
  * single row the reader can already see.
  */
-export function WaveRow({
+export function SliceRow({
   group,
   plan,
   waitingDays,
@@ -908,10 +908,10 @@ export function WaveRow({
   onOpenPlan,
   onRevealBranch,
   planHeaded = false,
-  waves,
+  slices,
   onExpandSection,
 }: {
-  group: WaveGroup;
+  group: SliceGroup;
   /** The plan this slice slices — for the row's test hook, not for a link. */
   plan: string;
   /**
@@ -920,7 +920,7 @@ export function WaveRow({
    * scrolls. Undefined on a cast payload from a pre-#349 server; the mark then
    * assumes an open section and queries as it always did.
    */
-  waves?: Wave[];
+  slices?: Slice[];
   /** Unfold one collapsed section — passed to `BlockedByMark`. */
   onExpandSection?: (section: WaitingGroup) => void;
   /** The plan's approval clock, inherited where the slice has no tip of its own. */
@@ -994,7 +994,7 @@ export function WaveRow({
   const foldable = expanded !== null;
   // The slice's own age is the freshest of its branches — a slice has no tip, so
   // its clock is the clock of the work in it. `null` where none of them has one,
-  // and then `tupleFromWave` falls back to the plan's approval clock, labelled.
+  // and then `tupleFromSlice` falls back to the plan's approval clock, labelled.
   const ages = group.rows.map((r) => r.ageMinutes).filter((a): a is number => a !== null);
   // A SLICE OF ONE INHERITS ITS BRANCH'S NOTE, since there is no branch row left
   // to carry it: `conflicting: …`, `last commit 6h ago`, `PR #303, checks
@@ -1016,7 +1016,7 @@ export function WaveRow({
   // distinction IS the point: one of these can be started and two cannot.
   // `you` is the amber tone the board uses for *this needs a decision*, which is
   // exactly what an eligible slice is.
-  const waveWaitingOn: WaitingOn | null =
+  const sliceWaitingOn: WaitingOn | null =
     // `you` — a merge is a decision, whatever the verdict says about ordering.
     soleRow ? soleRow.waitingOn
       : groupedCount !== undefined ? 'you'
@@ -1028,7 +1028,7 @@ export function WaveRow({
       : group.verdict === 'unapproved' ? 'you'
       : group.verdict === 'blocked' ? 'time'
         : null;
-  const waveNote =
+  const sliceNote =
     // A REVIEWABLE SLICE says what it is waiting for, and it is a person. The
     // verdict's sentences are both about starting — and these branches are
     // started, so neither is true here.
@@ -1045,7 +1045,7 @@ export function WaveRow({
     //
     // `soleRow` says *this slice has one branch and the branch speaks for it*.
     // That is the condition the verdict sentences must yield to, whether or not
-    // anything survives the strip — and it is what the sibling `waveWaitingOn`
+    // anything survives the strip — and it is what the sibling `sliceWaitingOn`
     // ternary above already tests.
     //
     // AND THE GROUPED NOTE FALLS THROUGH THE SAME WAY. `groupedNote` now answers
@@ -1059,7 +1059,7 @@ export function WaveRow({
     // describes, so it derives the same value a single-branch slice does.
     soleRow ? soleNote
       : (groupedCount !== undefined
-        ? groupedNote(groupedWord, waveDissent(group.rows))
+        ? groupedNote(groupedWord, sliceDissent(group.rows))
         : '')
         || (group.verdict === 'eligible' ? 'approved — nobody has taken it'
           : group.verdict === 'blocked' ? 'an earlier slice has to land first'
@@ -1072,7 +1072,7 @@ export function WaveRow({
             : '');
   return (
     <TupleRowView
-      tuple={tupleFromWave({
+      tuple={tupleFromSlice({
         name: group.wave,
         plan,
         verdict: group.verdict,
@@ -1106,9 +1106,9 @@ export function WaveRow({
         // a branch row has to be reachable from here.
         //
         // Measured as two separate losses when it was not:
-        //   `expected 'Kind: Wave w branch feature/phone…' to contain 'lonely-plan'`
+        //   `expected 'Kind: Slice w branch feature/phone…' to contain 'lonely-plan'`
         //   — the plan link, gone from a row that had it.
-        // `WaveRow` was written for NOT STARTED, where a branch has no PR and no
+        // `SliceRow` was written for NOT STARTED, where a branch has no PR and no
         // plan link to lose. Every other section's branches have both.
         solePr: soleRow?.pr ?? null,
         // NO PLAN LINK WHERE A PLAN ROW HEADS THIS SLICE, and that is the whole
@@ -1119,7 +1119,7 @@ export function WaveRow({
         // opus5-longhorizon-hardening` under a PLAN row naming the same slug, and
         // wrapped to 75px — double every sibling.
         //
-        // It IS needed where no plan row heads the group: `waveGroupsFor` returns
+        // It IS needed where no plan row heads the group: `sliceGroupsFor` returns
         // nothing for a mixed group, and a lone slice row then carries the only
         // statement of which plan it belongs to. `planHeaded` is what the caller
         // knows and this row cannot.
@@ -1149,7 +1149,7 @@ export function WaveRow({
           : [],
         blockedBy: group.blockedBy,
         // ITS OWN COUNT, derived from its own rows — no contract field, the same
-        // property `waveSummaryFor` keeps one level up. `blockedNote()` composed
+        // property `sliceSummaryFor` keeps one level up. `blockedNote()` composed
         // this number into a sentence on the row that WAITED on the slice; here it
         // is on the slice it counts.
         //
@@ -1162,23 +1162,23 @@ export function WaveRow({
         waitingDays,
       })}
       rowAttr={{
-        'data-wave-row': group.wave || UNNAMED_WAVE,
+        'data-wave-row': group.wave || UNNAMED_SLICE,
         // A SPIKE says so as an attribute too, so a test asserts the KIND of slice
         // rather than the colour of a glyph.
-        ...(isSpikeWave(group.wave) ? { 'data-wave-spike': '' } : {}),
+        ...(isSpikeSlice(group.wave) ? { 'data-wave-spike': '' } : {}),
       }}
       // AMBER FOR A SPIKE, slate for an implementation slice — and never colour
       // alone: the word `spike` rides beside the name in `beside` below. A tracer
       // that fails sends the reader back to the PLAN, and that is worth telling
       // apart from a slice whose failure means a rebase.
-      iconTone={isSpikeWave(group.wave)
+      iconTone={isSpikeSlice(group.wave)
         ? 'text-amber-600 dark:text-amber-400' : undefined}
       beside={
         // THE WORD, because a colour cannot be the only carrier — the same rule
         // slot 2 follows for the kind itself. `spike` rather than `tracer` because
         // it names what the slice IS for any of its spellings (`Tracer`, `Spike`,
         // `Tracer bullet`), and the slice's own name is right beside it.
-        isSpikeWave(group.wave) ? (
+        isSpikeSlice(group.wave) ? (
           <span
             data-wave-kind="spike"
             className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0 text-[11px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
@@ -1194,7 +1194,7 @@ export function WaveRow({
         // A note's tone distinguishes *waiting on you* (something to click) from
         // *waiting on time* (an earlier slice has to land) — and in NOT STARTED
         // that distinction had no carrier left: the branch rows that held
-        // `data-row-note` are folded into slice rows, and `tupleFromWave` has no
+        // `data-row-note` are folded into slice rows, and `tupleFromSlice` has no
         // note. Measured: zero `data-row-note` elements in the section.
         //
         // The VERDICT is the same distinction the note was encoding, so the tone
@@ -1208,14 +1208,14 @@ export function WaveRow({
         // scans down a column, and this holds the sentence that explains the
         // colour. Where the slice is complete there is nothing to wait for and
         // nothing renders.
-        waveNote ? (
+        sliceNote ? (
           <span
             data-row-note
-            data-waiting-on={waveWaitingOn ?? undefined}
-            className={`min-w-0 truncate ${waitingTone(waveWaitingOn)}`}
-            title={waveNote}
+            data-waiting-on={sliceWaitingOn ?? undefined}
+            className={`min-w-0 truncate ${waitingTone(sliceWaitingOn)}`}
+            title={sliceNote}
           >
-            {waveNote}
+            {sliceNote}
           </span>
         ) : null
       }
@@ -1265,11 +1265,11 @@ export function WaveRow({
               plan={plan}
               wave={group.blockedBy}
               // WHICH SECTION the blocker sits in — read from the payload's own
-              // slice, keyed by plan+name the same way `openWaves` keys. Null
+              // slice, keyed by plan+name the same way `openSlices` keys. Null
               // where the payload named no such slice (a cast pre-#349 pulse),
               // and the mark then queries an assumed-open section as before.
               section={
-                waves?.find((w) => waveKeyOf(w.plan, w.name) === waveKeyOf(plan, group.blockedBy!))
+                slices?.find((w) => sliceKeyOf(w.plan, w.name) === sliceKeyOf(plan, group.blockedBy!))
                   ?.section ?? null
               }
               onExpandSection={onExpandSection}
@@ -1336,7 +1336,7 @@ export function WaveRow({
       // nothing to click. Reported from a screenshot.
       //
       // The plan warned that a dispatch control on a PLAN row *"would have to
-      // guess which of the plan's waves it meant"*, and one level down the same
+      // guess which of the plan's slices it meant"*, and one level down the same
       // worry does not apply — because `StartWorkButton` takes a **`Card`** and
       // a `dispatch` binding, NOT a branch. Dispatch is a plan-level act:
       // `plot-dispatch.sh` fans out the eligible slice, which is this row. There
@@ -1348,7 +1348,7 @@ export function WaveRow({
       // and the note beside it already says an earlier slice has to land first.
       // AND THE BRANCH'S MENU WHERE THIS ROW IS A BRANCH'S ROW.
       //
-      // `WaveActions` above dispatches the SLICE and is gated on
+      // `SliceActions` above dispatches the SLICE and is gated on
       // `verdict === 'eligible'` for its own good reason. That gate was also,
       // accidentally, the gate on whether this row had ANY menu — so a slice of
       // one branch, which is what most plans are, lost Review, Open and the
@@ -1362,7 +1362,7 @@ export function WaveRow({
       menu={
         <>
           {group.verdict === 'eligible' && card && dispatch ? (
-            <WaveActions
+            <SliceActions
               wave={group.wave || '(unnamed)'}
               card={card}
               dispatch={dispatch}
@@ -1474,10 +1474,10 @@ export function Row({
   marked = false,
   active = false,
   inPlanGroup = false,
-  inWaveGroup = false,
+  inSliceGroup = false,
   agent = null,
   section,
-  waveName = null,
+  sliceName = null,
   onRevealBranch,
   highlighted = false,
 }: {
@@ -1502,7 +1502,7 @@ export function Row({
    * decides what a row shows, and one function called from two places is what
    * keeps the two sections' branch rows saying the same thing.
    */
-  waveName?: string | null;
+  sliceName?: string | null;
   /**
    * True when this row sits inside a plan group that draws its own separator.
    *
@@ -1514,9 +1514,9 @@ export function Row({
   inPlanGroup?: boolean;
   /**
    * Whether this row sits inside a SLICE's fold, whose verdict is on screen one
-   * line up. Suppresses a redundant `open` — see `waveStatesIt`.
+   * line up. Suppresses a redundant `open` — see `sliceStatesIt`.
    */
-  inWaveGroup?: boolean;
+  inSliceGroup?: boolean;
   /**
    * This branch's entry in the agent registry, where one is running on it.
    *
@@ -1589,7 +1589,7 @@ export function Row({
     //
     // Same shape as the machine section one line down, and the same reason: a
     // row appearing twice must not say the same thing twice.
-    inWaveGroup ? '' :
+    inSliceGroup ? '' :
     section === 'waiting-on-machine' ? machineNote(row) : row.note,
     row.pr,
   );
@@ -1680,7 +1680,7 @@ export function Row({
   // `pr === null` is the test rather than the section, because it names the
   // reason: a PR carries a condition of its own, reported by the host, that no
   // verdict computed from ordering can express.
-  const waveStatesIt = inWaveGroup && row.pr === null;
+  const sliceStatesIt = inSliceGroup && row.pr === null;
   const base = tupleFromRow(row, agent);
   // THE AGE GOES WITH THE STATUS, and for one reason rather than two: inside a
   // slice's fold, the SLICE is the subject and the branch is its content.
@@ -1699,9 +1699,9 @@ export function Row({
     ...base,
     // The age goes with the status, and returns with it: a PR that has sat for
     // three weeks is saying something its slice's freshest-branch clock hides.
-    ...(inheritedClock || (inWaveGroup && row.pr === null)
+    ...(inheritedClock || (inSliceGroup && row.pr === null)
       ? { age: { text: '', label: '' } } : {}),
-    ...(waveStatesIt ? { status: '' } : {}),
+    ...(sliceStatesIt ? { status: '' } : {}),
     // AND NO PLAN LINK, for the reason the slice row carries none: the plan is
     // TWO rows up, heading the group these rows are nested in, and a link to it
     // on every child says the same thing as many times as the slice has
@@ -1734,7 +1734,7 @@ export function Row({
     // own source names the regression it repeats — *a branch started and then
     // shelved read as never begun, with its age and its PR erased* — and the
     // slice heading it cannot stand in, since a slice with two PRs names neither.
-    ...(inWaveGroup
+    ...(inSliceGroup
       ? { links: base.links.filter((l) => l.what !== 'plan' && l.what !== 'wave') }
       : {}),
   };
@@ -1865,19 +1865,19 @@ export function Row({
               the slice is a section of.
 
               Every branch that names a slice shows it, and the gate is a
-              property of the ROW alone — see `waveLabel`. */}
-          {waveName && (
+              property of the ROW alone — see `sliceLabel`. */}
+          {sliceName && (
             <span
-              data-wave={waveName}
+              data-wave={sliceName}
               className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
               // The word `wave` is in the TITLE and not in the badge, because
               // the badge is read beside a branch name where the relation is
               // already visible. This is not a tooltip standing in for a label
               // — the slice NAME is rendered in text; the title only says what
               // kind of name it is.
-              title={`Slice ${waveName} — the part of the plan this branch belongs to`}
+              title={`Slice ${sliceName} — the part of the plan this branch belongs to`}
             >
-              {waveName}
+              {sliceName}
             </span>
           )}
           {/* `deferred` — BESIDE the state, never instead of it, the same shape
@@ -2008,7 +2008,7 @@ export function Row({
               that has no slice row above it. The two other slice-scoped states
               (`double-claimed` is per-branch, the rest are per-branch) are
               unaffected: only this one describes the container. */}
-          {row.stuck?.state === 'unsliced-wave' && inWaveGroup
+          {row.stuck?.state === 'unsliced-wave' && inSliceGroup
             ? null : <StuckCell row={row} />}
           {/* THE DEFERRAL'S REASON, on the row's OWN SECOND LINE.
 
@@ -2135,7 +2135,7 @@ export function Row({
 export function RegistryRow({
   agent,
   row = null,
-  waves,
+  slices,
   onOpenPlan,
   card = null,
   dispatch,
@@ -2161,7 +2161,7 @@ export function RegistryRow({
    * The fleet's slices — passed so a running worker can name its slice even when
    * no branch row exists. `the-working-section-shows-every-worker`, slice Named.
    */
-  waves?: Wave[];
+  slices?: Slice[];
   onOpenPlan?: AgentListProps['onOpenPlan'];
   /** This row's plan as a board card, or null where the board has none. */
   card?: Card | null;
@@ -2247,7 +2247,7 @@ export function RegistryRow({
       ? { what: 'branch' as const, label: agent.branch, href: row?.branchUrl ?? '' }
       : { what: 'worktree' as const, label: worktreeName(agent.worktree), href: '' };
 
-  // A RUNNING WORKER NAMES ITS SLICE — looked up from `fleet.waves` by branch.
+  // A RUNNING WORKER NAMES ITS SLICE — looked up from `fleet.slices` by branch.
   // `the-working-section-shows-every-worker`, slice Named.
   //
   // The joined row already carries `row.wave`, but the UNJOINED case (no branch
@@ -2257,12 +2257,12 @@ export function RegistryRow({
   //
   // Silent where the branch belongs to no slice: a `main` worker or a scratch
   // branch has no slice to name, and `(unnamed)` is filtered out below as
-  // noise — the same rule `waveLabel` applies to a branch's slice badge.
-  const lookedUpWave = agent.branch
-    ? waves?.find((w) => w.branches.includes(agent.branch))
+  // noise — the same rule `sliceLabel` applies to a branch's slice badge.
+  const lookedUpSlice = agent.branch
+    ? slices?.find((w) => w.branches.includes(agent.branch))
     : undefined;
-  const waveName = lookedUpWave && lookedUpWave.name !== UNNAMED_WAVE
-    ? lookedUpWave.name
+  const sliceName = lookedUpSlice && lookedUpSlice.name !== UNNAMED_SLICE
+    ? lookedUpSlice.name
     : null;
 
   // THE JOINED SHAPE reuses the branch row's own projection, but as an AGENT:
@@ -2287,9 +2287,9 @@ export function RegistryRow({
           ...(agent.branch
             ? [{ what: 'branch' as const, label: agent.branch, href: '' }]
             : []),
-          // THE SLICE, where one was found by looking up `fleet.waves`.
-          ...(waveName
-            ? [{ what: 'wave' as const, label: waveName, href: '' }]
+          // THE SLICE, where one was found by looking up `fleet.slices`.
+          ...(sliceName
+            ? [{ what: 'wave' as const, label: sliceName, href: '' }]
             : []),
         ],
         status: '',
@@ -2299,9 +2299,9 @@ export function RegistryRow({
   // `row.wave` straight through, so an UNNAMED slice — the absence of a division,
   // which the server spells `(unnamed)` for a plan with no `### ` headings —
   // would render a `(unnamed)` link beside the branch. A parenthesised non-answer
-  // is worse than nothing, the same rule `waveLabel` applies to a branch's slice
+  // is worse than nothing, the same rule `sliceLabel` applies to a branch's slice
   // badge, so it is dropped here rather than shown.
-  const links = base.links.filter((l) => !(l.what === 'wave' && l.label === UNNAMED_WAVE));
+  const links = base.links.filter((l) => !(l.what === 'wave' && l.label === UNNAMED_SLICE));
   const tuple = { ...base, links, status, ...(sessionAge ? { age: sessionAge } : {}) };
 
   // THE BRANCH'S NOTE, where a branch row carries one — *last commit 3 min ago*,

@@ -162,7 +162,7 @@ const settle = (ms = 4000) => new Promise((r) => setTimeout(r, ms));
 //
 // Deriving it keeps every fixture honest by construction: a test states its
 // branches and cannot contradict itself in a field it never thought about.
-const wave = (
+const slice = (
   name: string,
   branches: Array<[string, 'open' | 'wip' | 'merged' | 'claimed' | 'deferred']>,
 ) => ({
@@ -179,11 +179,11 @@ const wave = (
   })),
 });
 
-const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): FleetReading =>
+const pulse = (plans: Array<[string, string, ReturnType<typeof slice>[]]>): FleetReading =>
   FleetReadingSchema.parse({
     main: 'main',
     head: 'abc1234',
-    plans: plans.map(([file, phase, waves]) => ({ file, phase, slices: waves })),
+    plans: plans.map(([file, phase, slices]) => ({ file, phase, slices })),
     summary: {
       plans: plans.length, waves: 0, branches: 0,
       claimed: 0, eligible: 0, blocked: 0, deferred: 0,
@@ -192,7 +192,7 @@ const pulse = (plans: Array<[string, string, ReturnType<typeof wave>[]]>): Fleet
 
 /** An approved plan whose single wave has merged — the deliverable case. */
 const finished = (file = '2026-08-27-ship-it.md') =>
-  pulse([[file, 'approved', [wave('W', [['feature/a', 'merged']])]]]);
+  pulse([[file, 'approved', [slice('W', [['feature/a', 'merged']])]]]);
 
 describe('planAutoDeliver — the decision, and it is pure', () => {
   it('names an approved plan whose every non-deferred wave has merged', () => {
@@ -205,8 +205,8 @@ describe('planAutoDeliver — the decision, and it is pure', () => {
   it('ITEM 6: delivers NOTHING while a non-deferred wave is unmerged', () => {
     const p = pulse([
       ['2026-08-27-ship-it.md', 'approved', [
-        wave('One', [['feature/a', 'merged']]),
-        wave('Two', [['feature/b', 'open']]),
+        slice('One', [['feature/a', 'merged']]),
+        slice('Two', [['feature/b', 'open']]),
       ]],
     ]);
     expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([]);
@@ -218,8 +218,8 @@ describe('planAutoDeliver — the decision, and it is pure', () => {
   it('ITEM 5: a plan whose remaining waves are ALL deferred is not delivered', () => {
     const p = pulse([
       ['2026-08-27-shelved.md', 'approved', [
-        wave('One', [['feature/a', 'deferred']]),
-        wave('Two', [['feature/b', 'deferred']]),
+        slice('One', [['feature/a', 'deferred']]),
+        slice('Two', [['feature/b', 'deferred']]),
       ]],
     ]);
     expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([]);
@@ -232,8 +232,8 @@ describe('planAutoDeliver — the decision, and it is pure', () => {
     // branch would pass the test above and fail this one.
     const p = pulse([
       ['2026-08-27-mixed.md', 'approved', [
-        wave('One', [['feature/a', 'merged']]),
-        wave('Two', [['feature/b', 'deferred']]),
+        slice('One', [['feature/a', 'merged']]),
+        slice('Two', [['feature/b', 'deferred']]),
       ]],
     ]);
     expect(planAutoDeliver({ pulse: p, inFlight: new Set() }).map((x) => x.slug)).toEqual(['mixed']);
@@ -241,13 +241,13 @@ describe('planAutoDeliver — the decision, and it is pure', () => {
 
   it('refuses a plan that is not approved — draft, delivered and released alike', () => {
     for (const phase of ['draft', 'delivered', 'released']) {
-      const p = pulse([['2026-08-27-ship-it.md', phase, [wave('W', [['feature/a', 'merged']])]]]);
+      const p = pulse([['2026-08-27-ship-it.md', phase, [slice('W', [['feature/a', 'merged']])]]]);
       expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([]);
     }
   });
 
   it('refuses a plan with no branches at all', () => {
-    const p = pulse([['2026-08-27-empty.md', 'approved', [wave('W', [])]]]);
+    const p = pulse([['2026-08-27-empty.md', 'approved', [slice('W', [])]]]);
     expect(planAutoDeliver({ pulse: p, inFlight: new Set() })).toEqual([]);
   });
 
@@ -267,7 +267,7 @@ describe('pruneDelivering — retiring what the pulse has confirmed', () => {
   });
 
   it('retires a slug once its plan has moved to delivered', () => {
-    const p = pulse([['2026-08-27-ship-it.md', 'delivered', [wave('W', [['feature/a', 'merged']])]]]);
+    const p = pulse([['2026-08-27-ship-it.md', 'delivered', [slice('W', [['feature/a', 'merged']])]]]);
     expect([...pruneDelivering(new Set(['ship-it']), p)]).toEqual([]);
   });
 
@@ -398,7 +398,7 @@ describe('maybeAutoDeliver — the act', () => {
 
   it('spawns nothing for a plan that is not deliverable', async () => {
     const { opts, runs } = fixture('');
-    const p = pulse([['2026-08-27-ship-it.md', 'approved', [wave('W', [['feature/a', 'open']])]]]);
+    const p = pulse([['2026-08-27-ship-it.md', 'approved', [slice('W', [['feature/a', 'open']])]]]);
     const next = maybeAutoDeliver(opts, p, new Set());
     await settle();
     expect(runs()).toEqual([]);

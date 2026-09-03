@@ -341,7 +341,7 @@ The first wave.
       // checkout sees ONE wave, that wave has merged, and it therefore reports
       // `deliverable: true` as well — the right answer reached from the wrong
       // plan, which would leave this test green while the defect stood.
-      assert.equal(card.waveSummary.waves, 2, 'both waves must be seen — the checkout knows only one');
+      assert.equal(card.sliceSummary.slices, 2, 'both slices must be seen — the checkout knows only one');
       assert.deepEqual(
         card.prs.map((pr) => pr.number),
         [457, 463],

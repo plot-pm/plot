@@ -12,7 +12,7 @@ import { type AgentRow, type Fleet, type Board } from '../../src/contract/schema
  * ROW — the row that, before this feature, had no menu of any kind — and reaches
  * no other. That is the defect a card-only check misses: a control that cannot
  * render passes every assertion that never mounts it, and this row was the one
- * `WaveActions` (gated on `verdict === 'eligible'`) and `BranchMenu` (gated on a
+ * `SliceActions` (gated on `verdict === 'eligible'`) and `BranchMenu` (gated on a
  * sole branch) both declined to give a menu.
  *
  *   - a wave the board reports `unsliced-wave` offers *Slice this wave*.
@@ -39,7 +39,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
 /** The wave-level stuck state, with every field the schema carries. */
 function unslicedStuck(siblings: string[]): AgentRow['stuck'] {
   return {
-    state: 'unsliced-wave', claimedBy: [], waveSiblings: siblings,
+    state: 'unsliced-wave', claimedBy: [], sliceSiblings: siblings,
     conflicts: [], localAhead: 0, changedPaths: [], failingChecks: [],
     runHistory: [],
   };

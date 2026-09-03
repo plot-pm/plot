@@ -89,9 +89,13 @@ describe('AgentEntrySchema — liveness on the wire', () => {
   });
 });
 
-describe('PlanMetaSchema — waves', () => {
+describe('PlanMetaSchema — slices', () => {
   const base = { file: 'docs/plans/x.md', format: 'canonical', phase: 'approved' };
 
+  // THE FIXTURES SPELL IT `waves` ON PURPOSE. That is what
+  // `plot-plan-meta.sh` emits today, and it ships on its own cadence, so this
+  // block is the compatibility case rather than a stale one. The parsed object
+  // exposes `slices`: the reader resolves the spelling, it does not preserve it.
   it('accepts the waves array emitted by plot-plan-meta.sh', () => {
     const parsed = PlanMetaSchema.parse({
       ...base,
@@ -104,21 +108,21 @@ describe('PlanMetaSchema — waves', () => {
         },
       ],
     });
-    expect(parsed.waves).toHaveLength(2);
-    expect(parsed.waves[0].name).toBe('Tracer');
-    expect(parsed.waves[1].branches[0].deferred).toBe(true);
-    expect(parsed.waves[1].branches[0].claimed).toBe('2026-08-14T10:22Z, s-3');
+    expect(parsed.slices).toHaveLength(2);
+    expect(parsed.slices[0].name).toBe('Tracer');
+    expect(parsed.slices[1].branches[0].deferred).toBe(true);
+    expect(parsed.slices[1].branches[0].claimed).toBe('2026-08-14T10:22Z, s-3');
   });
 
-  it('defaults waves to empty so pre-wave helper output still validates', () => {
+  it('defaults slices to empty so pre-slice helper output still validates', () => {
     // The board must keep working against an older plot-plan-meta.sh that
-    // emits no waves field at all.
+    // emits neither spelling at all.
     const parsed = PlanMetaSchema.parse({ ...base, branches: ['feature/a'] });
-    expect(parsed.waves).toEqual([]);
+    expect(parsed.slices).toEqual([]);
   });
 
-  it('keeps the flat branches list as the whole set, independent of waves', () => {
-    // waves[] groups; branches[] remains the complete, sorted set that existing
+  it('keeps the flat branches list as the whole set, independent of slices', () => {
+    // slices[] groups; branches[] remains the complete, sorted set that existing
     // consumers read. One must never be derived from the other at this layer.
     const parsed = PlanMetaSchema.parse({
       ...base,
@@ -156,7 +160,7 @@ describe('PlanMetaSchema — the ceremony fields the board carries', () => {
   });
 });
 
-describe('WaveSummarySchema — plan shape and git occupancy, kept apart', () => {
+describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () => {
   const base = {
     slug: 'x', title: 'X', type: 'feature', phase: 'Development', path: 'docs/plans/x.md',
   } as const;
@@ -166,14 +170,14 @@ describe('WaveSummarySchema — plan shape and git occupancy, kept apart', () =>
     // valid card.
     const card = CardSchema.parse({
       ...base,
-      waveSummary: { waves: 2, branches: 3, claimed: 1, eligible: 2, deferred: 0 },
+      sliceSummary: { slices: 2, branches: 3, claimed: 1, eligible: 2, deferred: 0 },
     });
-    expect(card.waveSummary?.claimed).toBe(1);
-    expect(card.waveSummary?.eligible).toBe(2);
+    expect(card.sliceSummary?.claimed).toBe(1);
+    expect(card.sliceSummary?.eligible).toBe(2);
     const bare = CardSchema.parse({
       slug: 'y', title: 'Y', type: 'docs', phase: 'Design', path: 'docs/plans/y.md',
     });
-    expect(bare.waveSummary).toBeUndefined();
+    expect(bare.sliceSummary).toBeUndefined();
   });
 
   it('accepts a summary with NO occupancy counts — absent is not zero', () => {
@@ -183,13 +187,13 @@ describe('WaveSummarySchema — plan shape and git occupancy, kept apart', () =>
     // exact confusion this schema was changed to remove — a card asserting
     // "nobody is working on this" when it has not looked.
     const card = CardSchema.parse({
-      ...base, waveSummary: { waves: 1, branches: 2, deferred: 0 },
+      ...base, sliceSummary: { slices: 1, branches: 2, deferred: 0 },
     });
-    expect(card.waveSummary?.claimed).toBeUndefined();
-    expect(card.waveSummary?.eligible).toBeUndefined();
+    expect(card.sliceSummary?.claimed).toBeUndefined();
+    expect(card.sliceSummary?.eligible).toBeUndefined();
     // Shape survives without git: these come from the plan file and stay true
     // when the scan cannot run at all.
-    expect(card.waveSummary?.branches).toBe(2);
+    expect(card.sliceSummary?.branches).toBe(2);
   });
 });
 

@@ -70,7 +70,7 @@ const row = (over: Partial<AgentRow> = {}): AgentRow => ({
  * The Draft card sits in Discovery (`isDraft` reads exactly `phase ===
  * 'Discovery'`), so its Approve renders. The approved card sits in a later
  * column — it carries no Approve, and its only job here is to be the `card` the
- * eligible wave row needs before `WaveActions` will mount Start work
+ * eligible wave row needs before `SliceActions` will mount Start work
  * (`group.verdict === 'eligible' && card && dispatch`). Both `approve` and
  * `dispatch` are available so neither control is disabled for a reason other
  * than the one under test.
@@ -249,7 +249,7 @@ describe('a plan moves through the sections — approve it, and Start work takes
     });
     try {
       await expandAgentFolds(page);
-      // The eligible wave's menu — `WaveActions` renders `data-wave-actions` for
+      // The eligible wave's menu — `SliceActions` renders `data-wave-actions` for
       // an eligible wave once a card and a dispatch verdict exist.
       const menuButton = notStarted(page).locator('[data-wave-actions="Sown"]');
       await menuButton.waitFor({ timeout: 10_000 });

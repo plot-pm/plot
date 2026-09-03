@@ -26,10 +26,10 @@
 import { describe, it, expect } from 'vitest';
 import { classify, rowsFromPulse } from '../../src/server/fleet.js';
 import type { PrRecord } from '../../src/server/fleet.js';
-import type { AgentRow, BranchState, FleetReading, WaitingGroup, WaveVerdict, WorkerState } from '../../src/contract/schema.js';
+import type { AgentRow, BranchState, FleetReading, WaitingGroup, SliceVerdict, WorkerState } from '../../src/contract/schema.js';
 // WHERE THE WAVE'S SECTION NOW LIVES. `classify` answers per BRANCH and still
 // does — a merged branch of an eligible wave is `done` to it, correctly, for a
-// branch. The wave's ONE section is decided a layer up, by `waveSection` reading
+// branch. The wave's ONE section is decided a layer up, by `sliceSection` reading
 // the verdict the scan already aggregated. So the two `Inverted` rules below
 // that `a-wave-is-one-row` fixes are re-asserted against THAT function, not
 // against a `classify` the fix deliberately left unchanged.
@@ -40,7 +40,7 @@ import type { AgentRow, BranchState, FleetReading, WaitingGroup, WaveVerdict, Wo
 // released plan is `done` — and the Released half of `DONE ⇒ Development or
 // Testing` is re-asserted against `rowsFromPulse`, which is the layer that
 // drops it. `done-holds-finished-plans-only` is the commit that earns it.
-import { waveSection } from '../../src/app/lib/agent-rows/sections.js';
+import { sliceSection } from '../../src/app/lib/agent-rows/sections.js';
 
 /**
  * A PR row as `classify` reads it — it consults `checks` and `mergeable`, never
@@ -55,11 +55,11 @@ function pr(over: Partial<PrRecord> = {}): PrRecord {
 }
 
 /**
- * A branch of a wave as `waveSection` reads it — `state`, its per-branch `group`
+ * A branch of a wave as `sliceSection` reads it — `state`, its per-branch `group`
  * (from `classify`), and the wave `verdict` every branch of the wave shares.
  * Everything else is filler the function does not consult.
  */
-function branchRow(state: BranchState, group: WaitingGroup, verdict: WaveVerdict): AgentRow {
+function branchRow(state: BranchState, group: WaitingGroup, verdict: SliceVerdict): AgentRow {
   return {
     repo: '', branch: `feature/${state}`, plan: 'p', planFile: 'p.md', wave: 'W',
     state, group, verdict, phase: null, ageMinutes: null, note: '', pr: null,
@@ -224,7 +224,7 @@ describe('classify is total over the state cross-product', () => {
 describe('a wave reaches one group — except the one wave that breaks the board', () => {
   // A wave is its branches. Classifying each branch and collecting the distinct
   // sections is how the domain model measured `Inverted -> ['done','not-started']`.
-  function sectionsOfWave(
+  function sectionsOfSlice(
     branches: { state: BranchState; verdict: string }[],
     phase: string,
   ): Set<WaitingGroup> {
@@ -232,7 +232,7 @@ describe('a wave reaches one group — except the one wave that breaks the board
   }
 
   it('a two-branch Development wave, both merged, is one section (DONE)', () => {
-    const sections = sectionsOfWave(
+    const sections = sectionsOfSlice(
       [{ state: 'merged', verdict: 'complete' }, { state: 'merged', verdict: 'complete' }],
       PHASE.Development,
     );
@@ -240,7 +240,7 @@ describe('a wave reaches one group — except the one wave that breaks the board
   });
 
   it('a two-branch Development wave, both open, is one section (NOT STARTED)', () => {
-    const sections = sectionsOfWave(
+    const sections = sectionsOfSlice(
       [{ state: 'open', verdict: 'eligible' }, { state: 'open', verdict: 'eligible' }],
       PHASE.Development,
     );
@@ -257,7 +257,7 @@ describe('a wave reaches one group — except the one wave that breaks the board
     // unmerged work is where its unfinished work is), and this assertion will
     // FAIL when that lands. That is the point: the defect is recorded so its fix
     // is forced through here.
-    const sections = sectionsOfWave(
+    const sections = sectionsOfSlice(
       [{ state: 'merged', verdict: 'eligible' }, { state: 'open', verdict: 'eligible' }],
       PHASE.Development,
     );
@@ -401,7 +401,7 @@ describe('the six failing rules — three still fail, three were fixed a layer a
   //
   // THREE HAVE NOW MOVED, each by a fix a LAYER ABOVE `classify`. `a-wave-is-one-row`
   // raised `every wave has EXACTLY ONE section` (81/82 → 82/82) and `eligible ⇒
-  // no branch merged` (19/20 → 20/20) via `waveSection`. `done-holds-finished-plans-only`
+  // no branch merged` (19/20 → 20/20) via `sliceSection`. `done-holds-finished-plans-only`
   // raised the Released half of `DONE ⇒ Development or Testing` (19/61 → 19/20)
   // via `rowsFromPulse`, which drains a released plan before it reaches a
   // section. Their numbers are raised here, deliberately, in the commit that
@@ -496,7 +496,7 @@ describe('the six failing rules — three still fail, three were fixed a layer a
     //
     // The fix is NOT in `classify` — per branch, a merged branch of an eligible
     // wave is still `done`, which is correct FOR A BRANCH and is why the two
-    // classifications below still differ. It is in `waveSection`, which reads the
+    // classifications below still differ. It is in `sliceSection`, which reads the
     // wave's verdict and gives the WHOLE wave one section: a wave with any
     // unmerged branch is where its unfinished work is → NOT STARTED.
     const branchSections = new Set([
@@ -507,7 +507,7 @@ describe('the six failing rules — three still fail, three were fixed a layer a
 
     // The wave, asked as a wave, has ONE section — and it is NOT STARTED, because
     // an eligible wave holding an open branch is not done.
-    const inverted = waveSection([
+    const inverted = sliceSection([
       branchRow('merged', 'done', 'eligible'),
       branchRow('open', 'not-started', 'eligible'),
     ]);
@@ -529,9 +529,9 @@ describe('the six failing rules — three still fail, three were fixed a layer a
     expect(mergedOfEligible).toBe('done'); // classify, per branch, is unchanged
 
     // But the WAVE the branch belongs to renders in NOT STARTED, so no eligible
-    // wave contributes a branch to DONE any more: `waveSection` sends the whole
+    // wave contributes a branch to DONE any more: `sliceSection` sends the whole
     // wave — merged branch included — to where its unfinished work is.
-    const inverted = waveSection([
+    const inverted = sliceSection([
       branchRow('merged', 'done', 'eligible'),
       branchRow('open', 'not-started', 'eligible'),
     ]);
@@ -547,8 +547,8 @@ describe('the six failing rules — three still fail, three were fixed a layer a
     // The violator: a merged branch of a DRAFT (Discovery) plan reaches DONE,
     // though nothing on an un-approved plan is committed to yet. The merged arm
     // is phase-blind, so a draft plan's merged wave shows as done work.
-    const draftMergedWave = section({ state: 'merged', verdict: 'complete', phase: PHASE.Discovery });
-    expect(draftMergedWave).toBe('done'); // the defect: a Discovery wave in DONE
+    const draftMergedSlice = section({ state: 'merged', verdict: 'complete', phase: PHASE.Discovery });
+    expect(draftMergedSlice).toBe('done'); // the defect: a Discovery wave in DONE
     // Measured: 81 of 82 waves respect "Discovery ⇒ not in DONE"; one draft plan
     // with a merged wave breaks it. `a-draft-plan-claims-no-approvals` fixes the
     // head, and the wave-section function keeps a Discovery wave out of DONE.

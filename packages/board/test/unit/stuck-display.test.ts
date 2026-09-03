@@ -37,7 +37,7 @@ const stuck = (over: Partial<Stuck> = {}): Stuck => ({
   // this default when it reaches the sixth state — the sweep whose comment says
   // *"so a fifth one cannot slip past"*, and which caught the fifth and the sixth
   // in turn.
-  waveSiblings: [],
+  sliceSiblings: [],
   ...over,
 });
 
@@ -271,7 +271,7 @@ describe('stuckEvidence — the evidence travels WITH the state', () => {
     // thing that holds exactly one branch is a Slice.
     const two = stuckEvidence(stuck({
       state: 'unsliced-wave',
-      waveSiblings: ['feature/a', 'feature/b'],
+      sliceSiblings: ['feature/a', 'feature/b'],
     })).join(' ');
     expect(two).toContain('one slice, 2 branches');
     expect(two).toContain('a slice is carried out in one branch');
