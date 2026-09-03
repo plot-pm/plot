@@ -3763,13 +3763,24 @@ function classifyGroup(
       // answer, and `DRAFT_PLAN_NOTE` is the generic one — so it is the
       // fallback, never the override.
       //
-      // The GROUP is untouched. `waiting-on-you` is where #231's measurement
-      // put a draft branch and this changes nothing about that; the row moves
-      // nowhere, it stops describing a review nobody is running.
-      return {
-        group: 'waiting-on-you',
-        note: deferredReason === '' ? DRAFT_PLAN_NOTE : deferredReason,
-      };
+      // AND THE GROUP MOVES WITH IT, which the first version of this arm got
+      // wrong. It changed the sentence and kept `waiting-on-you`, calling that
+      // conservative — but the group is the half that asks a person for
+      // something, so the row went on requesting a decision while its own note
+      // said the decision had been made. `the-board-answers-while-it-scans` sat
+      // in WAITING ON YOU for a day after its withdrawal was rendered
+      // correctly, measured 2026-09-03.
+      //
+      // A DEFERRED BRANCH OF A DRAFT PLAN WAITS ON NOBODY WHEN A REASON IS
+      // WRITTEN. Somebody already decided and wrote down why; the row is a
+      // record, and QUIET is where records of work nobody is coming back for
+      // belong. With NO reason the phase sentence still stands and so does the
+      // placement: an unapproved plan's shelved branch genuinely waits on the
+      // approval, which is #231's measurement and is untouched here.
+      if (deferredReason !== '') {
+        return { group: 'quiet', note: deferredReason };
+      }
+      return { group: 'waiting-on-you', note: DRAFT_PLAN_NOTE };
     }
     // The allowlist, as in the `open` arm and for its reason: a phase the board
     // has not been taught is not startable, and the sentence NAMES it rather
