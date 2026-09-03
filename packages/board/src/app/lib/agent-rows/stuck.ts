@@ -78,9 +78,9 @@ export function isActive(
 }
 
 /**
- * Slot 5 for a WAVE OF ONE — the branch's own status, folded onto the wave row.
+ * Slot 5 for a SLICE OF ONE — the branch's own status, folded onto the slice row.
  *
- * A wave of one gets no fold, so this row is the only one that branch gets and
+ * A slice of one gets no fold, so this row is the only one that branch gets and
  * carries the status a branch row would have shown. Three sources, in order:
  *
  *   1. a LIVE worker (`workerStatus`) — *somebody is on this right now*, which
@@ -98,14 +98,14 @@ export function isActive(
  * worker is skipped and the row falls back to its PR then its state — the same
  * category error as the activity mark, and it asks the same `isFinished` first.
  *
- * Exported for test — the negative (a `waiting` worker on a merged wave) is the
+ * Exported for test — the negative (a `waiting` worker on a merged slice) is the
  * half a `LIVE_WORKERS`-only gate gets wrong, since `waiting` is in that set.
  */
 export function soleRowStatus(
   row: Pick<AgentRow, 'worker' | 'worker_activity' | 'pr' | 'state'>,
 ): string {
   if (!isFinished(row) && LIVE_WORKERS.has(row.worker)) {
-    // The activity cue rides through here too: a wave-of-one whose worker is
+    // The activity cue rides through here too: a slice-of-one whose worker is
     // running still says which kind of running, exactly as the branch row does.
     return workerStatus(row.worker, row.worker_activity);
   }
@@ -140,9 +140,9 @@ export function stuckWord(state: StuckState): string {
     // is, because `conflict` above is already taken by the other one.
     case 'double-claimed': return 'claimed twice';
     // NOT "too many branches": the count is the symptom, the missing SLICE is
-    // the defect. A wave is meant to be carried out in one branch and one
+    // the defect. A slice is meant to be carried out in one branch and one
     // worktree, and this plan was never sliced after its spike.
-    case 'unsliced-wave': return 'wave not sliced';
+    case 'unsliced-wave': return 'slice not cut';
   }
 }
 
@@ -209,14 +209,14 @@ export function stuckEvidence(stuck: Stuck, now: number = Date.now()): string[] 
         ? [`conflicting: ${stuck.conflicts.join(', ')}`]
         : ['the host reports this branch does not merge — no file list available'];
     case 'unsliced-wave':
-      // NAMES THE BRANCHES, because repairing this means slicing the wave into
+      // NAMES THE BRANCHES, because repairing this means cutting the slice into
       // one per branch and the reader has to see which are entangled. The
-      // sentence says what a wave IS rather than merely that the count is wrong,
-      // since the count is the symptom: `plan → * wave → 1 branch`.
+      // sentence says what a slice IS rather than merely that the count is
+      // wrong, since the count is the symptom: `plan → * slice → 1 branch`.
       return stuck.waveSiblings.length > 0
-        ? [`one wave, ${stuck.waveSiblings.length} branches: ${stuck.waveSiblings.join(', ')}`
-           + ' — a wave is carried out in one branch, so this plan needs slicing']
-        : ['this wave holds several branches — a wave is carried out in one'];
+        ? [`one slice, ${stuck.waveSiblings.length} branches: ${stuck.waveSiblings.join(', ')}`
+           + ' — a slice is carried out in one branch, so this plan needs slicing']
+        : ['this slice holds several branches — a slice is carried out in one branch'];
     case 'double-claimed':
       // NAMES THE PLANS, because resolving this means editing one of them — the
       // same reason `shrinkNote` names what vanished rather than counting it.
