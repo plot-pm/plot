@@ -502,6 +502,84 @@ seal_declaration() { # $1=worktree $2=branch
 }
 
 # ---------------------------------------------------------------------------
+# WHICH PROMPT THIS AGENT RUNS
+# ---------------------------------------------------------------------------
+#
+# THE PROMPT IS RESOLVED, NOT ASSUMED. `prompt_file` was
+# `$repo_root/.plot/worker-prompt.sh`, hardcoded, until 2026-09-03 — one prompt
+# per REPO, so every dispatched agent ran the same instructions and `AgentEntry`
+# (`registry.ts:105`) held no field that could have said otherwise. An agent's
+# charter (`.plot/charters/<name>.json`) names its own prompt, and
+# `plot-prompt.mjs` decides which applies.
+#
+# RESOLUTION, NEVER MATCHING. `$PLOT_AGENT` is what the dispatcher or operator
+# set; nothing here reads a plan, ranks a candidate, or chooses among agents.
+# Declaring agents makes choosing one possible and does not perform it.
+#
+# NOTHING ON THE ESTATE CHANGES UNTIL A CHARTER EXISTS. `$PLOT_AGENT` unset —
+# which is every worker today, since the estate holds zero charters — resolves
+# to `.plot/worker-prompt.sh`, exactly the path that was hardcoded before. So
+# does a named agent with no charter file on this clone.
+#
+# A REFUSAL IS NOT A FALLBACK. A charter that exists and cannot be believed — a
+# typo, or a run fact a charter refuses to carry — ends the worker. The fallback
+# would RUN, successfully, under a prompt the operator did not ask for, and
+# nothing in `.plot-worker.log` would say so.
+#
+# THE BUNDLE MISSING IS ALSO NOT A REFUSAL. `plot-prompt.mjs` is vendored beside
+# this script, and a checkout without it is a Plot installation problem rather
+# than a statement about this agent. It falls back and says it could not ask —
+# the shape `plot-dispatch.sh:1217` already uses for an unaskable rule.
+#
+# A FUNCTION RATHER THAN A RUN OF TOP-LEVEL LINES, so it sits above the
+# `PLOT_WORKER_LOOP_SOURCED` guard and a test can exercise its four arms without
+# launching a worker — the idiom this file already applies to the desk decision.
+# It sets `prompt_file` and `prompt_verb` and returns 1 on a refusal; the caller
+# below exits, because only the caller is a worker.
+resolve_prompt_file() { # $1 = repo root, $2 = agent name ('' when none)
+  local root="$1" agent="$2" resolution="" status=0 rest
+  prompt_verb=""
+  prompt_why=""
+
+  if [ -f "$script_dir/board/plot-prompt.mjs" ]; then
+    resolution=$(node "$script_dir/board/plot-prompt.mjs" "$root" "$agent" 2>/dev/null)
+    status=$?
+  else
+    echo "plot-worker-loop: no plot-prompt.mjs beside this script — using $root/.plot/worker-prompt.sh without asking which prompt ${agent:-this agent} declared" >&2
+  fi
+
+  prompt_verb=${resolution%%$'\t'*}
+  rest=${resolution#*$'\t'}
+  local named=${rest%%$'\t'*}
+  prompt_why=${rest#*$'\t'}
+
+  if [ "$status" -eq 3 ] || [ "$prompt_verb" = "refused" ]; then
+    echo "plot-worker-loop: refusing to launch ${PLOT_BRANCH:-?} — $prompt_why" >&2
+    echo "  A charter that cannot be read is a person's typo, and the repo prompt would run" >&2
+    echo "  successfully under instructions nobody asked for. Fix $root/.plot/charters/$agent.json" >&2
+    echo "  or unset PLOT_AGENT to run the repo's prompt deliberately." >&2
+    return 1
+  fi
+
+  case "$prompt_verb" in
+    declared)
+      prompt_file="$root/$named"
+      echo "plot-worker-loop: agent '$prompt_why' runs $named" >&2
+      ;;
+    fallback)
+      prompt_file="$root/$named"
+      ;;
+    *)
+      # An unrecognised verb, or an empty answer from a bundle that could not
+      # run. The repo's prompt, which is what this was before resolution existed.
+      prompt_verb="fallback"
+      prompt_file="$root/.plot/worker-prompt.sh"
+      ;;
+  esac
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # EVERYTHING ABOVE IS DEFINITIONS; EVERYTHING BELOW STARTS A WORKER
 # ---------------------------------------------------------------------------
 #
@@ -520,12 +598,17 @@ seal_declaration() { # $1=worktree $2=branch
 # be an error, which is why it is reached only when the caller asked for it.
 [ -n "${PLOT_WORKER_LOOP_SOURCED:-}" ] && return 0
 
-# Read the prompt from the dedicated file. A file rather than a config key
-# because plot-config.sh strips `(...)` as prose, and the prompt legitimately
-# contains shell constructs like ${PLOT_BRANCH##*/}.
-prompt_file="$repo_root/.plot/worker-prompt.sh"
+resolve_prompt_file "$repo_root" "${PLOT_AGENT:-}" || exit 1
+
+# A file rather than a config key because plot-config.sh strips `(...)` as prose,
+# and the prompt legitimately contains shell constructs like ${PLOT_BRANCH##*/}.
 if [ ! -f "$prompt_file" ]; then
   echo "plot-worker-loop: no prompt file at $prompt_file" >&2
+  # WHO ASKED FOR THAT PATH. A missing repo prompt is an unadopted project; a
+  # missing DECLARED prompt is a charter pointing at a file nobody wrote, and
+  # the two are fixed in different files.
+  [ "$prompt_verb" = "declared" ] && \
+    echo "  Named by the charter for agent '$prompt_why' ($repo_root/.plot/charters/$prompt_why.json)." >&2
   echo "  Create it with the inner claude -p invocation, e.g.:" >&2
   echo "    claude -p \"You are implementing the branch \$PLOT_BRANCH...\" --session-id \"\$PLOT_SESSION_ID\" --permission-mode bypassPermissions" >&2
   # `--session-id` is shown because this is the one place a person writes the
