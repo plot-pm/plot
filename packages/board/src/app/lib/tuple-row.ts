@@ -977,6 +977,38 @@ export function startabilityWord(startability: AgentRow['startability']): string
 }
 
 /**
+ * Slot 5's word for a branch NOBODY IS ON — see `AgentRow.quietKind`.
+ *
+ * A RENDERING AND NOTHING ELSE, the shape `startabilityWord` sets: the server
+ * asked `quietKind` in the domain and the answer travels on the row, so this
+ * maps four values to four words and decides nothing.
+ *
+ * `abandoned` and `declined` ARE THE WORDS A READER ACTS ON. The states they
+ * replace — *in progress* on four-month-old commits, *claimed* on a branch
+ * nobody started — each described a mechanism rather than a situation, and both
+ * read as work under way.
+ *
+ * `unclaimed` for `orphaned-claim`, because slot 5 holds ONE WORD a reader
+ * scans down a column and *orphaned claim* is two. The rule's name is the
+ * sweep's own and stays the rule's; the note beside this says the full sentence
+ * — *claimed, no work committed* — which is where the sweep's wording belongs.
+ *
+ * `quiet` KEEPS THE WORD, because the fallthrough kind is a real answer for a
+ * branch nothing else describes and renaming it would only move the ambiguity.
+ *
+ * @param kind - the kind the server read from the rule.
+ * @returns the display word.
+ */
+export function quietKindWord(kind: NonNullable<AgentRow['quietKind']>): string {
+  switch (kind) {
+    case 'closed-pr': return 'declined';
+    case 'orphaned-claim': return 'unclaimed';
+    case 'abandoned': return 'abandoned';
+    case 'quiet': return 'quiet';
+  }
+}
+
+/**
  * Slot 5 for a row with no PR — its git state, as a word.
  *
  * The row's `note` is deliberately NOT used. It is a sentence composed by the
@@ -997,6 +1029,27 @@ export function stateStatus(row: AgentRow): string {
   // and renders its git state as before.
   if (row.startability) {
     return startabilityWord(row.startability);
+  }
+  // WHICH KIND OF QUIET OUTRANKS THE GIT STATE, and it has to, because the git
+  // state is what got this wrong. `wip` renders *in progress* below — a branch
+  // whose last commit was four months ago, on an estate running zero workers,
+  // read as work under way. `claimed` renders *claimed*, which says a ref
+  // exists and not that nobody ever started.
+  //
+  // READ, NEVER DERIVED. `AgentRow.quietKind` is the server's answer from
+  // `quietKind` in the domain, carried onto the row for exactly this: the
+  // Layering Rule puts the deciding in the rule and leaves the rendering here.
+  // Null falls straight through, so a payload from an older server renders its
+  // git state exactly as it did.
+  //
+  // BELOW `startability`, which still leads. That field answers *can I start
+  // this* and its four verdicts are about a branch a person may take; this
+  // answers *what is this branch* for one nobody is on. The two populations do
+  // not overlap — `startabilityVerdict` returns `someone-is-on-it` for `wip`
+  // and `claimed`, never a startable word — so the order settles nothing today
+  // and states the precedence for the day it does.
+  if (row.quietKind) {
+    return quietKindWord(row.quietKind);
   }
   switch (row.state) {
     // `delivered`, not `merged` — Plot's own word for the transition, and the

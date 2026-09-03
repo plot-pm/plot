@@ -3356,6 +3356,7 @@ import {
   createPulse,
   divisorFor,
   doubleClaimedBranches,
+  quietKind,
   quietNote,
   readingLoss,
   rowPhase,
@@ -3364,6 +3365,7 @@ import {
   startPulse,
   waveVerdict as sliceVerdict,
   type QuietBranchReadings,
+  type QuietKind,
   type RunningPulse,
 } from '@plot-pm/domain';
 import { clockSystem } from '@plot-pm/domain/adapters';
@@ -4527,6 +4529,58 @@ const closedReadings = (): QuietBranchReadings => ({
 });
 
 /**
+ * Which kind of quiet this ROW is in, or null where the question is not asked.
+ *
+ * The row-level counterpart to the two arms inside `classifyGroup`: it answers
+ * for a branch NOBODY IS ON, which is the population `quietKind` is about, and
+ * says nothing about any other. See {@link AgentRow.quietKind} for why the
+ * answer travels on the row rather than being derived in the view.
+ *
+ * NULL IS THE COMMON ANSWER AND IS NOT A FAILURE. A branch with a live agent, a
+ * merged branch, a PR under review — none of them is quiet, and a kind attached
+ * to one would be a claim about a state the rule never examined. Only the two
+ * groups the quiet kinds actually land in are asked: `quiet`, and the
+ * `waiting-on-you` rows that got there through the two fallthrough arms.
+ *
+ * IT REFUSES THE ROWS THAT REACH `waiting-on-you` BY EVERY OTHER ROUTE, and the
+ * WORKER is the gate that matters. A `claimed` or `wip` branch also lands in
+ * that section through the four broken-worker arms — `failed`, `finished`,
+ * `stalled`, `ended` — and none of those is quiet: something ran, and what the
+ * row asks for is a restart or a review. Reading one as `abandoned` would put
+ * *nobody ever opened a PR* on a branch whose worker finished an hour ago.
+ *
+ * So the states that answer are the two the fallthrough arms are reachable
+ * from: a worker that is absent (`none`, `elsewhere`) on a branch with no open
+ * PR. A draft plan's branch is `open` and a shelved one is `deferred`, so both
+ * fall out on the state gate without needing a phase.
+ *
+ * @param closed - `'closed'` where the any-state map reports a declined PR,
+ * null otherwise. Passed rather than re-read, because the caller established it
+ * against `b.state !== 'merged'` and a second reading could disagree.
+ * @param state - the branch's state as the scan answered it.
+ * @param group - the section the row landed in.
+ * @param worker - what the scan found out about a worker on the branch.
+ * @param pr - the branch's OPEN PR, or null.
+ * @returns the kind, or null where the branch is not one nobody is on.
+ */
+const rowQuietKind = (
+  closed: 'closed' | null,
+  state: BranchState,
+  group: WaitingGroup,
+  worker: WorkerState,
+  pr?: PrRecord | null,
+): QuietKind | null => {
+  if (closed) return quietKind(closedReadings());
+  if (group !== 'waiting-on-you') return null;
+  // ABSENT IS THE ONLY ANSWER THAT REACHES THE FALLTHROUGH. Every other worker
+  // state is handled by an arm above it, and each of those means something ran.
+  if (worker !== 'none' && worker !== 'elsewhere') return null;
+  if (state === 'claimed') return quietKind(claimedReadings(pr));
+  if (state === 'wip' && !pr) return quietKind(wipReadings(pr));
+  return null;
+};
+
+/**
  * The processes this machine can see running for a branch — the entities the
  * WAITING ON A MACHINE section lists.
  *
@@ -5663,9 +5717,30 @@ export function rowsFromPulse(
         // raw field, and `merged` travels beside it for the rule to outrank.
         const closedPr = held && prState(held) === 'closed' && b.state !== 'merged';
         const group = closedPr ? 'quiet' : openGroup;
-        const note = closedPr
-          ? withNote(`PR #${held.number}, ${quietNote(closedReadings())}`, reviewNote(held))
-          : openNote;
+        // THE SENTENCE WITHOUT A `PR #n` PREFIX, deliberately, and this is the
+        // one arm where that matters. `noteWithoutPr` strips everything from
+        // `PR #n` up to the first ` · ` — on the reasoning that a prefix states
+        // *the PR's own condition, which the cell now carries* — so a note
+        // reading `PR #53, PR closed without merging` renders as the empty
+        // string and the row says only `closed`.
+        //
+        // That reasoning is right for `PR #53, checks failing`, where slot 5
+        // renders `failing` and the clause is a duplicate. It is wrong here:
+        // slot 5 renders `closed`, a WORD, while the sentence is what says the
+        // decision was to decline rather than that the artifact is shut. The
+        // number is not lost either — it is an artifact link in slot 4, on
+        // every kind that has one.
+        const note = closedPr ? withNote(quietNote(closedReadings()), reviewNote(held)) : openNote;
+        // WHICH KIND OF QUIET, carried onto the row so the client renders it
+        // instead of deriving a word from `state`. See `AgentRow.quietKind`:
+        // `stateStatus` maps `wip` to *in progress*, which is what the board
+        // said about six branches four months idle on an estate running zero
+        // workers.
+        //
+        // Asked of the SAME readings the group and the note came from, so the
+        // three cannot describe different branches — the shape `quietNote`
+        // itself uses when it asks `quietKind` rather than restating its arms.
+        const kind = rowQuietKind(closedPr ? 'closed' : null, b.state, group, b.worker, pr);
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
@@ -5963,6 +6038,10 @@ export function rowsFromPulse(
           // sees it — where a map built on the scan's clock would hold the
           // stale debt for as long as the scan's cadence.
           findings: findingsFor(b.local_worktree, b.branch),
+          // WHICH KIND OF QUIET, where nobody is on the branch — see
+          // `rowQuietKind`. Null on every other row, and null is the question
+          // not being asked rather than an answer of "none".
+          quietKind: kind,
         });
       }
     }
@@ -6188,6 +6267,11 @@ export function rowsFromPulse(
       // branch here. [] is *nothing was looked for*, which is exactly true —
       // this row is built from the PR map and no worktree was inspected for it.
       findings: [],
+      // NOT A BRANCH NOBODY IS ON. Every row in this loop has an OPEN PR by the
+      // filter above, so the work is up for review and the wait is somebody
+      // else's — which is the one case `quietKind` itself declines to call
+      // abandoned. Null is the question not being asked.
+      quietKind: null,
     });
   }
 
@@ -6237,13 +6321,22 @@ export function rowsFromPulse(
     // `classify` reach its arms normally rather than needing a new state nothing
     // else understands.
     //
-    // No PR is handed over, so `classify` cannot reach a `waiting-on-you` arm:
-    // every one of them requires a PR record. The row lands in NOT STARTED while
-    // the commit is recent and in QUIET once the window has passed, which is the
-    // existing routing rather than a special case. Nothing is asked of the reader
-    // by a branch someone may still be writing, and WAITING ON YOU's whole value
-    // is that its rows need an answer.
+    // No PR is handed over, and that used to mean `classify` could not reach a
+    // `waiting-on-you` arm at all — every one of them required a PR record.
+    // `quiet-is-not-one-state` added the arm that requires the ABSENCE of one:
+    // commits, no PR ever opened, nobody on it is ABANDONED, and it is the one
+    // kind of quiet that genuinely needs a person — revive it, or drop it.
+    //
+    // The row still lands in NOT STARTED while the commit is recent, which is
+    // the half that mattered: nothing is asked of the reader by a branch
+    // someone may still be writing, and the quiet window is what separates the
+    // two. Past it, the row used to say *no commit for 126 days* — a duration
+    // standing in for a state — and now says which state it is in.
     const { group, note } = classify('wip', 'eligible', ageMinutes, quietMinutes, null);
+    // Asked of the same facts the group came from. `elsewhere` is what this
+    // loop knows about a worker: it reaches the branch through the REFS and
+    // visits no worktree, so nothing here looked for a process.
+    const kind = rowQuietKind(null, 'wip', group, 'elsewhere', null);
     rows.push({
       repo,
       // `branch` — and NOT a new `orphan` kind. `RowKindSchema` has seven kinds
@@ -6349,6 +6442,11 @@ export function rowsFromPulse(
       // from the ref list, not from a worktree, so nothing looked for a
       // monitor's log and [] claims nothing about one.
       findings: [],
+      // ABANDONED, ONCE THE WINDOW HAS PASSED — this loop's whole population is
+      // branches carrying commits with no open PR, which is the reading the
+      // rule calls `abandoned`. Null while the commit is recent, because the
+      // row is in NOT STARTED then and nobody has given up on anything.
+      quietKind: kind,
     });
     // Guards the ONE-ROW-PER-BRANCH rule against the set itself: a duplicate ref
     // name cannot produce a second row. `unmerged` is a Set so this cannot fire
