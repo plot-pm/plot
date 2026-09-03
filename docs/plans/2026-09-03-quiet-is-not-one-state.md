@@ -15,9 +15,9 @@
 
 ## Changelog
 
-- The board tells a closed PR from an abandoned branch from an unworked claim, instead of filing all three under QUIET with a commit age. A closed PR leaves the board, because somebody already decided.
+- The board tells a closed PR from an abandoned branch from an unworked claim, instead of filing all three under QUIET with a commit age. A declined PR reads as declined rather than as silence — and stays visible, because its branch is still on the estate.
 
-Board impact: yes, and it is the whole change. `classifyGroup` in `packages/board/src/server/fleet.ts` decides the section; the rendered states must come out as domain properties, per the Layering Rule.
+Board impact: yes, and it is the whole change. `classifyGroup` in `packages/board/src/server/fleet.ts` decides the section and `prState` decides the closed case; the rendered states must come out as domain properties, per the Layering Rule.
 
 ## Motivation
 
@@ -78,7 +78,7 @@ Anything the classifier cannot place lands there, described by commit age — be
 
 ### Reading it on the board
 
-- `feature/the-board-reads-the-quiet-kinds` — `classifyGroup` calls the rule instead of falling through to an age note. A closed PR leaves; an orphaned claim and abandoned work each get their placement and their sentence. One browser test per kind proves the badge shows what the rule decided — the rendering, not the deciding.
+- `feature/the-board-reads-the-quiet-kinds` — the two readers call the rule instead of falling through to an age note. **`classifyGroup` for the branch kinds; `prState` for the closed one** — round 1 established that `classifyGroup` cannot see a closed PR at all, because its `byHead` map is open-only and the function says so twice. An orphaned claim and abandoned work each get their placement and their sentence; a declined PR reads as declined and **stays visible**, because its branch is still on the estate. One browser test per kind proves the badge shows what the rule decided — the rendering, not the deciding.
 
 ## Notes
 
