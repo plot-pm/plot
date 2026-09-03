@@ -147,13 +147,13 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 - `feature/the-sweep-names-every-leftover` — extend the estate sweep past worktrees. **Measured 2026-09-02: 85 of 98 local branches already merged, and nothing sweeps them** — the largest leftover population here, and the one no script looks at. Orphaned claim refs and unowned dirty trees are the same shape: something nobody is coming back for, with no actor. Keep the reaper's five refusals and its per-kind licence. A local branch is deleted on two measurements — the host says merged, and no worktree holds it — never on `git branch -d` alone, which refuses a squash-merged branch for the wrong reason. (#672)
 
-### Wiring the sweep
-
-- `feature/the-reaper-sweeps-every-kind` — give `packages/domain/src/rules/sweepable.ts` a caller. **Measured 2026-09-03, after `the-sweep-names-every-leftover` merged as `ec634c2a`: the rule is complete and tested, and nothing outside the domain imports it** — `plot-reap.sh` still sweeps worktrees only, and this estate carries 109 local branches. The rule decides; an adapter has to reach the world, which is the layering rule working as intended and a job only half done. Wire the three kinds it names — `local-branch`, `claim-ref`, `dirty-tree` — keeping the reaper's shape: `--dry-run` by default, `--yes` to act, `--max N` per kind.
-
 ### Saying so in the specs
 
 - `docs/the-desk-belongs-to-the-agent` — amend the two sentences this plan contradicts. `DESIGN-worktree.md:60` says the dispatcher creates the desk; the agent does. `DESIGN-branch.md:52` says the push is *the whole* locking mechanism; it stops being that the moment the registry assigns, and becomes a backstop that should never fire. Record the measurement that settled the first and the reasoning that demoted the second — neither sentence was wrong when written. (#673)
+
+### Outliving the slice
+
+- `feature/an-agent-waits-for-work` — an agent that finishes its slice STAYS ALIVE. `plot-worker-loop.sh:952` reads `next_branch=$(plot-fleet-scan.sh --offline --next "$PLOT_SLUG") || break` — so an agent whose plan has nothing claimable left kills itself, and **that is why every worker exited on 2026-09-03 with four desks standing and eligible work on the board**. Two departures from the model in one line: an agent has no idle state, and `--next` is scoped to `$PLOT_SLUG`, so it dies rather than take an eligible slice from another plan. Replace `|| break` with waiting to be handed work, and let the registry own termination — today all three exits are the worker's own (`:952` no work, `:891` bound expired, `:891`'s `exit 124`, `:786` monitor idle), and nothing outside the process can end it or keep it.
 
 ### Handing work over
 
@@ -182,5 +182,11 @@ The answered one: *"the registry should be the assignment lock — why two locki
 **The gated wave moved to last, 2026-09-03.** *Handing work over* was written third, and it carries `waits: feature/the-registry-supervises-its-agents` — a branch with no PR yet. Waves are sequential, so an eligible-but-blocked wave 3 held waves 4 and 5 behind it although neither depends on it: the dispatch after wave 2 merged offered the blocked branch, refused it correctly, and started nothing.
 
 **A `waits:` annotation and a wave position are different orderings, and a plan must not use the first where it means the second.** The annotation says *this branch needs another branch*; the position says *this wave needs the wave before it*. Putting a cross-plan dependency in the middle of a sequence makes every later wave inherit it. So the branch that waits goes last, where its own gate is the only thing it blocks.
+
+**A wave was invented and withdrawn on 2026-09-03.** *Wiring the sweep* was added on the finding that `the-sweep-names-every-leftover` had shipped a rule with no caller. **That finding was wrong.** #672 delivered both together — 262 lines of `sweepable.ts` and **395 of `plot-reap.sh`** in one diff, wired at `:578` and used once per kind at `:629`, `:759` and `:842`. The measurement behind it was wrong too: 109 local branches was read on a checkout predating that merge, and the estate holds 15.
+
+**The agent dispatched to the invented wave refused to write code and said why**, in a `PLOT-BLOCKED` file with line numbers that check out: *"the only scope left would be exactly that"* — a second implementation of a refusal the brief forbids. A worker declining work it can prove is already done is the outcome the brief gate exists for.
+
+**Outliving the slice was added the same day, from a question.** Asked why every worker had exited with four desks standing, the answer was `plot-worker-loop.sh:952` — no work in this plan, so the agent kills itself. The plan had assumed the missing piece was the queue; the missing piece is an agent that survives its slice at all. *Handing work over* was already written on the assumption that something is alive to hand to.
 
 **What is NOT in scope.** The `Slice`/`Wave` naming defect (`CLAUDE.md` records it as known, with its own plan) is untouched here, though this plan's branches sit next to it. So is the `HostBackend` layering exception — a different plan closed that today.
