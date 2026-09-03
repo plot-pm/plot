@@ -181,7 +181,7 @@ implies.
 - `infra/the-tests-select-slice` — `data-wave-row` and its siblings, with the
   browser tests that bind to them, moved in lockstep. Last because a selector
   and its test must change in one commit, and because the two slices above
-  deliver the benefit without touching what tests grip.
+  deliver the benefit without touching what tests grip. → #682
 
 ## Notes
 
