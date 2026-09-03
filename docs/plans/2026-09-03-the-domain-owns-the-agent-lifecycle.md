@@ -11,7 +11,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
@@ -65,7 +65,7 @@ an operator actually names land differently:
 
 | reason | whose fact | today |
 |---|---|---|
-| the context ran out | Worker | **unmodelled** — `contextPct`, `tokenBudget`, `contextWindow` return zero hits across `packages/domain/src`, `packages/board/src` and `skills/plot/scripts/*.sh` |
+| the context ran out | Worker | **unmodelled, but measurable today** — `contextPct`/`tokenBudget`/`contextWindow` return zero hits, yet the harness transcript carries `message.usage` and Plot already opens that file (`plot-transcript-quiet.sh:67`). See *Context is readable* below |
 | the session ended | Agent | half-present — `resumeId` exists; `registry.ts:724` records that a synthesized agent *"costs the entry its resume path"* |
 | the work needs a different expert | Registry | **unrepresentable** — `entities/agent.ts` has no `kind` |
 
@@ -131,6 +131,41 @@ risk and no answer. **They go when their callers are gone, and not before.**
 The three monitors have **zero** daemon lines and compute an answer per pass;
 `plot-dispatch.sh`'s six are one detached start the `Performer` port can own.
 
+### Context is readable, and it is a verdict rather than a number
+
+**Measured 2026-09-03.** A harness transcript carries `message.usage` — 59 of
+400 sampled lines in one real session — and the newest carried
+`cache_read_input_tokens: 642532`, which with `input_tokens` and
+`cache_creation_input_tokens` is **643,808 tokens, 64.4% of a 1M context**.
+
+**Plot already opens that file.** `plot-transcript-quiet.sh:67` resolves
+`~/.claude/projects/<slug>` from a worktree and reads the newest line's age for
+quiet-detection. Reading one more field on a line it already parses adds no
+dependency and no new adapter.
+
+**The domain carries a VERDICT, never the percentage.** `Machine` is the
+precedent: `machine.ts:43` *"reads a spawn cost as a headroom verdict"* rather
+than exposing milliseconds, because a threshold in a value means every consumer
+owns the threshold. Context is the same shape — a reading becomes *ample* or
+*spent*, and a board that wants to render 64% renders it from the reading, not
+from a decision.
+
+### A fourth reason: an agent can be spent without being broken
+
+The three reasons above are all endings. **`spent` is not.** An agent at 88% has
+nothing wrong with it; it simply should not be handed another slice.
+
+So it ends the way the lifecycle already allows: **it finishes its slice and is
+not given a next one.** `an-agent-holds-one-desk` established that an agent
+which finishes stays alive and waits (`feature/an-agent-waits-for-work`, #674);
+`spent` is the answer to that wait — *nothing more for you*, rather than
+*nothing available*.
+
+**This is why it is a reason and not a dispatch filter.** A filter would make a
+spent agent look identical to an idle fleet, and an operator watching the board
+could not tell "no work" from "this agent is done". The distinction is exactly
+the one `plot-fleet-scan.sh --why-nothing` exists to draw.
+
 ### What a declaration carries
 
 **Capability — what this agent IS.** The harness, the model, the effort, and the
@@ -173,9 +208,10 @@ A declaration is a fact a person wrote.
 - [ ] **Does matching belong in this plan?** Declaring agents makes *choosing*
       one possible. `hasRoomToDispatch` (`entities/machine.ts:99`) is a boolean
       about headroom, not a choice among candidates. Probably its own plan.
-- [ ] **Is a context reading available at all?** Nothing in Plot reads it from
-      the harness. If the harness cannot report it, *"context exhausted"* is a
-      reason nobody can raise.
+- [x] **Is a context reading available at all?** *Answered 2026-09-03:* yes.
+      The transcript carries `message.usage`; one real session read 643,808
+      tokens (64.4% of 1M) from a file `plot-transcript-quiet.sh:67` already
+      resolves. It is now a slice rather than a risk.
 - [ ] **Is `synthesized` a defect again once declarations exist?**
       `DESIGN-agent.md:787` says it is; `entities/agent.ts:29` encodes it as an
       identity. **The code is right today** only because nothing can be
@@ -187,9 +223,12 @@ A declaration is a fact a person wrote.
 
 - `feature/an-agent-declares-what-it-is` — the record: location, fields, and
   what it refuses. Capability only; **a test asserts it carries no run fact**,
-  because a second copy of the manifest is the defect this removes. Parser and
-  contract, nothing consuming it, so the shape settles before three components
-  read it.
+  because a second copy of the manifest is the defect this removes.
+  **It ships with one consumer, so it cannot be a record nobody reads:**
+  `plot-dispatch.sh:503-509` reads a single global `Worker command` and launches
+  it for every agent; it reads the declaration's `harness` and `model` instead.
+  A branch with no declaration keeps the global, so nothing on the estate
+  changes until a declaration exists.
 
 ### Deciding in the domain
 
@@ -199,6 +238,12 @@ A declaration is a fact a person wrote.
   `has_pr`, `blocked`, `dirty`, `unpushed` — carrying 40 lines of measured
   reasoning, including the ordering rule that dirtiness is checked AFTER
   blocked. The shell keeps the 21 world reads and stops deciding.
+  **The function survives; only its body moves.** `plot_worker_task_state`
+  stays a shell function that pipes its four readings to a bundle, exactly as
+  `plot-fleet-scan.sh:3436` already pipes into `plot-verdicts.mjs`. All nine
+  sourcing callers are untouched, and no window exists in which two
+  implementations both decide — which is what drifted before, when this script
+  carried five of its six states in duplicate until 2026-08-18.
 
 ### Agreeing on the states
 
@@ -216,6 +261,16 @@ A declaration is a fact a person wrote.
   `.plot-worker.exit`, and the state rule reads it. **Asserted: a bound expiry
   and a context exhaustion are different endings**, because today they are the
   same one. `_ended_by` is carried with it.
+
+### Reading what an agent has spent
+
+- `feature/an-agent-knows-what-it-spent` — the context reading: the transcript
+  line Plot already parses yields `message.usage`, and the domain turns it into
+  a verdict. **Asserted: the domain exposes no percentage** — a threshold in a
+  value is a threshold every consumer owns, which is why `Machine` reports
+  `Headroom` and not milliseconds. **Also asserted: a missing or unreadable
+  transcript answers *unknown*, never *ample*** — silence is not headroom, the
+  rule `plot-worker-state.sh` already applies to an unreadable worktree.
 
 ## Notes
 
