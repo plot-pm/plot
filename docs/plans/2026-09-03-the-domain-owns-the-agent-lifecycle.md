@@ -235,7 +235,7 @@ A declaration is a fact a person wrote.
   agent.** So the declaration's first consumer is the prompt's *resolution* —
   the loop asks which prompt this agent runs instead of assuming the repo's
   one. A branch with no declaration keeps `.plot/worker-prompt.sh`, so nothing
-  on the estate changes until a declaration exists.
+  on the estate changes until a declaration exists. → #679
 
 ### Deciding in the domain
 
