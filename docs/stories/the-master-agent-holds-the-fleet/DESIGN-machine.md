@@ -548,7 +548,7 @@ is true, and irrelevant to counting. `0 free` is the same kind of fact as *this
 branch is claimed* — already the whole of Plot's locking:
 
 > *"The push is the claim, and it is the whole locking mechanism"*
-> — `DESIGN-branch.md` §the claim
+> — `DESIGN-branch.md` §the claim, as it read before the registry assigned. The push is a backstop now; a claimed branch is still a fact rather than a forecast, which is the only property this argument uses.
 
 **So the machine neither refuses nor defers.** It measures the pressure the
 agents create and reports it; the operator reads that when choosing N. The

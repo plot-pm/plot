@@ -45,19 +45,17 @@ A slice's unit of work, and the one entity whose truth is a git ref.
 Two jobs, and the second is what makes the fleet possible:
 
 - **the work** — a slice small enough for one worker, ending in one PR
-- **the claim** — pushing the ref *is* taking the work; no lock manager exists
+- **the claim** — the registry assigns the work; pushing the ref is the backstop that proves nobody else took it
 
-### The claim is the push
+### The claim is the push, and the push is now a backstop
 
-*"The push is the claim, and it is the whole locking mechanism: pushing a ref
-that already exists is rejected, so two sessions racing for the same branch
-cannot both win."*
+**The push is the claim, and the registry is the lock.** Pushing a ref that already exists and has diverged is rejected, so two agents racing for one branch cannot both win — but nothing should ever reach that race, because no agent selects its own work once the registry assigns. The refusal is the backstop, not the mechanism.
 
-**That is the fleet's entire concurrency control**, and it is worth stating
-plainly: no database, no lease, no coordinator. Git's own refusal to
-fast-forward a diverged ref is what stops two agents doing one job.
+**It was the whole mechanism when written, and that sentence was accurate.** It read: *"The push is the claim, and it is the whole locking mechanism: pushing a ref that already exists is rejected, so two sessions racing for the same branch cannot both win."* Nothing assigned then: every agent shopped for its own next branch through `plot-fleet-scan.sh --offline --next`, and git's refusal was genuinely all that prevented a collision. No database, no lease, no coordinator.
 
-**The loser is not blocked** — it asks `--next` again and takes another branch.
+**It is demoted, not deleted, and *Its truth is a ref, not a file* below is why it cannot be removed.** A Branch **is** `refs/remotes/origin/<name>`. An agent that works a branch pushes it, and git rejects a push to a ref that already exists and diverged — whether or not anything intends it as a lock. Once the registry assigns, the same refusal costs nothing and should never fire: **the relationship the reaper now has to desks.**
+
+**A firing is a registry bug reporting itself, so it must be loud.** `plot-worker-loop.sh:996` treated a rejected claim push as ordinary — *"another worker won the race"* — and removed the worktree and continued silently. Under this model a rejection means two agents were handed one slice, and the estate is already broken at the moment the branch is taken. The retry stays, because taking a different branch is the right recovery for the agent; the silence does not, because it is the one response that guarantees nobody learns the estate is broken.
 
 ### Its truth is a ref, not a file
 

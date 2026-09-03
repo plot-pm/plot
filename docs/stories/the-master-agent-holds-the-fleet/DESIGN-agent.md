@@ -206,9 +206,7 @@ case this distinction exists to keep expressible.
 
 ### It owns its desk
 
-**The Worktree spec settles the direction** (Worktree §1): the dispatcher creates
-the tree, and **the agent owns it**. Every reap refusal is a question about the
-agent or what it left behind; none is about the tree itself.
+**The Worktree spec settles the direction** (Worktree §1): **the agent creates or resets its desk and owns it**, because it is the only party that can see its own tree. Every reap refusal is a question about the agent or what it left behind; none is about the tree itself.
 
 **So the manifest and the worktree are two halves of one thing** — identity and
 desk — which is why removing one without the other *"converts a finished

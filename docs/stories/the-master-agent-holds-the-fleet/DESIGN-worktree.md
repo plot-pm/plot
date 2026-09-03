@@ -57,9 +57,9 @@ is the other way round: the worktree is the agent's desk.**
 Agent ──has──► Worktree          the desk it works at
 ```
 
-**The dispatcher creates it, the agent owns it.** `plot-dispatch.sh:1908` runs
-`git worktree add`, then `start_worker` — so the tree exists a moment before its
-agent does, and belongs to it from then on.
+**The agent creates or resets its desk, and it owns both ends of the desk's life.** It decides which when it takes a brief, because it is the only party that can see its own tree: the registry sees identities, the machine sees processes, and neither sees an uncommitted change, a `PLOT-BLOCKED` marker or a checkout still holding unpushed commits. `plot-worker-loop.sh:957` asks whether the desk it holds is resettable and resets it onto the next branch; `:962` and `:971` run `git worktree add` only where it is not — a full checkout is paid once per agent rather than once per slice. The dispatcher still runs `git worktree add` for the first desk at `plot-dispatch.sh:2503`, with the fallback attach at `:2505`, and `feature/the-registry-queues-a-brief` moves that hand-over to the registry.
+
+**The measurement that settled it.** 2026-09-02, this estate: **2 manifests, 11 worktrees, 8 loop processes, and 5 desks whose branch had already merged.** An identity issued once per agent was being issued once per slice. `DESIGN-agent.md:65` already stated the model the code did not implement — *"agent ──owns─────► a worktree (its desk, while it lives)"* — and the loop created one tree per branch, leaving the previous checkout on disk, with its only `worktree remove` on the race-loss path.
 
 **The reap rules prove the direction.** Every one of the five refusals (§10) is
 a question about **the agent or what it left behind** — a live pid, uncommitted
@@ -289,7 +289,7 @@ ways.**
 | script | does |
 |---|---|
 | `plot-dispatch.sh` | `worktree add` per dispatched branch |
-| `plot-worker-loop.sh` | **`add` twice** — a worker creates its own next tree |
+| `plot-worker-loop.sh` | **`add` twice** — measured 2026-08-28, when a worker created its own next tree; the agent now resets the desk it holds and `add` is the exception |
 | `plot-resolve-artifact.sh` | `add` for a repair, two shapes |
 | `plot-approve.sh` | `add` + `remove --force \|\| true` — a disposable tree |
 | `plot-deliver.sh` | as above |
