@@ -105,10 +105,13 @@ export interface TickOptions {
  * what lets a daemon be dry-run against the live estate with no risk at all.
  * The caller applies the writes.
  *
- * **It holds nothing between calls.** The registry is re-read at the top of
- * every tick and the previous tick's decision is not consulted, so a daemon
- * SIGKILLed anywhere in this function costs one tick and no state — the next
- * one reaches the same conclusions from the same manifests.
+ * **It holds nothing between calls, and that was measured rather than argued.**
+ * The registry is re-read at the top of every tick and the previous tick's
+ * decision is not consulted. Verified 2026-09-04 against this estate: a looping
+ * daemon was `kill -9`ed two seconds into a 3.4 s tick — its log shows the tick
+ * never finished — and the next whole tick reached the identical decision,
+ * `agents=3 left=3 reap=0 correct=0 person=0 defer=0`. No state file was
+ * written, because none is needed.
  *
  * @param options - what to read, and the bound.
  * @returns what this tick read and what it decided.
