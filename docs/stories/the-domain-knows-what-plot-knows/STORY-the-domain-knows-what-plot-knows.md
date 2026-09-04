@@ -10,61 +10,52 @@ updated: 2026-09-04
 
 ## Objective
 
-Make every element Plot works with a **domain concept with a lifecycle a test
-enforces** — so that what the system knows is stated once, in code, and a rule
-refuses when the code disagrees with the design.
+Give **every element Plot works with a lifecycle the domain owns**: a type, a
+rule that refuses an illegal transition, and a test that proves each refusal.
+Then hold it with a gate, so an element added later cannot arrive without one.
 
-Today the elements travel as strings between shell scripts, and the rules about
-them live in prose. That is not a gap in the design: the specs are careful. It
-is that **nothing refuses.**
+The elements exist. The lifecycles are written down carefully, in
+`DESIGN-*.md`, in `CLAUDE.md`, in skill prose. What is missing is anything that
+**refuses** — so the documents and the code drift, and the drift is discovered
+by a person reading a diff.
 
 ## Why Now
 
-Three measurements taken on 2026-09-04, each a consequence of the same absence.
+**35 state enums. One transitions rule.** Measured on `main`, 2026-09-04:
+`packages/domain/src` declares 35 named `z.enum` state sets across 20 files, and
+`transitions/plan.ts` is the only file that says which move between states is
+legal. `WorktreeState` reads `created → occupied → finished → reapable → gone`
+and nothing refuses `gone → occupied`.
 
-**Four of Plot's most-used words have a design spec and no type.**
+**A lifecycle already answers two ways, and both are self-consistent.**
+`StoryStatusSchema` (`entities/story.ts:10`) admits six states, `archived` not
+among them; the domain says archiving is two writes that must agree —
+`status: done` **and** an `archived:` date — and asserts it as an invariant
+(`story.ts:74`). Meanwhile `deriveStoryStatus` (`board.ts:1363`) returns a
+seventh status string, `'archived'`, whenever every plan is released — a rule
+the domain never states, producing a value its type cannot hold.
 
-| concept | `DESIGN-*.md` | domain type |
-|---|---|---|
-| Branch | yes | **none** |
-| Plan | yes | **none** |
-| Slice | yes | **none** |
-| Review | yes | **none** |
+Neither side is sloppy. They are two careful answers to one question, which is
+what a lifecycle with no owner looks like.
 
-`grep "^export \(interface\|type\) Branch\b"` over `packages/domain/src` returns
-nothing, and the same for the other three — while 23 entities exist, including
-`channel-message` and `subscription`. `SourceBranchSchema:125` opens
-`branch: z.string()`.
+**The cost is paid by people, not by CI.** That same disagreement was met on
+2026-09-04 while consolidating the story estate: five stories were marked
+`done`, three of them wrongly, and what caught it was the board rendering a ⚠️
+and a human reading it. A rule would have refused the write.
 
-**Twenty-one state enums, one transitions rule.** `AgentState`, `BranchState`,
-`WorktreeState`, `StoryStatus`, `ReleaseState`, `BuildState` and fifteen more
-each declare a set of states. Exactly one — `transitions/plan.ts` — says which
-transition is legal. `WorktreeState` reads `created → occupied → finished →
-reapable → gone`, and nothing refuses `gone → occupied`.
-
-**And the estate cannot leave GitHub.** `plot-pr-merged.sh` is 12 lines of code
-under 75 lines of reasoning, sourced by ten scripts and read by three domain
-files, and both its functions call `gh` directly. On a Bitbucket project `gh` is
-absent; the script's own contract answers *not merged*; the fleet then never
-reaps a worktree, never releases a ref, never advances a slice — **and reports
-nothing**, because failing safe is what it was built for.
-
-That last one is the story in miniature: a rule with no home lands in a script,
-the script reaches one vendor's CLI, and the fail-safe hides it.
-
-### CLAUDE.md already names the failure mode
+**And the failure mode is already named in this repo.** `CLAUDE.md`:
 
 > *"If your skill includes a MUST or NEVER instruction, ask: is this enforced by
 > a hook, or just written in prose? **If prose-only, it's a rule and will
 > eventually be violated.**"*
 
-**Measured this session, three prose-only lifecycle rules violated:**
+Three prose-only lifecycle rules, measured violated this session:
 
-- an agent terminates **itself** (`plot-worker-loop.sh:626` SIGKILLs its own
-  process group) while `DESIGN-agent.md:220` assigns the manifest — and the
-  declaration — to the Registry. `registry.ts` holds no `kill` and no write.
-- one agent reads **two states at once**: `finished` from the scan, `stalled`
-  from the registry, from one function called two ways.
+- an agent terminates **itself** — `plot-worker-loop.sh:626` SIGKILLs its own
+  process group — while `DESIGN-agent.md:220` gives the Registry the manifest
+  and the declaration. `registry.ts` holds no `kill` and no write.
+- one agent reads **two states at once**: `finished` from the scan and
+  `stalled` from the registry, out of one function called two ways.
 - **four state vocabularies** coexist — 8, 8, 8, and 5 at `registry.ts:35` —
   which `DESIGN-agent.md:797` already records as an open point.
 
@@ -75,49 +66,100 @@ None is a coding mistake. Each is a lifecycle nobody could enforce.
 **A concept becomes a type. Its lifecycle becomes a rule. The rule refuses, and
 a test proves each refusal.** The script keeps only the reading.
 
-The shape already exists twice over and was never generalised:
+### The shape exists; it was never generalised
 
-- **`transitions/plan.ts`** — `Precondition`, `RefusalReason`, `Decision`,
-  `TransitionResult`, with **41 tests and 24 refusal assertions**, called from a
-  bundle by `plot-approve.sh`, `plot-deliver.sh` and `server/entry/transition.ts`.
-- **Five domain bundles** — `plot-verdicts.mjs`, `plot-transition.mjs`,
-  `plot-movable.mjs`, `plot-monitor.mjs`, `plot-prompt.mjs` — rules compiled and
-  called from shell. `plot-fleet-scan.sh:3436` pipes readings into one.
+`transitions/plan.ts` is the template, and its three exports per transition are
+the load-bearing part:
+
+```
+approvable(plan)            → boolean          the predicate
+approve(plan, input)        → TransitionResult the transition
+TransitionResult = Decision | Refusal          the union
+```
+
+A refusal is a **value the caller must destructure**, never an exception it can
+forget to catch. `isDecision` / `isRefusal` are type guards, so reading
+`decision.writes` without first proving it was not a refusal is a compile
+error. That is the gates-over-rules principle reached through the type system:
+the compiler refuses, so no reviewer has to remember.
+
+It carries **41 tests, 24 of them refusal assertions**, and is called from a
+bundle by `plot-approve.sh`, `plot-deliver.sh` and `server/entry/transition.ts`
+— one rule, three entrances, no second implementation.
 
 **The rules take readings as values.** `reap(readings, input)`, the shape
-`rules/reapable.ts` already uses: nothing awaits, nothing spawns, the caller
-reads and the rule judges.
+`rules/reapable.ts` already uses: nothing awaits, nothing spawns; the caller
+reads and the rule judges. Five bundles already ship this way
+(`plot-verdicts.mjs`, `plot-transition.mjs`, `plot-movable.mjs`,
+`plot-monitor.mjs`, `plot-prompt.mjs`), so a shell caller is a solved problem
+rather than a reason to leave the rule in shell.
 
-### A state enum is not always a lifecycle
+### Not every enum is a lifecycle, and the gate must not guess
 
-`SprintState` is `must | should | could | deferred` — a **priority**, and a Could
-Have becoming a Must Have is re-prioritisation. `PrState` is `mergeable |
-conflicting | unknown`, a **reading of a moment**.
+Of the 35, three kinds are present and only one transitions:
 
-So the completing gate reads a **declaration, not a heuristic**: an entity has a
-`transitions/<name>.ts`, or its enum carries one line saying it does not
-transition and why. A gate that guessed would refuse a priority for lacking a
-transition it cannot have, and the fix would be a rule that lies.
+| kind | asks | example | owes a rule? |
+|---|---|---|---|
+| **lifecycle** | what may happen next? | `WorktreeState`, `ReleaseState`, `StoryStatus`, `BuildState` | **yes** |
+| **reading** | what is true right now? | `MergeabilitySchema`, `HeadroomSchema`, `AgentActivity` | no — a moment, not a move |
+| **classification** | which kind is this? | `MoscowTier`, `IdentityKind`, `MonitorName` | no — re-labelling is not a transition |
+
+`SprintState` (`must | should | could | deferred`) is the clarifying case: it
+looks ordered and is not. A Could Have becoming a Must Have is
+re-prioritisation, and a transition rule over it would refuse a legitimate
+planning act.
+
+**So the gate reads a declaration, never a heuristic.** An enum either has a
+`transitions/<name>.ts`, or carries one line saying which kind it is and why it
+does not transition. A gate that inferred the kind would demand a rule from a
+priority and get a rule that lies.
+
+### The harness
+
+Three pieces, in this order — each useless without the one before it:
+
+1. **The inventory**, generated rather than typed: every state enum, its file,
+   its declared kind, and whether a transitions file exists. It is the thing the
+   gate counts and the thing a reviewer reads.
+2. **The rule per lifecycle**, in `transitions/`, shaped like `plan.ts`, with a
+   named `RefusalReason` per illegal move and a test per refusal.
+3. **The ratchet**: `allowed=N` in CI over *undeclared* enums, starting at the
+   measured count and only ever falling — the pattern four gates in
+   `.github/workflows/ci.yml` already use, each with a dated comment recording
+   what moved it.
+
+**The ratchet counts the gap, not the good thing.** The vocabulary gate at
+`ci.yml:431` records why this matters: it once counted the *correct* name, made
+using it expensive, and a worker got past it by renaming the right entity to
+`Cohort`. A gate teaches whatever it makes cheap. This one must make declaring a
+lifecycle the cheap act and leaving one undeclared the expensive one.
 
 ### What stays in shell
 
 **A script survives when it IS a process.** Measured across all 36:
 `plot-worker-loop.sh` alone qualifies — 3 traps, 4 background launches, 4 signal
-kills. It is the process bracket, and only its rules leave.
+kills. It is the process bracket; only its rules leave.
 
-`plot-config.sh` and `plot-host.sh` are pure adapter: no rule to extract. They
+`plot-config.sh` and `plot-host.sh` are pure adapter — no rule to extract. They
 go when their callers are gone, not before.
 
 ## Jobs to be done
 
-- **A rule refuses an illegal transition, and a unit test proves it** — for the
-  three lifecycles measurably violated first: Agent, Worktree, Slice.
-- **An element is a type rather than a string** — Branch, Plan, Slice, so a
-  question about one is asked of the domain rather than re-derived from fields.
+- **Every state enum declares its kind** — lifecycle, reading, or
+  classification — so the inventory is complete and the gate has something true
+  to count.
+- **Every lifecycle has a transitions rule that refuses**, with a test per
+  refusal, shaped like `transitions/plan.ts`.
+- **The elements are types rather than strings** — Branch, Plan, Slice, Review —
+  so a question about one is asked of the domain rather than re-derived from
+  fields.
+- **One answer per lifecycle** — the `StoryStatus` / `deriveStoryStatus`
+  disagreement resolved in the domain, and the board reading the answer rather
+  than computing a second one.
+- **A ratchet holds it**, starting at the measured count of undeclared enums and
+  falling to zero, so an element added later cannot arrive without a lifecycle.
 - **Plot runs on a host that is not GitHub** — the merge question answered
   without `gh`, which is the single thing blocking a Bitbucket project today.
-- **Nothing hides a lifecycle again** — a ratchet counting state enums with
-  neither a rule nor a stated reason, starting at the measured 21 and falling.
 
 ## Excluded from Scope
 
@@ -131,38 +173,51 @@ opposite claim about the same scripts — that they are where the rules wrongly
 live — so the two must not share a slug.
 
 **Not scheduling.** Declaring agents and typing branches makes *choosing* one
-possible; it does not perform it. `hasRoomToDispatch`
-(`entities/machine.ts:99`) is a boolean about headroom, not a choice among
-candidates.
+possible; it does not perform it. `hasRoomToDispatch` (`entities/machine.ts:99`)
+is a boolean about headroom, not a choice among candidates.
 
 **Not `plot-worker-state.sh`.** `the-domain-owns-the-agent-lifecycle` owns its
 migration and started 2026-09-04. Two plans converting one script is how the
-duplication this repo measured on 2026-08-18 — five of six states carried twice
-— comes back.
+duplication measured on 2026-08-18 — five of six states carried twice — comes
+back.
+
+**Not a rewrite of the board.** Where the board computes a lifecycle answer it
+should read, the fix is to move that one computation. The 507 `function`
+declarations stay as they are; the repo already measured what a style sweep
+costs.
 
 ## Open Points
 
 - **Does every entity earn a transitions file?** `Person`, `Version` and
   `Identity` may have no transitions at all. A file per entity is a shape, not a
-  quota — which is why the gate reads a declaration.
+  quota — which is why the gate reads a declaration rather than counting files.
 - **Where does a refusal surface?** The board renders some, a hook blocks
   others, a script exits non-zero. The rule answers; who acts on the answer may
-  not be uniform.
+  not be uniform, and that is probably correct.
 - **Which document is wrong, where they disagree?** Three cases are known.
   `DESIGN-agent.md:787` calls a synthesized entry *"a defect, not a category"*
   while `entities/agent.ts:29` encodes it as an identity — and **the code is
   currently right**, because nothing can be declared. Each disagreement is a
   decision, and neither answer is free.
+- **Is `archived` a seventh state or a derived view?** The board says state, the
+  domain says `done` plus a date. Both are defensible; the story needs one.
 
 ## Session Log
 
 **2026-09-04** — Written after a review of the fleet layer (Machine, Registry,
-Board) and four rounds of interrogation across two plans. Every count measured
-on `main` that day: 36 scripts, 7,795 lines of code, 23 entities, 21 state
-enums, 1 transitions rule, 5 existing bundles.
+Board) and four rounds of interrogation across two plans. Counts measured on
+`main` that day: 36 scripts, 7,795 lines of code, 23 entities, **35 named state
+enums across 20 files**, 1 transitions rule with 41 tests, 5 existing bundles,
+4 existing CI ratchets.
 
-The story was extracted from `the-master-agent-holds-the-fleet` after that
-story's own objective was read back: it is about the questions a supervisor
-asks, and explicitly not about the scripts. Two plans already written under it —
-`every-element-is-a-domain-concept` (#693) and
-`a-lifecycle-is-enforced-by-a-test` (#698) — belong here instead.
+Extracted from `the-master-agent-holds-the-fleet` after that story's own
+objective was read back: it is about the questions a supervisor asks, and
+explicitly not about the scripts. Two plans already written under it —
+`every-element-is-a-domain-concept` (#693) and `a-lifecycle-is-enforced-by-a-test`
+(#698) — belong here instead.
+
+Re-framed the same day from *"every element is a domain concept"* to *"every
+lifecycle is owned and enforced"*: the first framing named three lifecycles to
+fix by hand, which leaves the thirty-second one to be found by a person reading
+a diff. The inventory and the ratchet are what make it a harness rather than a
+list.
