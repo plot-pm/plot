@@ -8,7 +8,7 @@
 
 - **Phase:** Draft
 - **Type:** feature
-- **Story:** the-master-agent-holds-the-fleet
+- **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
 <!-- Transition records — written by the workflow commands, not by hand:
