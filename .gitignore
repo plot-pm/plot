@@ -65,6 +65,7 @@ node_modules/
 .plot-worker.monitor.worker.jsonl
 .plot-worker.monitor.build.jsonl
 .plot-worker.envelope.json
+.plot-worker.ending.json
 
 # ralph-plot-sprint runner scratch (iteration logs, heartbeat, handover)
 .ralph-state/

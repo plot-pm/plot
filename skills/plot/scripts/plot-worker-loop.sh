@@ -501,6 +501,54 @@ seal_declaration() { # $1=worktree $2=branch
   mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
+# THE ENDING FILE, per WORKER. This is the opposite of the declaration above and
+# for the reason that separates them: a declaration is about a BRANCH, and a
+# worker hops, so one worker writes several. An ending happens once, to the
+# worker, and the branch it held at the time is a field rather than the subject.
+ENDING_FILE_NAME='.plot-worker.ending.json'
+
+# Record why this worker ended.
+#
+# `_ended_detail` WAS WRITTEN NOWHERE UNTIL THIS EXISTED. It was set by whichever
+# trap ran and read by one `case` that printed a sentence to stderr — so the
+# distinction it drew lived for the length of a log line and reached no reader
+# that outlived the process. `.plot-worker.exit` records THAT the worker ended;
+# nothing recorded WHY.
+#
+# THE REASON IS NOT THE ACTOR, and they do not determine each other. The floor
+# ends a worker for `bound` and for `unreadable` alike — the same watchdog, and
+# what differs is whether a transcript could be read WHILE it ran. Writing one
+# field and inferring the other would lose exactly the case this record exists
+# for.
+#
+# IT IS WRITTEN ON THE ENDING PATH ONLY. A worker whose prompt finished on its
+# own did not end for a reason — it hopped, or the loop ran out of work — and a
+# file claiming otherwise would be a reason invented for an event that had none.
+# So absence stays load-bearing here as it is for the declaration: no ending
+# file means nobody recorded one, which is what a SIGKILL leaves behind.
+write_ending() { # $1=worktree $2=reason $3=actor $4=branch $5=detail
+  local worktree="$1" reason="$2" actor="$3" branch="$4" detail="$5" file tmp
+  [ -n "$worktree" ] || return 0
+  [ -d "$worktree" ] || return 0
+  [ -n "$reason" ] || return 0
+  [ -n "$actor" ] || return 0
+  file="$worktree/$ENDING_FILE_NAME"
+  tmp="$file.plot-ending-tmp"
+
+  # USES NODE for the reason `seal_declaration` does: JSON in portable shell is
+  # brittle, and the Worker command already requires node. The write goes
+  # through a temp file and a rename, so a reader never sees a partial record —
+  # the one shape this file must never produce, since its own contract keeps a
+  # file that exists and does not parse apart from one that is absent.
+  node -e '
+    const fs = require("fs");
+    const [tmp, reason, actor, branch, detail] = process.argv.slice(1);
+    fs.writeFileSync(tmp, JSON.stringify({ reason, actor, branch, detail }, null, 2) + "\n");
+  ' "$tmp" "$reason" "$actor" "$branch" "$detail" 2>/dev/null || { rm -f "$tmp"; return 0; }
+
+  mv -f "$tmp" "$file" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
 # ---------------------------------------------------------------------------
 # WHICH PROMPT THIS AGENT RUNS
 # ---------------------------------------------------------------------------
@@ -1135,6 +1183,10 @@ while true; do
     case "$_ended_by" in
       monitor)
         echo "plot-worker-loop: the agent went quiet on ${PLOT_BRANCH:-?} — the WorkerMonitor reported idle: the agent is alive and has committed but its transcript has been silent past the window with nothing burning CPU behind it, across two passes; ending worker without hopping" >&2
+        # THE SAME THREE READINGS THE SENTENCES ABOVE DRAW, written where a
+        # reader that outlives the process can find them. The log says it once
+        # to whoever is watching; the record says it to whoever asks later.
+        write_ending "${PLOT_WORKTREE:-$PWD}" quiet monitor "${PLOT_BRANCH:-}" "$_ended_detail"
         ;;
       *)
         # THE TRANSCRIPT IS ASKED ONLY HERE, on the floor's path, and only to
@@ -1144,9 +1196,14 @@ while true; do
         case "$(ended_reading_available)" in
           no)
             echo "plot-worker-loop: nobody could tell on ${PLOT_BRANCH:-?} — no transcript could be read for this worktree, so no reading distinguishes a thinking agent from a stopped one; the prompt exceeded the ${WORKER_BOUND_SECONDS}s bound and that is an absence of a reading, not a measurement. Pass --session-id from .plot/worker-prompt.sh to make the reading available; ending worker without hopping" >&2
+            # THE FLOOR FIRED AND NOTHING COULD BE READ. The actor is the bound
+            # either way; the reason is what separates this from the arm below,
+            # and it is an ABSENCE of a reading rather than a measurement.
+            write_ending "${PLOT_WORKTREE:-$PWD}" unreadable bound "${PLOT_BRANCH:-}" "$_ended_detail"
             ;;
           *)
             echo "plot-worker-loop: the bound expired on ${PLOT_BRANCH:-?} — the prompt exceeded the ${WORKER_BOUND_SECONDS}s bound with the agent's transcript readable, and no monitor finding said why; ending worker without hopping" >&2
+            write_ending "${PLOT_WORKTREE:-$PWD}" bound bound "${PLOT_BRANCH:-}" "$_ended_detail"
             ;;
         esac
         ;;
