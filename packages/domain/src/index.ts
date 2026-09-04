@@ -20,6 +20,7 @@ export * from './entities/pr.js';
 export * from './entities/agent.js';
 export * from './entities/declaration.js';
 export * from './entities/charter.js';
+export * from './entities/ending.js';
 export * from './entities/release.js';
 export * from './entities/build.js';
 export * from './entities/story.js';
