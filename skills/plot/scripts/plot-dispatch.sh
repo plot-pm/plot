@@ -2494,9 +2494,20 @@ fi
 # held branch is one the operator chose to start early and must not displace one
 # that was ready. `sort -u` because a branch the scan DID offer — its host call
 # failed where the preflight's succeeded — must be handed over once, not twice.
-mapfile -t fan_out < <({ "$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null
-                         [ "$allow_waiting" = 1 ] && printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}
-                         :; } | grep -v '^$' | sort -u)
+#
+# A `while read` LOOP, BECAUSE macOS SHIPS BASH 3.2. The bash 4 builtin that
+# reads a stream into an array does not exist there, and
+# `test/reconcile/mergequeue.test.mjs` gates on it — by grepping these scripts,
+# so naming the builtin in a comment fails the gate too.
+#
+# The single scan this block exists for is unaffected: the subshell still runs
+# once, and its output is still read once.
+fan_out=()
+while IFS= read -r _line; do
+  fan_out+=("$_line")
+done < <({ "$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null
+           [ "$allow_waiting" = 1 ] && printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}
+           :; } | grep -v '^$' | sort -u)
 
 for branch in ${fan_out[@]+"${fan_out[@]}"}; do
   [ "$max" -gt 0 ] && [ "$n_dispatched" -ge "$max" ] && break
