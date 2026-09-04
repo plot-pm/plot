@@ -196,14 +196,53 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
   that makes those two scripts refuse differently, currently held only in their
   comments.
 
+### The story's lifecycle
+
+- `feature/a-story-lifecycle-refuses` — `transitions/story.ts`. **The one
+  lifecycle that is already declared three times, disagreeing.**
+  `entities/story.ts:10` admits six states and no `archived`, and states the
+  archival rule as an invariant: `done` and an `archived:` date are two writes
+  that must agree (`archivalIsConsistent`, `:74`). The board's
+  `contract/schema.ts:225` declares the same six **again, by hand**, importing
+  nothing. And `deriveStoryStatus` (`board.ts:1363`) returns a **seventh**
+  value, `'archived'`, that neither list admits — it types as `string`, so
+  nothing objected.
+
+  The duplicated six are the more dangerous half: they agree today, so nothing
+  looks wrong, and they drift the moment one is edited. `deriveStoryStatus` is
+  that drift, already happened.
+
+  **Asserted: a status the domain cannot represent is a compile error**, which
+  fails today at `board.ts:1371`. And **asserted: `archived` is derived, never
+  stored** — the board's rule (every plan released) becomes a domain function
+  over a story's plans, so the board reads the answer instead of computing a
+  second one.
+
+  A fourth reader has to agree too: `plot-story-lint.sh:91` decides S3 —
+  *status done but not archived* — from its own parsing, and it is the check
+  that catches a half-archived story today.
+
+  **Measured 2026-09-04, and it cost a person rather than CI:** five stories
+  were marked `done` while consolidating the estate, three of them wrongly. What
+  caught it was the board rendering a warning and a human reading it; the two
+  the lint then rejected went back to `active`. Every step was a correct reading
+  of a different declaration.
+
 ### Refusing the next hidden one
 
 - `infra/a-state-declares-its-lifecycle` — the ratchet. Counts state-shaped
   enums with neither a `transitions/<entity>.ts` nor a stated reason they do not
   transition; fails when the count grows. **Asserted: the gate fails on a new
   enum added without either**, because a ratchet nobody can trip is a comment.
-  Starts at the measured number rather than zero — 21 enums, 1 rule — so the
-  migration lowers it slice by slice and the target is stated as a debt.
+  Starts at the measured number rather than zero — **37 `z.enum` occurrences,
+  1 rule**, re-counted 2026-09-04 — so the migration lowers it slice by slice
+  and the target is stated as a debt.
+
+  **It counts occurrences, not exported names.** 35 of the 37 are named exports;
+  `charter.ts:81` and `fleet.ts:702` are inline field enums with no name to hang
+  a declaration on. A gate matching `export const …Schema = z.enum(` would
+  report a clean estate while skipping them — the blind spot a NUL byte already
+  cost this repo across six gates.
 
 ### The slice's lifecycle
 
@@ -218,10 +257,15 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
 Written 2026-09-04. Counts measured on `main` that day: 23 entities, 1
 transitions file, 41 tests and 24 refusal assertions in the one that exists.
 
-**Three entities, not ten, and deliberately.** Agent, Worktree and Slice are the
-three whose lifecycles were measurably violated this session. The remaining
-seven follow the same shape once these prove it — and `issue`, whose spec says
-most, is last because nothing is blocked on it.
+**Four entities, not ten, and deliberately.** Agent, Worktree and Slice are the
+three whose lifecycles were measurably violated this session. Story joined them
+on 2026-09-04, when the story review found it declared **three times** — the
+domain's six states, the board's hand-copied six, and a seventh the board
+derives that neither admits. It is the cheapest of the four to prove, because
+the disagreement is already visible and already cost a person an hour.
+
+The remaining six follow the same shape once these prove it — and `issue`, whose
+spec says most, is last because nothing is blocked on it.
 
 **Related and separate.** `every-element-is-a-domain-concept` (#693) gives
 Branch, Plan and Slice a TYPE. This gives them a LIFECYCLE. The types can land
