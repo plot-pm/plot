@@ -279,7 +279,7 @@ A declaration is a fact a person wrote.
   attributed to an agent. `plot-worker-loop.sh:1063` already reports this in
   prose — *"Pass --session-id from .plot/worker-prompt.sh to make the reading
   available"* — and then ends the worker because nothing could tell. One
-  argument, and it unblocks both the reading below and resume.
+  argument, and it unblocks both the reading below and resume. → #689
 
 ### Knowing what it spent
 
