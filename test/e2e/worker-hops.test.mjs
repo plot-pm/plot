@@ -321,7 +321,7 @@ test('flow: a worker with no next branch reports itself free and waits', () => {
     // difference between waiting and stalling.
     assert.match(r.stderr, /free on nonext/,
       'a worker offered nothing reports itself free rather than exiting on the silence');
-    assert.match(r.stderr, /waiting on feature\/seam to land/,
+    assert.match(r.stderr, /feature\/seam has still to land/,
       'the wait names the branch whose landing would open the blocked slice');
 
     // AND IT ENDED ON ITS BOUND, not on the silence. The two are different

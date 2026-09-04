@@ -24,7 +24,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { makeSandbox, runScript, sh, REPO_ROOT, SCRIPTS } from './helpers.mjs';
+import { makeSandbox, runScript, sh, REPO_ROOT, SCRIPTS, staffDesk } from './helpers.mjs';
 
 const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n';
 
@@ -101,18 +101,22 @@ function launchAndCaptureEnv(name, prefix) {
   // dispatchablePlan commits and pushes; the config edit rides along with it.
   dispatchablePlan(sb.work);
   try {
-    // No --no-start: starting the worker is the whole point of this test.
-    // Use a clean env so the control test can detect whether dispatch itself
-    // injects PLOT_UNATTENDED (it must not — the variable comes from Worker command).
-    execFileSync('bash', [path.join(SCRIPTS, 'plot-dispatch.sh'), '--offline', '--max', '1', 'unattended-flow'],
-      { cwd: sb.work, encoding: 'utf8', env: cleanEnvForDispatch() });
+    // THE DESK IS LAID BY THE FIXTURE, and the LAUNCH is what this measures.
+    // Dispatch cuts no desk now — the registry does — but `start_worker` is
+    // unchanged and is what builds the environment under test.
+    //
+    // The env is CLEAN so the control test can detect whether the launch itself
+    // injects PLOT_UNATTENDED (it must not — the variable comes from the
+    // `Worker command`). That is a deletion, so it replaces the base rather
+    // than extending it.
+    staffDesk(sb.work, 'feature/solo', { envBase: cleanEnvForDispatch() });
 
     // The worker is detached, so wait for the recorder to land its file.
     const deadline = Date.now() + 15000;
     while (!fs.existsSync(dump) && Date.now() < deadline) {
       sh(sb.work, 'sleep 0.2');
     }
-    assert.ok(fs.existsSync(dump), 'dispatch never started a worker (no environment dump was written)');
+    assert.ok(fs.existsSync(dump), 'the launch never started a worker (no environment dump was written)');
     return fs.readFileSync(dump, 'utf8');
   } finally {
     sb.cleanup();

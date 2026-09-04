@@ -77,10 +77,14 @@ export function stubHost(casesJs = 'process.stdout.write("{}")') {
  * @param work the checkout to run in.
  * @param branch the branch to lay out and staff.
  * @param env extra environment for the launch (e.g. PLOT_MONITOR_INTERVAL).
+ * @param envBase the base environment, defaulting to this process's. Replaced
+ *   rather than extended by a caller that must prove a variable is ABSENT — a
+ *   spread of `process.env` cannot express a deletion.
  * @param scripts the script directory, for a caller testing a copy of the tree.
  * @returns { worktree, out } — where the desk is, and what the run printed.
  */
-export function staffDesk(work, branch, { env = {}, scripts = SCRIPTS } = {}) {
+export function staffDesk(work, branch,
+  { env = {}, envBase = process.env, scripts = SCRIPTS } = {}) {
   const worktree = path.join(path.dirname(work), `plot-wt-${branch.replace(/\//g, '-')}`);
   execFileSync('git', ['worktree', 'add', '-q', '-b', branch, worktree, 'origin/main'],
     { cwd: work, encoding: 'utf8' });
@@ -88,7 +92,7 @@ export function staffDesk(work, branch, { env = {}, scripts = SCRIPTS } = {}) {
   sh(worktree, 'git push -q -u origin HEAD');
   const out = execFileSync('bash',
     [path.join(scripts, 'plot-dispatch.sh'), '--offline', '--restart', branch],
-    { cwd: work, encoding: 'utf8', env: { ...process.env, ...env } });
+    { cwd: work, encoding: 'utf8', env: { ...envBase, ...env } });
   return { worktree, out };
 }
 
