@@ -4488,9 +4488,18 @@ function classifyGroup(
   // rule." That premise holds for a branch the scan marks `merged` — and this
   // arm is reached by one that squash-merged with its head ref deleted, which
   // arrives `wip` with no open PR and never meets the arm above.
-  const group: WaitingGroup = hasMergedPr || !quietNeedsPerson(readings)
-    ? 'quiet'
-    : 'waiting-on-you';
+  // A MERGED PR IS DONE, NOT QUIET — the same answer the `state === 'merged'`
+  // arm above already gives, and this arm exists for the branch that reaches
+  // the same truth by a different road: squash-merged with its head ref gone,
+  // so the scan calls it `wip` and only the host knows it landed. Quiet means
+  // *nobody is on this and nobody need be*; done means *this shipped*. Reading
+  // one as the other is what put six landed branches under a heading that asks
+  // the reader to go and look at them.
+  const group: WaitingGroup = hasMergedPr
+    ? 'done'
+    : !quietNeedsPerson(readings)
+      ? 'quiet'
+      : 'waiting-on-you';
   if (ageMinutes === null) {
     return { group, note: `${abandoned}, age unknown` };
   }
@@ -5757,7 +5766,11 @@ export function rowsFromPulse(
         // without merging — so the rule is handed its verdict rather than the
         // raw field, and `merged` travels beside it for the rule to outrank.
         const closedPr = held && prState(held) === 'closed' && b.state !== 'merged';
-        const group = closedPr ? 'quiet' : openGroup;
+        // DONE, NOT QUIET, for the reason the loose-branch path gives at the
+        // `placed` line: a closed PR is a decision somebody took, and the slice
+        // is finished whichever way it went. Quiet asks the reader to go and
+        // look; there is nothing left to look at.
+        const group = closedPr ? 'done' : openGroup;
         // THE SENTENCE WITHOUT A `PR #n` PREFIX, deliberately, and this is the
         // one arm where that matters. `noteWithoutPr` strips everything from
         // `PR #n` up to the first ` · ` — on the reasoning that a prefix states
@@ -6429,7 +6442,13 @@ export function rowsFromPulse(
     // `const group = closedPr ? 'quiet' : openGroup`. `classify` takes no closed
     // parameter — it is told about an OPEN pr or none — so the override belongs
     // here, on the one path that knows the PR closed.
-    const placed: WaitingGroup = prClosed ? 'quiet' : group;
+    // A CLOSED PR IS DONE, NOT QUIET. Somebody reviewed this and decided
+    // against it, which is an outcome — the branch is finished, whatever the
+    // verdict was. Quiet means *nobody is on it and nobody need be*, which
+    // reads as an invitation to go and look; the decision was already taken.
+    // `quietNeedsPerson` has said `closed-pr` needs nobody since the kind
+    // existed; this is the section catching up with that answer.
+    const placed: WaitingGroup = prClosed ? 'done' : group;
     const kind = rowQuietKind(prClosed, 'wip', placed, 'elsewhere', null, prMerged);
     rows.push({
       repo,

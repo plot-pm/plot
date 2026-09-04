@@ -2761,7 +2761,7 @@ export const AgentRowSchema = z.object({
    * field: the question was never put. The row then renders its git state
    * exactly as it did before.
    */
-  quietKind: z.enum(['closed-pr', 'orphaned-claim', 'abandoned', 'quiet']).nullable().default(null),
+  quietKind: z.enum(['merged', 'closed-pr', 'orphaned-claim', 'abandoned', 'quiet']).nullable().default(null),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 

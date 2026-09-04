@@ -1001,6 +1001,7 @@ export function startabilityWord(startability: AgentRow['startability']): string
  */
 export function quietKindWord(kind: NonNullable<AgentRow['quietKind']>): string {
   switch (kind) {
+    case 'merged': return 'merged';
     case 'closed-pr': return 'declined';
     case 'orphaned-claim': return 'unclaimed';
     case 'abandoned': return 'abandoned';

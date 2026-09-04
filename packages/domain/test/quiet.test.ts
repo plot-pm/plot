@@ -54,12 +54,19 @@ describe('quietKind — what it refuses to conclude', () => {
   it('refuses to read a merged branch as a rejection, though the host spells it CLOSED', () => {
     // A merged PR reports `CLOSED` through some hosts. Testing the word first
     // would file 85 of this estate's 98 local branches as rejected work.
-    expect(quietKind(reading({ prState: 'closed', hasMergedPr: true }))).toBe('quiet');
+    expect(quietKind(reading({ prState: 'closed', hasMergedPr: true }))).toBe('merged');
   });
 
-  it('refuses to invent a kind for a merged branch with no PR word', () => {
-    expect(quietKind(reading({ hasMergedPr: true }))).toBe('quiet');
-    expect(quietKind(reading({ prState: 'open', hasMergedPr: true }))).toBe('quiet');
+  it('names a merged branch merged, whatever the PR word says', () => {
+    // THIS REVERSES A DELIBERATE REFUSAL, and the evidence is why. The kind
+    // used to answer plain `quiet`, on the premise that `classifyGroup` placed
+    // merged work as done above this rule. That premise held only for a branch
+    // the scan itself calls `merged`; one that squash-merged with its head ref
+    // deleted arrives `wip`, reaches the fallthrough arm, and took the note of
+    // the kind it fell back to. Measured 2026-09-04: #481, #623, #600, #577,
+    // #616 and #610 all merged, all reading "nobody is on it".
+    expect(quietKind(reading({ hasMergedPr: true }))).toBe('merged');
+    expect(quietKind(reading({ prState: 'open', hasMergedPr: true }))).toBe('merged');
   });
 
   it('refuses to call a decided branch abandoned, however empty it is', () => {
@@ -108,6 +115,7 @@ describe('quietNote — the sentence, asked of the same rule', () => {
 
   it('agrees with quietKind on every case, so word and sentence cannot diverge', () => {
     const sentences: Record<QuietKind, string> = {
+      merged: 'merged',
       'closed-pr': 'PR closed without merging',
       'orphaned-claim': 'claimed, no work committed',
       abandoned: 'commits, no PR ever opened',
@@ -131,15 +139,17 @@ describe('quietNeedsPerson — which of them is still somebody’s to answer', (
     expect(quietNeedsPerson(reading({ prState: 'open' }))).toBe(true);
   });
 
-  it('keeps a merged branch — it is not the decision this rule releases', () => {
-    // `closed-pr` is the only kind that leaves. A merged branch answers
-    // `quiet` here and `classifyGroup` places it as done, above this rule.
-    expect(quietNeedsPerson(reading({ prState: 'closed', hasMergedPr: true }))).toBe(true);
+  it('releases a merged branch — shipped work is nobody\'s to answer', () => {
+    // IT USED TO KEEP ONE, on the premise that `classifyGroup` had already
+    // placed it as done above this rule. It had not, for a squash-merged
+    // branch, so the row asked a person to look at work that had landed.
+    expect(quietNeedsPerson(reading({ prState: 'closed', hasMergedPr: true }))).toBe(false);
   });
 
   it('agrees with quietKind on every case', () => {
     for (const r of everyCase()) {
-      expect(quietNeedsPerson(r)).toBe(quietKind(r) !== 'closed-pr');
+      const kind = quietKind(r);
+      expect(quietNeedsPerson(r)).toBe(kind !== 'closed-pr' && kind !== 'merged');
     }
   });
 });

@@ -882,7 +882,10 @@ describe('classify', () => {
       'wip', 'eligible', 60 * 24 * 3, QUIET, null,
       false, 0, '', 'elsewhere', '', '', false, [], '', false, '', false, '', true,
     );
-    expect(merged.group).toBe('quiet');
+    // DONE, NOT QUIET, since 2026-09-04. Leaving WAITING ON YOU was the first
+    // half; where it goes is the second. Merged work shipped, and quiet still
+    // reads as an invitation to go and look at it.
+    expect(merged.group).toBe('done');
   });
 
   it('does not call a merged branch abandoned', () => {
@@ -897,7 +900,7 @@ describe('classify', () => {
       'wip', 'eligible', 60 * 24 * 2, QUIET, null, false, 0, 'approved',
       '', '', '', false, '', '', false, '', false, '', true,
     );
-    expect(merged.group).toBe('quiet');
+    expect(merged.group).toBe('done');
 
     // And the same branch, unmerged, still reaches a person.
     const notMerged = classify(

@@ -27,7 +27,7 @@
  * happening on it — not a residue. Should a population still land here that
  * deserves its own word, that word is what the next reading adds.
  */
-export type QuietKind = 'closed-pr' | 'orphaned-claim' | 'abandoned' | 'quiet';
+export type QuietKind = 'merged' | 'closed-pr' | 'orphaned-claim' | 'abandoned' | 'quiet';
 
 /**
  * What was measured of one branch nobody is on.
@@ -85,10 +85,16 @@ export interface QuietBranchReadings {
  *
  * 1. **A merge outranks the PR word.** A merged PR reports `CLOSED` through
  *    some hosts, so testing `prState` first would file every merged branch as a
- *    rejection — 85 of this estate's 98 local branches are merged. The rule
- *    hands a merged branch back as plain `quiet` rather than inventing a fifth
- *    kind: merged work is DONE, and which section says so is `classifyGroup`'s
- *    to decide, above this rule and before it is asked.
+ *    rejection — 85 of this estate's 98 local branches are merged.
+ *
+ *    It answers `merged`, and that IS the fifth kind this rule refused to
+ *    invent until 2026-09-04. The refusal rested on a premise — *which section
+ *    says so is `classifyGroup`'s to decide, above this rule* — and the premise
+ *    only held for a branch the scan itself calls `merged`. One that
+ *    squash-merged with its head ref deleted arrives `wip`, reaches the
+ *    fallthrough, and got the note for the kind it fell back to: six landed
+ *    branches on this estate read *"nobody is on it"*, which is a sentence
+ *    about an idle branch and not about shipped work.
  * 2. **A closed PR is a decision**, and a decision outranks every fact about
  *    the branch's contents: it does not matter how much work is on a branch
  *    somebody rejected.
@@ -101,7 +107,7 @@ export interface QuietBranchReadings {
  * @returns the kind of quiet, or `'quiet'` when none of the three describes it.
  */
 export const quietKind = (readings: QuietBranchReadings): QuietKind => {
-  if (readings.hasMergedPr) return 'quiet';
+  if (readings.hasMergedPr) return 'merged';
   if (readings.prState === 'closed') return 'closed-pr';
   if (readings.isEmptyClaim) return 'orphaned-claim';
   if (readings.prState === 'none') return 'abandoned';
@@ -126,6 +132,8 @@ export const quietKind = (readings: QuietBranchReadings): QuietKind => {
  */
 export const quietNote = (readings: QuietBranchReadings): string => {
   switch (quietKind(readings)) {
+    case 'merged':
+      return 'merged';
     case 'closed-pr':
       return 'PR closed without merging';
     case 'orphaned-claim':
@@ -155,5 +163,7 @@ export const quietNote = (readings: QuietBranchReadings): string => {
  * @param readings - what was measured of the branch.
  * @returns true when the branch is still a person's to answer.
  */
-export const quietNeedsPerson = (readings: QuietBranchReadings): boolean =>
-  quietKind(readings) !== 'closed-pr';
+export const quietNeedsPerson = (readings: QuietBranchReadings): boolean => {
+  const kind = quietKind(readings);
+  return kind !== 'closed-pr' && kind !== 'merged';
+};
