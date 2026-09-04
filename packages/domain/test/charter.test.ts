@@ -88,7 +88,7 @@ describe('the charter parses', () => {
         model: 'opus',
         effort: 'high',
         capabilities: ['review', 'typescript'],
-        bounds: { contextCeiling: 0.8, atCeiling: 'finish' },
+        bounds: { contextCeiling: 0.8, contextWindow: 0, atCeiling: 'finish' },
       },
     });
   });
@@ -103,7 +103,7 @@ describe('the charter parses', () => {
       model: '',
       effort: '',
       capabilities: [],
-      bounds: { contextCeiling: 1, atCeiling: 'finish' },
+      bounds: { contextCeiling: 1, contextWindow: 0, atCeiling: 'finish' },
     });
   });
 

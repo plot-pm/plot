@@ -50,13 +50,34 @@ export const RUN_FACTS: readonly string[] = [
 /**
  * What an agent may spend before it should be handed nothing further.
  *
- * A CEILING AND A RESPONSE, never a reading. `contextCeiling` is the fraction
- * of the context window past which the agent is spent, expressed 0–1 so it
- * carries no window size; `atCeiling` is what happens there. `finish` completes
- * the slice in hand and takes no next one; `end` stops the agent.
+ * A CEILING, A WINDOW AND A RESPONSE, never a reading. `contextCeiling` is the
+ * fraction of the context window past which the agent is spent, expressed 0–1;
+ * `contextWindow` is the size that fraction is taken of, in tokens; `atCeiling`
+ * is what happens there. `finish` completes the slice in hand and takes no next
+ * one; `end` stops the agent.
+ *
+ * **THE WINDOW IS DECLARED BECAUSE NOTHING MEASURES IT.** Measured 2026-09-04
+ * on a real session: a transcript turn's `usage` carries `input_tokens`,
+ * `cache_read_input_tokens`, `cache_creation_input_tokens` and `output_tokens`,
+ * and the line names `"model":"claude-opus-5"` — but no key anywhere in the
+ * file matches `window` or `limit`. So the numerator is measurable and the
+ * denominator is not, and a verdict needs both.
+ *
+ * A TABLE FROM MODEL NAME TO WINDOW SIZE WAS THE OTHER OPTION AND IS REFUSED,
+ * for the reason this plan already gives for not inferring a capability from
+ * plan text: a guess that is usually right produces a fleet whose wrong answers
+ * cannot be explained. It would also be wrong in the direction that matters
+ * here — `claude-opus-5` names no window, and this repo runs it at both 200k
+ * and 1M, so the same model string spends against two denominators five times
+ * apart. A declaration is a fact a person wrote.
+ *
+ * `0` IS THE DEFAULT AND MEANS UNSTATED, so an agent whose charter names no
+ * window reads `unknown` rather than being measured against a number nobody
+ * chose. That is the estate today.
  */
 export const CharterBoundsSchema = z.object({
   contextCeiling: z.number().gt(0).lte(1).default(1),
+  contextWindow: z.number().int().gte(0).default(0),
   atCeiling: z.enum(['finish', 'end']).default('finish'),
 });
 
@@ -87,7 +108,11 @@ export const CharterSchema = z
     // THE INNER DEFAULTS ARE SPELT OUT, not left to `.default({})`. Zod applies
     // an object default as a whole value rather than parsing it, so `{}` lands
     // as `{}` and a charter that states no bounds gets no ceiling at all.
-    bounds: CharterBoundsSchema.default({ contextCeiling: 1, atCeiling: 'finish' }),
+    bounds: CharterBoundsSchema.default({
+      contextCeiling: 1,
+      contextWindow: 0,
+      atCeiling: 'finish',
+    }),
   })
   .strict();
 
@@ -122,6 +147,8 @@ export interface Charter {
 export interface CharterBounds {
   /** The fraction of the context window past which it is spent, 0–1. */
   contextCeiling: number;
+  /** The window that fraction is taken of, in tokens; `0` when unstated. */
+  contextWindow: number;
   /** What happens at the ceiling. */
   atCeiling: 'finish' | 'end';
 }
