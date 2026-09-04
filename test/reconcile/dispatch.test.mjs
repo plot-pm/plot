@@ -401,10 +401,12 @@ test('dispatch: a refused dispatch calls the configured Brief command', () => {
   const out = execFileSync('bash', [dispatch, '--offline', 'b'],
     { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
 
-  // The refusal is unchanged: prepared, not started.
-  assert.match(out, /prepared, not started/, `the gate must still refuse:\n${out}`);
+  // The refusal's RULE is unchanged; only its position moved, from the launch
+  // to the hand-over — so a refused slice is not handed over rather than
+  // prepared-and-not-started.
+  assert.match(out, /not handed over/, `the gate must still refuse:\n${out}`);
   assert.equal(f.workerStarted(), false, 'asking for a brief must not start a worker');
-  assert.match(out, /summary: .*started=0/, `nothing may be counted as started:\n${out}`);
+  assert.match(out, /summary: .*dispatched=0/, `nothing may be counted as handed over:\n${out}`);
 
   // And now it says what it did about it.
   assert.match(out, /Brief command/, `the run must name what it called:\n${out}`);
@@ -492,7 +494,7 @@ git push -q origin main || exit 1
   const out1 = execFileSync('bash', [dispatch, '--offline', 'b'],
     { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
   assert.equal(f.workerStarted(), false, 'the refusal stands — asking does not start a worker');
-  assert.match(out1, /summary: .*started=0/, `nothing may start on the first pass:\n${out1}`);
+  assert.match(out1, /summary: .*dispatched=0/, `nothing may be handed over on the first pass:\n${out1}`);
 
   // The callback is detached, so wait for the brief to reach the ref the gate
   // reads. That ref — not the working tree — is the whole assertion.
@@ -506,21 +508,17 @@ git push -q origin main || exit 1
   assert.equal(briefOnRef(), true,
     'the callback must land the brief on origin/main, where the gate reads it');
 
-  // Return the branch to the state a SECOND dispatcher meets it in. Pass one
-  // claimed it, and a claimed branch is never offered to `--next` again — that
-  // lock is the fleet's mutual exclusion and holds regardless of the brief. So
-  // the claim is released here, exactly as reconciling an abandoned claim
-  // releases it, leaving the one difference this test is about: the same
-  // briefless branch, now with a brief on the ref the gate reads.
-  git(f.repo, 'push', '-q', 'origin', '--delete', 'feature/needs');
-  git(f.repo, 'worktree', 'remove', '--force', f.worktree);
-  git(f.repo, 'branch', '-qD', 'feature/needs');
-
+  // NOTHING HAS TO BE UNDONE BETWEEN THE TWO PASSES, and that is the change
+  // rather than an omission. Pass one used to claim the branch, and a claimed
+  // branch is never offered again — so the test released the claim by hand to
+  // reach the second pass at all. A refused slice now leaves nothing behind, so
+  // the branch is still exactly where the queue had it, and the ONE difference
+  // between the passes is the one this test is about: a brief on the ref.
   const out2 = execFileSync('bash', [dispatch, '--offline', 'b'],
     { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
-  assert.equal(f.workerStarted(), true,
-    `dispatching again after the callback wrote the brief must start the worker:\n${out2}`);
-  assert.match(out2, /summary: .*started=1/, `the second pass must count the start:\n${out2}`);
+  assert.match(out2, /handed over feature\/needs/,
+    `dispatching again after the callback wrote the brief must hand the slice over:\n${out2}`);
+  assert.match(out2, /summary: .*dispatched=1/, `the second pass must count it:\n${out2}`);
 
   f.cleanup();
   fs.rmSync(t, { recursive: true, force: true });
@@ -621,11 +619,20 @@ test('dispatch: is idempotent — a second run hands the same slices over again'
   assert.match(out, /handed over feature\/one/);
 });
 
-test('dispatch: a branch it cannot dispatch is skipped once, not forever', () => {
-  // The loop re-asks --next after each claim (pull semantics). A branch that
-  // CANNOT be dispatched is never claimed, so --next keeps returning it — the
-  // first version span forever printing "skipped". Anything unskippable must
-  // be remembered for the duration of the run.
+test('dispatch: a branch it cannot hand over is refused once, not forever', () => {
+  // The loop used to re-ask `--next` after each claim (pull semantics). A branch
+  // that could not be dispatched was never claimed, so `--next` kept returning
+  // it and the first version spun forever printing "skipped".
+  //
+  // THE SHAPE OF THAT TRAP CHANGED WITH THE CLAIM. Dispatch claims nothing now,
+  // so NO branch leaves the eligible set — which is why the fan-out reads the
+  // list once instead of pulling. The property this test holds is the one that
+  // outlived the mechanism: a branch dispatch cannot hand over is reported
+  // exactly once and the run reaches its footer.
+  //
+  // THE UNHANDABLE BRANCH IS NOW A BRIEFLESS ONE. That is the live refusal —
+  // an occupied worktree path used to be the cheapest way to make the fan-out
+  // fail, and there is no worktree to occupy.
   const blocked = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-blocked-'));
   const o = path.join(blocked, 'origin.git');
   const r = path.join(blocked, 'repo');
@@ -644,21 +651,14 @@ test('dispatch: a branch it cannot dispatch is skipped once, not forever', () =>
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  // Occupy the worktree path with a non-worktree directory so creation fails.
-  const wt = path.join(path.dirname(r), 'plot-wt-feature-blocked');
-  fs.mkdirSync(wt, { recursive: true });
-  fs.writeFileSync(path.join(wt, 'PREEXISTING'), 'not ours\n');
-
-  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 'b'],
+  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
     { encoding: 'utf8', cwd: r, timeout: 20_000 });
-  const skips = out.split('\n').filter((l) => /skipped feature\/blocked/.test(l));
-  assert.equal(skips.length, 1, `must skip once, got ${skips.length}`);
+  const refusals = out.split('\n').filter((l) => /not handed over/.test(l));
+  assert.equal(refusals.length, 1, `must refuse once, got ${refusals.length}`);
+  assert.match(out, /summary: .*skipped=1/, 'the refusal is counted once');
   assert.match(out, /summary: /, 'must still reach the summary footer');
 
-  // And it must not have touched the directory it did not create.
-  assert.ok(fs.existsSync(path.join(wt, 'PREEXISTING')));
   fs.rmSync(blocked, { recursive: true, force: true });
-  fs.rmSync(wt, { recursive: true, force: true });
 });
 
 // A plan in a given phase, in its own throwaway repo. Returns { repo, run }.
@@ -861,10 +861,21 @@ test('dispatch: --stop refuses without a branch and never kills everything', () 
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-test('dispatch: branches sharing a last segment get distinct worktrees', () => {
-  // `feature/api` and `bug/api` both end in "api", so a worktree named after
-  // the last segment alone collides: the second branch adopts the FIRST one's
-  // worktree, and `--stop bug/api` would stop the wrong worker.
+test('dispatch: branches sharing a last segment are two slices, handed over separately', () => {
+  // `feature/api` and `bug/api` both end in "api". This test was written when
+  // dispatch cut a desk per branch and a path built from the last segment alone
+  // made the second branch adopt the first one's — `--stop bug/api` would then
+  // stop the wrong worker. Dispatch cuts no desk now, so what is left to hold
+  // is that the two are DIFFERENT WORK: each is offered, gated and handed over
+  // on its own, and neither is silently folded into the other.
+  //
+  // THE PATH RULE ITSELF MOVED TO THE AGENT and is asserted where it now lives:
+  // `deskreset.test.mjs` holds the desk the agent creates or resets.
+  //
+  // ONE BRIEF SERVES BOTH, AND THAT IS UNCHANGED AND NOT THIS BRANCH'S. Both
+  // branches read `.plot/briefs/api.md` — `brief_path` has always been the
+  // branch after its last `/`, and `/plot-implement` writes to the same rule.
+  // It is a real collision, older than the hand-over gate and untouched by it.
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-suffix-'));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
@@ -879,20 +890,26 @@ test('dispatch: branches sharing a last segment get distinct worktrees', () => {
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-s.md'),
     '# S\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n\n## Branches\n\n- `feature/api` — one\n- `bug/api` — a different thing entirely\n');
   fs.symlinkSync('../2026-01-01-s.md', path.join(r, 'plans', 'active', 's.md'));
+  // ONE brief file, because `brief_path` keys on the last segment and both
+  // branches end in `api`. That collision is this test's whole subject: the
+  // brief they share must not make them share anything else.
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'api.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 's'],
+  const out = execFileSync('bash', [dispatch, '--offline', 's'],
     { encoding: 'utf8', cwd: r, timeout: 30_000 });
   assert.match(out, /handed over feature\/api/);
   assert.match(out, /handed over bug\/api/, 'the second branch is its own slice');
+  assert.match(out, /summary: dispatched=2/, 'two slices, counted as two');
 
-  const worktrees = git(r, 'worktree', 'list');
-  const paths = worktrees.trim().split('\n').slice(1).map((l) => l.split(' ')[0]);
-  assert.equal(new Set(paths).size, paths.length, 'worktree paths must be unique');
+  // AND NEITHER LEFT A DESK. The collision this test was written for is now
+  // unreachable from here, because there is nothing to collide.
+  assert.equal(git(r, 'worktree', 'list').trim().split('\n').length, 1,
+    'dispatch cuts no desk, so no two branches can share one');
 
-  for (const p of paths) fs.rmSync(p, { recursive: true, force: true });
   fs.rmSync(t, { recursive: true, force: true });
 });
 
@@ -988,6 +1005,10 @@ function repoForBooking(label, { refuseMain = false } = {}) {
     '# S\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n'
     + '- **Approved:** 2026-01-01, alice, in-session\n\n## Branches\n\n- `feature/s` — one\n');
   fs.symlinkSync('../2026-01-01-s.md', path.join(r, 'plans', 'active', 's.md'));
+  // A brief, so the BOOKING is what these tests measure rather than the brief
+  // gate refusing ahead of it.
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 's.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
@@ -1042,13 +1063,15 @@ test('dispatch: records Started: on the default branch, not the local tree', () 
   fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-s'), { recursive: true, force: true });
 });
 
-test('dispatch: a failed booking leaves the fan-out standing', () => {
-  // THE ASSERTION THAT MATTERS. By the time the booking runs, the worktree
-  // exists and the claim is pushed — those are the real state, and the record
-  // is only a report about them. Rolling back real work because a note could
-  // not be saved is the larger damage, and aborting mid-fan-out leaves exactly
-  // the inconsistency the record exists to prevent. Every other test here can
-  // pass while this damage happens.
+test('dispatch: a failed booking leaves the hand-over standing', () => {
+  // THE ASSERTION THAT MATTERS. By the time the booking runs the slice has been
+  // handed over, and aborting on a note that could not be saved would leave
+  // exactly the inconsistency the record exists to prevent: work in the fleet's
+  // hands that the plan does not admit to.
+  //
+  // WHAT THE BOOKING QUALIFIES CHANGED WITH THE FAN-OUT. It used to report a
+  // desk and a claim; a hand-over writes neither, so the run's own report IS
+  // the state, and the test asserts that rather than a directory.
   const { tmp: t, repo: r, planOnMain } = repoForBooking('refused', { refuseMain: true });
 
   // Must not throw: a refused booking is not a failed dispatch.
@@ -1062,12 +1085,6 @@ test('dispatch: a failed booking leaves the fan-out standing', () => {
   assert.match(out, /summary: .*brief=missing/,
     `a real run must report the missing brief in the SUMMARY, not per branch — a
 caller reading only the last line is the case this exists for:\n${out}`);
-
-  // The claim is on the remote and the worktree is on disk — the real state.
-  assert.match(git(r, 'ls-remote', '--heads', 'origin', 'feature/s'), /feature\/s/,
-    'the claim must survive a failed booking');
-  assert.match(git(r, 'worktree', 'list'), /plot-wt-feature-s/,
-    'the worktree must survive a failed booking');
 
   // And it must say so rather than failing silently.
   assert.match(out, /Started:.*(not|could not)/i,
@@ -1145,6 +1162,9 @@ test('dispatch: a plan with no ## Status section is refused, not appended to', (
   fs.writeFileSync(path.join(r, 'plans', '2026-01-01-n.md'),
     '---\nphase: Approved\nimpl: own branches\n---\n\n# N\n\n## Branches\n\n- `feature/n` — one\n');
   fs.symlinkSync('../2026-01-01-n.md', path.join(r, 'plans', 'active', 'n.md'));
+  // A brief, so the missing `## Status` is what this measures.
+  fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'n.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
@@ -1821,9 +1841,12 @@ function repoWithConfig(label, extraConfig = '') {
     '# W\n\n## Status\n\n- **Phase:** Approved\n- **Impl:** own branches\n'
     + '\n## Branches\n\n- `feature/alpha` — one\n- `feature/beta` — two\n');
   fs.symlinkSync('../2026-01-01-w.md', path.join(r, 'plans', 'active', 'w.md'));
-  // A brief, so the worker actually launches — the gate refuses a briefless start.
+  // A brief PER BRANCH, named the way `brief_path` names it — the branch's
+  // last segment. A file matching neither branch would have both refused,
+  // and every count below would read zero for the wrong reason.
   fs.mkdirSync(path.join(r, '.plot', 'briefs'), { recursive: true });
-  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'real.md'), 'spec\n');
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'alpha.md'), 'spec\n');
+  fs.writeFileSync(path.join(r, '.plot', 'briefs', 'beta.md'), 'spec\n');
   git(r, 'add', '-A');
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
@@ -2965,12 +2988,20 @@ test('dispatch: a nested worktree stays invisible to git status and the marker g
     git(r, 'add', '.gitignore');
     git(r, 'commit', '-qm', 'ignore worktrees');
 
-    // A real fan-out under the nested root (no worker started).
+    // A real run under the nested root, for the BOOKING it performs — that is
+    // what plants a `.plot-start-*` worktree there and what the next assertion
+    // is about.
     execFileSync('bash', [dispatch, '--offline', '--no-start', 'root'],
       { encoding: 'utf8', cwd: r });
 
+    // THE DESK IS CUT HERE, at the path the configured root resolves to.
+    // Dispatch cuts none — the agent does, when it takes the brief — but it
+    // cuts it exactly here, and where it lands is what this test is about: a
+    // desk INSIDE the repo, which is the arrangement the two greps below have
+    // to stay blind to.
     const wt = path.join(r, '.worktrees', 'feature-one');
-    assert.ok(fs.existsSync(wt), 'the worktree must have been created under .worktrees/');
+    git(r, 'worktree', 'add', '-q', '-b', 'feature/one', wt, 'origin/main');
+    assert.ok(fs.existsSync(wt), 'the fixture must have made a worktree under .worktrees/');
 
     // AFTER A BOOKING, NO `.plot-start-*` REMAINS UNDER THE ROOT. The removal at
     // book_start ends `|| true`, so its success is asserted rather than trusted —
