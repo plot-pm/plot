@@ -24,6 +24,37 @@ function run(args, cwd = repo) {
   return execFileSync('bash', [dispatch, ...args], { encoding: 'utf8', cwd });
 }
 
+/**
+ * Lay a desk out and hand it to a worker — the launch, reached through the verb
+ * that still reaches it.
+ *
+ * **`--restart` IS NOW THE ONLY CALLER OF `start_worker`.** The fan-out stopped
+ * being one on 2026-09-04: dispatch hands a slice to the registry and returns,
+ * because `DESIGN-agent.md:157` settles that nothing starts a worker — the
+ * registry spawns an agent, and spawning it IS starting its process.
+ *
+ * The launch machinery itself is unchanged, and so are the contracts every test
+ * below asserts about it: one manifest per agent, the AGENT's pid rather than
+ * the wrapper's, the session id reaching the worker, no manifest meaning no
+ * worker. They are asked through `--restart` because that is where the code is
+ * reached from, not because anything about it moved.
+ *
+ * `--offline` is what makes the fixture cheap: `reached_review` returns at once
+ * without asking a host, so a fresh desk with no PR restarts.
+ *
+ * @param repoRoot the checkout to run in.
+ * @param branch the branch to lay out and staff.
+ * @param wt where the desk goes.
+ * @returns what the run printed.
+ */
+function staff(repoRoot, branch, wt) {
+  git(repoRoot, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
+  git(wt, 'commit', '-q', '--allow-empty', '-m', `plot: claim ${branch}`);
+  git(wt, 'push', '-qu', 'origin', branch);
+  return execFileSync('bash', [dispatch, '--offline', '--restart', branch],
+    { encoding: 'utf8', cwd: repoRoot, timeout: 30_000 });
+}
+
 before(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-dispatch-'));
   const origin = path.join(tmp, 'origin.git');
@@ -1123,10 +1154,9 @@ test('dispatch: a real worker that exits records its status', () => {
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  execFileSync('bash', [dispatch, '--offline', 'w'],
-    { encoding: 'utf8', cwd: r, timeout: 30_000 });
-
   const wt = path.join(path.dirname(r), 'plot-wt-feature-real');
+  staff(r, 'feature/real', wt);
+
   // Give the detached worker a moment; it only echoes and exits.
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline && !fs.existsSync(path.join(wt, '.plot-worker.exit'))) {
@@ -1180,10 +1210,9 @@ test('dispatch: .plot-worker.pid records the AGENT process, not the wrapper', ()
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  execFileSync('bash', [dispatch, '--offline', 'w'],
-    { encoding: 'utf8', cwd: r, timeout: 30_000 });
-
   const wt = path.join(path.dirname(r), 'plot-wt-feature-real');
+  staff(r, 'feature/real', wt);
+
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline
     && !(fs.existsSync(sentinel) && fs.existsSync(path.join(wt, '.plot-worker.pid')))) {
@@ -1282,10 +1311,9 @@ test('dispatch: .plot-worker.wrapper.pid names the agent\'s ACTUAL parent', () =
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  execFileSync('bash', [dispatch, '--offline', 'wp'],
-    { encoding: 'utf8', cwd: r, timeout: 30_000 });
-
   const wt = path.join(path.dirname(r), 'plot-wt-feature-wrappid');
+  staff(r, 'feature/wrappid', wt);
+
   const wrapperFile = path.join(wt, '.plot-worker.wrapper.pid');
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline
@@ -2405,8 +2433,7 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  execFileSync('bash', [dispatch, '--offline', 'm'],
-    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+  staff(r, 'feature/manifest', path.join(path.dirname(r), 'plot-wt-feature-manifest'));
 
   const dir = path.join(r, '.plot', 'agents');
   const names = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
@@ -2490,10 +2517,9 @@ test('dispatch: the manifest pid is the AGENT pid, matching .plot-worker.pid', (
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  execFileSync('bash', [dispatch, '--offline', 'mp'],
-    { encoding: 'utf8', cwd: r, timeout: 30_000 });
-
   const wt = path.join(path.dirname(r), 'plot-wt-feature-mpid');
+  staff(r, 'feature/mpid', wt);
+
   const dir = path.join(r, '.plot', 'agents');
   const [name] = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
   // The wrapper writes both the pid file and the manifest pid; wait for both.
@@ -2561,10 +2587,9 @@ test('dispatch: the manifest names the wrapper and all three monitors, at spawn'
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  execFileSync('bash', [dispatch, '--offline', 'g'],
-    { encoding: 'utf8', cwd: r, timeout: 30_000 });
-
   const wt = path.join(path.dirname(r), 'plot-wt-feature-group');
+  staff(r, 'feature/group', wt);
+
   const dir = path.join(r, '.plot', 'agents');
   const [name] = fs.readdirSync(dir).filter((n) => n.endsWith('.json'));
   const read = () => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'));
@@ -2634,12 +2659,11 @@ test('dispatch: the session id reaches the worker as PLOT_SESSION_ID', () => {
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  execFileSync('bash', [dispatch, '--offline', 'e'],
-    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-env');
+  staff(r, 'feature/env', wt);
 
   // The worker only writes one file and exits; wait for it rather than sleeping
   // a guessed interval.
-  const wt = path.join(path.dirname(r), 'plot-wt-feature-env');
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline && !fs.existsSync(path.join(wt, '.plot-worker.exit'))) {
     execFileSync('sleep', ['0.1']);
@@ -2718,6 +2742,13 @@ test('dispatch: a branch whose manifest cannot be written spawns no worker', () 
   // what is under test is the check at the RESOLVED path, and only a real run
   // resolves it.
   const { tmp: t, repo: r, sentinel, agents } = gateRepo();
+  // THE DESK IS LAID FIRST, because the launch is reached through `--restart`
+  // now — see `staff`. The gate under test is the manifest write inside
+  // `start_worker`, which is unmoved; only its caller changed.
+  const wt = path.join(path.dirname(r), 'plot-wt-feature-gated');
+  git(r, 'worktree', 'add', '-q', '-b', 'feature/gated', wt, 'origin/main');
+  git(wt, 'commit', '-q', '--allow-empty', '-m', 'plot: claim feature/gated');
+  git(wt, 'push', '-qu', 'origin', 'feature/gated');
   // `mkdir -p` on an existing directory SUCCEEDS, so the registry has to exist
   // and be unwritable: that is precisely the state where the old `|| true` let
   // a launch through. Creating it read-only would make `mkdir -p` the failure
@@ -2725,7 +2756,7 @@ test('dispatch: a branch whose manifest cannot be written spawns no worker', () 
   fs.mkdirSync(agents, { recursive: true });
   fs.chmodSync(agents, 0o500);
   try {
-    const out = spawnSync('bash', [dispatch, '--offline', 'g'],
+    const out = spawnSync('bash', [dispatch, '--offline', '--restart', 'feature/gated'],
       { encoding: 'utf8', cwd: r, timeout: 30_000 });
 
     // NO WORKER WAS EVER SPAWNED — not one that started and died. The sentinel
@@ -2744,7 +2775,7 @@ test('dispatch: a branch whose manifest cannot be written spawns no worker', () 
     // THE WORKTREE AND CLAIM SURVIVE. The operator fixes the cause and retries;
     // a gate that also tore down the desk would turn a permissions slip into
     // lost setup.
-    assert.ok(fs.existsSync(path.join(path.dirname(r), 'plot-wt-feature-gated')),
+    assert.ok(fs.existsSync(wt),
       'the worktree remains, so a retry costs nothing once the cause is fixed');
   } finally {
     // Restore the mode before the harness cleans up, or the directory cannot be
@@ -2759,10 +2790,9 @@ test('dispatch: the ordinary path says nothing new about the manifest', () => {
   // So the successful path is asserted to be SILENT about the manifest, not
   // merely correct.
   const { repo: r, sentinel, agents } = gateRepo();
-  const out = execFileSync('bash', [dispatch, '--offline', 'g'],
-    { encoding: 'utf8', cwd: r, timeout: 30_000 });
+  const out = staff(r, 'feature/gated', path.join(path.dirname(r), 'plot-wt-feature-gated'));
 
-  assert.equal(workerRan(sentinel), true, 'the ordinary path still starts its worker');
+  assert.equal(workerRan(sentinel), true, 'the launch path still starts its worker');
   assert.equal(fs.readdirSync(agents).filter((n) => n.endsWith('.json')).length, 1,
     'and still writes exactly one manifest');
 
