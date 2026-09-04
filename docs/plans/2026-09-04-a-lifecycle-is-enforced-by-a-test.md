@@ -133,14 +133,16 @@ on it. **Order by what is being violated**, which is Agent and Worktree.
 
 ### Nothing may hide a lifecycle, and a gate says so
 
-**Three slices do not finish this.** Twenty-two entities remain, and the failure
+**Five slices do not finish this.** Nineteen entities remain, and the failure
 this plan exists to fix — a lifecycle nobody could enforce — recurs the moment a
 new state enum lands without a rule beside it.
 
-**Measured 2026-09-04: 21 state-shaped enums, 1 transitions file.**
+**Measured 2026-09-04: 37 `z.enum` occurrences, 1 transitions file.**
 `AgentState`, `BranchState`, `WorktreeState`, `StoryStatus`, `ReleaseState`,
-`BuildState` and fifteen more each declare a set of states, and twenty of them
-say nothing about which transition is legal. `WorktreeState` reads `created →
+`BuildState` and thirty-one more each declare a set of states, and thirty-six of
+them say nothing about which transition is legal. (An earlier count said 21; the
+re-count is in the ratchet slice below, along with why it counts occurrences
+rather than exported names.) `WorktreeState` reads `created →
 occupied → finished → reapable → gone` and nothing refuses `gone → occupied`.
 
 **So the last slice is a gate, in the estate's own ratchet form**
@@ -149,10 +151,22 @@ a time). It counts state enums with no transitions rule, fails when the number
 GROWS, and never when it falls.
 
 **A state enum is not always a lifecycle, and the gate must not pretend
-otherwise.** `SprintState` is `must | should | could | deferred` — a
+otherwise.** `MoscowTier` is `must | should | could | deferred` — a
 **priority**, and a Could Have becoming a Must Have is a re-prioritisation
-rather than a transition. `PrState` is `mergeable | conflicting | unknown`, a
-**reading of a moment** that nothing moves between.
+rather than a transition. `Mergeability` is `mergeable | conflicting | unknown`,
+a **reading of a moment** that nothing moves between.
+
+**This paragraph named the wrong enum twice, and the mistake is the argument.**
+It cited `SprintState`, which is `Planning | Committed | Active | Closed` — a
+lifecycle — and `PrState`, which is `OPEN | MERGED | CLOSED` and is about the
+clearest lifecycle in the repo. Both corrections were found by reading the
+source on 2026-09-04, after the same two errors were caught in the story.
+
+`entities/pr.ts` is why it happened: four enums in one file, of which
+`PrState` transitions and `Mergeability`, `Checks` and `ReviewVerdict` do not.
+Reaching for the file and taking the first enum finds the exception. **A
+heuristic reads exactly that way** — which is the case for the declaration,
+made here by a writer who twice got it wrong while arguing for it.
 
 **The discriminator is a declaration, not a heuristic.** An entity either has a
 `transitions/<name>.ts`, or its enum carries one line saying it does not
@@ -167,8 +181,11 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
 
 - [x] **Does every entity earn a transitions file?** *Answered while writing:*
       no, and the gate must therefore read a declaration rather than guess.
-      `SprintState` is a priority and `PrState` a reading; neither transitions.
-      An entity has a rule or says why it has none.
+      `MoscowTier` is a priority and `Mergeability` a reading; neither
+      transitions. An entity has a rule or says why it has none.
+      *(This answer originally cited `SprintState` and `PrState`, both of which
+      are lifecycles. The conclusion is unchanged and the evidence for it is
+      stronger: a writer arguing for a declaration picked the wrong enum twice.)*
 - [ ] **Where does a refusal surface?** The board renders some; a hook blocks
       others; a script exits non-zero. The rule answers; who acts on the answer
       is per entity and may not be uniform.
