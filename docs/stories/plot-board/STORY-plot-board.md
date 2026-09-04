@@ -1,7 +1,7 @@
 ---
 title: Making parallel work visible
 author: jwloka
-status: done
+status: active
 created: 2026-08-15
 updated: 2026-09-04
 ---
