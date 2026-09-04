@@ -145,9 +145,40 @@ them together is what makes the type earn its existence.
   `pr_open` **can only ever keep a ref, never release one**, so its opposite
   failure direction is safe only because `pr_merged` already refused on the same
   silence. **Asserted: a host that cannot be asked deletes nothing**, and
-  **asserted: the rule answers without `gh`** — the property that unblocks
-  Bitbucket. The shell function survives; only its body moves, so all ten
-  sourcing callers are untouched.
+  **asserted: the rule answers without `gh`**. The shell function survives; only
+  its body moves, so all ten sourcing callers are untouched.
+
+- `feature/every-pr-question-goes-through-the-adapter` — the other three scripts
+  that ask the host directly. **`plot-pr-merged.sh` is the worst of four, not
+  the only one**, measured 2026-09-04: `plot-reconcile-scan.sh:291` and `:302`
+  (two live `gh pr list` calls on the reconcile path),
+  `plot-agent-monitor.sh:239`, and `plot-pr-state.sh:12` each ask *what is this
+  PR's state* — a question `plot-host.sh` already answers for both hosts through
+  `pr-list`, `pr-state` and `pr-merged`. This is duplication, not capability:
+  the routing is mechanical and the adapter needs nothing new.
+
+  It is separated from the slice above because the two fail in opposite
+  directions. `plot-pr-merged.sh` answers *not merged* and the fleet quietly
+  stops advancing; these three break loudly on a host with no `gh`, which is why
+  they are second rather than first. **Asserted: no script outside
+  `plot-host.sh` names `gh`** — a grep gate, so the next one cannot arrive
+  unnoticed.
+
+  Two scripts are deliberately **not** in this list. `plot-budget.sh` and
+  `plot-worker-monitor.sh` mention `gh` only in comments — zero live calls — and
+  an earlier count that included them was reading prose as code.
+
+- `infra/the-board-is-a-github-capability` — `plot-update-board.sh` calls
+  `gh project` four times (`:35`, `:42`, `:49`, `:80`), and this one **cannot be
+  routed**: GitHub Projects has no Bitbucket equivalent, and `plot-host.sh`
+  names `project` zero times. So it is a capability question rather than an
+  adapter question — the board integration becomes optional and reports itself
+  absent on a host that has no projects, the way `issue-list` already exits 4
+  where the host cannot be asked at all.
+
+  **Asserted: a repo with no project board dispatches, delivers and releases
+  unchanged**, which is the only property a non-GitHub project actually needs
+  from it.
 
 ### Naming the branch
 
