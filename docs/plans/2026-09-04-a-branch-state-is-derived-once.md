@@ -1,6 +1,6 @@
 # A branch state is derived once
 
-> Three domain rules read `BranchState` and none produces one. The eight states are decided in four places across a 4,008-line shell script — a git reading, a prerequisite judgement, a plan statement — and merged by an `if` in a loop.
+> Three domain rules read `BranchState` and none produces one. The eight states are decided in four places across a 4,008-line shell script — a git reading, a prerequisite judgement, a plan statement — and merged by a precedence that is carefully reasoned in a comment and enforced by nothing.
 
 ## Status
 
@@ -9,6 +9,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -52,12 +53,25 @@ So `BranchState` is not one derivation with eight outcomes. It is three
 different kinds of answer — an observation, a judgement about a prerequisite,
 and a declaration — merged by an `if` nobody can test.
 
-### What that costs
+### The precedence is reasoned, and nothing enforces it
 
-**The merge point is where the disagreement lives, and it has no name.** Whether
-a plan's `deferred:` outranks a merged ref is a real decision. It is currently
-expressed as operator precedence in a shell conditional, and a second reader
-implementing the same precedence differently would not be caught by anything.
+**It is not undocumented.** Twelve lines of comment sit directly beneath the
+`if`, and they are careful:
+
+> *"`deferred` outranks it — somebody gave the branch up, which is a decision,
+> while waiting is a measurement — and so does any state that means work exists:
+> `wip`, `claimed` and `merged` all say the branch was started, and overriding
+> `merged` would stop its wave settling FOREVER, which is the blocked-on-success
+> failure this feature is built to avoid."*
+
+The prerequisite override is correspondingly narrow — `open|unknown` only
+(`:3421`) — and the reason is stated. **This is a rule that has been thought
+about properly and written in the one place that cannot enforce it.**
+
+That is the story's thesis rather than an exception to it: `CLAUDE.md` says a
+prose-only MUST *"will eventually be violated"*, and a comment beneath a shell
+conditional is prose. The rule should outlive the comment, and a test should
+fail when someone reverses it — which today nothing would.
 
 **And it is asked constantly.** The scan runs on the board's timer and per
 `--next`; `branch_state` is called once per branch per run.
@@ -79,6 +93,23 @@ missing — each one an assertion, rather than the order of branches in an `if`.
 **The scan calls it through a bundle, as it already does twice.**
 `plot-fleet-scan.sh:3499` and `:3846` pipe readings into `plot-verdicts.mjs`
 today. This is a third call at the same call site, not a new mechanism.
+
+### The terminal cache stays in shell
+
+`PLOT_TERMINAL_CACHE` asks a terminal branch once and reuses the answer across
+pulses — **26 of 54 branches on this estate**, measured 2026-08-19, because the
+board pulses every 5 s and a merged branch stays merged.
+
+It stays where it is, wrapping the call. The cache is about **how often a
+question is asked**; the rule is about **what the answer means**, and they are
+different concerns. The scan skips calling the domain for a branch it already
+knows is terminal, the rule stays a pure function of its readings, and the
+saving is untouched.
+
+Moving it inward is the tempting alternative — terminality *is* a lifecycle
+fact, which is what this story is about — and it is rejected because it would
+give a pure rule a memory that spans invocations. The rule can say **which
+states are terminal**; deciding to stop asking is the caller's.
 
 ### Not chosen: moving `branch_state`'s git archaeology
 
@@ -125,8 +156,17 @@ which is measured rather than classified. The ratchet decides which of the
   at the call site that already does this twice. `branch_state()`'s git
   archaeology stays; the `if` at `:3411` goes. **Asserted: the scan's `--json`
   output is byte-identical across the whole estate** before and after — the same
-  differential sweep the parser change used, and the only proof that a
-  reimplementation preserved a precedence nobody had written down.
+  differential sweep the parser change used, and the proof that a
+  reimplementation preserved the precedence.
+
+  **The sweep alone is not enough, and the estate says why.** Measured
+  2026-09-04, the live estate exercises **four of the eight states**: `open` 33,
+  `wip` 3, `deferred` 3, `waiting` 2 — and **`merged`, `claimed`, `blocked` and
+  `unknown` do not appear at all.** A byte-identical run over that estate proves
+  nothing about half the enum, including `merged`, which is the state the
+  terminal cache exists to serve. So the differential runs over the real estate
+  **and** over fixtures carrying the four absent states, each asserted
+  individually.
 
 ## Notes
 
@@ -138,3 +178,27 @@ words and rules, this gives it an answer it currently has to be told.
 producer. `grep -rn BranchState packages/domain/src` returns `eligible.ts`,
 `waiting.ts` and `verdict.ts` — all reading — while the eight states are decided
 in four places in a shell script none of them can call.
+
+**Interrogated 2026-09-04, one round.** It corrected the motivation and added a
+design decision the plan had walked past.
+
+**The precedence is documented.** The plan called it *"operator precedence in a
+shell conditional"* that nobody had written down. Twelve lines of comment sit
+beneath the `if`, reasoning that `deferred` outranks `waiting` because *"somebody
+gave the branch up, which is a decision, while waiting is a measurement"*, and
+that overriding `merged` *"would stop its wave settling FOREVER"*. The
+prerequisite override is narrow — `open|unknown` only — and says so. What is
+missing is a test, which is the story's thesis rather than an exception to it.
+
+**The terminal cache needed a decision.** `PLOT_TERMINAL_CACHE` reuses a terminal
+branch's answer across pulses — 26 of 54 branches — and the plan said nothing
+about where it lives afterwards. It stays in shell: the cache is about how often
+a question is asked, the rule about what the answer means.
+
+**And the gate was weaker than it read.** The live estate exercises only four of
+the eight states — `merged`, `claimed`, `blocked` and `unknown` are absent — so a
+byte-identical sweep over it proves nothing about half the enum, `merged`
+included. Fixtures now cover the four.
+
+One claim survived unchanged and is the plan's spine: `grep -rn BranchState
+packages/domain/src` returns three consumers and no producer.
