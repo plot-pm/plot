@@ -867,6 +867,24 @@ describe('classify', () => {
     expect(r.note).toBe(reason);
   });
 
+  it('does not call a merged branch abandoned when it arrives without a plan', () => {
+    // THE SECOND PATH, AND THE ONE #684 MISSED. A branch of a DELIVERED plan is
+    // no longer carried as a slice, so it reaches the board through the
+    // loose-branch loop — which walks `unmergedBranches`, an ANCESTRY answer.
+    // Squash-merge leaves a branch permanently ahead of main, so ancestry calls
+    // a landed branch unmerged forever.
+    //
+    // Measured 2026-09-04: #610, #577 and #616 all merged on 09-01, all three
+    // sat in WAITING ON YOU reading `abandoned`, and all three belong to plans
+    // that had already delivered. That is not a coincidence — delivery is what
+    // moves a branch onto this path.
+    const merged = classify(
+      'wip', 'eligible', 60 * 24 * 3, QUIET, null,
+      false, 0, '', 'elsewhere', '', '', false, [], '', false, '', false, '', true,
+    );
+    expect(merged.group).toBe('quiet');
+  });
+
   it('does not call a merged branch abandoned', () => {
     // SQUASH-MERGE DELETES THE HEAD REF, so a merged branch has no OPEN PR and
     // read *"commits, no PR ever opened"* — which is false. `wipReadings`

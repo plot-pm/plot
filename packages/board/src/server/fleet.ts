@@ -6372,11 +6372,33 @@ export function rowsFromPulse(
     // someone may still be writing, and the quiet window is what separates the
     // two. Past it, the row used to say *no commit for 126 days* — a duration
     // standing in for a state — and now says which state it is in.
-    const { group, note } = classify('wip', 'eligible', ageMinutes, quietMinutes, null);
+    // THE HOST'S `MERGED` REACHES THIS ARM TOO, and it did not before. This
+    // loop walks `unmergedBranches`, which asks git — and **squash-merge leaves
+    // a branch permanently ahead of main**, so ancestry calls a landed branch
+    // unmerged forever. Measured 2026-09-04: #610, #577 and #616 all merged on
+    // 09-01 and all three sat in WAITING ON YOU reading *abandoned*, because
+    // this call passed no merged fact and `quietKind` defaulted to `false`.
+    //
+    // `pr.state === 'MERGED'` is the explicit answer the adapter normalises,
+    // and line 2018 records why nothing else will do: a merged PR reports
+    // `CLOSED` through some hosts, and ancestry cannot decide it either.
+    //
+    // #684 threaded this through the plan-slice path and stopped there. A
+    // branch of a DELIVERED plan is no longer carried as a slice, so it falls
+    // here — which is exactly the population that had been merged longest.
+    const prMerged = pr?.state === 'MERGED';
+    const { group, note } = classify(
+      'wip', 'eligible', ageMinutes, quietMinutes, null,
+      // localDirty, localAhead, planPhase, worker, workerExit, workerPid,
+      // localLocked, workerDirtyPaths, workerQuestion, held, localWorktree,
+      // prUnknown, deferredReason — every default, spelled out because
+      // `hasMergedPr` is last and the list is positional.
+      false, 0, '', 'elsewhere', '', '', false, [], '', false, '', false, '',
+      prMerged);
     // Asked of the same facts the group came from. `elsewhere` is what this
     // loop knows about a worker: it reaches the branch through the REFS and
     // visits no worktree, so nothing here looked for a process.
-    const kind = rowQuietKind(null, 'wip', group, 'elsewhere', null);
+    const kind = rowQuietKind(null, 'wip', group, 'elsewhere', null, prMerged);
     rows.push({
       repo,
       // `branch` — and NOT a new `orphan` kind. `RowKindSchema` has seven kinds
