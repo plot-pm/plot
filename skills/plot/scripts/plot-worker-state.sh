@@ -276,6 +276,32 @@ plot_worker_log() { # $1=worktree → path to the worker log, or "" (non-zero)
   [ -e "$wt/.plot-worker.log" ] || return 1
   printf '%s' "$wt/.plot-worker.log"
 }
+# Why did the worker in this worktree end?
+#
+# A SEPARATE READING FROM `plot_worker_state`, and deliberately so. That function
+# answers what the PROCESS did and what the desk holds; this answers why the
+# worker stopped, which is a fact only the worker itself could record. The two
+# come apart in the case that matters: a worker ended by the floor and one ended
+# by a monitor finding both leave `.plot-worker.exit` holding `124`, so the exit
+# code cannot tell them apart and the state word does not try to.
+#
+# IT IS NOT FOLDED INTO THE STATE ROW. `plot_worker_state` prints three
+# tab-separated fields that three callers and one domain port parse positionally;
+# a fourth field would change a contract this reading does not need to change.
+# `plot_worker_log` is the precedent — a standalone reader beside the state
+# function, asked by whoever wants it.
+#
+# ABSENT IS ABSENT, and it is load-bearing. No worktree, or no ending file in
+# one, prints nothing and returns non-zero — which is what a SIGKILLed worker
+# leaves behind, and what every worker that ran before this record existed
+# leaves too. The domain's `readEnding` keeps that apart from a file that exists
+# and does not parse; this prints the bytes and decides neither.
+plot_worker_ending() { # $1=worktree → the ending record's JSON, or "" (non-zero)
+  local wt="$1"
+  [ -n "$wt" ] || return 1
+  [ -f "$wt/.plot-worker.ending.json" ] || return 1
+  cat "$wt/.plot-worker.ending.json" 2>/dev/null
+}
 
 # Is a person being waited on inside this worktree?
 #
