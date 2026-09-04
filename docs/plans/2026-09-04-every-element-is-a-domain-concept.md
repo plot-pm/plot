@@ -169,26 +169,59 @@ them together is what makes the type earn its existence.
   `plot-worker-monitor.sh` mention `gh` only in comments — zero live calls — and
   an earlier count that included them was reading prose as code.
 
-- `infra/the-project-tracker-is-optional` — `plot-update-board.sh` calls
-  `gh project` four times (`:35`, `:42`, `:49`, `:80`), and this one **cannot be
-  routed**: GitHub Projects has no Bitbucket equivalent, and `plot-host.sh`
-  names `project` zero times. So it is a capability question rather than an
-  adapter question — the integration becomes optional and reports itself absent
-  on a host that has no projects, the way `issue-list` already exits 4 where the
-  host cannot be asked at all.
+- `feature/issue-tracking-is-its-own-port` — **Issue tracking becomes a domain
+  concept with its own port and two adapter implementations.**
 
-  **This is not Plot's board.** `packages/board` — `pnpm board`, the Kanban a
-  person reads — is host-agnostic and stays that way: measured 2026-09-04,
-  `packages/board/src` contains **zero** live `gh` calls, and its nine textual
-  mentions are all comments. It reaches a host only through `plot-host.sh`,
-  which speaks both. What is optional here is the **external project tracker**
-  a repo names in `Project board: owner/number`, and the naming matters because
-  a slice called *the board is a GitHub capability* would assert the opposite of
-  what is true.
+  Today it has neither. The `Issue` entity exists (`entities/issue.ts`), but the
+  operations hang off the **`host` port**, whose own docstring says it *"Reads
+  the git host"*. A tracker is not a git host: `Tracker` is a `## Plot Config`
+  key **independent of `Git host`** (`plot-host.sh:1109`), so a Bitbucket repo
+  using Jira has two different foreign services answering through one interface.
 
-  **Asserted: a repo with no project tracker configured dispatches, delivers and
-  releases unchanged**, and **asserted: `pnpm board` serves a Bitbucket repo** —
-  the second is the property that would otherwise be quietly assumed.
+  **The conflation is already visible in the port's own text.** `issueList`
+  returns `unaskable` *"where the host has no tracker at all"* — one interface
+  reporting not-my-department for a capability that belongs to a different
+  service. That answer disappears when the tracker has its own port: a repo
+  either declares a tracker or does not, and the question stops being asked of
+  the git host.
+
+  **`ports/tracker.ts`**, an interface and no runtime code, with the two
+  operations that exist plus the write that has nowhere to live:
+
+  | op | today | after |
+  |---|---|---|
+  | `issueList` | `host` port, gh + jira in shell | tracker port |
+  | `issueView` | `host` port, gh + jira in shell | tracker port |
+  | status write | `plot-update-board.sh`, `gh project`, **no abstraction** | tracker port |
+
+  **Two adapters, and they are connectors.** CLAUDE.md draws the line: a
+  connector reaches a *remote service* — account, credentials, rate limit,
+  transport choice — where every other adapter reaches the local machine. Jira
+  has its own `JIRA_EMAIL`, its own token and its own limits, entirely separate
+  from `gh`'s. So `tracker-github` and `tracker-jira` are two connectors rather
+  than one adapter with a branch, and each owns its own budget.
+
+  **The write is the design decision this slice settles.** `plot-update-board.sh`
+  calls `gh project` four times (`:35`, `:42`, `:49`, `:80`) and **never asks
+  which tracker this repo uses** — zero references to `Tracker`, `plot-host.sh`
+  or `tracker` in the script. It reads its own `Project board: owner/number` key
+  and goes straight to one vendor. CLAUDE.md currently records the opposite
+  contract — *"The two issue ops READ and never write"* — so that sentence is
+  amended here rather than quietly broken: **Plot writes a status to the tracker
+  it was told about, and writes nothing else.** A plan referencing an issue
+  stays Plot's record; the status is the one fact the tracker owns a copy of.
+
+  **Asserted: a Jira project's status updates reach Jira**, and **asserted: a
+  repo with no `Tracker` declared writes nowhere and says so** — never a silent
+  no-op against a tracker somebody configured.
+
+  **Not Plot's board, and the name matters.** `packages/board` — `pnpm board`,
+  the Kanban a person reads — is host-agnostic and stays that way: measured
+  2026-09-04, `packages/board/src` holds **zero** live `gh` calls and its nine
+  textual mentions are all comments. Two earlier drafts of this slice called it
+  *the board is a GitHub capability* and *the project tracker is optional*; the
+  first asserts the opposite of what is true about Plot's board, and the second
+  treats a supported integration as an extra.
 
 ### Naming the branch
 
