@@ -159,7 +159,7 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 ### Handing work over
 
-- `feature/the-registry-queues-a-brief` <!-- waits: feature/the-registry-supervises-its-agents --> — dispatch hands slice + brief to the registry and returns; the registry matches on the free event. **Waits on the daemon**, because `readAgentRegistry` is a read and cannot hold work for anyone. `plot-dispatch.sh:2503` stops calling `git worktree add`, and the brief gate at `:2555` moves to the hand-over rather than the launch.
+- `feature/the-registry-queues-a-brief` <!-- waits: feature/the-registry-supervises-its-agents --> — dispatch hands slice + brief to the registry and returns; the registry matches on the free event. **Waits on the daemon**, because `readAgentRegistry` is a read and cannot hold work for anyone. `plot-dispatch.sh:2503` stops calling `git worktree add`, and the brief gate at `:2555` moves to the hand-over rather than the launch. (#700)
 
 ## Notes
 
