@@ -321,18 +321,57 @@ describe('the twelve rules that HOLD — asserted over fixtures', () => {
     expect(section({ ...notStarted, state: 'claimed', worker: 'running', ageMinutes: 3 })).toBe('working');
   });
 
-  it('QUIET ⇒ state wip (HOLDS 6/6)', () => {
-    // A branch goes quiet only if it was ever loud — work was pushed (wip) and
-    // then nothing happened past the window. A branch with no commit was never
-    // loud and cannot go quiet.
-    expect(section({ state: 'wip', verdict: 'eligible', phase: PHASE.Development, ageMinutes: QUIET + 1 })).toBe('quiet');
+  // THESE TWO RULES NO LONGER HOLD, AND THE UPDATE IS THE DELIBERATE ONE THIS
+  // FILE'S HEADER ASKS FOR: *"fixing a defect BREAKS the test that recorded the
+  // defect and forces a deliberate update."*
+  //
+  // BOTH RULES DESCRIBED THE FALLTHROUGH, not a section. A `wip` branch reached
+  // QUIET by exactly one route — the last two lines of `classifyGroup`, which
+  // answered by commit age because age was the only fact left. `quiet-is-not-
+  // one-state` measured what that route was carrying: 17 closed PRs, 2
+  // claim-only branches and 6 abandoned, filed under one word and described by
+  // a duration. **Age is not a state.** *"no commit for 126 days"* is equally
+  // true of work somebody rejected, work somebody abandoned, and work nobody
+  // started.
+  //
+  // So a stale `wip` branch with no PR is now ABANDONED — real commits, no PR
+  // ever opened, nobody on it — and it goes to WAITING ON YOU, because it is
+  // the one kind that genuinely needs a person: revive it, or drop it. The rows
+  // MOVE rather than only being relabelled; the plan says so, and #669 is the
+  // precedent it cites, where a row kept its group and went on asking for a
+  // decision its own note said was made.
+  //
+  // THE DOMAIN MODEL RECORDED THE POPULATION AND NOT THE ROUTE — `pr: 6 of 6`
+  // says every QUIET row it counted carried a pull request, and a `wip` row
+  // with a PR does not reach the fallthrough at all: the PR arm answers it
+  // first. There is therefore no input for which these two rules still hold,
+  // which is why they are restated rather than re-fixtured.
+  it('a stale wip branch with no PR is ABANDONED, not quiet (was: QUIET ⇒ state wip)', () => {
+    const row = { state: 'wip' as const, verdict: 'eligible', phase: PHASE.Development, ageMinutes: QUIET + 1 };
+    expect(section(row)).toBe('waiting-on-you');
+    // AND IT SAYS WHICH KIND. The group alone would put it beside a failing
+    // review; the sentence is what separates revive-or-drop from merge-it.
+    expect(classify('wip', 'eligible', QUIET + 1, QUIET, null, false, 0, PHASE.Development, 'elsewhere').note)
+      .toMatch(/commits, no PR ever opened/);
   });
 
-  it('QUIET ⇒ phase Development (HOLDS 6/6)', () => {
-    // Quiet is a started-then-stopped Development row; a terminal phase would be
-    // DONE, a draft WAITING ON YOU. wip on a terminal plan is not the estate's
-    // quiet case.
-    expect(section({ state: 'wip', verdict: 'eligible', phase: PHASE.Development, ageMinutes: QUIET + 1 })).toBe('quiet');
+  it('a stale claim is an ORPHANED CLAIM, not quiet (was: QUIET ⇒ phase Development)', () => {
+    // The second population the fallthrough held. `state === 'claimed'` IS the
+    // empty-claim reading — the scan answers that word only for a branch whose
+    // commits beyond main are all empty `plot: claim` markers — and the board
+    // borrows the sweep's own word for it, so a reader who meets one here finds
+    // the same thing in `plot-reap.sh --dry-run`.
+    expect(section({ state: 'claimed', verdict: 'eligible', phase: PHASE.Development, ageMinutes: QUIET + 1 })).toBe('waiting-on-you');
+    expect(classify('claimed', 'eligible', QUIET + 1, QUIET, null, false, 0, PHASE.Development, 'elsewhere').note)
+      .toMatch(/claimed, no work committed/);
+  });
+
+  it('keeps QUIET for the record it still means — a shelved branch with a written reason', () => {
+    // QUIET KEEPS ONLY WHAT IT MEANS. Somebody decided and wrote down why, so
+    // the row is a record of work nobody is coming back for, and it asks for
+    // nothing. This is the arm `classifyGroup` still answers `quiet` from.
+    expect(classify('deferred', 'eligible', null, QUIET, null, false, 0, 'draft', 'elsewhere',
+      '', '', false, [], '', false, '', false, 'superseded by the rewrite').group).toBe('quiet');
   });
 
   it('WAITING ON YOU ⇒ never merged (HOLDS 30/30)', () => {

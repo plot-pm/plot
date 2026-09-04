@@ -357,7 +357,15 @@ describe('a browser test that stubs its own state starts no board', () => {
  * it is re-derived against the main the branch sits on and never adjusted by
  * arithmetic on a stale one. Both times the tripwire fired it was correct to.
  */
-const EXPECTED_FILES = 44;
+/**
+ * 44 → 45 ON 2026-09-04: `quiet-kinds-render.browser.test.ts`, one file for the
+ * four kinds `quiet-is-not-one-state` split QUIET into.
+ *
+ * Raised in the commit that adds it, which is the mechanism. It serves its own
+ * state through the catalogue and starts no board, so it satisfies the rule
+ * this gate exists to hold rather than merely being admitted past it.
+ */
+const EXPECTED_FILES = 45;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -390,7 +398,19 @@ const EXPECTED_FILES = 44;
  * Raised deliberately, in the commit that adds them, which is the whole
  * mechanism this pair exists for.
  */
-const EXPECTED_TESTS = 464;
+/**
+ * 464 → 470 ON 2026-09-04. Six tests, one file: the four kinds of quiet, plus
+ * the two claims the interrogation of `quiet-is-not-one-state` settled — that a
+ * declined PR stays ON the board, and that QUIET keeps the record it still
+ * means.
+ *
+ * The deciding is unit-tested in `packages/domain/test/quiet.test.ts` with no
+ * browser at all. These six assert only that the badge shows what the rule
+ * decided, which is the split the Layering Rule draws: *"a view state that
+ * cannot be asserted without a browser is a domain property that has not been
+ * extracted yet."*
+ */
+const EXPECTED_TESTS = 470;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

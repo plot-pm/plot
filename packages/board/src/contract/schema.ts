@@ -2734,6 +2734,33 @@ export const AgentRowSchema = z.object({
    * nothing was looked for.
    */
   findings: z.array(FindingSchema).default([]),
+  /**
+   * Which kind of quiet this branch is in, where nobody is on it — see
+   * `quietKind` in `@plot-pm/domain`.
+   *
+   * `closed-pr` · `orphaned-claim` · `abandoned` · `quiet`, and null on every
+   * row the question is not asked of: a branch with a live agent, a merged one,
+   * a PR under review.
+   *
+   * IT EXISTS SO THE STATUS WORD IS NOT DERIVED IN THE VIEW. `stateStatus` maps
+   * `state` to a word, and `wip` maps to *in progress* — which is what the
+   * board said about six branches whose last commit was four months old, on an
+   * estate running zero workers. The honest word is a property of the branch,
+   * `quietKind` answers it, and the Layering Rule puts that answer here rather
+   * than in a `.tsx`: *"a view state that cannot be asserted without a browser
+   * is a domain property that has not been extracted yet."*
+   *
+   * FORWARDED, NEVER RE-DERIVED — the rule `worker` and `findings` follow. The
+   * server asked the rule once, and this carries that answer outward; a second
+   * derivation on the client is how the word and the row's note come to
+   * describe different branches.
+   *
+   * Defaults to null so a client talking to an older server still validates,
+   * and because null is the honest reading of a payload that predates the
+   * field: the question was never put. The row then renders its git state
+   * exactly as it did before.
+   */
+  quietKind: z.enum(['closed-pr', 'orphaned-claim', 'abandoned', 'quiet']).nullable().default(null),
 });
 export type AgentRow = z.infer<typeof AgentRowSchema>;
 
