@@ -1345,16 +1345,23 @@ while true; do
   #
   # A SECOND SILENCE WAITS AGAIN. The re-read can come back empty — the
   # registry cleared the field, or wrote it between two of this agent's reads —
-  # and `continue` sends it back to `wait_for_work` rather than out.
+  # so the wait is re-entered rather than fallen out of.
+  #
+  # IT LOOPS HERE RATHER THAN `continue`ING TO THE TOP, and that changed with
+  # the read. `continue` sent the agent back to `run_bounded`, which re-ran the
+  # PROMPT on the branch it had just finished before asking again — acceptable
+  # when the ask was a 12.7 s fleet scan and the loop was structured around it,
+  # and pure waste now that the ask is a file read. A finished branch has
+  # nothing left for its prompt to do, and running it again is how a clean desk
+  # acquires a second empty commit.
   #
   # THE OUTLOOK IS STILL THE SCAN'S, AND IT DECIDES NOTHING. `--why-nothing`
   # names the branches whose landing would open a slice, which is the one
   # sentence an operator waiting needs and the manifest cannot supply. It is
-  # asked ONCE, on the way into a wait, and never inside the poll.
-  if ! next_branch=$(assigned_branch "${PLOT_MANIFEST_FILE:-}"); then
+  # asked ONCE per wait, on the way in, and never inside the poll.
+  while ! next_branch=$(assigned_branch "${PLOT_MANIFEST_FILE:-}"); do
     wait_for_work "$("$script_dir/plot-fleet-scan.sh" --offline --why-nothing "$PLOT_SLUG" 2>/dev/null)" || exit 124
-    continue
-  fi
+  done
 
   wt_root=$(dirname "$PLOT_WORKTREE")
   suffix=$(printf '%s' "$next_branch" | tr '/' '-')

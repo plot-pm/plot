@@ -10,8 +10,15 @@
 //
 // SO THE HOP IS PERFORMED, NOT MOCKED. The loop runs against a bare origin and
 // a two-wave plan whose second wave is BLOCKED until the first lands; the
-// fixture agent lands its slice, which is what makes `--next` answer between
-// the two runs. Nothing here reads the loop's source.
+// fixture agent lands its slice, which is what makes the second one legitimate
+// to hand over. Nothing here reads the loop's source.
+//
+// THE HAND-OVER IS THE REGISTRY'S, AND THE FIXTURE PLAYS IT. Since
+// `the-registry-queues-a-brief` the agent asks for nothing — it reads the
+// branch the registry wrote into its manifest. The scripts directory is copied
+// and `plot-fleet-scan.sh` wrapped in a shim that writes that field once, at
+// the moment the loop reaches its wait, which is where a daemon tick would find
+// this agent free. The hop that follows is the proof the assignment was taken.
 //
 // THE EVIDENCE MOVED WHEN THE DESK STOPPED MOVING. Until
 // `an-agent-decides-create-or-reset`, a hop cut a second worktree and the two
@@ -54,8 +61,43 @@ import path from 'node:path';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const scripts = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
-const loop = path.join(scripts, 'plot-worker-loop.sh');
 const scan = path.join(scripts, 'plot-fleet-scan.sh');
+
+/**
+ * The scripts directory, copied, with `plot-fleet-scan.sh` wrapped in a shim
+ * that hands over the next slice ONCE.
+ *
+ * IT IS THE REGISTRY, ACTING WHERE THE REGISTRY ACTS — the loop reaches this
+ * script exactly once per free window, asking `--why-nothing` on the way into a
+ * wait. Writing `branch` there is the whole of `agent-assign`: one field, no
+ * second file.
+ *
+ * ONCE, because handing the same slice out twice is what `matchQueue` makes
+ * unreachable and a fixture must not model a broken registry.
+ *
+ * THE COPY IS THE WHOLE DIRECTORY because `script_dir` is the loop's own
+ * location and every helper resolves from it.
+ */
+function shimmedScripts(root, manifest, handOver) {
+  const dir = path.join(root, 'scripts');
+  fs.cpSync(scripts, dir, { recursive: true });
+  const real = path.join(dir, 'plot-fleet-scan.real.sh');
+  fs.renameSync(path.join(dir, 'plot-fleet-scan.sh'), real);
+  const once = path.join(root, 'handed-over');
+  fs.writeFileSync(path.join(dir, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash
+if [ -f ${JSON.stringify(manifest)} ] && [ ! -f ${JSON.stringify(once)} ]; then
+  touch ${JSON.stringify(once)}
+  node -e '
+    const fs = require("fs");
+    const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    m.branch = process.argv[2];
+    fs.writeFileSync(process.argv[1], JSON.stringify(m, null, 2) + "\\n");
+  ' ${JSON.stringify(manifest)} ${JSON.stringify(handOver)}
+fi
+exec bash ${JSON.stringify(real)} "\$@"
+`, { mode: 0o755 });
+  return dir;
+}
 
 const DECLARATION = '.plot-worker.envelope.json';
 
@@ -168,16 +210,34 @@ test('declaration: one hopping worker leaves one declaration per branch', () => 
     fs.mkdirSync(path.join(wt, '.plot'), { recursive: true });
     fs.writeFileSync(path.join(wt, '.plot', 'worker-prompt.sh'), prompt(sb.work, log));
 
-    // THE LOOP NOW ENDS ON ITS BOUND, NOT ON SILENCE. Since
-    // `an-agent-waits-for-work` a `--next` with nothing to hand over makes the
-    // agent WAIT rather than exit, so this fixture — whose plan has exactly two
-    // slices and both of them done by the time the loop asks again — would
-    // never return. The wait is bounded to one poll here, and the loop then
-    // exits 124 the way a real one does when `Worker bound` runs out while it
-    // is free. `execFileSync` throws on that, so it is caught: the exit code is
-    // not what any assertion below is about.
+    // THE MANIFEST IS THE CHANNEL THE HAND-OVER TRAVELS, so this fixture needs
+    // one where it used to pass `PLOT_MANIFEST_FILE: ''`. An agent with no
+    // manifest can be handed nothing and never hops.
+    const manifestDir = path.join(sb.work, '.plot', 'agents');
+    fs.mkdirSync(manifestDir, { recursive: true });
+    const manifest = path.join(manifestDir, 'sess-hopdecl.json');
+    fs.writeFileSync(manifest, JSON.stringify({
+      session: 'sess-hopdecl',
+      resumeId: 'sess-hopdecl',
+      branch: 'feature/seam',
+      worktree: wt,
+      command: 'plot-worker-loop.sh',
+      pid: '4242',
+      wrapperPid: '4241',
+      attempts: 0,
+      startedAt: '2026-09-03T09:00:00Z',
+    }, null, 2) + '\n');
+    const dir = shimmedScripts(sb.root, manifest, 'feature/api');
+
+    // THE LOOP ENDS ON ITS BOUND, NOT ON SILENCE. Since
+    // `an-agent-waits-for-work` an agent handed nothing WAITS rather than
+    // exits, so this fixture — whose plan has exactly two slices and both of
+    // them done once the hop completes — would never return. The wait is
+    // bounded here, and the loop then exits 124 the way a real one does when
+    // `Worker bound` runs out while it is free. `execFileSync` throws on that,
+    // so it is caught: the exit code is not what any assertion below is about.
     try {
-      execFileSync('bash', [loop], {
+      execFileSync('bash', [path.join(dir, 'plot-worker-loop.sh')], {
         cwd: wt,
         encoding: 'utf8',
         timeout: 120000,
@@ -186,9 +246,9 @@ test('declaration: one hopping worker leaves one declaration per branch', () => 
           PLOT_BRANCH: 'feature/seam',
           PLOT_WORKTREE: wt,
           PLOT_SLUG: 'hopdecl',
-          PLOT_MANIFEST_FILE: '',
+          PLOT_MANIFEST_FILE: manifest,
           PLOT_WAIT_POLL_SECONDS: '1',
-          PLOT_WAIT_BUDGET_SECONDS: '1',
+          PLOT_WAIT_BUDGET_SECONDS: '6',
         },
       });
     } catch (err) {
@@ -201,7 +261,7 @@ test('declaration: one hopping worker leaves one declaration per branch', () => 
     // absence of `plot-wt-feature-api` is what says the desk was reset rather
     // than duplicated.
     assert.ok(fs.existsSync(path.join(wt, 'work-api.txt')),
-      'precondition: the worker must have hopped, or there is nothing to assert');
+      'the worker took the slice the registry handed it, or there is nothing to assert');
     assert.equal(fs.existsSync(path.join(wtRoot, 'plot-wt-feature-api')), false,
       'the hop must reset the desk it holds, not cut a second one');
 

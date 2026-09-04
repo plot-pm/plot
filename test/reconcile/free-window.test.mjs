@@ -12,11 +12,16 @@
 // THE WINDOW IS TRANSIENT, SO IT IS OBSERVED FROM INSIDE. The exit trap removes
 // the manifest on every path, so nothing survives the loop to read afterwards,
 // and a test that inspected the file when the loop returned would assert about
-// an absence rather than about the empty value. `plot-fleet-scan.sh --next` is
-// the one thing that runs INSIDE the window, so the scripts directory is copied
-// and the scan replaced by a shim that snapshots the manifest and then delegates
-// to the real one. The snapshot is the evidence: it is a byte-for-byte copy of
-// what the registry would have read at that instant.
+// an absence rather than about the empty value.
+//
+// THE SHIM PLAYS THE REGISTRY, and since `the-registry-queues-a-brief` that is
+// the honest shape rather than a convenience. The agent no longer calls
+// `--next`: it reads the branch the registry wrote into its manifest. So the
+// scan the loop still runs — `--why-nothing`, on the way into a wait — is
+// wrapped by a shim that does exactly what the daemon does at that moment:
+// snapshot what the registry would read, then hand over the next slice by
+// writing `branch`. The snapshot is the evidence for the window; the write is
+// the hand-over, and the hop that follows is the proof it was taken.
 //
 // THE COPY IS THE WHOLE DIRECTORY because `script_dir` is the loop's own
 // location and every helper resolves from it — shimming one script in place
@@ -96,21 +101,44 @@ function claim(sb, branch) {
 
 /**
  * The scripts directory, copied, with `plot-fleet-scan.sh` wrapped in a shim
- * that appends the manifest's current bytes to a log before delegating.
+ * that snapshots the manifest and then HANDS OVER the next slice.
  *
- * IT DELEGATES RATHER THAN ANSWERING. The real scan decides whether the hop
- * happens at all, and a stub that invented an answer would test the shim.
+ * IT IS THE REGISTRY, ACTING WHERE THE REGISTRY ACTS. The loop reaches this
+ * script exactly once per free window — `--why-nothing`, asked on the way into
+ * a wait — which is the same instant a daemon tick would find this agent free
+ * and match it. So the shim takes the snapshot and writes `branch` into the
+ * manifest, which is the whole of `agent-assign`: no second file, no socket,
+ * one field.
+ *
+ * IT HANDS OVER ONCE. A shim that wrote the assignment on every call would
+ * re-hand a slice the agent already holds, which is the double assignment
+ * `matchQueue` exists to make unreachable — so it refuses itself the second
+ * time, the way the pool does.
+ *
+ * IT STILL DELEGATES. `--why-nothing` decides the operator's sentence and the
+ * real scan is what answers it; a stub would test the shim.
  */
-function shimmedScripts(root, snapshotLog) {
+function shimmedScripts(root, snapshotLog, manifest, handOver) {
   const dir = path.join(root, 'scripts');
   fs.cpSync(scripts, dir, { recursive: true });
   const real = path.join(dir, 'plot-fleet-scan.real.sh');
   fs.renameSync(path.join(dir, 'plot-fleet-scan.sh'), real);
+  const once = path.join(root, 'handed-over');
   fs.writeFileSync(path.join(dir, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash
-# Snapshot the manifest as the registry would read it right now, then delegate.
+# Snapshot the manifest as the registry would read it right now.
 if [ -n "\${PLOT_MANIFEST_FILE:-}" ] && [ -f "\$PLOT_MANIFEST_FILE" ]; then
   cat "\$PLOT_MANIFEST_FILE" >> ${JSON.stringify(snapshotLog)}
   printf '\\n--SNAP--\\n' >> ${JSON.stringify(snapshotLog)}
+  # Then hand over the next slice, once — the registry's own write.
+  if [ ! -f ${JSON.stringify(once)} ]; then
+    touch ${JSON.stringify(once)}
+    node -e '
+      const fs = require("fs");
+      const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      m.branch = process.argv[2];
+      fs.writeFileSync(process.argv[1], JSON.stringify(m, null, 2) + "\\n");
+    ' "\$PLOT_MANIFEST_FILE" ${JSON.stringify(handOver)}
+  fi
 fi
 exec bash ${JSON.stringify(real)} "\$@"
 `, { mode: 0o755 });
@@ -118,10 +146,14 @@ exec bash ${JSON.stringify(real)} "\$@"
 }
 
 /**
- * The fixture agent: it commits, pushes, and LANDS its slice as a merge commit,
- * which is what opens the second wave between the loop's two `--next` calls. A
- * fast-forward would leave branch and main at the same oid, which the scan reads
- * as `open` — the second wave would never open and the worker would never hop.
+ * The fixture agent: it commits, pushes, and LANDS its slice as a merge commit.
+ *
+ * IT STILL LANDS THE SLICE, even though the hop no longer depends on the scan
+ * offering anything. The merge is what makes the hand-over LEGITIMATE rather
+ * than merely possible: `feature/api` is blocked behind `feature/seam`, and a
+ * registry handing it over before the seam landed would be handing out a slice
+ * `isClaimable` refuses. The fixture plays a correct registry, so it waits for
+ * the same fact a real one reads.
  */
 const prompt = (work) => `set -e
 echo "$PLOT_BRANCH" > "$PLOT_WORKTREE/work-\${PLOT_BRANCH##*/}.txt"
@@ -138,7 +170,7 @@ test('free window: the manifest names no branch between the finish and the hop',
   try {
     const { wt, wtRoot } = claim(sb, 'feature/seam');
     const snapshotLog = path.join(sb.root, 'snapshots.txt');
-    const dir = shimmedScripts(sb.root, snapshotLog);
+    const dir = shimmedScripts(sb.root, snapshotLog, path.join(sb.work, '.plot', 'agents', 'sess-freewin.json'), 'feature/api');
 
     // PRECONDITION: wave 2 must be blocked, or the hop is over ungated work.
     const before = execFileSync('bash', [path.join(dir, 'plot-fleet-scan.real.sh'), '--offline', 'freewin'],
@@ -167,14 +199,14 @@ test('free window: the manifest names no branch between the finish and the hop',
     fs.mkdirSync(path.join(wt, '.plot'), { recursive: true });
     fs.writeFileSync(path.join(wt, '.plot', 'worker-prompt.sh'), prompt(sb.work));
 
-    // THE LOOP NOW ENDS ON ITS BOUND, NOT ON SILENCE. Since
-    // `an-agent-waits-for-work` a `--next` with nothing to hand over makes the
-    // agent WAIT rather than exit, so this fixture — whose plan has exactly two
-    // slices and both of them done by the time the loop asks again — would
-    // never return. The wait is bounded to one poll here, and the loop then
-    // exits 124 the way a real one does when `Worker bound` runs out while it
-    // is free. `execFileSync` throws on that, so it is caught: the exit code is
-    // not what any assertion below is about.
+    // THE LOOP ENDS ON ITS BOUND, NOT ON SILENCE. Since
+    // `an-agent-waits-for-work` an agent handed nothing WAITS rather than
+    // exits, so this fixture — whose plan has exactly two slices and both of
+    // them done once the hop completes — would never return. The wait is
+    // bounded to one poll here, and the loop then exits 124 the way a real one
+    // does when `Worker bound` runs out while it is free. `execFileSync` throws
+    // on that, so it is caught: the exit code is not what any assertion below
+    // is about.
     try {
       execFileSync('bash', [path.join(dir, 'plot-worker-loop.sh')], {
         cwd: wt,
@@ -186,8 +218,13 @@ test('free window: the manifest names no branch between the finish and the hop',
           PLOT_WORKTREE: wt,
           PLOT_SLUG: 'freewin',
           PLOT_MANIFEST_FILE: manifest,
+          // ONE POLL IS ENOUGH TO TAKE THE HAND-OVER, and the budget must
+          // allow it: the shim writes the assignment on the way INTO the wait,
+          // so the loop has to reach its first poll to read it. A one-second
+          // budget expires before that poll and the agent ends free — which is
+          // correct behaviour and not what this test is about.
           PLOT_WAIT_POLL_SECONDS: '1',
-          PLOT_WAIT_BUDGET_SECONDS: '1',
+          PLOT_WAIT_BUDGET_SECONDS: '6',
         },
       });
     } catch (err) {
@@ -195,27 +232,26 @@ test('free window: the manifest names no branch between the finish and the hop',
         'the loop may only end on its own bound here, never on any other failure');
     }
 
-    // THE HOP HAPPENED, and since `an-agent-decides-create-or-reset` it happens
-    // WITHOUT a second desk: the agent resets the one it holds. The precondition
-    // is therefore that the second slice RAN — its marker file, written by the
-    // fixture agent — rather than that a second directory exists.
+    // THE HOP HAPPENED, AND IT HAPPENED BECAUSE THE SLICE WAS HANDED OVER.
+    // This assertion carries more than it used to: the agent asks nothing and
+    // selects nothing, so the only way `feature/api` can have run is that the
+    // shim wrote it into the manifest and the loop read it back. Since
+    // `an-agent-decides-create-or-reset` it also happens WITHOUT a second desk.
     assert.ok(fs.existsSync(path.join(wt, 'work-api.txt')),
-      'precondition: the worker must have hopped, or there is no window to have passed through');
+      'the agent took the slice the registry handed it, and there is a window to have passed through');
     assert.equal(fs.existsSync(path.join(wtRoot, 'plot-wt-feature-api')), false,
       'the hop resets the desk it holds; a second desk would mean it did not');
 
     const snaps = fs.readFileSync(snapshotLog, 'utf8')
       .split('\n--SNAP--\n').filter((s) => s.trim() !== '').map((s) => JSON.parse(s));
-    assert.ok(snaps.length >= 1, 'the scan ran inside the window and snapshotted the manifest');
+    assert.ok(snaps.length >= 1, 'the registry read the manifest inside the window');
 
     // THE WINDOW IS OPEN. Every snapshot is taken between `seal_declaration`
     // and `update_manifest_on_hop`, and in every one the agent holds nothing —
     // which is the fact `free` is derived from and the fact that did not exist
     // before this slice.
-    for (const snap of snaps) {
-      assert.equal(snap.branch, '',
-        'between finishing a slice and being handed the next, the manifest names no branch');
-    }
+    assert.equal(snaps[0].branch, '',
+      'between finishing a slice and being handed the next, the manifest names no branch');
 
     // ONLY `branch`. The desk has not moved, and both the transcript join and
     // the liveness check are keyed on the worktree path — clearing it would
