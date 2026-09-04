@@ -3115,6 +3115,15 @@ export const AgentEntrySchema = z.object({
   state: AgentStateSchema.default('unknown'),
   model: z.string().optional(),
   contextTokens: z.number().optional(),
+  /**
+   * Every input token the last turn carried, not just the cache read.
+   *
+   * Kept apart from `contextTokens` rather than replacing it: that field is
+   * `cache_read_input_tokens` and has been rendered since 2026-08-19; this is
+   * the sum a context ceiling is a fraction of. Two meanings for one word is
+   * how `Wave`/`Slice` drifted.
+   */
+  contextSpend: z.number().optional(),
   lastActivity: z.string().optional(),
 });
 export type AgentEntry = z.infer<typeof AgentEntrySchema>;

@@ -15,8 +15,13 @@ const WINDOW = 1_000_000;
 
 const readings = (over: Partial<ContextReadings> = {}): ContextReadings => ({
   contextTokens: 100_000,
-  contextWindow: WINDOW,
   ...over,
+});
+
+/** Bounds a person declared: a ceiling, and the window it is a fraction of. */
+const bounds = (contextCeiling: number, contextWindow: number = WINDOW) => ({
+  contextCeiling,
+  contextWindow,
 });
 
 describe('contextTokensFromUsage', () => {
@@ -77,13 +82,13 @@ describe('contextTokensFromUsage', () => {
 
 describe('contextVerdict', () => {
   it('reads a reading below the ceiling as ample', () => {
-    const actual = contextVerdict(readings({ contextTokens: 643_808 }), { contextCeiling: 0.8 });
+    const actual = contextVerdict(readings({ contextTokens: 643_808 }), bounds(0.8));
 
     expect(actual).toBe('ample');
   });
 
   it('reads a reading past the ceiling as spent', () => {
-    const actual = contextVerdict(readings({ contextTokens: 880_000 }), { contextCeiling: 0.8 });
+    const actual = contextVerdict(readings({ contextTokens: 880_000 }), bounds(0.8));
 
     expect(actual).toBe('spent');
   });
@@ -91,50 +96,47 @@ describe('contextVerdict', () => {
   it('reads a reading exactly at the ceiling as spent', () => {
     // `>=`, not `>`: a ceiling of 1 on a full window must answer spent, or the
     // agent with nothing left reads ample at the one reading that matters.
-    expect(contextVerdict(readings({ contextTokens: 800_000 }), { contextCeiling: 0.8 })).toBe(
+    expect(contextVerdict(readings({ contextTokens: 800_000 }), bounds(0.8))).toBe(
       'spent',
     );
-    expect(contextVerdict(readings({ contextTokens: WINDOW }), { contextCeiling: 1 })).toBe('spent');
+    expect(contextVerdict(readings({ contextTokens: WINDOW }), bounds(1))).toBe('spent');
   });
 
   it('answers unknown — never ample — when no tokens could be read', () => {
     // Silence is not headroom. This is the assertion the plan names.
-    expect(contextVerdict(readings({ contextTokens: null }), { contextCeiling: 0.8 })).toBe(
+    expect(contextVerdict(readings({ contextTokens: null }), bounds(0.8))).toBe(
       'unknown',
     );
   });
 
-  it('answers unknown — never ample — when no window was stated', () => {
-    expect(contextVerdict(readings({ contextWindow: null }), { contextCeiling: 0.8 })).toBe(
-      'unknown',
-    );
-    expect(contextVerdict(readings({ contextWindow: 0 }), { contextCeiling: 0.8 })).toBe('unknown');
+  it('answers unknown — never ample — when the charter states no window', () => {
+    // Measured 2026-09-04: a transcript turn names its model and no key in the
+    // file matches `window`. So an undeclared window is the estate today, and
+    // it must read unknown rather than be judged against a guessed number.
+    expect(contextVerdict(readings(), bounds(0.8, 0))).toBe('unknown');
+    expect(contextVerdict(readings(), bounds(0.8, Number.NaN))).toBe('unknown');
+    expect(contextVerdict(readings(), bounds(0.8, Number.POSITIVE_INFINITY))).toBe('unknown');
   });
 
   it('answers unknown for an unusable reading rather than throwing', () => {
-    expect(contextVerdict(readings({ contextTokens: Number.NaN }), { contextCeiling: 0.8 })).toBe(
+    expect(contextVerdict(readings({ contextTokens: Number.NaN }), bounds(0.8))).toBe(
       'unknown',
     );
-    expect(contextVerdict(readings({ contextTokens: -1 }), { contextCeiling: 0.8 })).toBe('unknown');
-    expect(
-      contextVerdict(readings({ contextWindow: Number.POSITIVE_INFINITY }), {
-        contextCeiling: 0.8,
-      }),
-    ).toBe('unknown');
+    expect(contextVerdict(readings({ contextTokens: -1 }), bounds(0.8))).toBe('unknown');
   });
 
   it('answers unknown for a ceiling that is not a usable fraction', () => {
-    expect(contextVerdict(readings(), { contextCeiling: 0 })).toBe('unknown');
-    expect(contextVerdict(readings(), { contextCeiling: Number.NaN })).toBe('unknown');
+    expect(contextVerdict(readings(), bounds(0))).toBe('unknown');
+    expect(contextVerdict(readings(), bounds(Number.NaN))).toBe('unknown');
   });
 
   it('exposes no percentage anywhere in its answer', () => {
     // The assertion the plan names: the domain carries a verdict, never the
     // number. A caller wanting 64% renders it from the reading it already holds.
     const answers = [
-      contextVerdict(readings({ contextTokens: 10 }), { contextCeiling: 0.8 }),
-      contextVerdict(readings({ contextTokens: 900_000 }), { contextCeiling: 0.8 }),
-      contextVerdict(readings({ contextTokens: null }), { contextCeiling: 0.8 }),
+      contextVerdict(readings({ contextTokens: 10 }), bounds(0.8)),
+      contextVerdict(readings({ contextTokens: 900_000 }), bounds(0.8)),
+      contextVerdict(readings({ contextTokens: null }), bounds(0.8)),
     ];
 
     expect(answers).toEqual(['ample', 'spent', 'unknown']);
@@ -143,25 +145,59 @@ describe('contextVerdict', () => {
 });
 
 describe('contextVerdict against a charter', () => {
-  it('reads an undeclared agent as spent only at a full window', () => {
-    // The estate today: nothing is declared, so the schema's default of 1
-    // applies and no existing worker changes behaviour.
-    const { bounds } = CharterSchema.parse({ name: 'a', prompt: 'p.sh' });
+  it('reads an agent that declared nothing as unknown, whatever it has spent', () => {
+    // The estate today: no charter names a window, so every existing worker
+    // answers unknown — handed no work on that basis, and ended on none either.
+    const declared = CharterSchema.parse({ name: 'a', prompt: 'p.sh' }).bounds;
 
-    expect(bounds.contextCeiling).toBe(1);
-    expect(contextVerdict(readings({ contextTokens: 999_999 }), bounds)).toBe('ample');
-    expect(contextVerdict(readings({ contextTokens: WINDOW }), bounds)).toBe('spent');
+    expect(declared.contextCeiling).toBe(1);
+    expect(declared.contextWindow).toBe(0);
+    expect(contextVerdict(readings({ contextTokens: 10 }), declared)).toBe('unknown');
+    expect(contextVerdict(readings({ contextTokens: 5_000_000 }), declared)).toBe('unknown');
   });
 
-  it('honours a ceiling a person declared', () => {
-    const { bounds } = CharterSchema.parse({
+  it('honours the ceiling and window a person declared', () => {
+    const declared = CharterSchema.parse({
       name: 'a',
       prompt: 'p.sh',
-      bounds: { contextCeiling: 0.5, atCeiling: 'finish' },
-    });
+      bounds: { contextCeiling: 0.5, contextWindow: WINDOW, atCeiling: 'finish' },
+    }).bounds;
 
-    expect(contextVerdict(readings({ contextTokens: 600_000 }), bounds)).toBe('spent');
-    expect(contextVerdict(readings({ contextTokens: 400_000 }), bounds)).toBe('ample');
+    expect(contextVerdict(readings({ contextTokens: 600_000 }), declared)).toBe('spent');
+    expect(contextVerdict(readings({ contextTokens: 400_000 }), declared)).toBe('ample');
+  });
+
+  it('spends the same reading differently against two declared windows', () => {
+    // Why the window is declared and not read off the model name: this repo
+    // runs `claude-opus-5` at both 200k and 1M, five times apart.
+    const at200k = CharterSchema.parse({
+      name: 'a',
+      prompt: 'p.sh',
+      bounds: { contextCeiling: 0.8, contextWindow: 200_000, atCeiling: 'finish' },
+    }).bounds;
+    const at1m = CharterSchema.parse({
+      name: 'b',
+      prompt: 'p.sh',
+      bounds: { contextCeiling: 0.8, contextWindow: WINDOW, atCeiling: 'finish' },
+    }).bounds;
+    const spend = readings({ contextTokens: 643_808 });
+
+    expect(contextVerdict(spend, at200k)).toBe('spent');
+    expect(contextVerdict(spend, at1m)).toBe('ample');
+  });
+
+  it('refuses a charter whose window is not a whole non-negative count', () => {
+    const withWindow = (contextWindow: unknown) =>
+      CharterSchema.safeParse({
+        name: 'a',
+        prompt: 'p.sh',
+        bounds: { contextCeiling: 0.8, contextWindow, atCeiling: 'finish' },
+      }).success;
+
+    expect(withWindow(200_000)).toBe(true);
+    expect(withWindow(0)).toBe(true);
+    expect(withWindow(-1)).toBe(false);
+    expect(withWindow(1.5)).toBe(false);
   });
 });
 

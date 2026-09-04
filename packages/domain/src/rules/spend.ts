@@ -49,22 +49,13 @@ export interface ContextReadings {
   /**
    * Tokens the agent's newest turn carried as context, or null when unread.
    *
-   * `cache_read_input_tokens` plus whatever the turn added, as the caller
-   * measured it. Null is how a caller says the transcript was missing, the
-   * session unattributable, or the line unrecognised — never zero, which is a
-   * real reading meaning a turn that carried nothing.
+   * `cache_read_input_tokens` plus whatever the turn added, as
+   * {@link contextTokensFromUsage} sums it. Null is how a caller says the
+   * transcript was missing, the session unattributable, or the line
+   * unrecognised — never zero, which is a real reading meaning a turn that
+   * carried nothing.
    */
   contextTokens: number | null;
-  /**
-   * The size of the window those tokens are spent against, or null when
-   * unstated.
-   *
-   * Taken as a value rather than inferred from the model name. A table mapping
-   * models to window sizes is a guess that is usually right and is wrong
-   * silently at exactly the moment a model gains a larger window — and this
-   * repo already refuses that trade for capabilities, for the same reason.
-   */
-  contextWindow: number | null;
 }
 
 /**
@@ -125,39 +116,45 @@ export const contextTokensFromUsage = (usage: unknown): number | null => {
 /**
  * Reads what an agent has spent as a context verdict.
  *
- * Judged against the charter's ceiling, which is a fraction the person who
- * declared the agent wrote. An agent with no charter carries the schema's
- * default of `1`, so it is `spent` only at a full window — which is the estate
- * today, where nothing is declared and nothing should change.
+ * **THE READING IS MEASURED AND THE BOUNDS ARE DECLARED**, and the split is the
+ * rule. The transcript supplies the numerator and nothing supplies the
+ * denominator: measured 2026-09-04, a turn carries four token counts and the
+ * model's name, and no key in the file matches `window` or `limit`. So the
+ * window comes from the charter — a fact a person wrote — and an agent whose
+ * charter states none answers `unknown` rather than being judged against a
+ * number nobody chose.
+ *
+ * **THAT IS THE ESTATE TODAY**, where nothing is declared. Every existing
+ * worker reads `unknown`, is handed no work on that basis and is ended on no
+ * basis either, so this rule changes nothing until a charter names a window.
  *
  * **THE COMPARISON IS `>=`.** A ceiling of `1` on a full window must answer
  * `spent`; `>` would leave an agent with nothing left reading `ample` at
  * exactly the reading the ceiling exists to catch.
  *
- * A non-finite or negative reading, and a window that is not a positive number,
- * each answer `unknown` rather than throwing. The transcript is the runtime's
- * private format and may move a field between releases; a rule that threw on
- * that would cost the pulse that read it.
+ * A non-finite or negative reading, and a window or ceiling that is not a
+ * positive number, each answer `unknown` rather than throwing. The transcript
+ * is the runtime's private format and may move a field between releases; a rule
+ * that threw on that would cost the pulse that read it.
  *
  * @param readings - what was measured of this agent's context.
- * @param bounds - what the agent's charter says it may spend.
- * @returns `unknown` when either reading is absent or unusable, `spent` at or
- *   past the ceiling, otherwise `ample`.
+ * @param bounds - what the agent's charter says it may spend, and against what
+ *   window.
+ * @returns `unknown` when the reading or either bound is absent or unusable,
+ *   `spent` at or past the ceiling, otherwise `ample`.
  */
 export const contextVerdict = (
   readings: ContextReadings,
-  bounds: Pick<CharterBounds, 'contextCeiling'>,
+  bounds: Pick<CharterBounds, 'contextCeiling' | 'contextWindow'>,
 ): ContextVerdict => {
-  const { contextTokens, contextWindow } = readings;
+  const { contextTokens } = readings;
+  const { contextCeiling: ceiling, contextWindow: window } = bounds;
   if (contextTokens === null || !Number.isFinite(contextTokens) || contextTokens < 0) {
     return 'unknown';
   }
-  if (contextWindow === null || !Number.isFinite(contextWindow) || contextWindow <= 0) {
-    return 'unknown';
-  }
-  const ceiling = bounds.contextCeiling;
+  if (!Number.isFinite(window) || window <= 0) return 'unknown';
   if (!Number.isFinite(ceiling) || ceiling <= 0) return 'unknown';
-  return contextTokens / contextWindow >= ceiling ? 'spent' : 'ample';
+  return contextTokens / window >= ceiling ? 'spent' : 'ample';
 };
 
 /**
