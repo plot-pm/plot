@@ -9,7 +9,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -94,6 +94,29 @@ missing — each one an assertion, rather than the order of branches in an `if`.
 `plot-fleet-scan.sh:3499` and `:3846` pipe readings into `plot-verdicts.mjs`
 today. This is a third call at the same call site, not a new mechanism.
 
+### A reading is present, absent, or failed
+
+**`branch_state` already draws the distinction that readings-as-values exists
+for**, and draws it well. From its own comment:
+
+> *"`unasked` — no host configured, or `--offline` — must keep reading `open`:
+> the scan was never going to ask, so nothing was lost… **A question that was
+> not put is not a question that went unanswered.**"*
+
+So `unasked` yields `open`, while `throttled`, `secondary` and `failed` yield
+`unknown` (`:63`) — the question was put and went unanswered, and the scan has
+no evidence either way.
+
+**A shell function holds that apart by care; a typed reading holds it apart by
+construction.** The rule takes a reading that is *present*, *absent* or
+*failed* — three different inputs — and cannot conflate the last two by
+accident. That is why the derivation is worth moving at all: not because shell
+is the wrong language, but because this is a distinction the type system can
+keep and a `case` statement can only remember to.
+
+It also explains why `unknown` never appears on the live estate: it exists for
+a host failure, and the host has not failed during a scan anyone measured.
+
 ### The terminal cache stays in shell
 
 `PLOT_TERMINAL_CACHE` asks a terminal branch once and reuses the answer across
@@ -132,10 +155,9 @@ which is measured rather than classified. The ratchet decides which of the
       slice, not a fact about a ref. It may belong on the Slice — which
       `every-element-is-a-domain-concept` is giving a type — leaving `BranchState`
       to describe only what git can see.
-- [ ] **Does `unknown` survive?** Three of the eight states are absences
-      (`unknown`, and the two prerequisite states where the prerequisite cannot
-      be read). A rule taking readings as values can distinguish *not read* from
-      *read as nothing*, which the current shell cannot.
+- [x] **Does `unknown` survive?** *Answered while interrogating:* yes, and it is
+      the plan's strongest argument — see *A reading is present, absent, or
+      failed* above.
 
 ## Branches
 
@@ -154,19 +176,30 @@ which is measured rather than classified. The ratchet decides which of the
 - `feature/the-scan-asks-for-the-state` — `plot-fleet-scan.sh` reads git, the
   claim ref and the plan annotation, and pipes them to the rule through a bundle
   at the call site that already does this twice. `branch_state()`'s git
-  archaeology stays; the `if` at `:3411` goes. **Asserted: the scan's `--json`
-  output is byte-identical across the whole estate** before and after — the same
-  differential sweep the parser change used, and the proof that a
-  reimplementation preserved the precedence.
+  archaeology stays; the `if` at `:3411` goes. **Asserted: each of the eight states is produced from readings the test
+  supplies**, one case per state, in the rule's own unit tests.
 
-  **The sweep alone is not enough, and the estate says why.** Measured
-  2026-09-04, the live estate exercises **four of the eight states**: `open` 33,
-  `wip` 3, `deferred` 3, `waiting` 2 — and **`merged`, `claimed`, `blocked` and
-  `unknown` do not appear at all.** A byte-identical run over that estate proves
-  nothing about half the enum, including `merged`, which is the state the
-  terminal cache exists to serve. So the differential runs over the real estate
-  **and** over fixtures carrying the four absent states, each asserted
-  individually.
+  **The whole-estate differential was dropped, and the reason matters.** An
+  earlier draft asserted the scan's `--json` was byte-identical before and
+  after. It cannot be: `plot-fleet-scan.sh:630` calls `plot-host.sh pr-list` and
+  `:906` calls `pr-state`, and `branch_state:63` returns `unknown` when
+  `HOST_VERDICT` is `throttled`, `secondary` or `failed`. **Two runs of the same
+  code differ when the host is throttled between them**, so a differential over
+  live output measures the host as much as the code — and it fails in the
+  direction that wastes a day, by looking like a regression.
+
+  The unit tests do not have that problem: the readings are inputs the test
+  supplies, so all eight states are reachable including the four the live estate
+  does not contain (`merged`, `claimed`, `blocked` and `unknown` — measured
+  2026-09-04, the estate holds only `open` 33, `wip` 3, `deferred` 3,
+  `waiting` 2).
+
+  **And the rule is verified against the script, not against a reading of it.**
+  The test cases are taken from `branch_state`'s own branches rather than from a
+  human summary of what it does — twice while writing this plan, a confident
+  grep produced a claim about that script that a minute's reading disproved. A
+  reimplementation checked against someone's understanding of the original
+  inherits the misunderstanding.
 
 ## Notes
 
@@ -202,3 +235,28 @@ included. Fixtures now cover the four.
 
 One claim survived unchanged and is the plan's spine: `grep -rn BranchState
 packages/domain/src` returns three consumers and no producer.
+
+**Round 2, 2026-09-04.** It overturned the plan's main gate and promoted its
+best argument out of the open questions.
+
+**The scan is host-dependent, so the differential could not work.** Round 1
+recorded *"zero host calls, so `--json` is deterministic"* — from a grep for one
+call shape. `plot-fleet-scan.sh:630` calls `plot-host.sh pr-list`, `:906` calls
+`pr-state`, and `branch_state:63` returns `unknown` on `throttled`, `secondary`
+or `failed`. Two runs of identical code differ when the host is throttled
+between them. The whole-estate sweep is replaced by one assertion per state, in
+unit tests where the readings are inputs.
+
+**`unknown` stopped being an open question and became the argument.**
+`branch_state` distinguishes a question not put (`unasked` → `open`) from one
+that went unanswered (`throttled` → `unknown`), and says why: *"a question that
+was not put is not a question that went unanswered."* A `case` statement holds
+that apart by care; a typed reading holds it apart by construction. That is the
+reason to move the derivation — not that shell is the wrong language.
+
+**And the slice now states how it will be verified.** Each round of this plan
+found a confident wrong claim produced by a grep — *zero host calls*, and
+*nobody wrote the precedence down* — both disproved in a minute of reading. The
+rule's tests take their cases from `branch_state`'s own branches rather than
+from a summary of it, because a reimplementation checked against someone's
+understanding inherits the misunderstanding.
