@@ -6387,6 +6387,15 @@ export function rowsFromPulse(
     // branch of a DELIVERED plan is no longer carried as a slice, so it falls
     // here — which is exactly the population that had been merged longest.
     const prMerged = pr?.state === 'MERGED';
+    // AND `CLOSED` REACHES IT TOO. `quietKind` answers `closed-pr` only when it
+    // is TOLD the PR closed, and `rowQuietKind`'s first argument — the closed
+    // flag — was hardcoded `null` on this path, so a rejected branch could never
+    // reach the one kind `quietNeedsPerson` releases.
+    //
+    // Measured 2026-09-04: #363, #369, #56 and eleven more sat in WAITING ON YOU
+    // labelled `closed`. The label was right and the placement was not — the
+    // board knew, and the rule was never asked.
+    const prClosed: 'closed' | null = pr?.state === 'CLOSED' ? 'closed' : null;
     const { group, note } = classify(
       'wip', 'eligible', ageMinutes, quietMinutes, null,
       // localDirty, localAhead, planPhase, worker, workerExit, workerPid,
@@ -6398,7 +6407,12 @@ export function rowsFromPulse(
     // Asked of the same facts the group came from. `elsewhere` is what this
     // loop knows about a worker: it reaches the branch through the REFS and
     // visits no worktree, so nothing here looked for a process.
-    const kind = rowQuietKind(null, 'wip', group, 'elsewhere', null, prMerged);
+    // THE GROUP MOVES WITH THE KIND, as it does at :5755 for a plan's branch:
+    // `const group = closedPr ? 'quiet' : openGroup`. `classify` takes no closed
+    // parameter — it is told about an OPEN pr or none — so the override belongs
+    // here, on the one path that knows the PR closed.
+    const placed: WaitingGroup = prClosed ? 'quiet' : group;
+    const kind = rowQuietKind(prClosed, 'wip', placed, 'elsewhere', null, prMerged);
     rows.push({
       repo,
       // `branch` — and NOT a new `orphan` kind. `RowKindSchema` has seven kinds
@@ -6429,7 +6443,7 @@ export function rowsFromPulse(
       // follows for every non-idea branch. `Discovery` on a branch nobody
       // planned is a confident wrong answer where nothing is the honest one.
       phase: null,
-      group,
+      group: placed,
       ageMinutes,
       note,
       branch,
