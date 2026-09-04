@@ -1,5 +1,194 @@
 # @plot-pm/domain
 
+## 0.2.0
+
+### Minor Changes
+
+- [#659](https://github.com/plot-pm/plot/pull/659) [`4abc145`](https://github.com/plot-pm/plot/commit/4abc145d95094ffb905a235af2dc560d6ef3ca42) Thanks [@jwloka](https://github.com/jwloka)! - The banner names which limit was hit, and prints a reset only where the reset describes it.
+
+  Two ceilings were reported as one word. `host_failure_kind` matched a single regex and returned `throttled` for every match of it, so _"API rate limit already exceeded"_ and _"You have exceeded a secondary rate limit"_ came back identical; `hostErrorState` mirrored that with `/rate limit/i.test(error)`, and `prNote` printed one wording over both — including `service returns in ~${when}` from `prNextInSeconds`, which describes the primary bucket and nothing else.
+
+  **Both limits were measured here, and they recover minutes apart.** 2026-08-27: eight workers against a cap of seven produced a 403 naming abuse detection. 2026-09-01: `gh pr view` refused with _"API rate limit already exceeded"_ while the same account's GraphQL headers read 4854 of 5000 remaining — a bucket with 97 % left does not refuse on quota. A spent quota returns at the reset, minutes away, and the honest reaction is to stop until then and say when; a secondary limit clears in seconds and the reaction is to retry shortly and run fewer calls at once. One word for both counsels a wait of minutes for a ceiling that has already gone.
+
+  `plot-host.sh` now answers `throttled|secondary|failed` and carries the second out as exit 6 beside exit 5. **The secondary test runs first, and the order is the classification:** GitHub's secondary message contains the phrase _"rate limit"_ too, so a quota test applied first claims every secondary refusal and the distinction is lost at the point it is made.
+
+  **The wording decision lives in the domain**, per the rule that every rendered state is a domain property. `refusalKind` classifies, `resetApplies` says whether the reset describes the limit that refused, and `host-notes.ts` reads the answers rather than deciding.
+
+  **The secondary banner names how many spenders the record found**, because the fix for local contention is closing a board rather than waiting for GitHub. The count comes from the record and never a headcount — the spenders are eleven scripts, the board, and a person at a terminal, so a process count misses the person. `localSpenders` divides the observed rate by `boardSharePerHour`, the same share the cadence already divides by, so the two numbers cannot drift.
+
+  **A refusal still corrects only the prediction it is evidence about.** `correctForRefusal` moves on `throttled` and not on `secondary`: a burst refusal bounds requests at once and says nothing about the hourly ceiling. The concurrency bound is a later slice.
+
+  The cadence is untouched. It divides on observed spend and never on a refusal.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#655](https://github.com/plot-pm/plot/pull/655) [`6fbe6ca`](https://github.com/plot-pm/plot/commit/6fbe6ca25473e09179b56c0ce2fea949a8891ee6) Thanks [@jwloka](https://github.com/jwloka)! - Every host call appends one line to a budget record the whole computer shares,
+  and the spend rate is readable back over the connector's own window.
+
+  The number nothing could see before. `plot-host.sh` makes ~40 host CLI calls
+  across 14 backend branches and counted none of them, so a component asking
+  _what is this account spending_ had one honest answer: ask the host, spending a
+  request to find out. Measured 2026-09-01, `gh api rate_limit` reported 5000
+  while the response headers on the same account read 0 — so that answer was both
+  expensive and wrong.
+
+  **Instrumented by shadowing, not by editing 40 call sites.** `gh`, `bb` and
+  `jen` are now shell functions that forward argv untouched, preserve stdout,
+  stderr and the exit code, and append afterwards; `command gh` reaches the real
+  binary. Forty edits would all have to stay right, and the arm that drifts is the
+  one nobody's repo exercises. A wrapper also counts a call site written next
+  year. Jira is counted inside `jira_curl` instead, because it is reached through
+  `curl` and shadowing `curl` would count every unrelated use of it.
+
+  **A refusal appends a line too.** GitHub debits the request before it decides to
+  refuse it, so a record blind to failures reads a throttled account as an idle
+  one — under-counting exactly when the count matters most.
+
+  **Lock-free, and the line cap is the guarantee.** Concurrent `O_APPEND` is
+  atomic only below `PIPE_BUF`, which `getconf PIPE_BUF /` reports as 512 on this
+  fleet's macOS machines rather than the 4096 a reader assuming Linux would take.
+  Every line is measured in bytes before it is written, and an over-long one is
+  **refused with a message on stderr rather than shortened**: a torn line loses
+  the concurrent writer's line as well, so dropping one spend is cheaper than
+  corrupting another's. Asserted with real concurrency at lines near the cap, not
+  by argument.
+
+  **The record is the computer's, not the checkout's.** Two GitHub checkouts here
+  share the account `jwloka`, so a per-checkout `.plot/state/` would let each read
+  a full 5000 while the other spent it — the over-spend the record exists to
+  prevent, reproduced by storing it in the wrong place. `$PLOT_BUDGET_HOME` is the
+  one override, the same variable `budget-file.ts` reads.
+
+  **The rate is derived over the window, never the whole file.** One board at 5 s
+  and eleven scripts at 90 s append ~1,160 lines an hour; a rate divided by an
+  ever-growing span approaches zero, and a cadence derived from it would relax
+  forever. The window starts at the latest reset that has already **passed** — a
+  reset still in the future says only that the window has not closed, and
+  subtracting an hour from one an hour out lands on `now` and discards every line
+  ever written.
+
+  **Absent is never zero, and `unknown` is never free.** A `remaining` of 0 means
+  the bucket is spent; `-` means the connector did not say. A connector this
+  wrapper holds no reading for records `unknown`, and `headroom()` answers null
+  for it by construction — so a caller can tell a recorded zero from an unread
+  one. `plot-host.sh spend-rate` reads the record back and asks no host.
+
+  `packages/domain/src/rules/budget-record.ts` is the reader's half — the window
+  filter, the per-budget grouping truncation needs, and the rate. The format is
+  written twice, in shell and in TypeScript, because the spenders are eleven shell
+  scripts and a person at a terminal: starting `node` to record one call would add
+  ~40 ms and a runtime dependency to every host call plot makes. A contract test
+  decodes real shell output with `decodeEntry` and pins the two together.
+
+  No behaviour change beyond the record: a call that succeeds today succeeds
+  identically with a line appended, and `PLOT_BUDGET_OFF=1` disables recording for
+  the tests that prove it.
+
+  <!--
+  bumps:
+    plot: minor
+  -->
+
+- [#657](https://github.com/plot-pm/plot/pull/657) [`cb671db`](https://github.com/plot-pm/plot/commit/cb671db30361876fdf0a295e992d40a9769bf9c6) Thanks [@jwloka](https://github.com/jwloka)! - The board's PR refresh interval divides by what the account is observed to be spending, so two boards spend what one board spends. Counted from the budget record over 400 adjustments: one board holds the account at 60 requests an hour, and so do two, three, five and eight — each board reaching an interval of N times the 60 s it refreshes at alone. A third board changes that number by nothing.
+
+  No peer counting. The rate is read from the record every spender appends to, which also carries the operator's own `gh` calls and a dispatched worker's scans; a headcount of boards would miss both. `plot-host.sh spend-rate` supplies it, reads a file and asks no host.
+
+  One board on a quiet account is unchanged and refreshes exactly every 60 s. An absent rate — a record holding one line, or several written inside one millisecond — leaves the cadence where it is rather than collapsing it, and a board already stretched holds position on it rather than walking back: null is no evidence, while a rate that is zero is evidence of an idle account. The stretch is bounded at eight, because the rate is read over a window as short as the gap between two lines and a burst must not push a board somewhere it has stopped spending enough to return from.
+
+- [#629](https://github.com/plot-pm/plot/pull/629) [`654ceed`](https://github.com/plot-pm/plot/commit/654ceed1443fe75e53adcff3a742f539d6448653) Thanks [@jwloka](https://github.com/jwloka)! - Five gates that judge a finished agent by what it left behind: a merged PR, a valid changeset, a clean tree, no `PLOT-BLOCKED` marker, and an annotated plan line. Each is a pure function returning `null` or a failure written to be pasted verbatim into the next attempt's correction prompt. An unreachable host fails the PR gate and says so — silence is never permission.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#633](https://github.com/plot-pm/plot/pull/633) [`b4f314f`](https://github.com/plot-pm/plot/commit/b4f314fc2f8cd6f42d8d7897cd784458cde221c1) Thanks [@jwloka](https://github.com/jwloka)! - Compare the two surfaces that act on an eligibility verdict against the whole plan estate: the board reads the pulse's per-slice `verdict` and renders a row as startable, while `--next` reads `--list-eligible`'s branch list and pushes a claim ref. Both come from one rule in one process, so a disagreement between them is a defect in how the answer is emitted rather than in how it is decided.
+
+### Patch Changes
+
+- [#555](https://github.com/plot-pm/plot/pull/555) [`5818972`](https://github.com/plot-pm/plot/commit/5818972ddaea8734ae364b17d148fc266871ddb3) Thanks [@jwloka](https://github.com/jwloka)! - The domain's adapters are measured rather than excluded, and each threshold names its path and its reason.
+
+  `vitest.config.ts` held one blanket `src/adapters/**` exclusion. Four test files
+  were already exercising those adapters into a coverage report nobody could see.
+  Lifting the exclusion and running the existing suites — **no new tests** —
+  reports the estate as it is:
+
+  ```
+                            lines  branches  functions  statements
+  whole package             95.31     82.80      89.23       94.00
+  src/adapters/run-script  100.00     85.00     100.00      100.00
+  src/adapters/machine     100.00     85.71     100.00       93.33
+  src/adapters/plan-store  100.00     50.00     100.00       90.91
+  src/adapters/trees        89.66     72.22      87.50       87.50
+  src/adapters/processes    73.68     58.33      66.67       70.00
+  src/adapters/refs         72.73     40.00      75.00       65.52
+  src/adapters/host         63.89     12.24      35.29       57.50
+  src/adapters/clock        50.00      0.00      33.33       50.00
+  ```
+
+  Each of those paths is now its own threshold entry carrying the reason its
+  number is not 100 — `clock` sits at a branches floor of **0**, which is the true
+  reading stated rather than assumed. Thresholds are the measured figure rounded
+  down with roughly five points of margin, because one pinned to today's exact
+  reading goes red on the next honest refactor, and a gate that fails on unrelated
+  work gets deleted rather than met.
+
+  **The warning the old comment made is preserved:** a threshold that forces
+  host-failure and process-death branches to be faked teaches people to fake them.
+  These floors are a ratchet, not a target, and they do **not** replace the two
+  protections that catch more — the purity-except-adapters grep and the corpus
+  tests that compare adapter readings against production's.
+
+  **Why the global numbers are no longer 100:** a vitest glob threshold is
+  additive. `resolveThresholds` adds every file to the global map regardless —
+  _"Global threshold is for all files, even if they are included by glob
+  patterns"_ (vitest 4.1.11) — so a glob cannot exempt a path from the global
+  line. The global entry is now the whole-package floor, and the pure side keeps
+  its 100% through two explicit globs. It takes two because
+  `src/!(adapters)/**/*.ts` matches nothing at the top level of `src`, which would
+  have dropped `src/port-result.ts` out of the gate silently.
+
+- [`d8f9ffa`](https://github.com/plot-pm/plot/commit/d8f9ffafb46fb0a2a1d6308d1d2fea4de8b1402a) Thanks [@jwloka](https://github.com/jwloka)! - The `run-script.ts` coverage floor matches the platform that enforces it.
+
+  `runBytes` attaches an EPIPE handler whose execution depends on whether a write
+  loses a race against a process exit, and the pipe buffer differs by platform:
+  macOS measures 100% functions, the Linux runner 94.44%. The per-file floor was
+  set from the macOS reading and so was never reachable in CI, failing main on
+  commits that changed only markdown. It now records the reading CI actually takes.
+
+- [#664](https://github.com/plot-pm/plot/pull/664) [`2c4c7e9`](https://github.com/plot-pm/plot/commit/2c4c7e9a9b99c97cc38b428a548d3b1cf8ceef24) Thanks [@jwloka](https://github.com/jwloka)! - `HostBackend` is a string the domain does not validate, so a third git host
+  costs an adapter rather than a domain edit.
+
+  The closed enum `'github' | 'bitbucket'` was protecting something real: two
+  `fleet.ts` expressions branched on the backend's name to decide whether to pass
+  a reset reader, and a word that reached them unnarrowed would have been a
+  runtime question where the type asked a compile-time one. Removing the enum
+  before those branches existed would have traded a check for nothing.
+
+  [#661](https://github.com/plot-pm/plot/issues/661) landed the header-read budget behind them, and this removes the branches
+  themselves. The reset reader asks the connector through `limit()`, which reports
+  one reading per bucket with the reset it stated; the soonest future `actual`
+  reading is the wait, and a connector that meters nothing answers null — the same
+  ceiling a host with no limit API already fell back to, without this having to
+  know which host that is. `fetchGraphqlResetMs` goes with them, its `gh api
+rate_limit` call being the only thing the vendor branch selected.
+
+  **The refusal moves rather than disappearing.** `host-shell.ts` keeps a `DRIVES`
+  list and still fails on a backend it cannot drive, naming the word it could not.
+  That list belongs to the adapter because the adapter is the layer that could act
+  on it — driving a host means a CLI `plot-host.sh` has been taught, and adding one
+  is an edit to that file and the script beside it.
+
+  The domain now names a vendor in exactly two places, both under `adapters/`,
+  which is the property `Ports § A connector is a kind of adapter` records as a
+  target. `LimitReading.connector` and the `CI` backend already read this way; `Git
+host` was the outlier.
+
 ## 0.1.1
 
 ### Patch Changes

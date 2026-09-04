@@ -1,5 +1,0 @@
----
-'@plot-pm/board': patch
----
-
-The mock board can serve a rendered document, and `story-overlay.browser.test.ts` stops spawning a server. `DocModal` fetches `<href>?embed=1` and injects the response as the iframe's `srcDoc`, so a plan or story document is a route rather than a file — which is what the two remaining files were read as blocked on. `serveDoc` registers one; a path nobody registered 404s, and that 404 is as much of the feature as the 200: `story-overlay` asserts on a plan whose story nobody has written, and the board's own answer to a missing document is a failed fetch. A mock inventing an empty document would make that state unstatable. The new `a-story-with-and-without-a-file` scenario states three plans and three answers about a story — one with a file, one named and unwritten (`path: ''`, which `storyHref` reads as no link at all), and one with no story — plus a story document whose hand-written prose disagrees with the derived plan list on purpose, because winning that disagreement is why the list is derived. A `story()` builder joins the six that were there. 12 of 12 pass in 2.59 s; the serial project is 48 files, 496 tests, all passing.

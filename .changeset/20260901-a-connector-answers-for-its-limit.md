@@ -1,5 +1,0 @@
----
-'plot': patch
----
-
-`Host` gains `limit()` — what is this connector's limit, and how well does it know it? — and `observe()`, which records what a call saw so a wrong prediction corrects itself. The answer carries a value and a basis: `actual` is what the connector reported, `predicted` is the adapter's value from experience, `unknown` is a connector that reports nothing and has nothing to predict. A `predicted` reading is `answered` and never `failed` — the adapter is not breaking, it is telling the truth about what it knows. GitHub's `actual` reads the response headers of a real call, never `gh api rate_limit`: measured 2026-09-01 in a quiet moment, same account, seconds apart, the endpoint reported graphql 5000/5000 used 0 while the header on a real call read Remaining 1236, Used 3764 — 3764 calls spent, reported as zero, which is why `graphql_budget_spent()` has never been able to fire. Jenkins is the `predicted` case: no limit to report, so the ceiling is the adapter's estimate, halved by every `throttled` it causes.

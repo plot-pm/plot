@@ -1,5 +1,0 @@
----
-'@plot-pm/board': patch
----
-
-`/api/board` reads git through the `Refs` port instead of spawning child processes on the event loop, so the board answers other requests while it answers that one. Measured with `sample <pid> 5` on a board refusing every request: 4258 of 4262 main-thread samples sat under `node::SyncProcessRunner::Spawn`, below the request handler — and a synchronous spawn cannot yield, which is why a STATIC FILE timed out at 15 s beside it. That reading is what separated this from every "the board is slow" theory: a slow computation does not stop `/` from being served, a blocked loop does. All 13 `git()`/`gitBuffer()` call sites in `board.ts` are gone, `buildBoard` is async, and the static-git cache is deleted rather than kept — caching a synchronous function keeps it synchronous, which is why the two caches shipped as stopgaps bought 1.2 s → 0.77 s without changing the signature. The no-network guard was repointed rather than deleted: the git invocations moved into `refs-git.ts`, and a check still pinned to `board.ts` would fire on a refactor and pass on the regression.
