@@ -1,7 +1,7 @@
 {
   "name": "@plot-pm/domain",
   "version": "0.1.1",
-  "description": "Plot's entity graph — the plans, waves and branches the fleet is about, and the rules that read them",
+  "description": "Plot's entity graph \u2014 the plans, waves and branches the fleet is about, and the rules that read them",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -10,7 +10,8 @@
     "./adapters": "./src/adapters/index.ts",
     "./entities/*": "./src/entities/*.ts",
     "./rules/*": "./src/rules/*.ts",
-    "./transitions/*": "./src/transitions/*.ts"
+    "./transitions/*": "./src/transitions/*.ts",
+    "./workflows/*": "./src/workflows/*.ts"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",

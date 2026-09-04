@@ -34,6 +34,9 @@ export type Write =
   | WorktreeMoveWrite
   | AgentStartWrite
   | AgentSignalWrite
+  | AgentResumeWrite
+  | AgentAttemptWrite
+  | BlockedMarkerWrite
   | ManifestClearWrite
   | LogClearWrite
   | CommitWrite
@@ -205,6 +208,72 @@ export interface AgentSignalWrite {
   readonly branch: string;
 }
 
+/**
+ * Hands a correction to an agent, into its own conversation where it can be.
+ *
+ * ONE WRITE FOR BOTH PATHS, and the `resumeId` is what separates them: a handle
+ * means continue that conversation, `''` means start a fresh worker with the
+ * same text in its brief. Two write kinds would ask every reader to remember
+ * that the correction is identical either way, and the plan is explicit that it
+ * is — a resumed agent reads it as *what you left undone*, a fresh one reads it
+ * as *what the last attempt left undone*.
+ *
+ * The command is absent for the reason {@link AgentStartWrite} gives: Plot
+ * hardcodes no agent tooling, so naming a harness in a decision would put a
+ * project's answer inside the domain.
+ */
+export interface AgentResumeWrite {
+  readonly kind: 'agent-resume';
+  /** The branch the correction is about. */
+  readonly branch: string;
+  /** The worktree it runs in, absolute. */
+  readonly worktree: string;
+  /** The session to continue, or `''` when resume is unavailable. */
+  readonly resumeId: string;
+  /** What to hand the attempt, verbatim — the gate failures, as a prompt. */
+  readonly correction: string;
+}
+
+/**
+ * Records that the supervisor spent one of its own retries.
+ *
+ * `attempts` AND NEVER `relaunches`. The two counters answer to different
+ * parties: `relaunches` is a person's record of their `--restart`s, `attempts`
+ * is the supervisor's record of its own tries and is what the bound reads.
+ * Conflating them lets three manual restarts exhaust the automatic budget, or
+ * the reverse.
+ *
+ * The new value is carried rather than an increment, so applying the write
+ * twice lands the same number — a daemon SIGKILLed between deciding and writing
+ * repeats the tick, and a repeated increment would spend a budget on one retry.
+ */
+export interface AgentAttemptWrite {
+  readonly kind: 'agent-attempt';
+  /** The worktree whose manifest records the count. */
+  readonly worktree: string;
+  /** What `attempts` becomes. */
+  readonly attempts: number;
+}
+
+/**
+ * Leaves a `PLOT-BLOCKED` marker on a desk the supervisor has given up on.
+ *
+ * THE ESTATE'S EXISTING *your turn* CHANNEL, not a new field. A `PLOT-BLOCKED*`
+ * file is already what `plot-reap.sh` refuses on, what `plot-fleet-scan.sh`
+ * reports, what `notBlockedGate` fails on and what the fleet reads to tell a
+ * stopped agent from a finished one. A `needsAPerson` flag on the manifest
+ * would be a second answer to the one question all four already ask.
+ */
+export interface BlockedMarkerWrite {
+  readonly kind: 'blocked-marker';
+  /** The worktree the marker lands in, absolute. */
+  readonly worktree: string;
+  /** The branch it is about. */
+  readonly branch: string;
+  /** The marker's body — why the supervisor stopped, and what a person must do. */
+  readonly question: string;
+}
+
 /** Removes the registry manifest that named a worktree. */
 export interface ManifestClearWrite {
   readonly kind: 'manifest-clear';
@@ -295,7 +364,8 @@ export type WorkflowName =
   | 'dispatch'
   | 'reap'
   | 'implement'
-  | 'release';
+  | 'release'
+  | 'supervise';
 
 /** What a workflow answers: the writes it decided on, or the rule that stopped it. */
 export type Outcome<Detail = unknown, Reason extends string = string> =
@@ -377,6 +447,11 @@ export const EVIDENCE: Readonly<Record<WorkflowName, Evidence>> = {
   implement: 'fixture',
   // FIXTURE-VERIFIED ONLY. Transcribed from skills/plot-release/SKILL.md.
   release: 'fixture',
+  // FIXTURE-VERIFIED ONLY, AND THERE IS NO SCRIPT TO BORROW FROM. The tick is
+  // specified in docs/plans/2026-08-31-the-registry-supervises-its-agents.md
+  // and `plot-registryd` is this workflow's caller rather than its source, so
+  // there is nothing with an exit code to compare against yet.
+  supervise: 'fixture',
 };
 
 /**

@@ -25,3 +25,4 @@ export * from './dispatch-verbs.js';
 export * from './reap.js';
 export * from './implement.js';
 export * from './release.js';
+export * from './supervise.js';
