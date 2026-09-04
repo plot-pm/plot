@@ -9,12 +9,13 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- Plot's domain names a plan's states `PlanState` and gives the development workflow its five phases, so the two stop sharing one word.
+- A plan has a **state** and the development workflow has **phases**, in the code and in the plan file: `- **Phase:**` becomes `- **State:**`, and Plot reads either spelling for good.
 
-Board impact: yes. `rules/phase.ts` is where the board reads its columns, and `BOARD_PHASES` moves behind the workflow concept. The wire field stays `phase`; the board keeps rendering what it renders.
+Board impact: yes, and in three places. `BOARD_PHASES` stops being declared twice — the board imports it as it already imports `toBoardPhase`. `PHASE_LEADERSHIP` moves to the workflow and the board renders what it reads. The plan file's field is renamed, so the parser the board consumes reads both spellings. **The wire key stays `phase`**: renaming it breaks every reader of `/api/board` and teaches nobody.
 
 ## Motivation
 
@@ -47,7 +48,25 @@ with no test.
 
 **A plan has a state.** `DESIGN-plan.md:810` already says so: *"Plan and Story are the only two entities whose **state** is a stated fact rather than a derived relation."* The sentence after explains the field name as an accident rather than a claim — *"the Issue spec could refuse a `state` field while this one carries `phase`."*
 
-**The development workflow has phases** — `Discovery → Design → Development → Testing → Release`. They exist in the domain, correctly ordered and correctly named, and `rules/phase.ts:7` calls them *"the columns a board shows"*. So the workflow's lifecycle is modelled as a **rendering concern**, and `toBoardPhase` (`:39`) — which maps a plan's state to a phase — reads as a presentation helper rather than as the relation between two domain concepts.
+**The development workflow has phases** — `Discovery → Design → Development → Testing → Release`. They exist in the domain, correctly ordered and correctly named, and `rules/phase.ts:7` calls them *"the columns a board shows"*. So the workflow's lifecycle is modelled as a **rendering concern**, and `toBoardPhase` (`:40`) — which maps a plan's state to a phase — reads as a presentation helper rather than as the relation between two domain concepts.
+
+**The mapping is not untested, and the phases carry more than an order.**
+`toBoardPhase` has 14 tests (`board/test/unit/phases.test.ts`) plus a second
+file asserting `delivered → Testing` specifically. And
+`board/contract/schema.ts:212` declares
+`PHASE_LEADERSHIP: Record<Phase, { icon, who }>` — **who leads each phase**,
+carried as a symbol and a word because *"roughly one man in twelve distinguishes
+red from green poorly"*. Who owns Discovery against who owns Testing is a fact
+about how a team works, not a drawing instruction. The workflow concept is
+therefore split across two packages, and the half that is most obviously domain
+knowledge sits in the board's contract file.
+
+**And `BOARD_PHASES` is declared twice, byte-identically** —
+`domain/rules/phase.ts:12` and `board/contract/schema.ts:202` — while
+`schema.ts:1095` re-exports `toBoardPhase` **from the domain**. The board
+imports the function and hand-copies the values it operates on. That is the
+same shape as the `StoryStatus` duplication `a-lifecycle-is-enforced-by-a-test`
+records: two declarations that agree today and drift the moment one is edited.
 
 **The plan states map onto the phases, and that mapping is not the interesting part.** What differs per phase is **the work**: writing and interrogating a plan in Discovery, cutting slices in Design, dispatching and implementing in Development, reviewing and reaping in Testing, tagging in Release. Nothing models that. `workflows/decision.ts:395` lists eight workflow names — `approve`, `assign`, `deliver`, `dispatch`, `reap`, `implement`, `release`, `supervise` — as a **flat union with no order and no phase**, mixing the fleet's (`assign`, `reap`, `supervise`) with the plan's.
 
@@ -69,15 +88,45 @@ A rule that wants to ask *what phase is this work in* has no concept to ask. `to
 
 **The work per phase is named, not just the phases.** Each phase declares which workflows belong to it, so `WorkflowName`'s flat union gains the structure it is missing — and the fleet's three are separated from the plan's five rather than sitting beside them.
 
-### The rename's scope is the code, not the file format
+### The rename reaches the file field too
 
 `Phase` → `PlanState` and the `phase-*` refusal reasons → `state-*`. Measured 2026-09-04: **221** occurrences in `packages/domain/src`, **528** in `packages/board/src`, **308** in `skills/plot/scripts/*.sh`.
 
-**The plan file keeps `- **Phase:**`.** 196 plan files carry it, humans type it, and the board ships it on the wire. The parser reads it with one regex per site (`plot-plan-meta.sh:743`) that can widen to `(phase|state)` when a format migration is worth doing on its own terms. This plan fixes the vocabulary **where the reasoning happens**; the field name is a separate decision with a migration attached.
+**And `- **Phase:**` becomes `- **State:**` in the plan files.** An earlier draft
+stopped at the code and called the field *"a separate decision"*. That split is
+dishonest: if the word is wrong it is wrong where humans meet it, and a plan
+arguing that a plan has states while every plan file says `Phase:` teaches the
+conflation it exists to remove.
 
-### Not chosen: renaming the file field too
+**The migration is small because every access is one regex.** Measured:
 
-It would make the vocabulary uniform end to end. Rejected for now because it touches every plan ever written plus the wire format, and because the code rename delivers the whole benefit — a rule that reasons about a plan's state stops calling it a phase. A field name humans type is the last thing to change, not the first.
+| what | count |
+|---|---|
+| plan files carrying `**Phase:**` | 196 |
+| sprint and story files | 9 |
+| parser read sites | 2 (`plot-plan-meta.sh:637` frontmatter, `:743` canonical) |
+| domain write sites | 2 (`workflows/rendering.ts:96` `PHASE_LINE`, `decision.ts:46`) |
+| shell writers | 3 (`plot-approve.sh:341`, `plot-deliver.sh:229`, and the scan) |
+| template | 1 |
+| skills naming the field | 11 |
+
+**The parser reads both spellings, permanently.** `[Pp]hase[:*]` becomes
+`([Pp]hase|[Ss]tate)[:*]` at every read site. That is not a migration aid to be
+removed later: a plan file is a document a person may have written years ago or
+copied from another project, and refusing to read `Phase:` would make Plot worse
+at its own job. **Plot writes `State:` and reads either.**
+
+**The wire key stays `phase`.** `schema.ts:328` and `:581` type it as
+`z.enum(BOARD_PHASES)` and the board renders columns from it. Renaming a wire
+field is a compatibility break for anything reading `/api/board`, and it buys
+nothing the file rename buys — the word a human types is the one that teaches.
+
+### Not chosen: leaving the field alone
+
+The measurement above is what changed the answer. 196 files is a `sed` over a
+directory plus a test that every one still parses; the reads stay dual forever,
+so nothing breaks the moment the rename lands and nothing breaks for a plan
+written before it.
 
 ### Not chosen: folding this into `a-lifecycle-is-enforced-by-a-test`
 
@@ -96,11 +145,45 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
 
 ### Naming what the workflow is
 
-- `feature/the-workflow-has-phases` — `DevelopmentWorkflow` in the domain, holding `Discovery → Design → Development → Testing → Release` and their order; `BOARD_PHASES` becomes a view of it. **Asserted: a phase knows what may follow it**, so `Testing` before `Development` is refused by a rule rather than by nothing. **Asserted: a plan state maps to exactly one phase** — what `toBoardPhase` implements today and nothing tests, including its `null` for a state the workflow does not know.
+- `feature/the-workflow-has-phases` — `DevelopmentWorkflow` in the domain, holding `Discovery → Design → Development → Testing → Release`, their order, and **who leads each**. `PHASE_LEADERSHIP` moves out of `board/contract/schema.ts:212`: who owns Discovery against who owns Testing is a fact about how a team works, and the board renders what it reads. The icon travels with it — it is how the leader is named without colour, which the board must not be free to drop.
+
+  **`BOARD_PHASES` stops being declared twice.** `domain/rules/phase.ts:12` and `board/contract/schema.ts:202` are byte-identical today while `schema.ts:1095` already re-exports `toBoardPhase` from the domain; the board imports the values the same way. One import line, and the drift this repo has now measured three times cannot start here.
+
+  **Asserted: a phase knows what may follow it**, so `Testing` before `Development` is refused by a rule rather than by nothing. **Asserted: a plan state maps to exactly one phase**, including its `null` for a state the workflow does not know — `toBoardPhase`'s 14 tests move with it and keep passing, which is what proves the concept moved rather than got rewritten.
 
 ### Naming the work in a phase
 
 - `feature/a-phase-names-its-work` — each phase declares which workflows belong to it, giving `WorkflowName`'s flat eight-value union its missing structure. **Asserted: the fleet's workflows are not phases of this one** — `assign`, `reap` and `supervise` act on agents and desks, and a list that mixes them with `approve`/`deliver`/`release` cannot answer *what comes next*.
+
+### Renaming the field every plan carries
+
+- `infra/a-plan-file-says-state` — the migration. `- **Phase:**` becomes
+  `- **State:**` in **196 plan files** and **9 sprint and story files**; the
+  template, the 11 skills that name the field, and the three shell writers
+  follow. The parser gains `([Pp]hase|[Ss]tate)` at both read sites
+  (`plot-plan-meta.sh:637`, `:743`) and the domain at both write sites
+  (`workflows/rendering.ts:96`, `decision.ts:46`).
+
+  **The dual read is permanent, not scaffolding.** A plan file is a document
+  someone may have written a year ago or copied from another project. Plot
+  writes `State:` and reads either, for good — a Plot that refused to read
+  `Phase:` would be worse at its own job than the one that confused two words.
+
+  **Asserted: every existing plan still parses, byte-for-byte identically.**
+  The gate is `plot-plan-meta.sh` over all of `docs/plans/*.md` before and
+  after, with **zero** differences — the same sweep
+  [`plot-parser-ignores-fenced-code-blocks`] established when the parser last
+  changed. **Asserted: a file still saying `Phase:` parses after the rename**,
+  which is the property that makes the dual read a contract rather than a
+  leftover.
+
+  **The wire key is untouched.** `schema.ts:328` and `:581` keep `phase`; the
+  board keeps rendering. Renaming a wire field breaks every reader of
+  `/api/board` and teaches nobody anything — the word that teaches is the one a
+  person types.
+
+  Last, because it is mechanical and the concept has to be right before 196
+  files are rewritten to match it.
 
 ## Notes
 
@@ -115,3 +198,17 @@ whoever owns the template, not to a vocabulary rename.
 Written 2026-09-04, during the interrogation of `a-lifecycle-is-enforced-by-a-test`. The conflation was found by the operator reading a question of mine that called a plan's states its phases for the third time.
 
 **The vocabulary lands before the lifecycle rules.** `a-lifecycle-is-enforced-by-a-test` writes four `transitions/` files; written first, they would copy the conflation into four new places, and renaming afterwards would be a second pass over work that had just landed.
+
+**Interrogated 2026-09-04, one round**, and it moved two things. The plan claimed
+the phase mapping was untested and filed purely as rendering; both were wrong —
+`toBoardPhase` has 14 tests, and `PHASE_LEADERSHIP` carries who leads each
+phase, which is domain knowledge the board was holding. The round also found
+`BOARD_PHASES` declared twice byte-identically while the board already imports
+`toBoardPhase` from the domain.
+
+And it reversed the scope. The plan had kept `- **Phase:**` in the file and
+called the field a separate decision; the operator's answer was that the split
+is dishonest — a plan arguing that a plan has states, while every plan file says
+`Phase:`, teaches the conflation it exists to remove. The measurement made it
+tractable: 196 plan files, 9 sprint and story files, and seven code sites of one
+regex each.
