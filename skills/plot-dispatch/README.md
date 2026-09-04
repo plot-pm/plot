@@ -176,6 +176,31 @@ Plot was already written for this world — `plot/SKILL.md` has always said
 but nothing created worktrees until now. The safety discipline predated the
 feature by a long way.
 
+## A desk is not indexed
+
+Every desk gets a `.metadata_never_index` file, on creation and on adoption.
+Spotlight reads it and skips the tree; nothing else reads it, so it costs a
+Linux fleet an empty file and no behaviour.
+
+The reason is a measurement rather than tidiness. On 2026-09-04 this estate held
+**21 desks totalling 4.9 GB**, and `mediaanalysisd` — the media indexer — was
+taking 32% of a machine whose load average was 33. A desk is a full checkout
+plus its `node_modules`, and the fleet creates and destroys them all day, so
+every dispatch hands the indexer a fresh tree to walk.
+
+**The marker is excluded through `.git/info/exclude`, never through
+`.gitignore`, and the difference is load-bearing.** A `.gitignore` rule lives in
+the branch's own content, so a desk cut from a branch older than the rule does
+not see it. An untracked file in a desk is not cosmetic: `plot-worker-state.sh`
+reads it as unlanded work and answers `stalled`, and `plot-reap.sh` refuses to
+remove a tree with uncommitted changes. An unignored marker would therefore make
+**every desk on the estate look busy and unreapable** — the same per-checkout
+trap that once left 19 desks stranded. `info/exclude` is per-repository and
+shared by every worktree, so it holds whatever branch a desk is on.
+
+Both writes are best-effort. A desk that cannot take the marker is still a
+working desk, and no failure here costs the dispatch.
+
 ## Detached workers
 
 Workers are started with `nohup`, detached, one per worktree, logging to

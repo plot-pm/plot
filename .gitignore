@@ -70,3 +70,10 @@ node_modules/
 # ralph-plot-sprint runner scratch (iteration logs, heartbeat, handover)
 .ralph-state/
 packages/domain/coverage/
+
+# Spotlight's opt-out marker. plot-dispatch.sh also adds it to
+# `.git/info/exclude`, which is what actually protects a DESK: a rule that lives
+# in branch content is invisible to a worktree cut from an older branch, and an
+# untracked file there reads as unlanded work. This entry covers the main
+# checkout, where the branch is current by definition.
+.metadata_never_index

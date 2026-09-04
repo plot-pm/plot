@@ -36,6 +36,41 @@ const rowFor = (branch: string, prState: string | null) => {
   return row;
 };
 
+/**
+ * THE SAME QUESTION, ASKED THE WAY THE BOARD ACTUALLY ASKS IT.
+ *
+ * `rowFor` above puts the PR in the OPEN-ONLY map, which is not where a closed
+ * or merged PR lives. `CacheEntry.prs` is filtered to OPEN by construction, so
+ * in production a finished PR reaches this path only through `prsByHead` — and
+ * until 2026-09-04 the classification never looked there, only the link did.
+ *
+ * That is why the three tests above passed for a bug that was on the board the
+ * whole time: they handed the row a record the real caller never has.
+ */
+const rowForByHead = (branch: string, prState: string) => {
+  const byHead = new Map([
+    [branch, { number: 1, head: branch, state: prState, draft: false, checks: 'none' }],
+  ]);
+  const row = rowsFromPulse(
+    pulse, new Map([[branch, 3 * 24 * 60]]), 'plot', QUIET, new Map() as never, '', null, Date.now(),
+    null, null, null, null, byHead as never, '', null, new Set([branch]),
+  ).find((r) => r.branch === branch);
+  if (!row) throw new Error(`no row built for ${branch}`);
+  return row;
+};
+
+describe('a finished PR is seen even though the open map cannot hold it', () => {
+  it('leaves WAITING ON YOU when only the all-states map knows the PR closed', () => {
+    // #363 sat in WAITING ON YOU for 11 days reading "commits, no PR ever
+    // opened" — with #363 linked on the same row.
+    expect(rowForByHead('infra/closed-elsewhere', 'CLOSED').group).toBe('quiet');
+  });
+
+  it('leaves WAITING ON YOU when only the all-states map knows the PR merged', () => {
+    expect(rowForByHead('feature/merged-elsewhere', 'MERGED').group).toBe('quiet');
+  });
+});
+
 describe('a branch the host finished does not wait on a person', () => {
   it('leaves WAITING ON YOU when the PR merged', () => {
     // #610 merged 2026-09-01 and read `abandoned` for three days, because this

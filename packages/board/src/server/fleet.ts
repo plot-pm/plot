@@ -6391,7 +6391,20 @@ export function rowsFromPulse(
     // #684 threaded this through the plan-slice path and stopped there. A
     // branch of a DELIVERED plan is no longer carried as a slice, so it falls
     // here — which is exactly the population that had been merged longest.
-    const prMerged = pr?.state === 'MERGED';
+    // ASKED OF THE ALL-STATES MAP, NOT THE OPEN-ONLY ONE. `prs` is filtered to
+    // OPEN by construction (see `CacheEntry.prs`), so on this path a branch
+    // whose PR was closed or merged arrives as `pr === null` — and then
+    // `prMerged` is false, `prClosed` is null, and the two arms below cannot
+    // fire however correct their rules are.
+    //
+    // `prsByHead` was split out in August for exactly this reason and applied
+    // to the LINK alone (see :6461). The classification is the same question
+    // asked of the same absent record, and it was left behind. Measured
+    // 2026-09-04: #363, #369, #527, #654 and eleven more sat in WAITING ON YOU
+    // reading *"commits, no PR ever opened"* while the row itself linked the PR
+    // number beside that sentence.
+    const known = pr ?? prsByHeadMap?.get(branch) ?? null;
+    const prMerged = known?.state === 'MERGED';
     // AND `CLOSED` REACHES IT TOO. `quietKind` answers `closed-pr` only when it
     // is TOLD the PR closed, and `rowQuietKind`'s first argument — the closed
     // flag — was hardcoded `null` on this path, so a rejected branch could never
@@ -6400,7 +6413,7 @@ export function rowsFromPulse(
     // Measured 2026-09-04: #363, #369, #56 and eleven more sat in WAITING ON YOU
     // labelled `closed`. The label was right and the placement was not — the
     // board knew, and the rule was never asked.
-    const prClosed: 'closed' | null = pr?.state === 'CLOSED' ? 'closed' : null;
+    const prClosed: 'closed' | null = known?.state === 'CLOSED' ? 'closed' : null;
     const { group, note } = classify(
       'wip', 'eligible', ageMinutes, quietMinutes, null,
       // localDirty, localAhead, planPhase, worker, workerExit, workerPid,
