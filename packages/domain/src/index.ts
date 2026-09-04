@@ -54,6 +54,7 @@ export * from './rules/free.js';
 export * from './rules/sweepable.js';
 export * from './rules/prompt.js';
 export * from './rules/quiet.js';
+export * from './rules/task.js';
 /**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
  * which `## Status` line a lifecycle step writes.

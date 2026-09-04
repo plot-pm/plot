@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+var o=t=>t.hasPr?"finished":t.blocked?"waiting":t.dirty||t.unpushed===!0?"stalled":"finished";import{realpathSync as d}from"node:fs";import{pathToFileURL as u}from"node:url";var c=t=>{let e=t.replace(/\n$/,"").split("	");if(e.length!==4)throw new Error(`expected '<has_pr>\\t<blocked>\\t<dirty>\\t<unpushed>', got '${t.replace(/\n$/,"")}'`);let[r,a,i,n]=e,s=Number(n),p=n!==""&&Number.isInteger(s)&&s>=0?s>0:null;return{hasPr:r==="1",blocked:a==="1",dirty:i==="1",unpushed:p}},l=t=>`${o(c(t))}
+`,h=(t,e=r=>process.stdout.write(r))=>{try{return e(l(t)),0}catch(r){return process.stderr.write(`plot-task: ${r.message}
+`),2}};if(process.argv[1]&&import.meta.url===u(d(process.argv[1])).href){let t=[];for await(let e of process.stdin)t.push(e);process.exit(h(Buffer.concat(t).toString("utf8")))}export{l as answer,c as readingsFrom,h as run};

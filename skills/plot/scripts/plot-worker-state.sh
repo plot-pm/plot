@@ -513,58 +513,63 @@ plot_worker_activity() { # $1=pid → working | idle | "" (empty = nothing to me
 
 # Refine a clean exit into finished / waiting / stalled.
 #
-# THE ORDER IS LOAD-BEARING, and each step earns its place from a measured
-# mistake rather than from tidiness:
+# THE DECISION IS NOT MADE HERE. `taskState` lives in `@plot-pm/domain` and this
+# function asks it. The four readings and the order they are decided in — a PR
+# outranking everything, `waiting` outranking `stalled`, an unanswerable
+# `unpushed` refusing to become `stalled` — are one implementation now, testable
+# over all 24 combinations of the four readings instead of over the worktrees an
+# estate happens to produce. That is what this script carried in duplicate until
+# 2026-08-18, five of six states in two places, and the copies had drifted.
 #
-# AN OPEN OR MERGED PR OUTRANKS EVERYTHING BELOW IT. Work that reached review
-# has left the worker's hands, so leftover local edits mean nothing there — a
-# scratch file beside a merged PR is not unfinished work.
+# WHAT STAYS HERE IS THE READING. The four world questions below are shell's,
+# and each is asked exactly as it was: the marker is a FILE `plot_worker_blocked`
+# globs for, dirtiness is `plot_worker_dirty`'s filtered answer, and `unpushed`
+# is `@{upstream}` and nothing else.
 #
-# `waiting` OUTRANKS `stalled`, because a marker is the worker saying *your
-# turn*, and a worker asking a question has almost always left the work it was
-# doing uncommitted beside the question. Checking dirtiness first would report
-# every such branch `stalled`. Measured: a guard restarted one branch TWICE
-# while its worker waited on an answer, and the second restart re-ran work the
-# first had finished. That is a loop, not a rescue.
+# ONLY `@{upstream}` ANSWERS "PUSHED?", and when there is no upstream the
+# question is UNANSWERABLE rather than answered zero — or answered anything
+# else. This went in the wrong direction first and was measured doing it: a
+# fallback that counted against `origin/main` reported EVERY clean branch
+# `stalled` in a repo with no remote, because `rev-list --count "..HEAD"` with
+# an empty left side counts the whole history from the root commit. Nine commits
+# of ordinary history read as nine commits of unpushed work.
 #
-# UNCOMMITTED **OR** UNPUSHED. Committing clears dirtiness, so a worker that
-# tidied up and stopped before pushing would otherwise read `finished` with
-# nobody able to see its commits. Both are "work only this machine holds".
+# The fallback was also wrong where it worked. A branch legitimately ahead of
+# `origin/main` is the NORMAL state of every branch under review — it is what
+# having commits means — so counting against the trunk marks finished work
+# `stalled` for as long as it exists. Only the branch's OWN upstream separates
+# "pushed" from "not pushed"; the trunk answers a different question entirely.
+#
+# So an absent upstream travels to the rule as an EMPTY field, which the rule
+# reads as unanswerable and does not turn into `stalled`. A failure to observe
+# is not evidence of something to see — the same principle `local_ahead_of`
+# states in plot-fleet-scan.sh, reached the hard way.
+#
+# A RULE THAT CANNOT BE ASKED REFUSES, and it says so with the rebuild in the
+# message — the shape `plot-fleet-scan.sh` uses at its own bundle call. There is
+# no shell fallback: a second implementation kept "just in case" is the
+# duplication this move removes, and it would be the copy nobody tests. An
+# EMPTY answer is checked separately from a non-zero exit, because a bundle that
+# writes nothing exits 0 and `||` alone cannot see it.
 plot_worker_task_state() { # $1=worktree $2=pr-fact → finished|waiting|stalled
-  local wt="$1" has_pr="$2"
-  [ "$has_pr" = "pr" ] && { printf 'finished'; return; }
-  plot_worker_blocked "$wt" && { printf 'waiting'; return; }
-  [ -n "$(plot_worker_dirty "$wt")" ] && { printf 'stalled'; return; }
+  local wt="$1" has_pr="$2" here ahead has_pr_flag blocked_flag dirty_flag answer
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  [ "$has_pr" = "pr" ] && has_pr_flag=1 || has_pr_flag=0
+  plot_worker_blocked "$wt" && blocked_flag=1 || blocked_flag=0
+  [ -n "$(plot_worker_dirty "$wt")" ] && dirty_flag=1 || dirty_flag=0
+
   # UNPUSHED IS A REF QUESTION, asked THROUGH the worktree because that is the
-  # checkout whose HEAD is the branch.
-  #
-  # ONLY `@{upstream}` ANSWERS IT, and when there is no upstream the question is
-  # UNANSWERABLE rather than answered zero — or answered anything else. This
-  # went in the wrong direction first and was measured doing it: a fallback that
-  # counted against `origin/main` reported EVERY clean branch `stalled` in a
-  # repo with no remote, because `rev-list --count "..HEAD"` with an empty left
-  # side counts the whole history from the root commit. Nine commits of ordinary
-  # history read as nine commits of unpushed work.
-  #
-  # The fallback was also wrong where it worked. A branch legitimately ahead of
-  # `origin/main` is the NORMAL state of every branch under review — it is what
-  # having commits means — so counting against the trunk marks finished work
-  # `stalled` for as long as it exists. Only the branch's OWN upstream separates
-  # "pushed" from "not pushed"; the trunk answers a different question entirely.
-  #
-  # So an absent upstream yields no verdict here and falls through to
-  # `finished`, which is the answer the branch gave before this state existed.
-  # A failure to observe is not evidence of something to see — the same
-  # principle `local_ahead_of` states in plot-fleet-scan.sh, reached the hard
-  # way.
-  local ahead
-  if ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null); then
-    case "$ahead" in
-      ''|0|*[!0-9]*) ;;
-      *) printf 'stalled'; return ;;
-    esac
-  fi
-  printf 'finished'
+  # checkout whose HEAD is the branch. An unreadable count stays EMPTY.
+  ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=""
+
+  answer=$(printf '%s\t%s\t%s\t%s' \
+    "$has_pr_flag" "$blocked_flag" "$dirty_flag" "$ahead" \
+    | node "$here/board/plot-task.mjs" 2>/dev/null) \
+    || { echo "error: cannot read the task state — run 'pnpm build:board'." >&2; exit 2; }
+  [ -n "$answer" ] \
+    || { echo "error: the task state rule answered nothing — run 'pnpm build:board'." >&2; exit 2; }
+  printf '%s' "$answer"
 }
 
 # Classify the worker in a worktree.
