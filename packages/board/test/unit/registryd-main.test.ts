@@ -3,8 +3,8 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { argsFrom, readRegistry } from '../../src/server/entry/registryd-main.js';
-import { TICK_INTERVAL_MS } from '../../src/server/entry/registryd.js';
+import { argsFrom, readRegistry, reportTick } from '../../src/server/entry/registryd-main.js';
+import { TICK_INTERVAL_MS, type TickReport } from '../../src/server/entry/registryd.js';
 import { readTick, worldFrom, type SupervisorWorld } from '../../src/server/supervisor.js';
 import type { AgentEntry } from '../../src/server/registry.js';
 
@@ -207,5 +207,81 @@ describe('a world may hold a reading for one tick and no longer', () => {
     };
     await readTick(entries, world);
     expect(order[0]).toBe('begin');
+  });
+});
+
+describe('where a tick’s report goes', () => {
+  /** A completed tick, as `tick` builds one. */
+  const completed = (): TickReport => ({
+    startedAt: 0,
+    costMs: 250,
+    agents: 1,
+    incomplete: '',
+    decision: {
+      outcome: 'decided',
+      workflow: 'supervise',
+      writes: [],
+      detail: {
+        agents: [],
+        left: ['feature/one'],
+        reaping: [],
+        correcting: [],
+        needingAPerson: [],
+        deferred: [],
+      },
+    },
+  });
+
+  /** A tick that could not complete, as `tick` builds one. */
+  const incomplete = (reason: string): TickReport => ({
+    ...completed(),
+    agents: 0,
+    incomplete: reason,
+    decision: {
+      outcome: 'decided',
+      workflow: 'supervise',
+      writes: [],
+      detail: {
+        agents: [],
+        left: [],
+        reaping: [],
+        correcting: [],
+        needingAPerson: [],
+        deferred: [],
+      },
+    },
+  });
+
+  it('sends a completed tick to stdout', () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    expect(reportTick(completed(), (s) => out.push(s), (s) => err.push(s))).toBe(0);
+    expect(out.join('')).toContain('agents=1');
+    expect(err).toEqual([]);
+  });
+
+  it('sends an incomplete tick to stderr, which both units log separately', () => {
+    // A person watching the error stream alone sees exactly the ticks that
+    // could not be taken — which is what they look at when the supervisor is
+    // not supervising.
+    const out: string[] = [];
+    const err: string[] = [];
+    reportTick(incomplete('spawn git ENOMEM'), (s) => out.push(s), (s) => err.push(s));
+    expect(out).toEqual([]);
+    expect(err.join('')).toContain('incomplete');
+    expect(err.join('')).toContain('spawn git ENOMEM');
+  });
+
+  it('says a one-shot run failed, so an operator’s exit code is honest', () => {
+    expect(reportTick(incomplete('spawn git ENOMEM'), () => {}, () => {})).toBe(1);
+    expect(reportTick(completed(), () => {}, () => {})).toBe(0);
+  });
+
+  it('says the next tick re-reads, because that is the whole recovery', () => {
+    // No journal, no lock file, no resume path: the line names what happens
+    // next so a reader does not go looking for one.
+    const err: string[] = [];
+    reportTick(incomplete('scandir failed'), () => {}, (s) => err.push(s));
+    expect(err.join('')).toContain('next=re-reads');
   });
 });

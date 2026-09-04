@@ -83,6 +83,14 @@ export interface TickReport {
   agents: number;
   /** What it decided. */
   decision: Decision<SuperviseDetail>;
+  /**
+   * What stopped this tick before it could decide, or `''` when it finished.
+   *
+   * A tick that could not complete carries the reason here and an EMPTY
+   * decision — no writes, no verdicts, nothing half-decided. The next tick
+   * re-reads from disk and continues; see {@link tick}.
+   */
+  incomplete: string;
 }
 
 /** What a daemon needs to run one tick. */
@@ -113,16 +121,84 @@ export interface TickOptions {
  * `agents=3 left=3 reap=0 correct=0 person=0 defer=0`. No state file was
  * written, because none is needed.
  *
+ * **A TICK THAT CANNOT COMPLETE REPORTS AND DOES NOT THROW.** Every reading is
+ * a call to a machine that can refuse — a registry directory removed mid-pass,
+ * a git that will not fork, a host adapter that rejects rather than answering
+ * `!ok`. Before this, any one of them escaped `tick` and ended the loop in
+ * `run`, so the OS supervisor's restart was the ONLY recovery from a reading
+ * that would have succeeded a minute later.
+ *
+ * So the failure becomes a value: {@link TickReport.incomplete} names what
+ * stopped it, the decision is empty, and the loop takes its next tick. There is
+ * **no journal, no lock file and no resume path**, because there is nothing to
+ * resume — the next tick re-reads the registry and the desks from disk, which
+ * is what it does after a `kill -9` too. Recovery and normal operation are the
+ * same code path, and that is the whole reason the statelessness is worth
+ * keeping.
+ *
  * @param options - what to read, and the bound.
- * @returns what this tick read and what it decided.
+ * @returns what this tick read and what it decided, or why it could not.
  */
 export const tick = async (options: TickOptions): Promise<TickReport> => {
   const now = options.now ?? Date.now;
   const startedAt = now();
-  const entries = await options.registry();
-  const readings = await readTick(entries, options.world);
-  const decision = supervise(readings, { max: options.max ?? 0 });
-  return { startedAt, costMs: now() - startedAt, agents: entries.length, decision };
+  try {
+    const entries = await options.registry();
+    const readings = await readTick(entries, options.world);
+    const decision = supervise(readings, { max: options.max ?? 0 });
+    return {
+      startedAt,
+      costMs: now() - startedAt,
+      agents: entries.length,
+      decision,
+      incomplete: '',
+    };
+  } catch (error) {
+    // THE AGENT COUNT IS ZERO RATHER THAN A GUESS. A tick that failed reading
+    // the registry never learnt the count, and one that failed after it would
+    // report a number no verdict was reached about — which reads like a tick
+    // that decided to leave every agent alone.
+    return {
+      startedAt,
+      costMs: now() - startedAt,
+      agents: 0,
+      decision: emptyDecision(),
+      incomplete: reasonFor(error),
+    };
+  }
+};
+
+/**
+ * The decision an incomplete tick carries: no writes, no verdicts.
+ *
+ * Built here rather than taken from a partial `supervise` run, because a
+ * partial run's verdicts were reached on readings the tick could not finish
+ * taking. An empty decision says *nothing was decided*, which is true; a
+ * truncated one would say *these agents were judged*, which is not.
+ *
+ * @returns a decision naming no write and no agent.
+ */
+const emptyDecision = (): Decision<SuperviseDetail> => ({
+  outcome: 'decided',
+  workflow: 'supervise',
+  writes: [],
+  detail: { agents: [], left: [], reaping: [], correcting: [], needingAPerson: [], deferred: [] },
+});
+
+/**
+ * What to call the thing that stopped a tick.
+ *
+ * One line, because it goes into a log a person scans rather than a report they
+ * open. A thrown non-Error is stringified rather than dropped: a rejection with
+ * a string in it is still the reason.
+ *
+ * @param error - whatever was thrown.
+ * @returns the reason, on one line and never empty.
+ */
+const reasonFor = (error: unknown): string => {
+  const text = error instanceof Error ? error.message : String(error);
+  const line = text.split('\n')[0]?.trim() ?? '';
+  return line === '' ? 'the reading failed and said nothing' : line;
 };
 
 /**
@@ -132,10 +208,25 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
  * common case and a line naming five zeros is what makes an unquiet one
  * visible. The branches themselves are in the decision.
  *
- * @param report - what the tick decided.
+ * **An incomplete tick gets a DIFFERENT line, not a line of zeros.** The counts
+ * of a tick that decided nothing and the counts of a tick that could not decide
+ * are identical, and they mean opposite things: one is a quiet estate, the
+ * other is a supervisor that is not supervising. The word `incomplete` and the
+ * reason are what a person greps for, and what says the next tick is the
+ * recovery.
+ *
+ * @param report - what the tick decided, or why it could not.
  * @returns the line, without its newline.
  */
 export const tickLine = (report: TickReport): string => {
+  if (report.incomplete !== '') {
+    return [
+      'plot-registryd tick incomplete',
+      `reason=${JSON.stringify(report.incomplete)}`,
+      `cost=${report.costMs}ms`,
+      'next=re-reads',
+    ].join(' ');
+  }
   const detail = report.decision.detail;
   return [
     `plot-registryd tick agents=${report.agents}`,

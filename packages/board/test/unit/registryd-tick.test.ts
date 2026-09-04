@@ -459,3 +459,218 @@ describe('the interval was measured before it was chosen', () => {
     expect(TICK_INTERVAL_MS).toBeLessThan(8 * 60 * 60 * 1000);
   });
 });
+
+describe('a tick that cannot complete', () => {
+  /**
+   * THE FAILURE THIS SLICE EXISTS FOR. Every reading is a call to a machine
+   * that can refuse — a registry directory removed mid-pass, a git that will
+   * not fork, a host adapter that rejects rather than answering `!ok`. Before
+   * this, any one of them escaped `tick` and ended the daemon's loop, so an OS
+   * supervisor's restart was the only recovery from a reading that would have
+   * succeeded a minute later.
+   */
+  it('reports the reason rather than throwing', async () => {
+    const report = await tick({
+      registry: async () => {
+        throw new Error('EACCES: permission denied, scandir .plot/agents');
+      },
+      world: world(),
+    });
+    expect(report.incomplete).toBe('EACCES: permission denied, scandir .plot/agents');
+  });
+
+  it('reports a reading that failed after the registry was read', async () => {
+    const report = await tick({
+      registry: async () => [manifest()],
+      world: world({
+        merge: async () => {
+          throw new Error('spawn gh ENOMEM');
+        },
+      }),
+    });
+    expect(report.incomplete).toBe('spawn gh ENOMEM');
+  });
+
+  it('decides nothing rather than deciding partly', async () => {
+    // A TRUNCATED DECISION WOULD BE A LIE. Verdicts reached before the failure
+    // rest on readings the tick never finished taking, and a performer applying
+    // them would act on half an estate.
+    const report = await tick({
+      registry: async () => [manifest({ branch: 'feature/a', worktree: '/estate/a' })],
+      world: world({
+        deskFile: () => null,
+        madeProgress: async () => {
+          throw new Error('git rev-list failed');
+        },
+      }),
+    });
+    expect(report.decision.writes).toEqual([]);
+    expect(report.decision.detail.agents).toEqual([]);
+    expect(report.decision.detail.correcting).toEqual([]);
+  });
+
+  it('reports no agents rather than a count no verdict was reached about', async () => {
+    // Two agents were read and neither was judged. Reporting `agents=2` would
+    // read exactly like a tick that decided to leave both alone.
+    const report = await tick({
+      registry: async () => [
+        manifest({ branch: 'feature/a', worktree: '/estate/a' }),
+        manifest({ branch: 'feature/b', worktree: '/estate/b' }),
+      ],
+      world: world({
+        headroom: async () => {
+          throw new Error('sysctl unavailable');
+        },
+      }),
+    });
+    expect(report.agents).toBe(0);
+  });
+
+  it('names a rejection that carried no Error', async () => {
+    const report = await tick({
+      registry: async () => Promise.reject('the adapter rejected with a string'),
+      world: world(),
+    });
+    expect(report.incomplete).toBe('the adapter rejected with a string');
+  });
+
+  it('never reports an empty reason, so a log line always says something', async () => {
+    const report = await tick({
+      registry: async () => {
+        throw new Error('');
+      },
+      world: world(),
+    });
+    expect(report.incomplete).not.toBe('');
+  });
+
+  it('keeps the reason to one line, because the log is one line', async () => {
+    const error = new Error('git failed\n  at readTick\n  at tick');
+    const report = await tick({ registry: async () => Promise.reject(error), world: world() });
+    expect(report.incomplete).toBe('git failed');
+  });
+
+  it('still times the tick it could not take', async () => {
+    let clock = 1_000;
+    const report = await tick({
+      registry: async () => {
+        clock += 812;
+        throw new Error('spawn git ENOMEM');
+      },
+      world: world(),
+      now: () => clock,
+    });
+    expect(report.costMs).toBe(812);
+  });
+
+  it('says so in its own line rather than in a line of zeros', async () => {
+    // A tick that decided nothing and a tick that could not decide have
+    // identical counts and mean opposite things: one is a quiet estate, the
+    // other is a supervisor that is not supervising.
+    const report = await tick({
+      registry: async () => Promise.reject(new Error('spawn git ENOMEM')),
+      world: world(),
+      now: () => 0,
+    });
+    expect(tickLine(report)).toBe(
+      'plot-registryd tick incomplete reason="spawn git ENOMEM" cost=0ms next=re-reads',
+    );
+  });
+});
+
+describe('the next tick re-reads and continues', () => {
+  /**
+   * THE RECOVERY, AND THERE IS NO OTHER ONE. The daemon persists nothing
+   * between ticks, so a tick that failed leaves nothing to resume: the next one
+   * re-reads the registry and the desks from disk, exactly as it does after a
+   * `kill -9`. That is what makes the OS supervisor sufficient and a journal
+   * unnecessary.
+   */
+  it('decides normally on the tick after one that could not complete', async () => {
+    let fail = true;
+    const options = {
+      registry: async () => {
+        if (fail) throw new Error('spawn git ENOMEM');
+        return [manifest()];
+      },
+      world: world({ deskFile: () => null }),
+    };
+
+    const failed = await tick(options);
+    expect(failed.incomplete).toBe('spawn git ENOMEM');
+
+    fail = false;
+    const recovered = await tick(options);
+    expect(recovered.incomplete).toBe('');
+    expect(recovered.decision.detail.correcting).toEqual(['feature/one']);
+  });
+
+  it('reaches the decision it would have reached had the failure never happened', async () => {
+    // THE STATELESSNESS CLAIM, ASSERTED ACROSS A FAILURE. A daemon that carried
+    // anything forward from a failed tick — a retry counter, a skip-set, a
+    // partial decision — would make these two decisions differ.
+    const registry = async () => [
+      manifest({ branch: 'feature/a', worktree: '/estate/a', session: 'a', resumeId: 'a' }),
+      manifest({ branch: 'feature/b', worktree: '/estate/b', session: 'b', resumeId: 'b' }),
+    ];
+    const clean = { registry, world: world({ deskFile: () => null }) };
+    const undisturbed = await tick(clean);
+
+    let fail = true;
+    const disturbed = {
+      registry,
+      world: world({
+        deskFile: () => null,
+        merge: async () => {
+          if (fail) throw new Error('spawn gh ENOMEM');
+          return 'merged' as const;
+        },
+      }),
+    };
+    expect((await tick(disturbed)).incomplete).not.toBe('');
+    fail = false;
+    expect((await tick(disturbed)).decision).toEqual(undisturbed.decision);
+  });
+
+  it('picks up an estate that changed while the tick was failing', async () => {
+    // The failure is not a pause: the registry is re-read, so an agent
+    // registered during the failed tick is supervised by the next one.
+    let entries = [manifest({ branch: 'feature/a', worktree: '/estate/a' })];
+    let fail = true;
+    const options = {
+      registry: async () => {
+        if (fail) throw new Error('scandir failed');
+        return entries;
+      },
+      world: world({ deskFile: () => null }),
+    };
+    await tick(options);
+    entries = [
+      ...entries,
+      manifest({ branch: 'feature/b', worktree: '/estate/b', session: 'b', resumeId: 'b' }),
+    ];
+    fail = false;
+    expect((await tick(options)).decision.detail.correcting).toEqual([
+      'feature/a',
+      'feature/b',
+    ]);
+  });
+
+  it('writes no state — a failed tick and a fresh process are the same input', async () => {
+    // A DAEMON THAT KEPT A JOURNAL WOULD NEED IT HERE, and this is what says it
+    // does not: `tick` is handed the same readings by a caller that just failed
+    // and by one that has never run, and answers identically.
+    const registry = async () => [manifest()];
+    const worldValue = world({ deskFile: () => null });
+
+    const afterFailure = { registry, world: worldValue };
+    await tick({
+      registry: async () => Promise.reject(new Error('spawn git ENOMEM')),
+      world: worldValue,
+    });
+    const continued = await tick(afterFailure);
+
+    const freshProcess = await tick({ registry, world: world({ deskFile: () => null }) });
+    expect(continued.decision).toEqual(freshProcess.decision);
+  });
+});
