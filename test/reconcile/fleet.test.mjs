@@ -4736,6 +4736,136 @@ esac
   f.cleanup();
 });
 
+// THE OFFER ASKS THE HOST, WHATEVER THE CALLER ASKED ABOUT THE FETCH.
+//
+// Measured 2026-09-04 on this estate, from `plot-worker-loop.sh`'s own call:
+//
+//   plot-fleet-scan.sh --offline --next the-domain-owns-the-agent-lifecycle
+//     → feature/an-agent-declares-what-it-is
+//
+// whose PR #679 merged at 20:46 the previous evening. The same scan WITHOUT
+// `--offline` read that branch `merged` and its slice `complete`, and named
+// nothing. Five of that plan's eight branches moved from `open` to `merged`
+// across the two readings.
+//
+// The mechanism has three steps and no bug in any one of them. `--offline`
+// sets `do_fetch=0`; `HOST_LOOKUP_OK` requires `do_fetch=1`, so the host is
+// never asked; `merged_by_subject` is the only evidence left and it matches
+// `^Merge pull request #<n> from <owner>/<branch>$`, which a squash merge
+// never writes. The branch therefore reads `open` — the word that means
+// *nobody has started this* — and `isClaimable` offers it.
+//
+// The two `--next` tests above miss it from opposite sides: the merge-commit
+// one leaves local evidence a squash merge does not, and the throttled one
+// drops `--offline` so the host IS asked. This is the intersection, and it is
+// the shape every one of the ten re-created refs was pushed under.
+test('fleet: --next does not offer a squash-merged branch under --offline', () => {
+  const f = makeRepo('plot-fleet-offlinenext-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 679);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) echo '{"number":679,"title":"the work","state":"MERGED","head":"feature/squashed"}' ;;
+  pr-state) echo '{"number":679,"state":"MERGED","draft":false,"url":"x"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const res = spawnSync('bash', [h.scan, '--offline', '--next'], {
+    encoding: 'utf8', cwd: f.dir, env: { ...process.env },
+  });
+  assert.equal(res.stdout.trim(), '',
+    'a merged branch is not claimable, and --offline does not make it one');
+  assert.notEqual(res.status, 0, 'nothing to start exits 1');
+  h.cleanup();
+  f.cleanup();
+});
+
+// AND SILENCE IS STILL NOT PERMISSION ON THIS PATH. The offer asks; a host
+// that cannot answer withholds the branch rather than falling back to the
+// local reading that produced the defect. Same fixture, same flag — only the
+// host's ability to reply changes.
+test('fleet: --next under --offline withholds a branch the host cannot answer for', () => {
+  const f = makeRepo('plot-fleet-offlinemute-', ONE_WAVE('feature/squashed'));
+  f.work('feature/squashed', 's.txt');
+  f.push('-u', 'origin', 'feature/squashed');
+  squashMerge(f, 'feature/squashed', 679);
+  f.push('origin', 'main');
+  f.push('origin', '--delete', 'feature/squashed');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) exit 5 ;;
+  pr-state) exit 5 ;;
+  *) echo "{}" ;;
+esac
+`);
+  const res = spawnSync('bash', [h.scan, '--offline', '--next'], {
+    encoding: 'utf8', cwd: f.dir, env: { ...process.env },
+  });
+  assert.equal(res.stdout.trim(), '',
+    'a throttled host answers nothing, and nothing is not "open"');
+  assert.notEqual(res.status, 0, 'nothing to start exits 1');
+  h.cleanup();
+  f.cleanup();
+});
+
+// AN UNSTARTED BRANCH IS STILL OFFERED, and this is the constraint the fix has
+// to fit inside. The worker loop hops on `--next`; a fix that withheld genuine
+// work would stop the fleet as surely as the defect fed it finished work.
+test('fleet: --next under --offline still offers a branch nobody has started', () => {
+  const f = makeRepo('plot-fleet-offlineopen-', ONE_WAVE('feature/fresh'));
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) : ;;
+  pr-state) echo '{"state":"NONE"}' ;;
+  *) echo "{}" ;;
+esac
+`);
+  const res = spawnSync('bash', [h.scan, '--offline', '--next'], {
+    encoding: 'utf8', cwd: f.dir, env: { ...process.env },
+  });
+  assert.equal(res.stdout.trim(), 'feature/fresh',
+    'work nobody has started is what --next exists to name');
+  assert.equal(res.status, 0, 'and naming one exits 0');
+  h.cleanup();
+  f.cleanup();
+});
+
+// NO HOST CONFIGURED IS NOT A THROTTLED ONE. A repo with no git host has no
+// merge state to withhold on, and the local reading is the only reading there
+// is. Refusing here would make `--next` useless in exactly the fixtures this
+// suite is built from.
+test('fleet: --next under --offline offers work where no host exists at all', () => {
+  const f = makeRepo('plot-fleet-offlinenohost-', ONE_WAVE('feature/fresh'));
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo none ;;
+  default-branch) echo main ;;
+  *) exit 4 ;;
+esac
+`);
+  const res = spawnSync('bash', [h.scan, '--offline', '--next'], {
+    encoding: 'utf8', cwd: f.dir, env: { ...process.env },
+  });
+  assert.equal(res.stdout.trim(), 'feature/fresh',
+    'a repo with no host still starts work');
+  assert.equal(res.status, 0);
+  h.cleanup();
+  f.cleanup();
+});
+
 // A HEALTHY SCAN IS UNCHANGED — Done-when 3, and it is the constraint the rest
 // of this slice has to fit inside. `--next` picks branches to claim from this
 // output, so any moved verdict is a regression rather than a cosmetic
