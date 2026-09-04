@@ -1922,14 +1922,39 @@ write_started_record() { # $@ = branches
   fi
 
   if [ -f "$tmpwt/$rel" ]; then
-    local br
+    local br wrote=0
     for br in "$@"; do
+      # A BRANCH ALREADY RECORDED IS NOT RECORDED AGAIN, and this check is what
+      # the CLAIM used to do. Dispatch pushed a claim, a claimed branch was
+      # never offered again, and a second run therefore booked nothing — the
+      # idempotence was a side effect of the lock rather than a property of the
+      # record. The claim went with the fan-out's writes, so the record owns its
+      # own idempotence now: a plan dispatched three times must not read as
+      # started three times, or the count drifts from the refs it describes.
+      #
+      # MATCHED ON THE BRANCH IN BACKTICKS, the shape `append_started_line`
+      # writes and `plot-plan-meta.sh` parses. A bare substring match would let
+      # `feature/api` find itself inside `feature/api-v2`.
+      if grep -qF -- "\`$br\`" "$tmpwt/$rel" 2>/dev/null \
+         && grep -q -- "Started:.*\`$br\`" "$tmpwt/$rel" 2>/dev/null; then
+        continue
+      fi
       append_started_line "$tmpwt/$rel" "$date" "$who" "$br" || {
         echo "plot-dispatch: $rel has no '## Status' section — nowhere to record" >&2
         rc=1
         break
       }
+      wrote=1
     done
+    # NOTHING NEW TO SAY IS NOT A FAILURE. Every branch this run handed over was
+    # already on the record, so there is no commit to make and no push to
+    # attempt — and a run that pushed an empty commit would leave one per
+    # re-dispatch on the default branch.
+    if [ "$rc" = 0 ] && [ "$wrote" = 0 ]; then
+      git worktree remove --force "$tmpwt" 2>/dev/null || true
+      git branch -D "$bookbr" >/dev/null 2>&1 || true
+      return 0
+    fi
     if [ "$rc" = 0 ]; then
       git -C "$tmpwt" add -- "$rel" 2>/dev/null
       git -C "$tmpwt" -c "user.name=$who" commit -q \
@@ -1990,6 +2015,23 @@ real_plan_path() { # $1=plan file as found (possibly a symlink, possibly relativ
 append_started_line() { # $1=file $2=date $3=who $4=branch
   local f="$1" line
   line="- **Started:** $2, $3, \`$4\`"
+
+  # ALREADY RECORDED IS NOT AN ERROR — it is a second dispatch of the same
+  # slice, and this returns 0 having written nothing.
+  #
+  # THE CLAIM USED TO BE THIS GUARD. A dispatched branch was claimed by a ref
+  # push, so `--next` never offered it twice and a re-run booked nothing. The
+  # hand-over pushes no claim, so the branch stays `open` and every re-run
+  # reaches this line: measured 2026-09-04, two runs left two identical
+  # `Started:` records in one plan.
+  #
+  # The DATE is deliberately not matched. A slice handed over again tomorrow is
+  # the same start, and a per-day record would drift from the refs it describes
+  # exactly as a per-run one does.
+  if grep -qF -- "\`$4\`" "$f" 2>/dev/null \
+    && grep -q -- "^[ \t]*[-*][ \t]*\*\*Started:\*\*.*\`$4\`" "$f" 2>/dev/null; then
+    return 0
+  fi
   awk -v line="$line" '
     { lines[++n] = $0 }
     END {

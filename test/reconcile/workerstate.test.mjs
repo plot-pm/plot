@@ -38,12 +38,18 @@ function git(cwd, ...args) {
 const BRANCH = 'feature/w';
 
 /**
- * A repo with one approved single-branch plan, fanned out to a real worktree.
+ * A repo with one approved single-branch plan, and a real desk on its branch.
  *
- * The worktree is created by plot-dispatch ITSELF rather than by `git worktree
- * add`, because the two consumers find it different ways — plot-dispatch globs
- * `plot-wt-*` beside the repo, the scan reads `git worktree list`. A worktree
- * only one of them can see would make this test pass while proving nothing.
+ * The desk is cut HERE, by `git worktree add`, at exactly the path both
+ * consumers look at — plot-dispatch globs `<prefix>*` beside the repo, the scan
+ * reads `git worktree list`. A worktree only one of them can see would make
+ * this test pass while proving nothing, so the path is the contract and this
+ * fixture meets it directly.
+ *
+ * It used to come from `plot-dispatch --no-start`, which cut one as a side
+ * effect. Dispatch hands a slice to the registry and prepares nothing, so that
+ * source is gone — and it was never this file's subject. The subject is
+ * `plot-worker-state.sh`, which reads a desk and does not care who cut it.
  */
 function fixture(label) {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-wstate-${label}-`));
@@ -64,12 +70,17 @@ function fixture(label) {
   git(r, 'commit', '-qm', 'plan');
   git(r, 'push', '-q', 'origin', 'main');
 
-  // Fan out for real: worktree + claim, but start no worker. The worker record
-  // is planted by hand below, which is how each state is reached on demand.
-  execFileSync('bash', [dispatch, '--offline', '--no-start', 'w'],
-    { encoding: 'utf8', cwd: r, timeout: 120_000 });
+  // The desk, and the claim ref that makes the scan report the branch at all.
+  // The worker record is planted by hand below, which is how each state is
+  // reached on demand.
+  // The push sets the branch's UPSTREAM, and that is not incidental: the
+  // `stalled` rule reads `@{upstream}..HEAD` and nothing else, so a desk on a
+  // branch that tracks nothing can never report work only this machine holds.
   const wt = path.join(path.dirname(r), `plot-wt-${BRANCH.replace('/', '-')}`);
-  assert.ok(fs.existsSync(wt), `fan-out must have made a worktree at ${wt}`);
+  git(r, 'branch', BRANCH);
+  git(r, 'push', '-q', '-u', 'origin', BRANCH);
+  git(r, 'worktree', 'add', '-q', wt, BRANCH);
+  assert.ok(fs.existsSync(wt), `the fixture must have made a worktree at ${wt}`);
 
   return {
     repo: r,

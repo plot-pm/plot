@@ -1094,7 +1094,6 @@ caller reading only the last line is the case this exists for:\n${out}`);
   assert.doesNotMatch(planOnMain(), /Started:/);
 
   fs.rmSync(t, { recursive: true, force: true });
-  fs.rmSync(path.join(path.dirname(r), 'plot-wt-feature-s'), { recursive: true, force: true });
 });
 
 test('dispatch: --dry-run writes no branch, no commit and no push', () => {
