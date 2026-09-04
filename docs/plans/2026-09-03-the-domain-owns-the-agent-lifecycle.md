@@ -20,6 +20,7 @@
 - **Started:** 2026-09-04, Jan Wloka, `feature/the-task-state-is-a-domain-rule`
 - **Started:** 2026-09-04, Jan Wloka, `feature/a-worker-names-its-session`
 - **Started:** 2026-09-04, Jan Wloka, `feature/an-agent-knows-what-it-spent`
+- **Started:** 2026-09-04, Jan Wloka, `feature/the-registry-supervises-its-agents`
 -->
 
 ## Changelog
