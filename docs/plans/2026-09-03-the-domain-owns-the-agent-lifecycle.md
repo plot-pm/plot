@@ -298,6 +298,14 @@ A declaration is a fact a person wrote.
   not milliseconds. **Also asserted: a missing or unattributable transcript
   answers *unknown*, never *ample*** — silence is not headroom, the rule
   `plot-worker-state.sh` already applies to an unreadable worktree.
+  **Nothing measures the window, found 2026-09-04.** A transcript turn carries
+  four token counts and names its model, and no key in the file matches
+  `window` or `limit` — so the numerator is measurable and the denominator is
+  not. The window is therefore DECLARED, on `CharterBounds` beside the ceiling,
+  for the reason this plan gives for not inferring a capability from plan text;
+  a model-to-window table is also wrong here, since this repo runs
+  `claude-opus-5` at both 200k and 1M. An agent declaring no window reads
+  `unknown`, which is every agent on the estate today. → #692
 
 ### Supervising
 
