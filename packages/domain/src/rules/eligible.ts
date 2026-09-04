@@ -33,6 +33,24 @@ export interface SliceReadings {
 const DISPATCHABLE_PHASE = 'approved';
 
 /**
+ * The phases a plan cannot be dispatched from because it is FINISHED.
+ *
+ * An allowlist again, and a separate one: these do not mean *not yet approved*,
+ * they mean *approved, built and shipped*. Folding them into the single
+ * `!== 'approved'` test made a delivered plan's slice read `unapproved`, and
+ * the row said *"the plan needs approving first"* about work that had already
+ * landed. Measured 2026-09-04 on `an-agent-holds-one-desk`, Delivered with a
+ * real `Approved:` record, every slice of it reading `unapproved`.
+ *
+ * The slice reads `complete` here even when its branches cannot be found. A
+ * plan reaches `delivered` only through the delivery gate, which verifies every
+ * non-deferred branch merged — so the plan's own phase is the stronger
+ * evidence, and it is the evidence that survives the branch being reaped. Both
+ * of that plan's outstanding slices name refs the host no longer has.
+ */
+const FINISHED_PHASES: readonly string[] = ['delivered', 'released'];
+
+/**
  * The verdict for one slice, given what it holds and what stands before it.
  *
  * `eligible` IS A CLAIM ABOUT STARTABILITY, not about ordering alone. Measured
@@ -60,6 +78,11 @@ export const sliceVerdict = (
   priorComplete: boolean,
 ): SliceVerdict => {
   if (readings.outstanding === 0) return 'complete';
+  // A FINISHED PLAN'S SLICE IS COMPLETE, whatever its branches now say. The
+  // check sits above the approval test because `unapproved` is a statement
+  // about the FUTURE — somebody must approve this — and a delivered plan has no
+  // future to ask about.
+  if (FINISHED_PHASES.includes(readings.phase)) return 'complete';
   if (readings.phase !== DISPATCHABLE_PHASE) return 'unapproved';
   return priorComplete ? 'eligible' : 'blocked';
 };

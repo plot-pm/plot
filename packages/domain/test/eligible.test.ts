@@ -38,6 +38,38 @@ describe('sliceVerdict — the four words', () => {
   });
 });
 
+describe('sliceVerdict — a finished plan has no approval left to ask for', () => {
+  // `unapproved` IS A STATEMENT ABOUT THE FUTURE: somebody must approve this
+  // before it can start. A delivered plan has no future to ask about, and the
+  // single `!== 'approved'` test gave it that word anyway — the row then read
+  // "the plan needs approving first" about work that had already shipped.
+  //
+  // Measured 2026-09-04 on `an-agent-holds-one-desk`: Delivered, carrying a
+  // real `Approved:` record, every slice of it reading `unapproved`.
+  it('calls a delivered plan\'s slice complete, not unapproved', () => {
+    expect(sliceVerdict(owed({ phase: 'delivered' }), true)).toBe('complete');
+  });
+
+  it('calls a released plan\'s slice complete too', () => {
+    expect(sliceVerdict(owed({ phase: 'released' }), true)).toBe('complete');
+  });
+
+  it('says complete even where the branches cannot be found', () => {
+    // THE CASE THAT MADE IT VISIBLE. Both outstanding slices of that plan named
+    // refs the host no longer had — reaped after their work landed under other
+    // PRs. A plan reaches `delivered` only through the delivery gate, which
+    // verifies every non-deferred branch merged, so the phase is the stronger
+    // evidence and it is the one that survives a reap.
+    expect(sliceVerdict(owed({ phase: 'delivered', outstanding: 3 }), false)).toBe('complete');
+  });
+
+  it('still withholds the word from a draft plan', () => {
+    // The allowlist is not weakened: `draft` is neither dispatchable nor
+    // finished, and `unapproved` is the truthful answer for it.
+    expect(sliceVerdict(owed({ phase: 'draft' }), true)).toBe('unapproved');
+  });
+});
+
 describe('sliceVerdict — complete outranks everything', () => {
   // A slice whose branches have all merged IS complete whatever its plan says:
   // that is a statement about work that already landed, not an invitation to
@@ -55,8 +87,20 @@ describe('sliceVerdict — the phase is an allowlist of one', () => {
   // A denylist testing for `draft` would let every other unreadable answer
   // inherit the good word. Measured 2026-08-27: six of six one-slice plans read
   // `eligible` on the live board while `plot-dispatch.sh` refused all six.
+  // THE PROPERTY IS THAT `eligible` NEVER LEAKS, and every phase below still
+  // holds it. What changed on 2026-09-04 is which OTHER word two of them get:
+  // `delivered` and `released` are finished rather than unapproved, so they
+  // answer `complete`. Asserted separately below, and the leak test keeps every
+  // phase in one list so a new one cannot be added to only half of it.
   it.each(['draft', 'design', 'delivered', 'released', 'UNKNOWN', 'NONE', '', 'Approved'])(
     'withholds eligible under phase %o',
+    (phase) => {
+      expect(sliceVerdict(owed({ phase }), true)).not.toBe('eligible');
+    },
+  );
+
+  it.each(['draft', 'design', 'UNKNOWN', 'NONE', '', 'Approved'])(
+    'answers unapproved under phase %o, which is neither dispatchable nor finished',
     (phase) => {
       expect(sliceVerdict(owed({ phase }), true)).toBe('unapproved');
     },
