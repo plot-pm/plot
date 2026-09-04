@@ -217,6 +217,10 @@ describe('where a tick’s report goes', () => {
     costMs: 250,
     agents: 1,
     incomplete: '',
+    // NULL IS *NOBODY ASKED*: this fixture is a supervision-only tick, which is
+    // what a daemon given no queue world runs. An empty decision here would say
+    // the queue was read and held nothing.
+    handOver: null,
     decision: {
       outcome: 'decided',
       workflow: 'supervise',

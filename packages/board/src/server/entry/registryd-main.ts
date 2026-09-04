@@ -16,6 +16,7 @@ import type { PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../registry.js';
 import { fileOrNull, worldFrom, type SupervisorWorld } from '../supervisor.js';
+import type { QueueWorld } from '../queue-reading.js';
 import { tick, tickLine, TICK_INTERVAL_MS, type TickReport } from './registryd.js';
 
 /**
@@ -255,6 +256,86 @@ export const worldForRepo = (repoRoot: string, scriptsDir: string): SupervisorWo
 };
 
 /**
+ * Builds the world the QUEUE is read through.
+ *
+ * A SECOND WORLD RATHER THAN MORE MEMBERS ON THE SUPERVISOR'S, because the two
+ * ask about different things: the supervisor reads what each registered agent
+ * left behind, and the queue reads what the plans have waiting. A tick that
+ * cannot reach the plans still supervises every desk.
+ *
+ * Every reading is a thin join over a port, the same property `worldForRepo`
+ * has and for the same reason: a wrong answer here is a wrong join rather than
+ * a second implementation of a reading.
+ *
+ * @param repoRoot - the repository root.
+ * @param scriptsDir - where the helper scripts are.
+ * @returns the world the queue is read through.
+ */
+export const queueWorldForRepo = (repoRoot: string, scriptsDir: string): QueueWorld => {
+  const context = { repoRoot, scriptDir: scriptsDir };
+  const plans = planStoreShell(context);
+  const refs = refsGit(context);
+  const host = hostShell(context);
+  const processes = processesShell(context);
+  const trees = treesGit(context);
+
+  return {
+    plans: async () => {
+      const files = await plans.listPlans();
+      if (!files.ok) return [];
+      const records = await plans.readPlans(files.value);
+      return records.ok ? records.value : [];
+    },
+    claimedBranches: async () => {
+      const answer = await refs.listBranches(true);
+      // AN UNREADABLE REF LIST QUEUES NOTHING, and that direction is the safe
+      // one. Reading it as *no branch is claimed* would put every branch on the
+      // estate into the queue at once, and the first free agent would be handed
+      // a slice somebody is already working.
+      if (!answer.ok) return new Set(['*']);
+      return new Set(answer.value.map((name) => name.replace(/^origin\//, '')));
+    },
+    briefPresent: async (branch) => {
+      const base = await refs.defaultBranch();
+      if (!base.ok) return false;
+      // THE SAME PATH AND THE SAME REF `plot-dispatch.sh`'s `brief_present`
+      // reads, because writer and reader must not disagree about where a brief
+      // lives. This is the weaker half of that check — it asks whether the blob
+      // exists, not whether it is non-empty — and the shell's gate at the
+      // hand-over is what refuses a zero-byte brief.
+      const suffix = branch.split('/').pop() ?? branch;
+      const answer = refs.fileExistsSync(`origin/${base.value}`, `.plot/briefs/${suffix}.md`);
+      return answer.ok && answer.value;
+    },
+    sliceHasMerged: async (branch) => {
+      const answer = await host.prMerged(branch);
+      // SILENCE IS NOT LANDED. An unreachable host answers *not merged*, so an
+      // agent stays holding its branch rather than being handed a second one.
+      return answer.ok && answer.value === 'merged';
+    },
+    workerAlive: async (worktree) => {
+      const text = fileOrNull(join(worktree, '.plot-worker.pid'));
+      if (text === null) return false;
+      const pid = Number(text.trim());
+      if (!Number.isInteger(pid) || pid <= 0) return false;
+      const answer = await processes.isAlive(pid);
+      // AN UNANSWERABLE LIVENESS QUESTION READS AS ALIVE, the reading
+      // `worldForRepo` takes — but here it WITHHOLDS work rather than
+      // authorising a write, because an agent that may be running is an agent
+      // that may already hold a slice.
+      return answer.ok ? answer.value : true;
+    },
+    blocked: async (worktree) => {
+      const answer = await trees.markers(worktree, 'PLOT-BLOCKED');
+      // AN UNREADABLE DESK READS AS BLOCKED. It withholds work from one agent
+      // for one tick, which is the cheap direction; the other hands a slice to
+      // an agent waiting on a person who has not answered.
+      return !answer.ok || answer.value.length > 0;
+    },
+  };
+};
+
+/**
  * Every plan line the estate holds, keyed by branch.
  *
  * **READ ONCE PER TICK, NOT ONCE PER AGENT, and the difference was measured.**
@@ -379,6 +460,7 @@ export const run = async (
   const scriptsDir = scriptsDirFor(here);
   const registryDir = registryDirFor(repoRoot, scriptsDir);
   const world = worldForRepo(repoRoot, scriptsDir);
+  const queue = queueWorldForRepo(repoRoot, scriptsDir);
 
   write(`plot-registryd: supervising ${registryDir}\n`);
 
@@ -390,6 +472,7 @@ export const run = async (
     const report = await tick({
       registry: () => readRegistry(registryDir, warn),
       world,
+      queue,
       max: args.max,
     });
 
@@ -436,6 +519,12 @@ export const reportTick = (
   for (const row of report.decision.detail.agents) {
     if (row.supervision.verdict === 'leave') continue;
     write(`  ${row.branch}: ${row.supervision.verdict} (${row.supervision.cause})\n`);
+  }
+  // THE HAND-OVER IS NAMED PER SLICE, where supervision is named per agent.
+  // A tick that handed nothing over prints its counts and no rows, the same
+  // way a quiet estate prints `left=3` and nothing else.
+  for (const assignment of report.handOver?.detail?.assignments ?? []) {
+    write(`  ${assignment.branch}: hand over to ${assignment.session}\n`);
   }
   return 0;
 };

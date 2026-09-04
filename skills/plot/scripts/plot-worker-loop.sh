@@ -305,6 +305,53 @@ clear_manifest_branch() { # $1=manifest
   mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
 
+# Read the slice the registry handed this agent, or nothing while it holds none.
+#
+# THE AGENT STOPS SHOPPING FOR ITS OWN BRANCH. This replaced
+# `plot-fleet-scan.sh --offline --next "$PLOT_SLUG"`, and the change is not a
+# cheaper way to ask the same question — it is a different question. `--next`
+# asked *what may I take?* and the agent then took it; this asks *what was I
+# given?* and the agent works it. The registry is the assignment lock and there
+# is only one, so two agents racing for one branch stops being reachable rather
+# than being caught after the fact.
+#
+# WHAT THAT BUYS, BEYOND THE RACE. An agent that selects its own work arrives at
+# a branch with no work order: `--next` is scoped to `$PLOT_SLUG` and hands back
+# a branch name and nothing else, so a slice of another plan was unreachable and
+# a slice of this one came with no brief. An assignment carries both — the
+# branch, and the slug whose brief the agent reads.
+#
+# THE MANIFEST IS THE CHANNEL, AND IT IS NOT A NEW ONE. `branch` is already the
+# agent's own field: written at spawn, rewritten on a hop, and cleared at the
+# finish so `free = alive AND no branch` is observable. The registry writing it
+# is what turns the empty value from a report into an instruction, and it needs
+# no second file, no socket and no lock — which is what keeps the daemon
+# stateless across restarts.
+#
+# ABSENT AND EMPTY ARE ONE ANSWER HERE, deliberately. No manifest (a
+# hand-started loop) and a manifest naming no branch both mean *nothing has been
+# handed to me*, and the agent's response to both is to wait. The distinction
+# matters to a READER of the fleet — one is an unregistered agent, the other a
+# free one — and `plot-fleet-scan.sh` is what draws it.
+#
+# A PARSE FAILURE READS AS NO ASSIGNMENT. A manifest that cannot be read is not
+# permission to take a branch, so the agent waits and the next pass re-reads a
+# file the registry may have finished writing.
+assigned_branch() { # $1=manifest → prints the branch, or nothing
+  local manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 1
+  local branch
+  branch=$(node -e '
+    const fs = require("fs");
+    try {
+      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(typeof manifest.branch === "string" ? manifest.branch : "");
+    } catch { process.stdout.write(""); }
+  ' "$manifest" 2>/dev/null) || return 1
+  [ -n "$branch" ] || return 1
+  printf '%s' "$branch"
+}
+
 # ---------------------------------------------------------------------------
 # THE DESK — create or reset, decided from the tree
 # ---------------------------------------------------------------------------
@@ -1076,15 +1123,18 @@ run_bounded() {
 # budget ends the worker the same way an exhausted prompt does — exit 124, the
 # floor's own convention — because it is the same floor.
 #
-# THE SLUG SCOPE STAYS, AND THIS IS WHERE IT IS ARGUED. `--next "$PLOT_SLUG"`
-# still bounds the ask, so an agent whose plan is finished waits beside an
-# eligible slice of another plan. That is a real cost and it is not fixed here:
-# taking a slice of a DIFFERENT plan means arriving at a desk with no brief,
-# and `feature/the-registry-queues-a-brief` owns the hand-over that would carry
-# one. An agent that widened its own ask would claim across plans and then have
-# to invent the brief it was never given — the same overreach `|| break` made in
-# the other direction. The scope is the registry's to widen, once it can hand
-# something over.
+# THE SLUG SCOPE IS GONE, AND THE REGISTRY IS WHAT WIDENED IT. This paragraph
+# used to argue for keeping `--next "$PLOT_SLUG"`: an agent whose plan was
+# finished waited beside an eligible slice of another plan, and taking one would
+# have meant arriving at a desk with no brief. The agent no longer asks, so it
+# no longer has a scope of its own — the registry reads every plan, refuses a
+# slice with no brief at the hand-over, and sends the slug WITH the assignment.
+# What the agent could not do for itself without overreaching is now simply
+# somebody else's answer.
+#
+# `--why-nothing` KEEPS ITS SLUG, and that is a different scope. It decides one
+# sentence for an operator watching this agent, and *nothing on your plan will
+# open by itself* is the sentence they want — not a survey of the estate.
 #
 # @param $1 the reason `--next` was silent, as `--why-nothing` reported it
 # @return 0 when a slice became available (the caller re-asks `--next`),
@@ -1104,10 +1154,10 @@ wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
   # says so rather than printing an empty list.
   case "$outlook" in
     not-yet)
-      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — no claimable slice, waiting on $(printf '%s' "$blockers" | tr "$tab" ' ') to land. Asking every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with plot-dispatch.sh --stop ${PLOT_BRANCH:-<branch>}" >&2
+      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — nothing handed over yet, and $(printf '%s' "$blockers" | tr "$tab" ' ') has still to land. Reading the manifest every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with plot-dispatch.sh --stop ${PLOT_BRANCH:-<branch>}" >&2
       ;;
     *)
-      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — no claimable slice and none blocked behind one, so nothing on this plan will open by itself. Waiting to be handed work: asking every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with plot-dispatch.sh --stop ${PLOT_BRANCH:-<branch>}" >&2
+      echo "plot-worker-loop: free on ${PLOT_SLUG:-?} — nothing handed over yet. Waiting to be handed work: reading the manifest every ${WAIT_POLL_SECONDS}s, for up to ${WAIT_BUDGET_SECONDS}s; stop it with plot-dispatch.sh --stop ${PLOT_BRANCH:-<branch>}" >&2
       ;;
   esac
 
@@ -1136,12 +1186,15 @@ wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
     _wait_sleep_pid=""
     slept=$((slept + WAIT_POLL_SECONDS))
 
-    # THE ASK IS `--next` AND NOTHING ELSE. `--why-nothing` decided the
-    # SENTENCE above and decides nothing here: a second question per pass would
-    # double a 12.7 s scan to refine a message nobody is reading yet, and the
-    # answer that matters — a branch name — is the one `--next` gives.
-    if "$script_dir/plot-fleet-scan.sh" --offline --next "$PLOT_SLUG" >/dev/null 2>&1; then
-      echo "plot-worker-loop: taken up on ${PLOT_SLUG:-?} after waiting ${slept}s — a slice became claimable." >&2
+    # THE ASK IS THE AGENT'S OWN MANIFEST, and it is a file read rather than a
+    # 12.7 s scan. That is the second thing removing `--next` bought: the wait
+    # used to run a whole fleet scan per pass to find out whether anything had
+    # become claimable, and it now reads one small JSON file to find out whether
+    # anything was handed over. The poll interval could be shortened on that
+    # cost alone; it is left where it is because the registry's tick is what
+    # decides how often the answer can change.
+    if assigned_branch "${PLOT_MANIFEST_FILE:-}" >/dev/null; then
+      echo "plot-worker-loop: taken up on ${PLOT_SLUG:-?} after waiting ${slept}s — the registry handed over a slice." >&2
       return 0
     fi
   done
@@ -1239,34 +1292,23 @@ while true; do
     clear_manifest_branch "$PLOT_MANIFEST_FILE"
   fi
 
-  # Ask for the next claimable branch of the same plan.
+  # Take the slice the registry handed over — see `assigned_branch`.
   #
-  # `--offline` MEANS NO FETCH, AND NO LONGER MEANS NO HOST. It skips the fetch
-  # so the hop is not charged for one; the scan asks the host anyway on this
-  # path, because `--next` names a branch this loop is about to claim by
-  # pushing a ref, and merge state is the one fact refs cannot supply once a
-  # squash merge has rewritten the commits.
+  # `--offline --next` USED TO BE HERE and its whole trade went with it. That
+  # flag existed because the scan asks the host and an unreachable host makes
+  # every unmerged branch read `unknown`, which `--next` will not hand out — so
+  # an agent stopped taking work whenever the host was down, silently. The
+  # agent no longer asks the host, or git, or the plans: it reads one field of
+  # its own manifest, so there is nothing left for a rate limit to break.
   #
-  # THE TRADE THIS COMMENT USED TO RECORD WAS PAID, and the bill is what
-  # removed it. It read: without `--offline`, a host answering `failed` makes
-  # every unmerged branch `unknown`, `--next` withholds those, and a
-  # long-running agent silently stops taking work. True, and the cost on the
-  # other side was left as *the hop claims on git alone*. Measured 2026-09-04:
-  # that cost arrived as ten refs whose tip commit is `plot: claim <branch>`
-  # dated hours after their own merge, one branch re-claimed twice 35 minutes
-  # after its ref was deleted, and four waves held blocked behind it. The
-  # closing argument — *a claim is re-checked by the push, which is rejected if
-  # the ref already exists* — is exactly what does not hold here: the merge
-  # DELETED the ref, so the push succeeds and re-creates it.
-  #
-  # THE STARVATION IT FEARED IS STILL REFUSED, AND SAID OUT LOUD. An
-  # unanswerable host reads `unknown`, `--next` stays silent, and `wait_for_work`
-  # takes the loop into a wait with a reason a reader can act on — rather than
-  # into a claim on a branch whose merge state nobody verified.
-  #
-  # THE HOP IS UNCHANGED. It asks `--next` and claims what it is offered, which
-  # was always correct; the offer is what was fixed. See `plot-fleet-scan.sh`,
-  # `HOST_LOOKUP_OK`.
+  # WHAT IT COST WENT TOO, AND THE BILL HAD ARRIVED. The hop claimed on git
+  # alone and could take a branch whose merge state nobody had verified,
+  # accepted at the time because the claim push re-checked it. Measured
+  # 2026-09-04: ten refs whose tip commit is `plot: claim <branch>` dated hours
+  # after their own merge, one branch re-claimed twice 35 minutes after its ref
+  # was deleted, and four waves held blocked behind it — the push cannot be the
+  # check, because the merge DELETED the ref and the push simply re-creates it.
+  # The registry checks before it assigns, so the push is a backstop.
   # ---------------------------------------------------------------------------
   # CREATE OR RESET — the agent decides what happens to its desk
   # ---------------------------------------------------------------------------
@@ -1294,22 +1336,32 @@ while true; do
   # meant the process ended. It is now a wait — see `wait_for_work`, which owns
   # the argument, the bound and the sentence an operator reads.
   #
-  # THE LOOP RE-ASKS RATHER THAN BEING HANDED THE ANSWER. `wait_for_work`
-  # returns 0 when `--next` has just answered, and this line asks again instead
-  # of taking that answer through. One extra scan per wake-up buys a single
-  # claim path: every branch this loop claims came from the ask on THIS line,
-  # so nothing downstream has to know whether the agent waited. It also
-  # re-reads a world that moved during the wait, which is the world it is about
-  # to push a claim into.
+  # THE LOOP RE-READS RATHER THAN BEING HANDED THE ANSWER. `wait_for_work`
+  # returns 0 when the manifest has just named a branch, and this line reads it
+  # again instead of taking that answer through. The re-read is now a file read
+  # rather than a fleet scan, so it costs almost nothing and still buys the
+  # single take path: every branch this loop works came from the read on THIS
+  # line, so nothing downstream has to know whether the agent waited.
   #
-  # A SECOND SILENCE WAITS AGAIN. The re-ask can come back empty — another
-  # agent took the slice in the seconds between — and `continue` sends it back
-  # to `wait_for_work` rather than out. Falling through to `break` there would
-  # restore the old behaviour for exactly the case a fleet makes common.
-  if ! next_branch=$("$script_dir/plot-fleet-scan.sh" --offline --next "$PLOT_SLUG" 2>/dev/null); then
+  # A SECOND SILENCE WAITS AGAIN. The re-read can come back empty — the
+  # registry cleared the field, or wrote it between two of this agent's reads —
+  # so the wait is re-entered rather than fallen out of.
+  #
+  # IT LOOPS HERE RATHER THAN `continue`ING TO THE TOP, and that changed with
+  # the read. `continue` sent the agent back to `run_bounded`, which re-ran the
+  # PROMPT on the branch it had just finished before asking again — acceptable
+  # when the ask was a 12.7 s fleet scan and the loop was structured around it,
+  # and pure waste now that the ask is a file read. A finished branch has
+  # nothing left for its prompt to do, and running it again is how a clean desk
+  # acquires a second empty commit.
+  #
+  # THE OUTLOOK IS STILL THE SCAN'S, AND IT DECIDES NOTHING. `--why-nothing`
+  # names the branches whose landing would open a slice, which is the one
+  # sentence an operator waiting needs and the manifest cannot supply. It is
+  # asked ONCE per wait, on the way in, and never inside the poll.
+  while ! next_branch=$(assigned_branch "${PLOT_MANIFEST_FILE:-}"); do
     wait_for_work "$("$script_dir/plot-fleet-scan.sh" --offline --why-nothing "$PLOT_SLUG" 2>/dev/null)" || exit 124
-    continue
-  fi
+  done
 
   wt_root=$(dirname "$PLOT_WORKTREE")
   suffix=$(printf '%s' "$next_branch" | tr '/' '-')

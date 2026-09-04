@@ -1,7 +1,9 @@
 import { supervise, type SuperviseDetail } from '@plot-pm/domain/workflows/supervise';
+import { assign, type AssignDetail } from '@plot-pm/domain/workflows/assign';
 import type { Decision } from '@plot-pm/domain/workflows/decision';
 
 import { readTick, type SupervisorWorld } from '../supervisor.js';
+import { readQueue, type QueueWorld } from '../queue-reading.js';
 import type { AgentEntry } from '../registry.js';
 
 /**
@@ -81,7 +83,7 @@ export interface TickReport {
   costMs: number;
   /** How many agents the registry held. */
   agents: number;
-  /** What it decided. */
+  /** What it decided about the agents it supervises. */
   decision: Decision<SuperviseDetail>;
   /**
    * What stopped this tick before it could decide, or `''` when it finished.
@@ -91,6 +93,15 @@ export interface TickReport {
    * re-reads from disk and continues; see {@link tick}.
    */
   incomplete: string;
+  /**
+   * What it decided about the queue, or null where no queue world was given.
+   *
+   * **NULL IS *NOBODY ASKED*, NOT *THE QUEUE WAS EMPTY*.** A caller running the
+   * supervision half alone gets null; an empty queue gets a decision with no
+   * writes. Collapsing them would make a daemon that cannot read the plans
+   * indistinguishable from one reading an estate with nothing to hand over.
+   */
+  handOver: Decision<AssignDetail> | null;
 }
 
 /** What a daemon needs to run one tick. */
@@ -99,6 +110,15 @@ export interface TickOptions {
   registry(): Promise<readonly AgentEntry[]>;
   /** What to read the estate through. */
   world: SupervisorWorld;
+  /**
+   * What to read the QUEUE through, or absent to run supervision alone.
+   *
+   * A second world rather than more members on the first, because the two ask
+   * about different things: the supervisor reads what each registered agent
+   * LEFT BEHIND, and the queue reads what the plans have WAITING. A tick that
+   * cannot reach the plans still supervises every desk.
+   */
+  queue?: QueueWorld;
   /** How many agents one tick may act on; 0 for no bound. */
   max?: number;
   /** The clock, so a test can hold one. */
@@ -146,11 +166,25 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
     const entries = await options.registry();
     const readings = await readTick(entries, options.world);
     const decision = supervise(readings, { max: options.max ?? 0 });
+
+    // THE HAND-OVER RUNS AFTER SUPERVISION, WITHIN ONE TICK, and the order is
+    // load-bearing: supervision is what frees an agent, by reaping a finished
+    // desk or by marking a spent one for a person. Matching first would hand
+    // work against a fleet reading taken before this tick's own corrections.
+    //
+    // BOTH HALVES READ THE SAME REGISTRY LIST. A second read between them would
+    // let one tick supervise one set of agents and hand work to another.
+    const handOver =
+      options.queue === undefined
+        ? null
+        : assign(await readQueue(entries, options.queue), { max: options.max ?? 0 });
+
     return {
       startedAt,
       costMs: now() - startedAt,
       agents: entries.length,
       decision,
+      handOver,
       incomplete: '',
     };
   } catch (error) {
@@ -158,11 +192,16 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
     // the registry never learnt the count, and one that failed after it would
     // report a number no verdict was reached about — which reads like a tick
     // that decided to leave every agent alone.
+    //
+    // AND `handOver` IS NULL, WHICH ITS OWN CONTRACT ALREADY SPELLS: null is
+    // *nobody asked*. A tick that threw never reached the queue, so it did not
+    // ask — an empty decision here would claim it looked and found nothing.
     return {
       startedAt,
       costMs: now() - startedAt,
       agents: 0,
       decision: emptyDecision(),
+      handOver: null,
       incomplete: reasonFor(error),
     };
   }
@@ -228,13 +267,27 @@ export const tickLine = (report: TickReport): string => {
     ].join(' ');
   }
   const detail = report.decision.detail;
-  return [
+  const fields = [
     `plot-registryd tick agents=${report.agents}`,
     `left=${detail.left.length}`,
     `reap=${detail.reaping.length}`,
     `correct=${detail.correcting.length}`,
     `person=${detail.needingAPerson.length}`,
     `defer=${detail.deferred.length}`,
-    `cost=${report.costMs}ms`,
-  ].join(' ');
+  ];
+
+  // THE QUEUE'S FIELDS ARE OMITTED WHEN NOBODY ASKED, rather than printed as
+  // zeros. `queued=0 handed=0` on a tick that never read the plans says the
+  // estate has nothing waiting, which is a claim this tick did not measure.
+  if (report.handOver !== null) {
+    const queue = report.handOver.detail;
+    fields.push(
+      `handed=${queue.assignments.length}`,
+      `queued=${queue.held.length}`,
+      `idle=${queue.idle.length}`,
+    );
+  }
+
+  fields.push(`cost=${report.costMs}ms`);
+  return fields.join(' ');
 };

@@ -109,6 +109,54 @@ function claimAsDispatcher(sb, branch) {
 }
 
 /**
+ * The scripts directory, copied, with `plot-fleet-scan.sh` wrapped in a shim
+ * that HANDS OVER the next slice.
+ *
+ * IT IS THE REGISTRY, ACTING WHERE THE REGISTRY ACTS. Since
+ * `the-registry-queues-a-brief` the agent selects nothing: it reads the branch
+ * the registry wrote into its manifest. The loop reaches this script exactly
+ * once per free window — `--why-nothing`, asked on the way into a wait — which
+ * is the same instant a daemon tick would find this agent free and match it.
+ * So the shim writes `branch`, which is the whole of a hand-over: no second
+ * file, no socket, one field.
+ *
+ * THAT MAKES THE HOP A STRONGER ASSERTION THAN IT WAS. The agent cannot pick
+ * `feature/api` for itself any more, so a second line in `ran.txt` can only
+ * mean the slice was handed over and read back.
+ *
+ * IT HANDS OVER ONCE. A shim that wrote the assignment on every call would
+ * re-hand a slice the agent already holds — the double assignment the registry
+ * is the single lock against — so it refuses itself the second time, as the
+ * pool does.
+ *
+ * THE COPY IS THE WHOLE DIRECTORY because `script_dir` is the loop's own
+ * location and every helper resolves from it; shimming one script in place
+ * would edit the tree under test.
+ */
+function shimmedScripts(root, manifest, handOver) {
+  const dir = path.join(root, 'scripts');
+  fs.cpSync(SCRIPTS, dir, { recursive: true });
+  const real = path.join(dir, 'plot-fleet-scan.real.sh');
+  fs.renameSync(path.join(dir, 'plot-fleet-scan.sh'), real);
+  const once = path.join(root, 'handed-over');
+  fs.writeFileSync(path.join(dir, 'plot-fleet-scan.sh'), `#!/usr/bin/env bash
+if [ -n "\${PLOT_MANIFEST_FILE:-}" ] && [ -f "\$PLOT_MANIFEST_FILE" ]; then
+  if [ ! -f ${JSON.stringify(once)} ]; then
+    touch ${JSON.stringify(once)}
+    node -e '
+      const fs = require("fs");
+      const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      m.branch = process.argv[2];
+      fs.writeFileSync(process.argv[1], JSON.stringify(m, null, 2) + "\\n");
+    ' "\$PLOT_MANIFEST_FILE" ${JSON.stringify(handOver)}
+  fi
+fi
+exec bash ${JSON.stringify(real)} "\$@"
+`, { mode: 0o755 });
+  return dir;
+}
+
+/**
  * The fixture agent. It does what a real one does at the end of a slice —
  * commit, push, and land the work — plus two things a real one does not: it
  * records which branch it ran on, and it snapshots the manifest it is running
@@ -158,9 +206,9 @@ git -C ${work} push -q origin main` : '# This agent lands nothing: the next wave
  *
  * @returns `{ stdout, stderr, code }` — `code` 0 or 124 on any healthy path
  */
-function runLoop({ wt, manifest, branch, slug, timeout = 120000 }) {
+function runLoop({ wt, manifest, branch, slug, scripts = SCRIPTS, timeout = 120000 }) {
   try {
-    const stdout = execFileSync('bash', [path.join(SCRIPTS, 'plot-worker-loop.sh')], {
+    const stdout = execFileSync('bash', [path.join(scripts, 'plot-worker-loop.sh')], {
       cwd: wt,
       encoding: 'utf8',
       timeout,
@@ -213,7 +261,11 @@ test('flow: a worker finishes one slice and starts the next — one agent, two b
     fs.writeFileSync(path.join(wt, '.plot', 'worker-prompt.sh'),
       fixturePrompt({ ranFile, snapshotDir, work: sb.work, manifest }));
 
-    runLoop({ wt, manifest, branch: 'feature/seam', slug: 'hopflow' });
+    // THE REGISTRY HANDS THE SECOND SLICE OVER, in the free window. The agent
+    // selects nothing now, so without this it waits out its bound and never
+    // hops — and `feature/api` in `ran.txt` is proof the hand-over was taken.
+    const scripts = shimmedScripts(sb.root, manifest, 'feature/api');
+    runLoop({ wt, manifest, branch: 'feature/seam', slug: 'hopflow', scripts });
 
     // THE HOP: one worker, two branches, in that order.
     const ran = fs.readFileSync(ranFile, 'utf8').trim().split('\n');
@@ -254,7 +306,8 @@ test('flow: the manifest after the hop names the second branch and its worktree'
     fs.writeFileSync(path.join(wt, '.plot', 'worker-prompt.sh'),
       fixturePrompt({ ranFile, snapshotDir, work: sb.work, manifest }));
 
-    runLoop({ wt, manifest, branch: 'feature/seam', slug: 'hopmanifest' });
+    const scripts = shimmedScripts(sb.root, manifest, 'feature/api');
+    runLoop({ wt, manifest, branch: 'feature/seam', slug: 'hopmanifest', scripts });
 
     const first = JSON.parse(fs.readFileSync(path.join(snapshotDir, 'manifest-seam.json'), 'utf8'));
     const after = JSON.parse(fs.readFileSync(path.join(snapshotDir, 'manifest-api.json'), 'utf8'));
@@ -321,7 +374,7 @@ test('flow: a worker with no next branch reports itself free and waits', () => {
     // difference between waiting and stalling.
     assert.match(r.stderr, /free on nonext/,
       'a worker offered nothing reports itself free rather than exiting on the silence');
-    assert.match(r.stderr, /waiting on feature\/seam to land/,
+    assert.match(r.stderr, /feature\/seam has still to land/,
       'the wait names the branch whose landing would open the blocked slice');
 
     // AND IT ENDED ON ITS BOUND, not on the silence. The two are different

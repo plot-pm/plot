@@ -2,7 +2,9 @@
 // condition that used to kill it.
 //
 // `plot-worker-loop.sh:952` read `next_branch=$(… --next "$PLOT_SLUG") || break`
-// until 2026-09-03. No claimable slice ended the process, and two departures
+// until 2026-09-03, and the ask itself went on 2026-09-04 — the agent now reads
+// the branch the registry handed it rather than shopping for one, so the wait
+// polls its own manifest. No claimable slice ended the process, and two departures
 // from the model rode on that one word: an agent had no idle state, and
 // termination was a judgement the agent made about the ESTATE rather than a
 // reading of ITSELF. Measured 2026-09-03 on the live estate: 0 live workers, 0
@@ -59,8 +61,8 @@ async function until(check, ms, what) {
  *
  * THE DIFFERENCE IS WHAT THE AGENT DOES. There, the fixture agent MERGES its
  * slice, which opens the second wave and makes the worker hop. Here it does not
- * merge: the second wave stays blocked, `--next` stays silent, and the loop
- * reaches the line under test with nothing to take.
+ * merge: the second wave stays blocked, nothing writes a branch into the
+ * manifest, and the loop reaches the line under test with nothing handed to it.
  */
 function sandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-waitwork-'));
@@ -118,10 +120,10 @@ function claim(sb, branch) {
 /**
  * The fixture agent: it commits and pushes its slice, and STOPS THERE.
  *
- * NOTHING IS MERGED, deliberately. The second wave stays blocked, so `--next`
- * has nothing to hand over and the loop reaches the wait. It pushes because a
- * desk holding unpushed commits is `stalled` rather than free, and this test is
- * about the agent that finished cleanly and was offered nothing.
+ * NOTHING IS MERGED, deliberately. The second wave stays blocked, so the
+ * registry has nothing to hand over and the loop reaches the wait. It pushes
+ * because a desk holding unpushed commits is `stalled` rather than free, and
+ * this test is about the agent that finished cleanly and was handed nothing.
  */
 const prompt = () => `set -e
 echo "$PLOT_BRANCH" > "$PLOT_WORKTREE/work-\${PLOT_BRANCH##*/}.txt"
@@ -141,7 +143,7 @@ test('a free agent waits instead of exiting, and can still be stopped', async ()
       [path.join(scripts, 'plot-fleet-scan.sh'), '--offline', 'waitwork'],
       { encoding: 'utf8', cwd: sb.work });
     assert.match(before, /Implementation — blocked/,
-      'precondition: the second wave must be blocked, or --next would hand over work');
+      'precondition: the second wave must be blocked, or the registry would have work to hand over');
 
     const manifestDir = path.join(sb.work, '.plot', 'agents');
     fs.mkdirSync(manifestDir, { recursive: true });
@@ -189,8 +191,10 @@ test('a free agent waits instead of exiting, and can still be stopped', async ()
         return text.includes('free on waitwork') ? text : null;
       },
       90000, 'the loop to report itself free');
-    assert.match(logged, /waiting on feature\/seam to land/,
-      'the wait names the branch whose landing would open the blocked slice');
+    assert.match(logged, /nothing handed over yet/,
+      'the wait says what it is waiting FOR — an assignment, not a branch to shop for');
+    assert.match(logged, /feature\/seam has still to land/,
+      'and it still names the branch whose landing would open the blocked slice');
     assert.match(logged, /--stop/, 'the wait tells an operator how to end it');
 
     // IT IS STILL RUNNING. This is the assertion the old `|| break` fails: the
@@ -207,8 +211,9 @@ test('a free agent waits instead of exiting, and can still be stopped', async ()
     assert.equal(held.session, 'sess-waitwork', 'its identity survives the wait');
 
     // IT WAITS ACROSS PASSES rather than falling out on the second silence. The
-    // re-ask can come back empty forever here — nothing merges in this fixture
-    // — and three polls at 2s is enough to catch a loop that exits on one.
+    // re-read can come back empty forever here — nothing merges in this fixture
+    // and nothing writes an assignment — and three polls at 2s is enough to
+    // catch a loop that exits on one.
     await sleep(7000);
     assert.ok(alive(child.pid), 'the agent is still waiting several polls later');
 

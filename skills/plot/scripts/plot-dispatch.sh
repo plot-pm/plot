@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Plot helper: fan out one worktree + one worker per eligible branch.
+# Plot helper: hand one slice + its brief to the registry per eligible branch.
 # Usage: plot-dispatch.sh [--dry-run] [--no-start] [--no-brief] [--offline]
 #                         [--max N] [--allow-local] <slug>
 #        plot-dispatch.sh --migrate [--yes] [--max N]
@@ -27,12 +27,17 @@
 #               byte-identical, which is what lets it be diffed against a run
 #               from before a change to this script.
 #   --yes       with --migrate, actually move the worktrees (default is dry-run)
-#   --no-start  create worktrees and claim refs, but start no workers
-#   --no-brief  start a worker even when its branch has no brief. The named
-#               escape for the brief gate: a missing brief PREPARES (worktree +
-#               claim) but does not START, because the worker's first
-#               instruction is to read `.plot/briefs/<branch>.md` and it has
-#               nothing to read. --no-brief overrides that and says so.
+#   --no-start  record that no worker was wanted: the run still hands its slices
+#               over, and reports `worker=suppressed` rather than a missing
+#               `Worker command`. Dispatch starts no worker either way — the
+#               registry spawns agents — so this now says WHY the zero was
+#               chosen and no longer changes what the run does.
+#   --no-brief  hand a slice over even when its branch has no brief. The named
+#               escape for the brief gate: a missing brief is not handed over,
+#               because the agent's first instruction is to read
+#               `.plot/briefs/<branch>.md` and it has nothing to read. A refused
+#               slice leaves no desk and no claim and stays in the queue.
+#               --no-brief overrides that and says so.
 #   --offline   skip `git fetch`
 #   --max N     dispatch at most N branches this run (default: all eligible)
 #   --allow-local  read the plan's phase from the working tree when
@@ -47,13 +52,12 @@
 #   <slug>      the plan to fan out
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then the
-#         summary block — an optional prose consequence line, then a
 #         machine-countable footer.
 #         A branch whose worktree exists with UNMERGED work is refused rather
-#         than dispatched — counted `skipped`, with the worktree path named,
+#         than handed over — counted `skipped`, with the worktree path named,
 #         in `--dry-run` identically to a real run. See "THE HELD-BRANCH GATE".
-#             3 worktrees prepared, 0 workers started, no `Worker command` configured
-#             summary: dispatched=2 reused=0 skipped=1 started=2 brief=missing worker=unconfigured brief_asked=0
+#             handed over feature/one → the registry
+#             summary: dispatched=2 reused=0 skipped=1 started=0 brief=missing worker=unconfigured brief_asked=0
 #
 # THE CONSEQUENCE IS STATED IN THE SUMMARY, NOT PER BRANCH. start_worker has
 # always said "no 'Worker command' configured" beside the branch it could not
@@ -367,11 +371,16 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
 #
 # READ FROM `origin/<main>`, NOT THE WORKING TREE, for the same reason the phase
 # gate above does: the question is not "does a brief exist in this filesystem?"
-# but "will the WORKER find one?". The worker's worktree is created from
-# `origin/$MAIN` (see `git worktree add` below), so a brief committed nowhere —
-# or committed locally and never pushed — is invisible to it. Checking the
-# working tree passes the gate and starts a worker into an empty specification,
-# which is the exact failure this gate exists to prevent.
+# but "will the AGENT find one?". The agent cuts or resets its desk from
+# `origin/$MAIN`, so a brief committed nowhere — or committed locally and never
+# pushed — is invisible to it. Checking the working tree passes the gate and
+# hands over a slice whose specification is empty, which is the exact failure
+# this gate exists to prevent.
+#
+# THAT HOLDS ACROSS THE GATE'S MOVE, and is why the move cost this function
+# nothing: the desk was cut from `origin/$MAIN` when dispatch cut it and is cut
+# from `origin/$MAIN` now that the agent does. The ref the brief must be on did
+# not change, only who reads it there.
 #
 # Both directions were measured 2026-08-27. Running the filesystem check from a
 # checkout 8 commits behind main reported three branches' briefs missing while
@@ -1709,31 +1718,20 @@ worker_state_field() {
   fi
 }
 
-# The summary block: an optional prose line, then the machine-countable footer.
+# The summary: the machine-countable footer, and nothing above it.
 #
-# The prose line is printed only when there is a consequence to state — a
-# summary that always explains itself teaches the reader to skip it, and then
-# it is worth nothing on the day it matters. `worktrees prepared` counts
-# dispatched + reused, because a re-adopted worktree is equally a desk nobody
-# was sat at.
+# THE PROSE LINE IS GONE, BY ITS OWN RULE. It existed to explain a zero that
+# had a cause worth naming — a `Worker command` nobody had configured, read off
+# a run that had prepared desks and staffed none. Dispatch starts no worker at
+# all now, so `started=0` is structural: the line would print on every run,
+# always true and never informative. `--dry-run` was held to exactly this rule
+# from the start — *"a dry run starts nothing BY CONSTRUCTION, so it explains
+# nothing"* — and the fan-out has become the same case.
+#
+# `worker=` still travels in the footer. It says how this repo is configured,
+# which remains a fact about the repo even where it no longer explains a count.
 print_summary() { # $1=dispatched $2=reused $3=skipped $4=started
-  local prepared=$(( $1 + $2 )) worker
-  worker=$(worker_state_field)
-  if [ "$prepared" -gt 0 ] && [ "$4" = 0 ]; then
-    case "$worker" in
-      unconfigured)
-        echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started, no \`Worker command\` configured" ;;
-      declined)
-        # Asked and answered: this repo starts its workers by hand. Stating the
-        # count without calling it a gap — hand-starting is a legitimate
-        # workflow, and repeating "not configured" at someone who decided that
-        # on purpose is the nag the plan rules out.
-        echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started — this repo starts them by hand" ;;
-      suppressed)
-        echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started (--no-start)" ;;
-    esac
-  fi
-  echo "summary: dispatched=$1 reused=$2 skipped=$3 started=$4 brief=missing worker=$worker brief_asked=${n_brief_asked:-0}"
+  echo "summary: dispatched=$1 reused=$2 skipped=$3 started=$4 brief=missing worker=$(worker_state_field) brief_asked=${n_brief_asked:-0}"
 }
 
 # ---------------------------------------------------------------------------
@@ -1930,14 +1928,39 @@ write_started_record() { # $@ = branches
   fi
 
   if [ -f "$tmpwt/$rel" ]; then
-    local br
+    local br wrote=0
     for br in "$@"; do
+      # A BRANCH ALREADY RECORDED IS NOT RECORDED AGAIN, and this check is what
+      # the CLAIM used to do. Dispatch pushed a claim, a claimed branch was
+      # never offered again, and a second run therefore booked nothing — the
+      # idempotence was a side effect of the lock rather than a property of the
+      # record. The claim went with the fan-out's writes, so the record owns its
+      # own idempotence now: a plan dispatched three times must not read as
+      # started three times, or the count drifts from the refs it describes.
+      #
+      # MATCHED ON THE BRANCH IN BACKTICKS, the shape `append_started_line`
+      # writes and `plot-plan-meta.sh` parses. A bare substring match would let
+      # `feature/api` find itself inside `feature/api-v2`.
+      if grep -qF -- "\`$br\`" "$tmpwt/$rel" 2>/dev/null \
+         && grep -q -- "Started:.*\`$br\`" "$tmpwt/$rel" 2>/dev/null; then
+        continue
+      fi
       append_started_line "$tmpwt/$rel" "$date" "$who" "$br" || {
         echo "plot-dispatch: $rel has no '## Status' section — nowhere to record" >&2
         rc=1
         break
       }
+      wrote=1
     done
+    # NOTHING NEW TO SAY IS NOT A FAILURE. Every branch this run handed over was
+    # already on the record, so there is no commit to make and no push to
+    # attempt — and a run that pushed an empty commit would leave one per
+    # re-dispatch on the default branch.
+    if [ "$rc" = 0 ] && [ "$wrote" = 0 ]; then
+      git worktree remove --force "$tmpwt" 2>/dev/null || true
+      git branch -D "$bookbr" >/dev/null 2>&1 || true
+      return 0
+    fi
     if [ "$rc" = 0 ]; then
       git -C "$tmpwt" add -- "$rel" 2>/dev/null
       git -C "$tmpwt" -c "user.name=$who" commit -q \
@@ -1998,6 +2021,23 @@ real_plan_path() { # $1=plan file as found (possibly a symlink, possibly relativ
 append_started_line() { # $1=file $2=date $3=who $4=branch
   local f="$1" line
   line="- **Started:** $2, $3, \`$4\`"
+
+  # ALREADY RECORDED IS NOT AN ERROR — it is a second dispatch of the same
+  # slice, and this returns 0 having written nothing.
+  #
+  # THE CLAIM USED TO BE THIS GUARD. A dispatched branch was claimed by a ref
+  # push, so `--next` never offered it twice and a re-run booked nothing. The
+  # hand-over pushes no claim, so the branch stays `open` and every re-run
+  # reaches this line: measured 2026-09-04, two runs left two identical
+  # `Started:` records in one plan.
+  #
+  # The DATE is deliberately not matched. A slice handed over again tomorrow is
+  # the same start, and a per-day record would drift from the refs it describes
+  # exactly as a per-run one does.
+  if grep -qF -- "\`$4\`" "$f" 2>/dev/null \
+    && grep -q -- "^[ \t]*[-*][ \t]*\*\*Started:\*\*.*\`$4\`" "$f" 2>/dev/null; then
+    return 0
+  fi
   awk -v line="$line" '
     { lines[++n] = $0 }
     END {
@@ -2441,67 +2481,73 @@ if [ "$dry_run" = 1 ]; then
   exit 0
 fi
 
-# Ask the fleet scan for eligible-and-unclaimed branches, one at a time.
-# Re-asking after each claim is deliberate (pull, not push): the answer changes
-# as we claim, and a list computed up front would go stale mid-fan-out.
-while :; do
+# THE LIST IS READ ONCE, AND THAT FOLLOWS FROM THE CLAIM GOING.
+#
+# This was a PULL: `--next` was asked again after every claim, because claiming
+# a branch changed what the next ask would offer and a list computed up front
+# would have gone stale mid-fan-out. Dispatch claims nothing now — it hands a
+# slice to the registry and returns — so nothing this loop does changes the
+# scan's answer, and re-asking would return the same branch until a gate marked
+# it exhausted and the loop broke on it. Measured on the first run after the
+# claim was removed: `feature/one` handed over, `feature/two` never reached.
+#
+# ONE SCAN RATHER THAN N. The scan is 18.3 s here, so the pull cost one of those
+# per branch to re-derive an answer that could not have moved.
+#
+# `--allow-waiting`'s CANDIDATES COME LAST, after every branch the scan was
+# willing to name. `--list-eligible` reports a waiting branch as `waiting` and
+# never offers it, so the flag's candidates can only come from the preflight; a
+# held branch is one the operator chose to start early and must not displace one
+# that was ready. `sort -u` because a branch the scan DID offer — its host call
+# failed where the preflight's succeeded — must be handed over once, not twice.
+#
+# A `while read` LOOP, BECAUSE macOS SHIPS BASH 3.2. The bash 4 builtin that
+# reads a stream into an array does not exist there, and
+# `test/reconcile/mergequeue.test.mjs` gates on it — by grepping these scripts,
+# so naming the builtin in a comment fails the gate too.
+#
+# The single scan this block exists for is unaffected: the subshell still runs
+# once, and its output is still read once.
+fan_out=()
+while IFS= read -r _line; do
+  fan_out+=("$_line")
+done < <({ "$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null
+           [ "$allow_waiting" = 1 ] && printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}
+           :; } | grep -v '^$' | sort -u)
+
+for branch in ${fan_out[@]+"${fan_out[@]}"}; do
   [ "$max" -gt 0 ] && [ "$n_dispatched" -ge "$max" ] && break
+  # `exhausted` SURVIVES THE PULL IT WAS WRITTEN FOR. It no longer has to stop
+  # the loop re-offering a branch — a list cannot — but the gates below still
+  # mark what they refused, and `sort -u` cannot merge a preflight candidate
+  # with a scan-offered one where the two spellings differ.
+  is_exhausted "$branch" && continue
 
-  branch=$("$script_dir/plot-fleet-scan.sh" $offline --next "$slug" 2>/dev/null) || branch=""
-  # WHAT `--allow-waiting` FREED, ONCE THE SCAN HAS RUN DRY. `--next` reports a
-  # waiting branch as `waiting` and will never offer it, so the flag's candidate
-  # can only come from the preflight — and it is taken LAST, after every branch
-  # the scan was willing to name. A held branch is the one the operator chose to
-  # start early; it must not displace one that was ready.
-  #
-  # `exhausted` is what terminates this: each freed branch is marked attempted
-  # below (or by a gate that refuses it), so the loop cannot re-offer it the way
-  # a pull from `--next` would.
-  from_freed=0
-  if [ -z "$branch" ] && [ "$allow_waiting" = 1 ]; then
-    for br in ${waits_freed[@]+"${waits_freed[@]}"}; do
-      is_exhausted "$br" && continue
-      branch="$br"
-      from_freed=1
-      # MARKED ATTEMPTED AT SELECTION, not after a successful dispatch. Every
-      # other candidate leaves this loop because `--next` stops naming it once
-      # it is claimed; `waits_freed` is a fixed list this script re-reads, so a
-      # branch marked only on failure would be offered again on the next pass
-      # and the loop would never end.
-      exhausted+=("$br")
-      break
-    done
-  fi
-  [ -n "$branch" ] || break
-  # --next has no memory; if it offers something we already failed on, the
-  # eligible set is exhausted for this run. A freed branch was just marked
-  # attempted one line above, so the test is asked of scan-offered branches
-  # only — asking it here would break the loop on the candidate it just chose.
-  if [ "$from_freed" = 0 ] && is_exhausted "$branch"; then
-    break
-  fi
-
-  # Flatten the whole branch name, not just its last segment: feature/api and
-  # bug/api are different work and must not share a worktree (a shared path
-  # also makes --stop act on whichever claimed it first).
+  # THE PATH DISPATCH NO LONGER CREATES, still composed for the two readers that
+  # need it: the dry run, which names where a desk WOULD go, and the monitor
+  # report. The agent decides its own desk now, so this is a prediction rather
+  # than a destination — and it stays flattened whole, because `feature/api` and
+  # `bug/api` are different work and must not name one directory.
   suffix=$(printf '%s' "$branch" | tr '/' '-')
   wt="$wt_root/$wt_prefix$suffix"
 
   if [ "$dry_run" = 1 ]; then
-    echo "would dispatch $branch → $wt"
+    echo "would hand over $branch → the registry"
     report_monitors "$wt"
     report_in_flight "$branch"
     n_dispatched=$((n_dispatched + 1))
     continue
   fi
 
-  # THE HELD-BRANCH GATE, ahead of every write this loop makes.
+  # THE HELD-BRANCH GATE, and it survives the fan-out losing its writes.
   #
-  # Ahead of the adoption path below in particular: `reusing existing worktree`
-  # is right for a desk THIS script laid out and a worker has since finished
-  # with, and wrong for one an operator opened by hand and is still using — and
-  # by tip alone those two are the same directory. Unlanded work is what
-  # separates them, so the gate asks first and adoption only sees what is left.
+  # It refuses a branch whose own desk holds work that has not landed, and that
+  # is a MEASUREMENT of somebody sitting at it — not a prediction about a file.
+  # Dispatch creates no desk any more, so this no longer protects an adoption
+  # path; it protects the hand-over itself. Handing a slice to the registry
+  # while an agent is mid-edit on that branch is how two agents end up on one,
+  # and the desk is the only place that work is visible: it is unpushed by
+  # definition, so no ref and no PR reports it.
   #
   # `exhausted` is what makes the refusal terminal: --next has no memory and
   # would keep offering this same branch until the loop's own break fired.
@@ -2512,10 +2558,10 @@ while :; do
     continue
   fi
 
-  # ALREADY REFUSED BY THE PREFLIGHT, ahead of every write this loop makes —
-  # the worktree and the claim are what a premature start leaves behind, and
-  # `feature/the-domain-forgets-the-vendor-list` is still claimed and still
-  # holds nothing but its claim commit.
+  # ALREADY REFUSED BY THE PREFLIGHT, and still asked here. A slice handed over
+  # while its prerequisite is unmerged is an agent started on work that cannot
+  # build, and `feature/the-domain-forgets-the-vendor-list` is the measured
+  # case — claimed, and holding nothing but its claim commit.
   #
   # `exhausted` is what makes the refusal terminal — `--next` has no memory and
   # would keep offering this branch until the loop's own break fired. It should
@@ -2528,89 +2574,88 @@ while :; do
     continue
   fi
 
-  # BEFORE the worktree exists. Once dispatch has created this candidate's
-  # worktree and claim, the candidate is itself work in flight, and a report
-  # taken afterwards would describe the fan-out rather than what preceded it.
+  # BEFORE anything is handed over. The candidate is not yet work in flight —
+  # dispatch creates no desk and pushes no claim — so this describes what stood
+  # before this run rather than what this run made.
   in_flight=$(report_in_flight "$branch")
 
-  # Adopt an existing worktree rather than duplicating it.
-  if git worktree list --porcelain | grep -qx "worktree $wt"; then
-    echo "reusing existing worktree for $branch → $wt"
-    [ -n "$in_flight" ] && printf '%s\n' "$in_flight"
-    n_reused=$((n_reused + 1))
+  # THE BRIEF GATE, AT THE HAND-OVER RATHER THAN AT THE LAUNCH.
+  #
+  # ITS RULE IS UNCHANGED — a slice with no brief is not handed over — AND ONLY
+  # ITS POSITION MOVED. It used to sit between a prepared desk and a started
+  # worker, so a missing brief left a worktree and a claim nobody was sat at:
+  # correct at the time, because preparing was the only thing dispatch could do
+  # first. Dispatch now prepares nothing, so a refused slice leaves nothing at
+  # all and simply stays in the queue.
+  #
+  # THE REFUSAL STILL NAMES THE REF IT LOOKED AT, not a bare path. A brief
+  # sitting unpushed in the operator's checkout is the likeliest reason to see
+  # this message, and `no brief at .plot/briefs/x.md` would send them to look at
+  # a file that is right there — the ref says where the AGENT will look.
+  #
+  # `--no-brief` KEEPS ITS MEANING: it hands over without one and SAYS SO, so
+  # the override stays on the record rather than being silent.
+  if brief_present "$branch"; then
+    # A brief that is present is never refused for age — see
+    # `brief_staleness_note`. The note is printed before the hand-over so it
+    # sits with the branch it describes, and the hand-over happens either way.
+    brief_staleness_note "$branch"
+  elif [ "$no_brief" = 1 ]; then
+    echo "    no brief at $(brief_ref "$branch") — handing it over anyway (--no-brief)"
   else
-    git worktree add -q -b "$branch" "$wt" "origin/$MAIN" 2>/dev/null || {
-      # Branch exists locally already: attach the worktree to it instead.
-      git worktree add -q "$wt" "$branch" 2>/dev/null || {
-        echo "skipped $branch (cannot create worktree)"
-        n_skipped=$((n_skipped + 1))
-        exhausted+=("$branch")
-        continue
-      }
-    }
-    # THE CLAIM. Rejection means another session won the race; leave its
-    # worktree alone and move on to the next branch.
-    #
-    # The claim carries an EMPTY COMMIT, and that is load-bearing. Pushing a
-    # branch that merely points at origin/<main> is a no-op: the remote already
-    # has that commit, so the push succeeds with "Everything up-to-date" and
-    # BOTH dispatchers believe they own the branch. Mutual exclusion requires
-    # the refs to diverge — two independent claim commits are not fast-forwards
-    # of each other, so the second push is rejected as non-fast-forward.
-    #
-    # Never add --force or --force-with-lease here: forcing is precisely what
-    # would let a second dispatcher take a branch someone is working on.
-    git -C "$wt" -c "user.name=${PLOT_CLAIM_WHO:-$(git config user.name || echo plot)}" \
-        commit -q --allow-empty -m "plot: claim $branch" 2>/dev/null
-    if git -C "$wt" push -q -u origin "$branch" 2>/dev/null; then
-      echo "dispatched $branch → $wt"
-      # Reported AFTER the claim, never before: a branch another dispatcher won
-      # is not this run's to describe. The facts themselves were read before the
-      # worktree existed, so the claim cannot have polluted them.
-      [ -n "$in_flight" ] && printf '%s\n' "$in_flight"
-      n_dispatched=$((n_dispatched + 1))
-      # AFTER the claim push, never before. A Started: record for a branch
-      # another dispatcher won would be a lie in the file, and the claim is the
-      # only thing that decides who holds a branch.
-      claimed_now+=("$branch")
-    else
-      echo "skipped $branch (claimed by another session)"
-      git worktree remove --force "$wt" 2>/dev/null || true
-      n_skipped=$((n_skipped + 1))
-      exhausted+=("$branch")
-      continue
-    fi
+    echo "    not handed over — no brief at $(brief_ref "$branch")"
+    echo "      write one: /plot-implement $slug   (then push it, or pass --no-brief to hand it over without one)"
+    # AND NOW SOMETHING IS DONE ABOUT IT. The refusal above stands unchanged;
+    # this line says what happened NEXT. Either arm names itself, so the log
+    # always records which one ran.
+    request_brief "$branch" "$slug" && n_brief_asked=$((n_brief_asked + 1))
+    n_skipped=$((n_skipped + 1))
+    # `exhausted` is what makes the refusal terminal — `--next` has no memory
+    # and would keep offering this branch until the loop's own break fired.
+    exhausted+=("$branch")
+    continue
   fi
 
-  if [ "$no_start" = 0 ]; then
-    # THE BRIEF GATE, between preparing and starting. Prepared work above stands;
-    # only the launch is conditional. A missing brief refuses, naming the file
-    # and the two ways forward — write it, or pass --no-brief. --no-brief starts
-    # anyway and SAYS SO, so the override is on the record rather than silent.
-    #
-    # The refusal names the REF it looked at, not a bare path. A brief sitting
-    # unpushed in the operator's checkout is the likeliest reason to see this
-    # message, and "no brief at .plot/briefs/x.md" would send them to look at a
-    # file that is right there — the ref says where the WORKER will look.
-    if brief_present "$branch"; then
-      # A brief that is present is never refused for age — see
-      # `brief_staleness_note`. The note is printed BEFORE the start so it sits
-      # with the branch it describes, and the start happens either way.
-      brief_staleness_note "$branch"
-      start_worker "$branch" "$wt" && n_started=$((n_started + 1))
-    elif [ "$no_brief" = 1 ]; then
-      echo "    no brief at $(brief_ref "$branch") — starting anyway (--no-brief)"
-      start_worker "$branch" "$wt" && n_started=$((n_started + 1))
-    else
-      echo "    prepared, not started — no brief at $(brief_ref "$branch")"
-      echo "      write one: /plot-implement $slug   (then push it, or pass --no-brief to start without it)"
-      # AND NOW SOMETHING IS DONE ABOUT IT. The refusal above stands unchanged;
-      # this line says what happened NEXT, which is the whole defect this
-      # addresses — the operator was told what was missing and nothing acted.
-      # Either arm names itself, so the log always records which one ran.
-      request_brief "$branch" "$slug" && n_brief_asked=$((n_brief_asked + 1))
-    fi
-  fi
+  # THE HAND-OVER, AND IT IS THE WHOLE OF WHAT DISPATCH DOES WITH A SLICE.
+  #
+  # `git worktree add` USED TO BE HERE, with a claim push behind it and a worker
+  # start behind that. All three are gone, and each for its own reason:
+  #
+  #   THE DESK. `DESIGN-agent.md:65` — *"agent ──owns──► a worktree (its desk,
+  #   while it lives)"*. One desk per agent, not one per slice. The agent decides
+  #   create-or-reset when it takes the brief, because it is the only party that
+  #   can see its own tree; a desk cut here would be cut before anybody knows
+  #   which agent will sit at it. Measured 2026-09-02: 2 manifests against 11
+  #   worktrees, 5 of them on branches that had already merged.
+  #
+  #   THE CLAIM. A pushed claim makes the branch read `claimed` rather than
+  #   `open`, and the queue is DERIVED — an eligible slice with a brief and no
+  #   claim IS queued. Claiming here would take the slice straight back out of
+  #   the queue it was being put into.
+  #
+  #   THE WORKER. `DESIGN-agent.md:157` — *"nothing starts a worker"*. The
+  #   registry spawns an agent, and spawning it IS starting its process. This
+  #   script hands work to the fleet; it does not staff it.
+  #
+  # SO THE HAND-OVER IS A REPORT AND NOT A WRITE. The queue derives from the
+  # plan, the briefs and the refs, all of which are already on the host, so
+  # there is nothing for this line to store — which is what keeps the daemon
+  # stateless across restarts.
+  #
+  # IT REFUSES NOTHING FOR WANT OF A FREE AGENT, and never asks. An earlier
+  # draft of the plan proposed refusing on `0 free` and it is wrong: it makes
+  # dispatch synchronous with fleet capacity, the coupling `DESIGN-machine.md`
+  # §10 spent two revisions rejecting, and `DESIGN-agent.md:173` states it from
+  # the other side — *"a dispatch never asks the machine for capacity"*. **The
+  # queue absorbs the timing.** A queue longer than the pool is the normal case.
+  echo "handed over $branch → the registry"
+  [ -n "$in_flight" ] && printf '%s\n' "$in_flight"
+  n_dispatched=$((n_dispatched + 1))
+  # AFTER the hand-over rather than after a claim. A `Started:` record now
+  # states that the slice was handed to the fleet, which is what this run did;
+  # who takes it is the registry's to decide and its own to record.
+  claimed_now+=("$branch")
+
 done
 
 # Book AFTER the fan-out, in one commit, so a booking that fails cannot leave

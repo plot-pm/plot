@@ -19,6 +19,7 @@ export * from './decision.js';
 // why it read as 0% covered rather than as unreachable.
 export * from './rendering.js';
 export * from './approve.js';
+export * from './assign.js';
 export * from './deliver.js';
 export * from './dispatch.js';
 export * from './dispatch-verbs.js';

@@ -18,7 +18,7 @@ describe('evidence — what each workflow’s expression can be checked against'
     },
   );
 
-  it.each(['implement', 'release', 'supervise'] as const)(
+  it.each(['assign', 'implement', 'release', 'supervise'] as const)(
     '%s is FIXTURE-VERIFIED ONLY — its specification is prose, and prose cannot fail',
     (workflow) => {
       expect(EVIDENCE[workflow]).toBe('fixture');
@@ -29,6 +29,7 @@ describe('evidence — what each workflow’s expression can be checked against'
   it('marks every workflow, so a new one cannot arrive unclassified', () => {
     expect(Object.keys(EVIDENCE).sort()).toEqual([
       'approve',
+      'assign',
       'deliver',
       'dispatch',
       'implement',

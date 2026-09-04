@@ -35,6 +35,7 @@ export type Write =
   | AgentStartWrite
   | AgentSignalWrite
   | AgentResumeWrite
+  | AgentAssignWrite
   | AgentAttemptWrite
   | BlockedMarkerWrite
   | ManifestClearWrite
@@ -235,6 +236,39 @@ export interface AgentResumeWrite {
 }
 
 /**
+ * Hands one queued slice to one free agent — the registry's assignment.
+ *
+ * **THE MANIFEST IS THE CHANNEL, AND IT IS NOT A NEW ONE.** `branch` is already
+ * the field an agent's identity carries, already rewritten on a hop, and already
+ * what `isAgentFree` reads to answer *is this one available?*. Naming it here is
+ * what turns that field's empty value from a report into an instruction: the
+ * registry writes the branch a free agent is to take, and the agent reads its
+ * own manifest instead of shopping through `--offline --next`.
+ *
+ * **A SECOND WRITE KIND WOULD BE A SECOND ANSWER TO ONE QUESTION.**
+ * {@link AgentResumeWrite} hands an agent a correction about the branch it
+ * already holds; this hands a free agent the branch itself. They differ in what
+ * the agent is being told, not in how loudly, so a `correction` field here would
+ * describe an agent nobody had a correction for.
+ *
+ * The brief is deliberately absent. It is read from `origin/<main>` at the path
+ * the branch names, by both the gate that refused the hand-over and the agent
+ * that takes it — carrying its text in the write would be a third copy that can
+ * disagree with the ref.
+ */
+export interface AgentAssignWrite {
+  readonly kind: 'agent-assign';
+  /** The agent's session id — the manifest the write lands in. */
+  readonly session: string;
+  /** The desk it holds, absolute. */
+  readonly worktree: string;
+  /** The branch it is handed. */
+  readonly branch: string;
+  /** That branch's plan slug, so the agent's own scope follows the work. */
+  readonly slug: string;
+}
+
+/**
  * Records that the supervisor spent one of its own retries.
  *
  * `attempts` AND NEVER `relaunches`. The two counters answer to different
@@ -360,6 +394,7 @@ export interface Refusal<Reason extends string = string> {
 /** The workflows this package expresses. */
 export type WorkflowName =
   | 'approve'
+  | 'assign'
   | 'deliver'
   | 'dispatch'
   | 'reap'
@@ -440,6 +475,12 @@ export type Evidence = 'script' | 'fixture';
 /** Which source each workflow was transcribed from, and what that source can prove. */
 export const EVIDENCE: Readonly<Record<WorkflowName, Evidence>> = {
   approve: 'script',
+  // FIXTURE-VERIFIED ONLY, AND THERE IS NO SCRIPT TO BORROW FROM. The
+  // hand-over is specified in docs/plans/2026-09-02-an-agent-holds-one-desk.md.
+  // `plot-dispatch.sh` is the workflow's CALLER — it hands a slice over and
+  // returns — and the matching it triggers happens in the daemon, which has no
+  // exit code to compare against.
+  assign: 'fixture',
   deliver: 'script',
   dispatch: 'script',
   reap: 'script',
