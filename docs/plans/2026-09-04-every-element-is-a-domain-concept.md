@@ -169,17 +169,26 @@ them together is what makes the type earn its existence.
   `plot-worker-monitor.sh` mention `gh` only in comments — zero live calls — and
   an earlier count that included them was reading prose as code.
 
-- `infra/the-board-is-a-github-capability` — `plot-update-board.sh` calls
+- `infra/the-project-tracker-is-optional` — `plot-update-board.sh` calls
   `gh project` four times (`:35`, `:42`, `:49`, `:80`), and this one **cannot be
   routed**: GitHub Projects has no Bitbucket equivalent, and `plot-host.sh`
   names `project` zero times. So it is a capability question rather than an
-  adapter question — the board integration becomes optional and reports itself
-  absent on a host that has no projects, the way `issue-list` already exits 4
-  where the host cannot be asked at all.
+  adapter question — the integration becomes optional and reports itself absent
+  on a host that has no projects, the way `issue-list` already exits 4 where the
+  host cannot be asked at all.
 
-  **Asserted: a repo with no project board dispatches, delivers and releases
-  unchanged**, which is the only property a non-GitHub project actually needs
-  from it.
+  **This is not Plot's board.** `packages/board` — `pnpm board`, the Kanban a
+  person reads — is host-agnostic and stays that way: measured 2026-09-04,
+  `packages/board/src` contains **zero** live `gh` calls, and its nine textual
+  mentions are all comments. It reaches a host only through `plot-host.sh`,
+  which speaks both. What is optional here is the **external project tracker**
+  a repo names in `Project board: owner/number`, and the naming matters because
+  a slice called *the board is a GitHub capability* would assert the opposite of
+  what is true.
+
+  **Asserted: a repo with no project tracker configured dispatches, delivers and
+  releases unchanged**, and **asserted: `pnpm board` serves a Bitbucket repo** —
+  the second is the property that would otherwise be quietly assumed.
 
 ### Naming the branch
 
