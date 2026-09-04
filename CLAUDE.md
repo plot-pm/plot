@@ -399,6 +399,23 @@ When writing skills that include critical workflows (phase guardrails, branch cr
 - The four phase guardrails (cannot approve unreviewed draft, cannot deliver with open impl PRs, cannot release undelivered work, etc.) are currently rules embedded in spoke commands. Stronger forms would be gates: a PreToolUse hook on `gh pr merge` that reads the plan's phase and blocks merges that violate the lifecycle.
 - The "always run `pnpm test`" instruction in Testing above is a rule — a candidate for a gate via a pre-commit / pre-push hook.
 
+## One Answer To "Did This Land"
+
+**The host answers, not git.** `skills/plot/scripts/plot-pr-merged.sh` reads `mergedAt` — never a PR's `state` (a merged PR reports `CLOSED`), and never ancestry. Measured 2026-09-04 on this estate: ten merged branches still carried a remote ref, and `git merge-base --is-ancestor` disagreed with the host on **ten of ten**. Squash-merge rewrites the commits, so a merged branch stays ahead of main forever.
+
+**`scripts/check-ancestry-decisions.sh` is the gate, and it bans the decision rather than the call.** Two ancestry callers here are correct: `plot-merge-queue.sh` skips a branch already in main before predicting a conflict, and `refs-git.ts` answers `unknown` when it cannot tell. Neither asks *did this land* — they ask *can I skip this cheaply*, where a wrong answer costs extra work rather than hiding finished work.
+
+No grep separates them, because the difference is what the answer flows into. So every ancestry call declares its kind within five lines above it, and an undeclared one fails CI:
+
+```
+# plot-ancestry: prefilter — the answer only ever SKIPS work. Say what a wrong
+#                            answer costs, and why it cannot hide anything.
+# plot-ancestry: evidence  — the answer is handed on and something else decides,
+#                            including answering `unknown`. Name what decides.
+```
+
+There is deliberately no third kind. A site that would need one is a site that should be reading `plot-pr-merged.sh` — or, in TypeScript, the host port's PR state.
+
 ## Testing
 
 Plot is a pnpm workspace: the skills live at the repo root, and the board is a

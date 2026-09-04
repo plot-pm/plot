@@ -197,8 +197,27 @@ if [ -z "$MAIN" ]; then
 fi
 [ -n "$MAIN" ] || MAIN="main"
 
-# Branches merged into origin/<main> (the reliable, always-available signal).
-merged_branches=$(git branch -r --merged "origin/$MAIN" 2>/dev/null \
+# Branches whose tip is already contained in origin/<main>.
+#
+# ANCESTRY, AND IT IS EVIDENCE RATHER THAN THE ANSWER. Read alone it is wrong
+# about every squash-merged branch there is: the squashed commit is not the
+# branch's commit, so the ref stays ahead of main forever. Measured 2026-09-04
+# on this estate — ten merged branches still carrying a ref, ancestry
+# disagreeing with the host on TEN OF TEN.
+#
+# `branch_merged` below is what the sections ask. It reads the HOST first, from
+# the merged-PR list this scan already fetches in one bundled call, and falls
+# back to this set — which stays because it is the answer that survives a host
+# nobody can reach, and because a branch pushed straight to main carries no PR
+# at all.
+#
+# The name says what it holds. It said `merged_branches` until 2026-09-04, and
+# a set named for the question rather than for its evidence is how the two came
+# to be treated as one thing.
+#
+# plot-ancestry: evidence — handed to `branch_merged`, which asks the host's
+# merged-PR list first and reads this only where no PR exists to read.
+ancestor_of_main=$(git branch -r --merged "origin/$MAIN" 2>/dev/null \
   | sed 's/^[[:space:]]*//; s#^origin/##' \
   | grep -vE "^($MAIN|HEAD)" )
 
@@ -507,6 +526,9 @@ contained_in_open_pr() { # $1=branch → PR number, or empty
     head=${line#* }
     [ "$head" = "$br" ] && continue   # itself; the head test already ran
     git show-ref -q --verify "refs/remotes/origin/$head" </dev/null 2>/dev/null || continue
+    # plot-ancestry: prefilter — this asks whether one branch sits BELOW an open
+    # PR's head, never whether either landed. A miss prints one extra `orphan`
+    # row for a person to read; it hides nothing.
     if git merge-base --is-ancestor "origin/$br" "origin/$head" </dev/null 2>/dev/null; then
       echo "$n"; return 0
     fi
@@ -711,6 +733,38 @@ merged_pr_for_branch() { # $1=branch → PR number, or empty
   printf '%s\n' "$merged_pr_heads" | awk -v b="$1" '$2 == b { print $1; exit }'
 }
 
+# DID THIS BRANCH'S WORK LAND? The one question sections 2 and 3 ask, and the
+# one place that answers it.
+#
+# THE HOST FIRST. `merged_pr_heads` is this scan's merged-PR list, already
+# fetched in ONE bundled call above, so reading it costs nothing per branch —
+# and it is the only source that is right about a squash merge. Measured
+# 2026-09-04 on this estate: ten merged branches still carrying a ref, and
+# ancestry disagreeing with the host on TEN OF TEN of them. That is not an
+# occasional miss. `plot-pr-merged.sh` already states the rule the reaper and
+# the ref sweep follow — read the merge, never the state, never ancestry — and
+# this is the same rule applied where the scan kept deriving its own answer.
+#
+# ANCESTRY SECOND, AND ONLY AS A SECOND CHANCE TOWARD "LANDED". Two populations
+# need it and neither has a merged PR to read: a branch pushed straight to main
+# with no PR at all, and every branch in a repo whose host cannot be reached.
+# It can only ever ADD a merged verdict, never withdraw one, so a squash merge
+# that ancestry misreads is decided by the host above it and never reaches here.
+#
+# WHAT A WRONG ANSWER COSTS, in each direction:
+#   * a false `merged` names a live branch a deletion candidate (section 3) —
+#     which is why neither source may guess and both must be positive evidence;
+#   * a false `not merged` hides a finished plan from /plot-deliver (section 2)
+#     and leaves a landed ref unreported, which is the failure measured above.
+#
+# Section 2 keeps its own OR over the two signals rather than calling this: it
+# needs the PR NUMBER to print, so it reads `merged_pr_for_branch` directly and
+# would ask the same list twice.
+branch_merged() { # $1=branch → 0 when its work landed
+  [ -n "$(merged_pr_for_branch "$1")" ] && return 0
+  printf '%s\n' "$ancestor_of_main" | grep -qx "$1"
+}
+
 mnd_out=""
 while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype; do
   [ -n "$f" ] || continue
@@ -721,7 +775,7 @@ while IFS="$US" read -r f st _raw _alt _alt_raw branches prs _ptype; do
   for b in $branches; do
     # Signal A — the ref still exists and is merged into main. Unchanged: this
     # is how fan-out plans are caught, whose per-branch PRs merge separately.
-    if printf '%s\n' "$merged_branches" | grep -qx "$b"; then merged_any=1; fi
+    if printf '%s\n' "$ancestor_of_main" | grep -qx "$b"; then merged_any=1; fi
     # Signal B — a merged PR had this branch as its head. Catches the branch
     # whose ref is gone. OR-ed with A, never replacing it.
     hit=$(merged_pr_for_branch "$b")
@@ -795,7 +849,7 @@ while IFS= read -r b; do
   # If suppressed, still count branches ahead of main for the advisory message.
   if [ "$section3_suppressed" = 1 ]; then
     is_merged=0
-    if printf '%s\n' "$merged_branches" | grep -qx "$b"; then is_merged=1; fi
+    if branch_merged "$b"; then is_merged=1; fi
     if [ "$is_merged" = 0 ]; then
       n_ahead_of_main=$((n_ahead_of_main + 1))
     fi
@@ -805,7 +859,7 @@ while IFS= read -r b; do
   has_open_pr=0
   if [ "$pr_reliable" = 1 ] && printf '%s\n' "$open_prs" | grep -qx "$b"; then has_open_pr=1; fi
   is_merged=0
-  if printf '%s\n' "$merged_branches" | grep -qx "$b"; then is_merged=1; fi
+  if branch_merged "$b"; then is_merged=1; fi
 
   if [ "$has_open_pr" = 1 ]; then
     continue   # live work — never a stale candidate
@@ -835,6 +889,10 @@ while IFS= read -r b; do
     continue
   fi
   if [ "$is_merged" = 1 ]; then
+    # "merged" HERE MEANS THE HOST SAID SO, or — where it had no PR to read —
+    # that the tip is contained in `$MAIN`. See `branch_merged`. The wording
+    # stays "merged into $MAIN" because that is what a reader needs to act on;
+    # what changed is which source is asked first.
     stale_out+="  origin/$b — merged into $MAIN, no open PR → deletion candidate\n"
     stale_out+="    fix: git push origin --delete $b\n"
   else

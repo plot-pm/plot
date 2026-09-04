@@ -1178,6 +1178,11 @@ async function unmergedBranches(opts: BuildBoardOptions, main: string): Promise<
   const found = new Set<string>();
   try {
     const out = await run('git',
+      // plot-ancestry: prefilter — it BOUNDS which branches get a loose row, and
+      // it over-includes: a squash-merged branch is listed, gets its row, and
+      // the row's own verdict comes from `pr.state === 'MERGED'` below. It
+      // under-includes only where the tip is genuinely in main, which is landed
+      // work with nothing outstanding.
       ['branch', '-r', '--no-merged', `origin/${main}`, '--format=%(refname:short)'],
       opts.repoRoot);
     for (const line of out.split('\n')) {

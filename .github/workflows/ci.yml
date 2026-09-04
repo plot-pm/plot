@@ -280,6 +280,36 @@ jobs:
             exit 1
           fi
           echo "One place reaches a script: clean."
+
+      # ONE ANSWER TO "DID THIS LAND", AND IT IS THE HOST'S.
+      #
+      # `plot-pr-merged.sh` reads `mergedAt` — never `state`, never ancestry.
+      # Measured 2026-09-04 on this estate: ten merged branches still carried a
+      # remote ref, and `git merge-base --is-ancestor` disagreed with the host on
+      # TEN OF TEN. Squash-merge does not make ancestry occasionally wrong here;
+      # the squashed commit is not the branch's commit, so it is wrong every
+      # time. A caller that derives its own merge state hides finished work.
+      #
+      # THE GATE BANS THE DECISION, NOT THE CALL, and that is the whole
+      # difficulty. Two ancestry callers here are correct: `plot-merge-queue.sh`
+      # skips a branch already in main before predicting a conflict, and
+      # `refs-git.ts` answers `unknown` when it cannot tell. Neither asks *did
+      # this land* — they ask *can I skip this cheaply*, where a wrong answer
+      # costs extra work rather than hiding finished work. A gate on every
+      # `--is-ancestor` would ban `refs-git.ts`'s own documented `unknown`, which
+      # is the honesty this rule asks for everywhere else.
+      #
+      # No line-oriented match separates them, because the difference is what the
+      # answer flows INTO. So the gate requires each site to DECLARE which it is,
+      # beside the call, and refuses one that declares nothing. The question
+      # "did I complete this?" cannot be answered without the marker being in the
+      # diff — and the marker is a line a reviewer reads and can disagree with.
+      #
+      # Verified against the tree before this branch: it named
+      # `plot-dispatch.sh:2228`, the defect, among seven undeclared sites.
+      - name: One answer to did-this-land
+        run: ./scripts/check-ancestry-decisions.sh
+
       # A TEARDOWN DOES NOT FAIL A SUITE — the gate that keeps the conversion.
       #
       # A raw recursive `fs.rmSync` in a test teardown races whatever child the
