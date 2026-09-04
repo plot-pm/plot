@@ -1,1 +1,0 @@
-../2026-09-03-the-domain-owns-the-agent-lifecycle.md
