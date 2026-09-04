@@ -1,6 +1,6 @@
 # The workflow owns the word phase
 
-> Three concepts share two words: a plan has states, the development workflow has phases, and the work done in each phase is modelled nowhere. `Phase` is declared twice in the domain meaning different things, and `toBoardPhase` files the workflow's own lifecycle as a rendering concern.
+> A delivered plan is ready for testing: its **state** is `delivered`, its **phase** is `Testing`. One word carries both today, declared twice in the domain meaning different things — and the work each phase contains is modelled nowhere.
 
 ## Status
 
@@ -26,6 +26,22 @@ Board impact: yes. `rules/phase.ts` is where the board reads its columns, and `B
 | `transitions/plan.ts:13` | draft, design, approved, delivered, released, rejected, superseded, none | the **plan's states**, holding the workflow's word |
 
 Neither is careless. Each is right about its own values and wrong about what it belongs to.
+
+### The example that separates them
+
+**A delivered plan is ready for testing.** Its **state** is `delivered` — a
+fact its file states, written by `/plot-deliver` when every slice merged. Its
+**phase** is `Testing` — where the work has got to, and what is done there is
+reviewing, reaping and proving the thing works.
+
+Neither word substitutes for the other. The state is a record of what happened
+to the artefact; the phase is a place in the workflow with its own work. They
+change for different reasons and are read by different questions: *what is this
+plan?* against *what happens next?*
+
+`toBoardPhase` (`rules/phase.ts:39`) is precisely this mapping —
+`delivered → Testing` at `:48` — and it lives in a file about board columns,
+with no test.
 
 ### Three concepts, two words, one of them borrowed
 
