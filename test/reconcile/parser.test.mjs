@@ -1412,6 +1412,13 @@ test('plan-meta: the anchor drops no real claim across the whole estate (differe
       }
       if (section === 'branches' && shape === 'heading') return;
       if (section !== 'branches') return;
+      // A TABLE ROW IS NOT A CLAIM. The parser reads a claim off a `- ` list
+      // item and nothing else, so a row beginning with `|` was never one — a
+      // plan documenting what four components decide about `idea/*` refs puts
+      // those names in a table, and the loose matcher sees only the backticks.
+      // Measured 2026-09-04 in `every-element-is-a-domain-concept`, which broke
+      // the 2.13.0 release run: two table rows reported as dropped claims.
+      if (/^[ \t]*\|/.test(line)) return;
       if (anchored.test(line)) anchoredLines++;
       else if (loose.test(line)) dropped.push(`${path.basename(file)}:${i + 1}: ${line.trim()}`);
     });
