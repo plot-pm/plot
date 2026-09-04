@@ -178,7 +178,9 @@ feature by a long way.
 
 ## A desk is not indexed
 
-Every desk gets a `.metadata_never_index` file, on creation and on adoption.
+Every desk gets a `.metadata_never_index` file — written by
+`plot-worker-loop.sh`, which is what cuts and resets desks now that dispatch
+hands slices to the registry instead.
 Spotlight reads it and skips the tree; nothing else reads it, so it costs a
 Linux fleet an empty file and no behaviour.
 
@@ -199,7 +201,7 @@ trap that once left 19 desks stranded. `info/exclude` is per-repository and
 shared by every worktree, so it holds whatever branch a desk is on.
 
 Both writes are best-effort. A desk that cannot take the marker is still a
-working desk, and no failure here costs the dispatch.
+working desk, and no failure here costs the hand-over.
 
 ## Detached workers
 

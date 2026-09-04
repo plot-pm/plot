@@ -1384,6 +1384,30 @@ while true; do
       git worktree add "$hop_wt" "$next_branch" 2>/dev/null || break
   fi
 
+  # SPOTLIGHT IS TOLD NOT TO INDEX THE DESK, on every path above — a desk that
+  # was reset and one that was freshly cut both arrive here as `$hop_wt`.
+  #
+  # A desk is a full checkout plus its `node_modules`, and the fleet makes and
+  # unmakes them all day. Measured 2026-09-04 on this estate: 21 desks totalling
+  # 4.9 GB, with `mediaanalysisd` taking 32% of a machine whose load average was
+  # 33. The file is Spotlight's own documented opt-out, needs no privilege, and
+  # is inert everywhere else, so no `uname` guard earns its keep.
+  #
+  # IGNORED VIA `info/exclude`, NEVER VIA `.gitignore`. A `.gitignore` rule
+  # lives in the branch's own content, so a desk cut from a branch older than
+  # the rule would not see it — and an untracked file in a desk is not
+  # cosmetic: `plot-worker-state.sh` reads it as unlanded work and answers
+  # `stalled`, and `plot-reap.sh` refuses to remove a tree with uncommitted
+  # changes. An unignored marker would make every desk look busy and
+  # unreapable. `info/exclude` is per-REPOSITORY and shared by every worktree.
+  #
+  # Best-effort throughout: a desk that cannot take the marker still works.
+  _excl="$(git -C "$hop_wt" rev-parse --git-common-dir 2>/dev/null)/info/exclude"
+  if [ -f "$_excl" ] && ! grep -qxF '.metadata_never_index' "$_excl" 2>/dev/null; then
+    printf '%s\n' '.metadata_never_index' >> "$_excl" 2>/dev/null || true
+  fi
+  : > "$hop_wt/.metadata_never_index" 2>/dev/null || true
+
   # Claim the branch with an empty commit.
   git -C "$hop_wt" commit --allow-empty -m "plot: claim $next_branch" 2>/dev/null
 
