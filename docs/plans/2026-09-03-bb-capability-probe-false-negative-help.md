@@ -4,11 +4,12 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Issue:** #668
 - **Review:** in-session
 - **Rounds:** 1
+- **Approved:** 2026-09-04, Jan Wloka, in-session
 - **Impl:** same branch
 
 ## Changelog
