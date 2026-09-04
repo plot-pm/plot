@@ -274,6 +274,13 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
 Written 2026-09-04. Counts measured on `main` that day: 23 entities, 1
 transitions file, 41 tests and 24 refusal assertions in the one that exists.
 
+**The vocabulary lands first, in its own plan.**
+`the-workflow-owns-the-word-phase` gives the development workflow its five
+phases and renames the plan's `Phase` to `PlanState`. These four rules are
+written after it, in the corrected vocabulary — writing them first would copy
+the conflation into four new files, and renaming them afterwards would be a
+second pass over work that had just landed.
+
 **Four entities, not ten, and deliberately.** Agent, Worktree and Slice are the
 three whose lifecycles were measurably violated this session. Story joined them
 on 2026-09-04, when the story review found it declared **three times** — the
