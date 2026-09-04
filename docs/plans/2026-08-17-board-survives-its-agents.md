@@ -242,7 +242,7 @@ the branch is idle.
 and a scan that waits on it makes the pulse late for everyone else; the next
 poll is four seconds away and will find it unlocked. Reporting beats blocking.
 
-## Branches
+## Slices
 
 ### Lifetime
 

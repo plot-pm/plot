@@ -220,7 +220,7 @@ counts are read back from git rather than assumed from what a plan said.
       this plan has no claim on. The answer probably becomes obvious the first
       time someone clicks Start work on a plan where nothing can start.
 
-## Branches
+## Slices
 
 ### Fixes
 

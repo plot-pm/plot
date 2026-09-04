@@ -177,7 +177,7 @@ not is the argument for the rule, not an exception to it.
       `thinking` and `session 27m · idle 4m`. Measure whether that is the mock's
       fixture or the renderer before filing it.
 
-## Waves
+## Slices
 
 ### Sized (Branch: bug/size-states-the-level)
 - a section heading and its caret stop being row-sized; the click target and row height are untouched. Tests: a section heading's computed font size exceeds a row's; the caret glyph exceeds a row's text; **the fold target is still at least 24px**; row height is unchanged; `space-y-8` is unchanged; a folded section still folds and `aria-expanded` still flips.

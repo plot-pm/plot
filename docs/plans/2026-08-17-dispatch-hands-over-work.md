@@ -229,7 +229,7 @@ already knows which branch each holds, so the pid read costs one file check at a
 stop the scan makes anyway. No new traversal, and the no-worktree case falls out
 of the existing structure rather than needing a guard.
 
-## Branches
+## Slices
 
 ### Hand-off and Visibility
 

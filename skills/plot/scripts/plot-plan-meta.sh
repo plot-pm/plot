@@ -392,7 +392,7 @@ function reset_state() {
   # the field, so a consumer cannot mistake "never interrogated" for "asked
   # nothing".
   block_rounds = ""
-  in_fm = 0; section = ""; in_comment = 0; in_challenge = 0; in_fence = 0; branches_seen = 0; waves_seen = 0
+  in_fm = 0; section = ""; in_comment = 0; in_challenge = 0; in_fence = 0; slices_seen = 0; slice_shape = ""
   delete branches; n_branches = 0
   delete prs; n_prs = 0
   delete malformed_prs; n_malformed_prs = 0
@@ -714,22 +714,30 @@ in_comment {
 /^#[ \t]/ && h1_title == "" { h1_title = trim(substr($0, 2)) }
 /^## / {
   if ($0 ~ /^## Status/) section = "status"
-  # First `## Branches` wins: a plan documenting the plan format quotes the
+  # THE HEADING WORD NO LONGER PICKS THE LAYOUT. `## Branches`, `## Waves` and
+  # `## Slices` open ONE section, and which shape it holds is decided by the
+  # first `### ` heading in it — see `slice_shape` below.
+  #
+  # THEY USED TO SELECT IT, AND THAT MADE THE RENAME UNSAFE. The two layouts are
+  # genuinely different: the old one carries the branch on a LIST ITEM
+  # (`- ` + backtick + `feature/x` + backtick + ` -> #72`), the new one carries it in the
+  # heading (`### Name (Branch: feature/x, PR: #577)`). With the word choosing
+  # the consumer, renaming a heading silently changed which grammar was applied.
+  # Measured 2026-09-04 on `2026-08-14-parallel-agent-fleet.md`: renaming its
+  # `## Branches` to `## Slices` took it from **6 branches to 0**, with no error
+  # anywhere — the file still parsed, and simply held nothing.
+  #
+  # Deciding by shape makes the heading a NAME again. All three spellings read
+  # either layout, so a plan can be renamed without being rewritten, and the 48
+  # files still saying `## Branches` are safe to migrate a word at a time.
+  #
+  # First one wins, as before: a plan documenting the plan format quotes the
   # section in prose, and those later headings are illustration, not contract.
-  else if ($0 ~ /^## Branches/) { section = branches_seen ? "" : "branches"; branches_seen = 1 }
-  # `## Waves` is the new spelling: the branch and PR live in the `### ` heading,
-  # the line below is prose. First one wins, for the same reason `## Branches`
-  # does. A plan carries one or the other — but the parser reads both while the
-  # migration moves 85 files, so a file moved one commit early never reads
-  # as silently empty.
-  # `## Slices` is the spelling the design spec uses, and `## Waves` is what 132
-  # plans already say. They are ONE section here, sharing waves_seen, because the
-  # shape is identical: the branch and PR ride the `### ` heading either way. A
-  # third arm would be a second implementation of a re-spelling, and the two
-  # would drift. No existing plan is rewritten to say Slices — a delivered plan
-  # describes what was built in the vocabulary of its day, and churning 132
-  # files git blame for a word buys nothing. New plans may use either.
-  else if ($0 ~ /^## Waves/ || $0 ~ /^## Slices/) { section = waves_seen ? "" : "waves"; waves_seen = 1 }
+  else if ($0 ~ /^## Branches/ || $0 ~ /^## Waves/ || $0 ~ /^## Slices/) {
+    section = slices_seen ? "" : "slices"
+    slices_seen = 1
+    slice_shape = ""
+  }
   else if ($0 ~ /^## Approval/) section = "approval"
   # First `## Changelog` wins, for the same reason `## Branches` does: a plan
   # about the plan format quotes the section in prose, and the later heading is
@@ -828,7 +836,23 @@ section == "changelog" {
   cl_open = 0
   next
 }
-section == "branches" {
+# WHICH SHAPE THIS SECTION HOLDS, decided once from its first `### ` heading and
+# then fixed for the rest of the section.
+#
+# `(Branch:` IS THE MARKER, and it is the only reliable one. A heading carrying
+# it is the new shape by construction — that parenthetical is where the new
+# layout puts the branch. A heading without it is the old shape, whose headings
+# are bare names (`### Tracer`) and whose branches ride list items below.
+#
+# A SECTION WITH NO `### ` AT ALL is the old shape, and must be: a plan written
+# before subheadings existed is one unnamed wave of list items, which is exactly
+# what the old consumer produces. `slice_shape` therefore stays `""` until a
+# heading is seen, and `""` routes to the old consumer.
+section == "slices" && $0 ~ /^###[ \t]/ && slice_shape == "" {
+  slice_shape = (index($0, "(Branch:") > 0) ? "heading" : "list"
+}
+
+section == "slices" && slice_shape != "heading" {
   # `### <name>` opens a wave. Branches before any subheading belong to an
   # unnamed wave, so a pre-wave plan parses as exactly one wave.
   if ($0 ~ /^###[ \t]/) {
@@ -981,7 +1005,7 @@ section == "branches" {
 # The emitted arrays (branches, prs, waves) must be byte-identical to what the
 # old shape produces for the same plan. So this shares every accumulation
 # variable with the branches handler above; only the EXTRACTION differs.
-section == "waves" {
+section == "slices" && slice_shape == "heading" {
   # Only the `### ` heading carries meta. Body lines are prose — never scanned
   # for a branch or a PR, which is the whole point of the new shape.
   if ($0 !~ /^###[ \t]/) next

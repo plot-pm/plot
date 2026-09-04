@@ -134,7 +134,7 @@ session would act on nothing or on the wrong entry. The row has no session
 because the entry is synthesized; the fix belongs where the synthesis is
 unnecessary.
 
-## Waves
+## Slices
 
 ### Named (Branch: feature/the-registry-directory-is-configured, PR: #420)
 

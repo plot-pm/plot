@@ -153,7 +153,7 @@ failure it prevents is silent.
       through `--list-eligible`, so fixing the scan fixes the dispatch — but
       its own fetch may leave stale refs that other checks read.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: bug/the-scan-prunes-what-it-fetches, PR: #222)
 - `--prune` on the scan's fetch, so a branch deleted at merge leaves no local ref and #216's host lookup is reached. Tests: a sandbox where a branch is squash-merged and deleted while its stale tracking ref remains must report `merged` and complete its wave; a branch that merely has a ref and unmerged work must still report `wip`; the no-ref arm's ordering must stay pinned, so a recreated branch with real work is never reported `merged`.

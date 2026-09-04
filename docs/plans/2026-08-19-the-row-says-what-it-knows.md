@@ -364,7 +364,7 @@ the interesting one.
       gap. The board is where it was reported, so the board is where this
       starts.
 
-## Waves
+## Slices
 
 
 ### Seeing it (Branch: bug/the-row-shows-what-it-withholds, PR: #290)

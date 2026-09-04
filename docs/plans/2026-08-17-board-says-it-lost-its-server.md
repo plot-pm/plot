@@ -185,7 +185,7 @@ server binds one address family and the client picks the other — recorded in
 in here. This plan covers the server that *goes away*, not the one that was
 never reached.
 
-## Waves
+## Slices
 
 
 ### Posture (Branch: feature/board-dims-when-lost, PR: #160)

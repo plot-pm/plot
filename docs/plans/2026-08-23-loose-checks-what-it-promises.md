@@ -195,7 +195,7 @@ their PR.
   test run in this repo** — it is `skills add . --list` and prints an installer
   listing.
 
-## Waves
+## Slices
 
 
 ### Verified (Branch: bug/loose-checks-the-rollup → #461)

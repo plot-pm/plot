@@ -371,7 +371,7 @@ reloads) is a browser-storage concern and explicitly optional.
 - Toggling writes nothing to the estate — no phase moves, no file changes.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 
 ### Parsed (Branch: feature/the-sprint-file-names-its-members, PR: #365)

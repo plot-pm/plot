@@ -227,7 +227,7 @@ above shows that run caught a fast window. Reaping is still right — it clears
 desks and starves the adoption loop — but branch deletion is what the scan
 notices.
 
-## Waves
+## Slices
 
 ### Landed (Branch: bug/the-reaper-reads-any-merged-pr, PR: #479)
 

@@ -139,7 +139,7 @@ Two lessons worth keeping, since both are cheap and both were skipped:
   page with different content.** Only a viewport tall enough to hold the content
   can tell geometry from rows apart, and the original measurement had none.
 
-## Waves
+## Slices
 
 
 ### Fits (Branch: bug/the-page-is-as-tall-as-the-screen) <!-- deferred: premise falsified 2026-08-26 — no 13px exists; nothing to build -->

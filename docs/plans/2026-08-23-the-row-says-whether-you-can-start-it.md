@@ -344,7 +344,7 @@ One site, one traversal, one answer.
   untouched — this plan changes the board's word, not the model's.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 
 <!-- COLLIDES WITH `the-fleet-knows-its-sprints`, in flight 2026-08-24 on

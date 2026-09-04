@@ -94,7 +94,7 @@ operator's call.
       minutes)? It cannot know without a network call, but `git log -1
       --format=%cr origin/$MAIN` is free and would name the age of what it read.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: bug/pulse-names-the-ref-it-read, PR: #213)
 - the header, the `--json` fields, and a contract test that stands on a diverging branch and asserts the banner names `origin/main` rather than `HEAD`.

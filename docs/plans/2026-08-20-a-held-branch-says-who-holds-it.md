@@ -153,7 +153,7 @@ a warning it may read as advisory.
       ago`. Same screen, separate defect; may belong in
       `the-board-renders-what-has-arrived`.
 
-## Branches
+## Slices
 
 ### Held
 - `feature/a-worktree-holds-its-branch` — the fleet scan reports a branch as held when a worktree has it checked out with an unmerged tip, alongside the claim ref rather than instead of it. Tests: a committed-and-clean worktree reads held; a dirty worktree reads held; a clean worktree on a merged branch does not; a claim ref with no worktree still reads claimed; the branch's wave eligibility is unchanged by holding. → #266

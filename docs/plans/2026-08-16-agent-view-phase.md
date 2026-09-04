@@ -381,7 +381,7 @@ merged branch with no plan vanishes when its ref is deleted, and `Released` and
 question is whether this tab is a **state** or a **journal**. It is a state,
 and a state view still has to hold the last few minutes of it.
 
-## Waves
+## Slices
 
 
 ### Data (Branch: feature/fleet-row-phase, PR: #140)

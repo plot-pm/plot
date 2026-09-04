@@ -183,7 +183,7 @@ cap; they are not one, and nothing here should honour them.)
       counting every Claude process would sweep in the operator's own session.
       The control says *dispatched agents*, which is what it can enforce.
 
-## Waves
+## Slices
 
 
 ### Alive (Branch: feature/the-registry-knows-which-agents-live, PR: #327)

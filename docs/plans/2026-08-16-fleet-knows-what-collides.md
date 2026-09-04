@@ -276,7 +276,7 @@ state is re-computed from refs and worktrees on every scan, exactly like wave
 state. A branch stops reading blocked the moment the work it collided with
 lands, with nothing to clear.
 
-## Branches
+## Slices
 
 ### Merge
 

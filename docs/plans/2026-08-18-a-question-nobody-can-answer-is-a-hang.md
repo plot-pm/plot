@@ -152,7 +152,7 @@ the case it is mostly used in. A person at a terminal *should* be asked.
       unattended clause, or does one shared reference file cover them with the
       per-question shape declared inline?
 
-## Branches
+## Slices
 
 - `feature/skills-know-when-nobody-is-there` — `PLOT_UNATTENDED` documented once and referenced by the skills that ask, with each question site declaring its shape (default / refuse / stop). Tests: a skill under `PLOT_UNATTENDED=1` takes its documented path without calling the question tool; the same skill unset still asks; a gate refuses in both modes; the output names every question that was skipped. — PR #230
 

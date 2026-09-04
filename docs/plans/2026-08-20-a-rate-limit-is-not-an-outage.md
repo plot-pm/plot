@@ -230,7 +230,7 @@ stderr; that string is the signal, and anything else stays an outage.
 - [ ] Should the board surface the reset time in the banner, or only in the
       note? A countdown is more useful and more code.
 
-## Branches
+## Slices
 
 ### Slows
 - `feature/every-host-consumer-slows-down` — the issue poll and the scan's host questions route their failures through `rateLimitBackoffMs`, as the PR refresh already does. Tests: a rate-limited issue poll waits rather than re-firing on the ordinary cadence; a non-rate-limit failure keeps the ordinary rhythm; the PR refresh's behaviour is unchanged. → #271

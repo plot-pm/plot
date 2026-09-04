@@ -192,7 +192,7 @@ and picking one would be inventing an answer.
   one.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 
 <!-- IN FLIGHT ALONGSIDE `the-row-says-whether-you-can-start-it` (2026-08-24),

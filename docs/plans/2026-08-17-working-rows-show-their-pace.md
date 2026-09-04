@@ -208,7 +208,7 @@ keyed to commit freshness — a scale nobody can read (*was that four
 minutes or forty?*) that changes continuously would be motion in place
 of information.
 
-## Waves
+## Slices
 
 
 ### Pace (Branch: feature/working-rows-show-their-pace, PR: #194)

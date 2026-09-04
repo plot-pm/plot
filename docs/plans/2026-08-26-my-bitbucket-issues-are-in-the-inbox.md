@@ -139,7 +139,7 @@ makes calls real owns their cost; deferring it would ship a board whose
 documented request budget is knowably wrong, against a limit that has already
 been hit once.
 
-## Waves
+## Slices
 
 ### Asked (Branch: feature/a-bitbucket-issue-is-a-ticket, PR: #449)
 

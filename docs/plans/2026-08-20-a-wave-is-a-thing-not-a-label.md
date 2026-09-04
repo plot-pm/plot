@@ -298,7 +298,7 @@ WAITING ON A MACHINE: a wave is not a build.
       grouping stays — waves under a plan, expandable — and the wave row is a
       first-class row inside it.
 
-## Branches
+## Slices
 
 ### Modelled
 - `feature/a-wave-is-a-kind` — the contract carries a wave as a row with its name, its verdict as status, and its plan and branches as artifact links; the scan's existing wave objects are the source. Tests: a wave row renders all six slots; its status is the scan's verdict, unchanged; a blocked wave links the wave it waits on **as an artifact link**, not as note prose; a wave holding five branches renders five artifact links; a wave with no name renders `(unnamed)` as text, not as a link, and is not hidden (6 such waves exist); no host call is added; the scan is untouched.

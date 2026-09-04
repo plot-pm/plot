@@ -223,7 +223,7 @@ is **not** the problem and must not be "optimised". It spawns real git repos on
 purpose — that is what makes the containment assertions real. Speed is not the
 fix; determinism is.
 
-## Waves
+## Slices
 
 
 ### Truth (Branch: bug/board-shows-staleness, PR: #141)

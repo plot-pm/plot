@@ -137,7 +137,7 @@ Same objection, plus it hides duration. A scan that takes four minutes because
 it is waiting out a limit looks like a slow scan, and the board's 90 s budget
 would kill it mid-answer.
 
-## Waves
+## Slices
 
 **Challenged 2026-08-30, and the plan gets smaller: the convention already
 exists, on the wrong path.**

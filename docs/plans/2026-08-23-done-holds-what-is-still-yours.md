@@ -433,7 +433,7 @@ never the motion mark. The same argument `localAhead` already won:
 - If the static stale-worktree mark is built, it is visibly not the motion mark.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 <!-- `bug/done-holds-finished-plans-only` MOVED on 2026-08-23 to
      the-wave-is-a-thing-the-board-can-hold, wave `Consumed`. Its verdict rule is

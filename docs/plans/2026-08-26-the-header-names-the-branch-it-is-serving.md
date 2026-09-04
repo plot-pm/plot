@@ -143,7 +143,7 @@ This is the same rule the estate keeps arriving at from different directions:
 that cannot be told apart from a legitimate empty answer will be read as the
 empty answer.**
 
-## Waves
+## Slices
 
 ### Found (Branch: bug/the-header-names-its-branch, PR: #459)
 

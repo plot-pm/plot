@@ -320,7 +320,7 @@ button: the phase gate settles it — the condition is `approved`, not a column
 (see Approach). Whether the 202 can carry the script's summary: it cannot, and
 the attempt to have both is what surfaced the log-path design above.
 
-## Waves
+## Slices
 
 
 ### Navigation (Branch: feature/board-artifact-links, PR: #114)

@@ -220,7 +220,7 @@ evidence of *location*, and the modal is asking about location.
 - A changeset is present.
 - macOS ships bash 3.2: no `declare -A`, no bash-4-only constructs.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: bug/fleet-sees-local-work, PR: #137)
 - `local_dirty` in the scan's JSON, `classify()` lifts dirty worktrees out of quiet, tests for both directions

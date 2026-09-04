@@ -118,7 +118,7 @@ If no project board is configured, skip this step.
 - [x] **Consolidate add+update:** Yes. The script handles both adding PRs to the board (`gh project item-add`) and setting status in one call. This replaces `gh pr edit --add-project` everywhere, eliminating the old board name config format. One script, one config format (`owner/number`).
 - [x] **"In Progress" handling:** Manual. The agent calls the script when starting work on an impl branch. No new infrastructure (GitHub Actions, hooks). Consistent with Manifesto — board is a convenience, not source of truth. If the agent forgets, items stay in "Ready" until delivered.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: feature/board-sync, PR: #8)
 - Add `plot-update-board.sh` script, update spoke skills with board sync references, update config template

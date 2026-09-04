@@ -174,7 +174,7 @@ pass; a brief agent is a `claude -p` session of unknown length. It is **queued
 and reported**, and the operator or the next pass acts on it — the same posture
 `commission.ts` takes.
 
-## Branches
+## Slices
 
 ### Naming
 

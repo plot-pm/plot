@@ -188,7 +188,7 @@ end, and builds a control only if the walk finds one missing.
       through by the compatibility rule (*absent is not a guess*) while every
       named-but-unknown phase goes to `done`. This plan leaves both as they are.
 
-## Waves
+## Slices
 
 
 ### Reachable (Branch: bug/the-plan-row-carries-the-plan-decisions, PR: #325)

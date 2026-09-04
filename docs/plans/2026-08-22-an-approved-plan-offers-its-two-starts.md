@@ -166,7 +166,7 @@ spawn cannot report its result in the response.
       plan needs it again for each wave. This is what widened the gate from
       `!started` to `eligible > 0`.
 
-## Waves
+## Slices
 
 
 ### Offered (Branch: feature/a-ready-plan-names-its-two-starts, PR: #364)

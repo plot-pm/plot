@@ -134,7 +134,7 @@ what you can do.**
       but no arrow-key handling that this plan found. Moving more actions in
       makes that gap matter more, and it may deserve its own branch.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: bug/a-rows-actions-live-in-its-menu, PR: #224)
 - move *Open failing run* and the conflict dispatch into the `⋯` menu as items with their own conditions; render no `⋯` when a row has no items. Tests: a row with a failing run offers it from the menu and renders no inline action link; a green row with a run URL still offers it; a row with no actions renders no menu button at all; the stuck cue stays in the row. Plus a structural test asserting no interactive element is rendered in a row body outside the menu, so the next action cannot quietly land beside it.

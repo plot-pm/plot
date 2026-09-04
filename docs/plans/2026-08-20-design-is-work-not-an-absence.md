@@ -172,7 +172,7 @@ audited later.
       commit, and inventing a spoke for it would add ceremony the change does
       not need.
 
-## Waves
+## Slices
 
 
 ### The phase exists (Branch: feature/design-is-a-phase, PR: #259)

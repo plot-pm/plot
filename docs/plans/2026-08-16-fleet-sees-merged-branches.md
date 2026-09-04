@@ -371,7 +371,7 @@ plan whose stuck wave motivated this work would have been missed by an
 annotation-based fix. Detection reads git and nothing else, which also keeps
 the scan stateless — re-derived from refs and history on every run.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: bug/fleet-merged-branch-state, PR: #129)
 - `branch_state()` recognises a

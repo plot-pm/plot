@@ -192,7 +192,7 @@ to CREATION, where the dispatcher has just minted a session id and there is no
 older-worktree case to tolerate. Conflating them would make `/api/continue`
 refuse worktrees it currently serves.
 
-## Branches
+## Slices
 
 ### Resolved
 

@@ -113,7 +113,7 @@ happened; let the reader click.
 wherever the app fetches. Audit them; a timeout that covers one viewer and
 leaves the others is a fix that has to be found twice.
 
-## Waves
+## Slices
 
 ### Bounded (Branch: bug/a-dead-fetch-is-not-a-slow-one, PR: #480)
 

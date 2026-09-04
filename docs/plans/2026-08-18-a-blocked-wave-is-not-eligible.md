@@ -302,7 +302,7 @@ was one. Whether the other two are fixed is unverified here.
 Recorded rather than fixed: this plan is about the phase answering first, and
 the machine section is a different question with its own history.
 
-## Branches
+## Slices
 
 - `bug/not-started-shows-approved-plans` — the section is filtered on the plan's phase first: `Approved` and nothing else. A `Draft` plan moves to WAITING ON YOU with what it waits on named (approval); `Delivered` and `Released` plans appear in neither. Measured on the live board: 10 plans in NOT STARTED, of which 3 were Approved, 7 Draft, plus one Released since v1.0.0-beta.3. Tests: each of the four phases lands in its documented section, driven from one fixture; the phase is read from the plan and never inferred from the branches; a plan that becomes Approved changes section on the next pulse without a restart; **a Released plan with uncommitted files in a local worktree is not in WORKING** — the measured case, where two shipped plans read as in-progress because dead workers left scratch files behind. — PR #231
 

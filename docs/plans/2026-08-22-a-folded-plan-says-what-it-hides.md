@@ -159,7 +159,7 @@ familiar rather than new.
       why WAITING ON A MACHINE exists. Dimmer marks the difference between
       *something is happening* and *do something*.
 
-## Waves
+## Slices
 
 
 ### Aggregated (Branch: feature/a-folded-plan-says-what-it-hides, PR: #319)

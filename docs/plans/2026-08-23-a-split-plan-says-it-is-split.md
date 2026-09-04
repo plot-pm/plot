@@ -222,7 +222,7 @@ first* at 13 characters, and the offender is 53.
   report does not fail the parse.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 
 ### Contained (Branch: bug/the-wave-name-stays-in-its-cell, PR: #347)

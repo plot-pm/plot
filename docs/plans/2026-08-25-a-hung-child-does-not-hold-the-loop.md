@@ -188,7 +188,7 @@ already planned as wave `Marked` of `a-state-is-a-word-not-a-sentence`, where it
 belongs: it makes the board SAY what a worker is doing. This plan makes the loop
 STOP. Both are wanted; neither substitutes for the other.
 
-## Waves
+## Slices
 
 ### Bounded (Branch: bug/the-loop-bounds-its-child, PR: #426)
 

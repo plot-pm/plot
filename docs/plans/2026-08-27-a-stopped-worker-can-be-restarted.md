@@ -210,7 +210,7 @@ whose work has **not**. They are disjoint by definition — `plot-reap.sh` refus
 on uncommitted changes, which is the state restart requires. A combined verb
 would be two operations that can never both apply.
 
-## Waves
+## Slices
 
 ### Restarted (Branch: feature/a-stopped-worker-can-be-restarted, PR: #477)
 

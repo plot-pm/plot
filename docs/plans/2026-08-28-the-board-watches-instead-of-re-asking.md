@@ -231,7 +231,7 @@ platform dependency and a second failure mode (a missed event is a stale
 answer), to save two calls that measure 0.01 s together. Revisit only if the
 signals themselves become the cost.
 
-## Branches
+## Slices
 
 ### Signalled
 

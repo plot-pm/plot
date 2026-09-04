@@ -192,7 +192,7 @@ Recorded so the measurement is not lost, but they need no branch:
       in *Where the time is* was taken with three or four agents running. The
       split may still be worth it; the 42 % is not established.
 
-## Waves
+## Slices
 
 ### Fix the race first (Branch: bug/the-timeout-test-does-not-race-the-clock, PR: #292)
 - the killed-search assertion stops depending on a 1 ms budget beating a process launch. Tests: a killed search answers `""` and does not reject; the assertion holds with the file count reduced to nothing, proving it no longer depends on search duration; it holds under `--fileParallelism`; ten consecutive runs agree.

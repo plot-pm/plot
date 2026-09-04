@@ -139,7 +139,7 @@ points at a delivered or released plan). This is a latent inconsistency, not a
 live defect, and it is fixed here because this wave is already editing that
 function and leaving two spellings of one rule behind is how they drift.
 
-## Waves
+## Slices
 
 ### Reconciled (Branch: bug/closing-a-sprint-reconciles-its-tally, PR: #457)
 

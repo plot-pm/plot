@@ -107,7 +107,7 @@ point, and why no group can drift.
 **The mobile card is unaffected.** Below `sm` the row is a stacked card
 and the tracks do not apply; the marker flows inline as it does today.
 
-## Waves
+## Slices
 
 
 ### Track (Branch: bug/the-marker-gets-a-track-of-its-own)

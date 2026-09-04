@@ -390,7 +390,7 @@ than narrowing it.
       the branch it holds? The example implies the former; nothing today records
       an agent's name.
 
-## Waves
+## Slices
 
 > The three absorbed branch names below are written **without backticks on
 > purpose**: `plot-plan-meta.sh` collects every backticked name in this section

@@ -336,7 +336,7 @@ scrolling past it.
       mark stops a reflex merge; whether the menu should offer *show what this
       would ship* is a release-workflow question rather than a UI one.
 
-## Branches
+## Slices
 
 **This plan was narrowed on 2026-08-20**, after `a-row-is-a-tuple` reached the
 same file from the other direction. It asked *which* of a row's facts should

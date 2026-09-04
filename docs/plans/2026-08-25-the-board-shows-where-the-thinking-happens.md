@@ -250,7 +250,7 @@ which would have to notice its own checkouts. `plot-dispatch.sh` writes a
 manifest because it CREATES the worktree and knows the branch at that moment;
 nothing has that moment for a session that was always there.
 
-## Waves
+## Slices
 
 ### Shown (Branch: feature/the-header-names-the-master-agent, PR: #415)
 

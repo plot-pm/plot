@@ -261,7 +261,7 @@ parallelising is small next to that.
 board imports; two agents landing on it in one window makes a regression harder
 to attribute.
 
-## Waves
+## Slices
 
 ### Moving (Branch: feature/the-domain-package-exists, PR: #509)
 

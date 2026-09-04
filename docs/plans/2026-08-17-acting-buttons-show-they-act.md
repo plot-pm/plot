@@ -276,7 +276,7 @@ that does not exist.
 Writing the fix first would make that impossible to tell apart: a passing test
 after a fix proves nothing about whether the fix was needed.
 
-## Waves
+## Slices
 
 
 ### Proof (Branch: bug/acting-buttons-pin-the-double-click, PR: #173)

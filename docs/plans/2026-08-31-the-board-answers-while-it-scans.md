@@ -531,7 +531,7 @@ Two properties the current code establishes and this must not lose:
       filter-and-concat), or does batching alone bring the block under the
       threshold? Measure before adding the complexity.
 
-## Branches
+## Slices
 
 ### Measuring
 

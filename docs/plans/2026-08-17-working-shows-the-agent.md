@@ -319,7 +319,7 @@ Named *Continue with an answer* rather than *Reply*, because the agent
 that asked is gone: what continues is the work, not the conversation. A
 UI that implies otherwise would promise a channel that does not exist.
 
-## Branches
+## Slices
 
 The waves are ordered so that **every one of them is useful alone**, and the
 registry — the only wave that writes a new fact — is last.

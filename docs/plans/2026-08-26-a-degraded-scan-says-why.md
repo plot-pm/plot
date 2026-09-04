@@ -237,7 +237,7 @@ too. Reporting the 429 tells them why; retrying past it does not.
    for the merge-state view and knows what it costs.
 9. `pnpm run validate`, `pnpm run test:reconcile` green.
 
-## Branches
+## Slices
 
 ### Diagnosis (Branch: bug/a-degraded-scan-says-why, PR: #475)
 

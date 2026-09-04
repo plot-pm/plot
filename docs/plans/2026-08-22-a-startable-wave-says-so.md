@@ -97,7 +97,7 @@ two-value rule guards against.
       folds branch PR states onto a folded plan row; a plan whose waves are
       eligible has no equivalent fold today. Probably a separate finding.
 
-## Waves
+## Slices
 
 
 ### Toned (Branch: bug/an-eligible-wave-takes-the-actionable-tone, PR: #343)

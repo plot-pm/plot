@@ -407,7 +407,7 @@ the case.
   where a wave legitimately moved section.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Branches
+## Slices
 
 <!-- THE WAVES ENCODE THE DEPENDENCY, so it is a gate rather than a note.
      Three branches from two other plans consumed the wave model and were held in

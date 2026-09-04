@@ -200,7 +200,7 @@ fallback run for live refs. Rejected: the squash commit names the PR NUMBER, not
 the branch, so the search finds nothing for exactly the population this plan is
 about — verified above.
 
-## Branches
+## Slices
 
 ### Merged
 

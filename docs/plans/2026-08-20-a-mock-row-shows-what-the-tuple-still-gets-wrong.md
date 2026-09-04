@@ -238,7 +238,7 @@ permanent is a track that cannot show a moment.
       says `worker: running` and no status) or a renderer defect? Measure before
       filing — the mock is new and may simply be wrong here.
 
-## Branches
+## Slices
 
 > **Two branches were removed from this section on 2026-08-20** — the truncation
 > rule and the one-icon-set work; their names are deliberately left UNBACKTICKED

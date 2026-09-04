@@ -112,7 +112,7 @@ sections are suppressed rather than filled with a fact nobody measured.
 a *different* statement and already reads correctly — its comment says so, and
 merging the two is the error this plan exists to undo.
 
-## Waves
+## Slices
 
 ### Told (Branch: bug/a-board-that-never-scanned-says-so, PR: #506)
 

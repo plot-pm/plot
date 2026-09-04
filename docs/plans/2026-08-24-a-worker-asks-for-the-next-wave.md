@@ -231,7 +231,7 @@ the slot it occupies is the one it already had. This is the whole reason the cap
 can be enforced without stalling the fleet — at the cap, work continues through
 the workers already running.
 
-## Waves
+## Slices
 
 ### Anchored (Branch: infra/the-registry-holds-the-worker-pid, PR: #390)
 - the pid moves from `$wt/.plot-worker.pid` to the session's manifest;

@@ -104,7 +104,7 @@ because DONE is the section that grows fastest over a working day.
 A tooltip explaining that the number counts waves while the rows are plans is
 a workaround for a number that is simply reporting the wrong unit.
 
-## Waves
+## Slices
 
 ### Counted (Branch: bug/a-section-counts-what-it-shows, PR: #414)
 

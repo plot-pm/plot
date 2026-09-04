@@ -161,7 +161,7 @@ The change replaces a heuristic with a fact the system already had, in the one p
 - [ ] Does `PLOT_BB_SKIP_CAP_CHECK` still earn its keep once the probe is correct? It is the documented workaround for exactly this bug. Keeping it costs nothing and is a genuine escape hatch for the next false negative; removing it narrows the surface. Recommend keeping.
 - [x] **Is a probe warranted at all? Yes, and its cost goes in the code.** The probe turns a confusing downstream failure into one clear message, which is real value on a Bitbucket estate. It stays — and the sentence that argues against it goes in a comment above it, so the next person weighing this has the argument rather than rediscovering it: **a gate in front of a working call can only ever be wrong in the direction of refusing it.** That is why the unrecognised-wording arm now accepts.
 
-## Branches
+## Slices
 
 ### Probe
 

@@ -181,7 +181,7 @@ VERDICT and leaves that phrase alone. Where both end up saying a branch is taken
 they are agreeing rather than duplicating: one is a word in a status slot, the
 other a sentence on a plan head.
 
-## Waves
+## Slices
 
 ### Worded (Branch: bug/an-eligible-wave-can-be-started, PR: #470)
 

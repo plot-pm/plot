@@ -225,7 +225,7 @@ the board's data depend on how it asked rather than on what it asked for.
       blocked-and-unstarted is not, and showing them identically may invite
       dispatching work whose seam has not landed.
 
-## Waves
+## Slices
 
 
 ### Tracer (Branch: feature/fleet-scan-json, PR: #102)

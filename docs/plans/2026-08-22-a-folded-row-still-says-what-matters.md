@@ -278,7 +278,7 @@ it needs a moment when ten agents are running, and waiting for one makes the tes
 unwritable today.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 ### Elided (Branch: bug/the-elision-keeps-the-prefix) <!-- deferred: not measured as a live defect 2026-08-26 — re-measure before building -->
 - Retired pending measurement. The elision work was scoped from the 2026-08-22

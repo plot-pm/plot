@@ -315,7 +315,7 @@ None. Both were resolved at approval:
   replacing the version figure with a pointer to the registry rather than a
   newer figure.
 
-## Branches
+## Slices
 
 ### Release-candidate publishing
 

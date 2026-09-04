@@ -130,7 +130,7 @@ redistributes it.
       Removing a worktree can destroy uncommitted work, so it is a candidate
       for *report, never act*.
 
-## Branches
+## Slices
 
 ### Batched
 - `bug/the-scan-reads-refs-in-one-call` — replace the 59 per-branch `show-ref` and 28 `rev-parse` calls with one `git for-each-ref`, and the 67 `show` plus 68 `ls-tree` calls with `git cat-file --batch`. Tests: every existing reconcile test passes unedited; the spawn count for one scan is asserted below a bound with a counting wrapper; a ref that cannot be read still reports `-` and never `NONE`. → #262

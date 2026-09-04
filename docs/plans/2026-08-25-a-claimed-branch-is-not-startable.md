@@ -177,7 +177,7 @@ PR is not, by itself, abandonment. That decision belongs to a person.
 They occupy no process and no worktree. The cap is about machines; this is about
 budget spent on a no-op.
 
-## Waves
+## Slices
 
 ### Seen (Branch: feature/the-pulse-says-a-branch-is-claimed, PR: #478)
 

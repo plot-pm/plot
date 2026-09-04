@@ -134,7 +134,7 @@ condition that produced this plan. `DESIGN-review-workflows.md` §5 names the
 rule: a copy that **re-implements a decision** may not stand. Two names for one
 entity is that copy, in the vocabulary rather than the logic.
 
-## Waves
+## Slices
 
 ### Reading (Branch: infra/the-domain-names-a-slice, PR: #513)
 

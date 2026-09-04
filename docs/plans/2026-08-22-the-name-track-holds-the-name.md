@@ -184,7 +184,7 @@ change is wrong — do not edit the test to fit the change.
 - A narrow viewport is unchanged: the name track is never below 12rem.
 - `pnpm build:board` run and the artifact committed; `pnpm run test:board` green.
 
-## Waves
+## Slices
 
 
 <!-- ONE wave and one branch deliberately, though the plan carries two problems.

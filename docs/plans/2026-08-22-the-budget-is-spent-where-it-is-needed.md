@@ -184,7 +184,7 @@ failure behind it.
   other.
 - `pnpm test`, `pnpm run test:board`, artifact rebuilt and committed.
 
-## Branches
+## Slices
 
 ### Measured
 

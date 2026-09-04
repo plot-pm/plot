@@ -146,7 +146,7 @@ actually uses. The capability is per-flag, and the check should be too.
 into a wrong answer. The stderr is captured and reported, exactly as
 [[a-degraded-scan-says-why]] concludes for the scan's own arms.
 
-## Waves
+## Slices
 
 ### Checked (Branch: bug/the-adapter-checks-the-cli-it-got, PR #460)
 

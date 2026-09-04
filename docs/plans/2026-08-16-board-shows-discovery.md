@@ -175,7 +175,7 @@ so its Draft phase is invisible for the identical reason. The rule as stated —
 covers it. Do not narrow the implementation to `idea/` only; the prefix list is
 config and all of it should be searched.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: bug/board-shows-discovery, PR: #130)
 - `toBoardPhase` maps Draft to Discovery, the

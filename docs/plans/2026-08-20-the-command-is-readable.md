@@ -136,7 +136,7 @@ than a blank.
 - [ ] Does a subagent (`agent-<short>.jsonl`) deserve its own row, or is it detail
       behind the parent session?
 
-## Waves
+## Slices
 
 Only the sizing branch. **The identity half moved** to the Registry wave of
 `2026-08-17-working-shows-the-agent.md`, which is approved and was re-opened on

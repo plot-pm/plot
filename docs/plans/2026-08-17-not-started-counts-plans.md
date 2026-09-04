@@ -202,7 +202,7 @@ actionable and buys less: the startable plans are already marked, and
 burying a six-month-old plan under a fresh one would hide exactly the
 drift this section exists to surface.
 
-## Waves
+## Slices
 
 
 ### Grouping (Branch: feature/not-started-counts-plans, PR: #191)

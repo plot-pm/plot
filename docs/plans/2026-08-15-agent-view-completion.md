@@ -280,7 +280,7 @@ rendered result, because step 1 proved that is where display defects live.
       simply not carry it? Decides whether *unavailable* is a permanent state
       there or a gap to close later.
 
-## Waves
+## Slices
 
 
 ### PR data (Branch: feature/fleet-pr-data, PR: #106)

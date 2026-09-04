@@ -136,7 +136,7 @@ still a race.
       the fleet view — but the board calls it on a 5 s timer and may prefer a
       brief retry to a reported blip.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: bug/the-board-test-does-not-race-its-own-server, PR: #214)
 - bounded, lock-specific retry in the **shared** git helper in `packages/board/test/helpers.mjs`, so all six suites that call `startServer` inherit it (`bridge`, `approve`, `board`, `claimed`, `dispatch`, `discovery`). Keyed on `index.lock` in stderr specifically: a blanket retry would paper over real git errors and turn a deterministic failure into a slow flaky one.

@@ -274,7 +274,7 @@ readers who hear rather than see, since a bare `157` announces nothing.
 inline SVG or the existing text glyph, so the artifact stays self-contained the
 way the rest of the board is.
 
-## Waves
+## Slices
 
 
 ### Data (Branch: feature/pr-state-travels-as-a-field, PR: #165)

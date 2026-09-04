@@ -285,7 +285,7 @@ for no gain.
 - `status` appears nowhere on disk. Assert by grep: no plan file gains a field.
 - `pnpm test`, `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 
 ### Measured (Branch: feature/a-plan-reports-its-status, PR: #374)

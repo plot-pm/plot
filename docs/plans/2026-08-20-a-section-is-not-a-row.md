@@ -115,7 +115,7 @@ differ here too.
       because a plan heading is *inside* a section and its indentation already
       says so. Decide from a rendered board.
 
-## Waves
+## Slices
 
 ### Sized (Branch: bug/a-section-is-not-a-row, PR: #302)
 - the section heading and its fold caret stop being row-sized; the click target and the row height are untouched. Tests: a section heading's computed font size is larger than a row's; the caret glyph is larger than a row's text; **the fold target is still at least 24px tall**; row height is unchanged from before; the `space-y-8` section separation is unchanged; a folded section still folds and its `aria-expanded` still flips. (#302)

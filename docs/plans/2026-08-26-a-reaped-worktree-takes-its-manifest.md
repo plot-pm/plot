@@ -192,7 +192,7 @@ written for.
 The scan is already the board's slowest operation. A registry sweep per pulse
 adds work to the hot path to correct a state that only the reaper creates.
 
-## Waves
+## Slices
 
 ### Cleared (Branch: bug/a-reaped-worktree-takes-its-manifest, PR: #474)
 

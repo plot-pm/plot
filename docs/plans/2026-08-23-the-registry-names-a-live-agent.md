@@ -357,7 +357,7 @@ with a live worktree is *classified* rather than skipped. Asserting it reads
   produced one wrong plan.
 - `pnpm test`, `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 
 <!-- ONE wave, one branch. Fix A is the dispatcher's awk plus two manifest

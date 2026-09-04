@@ -160,7 +160,7 @@ to pick one, and picking is what the wave rows are for.
       the command work moved to PR #313, and dispatch keeps claiming the branch
       by ref push. Nothing about claiming changes here.
 
-## Waves
+## Slices
 
 
 ### Shown (Branch: feature/one-wave-renders-as-its-plan, PR: #360)

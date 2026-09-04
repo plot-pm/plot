@@ -164,7 +164,7 @@ and a banner that names it turns *"something is wrong"* into *"back at 21:32"*.
 The backoff already exists for the same reason (`fleet.ts:1616`) — this makes it
 visible rather than only effective.
 
-## Waves
+## Slices
 
 ### Told (Branch: bug/an-unreachable-host-says-so, PR: #446)
 - an all-unknown PR refresh records an outage; the banner names it and the reset

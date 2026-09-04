@@ -159,7 +159,7 @@ data is already in the contract — `FleetWaveSchema` carries `verdict`
 (`schema.ts:1817`) and the pulse carries `waves` (`:1839`) — so no plumbing is
 added.
 
-## Waves
+## Slices
 
 ### Verdicted (Branch: bug/the-deliver-gate-reads-the-verdicts, PR: #491)
 

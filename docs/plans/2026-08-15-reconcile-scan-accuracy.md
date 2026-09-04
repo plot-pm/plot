@@ -191,7 +191,7 @@ assertion ("the board sync works") into evidence.
       the single-PR check simply not run there? Today `PR_SOURCE=off` already
       marks the degraded case; the question is whether to say so per finding.
 
-## Waves
+## Slices
 
 
 ### Section 2 (Branch: bug/scan-single-pr-plans, PR: #122)

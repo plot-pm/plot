@@ -157,7 +157,7 @@ pretending to be an optimisation.
       is acceptable is a separate question, and answering it before measuring the
       async version would be inventing a requirement.
 
-## Branches
+## Slices
 
 ### Reading
 

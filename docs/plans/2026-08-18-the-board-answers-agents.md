@@ -224,7 +224,7 @@ one dataset is how they drift.
       keeps one implementation and inherits their prose; superseding duplicates
       the guardrails in two places, which is how they drift.
 
-## Waves
+## Slices
 
 
 ### Honesty (Branch: feature/fleet-api-names-its-ref, PR: #212)

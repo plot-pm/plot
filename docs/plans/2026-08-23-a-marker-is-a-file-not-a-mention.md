@@ -277,7 +277,7 @@ delays the collision; it does not remove it.
   instruction and the classifier agree.
 - `pnpm test`, `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 
 <!-- ONE wave, one branch: a predicate, its tests, and the one instruction that

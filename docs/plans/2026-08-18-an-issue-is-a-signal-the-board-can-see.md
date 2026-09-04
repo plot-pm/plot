@@ -157,7 +157,7 @@ limit would make a measured problem worse.
       other row in the section carries one. Worth a look at the rendered board
       before deciding whether it needs a dash, a word, or nothing at all.
 
-## Branches
+## Slices
 
 - `feature/the-board-sees-unplanned-issues` — the host adapter reports open issues, and the board lists those no plan references, in WAITING ON YOU, read-only. The row reuses the PR cell's shape with an issue glyph: an inferred plan name that is **not** a link, an **empty** branch column, and the number linking to the tracker. Tests: an issue with no referencing plan appears; one referenced by a plan does not; the inferred name renders as text and not as an anchor; the branch column is empty rather than carrying a derived name; an issue whose host gave no URL renders its number as plain text, as the PR cell already does; a repo with no tracker renders nothing rather than an empty section; a failed issue lookup reads as unknown rather than as "no issues" — the rule `an-outage-is-not-an-answer` established and this session applied five times. → #236
 

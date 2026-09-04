@@ -217,7 +217,7 @@ render identically.
 - [ ] Should the cadence be configurable per host, or derived? Derived is
       honest and invisible; configured is predictable and can be wrong.
 
-## Branches
+## Slices
 
 ### Shape
 

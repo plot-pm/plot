@@ -134,7 +134,7 @@ are — including the rule that a one-branch plan gets no expander.
 
 **No other section changes.** Only NOT STARTED renders plan rows.
 
-## Waves
+## Slices
 
 
 ### Layout (Branch: bug/a-plan-row-is-not-a-branch-row)

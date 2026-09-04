@@ -160,7 +160,7 @@ guess about a terminal width the board does not have — it is a web page,
 and the footer already wraps. **The cheapest correct fix is to remove the
 `slice` entirely**, and the plan prefers it.
 
-## Waves
+## Slices
 
 
 ### Observation (Branch: bug/an-empty-conflict-set-is-not-a-refusal, PR: #198)

@@ -144,7 +144,7 @@ wording is unrecognised. This is the same trap the sibling Bitbucket plan hit
 from the other direction — `bb` writes errors to stdout and exits 1 for
 everything.
 
-## Waves
+## Slices
 
 ### Reported (Branch: feature/a-jenkins-build-has-a-status, PR: #450)
 

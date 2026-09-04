@@ -157,7 +157,7 @@ The obvious alternative — `idle` beside `running`. Rejected on three counts:
 Two fields saying nearly the same thing is how they drift. The column is the
 state; the reassurance was never a state.
 
-## Waves
+## Slices
 
 ### Worded (Branch: bug/a-running-agent-reads-running, PR: #421)
 

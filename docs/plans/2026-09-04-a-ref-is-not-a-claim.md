@@ -84,7 +84,7 @@ Ten out of ten is the number that matters. `git merge-base --is-ancestor` is not
 
   **The tip commits are `plot: claim <branch>`.** `--delete-branch` worked; a worker re-created the ref afterwards by claiming a branch whose work had already landed. So the ten surviving refs and the re-claim in §3 are **one mechanism, not two** — and no new deletion policy is needed. `plot-release-refs.sh` keeps its plan-scoped licence untouched.
 
-## Branches
+## Slices
 
 ### Asking the host
 

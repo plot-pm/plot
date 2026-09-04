@@ -180,7 +180,7 @@ anyway.
       count, or does the count belong to the draft phase only? Today nothing
       would stop it; nothing depends on the answer yet either.
 
-## Waves
+## Slices
 
 
 ### Written (Branch: bug/the-skill-records-its-rounds, PR: #323)

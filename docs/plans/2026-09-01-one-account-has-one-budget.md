@@ -642,7 +642,7 @@ closing a board rather than waiting for GitHub.
       keeps, which is safe. `/plot-deliver` blocking on a budget would be new
       behaviour, and a workflow command a person is waiting for is not a poll.
 
-## Branches
+## Slices
 
 **Every slice below says *per account* and now means *per `(connector, account,
 bucket)`*, in a record outside any checkout.** The two findings that changed

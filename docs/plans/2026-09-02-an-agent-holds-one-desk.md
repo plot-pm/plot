@@ -136,7 +136,7 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 - [ ] **What sets N, the number of agents?** The plan says the registry spawns *"N at a time, on the operator's ask"* and never says where N comes from, or what happens when the queue is longer than N. `DESIGN-agent.md:174` answers the first half — the machine measures pressure and reports it, the operator reads it when choosing N, and nothing refuses or defers. The board already carries a `parallel agents (cap)` control. The second half is unanswered: a queue longer than the pool is the normal case, not an error.
 - [ ] **Does an agent ever hold a desk on a branch it is not working?** Between units it is `running`, has no branch, and holds a desk sitting on something. What that tree points at while idle is unspecified.
 
-## Branches
+## Slices
 
 ### Naming what is free
 

@@ -175,7 +175,7 @@ own plan — *a degraded board should not render stale facts beside fresh ones,
 because absent is not false* — and it is not this one. **Fixing the timeout
 removes today's instance; it does not remove the class.**
 
-## Waves
+## Slices
 
 ### Batched (Branch: bug/the-scan-parses-its-plans-once, PR: #486)
 

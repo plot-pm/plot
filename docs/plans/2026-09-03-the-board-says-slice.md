@@ -152,7 +152,7 @@ implies.
       the debt, and its `"waves"` JSON key is the wire. Out of scope here; this
       plan proves the reader tolerates both.
 
-## Branches
+## Slices
 
 ### Saying it
 

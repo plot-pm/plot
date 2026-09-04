@@ -331,7 +331,7 @@ Independent of the above, `PLOT_TOOL_SCRATCH` should name the tiny-garden pulse
 file. It is the one tracked path the tests themselves mutate, and excusing it
 does not weaken the gate — any *other* dirty path still keeps the entry.
 
-## Waves
+## Slices
 
 ### Live (Branch: bug/working-lists-the-live-agents, PR: #411)
 

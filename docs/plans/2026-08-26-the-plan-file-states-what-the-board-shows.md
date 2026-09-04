@@ -171,7 +171,7 @@ The board displays the number today. Teaching it to write into plan files would
 make it a producer of plan facts rather than a reader of them — the inversion
 this plan exists to remove, applied in the other direction.
 
-## Waves
+## Slices
 
 ### Stated (Branch: infra/a-plan-states-its-rounds, PR: #438)
 

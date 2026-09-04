@@ -151,7 +151,7 @@ to accumulate.
   direction this change could break.
 - `node --test test/reconcile/fleet.test.mjs` green.
 
-## Waves
+## Slices
 
 
 ### Consulted (Branch: bug/a-resurrected-ref-does-not-hide-a-merge, PR: #372)

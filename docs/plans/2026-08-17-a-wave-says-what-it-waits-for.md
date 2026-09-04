@@ -115,7 +115,7 @@ row sits.
 It does not add a fourth verdict, a progress bar, or an estimate. The
 three verdicts the scan computes are the three the board shows.
 
-## Waves
+## Slices
 
 
 ### Carrier (Branch: feature/the-row-carries-its-verdict, PR: #257)

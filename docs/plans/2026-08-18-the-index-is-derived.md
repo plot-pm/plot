@@ -151,7 +151,7 @@ that could not find its own plan.
 - [ ] If `active/` becomes advisory, what does `plot-reconcile-scan.sh` section
       5 report — nothing, or "your convenience index is out of date"?
 
-## Waves
+## Slices
 
 <!-- Populated 2026-08-18, after the measurement above. Three waves, ordered so
      each is independently valuable and none forces the next. -->

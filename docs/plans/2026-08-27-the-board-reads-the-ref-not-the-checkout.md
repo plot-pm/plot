@@ -265,7 +265,7 @@ modes raise: *which source am I looking at, and how old is it?* An operator who
 sees a local-only card or an unresolvable ref then has the mechanism in front of
 them instead of having to know it exists.
 
-## Waves
+## Slices
 
 ### Read (Branch: bug/the-board-reads-the-ref-not-the-checkout, PR: #469)
 

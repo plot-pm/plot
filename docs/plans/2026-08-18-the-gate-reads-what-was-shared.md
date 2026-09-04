@@ -143,7 +143,7 @@ rules are written down.
       operator who sees the line knows the gate did not run — which is the whole
       difference between failing open and failing silently.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: bug/the-gate-reads-what-was-shared, PR: #215)
 - read the plan blob from `origin/$MAIN` in **both** gates: `plot-dispatch.sh` (line 232) and `plot-phase-gate.sh` (line 145). Name the ref in every refusal, and add `--allow-local` as the explicit escape for the dispatch side. The two diverge only on the unresolvable case — dispatch refuses, the hook allows-and-says-so — and the divergence is deliberate, not an oversight.

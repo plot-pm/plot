@@ -121,7 +121,7 @@ another.
 
 Worth revisiting if the disagreement recurs after this lands.
 
-## Waves
+## Slices
 
 ### Aged (Branch: bug/the-board-says-how-old-its-plans-are, PR: #471)
 

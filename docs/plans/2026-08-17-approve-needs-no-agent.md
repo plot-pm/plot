@@ -261,7 +261,7 @@ Two buttons on one surface with opposite patterns, because they were built in
 parallel and the second did not see the first's decision. The fix is one
 attribute and belongs here rather than in a plan of its own.
 
-## Waves
+## Slices
 
 
 ### Script (Branch: feature/plot-approve-script, PR: #168)

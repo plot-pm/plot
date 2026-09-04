@@ -67,7 +67,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # every branch of every Waves plan read *not merged* and four fully-merged plans
 # were refused delivery with a message naming branches whose PRs had landed the
 # day before. Absent read as false, in a gate.
-BRANCHES_SECTION=$(echo "$PLAN_CONTENT" | sed -n '/^## Branches/,/^## /p')
+# ONE HEADING PER RANGE, AND THEY MUST NOT BE MERGED. A plan mid-reslice carries
+# `## Branches` AND `## Waves` at once, and the two branch sets are unioned so
+# no branch is dropped for sitting under the other heading.
+#
+# Tried 2026-09-04: accepting every spelling in ONE range drops a branch. A
+# `sed` range ends at the first line matching its terminator, which is the
+# SECOND section's own heading, and it does not reopen there — so a plan
+# carrying both reported only whichever came first. The dialects are told apart
+# here by the heading because that is the only place they still differ; which
+# LAYOUT a section holds is decided by shape in `plot-plan-meta.sh`.
+BRANCHES_SECTION=$(echo "$PLAN_CONTENT" | sed -nE '/^## Branches/,/^## /p')
 # `## Slices` is the spelling DESIGN-slice.md settles on, and the shape is
 # identical to `## Waves` — the branch and PR ride the `### ` heading either way.
 # One range for both, for the reason plot-plan-meta.sh gives: a second range is a
@@ -85,10 +95,18 @@ WAVES_SECTION=$(echo "$PLAN_CONTENT" | sed -nE '/^## (Waves|Slices)/,/^## [A-Z]/
 #   ### Keyed (Branch: feature/a-plan-cites-a-jira-key, PR: #447)
 # The two sets are unioned rather than chosen between, so a plan carrying both
 # sections (a reslice in progress) reports every branch it names.
-BRANCH_LINES=$({ { echo "$BRANCHES_SECTION" \
+# BOTH PATTERNS RUN OVER BOTH SECTIONS, and that is what makes a heading
+# renameable. The layout and the heading word are independent since 2026-09-04:
+# a plan may say `## Slices` while still carrying list-item branches, and the
+# 182 renamed on that date all do. Reading only the heading pattern out of the
+# Slices range would have dropped every one of their branches — silently, since
+# an empty branch set reports as a plan with nothing to deliver.
+#
+# The cost of the cross product is a duplicate line, which `sort -u` removes.
+BRANCH_LINES=$({ { printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
   | grep -oE '^- `[A-Za-z0-9_./-]+`' \
   | sed 's/^- `//; s/`$//'
-  echo "$WAVES_SECTION" \
+  printf '%s\n%s\n' "$BRANCHES_SECTION" "$WAVES_SECTION" \
   | grep -oE '^### .*\(Branch: [A-Za-z0-9_./-]+' \
   | sed 's/.*(Branch: //'; } | grep -v '^$' | sort -u; } || true)
 

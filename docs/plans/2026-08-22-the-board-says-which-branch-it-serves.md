@@ -130,7 +130,7 @@ compete with the row states beneath it.
   startup. Assert by construction (where the value is computed), not by timing.
 - `pnpm build:board` run and the artifact committed; `pnpm run test:board` green.
 
-## Waves
+## Slices
 
 
 ### Named (Branch: feature/the-board-says-which-branch-it-serves, PR: #337)

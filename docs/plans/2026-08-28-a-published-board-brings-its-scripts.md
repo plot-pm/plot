@@ -157,7 +157,7 @@ costs ~40 s, and the defect it catches can only ship at release time.
 already asks *"does this work for someone who installs it?"* is the place that
 answers it.
 
-## Waves
+## Slices
 
 ### Shipping (Branch: bug/the-package-carries-its-scripts, PR: #501)
 

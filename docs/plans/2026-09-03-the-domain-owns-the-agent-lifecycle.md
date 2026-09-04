@@ -225,7 +225,7 @@ A declaration is a fact a person wrote.
       identity. **The code is right today** only because nothing can be
       declared. This plan should settle which document changes.
 
-## Branches
+## Slices
 
 ### Declaring
 

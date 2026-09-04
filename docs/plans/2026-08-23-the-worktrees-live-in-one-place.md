@@ -220,7 +220,7 @@ two of this estate's worktrees hold work whose PRs closed unmerged, so
 `plot-reap.sh` refuses them permanently. Convergence by attrition would leave
 precisely the checkouts a person most wants moved.
 
-## Waves
+## Slices
 
 
 ### Rooted (Branch: infra/the-worktree-root-is-configurable, PR: #445)

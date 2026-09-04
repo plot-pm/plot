@@ -221,7 +221,7 @@ The distinction that survives: **colour says what a row is; motion says
 it has been waiting on you too long.** The first is a property, the
 second is an accusation, and only the second earns the scarce channel.
 
-## Waves
+## Slices
 
 
 ### Colour (Branch: feature/not-started-says-what-it-waits-for, PR: #205)

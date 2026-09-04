@@ -338,7 +338,7 @@ Nothing new is measured, computed, or asked of git.
 **No change to grouping.** `classify()` is untouched: a row's group is
 where it belongs, and this is about what it is doing there.
 
-## Waves
+## Slices
 
 
 ### Truth (Branch: feature/rows-mark-real-activity, PR: #182)

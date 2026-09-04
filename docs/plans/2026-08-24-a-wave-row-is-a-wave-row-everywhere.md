@@ -140,7 +140,7 @@ Should tagging prove awkward where a section has no plan-grouped wrapper, the
 alternative is a query that does not require the descendant — but that is a
 fallback, not the design: the wrapper is how every other section already works.
 
-## Waves
+## Slices
 
 ### Rendered (Branch: bug/a-wave-renders-as-a-wave-in-every-section, PR: #392)
 - a row of `kind: 'wave'` renders through the wave row wherever it appears;

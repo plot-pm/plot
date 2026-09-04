@@ -142,7 +142,7 @@ separation `agent-view-phase` argued for the waiting age. *"2 commits not
 pushed"* answers a question no timestamp can: it names an action, and the
 action belongs to a specific machine.
 
-## Waves
+## Slices
 
 
 ### Signal (Branch: bug/fleet-sees-unpushed-commits, PR: #149)

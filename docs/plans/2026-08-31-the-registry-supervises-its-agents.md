@@ -420,7 +420,7 @@ that gate exists.
       since moved to D may be worse than a fresh start. Askable only because
       the two ids are separate fields.
 
-## Branches
+## Slices
 
 ### Declaring
 

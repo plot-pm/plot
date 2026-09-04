@@ -225,7 +225,7 @@ shipping a version is still a sprint; the field is how one says otherwise.
       under `PLOT_UNATTENDED=1` the prompt becomes a warning and the release
       proceeds, while the Must-Have gate still refuses.
 
-## Branches
+## Slices
 
 ### The field and its gate
 

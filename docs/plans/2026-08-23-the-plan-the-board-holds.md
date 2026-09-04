@@ -283,7 +283,7 @@ Recorded so the next reader does not add them:
    The rule this plan's own finding argues for.
 5. `pnpm run test:board`, `pnpm run typecheck` green.
 
-## Waves
+## Slices
 
 ### Carried (Branch: feature/the-row-carries-the-plans-records) <!-- deferred: delivered by siblings 2026-08-26 — approved/started/assignee/sprint/story all reach the row already -->
 - Retired. Measured 2026-08-26: every field this wave named is already consumed

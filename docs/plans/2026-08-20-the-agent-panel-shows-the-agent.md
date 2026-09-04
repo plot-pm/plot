@@ -164,7 +164,7 @@ that cannot navigate must not look like one.
 - [ ] Should the panel poll `.plot-worker.exit` and show the exit code the
       moment it lands? It is the one fact that says the run finished.
 
-## Branches
+## Slices
 
 ### Reads
 - `bug/the-panel-names-the-working-process` — `.plot-worker.pid` records the agent's pid rather than the wrapper's, and the panel reads the output that process produces. Where the tool writes nothing until exit, the panel says that rather than implying the worker is idle. Tests: a running agent's pid is not the dispatcher's; an empty log under a live agent renders the tool's behaviour, not a claim about the worker; a finished run shows its exit code. → #268

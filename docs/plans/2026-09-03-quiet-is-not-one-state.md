@@ -72,7 +72,7 @@ Anything the classifier cannot place lands there, described by commit age — be
 - [ ] **Where does abandoned work belong?** It needs a decision, which argues WAITING ON YOU. But 6 rows of months-old work would sit permanently beside things that need an answer today, and a section that never empties stops being read.
 - [ ] **What reopens a closed PR's row?** If the host reopens it, the branch is live again. The board polls PR state, so this is a matter of not caching the disappearance rather than new machinery — but it should be stated.
 
-## Branches
+## Slices
 
 ### Telling them apart
 

@@ -119,7 +119,7 @@ more browsers than the CI box has cores. The measurement decides between:
 It would turn the red build green and destroy the signal entirely. The suite
 catches real regressions — that is why it exists.
 
-## Waves
+## Slices
 
 ### Measuring (Branch: infra/the-board-suite-reports-its-cost)
 

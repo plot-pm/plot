@@ -128,7 +128,7 @@ this cost is paid once per cache window rather than per request.
       **and** a stale `changed_ago_seconds`? That would make the two plans
       dependent, which is why it is a question rather than a decision.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: feature/the-pulse-reports-when-work-last-changed)
 - `changed_ago_seconds` in `plot-fleet-scan.sh`, computed from commits, worktree mtimes and the worker log, with editor leftovers excluded and an absent value for branches with no local worktree. Tests: a worktree touched a second ago reports near zero; one untouched for an hour reports that hour; a branch with no worktree reports absent, never zero; a `.tmp1` written now does not reset the clock. — PR #238

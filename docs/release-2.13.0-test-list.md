@@ -175,8 +175,10 @@ merge queue, then confirm:
   workers into sandbox repositories. Measured 2026-08-31: two agents running it
   produced **53 concurrent `node --test` processes** and a board that could not
   answer a request in 25 seconds.
-- **The `## Branches` → `## Slices` migration of existing plans.** Deliberately
-  not done: all three spellings parse identically, and a delivered plan records
-  what was built in the vocabulary of its day.
+- **Re-reading the 182 migrated plan headings.** They were renamed to
+  `## Slices` on 2026-09-04 by a script that parses each plan before and after
+  and reverts it unless the two are byte-identical, so the estate proved itself
+  file by file. What is worth a look instead is §7's first item: a plan written
+  from the template today, parsed end to end.
 - **The known apt-mirror flake** in *Install Playwright browser*. It stalls
   against a deliberate 3-minute bound and is not a code defect; re-run it.

@@ -335,7 +335,7 @@ is that **no worker state can put a row in this section**.
       when the section only ever holds host work? It was written when a local run
       could be the machine.
 
-## Waves
+## Slices
 
 The order is **remove, then invert**. Removing the local machine entry is a
 three-line predicate change that stands alone; making WORKING agent-centred

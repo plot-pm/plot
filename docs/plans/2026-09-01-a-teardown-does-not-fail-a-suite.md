@@ -188,7 +188,7 @@ be writing to, and they would keep failing after the helper was fixed.
       that race a child"* would have needed a reviewer's opinion per site and
       would have been turned off; this one cannot be argued with.
 
-## Branches
+## Slices
 
 ### Closing the door everyone walks through
 

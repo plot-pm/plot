@@ -216,7 +216,7 @@ minute of honesty.
 
 **No change to the fleet scan.** This is entirely in the board's fold.
 
-## Waves
+## Slices
 
 
 ### Precedence (Branch: bug/green-never-outranks-unknown, PR: #192)

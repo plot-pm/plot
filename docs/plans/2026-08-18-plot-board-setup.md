@@ -120,7 +120,7 @@ setup.
 - [ ] Should npm `@plot-pm/board` `latest` be promoted past 0.3.0? It lags the
       plugin build, which is why artifact precedence prefers the plugin.
 
-## Branches
+## Slices
 
 <!-- Waves: branches under one ### subheading run concurrently. Wave 2 becomes
      eligible once every branch in wave 1 has merged. -->

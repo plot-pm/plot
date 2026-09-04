@@ -131,7 +131,7 @@ It would remove the shape rather than report it, and the reset is legitimate —
 it is how a slice is rebuilt after its first attempt is rejected. The estate
 should describe what is there, not forbid a state it can describe.
 
-## Waves
+## Slices
 
 ### Reading (Branch: bug/an-empty-branch-reads-open, PR: #546)
 

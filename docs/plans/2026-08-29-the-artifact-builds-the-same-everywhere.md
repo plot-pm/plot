@@ -234,7 +234,7 @@ forbids. **Fix the build, not the ruler.**
 It would end the churn and remove the local check that catches a forgotten
 rebuild before it costs a CI round trip.
 
-## Waves
+## Slices
 
 ### Measuring (Branch: infra/the-artifact-drift-has-a-cause, PR: #548)
 

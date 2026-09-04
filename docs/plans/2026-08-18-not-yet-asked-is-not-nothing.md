@@ -179,7 +179,7 @@ the one it came from.
       almost certainly does, and that makes this plan a dependency of
       `the-board-answers-agents` rather than a sibling.
 
-## Branches
+## Slices
 
 - `bug/the-board-says-when-it-has-not-asked` — a first-load state distinct from an empty one, on the sections and rows fed by host data; the git scan's freshness stays its own. Tests: a board rendered before the first PR fetch must not print `none` under WAITING ON A MACHINE, and must not present a branch with no PR data as though it had been checked; after a fetch that finds nothing, `none` reads exactly as today; a row's PR-derived fields never borrow the scan's age. PR #221.
 

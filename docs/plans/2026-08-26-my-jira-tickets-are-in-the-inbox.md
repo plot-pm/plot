@@ -104,7 +104,7 @@ testable against any instance, including one this repo does not have.
 API with a token. The choice belongs to whoever can test against a real
 instance — this repo has none.
 
-## Waves
+## Slices
 
 ### Keyed (Branch: feature/a-plan-cites-a-jira-key, PR: #447)
 

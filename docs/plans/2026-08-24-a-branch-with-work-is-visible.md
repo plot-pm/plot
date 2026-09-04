@@ -146,7 +146,7 @@ The conclusion holds, but its margin is thinner: the answer to volume is the
 `age` signal and the existing section routing, not a switch. If the count keeps
 climbing, revisit **grouping**, never visibility.
 
-## Waves
+## Slices
 
 ### Seen (Branch: feature/a-branch-with-work-is-seen, PR: #492)
 

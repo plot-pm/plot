@@ -292,7 +292,7 @@ marker livelier would spend the rate limit the backoff exists to protect,
 to sharpen a signal nobody asked to be sharper. The whole change is that
 the client remembers one value.
 
-## Waves
+## Slices
 
 
 ### Row (Branch: feature/status-column-earns-its-width, PR: #180)

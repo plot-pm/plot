@@ -186,7 +186,7 @@ Two properties this must keep:
       own. They agree today because `--next` returns the same branch; they need
       not always.
 
-## Waves
+## Slices
 
 ### Gated (Branch: bug/a-dispatch-without-a-brief-refuses, PR: #465)
 - `plot-dispatch.sh` refuses to launch a worker for a branch with no brief, with `--no-brief` as the named escape. Tests: a branch with no brief is prepared and **not started**, and the message names the file and the two ways forward; a branch **with** a brief starts as before; `--no-brief` starts it and says so in the log; an unreadable brief is treated as missing, not as present; the footer still reports `brief=` and now agrees with what happened; the plan gate and the held-branch refusal are unchanged.

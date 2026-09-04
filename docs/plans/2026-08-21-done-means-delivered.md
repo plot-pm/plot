@@ -159,7 +159,7 @@ PR creation is not a change to the delivery path.
 - [ ] The rename touches 13 plan files carrying `Endgame` in prose. Rewrite them,
       or leave history alone and rename only the enum?
 
-## Waves
+## Slices
 
 > **Order matters twice here.** The annotation fix comes BEFORE the button,
 > because without it `/plot-deliver` refuses on any plan whose worker never

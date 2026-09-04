@@ -181,7 +181,7 @@ sits on and not by arithmetic on a stale figure.
       test to `test/unit/` would look like a deletion. Decide in the Deciding
       slice, before the first file moves.
 
-## Branches
+## Slices
 
 ### Survey
 

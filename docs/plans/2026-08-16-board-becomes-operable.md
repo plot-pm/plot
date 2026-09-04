@@ -213,7 +213,7 @@ them in step with the skill, and the same rule would live in two places.
 offering it would invite a second approval whose only effect is a confusing
 error.
 
-## Waves
+## Slices
 
 
 ### Navigation (Branch: feature/board-story-overlay, PR: #151)

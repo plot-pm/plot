@@ -195,7 +195,7 @@ queryable.
   fixture that has a double claim.
 - `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:e2e` green.
 
-## Waves
+## Slices
 
 
 ### Anchored (Branch: bug/a-claim-is-a-list-item, PR: #490)

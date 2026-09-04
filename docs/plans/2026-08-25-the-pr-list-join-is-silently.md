@@ -149,7 +149,7 @@ comes back as full as it could be is possibly truncated, whatever the number. It
 misfires benignly when a state holds exactly the limit (says truncated when
 complete, costing a few lookups) and cannot misfire in the dangerous direction.
 
-## Waves
+## Slices
 
 ### Complete (Branch: feature/the-pr-list-join-is-silently, PR: #467)
 

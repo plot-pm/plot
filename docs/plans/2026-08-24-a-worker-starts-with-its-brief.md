@@ -136,7 +136,7 @@ actions, and reaching the same place: `/plot-implement`, which owns briefs.
 That closes the loop without teaching a script to interpret. The board can
 invoke a skill; `plot-dispatch.sh` cannot.
 
-## Waves
+## Slices
 
 ### Checked (Branch: bug/auto-dispatch-waits-for-a-brief, PR: #431)
 - **first**, the spike: how far behind main a board checkout runs, and what one

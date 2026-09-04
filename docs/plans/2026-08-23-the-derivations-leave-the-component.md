@@ -283,7 +283,7 @@ one that will, and it leaves a file that is 8000 lines for no stated reason.
   now live. A consumer that stops compiling is a finding, not a fix-up.
 - `pnpm run typecheck` clean; `pnpm build:board` run and the artifact committed.
 
-## Waves
+## Slices
 
 
 ### Moved (Branch: infra/the-derivations-leave-the-component, PR: #357)

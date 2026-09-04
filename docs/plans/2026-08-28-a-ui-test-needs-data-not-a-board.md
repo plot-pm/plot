@@ -201,7 +201,7 @@ which is a correctness argument rather than a speed one.
 They assert rendered output, which is what a browser test is for. Moving them
 down a tier would trade real assertions for approximations of them.
 
-## Branches
+## Slices
 
 ### Catalogued
 

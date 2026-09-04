@@ -165,7 +165,7 @@ plan waits on the budget plan because of a *behaviour* that must exist first, no
 because they edit one file. **Inference would find the wrong pairs and miss this
 one.**
 
-## Branches
+## Slices
 
 ### Declaring
 

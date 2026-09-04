@@ -293,7 +293,7 @@ the first one is wanted here.
       only printed? Argues against itself: the plan would carry a fact about
       *how it was written* rather than about the work, and git already has it.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: feature/push-main-bypass, PR: #115)
 - the push helper (`classify` split out for testing), its three call sites, removal of `plot-approve`'s no-op branch deletion, the optional `Story:` template field, the `no story` card badge, and tests

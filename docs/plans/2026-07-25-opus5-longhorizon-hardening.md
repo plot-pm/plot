@@ -741,7 +741,7 @@ Additionally, self-imposed for this plan:
       to `.gitignore` on the tracer branch. Noted rather than done: this plan
       makes no edits.
 
-## Waves
+## Slices
 
 <!-- RECOVERED 2026-08-25. The six branches below were opened on 2026-07-25 and
      their PRs (#49, #51, #52, #53, #54, #55) were closed the same day, each

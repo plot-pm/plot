@@ -106,7 +106,7 @@ rather than a fabricated name."* The same rule, for the same reason.
 specifically to keep a fork off the request path; the repository root is a
 startup fact too, and is already resolved before the first response.
 
-## Waves
+## Slices
 
 ### Named (Branch: bug/a-board-names-the-repo-it-serves, PR: #505)
 

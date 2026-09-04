@@ -102,7 +102,7 @@ Cheapest to write and wrong in the same way. Three zeros are three readings of a
 - [ ] Does the WorkerMonitor keep publishing `idle` once nothing ends a worker on it? A finding nobody acts on is the crowding this board keeps removing, but `idle` beside a live pid may still be worth showing.
 - [ ] Should `elsewhere` agents be readable this way at all? A transcript is a local file, so a machine cannot read another machine's agent — the same boundary `the-registry-supervises-its-agents` settled as per-checkout.
 
-## Branches
+## Slices
 
 ### Measuring what a working agent looks like
 

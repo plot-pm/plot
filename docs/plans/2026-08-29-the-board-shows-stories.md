@@ -213,7 +213,7 @@ Story parsing is implemented in TypeScript within the board server, not as a she
 6. Query plans with `Story: <slug>` to build plan list and counts
 7. Compute status drift by comparing `status:` field against plan phases
 
-## Branches
+## Slices
 
 Waves are ordered: Schema must land before Backend (contract first), Backend before UI (implementation before consumption).
 

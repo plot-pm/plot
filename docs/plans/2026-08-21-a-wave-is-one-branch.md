@@ -204,7 +204,7 @@ same refusal-with-a-reason where the server will not act.
 **Nothing about the detection changes.** `stuckState`'s `unsliced-wave` arm and
 `isSpikeWave` landed already and are not revisited here.
 
-## Waves
+## Slices
 
 ### Sliced (Branch: feature/plot-reslice-proposes-one-wave-per-branch, PR: #335)
 - a new spoke command reads a plan with a multi-branch wave, reads those branches' diffs and PRs, and proposes one named wave each in an argued order; it asks before writing and declares `PLOT-UNASKED: <question> — stopped` unattended, because the order is the judgement it cannot make alone. Tests: a plan with a 5-branch wave yields 5 `###` headings and 5 branch lines, one per branch; branch NAMES are unchanged; a `complete` multi-branch wave is left untouched; the rest of the plan file is byte-identical; the skill declares an unattended shape and the all-skills sweep passes; no branch is dispatched and no PR is touched.

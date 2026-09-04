@@ -207,7 +207,7 @@ bug. The defect is *a fallback that asserts*, not *drafts specifically*.
   single-branch case cannot detect it.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 
 ### Derived (Branch: bug/a-wave-head-says-what-its-verdict-says, PR: #338)

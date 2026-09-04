@@ -91,7 +91,7 @@ Making `/challenge-the-plan` the only way to interrogate would trade a missing
 record for a missing interrogation. The direct path is often the better one: it
 tests claims against the code, which the skill's question-generation does not.
 
-## Branches
+## Slices
 
 ### Recording
 

@@ -203,7 +203,7 @@ leave.
       every sense except the mechanical one, and reporting it as blocked
       overstates the problem.
 
-## Branches
+## Slices
 
 - `feature/the-pulse-repairs-the-artifact` <!-- deferred: verified already implemented 2026-08-17 — conflicts_of() at plot-fleet-scan.sh:822, isArtifactOnly() at stuck.ts:115, startRepair() at fleet.ts:806, all covered by conflicts.test.mjs. --> — detection and repair, already on main before this plan was written.
 

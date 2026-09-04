@@ -210,7 +210,7 @@ population the correlation is perfect; in a repo that is not this population it
 is a proposal, not a fact. That is why it proposes and never asserts — and why
 it still refuses when unattended, like the Jenkins slug.
 
-## Waves
+## Slices
 
 ### Proposed (Branch: feature/setup-proposes-what-it-found, PR: #451)
 

@@ -109,7 +109,7 @@ The two `fleet.ts` branches are real consumers today. Removing the enum while
 they still exist would replace a compile-time check with a runtime one for no
 gain. **This plan waits on `bug/the-budget-knows-which-bucket-it-spent`.**
 
-## Branches
+## Slices
 
 ### Freeing the type
 

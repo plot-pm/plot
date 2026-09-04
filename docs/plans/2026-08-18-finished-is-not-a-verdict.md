@@ -154,7 +154,7 @@ it worth reporting.
       once. Answering this by inspection rather than by asking is why the plan
       grew a wave.
 
-## Waves
+## Slices
 
 
 ### One implementation (Branch: bug/one-worker-state-not-two, PR: #218)

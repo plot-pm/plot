@@ -323,7 +323,7 @@ Resolving an artifact conflict on a branch is not merging it.
 **No new data source.** Conflicts come from `merge-tree`, states from the
 existing scan, CI from the PR state the contract already carries.
 
-## Waves
+## Slices
 
 
 ### Detection (Branch: feature/scan-reports-stuck-branches, PR: #183)

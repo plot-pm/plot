@@ -381,7 +381,7 @@ eligibility (`strict` default with a justified `loose` override), DoD under
 burst (worker self-checks before marking ready; blocked branches stay draft with
 a reason), and the parser fix (first `## Branches` heading wins).
 
-## Branches
+## Slices
 
 ### Tracer
 - `feature/parallel-fleet-tracer` → #72 — Stage 1: `waves[]` + `claimed`/`deferred` in

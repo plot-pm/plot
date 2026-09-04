@@ -129,7 +129,7 @@ It feeds the auto-dispatch cap. A cap that moved when a reader toggled a UI
 control would let auto-dispatch start work it should have refused — a real
 defect traded for a cosmetic one.
 
-## Waves
+## Slices
 
 ### Named (Branch: bug/the-working-count-names-what-it-counts, PR: #413)
 

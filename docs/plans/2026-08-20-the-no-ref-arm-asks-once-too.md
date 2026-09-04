@@ -139,7 +139,7 @@ the fix, and it was the wrong shape. The fifteen remaining calls are branches a
 plan names and nobody has pushed, which grows with **planning**, not with
 merging, and needs a different fix.
 
-## Waves
+## Slices
 
 ### Implementation (Branch: bug/the-no-ref-arm-reads-the-join, PR: #255)
 - → #255 — the regression test only: a merged-and-deleted branch that the arrived list names costs zero `pr-state` calls, asserted by counting invocations of a stubbed host. No behaviour change.

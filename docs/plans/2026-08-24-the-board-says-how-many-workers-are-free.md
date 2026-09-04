@@ -171,7 +171,7 @@ hygiene, so the write buys nothing the fix does not already give.
   registry from disk.
 - `pnpm run test:board` green; artifact rebuilt and committed.
 
-## Waves
+## Slices
 
 
 ### Counted (Branch: bug/the-board-says-how-many-workers-are-free, PR: #375)

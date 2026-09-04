@@ -260,7 +260,7 @@ alongside the write.
       belongs to `/plot-approve`, `/plot-implement` and `/plot-deliver` equally,
       so it wants its own plan; recorded here so it does not sink again.
 
-## Waves
+## Slices
 
 
 ### Check (Branch: bug/scan-unreleased-delivered, PR: #111)

@@ -147,7 +147,7 @@ scan claims, and that is a fact the report should carry rather than discard.
       `entry.approvedAt`, and `entry.ideaPlans`? Each is assigned in the same
       block and none is compared against its predecessor.
 
-## Waves
+## Slices
 
 
 ### Symptom (Branch: bug/a-smaller-pulse-is-not-silently-better, PR: #211)

@@ -241,7 +241,7 @@ order, which would put that explanation out of reach for anyone not hovering
 with a mouse. `aria-disabled` keeps it focusable and announced while
 suppressing activation.
 
-## Waves
+## Slices
 
 
 ### Motion (Branch: feature/working-rows-pulse, PR: #148)

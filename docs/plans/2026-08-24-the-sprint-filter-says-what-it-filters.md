@@ -226,7 +226,7 @@ The estate totals are the same three buckets over every plan the board found —
 one derivation, two scopes, so the numbers cannot disagree about what a bucket
 means.
 
-## Waves
+## Slices
 
 ### Carried (Branch: feature/the-fleet-carries-the-sprints-members, PR: #389)
 - `fleet.sprints` gains `members`, the sprint file's own plan array — the same

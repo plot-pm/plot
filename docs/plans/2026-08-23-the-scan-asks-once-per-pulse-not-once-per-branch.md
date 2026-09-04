@@ -480,7 +480,7 @@ fetched the list.
   OIDs; this plan does not weaken it and adds nothing to what it remembers.
 - `pnpm test`, `pnpm run test:reconcile` and `pnpm run test:board` green.
 
-## Waves
+## Slices
 
 
 <!-- ONE branch for two call sites, deliberately. `merged_by_host` and

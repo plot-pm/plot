@@ -80,7 +80,7 @@ wrong — which is the difference between a rule and a gate, the distinction
 ### The shape
 
 ```markdown
-## Waves
+## Slices
 
 ### Removed (Branch: bug/an-agent-is-not-a-machine, PR: #300)
 - `machineProcesses` loses its `origin: 'local'` half. Tests: a running worker
@@ -175,7 +175,7 @@ performing.
       writes `## Waves` with one `### ` heading; the board draws no row for it.
       Neither rule needs to know the other.
 
-## Branches
+## Slices
 
 > **Written in the OLD shape on purpose.** This plan proposes `## Waves` with
 > the branch in the heading — and `plot-plan-meta.sh` does not read that yet.
