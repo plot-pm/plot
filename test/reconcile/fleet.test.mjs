@@ -4866,6 +4866,54 @@ esac
   f.cleanup();
 });
 
+// A REPO WITH NO REMOTE HAS NO HOST TO ASK, whatever `backend` says. The key is
+// read from config, so `plot-host.sh backend` answers `github` in a checkout
+// that has no repository on it — which is why the backend test gating the
+// lookup cannot catch this case. `pr-list` then exits 3 with *no git remotes
+// found*, and until 2026-09-04 that read as `failed`: every branch `unknown`,
+// and `--list-eligible` withholding work nobody had started. It is a
+// configuration, not a fault, and it belongs with the missing token in
+// `unasked`. Caught by dispatch.test.mjs's `noRemote` fixture.
+test('fleet: no remote reads unasked, and the offer still names work', () => {
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-fleet-noremote-'));
+  const r = path.join(t, 'repo');
+  fs.mkdirSync(r);
+  git(r, 'init', '-q', '-b', 'main', '.');
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Active index:** plans/active/\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-p.md'), ONE_WAVE('feature/fresh'));
+  fs.symlinkSync('../2026-01-01-p.md', path.join(r, 'plans', 'active', 'p.md'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'plan');
+
+  const h = hostShim(`#!/usr/bin/env bash
+case "$1" in
+  backend) echo github ;;
+  default-branch) echo main ;;
+  pr-list) echo "plot-host: pr-list: no git remotes found" >&2; exit 3 ;;
+  pr-state) echo "plot-host: pr-state: no git remotes found" >&2; exit 3 ;;
+  *) echo "{}" ;;
+esac
+`);
+  const res = spawnSync('bash', [h.scan, '--offline', '--next'], {
+    encoding: 'utf8', cwd: r, env: { ...process.env },
+  });
+  assert.equal(res.stdout.trim(), 'feature/fresh',
+    'a repo with no remote has no merge state to withhold on');
+  assert.equal(res.status, 0);
+
+  const out = execFileSync('bash', [h.scan, '--offline'],
+    { encoding: 'utf8', cwd: r });
+  assert.match(footerOf(out), /\bhost=unasked\b/,
+    'and it is a configuration, not a fault');
+  h.cleanup();
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
 // A HEALTHY SCAN IS UNCHANGED — Done-when 3, and it is the constraint the rest
 // of this slice has to fit inside. `--next` picks branches to claim from this
 // output, so any moved verdict is a regression rather than a cosmetic

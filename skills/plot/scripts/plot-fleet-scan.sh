@@ -673,6 +673,25 @@ prefill_pr_states() {
            # catch-all would turn every host outage into "nobody asked".
            *TOKEN*|*token*|*auth*|*Auth*|*AUTH*|*login*|*Login*|*credential*|*Credential*|*"not logged"*)
              HOST_VERDICT=unasked ;;
+           # NO REMOTE IS A CONFIGURATION, NOT A FAULT — the same reading as a
+           # missing token one line up, reached by the same route: `plot-host.sh`
+           # exits 3 for both, because both are "the op cannot proceed", and
+           # only the text separates them.
+           #
+           # `backend` ANSWERS `github` IN A REPO WITH NO REMOTE, which is what
+           # makes this reachable at all: the key is read from config, and a
+           # repo can name a host it has no repository on. So the backend test
+           # that gates the lookup cannot catch this case, and the failure
+           # arrives here instead.
+           #
+           # Measured 2026-09-04 against `test/reconcile/dispatch.test.mjs`'s
+           # `noRemote` fixture: `--list-eligible` withheld a branch nobody had
+           # started, because a host that does not exist read as one that
+           # failed. `failed` makes every branch `unknown` and `unknown` is not
+           # claimable — the right refusal about the wrong thing. There is no
+           # merge state to withhold on where there is no remote to hold it.
+           *"no git remotes"*|*"no remote"*)
+             HOST_VERDICT=unasked ;;
            *) HOST_VERDICT=failed ;;
          esac ;;
     esac
