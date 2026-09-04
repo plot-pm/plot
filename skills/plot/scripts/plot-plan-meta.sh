@@ -887,10 +887,21 @@ section == "slices" && slice_shape != "heading" {
   # documented contract is that an annotation binds to the line carrying the
   # branch name. A deferral whose text is wrapped onto a continuation line is
   # not seen, exactly as `deferred` itself was not.
+  # `moved:` IS THE SAME ANSWER AS `deferred:`, and CLAUDE.md has said so since
+  # the reconcile scan was written: *"`deferred:`/`moved:` in the plan means
+  # reapable"*. `plot-reconcile-scan.sh:504` matches both in one arm; this
+  # parser matched only the first, so a slice given up with the other word read
+  # as still outstanding — to the board, the delivery gate and the fleet alike.
+  # Measured 2026-09-04 on `feature/the-reaper-sweeps-every-kind`: annotated
+  # `moved:` into the slice that superseded it, still `deferred:false` here.
+  #
+  # The two words differ in what they tell a READER — given up, versus taken
+  # somewhere else — and the reason is kept verbatim, so the distinction is not
+  # lost by being read alike.
   defer_note = ""
-  if (index($0, "deferred:") > 0) {
+  if (index($0, "deferred:") > 0 || index($0, "moved:") > 0) {
     _d = $0
-    sub(/^.*<!--[ \t]*deferred:[ \t]*/, "", _d)
+    sub(/^.*<!--[ \t]*(deferred|moved):[ \t]*/, "", _d)
     sub(/[ \t]*-->.*$/, "", _d)
     defer_note = trim(_d)
   }
@@ -958,7 +969,7 @@ section == "slices" && slice_shape != "heading" {
     # plan can make about a branch, dropped for want of a colon. A reader
     # writing the shorter form has said the branch will not be built; the
     # parser now hears it.
-    deferred_of[n_branches] = ($0 ~ /<!--[ \t]*deferred[ \t]*(:|-->)/) ? "true" : "false"
+    deferred_of[n_branches] = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) ? "true" : "false"
     # The reason travels with the flag. Empty on every non-deferred branch, and
     # empty is also the honest answer for the bare form: the branch IS deferred
     # and no reason was recorded, which is a different statement from a reason
@@ -1034,10 +1045,21 @@ section == "slices" && slice_shape == "heading" {
     sub(/[ \t]*-->.*$/, "", _c)
     claim_note = trim(_c)
   }
+  # `moved:` IS THE SAME ANSWER AS `deferred:`, and CLAUDE.md has said so since
+  # the reconcile scan was written: *"`deferred:`/`moved:` in the plan means
+  # reapable"*. `plot-reconcile-scan.sh:504` matches both in one arm; this
+  # parser matched only the first, so a slice given up with the other word read
+  # as still outstanding — to the board, the delivery gate and the fleet alike.
+  # Measured 2026-09-04 on `feature/the-reaper-sweeps-every-kind`: annotated
+  # `moved:` into the slice that superseded it, still `deferred:false` here.
+  #
+  # The two words differ in what they tell a READER — given up, versus taken
+  # somewhere else — and the reason is kept verbatim, so the distinction is not
+  # lost by being read alike.
   defer_note = ""
-  if (index($0, "deferred:") > 0) {
+  if (index($0, "deferred:") > 0 || index($0, "moved:") > 0) {
     _d = $0
-    sub(/^.*<!--[ \t]*deferred:[ \t]*/, "", _d)
+    sub(/^.*<!--[ \t]*(deferred|moved):[ \t]*/, "", _d)
     sub(/[ \t]*-->.*$/, "", _d)
     defer_note = trim(_d)
   }
@@ -1080,7 +1102,7 @@ section == "slices" && slice_shape == "heading" {
     wave_seq[n_branches] = ++wave_count[n_waves]
     # Bare `<!-- deferred -->` sets the flag with no reason, same as the old
     # shape; `deferred:` carries the reason.
-    deferred_of[n_branches] = ($0 ~ /<!--[ \t]*deferred[ \t]*(:|-->)/) ? "true" : "false"
+    deferred_of[n_branches] = ($0 ~ /<!--[ \t]*(deferred|moved)[ \t]*(:|-->)/) ? "true" : "false"
     deferred_why[n_branches] = defer_note
     claimed_of[n_branches] = claim_note
     waits_of[n_branches] = waits_note

@@ -15,7 +15,7 @@
 - **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-decides-create-or-reset`
 - **Started:** 2026-09-03, Jan Wloka, `feature/the-sweep-names-every-leftover`
 - **Started:** 2026-09-03, Jan Wloka, `docs/the-desk-belongs-to-the-agent`
-- **Started:** 2026-09-03, Jan Wloka, `feature/the-reaper-sweeps-every-kind` <!-- moved: into `feature/the-sweep-names-every-leftover`, which merged as #672 on 2026-09-03 carrying the rule AND its caller in one PR. The brief said #672 delivered "the rule and nothing else"; it did not — `plot-reap.sh` reads `rules/sweepable.ts` and `test/reconcile/sweep.test.mjs` covers it. The agent checked every "Done when" item against main and wrote no code. Confirmed 2026-09-04. -->
+- **Started:** 2026-09-03, Jan Wloka, `feature/the-reaper-sweeps-every-kind`
 - **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-waits-for-work`
 - **Started:** 2026-09-04, Jan Wloka, `feature/the-registry-queues-a-brief`
 - **Delivered:** 2026-09-04
@@ -148,6 +148,7 @@ Two measurements, the shape every other refusal in this estate is written in. Th
 
 ### Sweeping what was overlooked
 
+- `feature/the-reaper-sweeps-every-kind` <!-- moved: into `feature/the-sweep-names-every-leftover`, merged as #672 on 2026-09-03 carrying the rule AND its caller in one PR. The brief said #672 delivered "the rule and nothing else"; `plot-reap.sh` reads `rules/sweepable.ts` and `test/reconcile/sweep.test.mjs` covers it. The agent checked every "Done when" item against main and wrote no code. Confirmed 2026-09-04. -->
 - `feature/the-sweep-names-every-leftover` — extend the estate sweep past worktrees. **Measured 2026-09-02: 85 of 98 local branches already merged, and nothing sweeps them** — the largest leftover population here, and the one no script looks at. Orphaned claim refs and unowned dirty trees are the same shape: something nobody is coming back for, with no actor. Keep the reaper's five refusals and its per-kind licence. A local branch is deleted on two measurements — the host says merged, and no worktree holds it — never on `git branch -d` alone, which refuses a squash-merged branch for the wrong reason. (#672)
 
 ### Saying so in the specs
