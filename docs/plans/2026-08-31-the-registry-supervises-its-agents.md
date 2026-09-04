@@ -478,11 +478,11 @@ that gate exists.
      showed 1 manifest against 25 synthesized rows while it did so. That is
      the measurement the gate asked for, and it says build the daemon. -->
 
-- `feature/the-registry-supervises-its-agents` — `plot-registryd`: the tick, the three bounds, the correction-and-resume path, the reap on success, and the `needs a person` stop. Stateless across restarts by construction.
+- `feature/the-registry-supervises-its-agents` <!-- deferred: moved to 2026-09-03-the-domain-owns-the-agent-lifecycle on 2026-09-04 — this plan delivered without it, and a delivered plan dispatches nothing --> — `plot-registryd`: the tick, the three bounds, the correction-and-resume path, the reap on success, and the `needs a person` stop. Stateless across restarts by construction.
 
 ### Watching
 
-- `feature/the-machine-keeps-the-daemon-alive` <!-- waits: feature/the-registry-supervises-its-agents --> — the launchd/systemd unit, and what the daemon does on a tick it cannot complete. Last, because a supervisor worth keeping alive has to exist first.
+- `feature/the-machine-keeps-the-daemon-alive` <!-- deferred: moved to 2026-09-03-the-domain-owns-the-agent-lifecycle on 2026-09-04, with the wave it waits on --> — the launchd/systemd unit, and what the daemon does on a tick it cannot complete. Last, because a supervisor worth keeping alive has to exist first.
 
 ## Done when
 
