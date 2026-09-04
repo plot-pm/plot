@@ -238,15 +238,15 @@ costs.
 
 | Plan | Status | What it covers |
 |------|--------|----------------|
-| [every-element-is-a-domain-concept](../../plans/2026-09-04-every-element-is-a-domain-concept.md) | Draft, PR #693 open | The TYPES: Branch, Plan and Slice stop being strings. Carries the host work — one slice per failure mode, because the four scripts that ask `gh` directly do not fail alike |
-| [a-lifecycle-is-enforced-by-a-test](../../plans/2026-09-04-a-lifecycle-is-enforced-by-a-test.md) | Draft, PR #698 open | The RULES: `transitions/` for Agent, Worktree, Slice and Story, each refusing with a test per refusal, plus the ratchet that stops the next lifecycle hiding |
-| [the-workflow-owns-the-word-phase](../../plans/2026-09-04-the-workflow-owns-the-word-phase.md) | Draft, PR #701 open | The VOCABULARY: a plan has a state, the development workflow has phases, and each phase names its work. Lands first — the rules above are written after it or they copy the conflation into four new files |
+| [every-element-is-a-domain-concept](../../plans/2026-09-04-every-element-is-a-domain-concept.md) | Approved, PR #693 merged | The TYPES: Branch, Plan and Slice stop being strings. Carries the host work — one slice per failure mode, because the four scripts that ask `gh` directly do not fail alike |
+| [a-lifecycle-is-enforced-by-a-test](../../plans/2026-09-04-a-lifecycle-is-enforced-by-a-test.md) | Approved, PR #698 merged | The RULES: `transitions/` for Agent, Worktree, Slice and Story, each refusing with a test per refusal, plus the ratchet that stops the next lifecycle hiding |
+| [a-branch-state-is-derived-once](../../plans/2026-09-04-a-branch-state-is-derived-once.md) | Draft, PR #702 open | The DERIVATION: three domain rules read `BranchState` and none produces one — the eight states are decided in four places across a 4,008-line shell script and merged by an untestable `if` |
+| [the-workflow-owns-the-word-phase](../../plans/2026-09-04-the-workflow-owns-the-word-phase.md) | Approved, PR #701 merged | The VOCABULARY: a plan has a state, the development workflow has phases, and each phase names its work. Lands first — the rules above are written after it or they copy the conflation into four new files |
 
-The links resolve once the plan PRs merge — a plan reaches `docs/plans/` on the
-default branch by being approved, so until then the file lives on its `idea/`
-branch and the PR number is how to read it.
+Three are approved and on the default branch; `a-branch-state-is-derived-once`
+reaches `docs/plans/` when its PR merges, which is what approving it does.
 
-**The vocabulary plan lands first; the other two are independent of each other.**
+**The vocabulary plan lands first; the rest are independent of each other.**
 A delivered plan is ready for testing — its state is `delivered`, its phase is
 `Testing` — and today one word carries both. Writing four `transitions/` files
 before that is settled copies the conflation into four new places.
@@ -312,3 +312,15 @@ clean the estate is.
 The pattern is worth keeping: every error was a claim that the problem was
 smaller and tidier than it is. A story arguing that prose drifts from code
 drifted from the code within a day of being written.
+
+**2026-09-04, three plans approved and a fourth written.**
+`every-element-is-a-domain-concept` (#693), `a-lifecycle-is-enforced-by-a-test`
+(#698) and `the-workflow-owns-the-word-phase` (#701) merged after one, two and
+two rounds of interrogation — 16 slices between them.
+
+`a-branch-state-is-derived-once` (#702) came out of asking what the first three
+leave uncovered. It is the first plan here that is neither vocabulary nor
+enforcement: `BranchState` has **three consumers in the domain and no producer
+there**, and its eight states are decided in four places across a 4,008-line
+shell script. That is measured rather than classified, which is why it did not
+wait for the ratchet that will name the other thirty.
