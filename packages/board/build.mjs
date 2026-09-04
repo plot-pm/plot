@@ -206,6 +206,32 @@ await esbuild.build({
 fs.copyFileSync(taskArtifact, shippedTask);
 fs.chmodSync(shippedTask, 0o755);
 
+// The supervisor: `plot-registryd`, one per repository.
+//
+// AN EIGHTH artifact rather than a flag on the board's, and the reason is
+// lifetime rather than size. `index.ts` binds a port at import time, so a
+// daemon flag on it would mean a supervisor that also serves a web page —
+// two processes with different owners (launchd/systemd keeps this one alive,
+// nothing keeps the board alive), different failure modes and different
+// cadences, sharing one exit.
+const registrydArtifact = path.join(here, 'dist/plot-registryd.mjs');
+const shippedRegistryd = path.join(here, '../../skills/plot/scripts/board/plot-registryd.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/registryd-main.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: registrydArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(registrydArtifact, shippedRegistryd);
+fs.chmodSync(shippedRegistryd, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -272,6 +298,7 @@ const movableKb = (fs.statSync(shippedMovable).size / 1024).toFixed(1);
 const transitionKb = (fs.statSync(shippedTransition).size / 1024).toFixed(1);
 const promptKb = (fs.statSync(shippedPrompt).size / 1024).toFixed(1);
 const taskKb = (fs.statSync(shippedTask).size / 1024).toFixed(1);
+const registrydKb = (fs.statSync(shippedRegistryd).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -279,4 +306,5 @@ console.log(`Built plot-movable.mjs (${movableKb} KB) → skills/plot/scripts/bo
 console.log(`Built plot-transition.mjs (${transitionKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-prompt.mjs (${promptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-task.mjs (${taskKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-registryd.mjs (${registrydKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

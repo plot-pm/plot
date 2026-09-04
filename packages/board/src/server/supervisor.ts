@@ -36,6 +36,19 @@ import { transcriptDir, transcriptFile } from './transcript.js';
  * which is what keeps a bug here from being a bug that destroys work.
  */
 export interface SupervisorWorld {
+  /**
+   * Called at the top of every tick, before any reading is taken.
+   *
+   * THE ONLY LIFETIME THIS INTERFACE HAS. A world may hold a reading that is
+   * expensive per tick and cheap per agent — the plan estate is the measured
+   * one: reading it per agent cost 10.0-11.5 s for three agents against 976 ms
+   * without it, because `readPlans` walks 172 files.
+   *
+   * A memo that outlived the tick would make the daemon hold state, which is the
+   * one property this design does not have. This is where a world drops it, so
+   * `kill -9` still costs one tick and nothing else.
+   */
+  beginTick?(): void;
   /** Whether a worker process is alive in this desk. */
   workerAlive(worktree: string): Promise<boolean>;
   /** What the host said about any PR for this branch. */
@@ -80,6 +93,7 @@ export const readTick = async (
   entries: readonly AgentEntry[],
   world: SupervisorWorld,
 ): Promise<SuperviseReadings> => {
+  world.beginTick?.();
   const headroom = await world.headroom();
   const workspacePackages = await world.workspacePackages();
   const agents: SupervisionReadings[] = [];
@@ -198,6 +212,8 @@ export const gatesFor = (planLine: PlanBranchLine | null): readonly Gate[] =>
 export interface WorldOptions {
   /** The repository root. */
   repoRoot: string;
+  /** Called at the top of every tick, for a world holding a per-tick reading. */
+  beginTick?(): void;
   /** Whether a pid is alive. */
   isAlive(pid: number): Promise<boolean>;
   /** What the host says about a branch. */
@@ -234,6 +250,7 @@ const BLOCKED_PREFIX = 'PLOT-BLOCKED';
  * @returns the world the tick reads through.
  */
 export const worldFrom = (options: WorldOptions): SupervisorWorld => ({
+  beginTick: () => options.beginTick?.(),
   workerAlive: async (worktree) => {
     const pid = options.recordedPid(worktree);
     // A DESK WITH NO RECORDED PID HAS NO LIVE WORKER, and that is a reading
