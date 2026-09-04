@@ -139,7 +139,7 @@ them together is what makes the type earn its existence.
 
 ## Branches
 
-### Unblocking Bitbucket
+### Answering the merge question
 
 - `feature/a-merge-is-a-domain-question` — `pr_merged` and `pr_open`
   (`plot-pr-merged.sh`) become domain rules behind a bundle. **The reasoning is
@@ -150,6 +150,8 @@ them together is what makes the type earn its existence.
   silence. **Asserted: a host that cannot be asked deletes nothing**, and
   **asserted: the rule answers without `gh`**. The shell function survives; only
   its body moves, so all ten sourcing callers are untouched.
+
+### Routing every PR question
 
 - `feature/every-pr-question-goes-through-the-adapter` — the other three scripts
   that ask the host directly. **`plot-pr-merged.sh` is the worst of four, not
@@ -170,6 +172,8 @@ them together is what makes the type earn its existence.
   Two scripts are deliberately **not** in this list. `plot-budget.sh` and
   `plot-worker-monitor.sh` mention `gh` only in comments — zero live calls — and
   an earlier count that included them was reading prose as code.
+
+### Giving issue tracking its own port
 
 - `feature/issue-tracking-is-its-own-port` — **Issue tracking becomes a domain
   concept with its own port and two adapter implementations.**
@@ -247,6 +251,8 @@ them together is what makes the type earn its existence.
   **Asserted: the reaper's refusals and the ref-deleter's guards are one rule
   with two callers**, which is the property that makes the type worth having —
   and the one a wrapper would not deliver.
+
+### Repairing an unresolvable symref
 
 - `bug/the-default-branch-repairs-itself` — **folded in from `a-ref-is-not-a-claim` on 2026-09-04**, because a symref that will not resolve is a Branch question and this is where Branch becomes a type. Twice that day `refs/remotes/origin/HEAD` pointed at `origin/plot-corpus-pin`, a branch that does not exist, and `plot-dispatch.sh` refused every dispatch because it could not resolve the default branch. `git remote set-head origin --auto` repaired it in under a second, both times. A component that needs the default branch repairs an unresolvable symref rather than refusing, **and names what it repaired** — a recurring corruption silently fixed is one nobody investigates. It does not touch a symref that resolves: a deliberate non-default HEAD is somebody's choice. What leaves the pin behind is a lead, not a conclusion; record it rather than assume it.
 
