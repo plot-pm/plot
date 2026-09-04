@@ -1940,10 +1940,11 @@ test('dispatch: --no-start stays its own state, never a missing config', () => {
   // time on 2026-08-17; reporting its zero as a configuration gap would read
   // as a defect and push a user off the workflow they chose.
   //
-  // WHAT IT SUPPRESSES MOVED WITH THE FAN-OUT. It used to prepare desks and
-  // withhold the workers; dispatch prepares nothing and starts nothing, so the
-  // flag now withholds the hand-over itself. The state word is unchanged, and
-  // that is the point — `suppressed` still says a person chose this.
+  // WHAT IT WITHHOLDS WENT WITH THE FAN-OUT. It used to prepare desks and hold
+  // the workers back; dispatch starts none either way now, so the flag changes
+  // nothing the run DOES and only records why the zero was chosen. The state
+  // word is what survives, and that is the point — `suppressed` still says a
+  // person chose this, where `unconfigured` would say nobody had decided.
   const f = repoWithConfig('nostart');
   const out = execFileSync('bash', [dispatch, '--offline', '--no-start', 'w'],
     { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });

@@ -27,9 +27,11 @@
 #               byte-identical, which is what lets it be diffed against a run
 #               from before a change to this script.
 #   --yes       with --migrate, actually move the worktrees (default is dry-run)
-#   --no-start  hand nothing over. Dispatch starts no worker either way, so
-#               this now suppresses the hand-over itself — the inspect-first
-#               run that reports what is eligible and writes nothing.
+#   --no-start  record that no worker was wanted: the run still hands its slices
+#               over, and reports `worker=suppressed` rather than a missing
+#               `Worker command`. Dispatch starts no worker either way — the
+#               registry spawns agents — so this now says WHY the zero was
+#               chosen and no longer changes what the run does.
 #   --no-brief  hand a slice over even when its branch has no brief. The named
 #               escape for the brief gate: a missing brief is not handed over,
 #               because the agent's first instruction is to read
@@ -50,13 +52,12 @@
 #   <slug>      the plan to fan out
 # Output: one line per branch, each optionally followed by an indented
 #         `in flight:` line naming a branch that already holds files, then the
-#         summary block — an optional prose consequence line, then a
 #         machine-countable footer.
 #         A branch whose worktree exists with UNMERGED work is refused rather
-#         than dispatched — counted `skipped`, with the worktree path named,
+#         than handed over — counted `skipped`, with the worktree path named,
 #         in `--dry-run` identically to a real run. See "THE HELD-BRANCH GATE".
-#             3 worktrees prepared, 0 workers started, no `Worker command` configured
-#             summary: dispatched=2 reused=0 skipped=1 started=2 brief=missing worker=unconfigured brief_asked=0
+#             handed over feature/one → the registry
+#             summary: dispatched=2 reused=0 skipped=1 started=0 brief=missing worker=unconfigured brief_asked=0
 #
 # THE CONSEQUENCE IS STATED IN THE SUMMARY, NOT PER BRANCH. start_worker has
 # always said "no 'Worker command' configured" beside the branch it could not
