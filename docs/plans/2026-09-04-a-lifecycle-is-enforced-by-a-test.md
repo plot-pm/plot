@@ -11,7 +11,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <branch>
 -->
@@ -120,10 +120,33 @@ moving them together is what lets one rule answer it.
 
 ### Approach
 
-**Per entity: a `transitions/<entity>.ts` shaped like `transitions/plan.ts`, and
-a test asserting every refusal.** The existing file is the template rather than
-an inspiration — same `Precondition` / `RefusalReason` / `Decision` shape, so a
-caller that reads one reads them all.
+**Per entity: a `transitions/<entity>.ts`, and a test asserting every refusal.**
+`transitions/plan.ts` is the template for the refusal half — the same
+`Precondition`, `RefusalReason` and `Refusal`, so a caller that reads one reads
+them all.
+
+**But there are two shapes, not one, and the difference is in the spec.**
+`DESIGN-plan.md:810`: *"Plan and Story are the only two entities whose state is
+a stated fact rather than a derived relation."*
+
+| | stated state | observed state |
+|---|---|---|
+| entities | Plan, Story | Agent, Worktree, Slice |
+| the state lives in | a file Plot writes | disk, refs, the process table |
+| a transition is | **writes the caller performs** | **a verdict on a change that already happened** |
+| the decision carries | `{ slug, phase, field, record }` | the judgement, and nothing to write |
+
+`Decision` as it stands is plan-specific to its bones: `field` is typed
+`'Approved' | 'Delivered' | 'Released'` and `record` is the text of a
+`## Status` line. An Agent has no `## Status` section; nothing anywhere writes
+a `WorktreeState`. Asking one `Decision` to serve both would abstract over a
+distinction the spec calls fundamental — so the refusals are shared and the
+decisions are not.
+
+**This was found by interrogation rather than at implementation**, which is the
+point of asking: the plan promised one shape and would have discovered the
+second in its second slice, after the first had set a precedent that did not
+fit.
 
 **The refusals come from the specs, not from the code.** Each spec already names
 what must not happen; the rule states it and the test proves it. Where code and
@@ -293,6 +316,35 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
   report a clean estate while skipping them — the blind spot a NUL byte already
   cost this repo across six gates.
 
+  **The declaration sits at the enum, and the file is checked separately.**
+  A file cannot carry it: `entities/sprint.ts` holds **three** enums —
+  `SprintState` is a lifecycle, `MoscowTier` and `ItemStatus` are not — so a
+  `transitions/sprint.ts` would satisfy the gate for all three, including the two
+  that must never have one. `rules/verdict.ts` is worse: it holds
+  `StartabilityVerdict` and `BriefState`, for entities that do not share its
+  name. **There is no reliable enum → entity mapping**, so the unit is the enum,
+  which is also the thing that can hide.
+
+  **The pattern exists in this repo already.**
+  `scripts/check-ancestry-decisions.sh` bans an *undeclared decision* rather than
+  a call, requiring `# plot-ancestry: prefilter|evidence` within five lines of
+  each ancestry call — because no grep can tell the two kinds apart and the
+  difference is what the answer flows into. This gate is the same act: a marker
+  within N lines of each `z.enum` saying `lifecycle`, `reading` or
+  `classification`, and a dedicated script rather than an inline `grep` in
+  `ci.yml`.
+
+  **Where the marker says `lifecycle`, the gate also requires the rule.**
+  Marker alone would let a lifecycle be declared and never written; the file
+  check alone cannot see which enum it covers. Together they answer both halves,
+  and neither can be satisfied by accident.
+
+  **Its job is to stop 38, not to reach 0.** Four rules land in this plan, so the
+  count ends near 33 and the target stays debt. That is the point: every enum
+  added after it must declare its kind, which is the failure this story exists to
+  prevent — and the 37 declarations are themselves the review that finds the next
+  lifecycle nobody had noticed.
+
 ### The slice's lifecycle
 
 - `feature/a-slice-lifecycle-refuses` — `transitions/slice.ts`. Eligible,
@@ -359,3 +411,27 @@ cost a person an hour that same day.
 That two violations were fixed in the direction this plan argues for is evidence
 for the approach. It is also the argument for the ratchet: the estate corrects
 what it can see, and a lifecycle nobody can see stays broken.
+
+**Round 2, 2026-09-04.** Two findings, both about mechanics the plan had
+asserted rather than checked.
+
+**There are two transition shapes, not one.** The plan said all four files would
+be *"shaped like `transitions/plan.ts`"*. Its `Decision` is plan-specific to its
+bones — `field` typed `'Approved' | 'Delivered' | 'Released'`, `record` the text
+of a `## Status` line — and `DESIGN-plan.md:810` already says why: Plan and Story
+state their own state, while an Agent's, a Worktree's and a Slice's are observed.
+Nothing writes a `WorktreeState`. The refusals stay shared; the decisions
+diverge, and the plan says so before the second slice discovers it.
+
+**The ratchet cannot key on a file.** It promised to count enums lacking
+`transitions/<entity>.ts`, but `entities/sprint.ts` holds three enums of two
+kinds and `rules/verdict.ts` holds enums for entities that do not share its name
+— there is no reliable enum → entity mapping. The declaration moves to the enum,
+following `scripts/check-ancestry-decisions.sh`, which bans an undeclared
+decision for the same reason: no grep can tell the kinds apart. Where a marker
+says `lifecycle`, the gate additionally requires the rule to exist, so neither
+half can be satisfied alone.
+
+Both were reachable only by reading the code the plan proposed to change. The
+first would have surfaced in slice two, after slice one had set a precedent that
+did not fit.
