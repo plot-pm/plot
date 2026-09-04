@@ -46,6 +46,13 @@ function wavePlan(work, { slug = 'fleet-flow', date = '2026-08-14' } = {}) {
 - \`feature/dropped\` — folded in <!-- deferred: covered by feature/api -->
 `);
   fs.symlinkSync(`../${date}-${slug}.md`, path.join(work, 'docs', 'plans', 'active', `${slug}.md`));
+  // A brief per branch, named as `brief_path` names it — the branch's last
+  // segment. A slice with no brief is not handed over, and these flows are
+  // about the hand-over rather than about the gate in front of it.
+  fs.mkdirSync(path.join(work, '.plot', 'briefs'), { recursive: true });
+  for (const b of ['seam', 'api', 'ui']) {
+    fs.writeFileSync(path.join(work, '.plot', 'briefs', `${b}.md`), `# Brief: ${b}\n`);
+  }
   sh(work, 'git add -A && git commit -qm plan && git push -q origin main');
   return rel;
 }
@@ -87,54 +94,76 @@ test('flow f: wave gating — a blocked wave yields no work until wave 1 merges'
   sb.cleanup();
 });
 
-test('flow g: dispatch claims exactly what --next offered, and the pulse sees it', () => {
-  // The seam between the two commands: dispatch must claim the branch the scan
-  // named, and the scan must then report it as claimed. If either side drifted,
-  // two sessions could take the same branch — the failure this design exists
-  // to prevent.
+test('flow g: dispatch hands over exactly what --next offered, and it stays queued', () => {
+  // The seam between the two commands, and BOTH HALVES OF IT MOVED. Dispatch
+  // used to claim the branch the scan named, and the scan then reported it
+  // `claimed`; that was the whole exclusion, because nothing else assigned.
+  //
+  // The registry is the assignment lock now, so dispatch pushes no claim — and
+  // the queue is DERIVED: an eligible slice with a brief and no claim IS
+  // queued. Claiming here would take the slice straight back out of the queue
+  // it was being put into, which is why the branch must still read `open` and
+  // must still be on offer afterwards. That is the inversion this asserts.
   const sb = makeSandbox({ name: 'fleet-claim', config: CONFIG });
   wavePlan(sb.work, { slug: 'claimflow' });
 
   const offered = runScript('plot-fleet-scan.sh', ['--offline', '--next', 'claimflow'],
     { cwd: sb.work }).trim();
-  runScript('plot-dispatch.sh', ['--offline', '--no-start', '--max', '1', 'claimflow'],
+  const out = runScript('plot-dispatch.sh', ['--offline', '--max', '1', 'claimflow'],
     { cwd: sb.work });
 
-  // The claim is a REF on origin, not a note in a file.
-  const refs = sh(sb.work, `git ls-remote --heads origin ${offered}`);
-  assert.match(refs, new RegExp(offered.replace('/', '\\/')));
+  // IT HANDED OVER THE BRANCH THE SCAN NAMED. The two commands still have to
+  // agree about which slice is next; only what dispatch does with it changed.
+  assert.match(out, new RegExp(`handed over ${offered.replace('/', '\\/')}`),
+    `the hand-over must name the branch --next offered:\n${out}`);
 
+  // NO CLAIM REF. Both of the old assertions, inverted.
+  assert.equal(sh(sb.work, `git ls-remote --heads origin ${offered}`).trim(), '',
+    'a hand-over pushes no claim — the ref is what would take it out of the queue');
   const pulse = runScript('plot-fleet-scan.sh', ['--offline', 'claimflow'], { cwd: sb.work });
-  assert.match(pulse, new RegExp(`${offered.replace('/', '\\/')} — claimed`));
+  assert.doesNotMatch(pulse, new RegExp(`${offered.replace('/', '\\/')} — claimed`),
+    'nothing claimed it, so the pulse must not say claimed');
 
-  // And a claimed branch is no longer on offer.
-  let second = '';
-  try {
-    second = runScript('plot-fleet-scan.sh', ['--offline', '--next', 'claimflow'],
-      { cwd: sb.work }).trim();
-  } catch { /* exit 1 = nothing claimable, also acceptable */ }
-  assert.notEqual(second, offered, 'a claimed branch must not be offered again');
+  // AND IT IS STILL ON OFFER, which is what "still queued" means when the queue
+  // is derived. The old test asserted the exact opposite.
+  const second = runScript('plot-fleet-scan.sh', ['--offline', '--next', 'claimflow'],
+    { cwd: sb.work }).trim();
+  assert.equal(second, offered,
+    'a handed-over slice is still queued until the registry assigns it');
 
   sb.cleanup();
 });
 
-test('flow h: a second dispatcher cannot steal a claimed branch', () => {
-  // Two dispatchers racing is the scenario claim-by-ref exists for. Simulated
-  // by dispatching twice: the second run must adopt or skip, never re-claim,
-  // and must not grow the worktree count.
+test('flow h: a second dispatcher repeats the hand-over and builds nothing twice', () => {
+  // TWO DISPATCHERS RACING WAS THE SCENARIO CLAIM-BY-REF EXISTED FOR, and the
+  // race is no longer theirs to lose. The registry assigns, and it hands one
+  // slice to one agent — so what two dispatchers do is say the same thing
+  // twice, which is safe because the hand-over is a REPORT and not a write.
+  //
+  // That is a stronger idempotence than the old one, which rested on adopting
+  // a desk the first run had already cut. Nothing is adopted here because
+  // nothing was made.
   const sb = makeSandbox({ name: 'fleet-race', config: CONFIG });
   wavePlan(sb.work, { slug: 'raceflow' });
 
-  const first = runScript('plot-dispatch.sh', ['--offline', '--no-start', '--max', '1', 'raceflow'],
-    { cwd: sb.work });
-  assert.match(first, /dispatched feature\/seam/);
   const wtCount = () => sh(sb.work, 'git worktree list').trim().split('\n').length;
-  const n = wtCount();
+  const before = wtCount();
 
-  const second = runScript('plot-dispatch.sh', ['--offline', '--no-start', '--max', '1', 'raceflow'],
+  const first = runScript('plot-dispatch.sh', ['--offline', '--max', '1', 'raceflow'],
     { cwd: sb.work });
-  assert.match(second, /(reusing|already|skipped)/i);
-  assert.equal(wtCount(), n, 'a re-dispatch must not create a second worktree');
+  assert.match(first, /handed over feature\/seam/);
+
+  const second = runScript('plot-dispatch.sh', ['--offline', '--max', '1', 'raceflow'],
+    { cwd: sb.work });
+  assert.match(second, /handed over feature\/seam/,
+    'the slice is still queued, so the second run hands over the same one');
+
+  // NEITHER RUN BUILT ANYTHING. The desk is the agent's to cut when it takes
+  // the brief; two dispatchers must not leave two behind — measured 2026-09-02,
+  // 2 agents holding 11 worktrees is what that used to cost.
+  assert.equal(wtCount(), before, 'no dispatch may create a worktree, let alone two');
+  assert.equal(sh(sb.work, 'git ls-remote --heads origin feature/seam').trim(), '',
+    'and neither may claim the branch');
 
   sb.cleanup();
 });
