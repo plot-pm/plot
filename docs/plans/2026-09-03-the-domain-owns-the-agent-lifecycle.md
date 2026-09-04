@@ -260,7 +260,7 @@ A declaration is a fact a person wrote.
   `DESIGN-agent.md:797`. **Asserted: one agent reads one state**, which it does
   not today. The PR fact stays the caller's to supply — a rule taking readings
   as values makes the choice visible in a signature instead of hidden in an
-  argument default.
+  argument default. → #686
 
 ### Ending for a reason
 
