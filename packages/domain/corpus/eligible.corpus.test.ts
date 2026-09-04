@@ -108,11 +108,16 @@ describe('the estate is really being read', () => {
     // 20 to 19, and the floor then failed four PRs in a row, none of which had
     // touched the scan.
     //
-    // Waves do not shrink that way. Each unfinished plan carries several, so
-    // the count stays well clear of zero — 74 against 19 plans on the same
-    // scan — and it is still zero exactly when the scan read nothing, which is
-    // the failure this guard is named for.
-    expect(pulse.summary.waves).toBeGreaterThan(20);
+    // Waves do not shrink that way — SAID ONCE AND MEASURED FALSE. The claim
+    // was 74 waves against 19 plans; on 2026-09-04, after five plans delivered
+    // in one session, it read exactly 20 and this line failed every open PR.
+    // A wave count is the backlog too: it falls when work ships, which is the
+    // project succeeding.
+    //
+    // The guard is named for a scan that read NOTHING, and that is `> 0`. Any
+    // floor above it is a second assertion nobody wrote down — that the estate
+    // stays a certain size — and this file has now paid for it twice.
+    expect(pulse.summary.waves).toBeGreaterThan(0);
   });
 });
 
@@ -146,7 +151,9 @@ describe('every slice the board renders follows from the readings it is shown', 
     // silently visited fewer than the scan reported fails here rather than
     // passing with a shorter list.
     expect(compared).toBe(pulse.summary.waves);
-    expect(compared).toBeGreaterThan(20);
+    // `> 0` for the reason above: this counts what the estate holds, and the
+    // estate shrinks when plans deliver.
+    expect(compared).toBeGreaterThan(0);
     expect(found.map(describeDisagreement)).toEqual([]);
   });
 });
