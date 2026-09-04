@@ -252,6 +252,40 @@ them together is what makes the type earn its existence.
   with two callers**, which is the property that makes the type worth having —
   and the one a wrapper would not deliver.
 
+  **And it answers what Plot makes of a ref it is handed.** That question has no
+  owner today; four components answer it independently:
+
+  | component | what it decides | where |
+  |---|---|---|
+  | `plot-fleet-scan.sh` | a branch exists only if a plan's `## Branches` names it | the `wave_lines` loop, `:3406` |
+  | `fleet.ts` | `idea/*` refs are worth discovering | `for-each-ref`, `:1237` |
+  | `ideaPlanFiles` | an `idea/*` branch may carry a plan file | `:1233` |
+  | `collectBranchPlans` | **any** configured prefix may carry one | `board.ts:2128` |
+
+  The last two overlap, and `plot-reconcile-scan.sh` has thirteen sections and
+  **none for a ref nobody planned** — so a hand-cut branch is not classified as
+  anything; it simply does not exist to Plot.
+
+  **The rule states the answer once:** given a ref, Plot recognises **a plan
+  under review** (a prefixed branch carrying a plan file the default branch does
+  not have), **a slice's branch** (named by an approved plan's `## Branches`), or
+  **nothing Plot planned** — and says which rather than rendering what it happens
+  to know.
+
+  **Measured 2026-09-04, the cost of having no such rule.** PR #702 rendered on
+  the board as a `PLAN` row with CI status and a draft badge, and **no phase, no
+  rounds and wrong stats** — because the board had the PR and the ref but no
+  parsed plan. `ideaPlanFiles` had even found the plan file's path and kept only
+  its name. Every field shown was a PR fact; every missing field was a Plan
+  field. The row was not wrong about anything it could see; it had no rule
+  telling it what it was looking at.
+
+  **Asserted: a ref carrying a plan file that main does not have is recognised as
+  a plan under review**, so its phase and rounds are read rather than omitted.
+  **Asserted: a ref no plan names is recognised as unplanned and said to be so**
+  — never silently absent, which is today's behaviour and the reason nobody
+  notices it.
+
 ### Repairing an unresolvable symref
 
 - `bug/the-default-branch-repairs-itself` — **folded in from `a-ref-is-not-a-claim` on 2026-09-04**, because a symref that will not resolve is a Branch question and this is where Branch becomes a type. Twice that day `refs/remotes/origin/HEAD` pointed at `origin/plot-corpus-pin`, a branch that does not exist, and `plot-dispatch.sh` refused every dispatch because it could not resolve the default branch. `git remote set-head origin --auto` repaired it in under a second, both times. A component that needs the default branch repairs an unresolvable symref rather than refusing, **and names what it repaired** — a recurring corruption silently fixed is one nobody investigates. It does not touch a symref that resolves: a deliberate non-default HEAD is somebody's choice. What leaves the pin behind is a lead, not a conclusion; record it rather than assume it.
@@ -313,3 +347,20 @@ Two citations had drifted onto comments and are corrected;
 `bug/the-default-branch-repairs-itself` was examined and kept — resolving the
 default branch is a Branch operation, it broke dispatch twice in one day, and
 the plan already requires the repair to name itself.
+
+**Amended 2026-09-04, after approval.** `feature/a-branch-is-a-domain-entity`
+gains the recognition rule: given a ref, what does Plot make of it?
+
+**The amendment is a scope addition to one slice, not a new decision.** That
+slice already existed to be *a home for the rules that judge a branch*, and this
+is the rule that had no home at all — four components answer it independently
+today, two of them (`ideaPlanFiles` and `collectBranchPlans`) overlapping, and
+`plot-reconcile-scan.sh` answers it for a ref nobody planned by having no
+section for one.
+
+**It is recorded here rather than folded in silently** because the plan was
+already Approved when the gap was found, and an approved plan that grows without
+saying so is the drift this story exists to remove. The trigger was PR #702
+rendering as a `PLAN` row with CI status, a draft badge, no phase, no rounds and
+wrong counts — every field it showed a PR fact, every field it missed a Plan
+field, and no rule anywhere saying which it was looking at.
