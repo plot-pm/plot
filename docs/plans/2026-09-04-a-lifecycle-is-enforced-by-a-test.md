@@ -11,6 +11,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <branch>
 -->
@@ -70,17 +71,38 @@ And it names the exact instance:
 
 **Measured this session, three violations of prose-only lifecycle rules:**
 
-- An agent was terminated by **itself** (`plot-worker-loop.sh:626` SIGKILLs its
-  own process group) while `DESIGN-agent.md:220` assigns the manifest — and the
-  agent's declaration — to the Registry. `registry.ts` contains no `kill` and
-  no write at all.
-- The same agent read **two different states** at once: `finished` from the
+- **An agent ends itself.** `plot-worker-loop.sh:1270` writes its own ending —
+  `write_ending … bound bound` — and calls `exit 124` when it decides its bound
+  expired, while `DESIGN-agent.md:220` gives the Registry the manifest and the
+  agent's declaration. `registry.ts` holds no `kill` and no write at all.
+- The same agent reads **two different states** at once: `finished` from the
   scan, `stalled` from the registry, because one caller passes a PR fact and the
   other deliberately does not.
-- Four state vocabularies coexist — 8, 8, 8, and **5** in `registry.ts:35` —
-  which `DESIGN-agent.md:797` already records as an open point.
+- **A lifecycle is declared three times and the declarations disagree** — the
+  Story case below, still live, and the one that cost a person an hour.
 
 None of those is a coding mistake. Each is a lifecycle nobody could enforce.
+
+**Two earlier entries in this list were re-measured on 2026-09-04 and no longer
+hold.** They are removed rather than quietly corrected, because how they failed
+matters to the argument.
+
+The plan cited `plot-worker-loop.sh:626` as an agent SIGKILLing *its own process
+group*. Reading every kill and exit in that script: all seven `_kill_tree` calls
+target a **named child** — the prompt child, the watchdog, the monitor watcher,
+the wait sleep. None touches the loop's own group. The violation is real but it
+is a different act, at `:1270`, and stated above as what it is.
+
+The plan also cited *"four state vocabularies — 8, 8, 8, and 5 at
+`registry.ts:35`"*. There are now **two declarations and one source**:
+`registry.ts:44` reads `export type AgentState = ContractAgentState`, and
+`schema.ts:2916` builds the board's enum as `...DomainAgentStateSchema.options`
+plus `unknown` — a deliberate extension rather than a copy. The estate fixed
+that one, in exactly the direction this plan argues for, while the plan sat
+unapproved.
+
+**That is evidence for the approach rather than against it** — and it is why the
+ordering below now leads with the disagreement that is still live.
 
 ### Why this is a better unit than the scripts
 
@@ -195,24 +217,6 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
 
 ## Branches
 
-### The agent's lifecycle
-
-- `feature/an-agent-lifecycle-refuses` — `transitions/agent.ts`. The eight
-  states `DESIGN-agent.md` names, and the refusals it already states: an agent
-  is terminated by the Registry, a manifest belongs to the Registry, `elsewhere`
-  means no worktree on this machine. **Asserted: an agent cannot terminate
-  itself** — the rule that `plot-worker-loop.sh:626` violates today, so the
-  first test written fails against current behaviour and says why.
-
-### The worktree's lifecycle
-
-- `feature/a-worktree-lifecycle-refuses` — `transitions/worktree.ts`. The five
-  measurements `plot-reap.sh` already refuses on and the five guards
-  `plot-release-refs.sh` applies are one question about a desk. **Asserted: a
-  reaped checkout is re-creatable and a deleted ref is not** — the asymmetry
-  that makes those two scripts refuse differently, currently held only in their
-  comments.
-
 ### The story's lifecycle
 
 - `feature/a-story-lifecycle-refuses` — `transitions/story.ts`. **The one
@@ -244,6 +248,34 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
   caught it was the board rendering a warning and a human reading it; the two
   the lint then rejected went back to `active`. Every step was a correct reading
   of a different declaration.
+### The agent's lifecycle
+
+- `feature/an-agent-lifecycle-refuses` — `transitions/agent.ts`. The eight
+  states `DESIGN-agent.md` names, and the refusals it already states: an agent
+  is terminated by the Registry, a manifest belongs to the Registry, `elsewhere`
+  means no worktree on this machine.
+
+  **Asserted: an agent cannot end itself on a bound** — `plot-worker-loop.sh:1270`
+  does exactly that today, writing `write_ending … bound bound` and calling
+  `exit 124`, so the test fails against current behaviour and names the line.
+
+  **The assertion is narrow on purpose.** An earlier draft asserted that an agent
+  cannot terminate itself at all, citing a SIGKILL of its own process group that
+  does not exist: all seven `_kill_tree` calls in that script target a named
+  child. A test written against the general claim would have **passed on the day
+  it was written** — a refusal that refuses nothing, which is the shape a gate is
+  supposed to prevent. Verify which exit is the violation, then assert against
+  that exit.
+
+### The worktree's lifecycle
+
+- `feature/a-worktree-lifecycle-refuses` — `transitions/worktree.ts`. The five
+  measurements `plot-reap.sh` already refuses on and the five guards
+  `plot-release-refs.sh` applies are one question about a desk. **Asserted: a
+  reaped checkout is re-creatable and a deleted ref is not** — the asymmetry
+  that makes those two scripts refuse differently, currently held only in their
+  comments.
+
 
 ### Refusing the next hidden one
 
@@ -274,6 +306,12 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
 Written 2026-09-04. Counts measured on `main` that day: 23 entities, 1
 transitions file, 41 tests and 24 refusal assertions in the one that exists.
 
+**Story is first, because it is the disagreement still standing.** The plan
+ordered by what was being violated; two of those three were fixed while it sat
+unapproved, and the one that remains is Story — the domain admitting six states
+with an archival invariant while `deriveStoryStatus` returns a seventh its type
+cannot hold. It is also the cheapest of the four to prove.
+
 **The vocabulary lands first, in its own plan.**
 `the-workflow-owns-the-word-phase` gives the development workflow its five
 phases and renames the plan's `Phase` to `PlanState`. These four rules are
@@ -295,3 +333,29 @@ spec says most, is last because nothing is blocked on it.
 Branch, Plan and Slice a TYPE. This gives them a LIFECYCLE. The types can land
 first, but neither blocks the other: a transitions rule can take readings as
 values before the entity it judges is a named type.
+
+**Interrogated 2026-09-04, one round**, and it found the motivation had gone
+stale in the days the plan sat unapproved.
+
+**Two of the three cited violations no longer hold.** `registry.ts` no longer
+declares its own `AgentState` — `:44` imports it, and `schema.ts:2916` extends
+the domain's options with `unknown` rather than copying them, so the *"four
+vocabularies, 8/8/8/5"* is now two declarations and one source. And no kill in
+`plot-worker-loop.sh` targets the loop's own process group: all seven
+`_kill_tree` calls name a child.
+
+**The kill finding changed an assertion rather than just a citation.** The plan
+asserted *an agent cannot terminate itself* as a test that would fail against
+current behaviour. Against the code as written, it would have **passed on day
+one** — a refusal that refuses nothing. Reading every exit path found the real
+violation at `:1270`: the loop writes its own ending and calls `exit 124` when it
+decides its bound expired. The assertion now names that exit.
+
+**And the ordering moved.** The plan orders by what is being violated; with two
+violations gone, Story leads — the domain admitting six states with an archival
+invariant while `deriveStoryStatus` returns a seventh its type cannot hold, which
+cost a person an hour that same day.
+
+That two violations were fixed in the direction this plan argues for is evidence
+for the approach. It is also the argument for the ratchet: the estate corrects
+what it can see, and a lifecycle nobody can see stays broken.
