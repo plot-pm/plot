@@ -24,19 +24,27 @@
 # it should degrade. So it is a word, and callers match on it.
 #
 # ═══════════════════════════════════════════════════════════════════════════
-# THE TRANSCRIPT IS FOUND BY PATH, NOT BY SESSION ID
+# THE TRANSCRIPT IS FOUND BY PATH, NOT BY SESSION ID — AND THAT IS A CHOICE
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# `plot-dispatch.sh` mints a session id that `plot-worker-loop.sh` never
-# forwards, and dispatch says why: this repo's `Worker command` carries no
-# `--session-id`, so reading one back would mean guessing at the newest file in
-# a directory holding one to eight of them.
+# `.plot/worker-prompt.sh:29` DOES pass `--session-id` now (2026-09-04), so an
+# exact join is available here and this deliberately does not take it. The
+# reason is the question, not the capability: this asks *is anything happening
+# at this desk*, and an operator's own session at the same worktree is a true
+# answer to it. Joining on the worker's id alone would report a desk quiet
+# while somebody is visibly working at it.
 #
-# So the join is the one `plot-quiet-stretch.mjs` already made and proved on 23
-# real sessions: the runtime stores a session under
+# THE OPPOSITE JOIN IS RIGHT FOR THE OPPOSITE QUESTION. *What has THIS agent
+# spent* is per session and never per worktree — one project directory measured
+# 2026-09-03 held 45 session files, 30 of them subagents, and a sum across them
+# belongs to no one. `rules/spend.ts` states that side; the two read the same
+# files and must not be made to share a join.
+#
+# So the join here is the one `plot-quiet-stretch.mjs` already made and proved
+# on 23 real sessions: the runtime stores a session under
 # `$HOME/.claude/projects/<slug>` where the slug is the WORKTREE PATH with `/`
 # and `.` replaced by `-`. A dispatched worker has its own worktree, so the
-# path identifies it without any id being passed anywhere.
+# path identifies the DESK without any id being passed anywhere.
 #
 # `agent-` PREFIXED FILES ARE SKIPPED, for wave 1's reason: a subagent's
 # transcript is a true statement about the wrong process. A worker whose
