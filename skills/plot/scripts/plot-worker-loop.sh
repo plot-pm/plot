@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Plot helper: worker loop — implements then asks for the next wave.
 # Usage: plot-worker-loop.sh
-# Environment: PLOT_BRANCH, PLOT_WORKTREE, PLOT_SLUG, PLOT_MANIFEST_FILE (from dispatcher)
+# Environment: PLOT_BRANCH, PLOT_WORKTREE, PLOT_SLUG, PLOT_MANIFEST_FILE,
+#              PLOT_SESSION_ID (from dispatcher)
 #
 # This is the looping shell the Worker command calls. After each branch
 # completes, it asks `--next` for another claimable branch OF THE SAME PLAN,

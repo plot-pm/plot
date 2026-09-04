@@ -143,10 +143,12 @@ creates one git worktree per eligible branch — as siblings of your repo, `../p
 Starting workers needs one line of config, because Plot does not assume which agent you use:
 
 ```markdown
-- **Worker command:** claude -p "Implement the branch in $PLOT_BRANCH per the plan. Open a PR. Do not merge."
+- **Worker command:** claude -p "Implement the branch in $PLOT_BRANCH per the plan. Open a PR. Do not merge." --session-id "$PLOT_SESSION_ID"
 ```
 
 Without it, `/plot-dispatch` still prepares and claims the worktrees and you start them yourself — which is a perfectly good way to work.
+
+`--session-id` passes on the id dispatch minted, so the runtime writes its transcript under the id the manifest records. That is what lets the board show an agent's transcript and lets a correction resume the same conversation. Leave it out and the worker still runs; only the attribution is lost.
 
 Workers run **detached**, so the fleet outlives your session: start it, close the laptop, come back later. Check on them with:
 

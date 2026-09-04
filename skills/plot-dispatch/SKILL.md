@@ -328,11 +328,22 @@ hardcodes no tooling):
 ```markdown
 ## Plot Config
 
-- **Worker command:** claude -p "Implement the branch named in $PLOT_BRANCH per the plan. Follow the DoD. Open a PR. Do not merge."
+- **Worker command:** claude -p "Implement the branch named in $PLOT_BRANCH per the plan. Follow the DoD. Open a PR. Do not merge." --session-id "$PLOT_SESSION_ID"
 ```
 
-The command runs inside the worktree with `PLOT_BRANCH` and `PLOT_WORKTREE`
-set, detached, with output to `.plot-worker.log`. The **agent's** pid — the
+The command runs inside the worktree with `PLOT_BRANCH`, `PLOT_WORKTREE` and
+`PLOT_SESSION_ID` set, detached, with output to `.plot-worker.log`.
+
+`--session-id` is shown because the command is the one place a person writes
+the invocation, and passing the id is the only half of the contract Plot cannot
+fulfil itself: dispatch mints the id and records it in the manifest, and the
+runtime writes its transcript under that id only if it is told. Pass it and the
+board can join an agent's row to its transcript and a correction can resume the
+same conversation. Omit it and the worker runs exactly as before, its
+transcript is unattributable, and resume reports itself unavailable — which is
+the honest answer rather than a failure. A command that may run outside
+dispatch should guard the flag; `.plot/worker-prompt.sh` in this repo shows the
+portable form, since `--session-id ""` is worse than passing nothing. The **agent's** pid — the
 process the command names, not the shell that wraps it — is recorded in
 `.plot-worker.pid`, so the panel describes the process doing the work; the
 wrapper's own pid is kept in `.plot-worker.wrapper.pid`, where it records the
