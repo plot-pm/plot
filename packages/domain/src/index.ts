@@ -58,6 +58,23 @@ export * from './rules/quiet.js';
 export * from './rules/task.js';
 export * from './rules/spend.js';
 /**
+ * The per-agent half of the tick, disambiguated for the same reason the phase
+ * transitions are: `rules/supervision.ts` and `workflows/supervise.ts` both
+ * answer to the word `supervise`, and both spellings are right in their own
+ * module. The RULE decides about ONE agent; the WORKFLOW runs it over every
+ * registered agent and orders the writes.
+ *
+ * The workflow keeps the plain name because it is what a daemon calling one
+ * tick means. The rule takes the qualified one.
+ */
+export { supervise as superviseAgent, boundRefusal, missingDeclarationFailure, MAX_ATTEMPTS } from './rules/supervision.js';
+export type {
+  Supervision,
+  SupervisionReadings,
+  SupervisionVerdict,
+  SupervisionCause,
+} from './rules/supervision.js';
+/**
  * The phase transitions — `plan -> phase + record`, the NARROW question of
  * which `## Status` line a lifecycle step writes.
  *
