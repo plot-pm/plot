@@ -310,7 +310,7 @@ A declaration is a fact a person wrote.
 
 ### Supervising
 
-- `feature/the-registry-supervises-its-agents` — `plot-registryd`: the tick, the three bounds, the correction-and-resume path, the reap on success, and the `needs a person` stop. Stateless across restarts by construction. **Moved here from `the-registry-supervises-its-agents` on 2026-09-04**, which delivered without it: its gate was lifted the same day on measurements this estate produced, but a delivered plan dispatches nothing, so the branch could never be started and `an-agent-holds-one-desk`'s last wave waited on a branch that would never exist. This plan is where the work belongs now — the registry cannot supervise what it cannot name, and `feature/an-agent-declares-what-it-is` gave it the name.
+- `feature/the-registry-supervises-its-agents` — `plot-registryd`: the tick, the three bounds, the correction-and-resume path, the reap on success, and the `needs a person` stop. Stateless across restarts by construction. **Moved here from `the-registry-supervises-its-agents` on 2026-09-04**, which delivered without it: its gate was lifted the same day on measurements this estate produced, but a delivered plan dispatches nothing, so the branch could never be started and `an-agent-holds-one-desk`'s last wave waited on a branch that would never exist. This plan is where the work belongs now — the registry cannot supervise what it cannot name, and `feature/an-agent-declares-what-it-is` gave it the name. → #695
 
 ### Watching
 
