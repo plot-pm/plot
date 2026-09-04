@@ -10,7 +10,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-08-18, jwloka, in-session
-- **Started:** 2026-08-18, Jan Wloka, `feature/the-scan-sees-a-repairable-conflict`
+- **Started:** 2026-08-18, Jan Wloka, `feature/the-scan-sees-a-repairable-conflict` <!-- deferred: already on main as of 2026-08-17, one day before this plan was written; the agent verified every DoD item by running the suites and wrote no code. `fleet.ts:2575` calls `startRepair`, so the plan's "nothing ever calls it" was already false. Confirmed 2026-09-04; the Delivered record below said the same of its siblings. -->
 - **Delivered:** 2026-08-19, jwloka, PR #249 — its two sibling branches deferred, verified already on main 2026-08-17
 - **Released:** 2026-08-22, v2.7.0
 - **Started:** 2026-08-19, Jan Wloka, `feature/the-repair-can-be-turned-off`

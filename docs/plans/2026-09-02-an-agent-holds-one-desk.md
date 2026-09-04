@@ -15,7 +15,7 @@
 - **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-decides-create-or-reset`
 - **Started:** 2026-09-03, Jan Wloka, `feature/the-sweep-names-every-leftover`
 - **Started:** 2026-09-03, Jan Wloka, `docs/the-desk-belongs-to-the-agent`
-- **Started:** 2026-09-03, Jan Wloka, `feature/the-reaper-sweeps-every-kind`
+- **Started:** 2026-09-03, Jan Wloka, `feature/the-reaper-sweeps-every-kind` <!-- moved: into `feature/the-sweep-names-every-leftover`, which merged as #672 on 2026-09-03 carrying the rule AND its caller in one PR. The brief said #672 delivered "the rule and nothing else"; it did not — `plot-reap.sh` reads `rules/sweepable.ts` and `test/reconcile/sweep.test.mjs` covers it. The agent checked every "Done when" item against main and wrote no code. Confirmed 2026-09-04. -->
 - **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-waits-for-work`
 - **Started:** 2026-09-04, Jan Wloka, `feature/the-registry-queues-a-brief`
 - **Delivered:** 2026-09-04

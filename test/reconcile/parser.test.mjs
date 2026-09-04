@@ -1373,17 +1373,44 @@ test('plan-meta: the anchor drops no real claim across the whole estate (differe
     let section = '';
     let inFence = false;
     let branchesSeen = false;
+    let shape = '';
+    let inComment = false;
     const lines = readFileSync(file, 'utf8').split('\n');
     lines.forEach((line, i) => {
       if (line.startsWith('```')) { inFence = !inFence; return; }
       if (inFence) return;
+      // HTML COMMENTS ARE NOT CLAIMS, and `plot-plan-meta.sh` skips them for
+      // the same reason. A `moved:` note written before a section's first
+      // `### ` heading otherwise reads as a list-shape claim line: the shape is
+      // still undecided there, so the sweep has nothing to tell it apart.
+      if (inComment) { if (line.includes('-->')) inComment = false; return; }
+      if (/^[ \t]*<!--/.test(line) && !line.includes('-->')) { inComment = true; return; }
       if (line.startsWith('## ')) {
-        // `## Branches` is the only vulnerable dialect: in `## Waves` the
-        // branch comes from the heading, so a body citation was never a claim.
-        if (line.startsWith('## Branches')) { section = branchesSeen ? '' : 'branches'; branchesSeen = true; }
+        // THE LIST-ITEM DIALECT IS THE VULNERABLE ONE, and since 2026-09-04 it
+        // no longer has a heading of its own: every plan says `## Slices`, and
+        // which LAYOUT a section holds is decided by the shape of its first
+        // `### ` heading rather than by the word. So all three spellings open
+        // the section here, and the anchored/loose comparison below is what
+        // still distinguishes a claim line from a citation.
+        //
+        // Matching `## Branches` alone left this sweep with nothing to examine
+        // — `anchoredLines` fell to 0 and the self-check at the foot fired,
+        // which is the check doing its job: a differential test that examines
+        // no lines proves nothing.
+        if (/^## (Branches|Waves|Slices)/.test(line)) { section = branchesSeen ? '' : 'branches'; branchesSeen = true; shape = ''; }
         else section = '';
         return;
       }
+      // THE SHAPE DECIDES, exactly as `plot-plan-meta.sh` does since 2026-09-04.
+      // A `(Branch:` in the first `### ` heading means the branch rides the
+      // heading and every body line is PROSE — a citation there was never a
+      // claim, which is why this sweep only ever examined the list dialect.
+      // Selecting by heading word instead flagged four prose citations as
+      // dropped claims, all of them in heading-shape sections.
+      if (section === 'branches' && shape === '' && /^###[ \t]/.test(line)) {
+        shape = line.includes('(Branch:') ? 'heading' : 'list';
+      }
+      if (section === 'branches' && shape === 'heading') return;
       if (section !== 'branches') return;
       if (anchored.test(line)) anchoredLines++;
       else if (loose.test(line)) dropped.push(`${path.basename(file)}:${i + 1}: ${line.trim()}`);
