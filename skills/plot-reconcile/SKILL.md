@@ -135,7 +135,7 @@ destroys work in progress. Check `/plot-fleet` and the worker's log
 4. **Concurrent-delivery check** — each active plan's impl branch shown as ahead/behind `origin/<main>`, so a parallel session's delivery is visible before you act on the same plan.
 5. **Needs attention** — malformed or non-conforming plans: an unrecognized phase value, a front-matter `status:`/`phase:` disagreement, or a **dangling index symlink** (a link in `active/`/`delivered/` whose target no longer exists). Skip-and-warn — never a crash, never silent.
 6. **Delivered but already released** — a `Delivered` plan whose merge commit is already inside a release tag. Candidate `/plot-release`.
-7. **Unsliced waves** — a `### ` wave heading carrying more than one branch line. A wave holds one branch; one holding several is a shape `/plot-reslice` can repair. Actionable but non-blocking; see below.
+7. **Uncut slices** — a `### ` wave heading carrying more than one branch line. A wave holds one branch; one holding several is a shape `/plot-reslice` can repair. Actionable but non-blocking; see below.
 8. **Prose wave names** — a `### ` wave heading written as a sentence, not a label. A sentence-length name paints over the cells beside it on the board; the fix is to rename the heading in the plan. Actionable but non-blocking; see below.
 9. **Index drift (convenience)** — a plan with no symlink in either index, or a `.md` file in the plan directory carrying no `Phase:` field at all. Nothing depends on either; see below.
 
@@ -178,15 +178,15 @@ Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understand
 **Summary footer.** The report's final line is machine-countable — consumers that only need counts (the `/plot` hygiene line, the Automation Output below) read it instead of parsing section bodies:
 
 ```
-summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 unsliced_waves=1 prose_wave_names=0 index_drift=2 pr_source=gh main=main
+summary: drift=1 merged_not_delivered=1 stale=3 claims=0 attention=0 concurrent=1 unreleased_delivered=0 uncut_slices=1 prose_slice_names=0 index_drift=2 pr_source=gh main=main
 ```
 
-`unsliced_waves` is the count from section 7 — waves carrying more than one
+`uncut_slices` is the count from section 7 — slices carrying more than one
 branch, a shape `/plot-reslice` can repair. It is actionable but **non-blocking**
 and kept out of `attention=` for the same reason `index_drift` is: an unsliced
 wave is a shape to fix, not a branch that cannot move.
 
-`prose_wave_names` is the count from section 8 — wave names too long to be a
+`prose_slice_names` is the count from section 8 — slice names too long to be a
 label. Non-blocking for the same reason: the fix is to rename the heading in
 the plan, and a cosmetic name must not gate a delivery.
 
@@ -210,7 +210,7 @@ For each finding, decide whether to run the printed command. The scan never runs
 - **Merged-but-not-delivered:** run `/plot-deliver <slug>` — but first `git fetch` and check section 4's counts; a parallel session may already be delivering it.
 - **Stale branches:** confirm the branch is truly done (no open PR, work landed) before `git push origin --delete`. Orphans (ahead of the main branch) need a real look — `git log` them first; they may be unfinished work, not trash.
 - **Needs attention → dangling symlink:** `readlink` it first. If the plan was renamed, repoint the link; if the plan is gone, `git rm` the link. Never guess — a link is the only remaining record of what the plan was called.
-- **Unsliced waves (section 7):** a wave carrying more than one branch. Run the printed `/plot-reslice <slug>` only when someone decides to slice it — the order is a human judgment `/plot-reslice` asks for. Non-blocking: never present it alongside drift as comparable work, and a `complete` wave listed here is history `/plot-reslice` will decline.
+- **Uncut slices (section 7):** a wave carrying more than one branch. Run the printed `/plot-reslice <slug>` only when someone decides to slice it — the order is a human judgment `/plot-reslice` asks for. Non-blocking: never present it alongside drift as comparable work, and a `complete` wave listed here is history `/plot-reslice` will decline.
 - **Prose wave names (section 8):** a wave heading written as a sentence, not a label. The fix is a human editing the plan — shorten the heading to a label; the full name stays on hover on the board. Non-blocking: never present it alongside drift as comparable work.
 - **Index drift (section 9):** optional, always. Run the printed `ln -s` only if someone wants the browsing path back. A phase-less file listed here is pre-plot history or a note — leave it (no backfill) unless you are deliberately adopting it into the plot lifecycle. Never propose "fixing" all of section 9.
 - **Double-claimed branches (section 12):** two plans listing one branch. There is no command to run — deciding which plan OWNS the branch is the judgment, and the other plan should cite it in prose rather than list it. Read both plans before proposing either side; the branch itself is usually fine, and the fault is in the bookkeeping. Non-blocking: never present it alongside drift as comparable work.
@@ -226,7 +226,7 @@ You produce **text only** — a short summary of what the scan found and which f
 - **Do not let the command mutate anything on its own.** The scan is read-only by construction; keep it that way. Symlink moves, phase flips, and branch deletions happen only when the human runs a printed command (or explicitly tells you to run a batch).
 - **Do not flag a phase-less file as a broken plan.** It never claimed to be one — `plot-fleet-scan.sh` applies the same rule. It appears in section 9 for visibility; report the count and move on.
 - **Do not report index drift as something to fix.** Section 9 findings block nothing. Presenting `index_drift=3` alongside `drift=3` as comparable work is the misreading this split exists to prevent.
-- **Do not report an unsliced wave or a prose wave name as a blocker.** Sections 7 and 8 findings block nothing either; `/plot-reslice` and a plan rename are the repairs, and both are human judgments. Presenting `unsliced_waves=3` or `prose_wave_names=3` alongside `drift=3` as comparable work is the same misreading.
+- **Do not report an uncut slice or a prose slice name as a blocker.** Sections 7 and 8 findings block nothing either; `/plot-reslice` and a plan rename are the repairs, and both are human judgments. Presenting `uncut_slices=3` or `prose_slice_names=3` alongside `drift=3` as comparable work is the same misreading.
 - **Do not report a double claim as a blocker, and do not resolve one yourself.** Section 12 findings block nothing, and which plan owns a contested branch is not a fact the scan holds — it is a decision about what the two plans MEAN. Present the collision and both claimants; let a person choose.
 - **Do not delete a branch the scan degraded on.** If no git-host CLI was available, the "no open PR" signal is unverified — confirm before any deletion.
 - **Do not re-derive the state by hand.** Trust the scan for *what is*; spend your judgment on *what to do*.
@@ -250,8 +250,8 @@ When the conversation context indicates automation (see `/plot` for detection ru
   },
   "info": {
     "concurrent_delivery": 0,
-    "unsliced_waves": 0,
-    "prose_wave_names": 0,
+    "uncut_slices": 0,
+    "prose_slice_names": 0,
     "index_drift": 0
   },
   "actions_taken": [],
@@ -260,4 +260,4 @@ When the conversation context indicates automation (see `/plot` for detection ru
 }
 ```
 
-`pr_source` is `gh`, `bb`, `degraded` (no git-host CLI), or `off` (PR enumeration deliberately skipped via `--no-pr`/`--offline`). Sections 4, 7, 8 and 9 are informational — divergence counts, unsliced-wave shapes, prose wave names, and browsing gaps, not defects — so they report under `info`, not `findings`. `unsliced_waves`, `prose_wave_names` and `index_drift` belong there for the same reason they are kept out of `attention=`: an unsliced wave is a shape `/plot-reslice` can repair, a prose wave name is a plan rename, and nothing depends on a symlink since the phase grouping became derived. Fill every count from the scan's `summary:` footer line — do not re-count section bodies.
+`pr_source` is `gh`, `bb`, `degraded` (no git-host CLI), or `off` (PR enumeration deliberately skipped via `--no-pr`/`--offline`). Sections 4, 7, 8 and 9 are informational — divergence counts, unsliced-wave shapes, prose slice names, and browsing gaps, not defects — so they report under `info`, not `findings`. `uncut_slices`, `prose_slice_names` and `index_drift` belong there for the same reason they are kept out of `attention=`: an uncut slice is a shape `/plot-reslice` can repair, a prose slice name is a plan rename, and nothing depends on a symlink since the phase grouping became derived. Fill every count from the scan's `summary:` footer line — do not re-count section bodies.

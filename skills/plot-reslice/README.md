@@ -81,7 +81,7 @@ The behavioural properties this command guarantees:
 Originated in the plan
 `docs/plans/2026-08-21-a-wave-is-one-branch.md` — *"A wave is one branch, and
 an unsliced plan can be repaired"* — approved 2026-08-23. The board learned to
-**see** an unsliced wave (`stuckState`'s `unsliced-wave` arm) in the same
+**see** an uncut slice (`stuckState`'s `unsliced-wave` arm) in the same
 session the rule was defined; stopping there was deliberate, because a repair
 that invents wave names would be the board making a plan decision. This
 command is the sanctioned repair: it proposes, and a person confirms.
@@ -100,7 +100,7 @@ See [plot/README.md](../plot/README.md) for the full development history and
 
 ## Planned Improvements
 
-- A companion report in `plot-reconcile-scan.sh` counting unsliced waves so
+- A companion report in `plot-reconcile-scan.sh` counting uncut slices so
   the estate can point at the plans this command should be run on (tracked by
   the sibling branch `feature/reconcile-counts-unsliced-waves`).
 - A board menu item that spawns this command from an `unsliced-wave` row

@@ -40,7 +40,7 @@
 #                                 DANGLING index symlinks (a link pointing at
 #                                 nothing is a broken pointer)
 #   6. Delivered but released   — delivered plans already inside a release tag
-#   7. Unsliced waves           — a `### ` wave heading carrying MORE THAN ONE
+#   7. Uncut slices           — a `### ` wave heading carrying MORE THAN ONE
 #                                 branch line. A wave holds exactly one branch
 #                                 (MANIFESTO.md); one holding several is a shape
 #                                 /plot-reslice can repair. ACTIONABLE BUT
@@ -1042,7 +1042,7 @@ if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
 echo
 
 # ---------------------------------------------------------------------------
-# 7. Unsliced waves
+# 7. Uncut slices
 #
 # A wave holds exactly one branch (MANIFESTO.md): a `### ` heading carrying MORE
 # THAN ONE branch line is a shape /plot-reslice can repair. This section reports
@@ -1053,8 +1053,8 @@ echo
 # IT DOES NOT GATE, and that is load-bearing, not a preference. /plot-deliver's
 # delivery-landed gate and the /plot hygiene line both read `attention=` from
 # the footer; adding a cosmetic-by-nature finding to that count would make every
-# delivery in this repo stop on an unsliced wave that blocks nothing. An
-# unsliced wave is a SHAPE TO FIX, not a branch that cannot move — so it carries
+# delivery in this repo stop on an uncut slice that blocks nothing. An
+# uncut slice is a SHAPE TO FIX, not a branch that cannot move — so it carries
 # its own footer counter (`unsliced_waves=`) exactly as index drift carries
 # `index_drift=`, and stays out of `attention`.
 #
@@ -1064,7 +1064,7 @@ echo
 # Sections 1-6 keep their numbers, so /plot-deliver's gate marker
 # (`sed -n '/^== 7./q;p'`) still stops before the first non-blocking section:
 # what used to be section 7 (index drift, non-blocking) is now this section
-# (unsliced waves, non-blocking), and the blocking set stays 1-6. The marker
+# (uncut slices, non-blocking), and the blocking set stays 1-6. The marker
 # text is therefore unchanged BY DESIGN — its meaning ("stop before the
 # non-blocking sections") is preserved because every non-blocking section sits
 # at 7 or later.
@@ -1078,7 +1078,7 @@ echo
 # history and still counts: hiding it would be lying about the estate, and
 # /plot-reslice declines the waves it should — that is a constraint on the
 # REPAIR, not on the REPORT.
-echo "== 7. Unsliced waves (a wave holds one branch — candidate /plot-reslice) =="
+echo "== 7. Uncut slices (a slice holds one branch — candidate /plot-reslice) =="
 unsliced_out=""
 if [ -n "$plan_json" ]; then
   # One jq pass over the already-captured parser output, one record per
@@ -1108,7 +1108,7 @@ if [ -n "$plan_json" ]; then
              | .waves[]? | select((.branches | length) > 1)
              | [$f, .name, (.branches | length | tostring)] | join("")')
 fi
-if [ -n "$unsliced_out" ]; then printf '%b' "$unsliced_out"; else echo "  (none — every wave holds a single branch)"; fi
+if [ -n "$unsliced_out" ]; then printf '%b' "$unsliced_out"; else echo "  (none — every slice holds a single branch)"; fi
 echo
 
 # ---------------------------------------------------------------------------
@@ -1128,7 +1128,7 @@ echo
 # OUT of the `attention` count: /plot-deliver's delivery-landed gate and the
 # /plot hygiene line read `attention=` from the footer, and a cosmetic finding
 # there would fail every delivery in this repo. So it carries its own footer
-# counter (`prose_wave_names=`), exactly as unsliced waves and index drift do.
+# counter (`prose_wave_names=`), exactly as uncut slices and index drift do.
 #
 # PLACEMENT: it is actionable (someone renames the heading) like the unsliced
 # section, so it sits with it, after the blocking set (1-6) and before index
@@ -1144,7 +1144,7 @@ echo
 # backticked name in a plan's prose is not a wave name — the distinction
 # `a-citation-is-not-a-claim` exists for. A file with no `Phase:` is not a plan
 # (phase == NONE) and is skipped, the same rule sections 1 and 7 apply.
-echo "== 8. Prose wave names (a wave name is a label, not a sentence) =="
+echo "== 8. Prose slice names (a slice name is a label, not a sentence) =="
 prose_out=""
 if [ -n "$plan_json" ]; then
   # One jq pass over the already-captured parser output, one record per
@@ -1167,7 +1167,7 @@ if [ -n "$plan_json" ]; then
     | jq -r 'select(.phase != "NONE") | .file as $f
              | .long_wave_names[]? | [$f, .] | join("")')
 fi
-if [ -n "$prose_out" ]; then printf '%b' "$prose_out"; else echo "  (none — every wave name is a label)"; fi
+if [ -n "$prose_out" ]; then printf '%b' "$prose_out"; else echo "  (none — every slice name is a label)"; fi
 echo
 
 # ---------------------------------------------------------------------------
@@ -1192,7 +1192,7 @@ echo
 # IT DOES NOT GATE, and that is deliberate: /plot-deliver's delivery-landed gate
 # and the /plot hygiene line both read `attention=` from the footer. A cosmetic
 # finding there would fail every delivery. So it carries its own footer counter
-# (`sprint_drift=`), exactly as unsliced waves and prose names do.
+# (`sprint_drift=`), exactly as uncut slices and prose names do.
 echo "== 9. Sprint drift (plan Sprint: field disagrees with sprint file) =="
 sprint_drift_out=""
 SPRINT_DIR=$(cfg "Sprint directory" "docs/sprints/"); SPRINT_DIR="${SPRINT_DIR%/}"
@@ -1419,7 +1419,7 @@ echo
 # the footer. A double claim is a SHAPE TO FIX — both plans' waves can still
 # move, and the branch itself is fine — so putting it in `attention` would stop
 # every delivery in this repo over bookkeeping. It carries its own footer
-# counter (`double_claims=`), exactly as unsliced waves, prose names, sprint
+# counter (`double_claims=`), exactly as uncut slices, prose names, sprint
 # drift and index drift do.
 #
 # PLACEMENT: last, so the section numbers 1-11 keep their meanings. Every
@@ -1555,7 +1555,7 @@ echo
 #
 # CONVENIENCE, NEVER A GATE. A stale round is a hint about a badge; it must not
 # stop a delivery. It carries its own footer counter (`rounds_drift=`) and
-# stays OUT of `attention=`, exactly as unsliced waves, prose wave names,
+# stays OUT of `attention=`, exactly as uncut slices, prose slice names,
 # sprint drift, stale tallies, index drift and double claims each do. And it
 # sits LAST, after section 12: /plot-deliver's gate marker is
 # `sed -n '/^== 7./q;p'`, which stops before the first non-blocking section,
@@ -1591,5 +1591,5 @@ if [ -n "$rounds_out" ]; then printf '%b' "$rounds_out"; else echo "  (none — 
 echo
 
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel unsliced_waves=$n_unsliced prose_wave_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift pr_source=$PR_SOURCE main=$MAIN"
 exit 0
