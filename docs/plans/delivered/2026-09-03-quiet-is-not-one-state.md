@@ -1,0 +1,1 @@
+../2026-09-03-quiet-is-not-one-state.md

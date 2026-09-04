@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-03, Jan Wloka, in-session
 - **Started:** 2026-09-03, Jan Wloka, `feature/quiet-holds-one-kind-of-row`
 - **Started:** 2026-09-04, Jan Wloka, `feature/the-board-reads-the-quiet-kinds`
+- **Delivered:** 2026-09-04
 
 ## Changelog
 
