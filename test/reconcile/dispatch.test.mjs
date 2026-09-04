@@ -118,12 +118,17 @@ test('dispatch: the script never invokes a skill', () => {
 // When the file is absent the worker reads nothing and improvises — measured
 // 2026-08-20 as an agent running 2:12 against a 700-line wave with no spec.
 //
-// The defect is that the script DETECTS the gap (`brief=missing` in its footer)
-// and starts the worker anyway: a rule where a gate belongs. This wave turns it
-// into a gate. A missing brief PREPARES but does not START — the worktree and
-// claim are correct and stay; only the worker launch is refused, so the operator
-// can write the brief and start it without redoing setup. `--no-brief` is the
-// named escape, in the tradition of `--allow-local`.
+// The defect was that the script DETECTED the gap (`brief=missing` in its
+// footer) and started the worker anyway: a rule where a gate belongs. It became
+// a gate, and on 2026-09-04 the gate MOVED — its rule unchanged, its position
+// from the launch to the hand-over.
+//
+// THAT MOVE IS WHAT THESE TESTS NOW ASSERT. Dispatch prepares nothing: it cuts
+// no desk, pushes no claim and starts no worker, so a refused slice leaves
+// NOTHING rather than leaving a prepared desk nobody sat at. What used to be
+// "prepared, not started" is now "not handed over", and `--no-brief` keeps its
+// meaning exactly — it hands over without a brief and says so, in the tradition
+// of `--allow-local`.
 
 /** A repo whose plan has a real `Worker command`, with control over the brief. */
 function repoForBrief(label, { brief, briefCommand } = {}) {
@@ -188,50 +193,60 @@ function repoForBrief(label, { brief, briefCommand } = {}) {
   };
 }
 
-test('dispatch: a branch with no brief is prepared but not started', () => {
-  // THE DEFECT. The worktree and claim are the real state and must stand; only
-  // the worker launch is refused, so `/plot-implement` can write the brief and
-  // start it without redoing setup. The message must name the file and BOTH ways
-  // forward — write the brief, or pass --no-brief.
+test('dispatch: a branch with no brief is not handed over, and nothing is prepared', () => {
+  // THE GATE MOVED, AND WHAT IT LEAVES BEHIND MOVED WITH IT. It used to refuse
+  // the launch after cutting a desk and pushing a claim, so a briefless branch
+  // left a worktree nobody sat at. Refused at the hand-over it leaves nothing:
+  // no desk, no ref, and a slice still sitting in the queue.
   const f = repoForBrief('none');
   const out = execFileSync('bash', [dispatch, '--offline', 'b'],
     { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
 
-  // PREPARED: the worktree exists and the claim is on the remote.
-  assert.match(out, /dispatched feature\/needs/, `the fan-out must still happen:\n${out}`);
-  assert.match(git(f.repo, 'worktree', 'list'), /plot-wt-feature-needs/);
-  assert.match(git(f.repo, 'ls-remote', '--heads', 'origin', 'feature/needs'), /feature\/needs/);
+  assert.match(out, /not handed over/, `the refusal must say what did not happen:\n${out}`);
+  assert.doesNotMatch(out, /handed over feature\/needs/, `it must not claim the hand-over:\n${out}`);
 
-  // NOT STARTED: no worker ran.
-  assert.equal(f.workerStarted(), false, 'a worker must NOT be launched without a brief');
-  assert.match(out, /summary: .*started=0/, `nothing may be counted as started:\n${out}`);
+  // NOTHING WAS PREPARED. Both of these were the OLD contract's assertions,
+  // inverted — which is the whole of what this branch changed about a refusal.
+  assert.doesNotMatch(git(f.repo, 'worktree', 'list'), /plot-wt-feature-needs/,
+    'a refused slice leaves no desk');
+  assert.equal(git(f.repo, 'ls-remote', '--heads', 'origin', 'feature/needs').trim(), '',
+    'a refused slice leaves no claim, so it is still queued');
+  assert.equal(f.workerStarted(), false, 'nothing may be started without a brief');
 
-  // The message names the file and the two ways forward.
+  // The message names the REF it looked at and the two ways forward.
   assert.match(out, /\.plot\/briefs\/needs\.md/, `must name the brief file:\n${out}`);
+  assert.match(out, /origin\/main/, `must name the ref the agent will read:\n${out}`);
   assert.match(out, /plot-implement/i, `must offer writing the brief:\n${out}`);
   assert.match(out, /--no-brief/, `must offer the named escape:\n${out}`);
   f.cleanup();
 });
 
-test('dispatch: a branch WITH a brief starts as before', () => {
+test('dispatch: a branch WITH a brief is handed to the registry', () => {
   const f = repoForBrief('present', { brief: 'Real specification.\n' });
-  execFileSync('bash', [dispatch, '--offline', 'b'],
+  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
     { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
-  assert.equal(f.workerStarted(), true, 'a brief present must start the worker as before');
+  assert.match(out, /handed over feature\/needs → the registry/,
+    `a brief present must hand the slice over:\n${out}`);
+  assert.match(out, /summary: .*dispatched=1/, `the hand-over must be counted:\n${out}`);
+
+  // AND IT STARTS NOTHING. `DESIGN-agent.md:157` — nothing starts a worker; the
+  // registry spawns an agent, and spawning it IS starting its process.
+  assert.equal(f.workerStarted(), false, 'dispatch hands work to the fleet; it does not staff it');
   f.cleanup();
 });
 
-test('dispatch: --no-brief starts a briefless branch and says so', () => {
-  // The named escape. A gate with no exit is one people route around by not
-  // using the tool — four briefs were hand-written to beat auto-dispatch to the
-  // claim on 2026-08-27 for exactly this reason. --no-brief starts it AND says
-  // so in the log, so the override is visible rather than silent.
+test('dispatch: --no-brief hands over a briefless branch and says so', () => {
+  // The named escape, and it keeps its meaning across the move. A gate with no
+  // exit is one people route around by not using the tool — four briefs were
+  // hand-written to beat auto-dispatch to the claim on 2026-08-27 for exactly
+  // this reason. --no-brief hands it over AND says so in the log, so the
+  // override is on the record rather than silent.
   const f = repoForBrief('escape');
   const out = execFileSync('bash', [dispatch, '--offline', '--no-brief', 'b'],
     { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
-  assert.equal(f.workerStarted(), true, '--no-brief must start the worker despite no brief');
+  assert.match(out, /handed over feature\/needs/, `--no-brief must hand over despite no brief:\n${out}`);
   assert.match(out, /--no-brief/, `the override must be stated in the log:\n${out}`);
-  assert.match(out, /summary: .*started=1/, `the start must be counted:\n${out}`);
+  assert.match(out, /summary: .*dispatched=1/, `the hand-over must be counted:\n${out}`);
   f.cleanup();
 });
 
