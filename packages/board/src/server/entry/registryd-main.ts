@@ -343,11 +343,19 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
  * once on one registry — which is the cheapest answer to the plan's open
  * question about whether the daemon needs a lock.
  *
+ * **A TICK THAT CANNOT COMPLETE DOES NOT END THE LOOP.** `tick` reports the
+ * reason rather than throwing, so a git that would not fork or a registry
+ * removed mid-pass costs one tick's readings and nothing else. The reason goes
+ * to {@link warn} and the loop takes its next tick, which re-reads everything
+ * from disk. That is the same recovery a restart performs, which is why the
+ * daemon needs no journal and the OS supervisor needs no help.
+ *
  * @param argv - the arguments after the script name.
  * @param here - the directory this artifact sits in.
  * @param write - where the tick lines go.
  * @param sleep - how to wait; a test supplies its own.
  * @param stop - asked before each tick; true ends the loop.
+ * @param warn - where an incomplete tick and an unparsable manifest are reported.
  * @returns the process exit code.
  */
 export const run = async (
@@ -357,6 +365,7 @@ export const run = async (
   sleep: (ms: number) => Promise<void> = (ms) =>
     new Promise((resolve) => setTimeout(resolve, ms)),
   stop: () => boolean = () => false,
+  warn: (s: string) => void = (s) => process.stderr.write(s),
 ): Promise<number> => {
   const args = argsFrom(argv);
   if (args === null) {
@@ -379,10 +388,29 @@ export const run = async (
     // of the daemon's state: there is nothing else to lose, so `kill -9` costs
     // one tick.
     const report = await tick({
-      registry: () => readRegistry(registryDir),
+      registry: () => readRegistry(registryDir, warn),
       world,
       max: args.max,
     });
+
+    // AN INCOMPLETE TICK GOES TO STDERR AND THE LOOP CONTINUES. `launchd` and
+    // `systemd` both route this stream to a separate log, which is where a
+    // person looks when the supervisor is not supervising — and the loop
+    // continuing is what makes the next tick the recovery. There is nothing to
+    // resume: `tick` re-reads the registry and the desks from disk, exactly as
+    // it does after a restart.
+    if (report.incomplete !== '') {
+      warn(`${tickLine(report)}\n`);
+      // A ONE-SHOT RUN EXITS NON-ZERO, a looping one does not. `--once` is what
+      // an operator and a `systemd` `Type=oneshot` unit read the exit code of;
+      // the loop's own failure signal is the log, and exiting would hand the OS
+      // supervisor a restart it does not need for a reading that will be taken
+      // again in a minute.
+      if (args.once) return 1;
+      await sleep(args.intervalMs);
+      continue;
+    }
+
     write(`${tickLine(report)}\n`);
     for (const row of report.decision.detail.agents) {
       if (row.supervision.verdict === 'leave') continue;

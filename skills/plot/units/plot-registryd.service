@@ -1,0 +1,67 @@
+# plot-registryd, kept alive by systemd — Linux.
+#
+# Replace the three placeholders before installing:
+#   __REPO_ROOT__   absolute path to the repository this daemon supervises
+#   __NODE__        absolute path to node 24 (`which node` under `nvm use`)
+#   __REGISTRYD__   absolute path to plot-registryd.mjs
+#
+# Install: skills/plot/units/README.md
+
+[Unit]
+Description=plot-registryd — supervises the agents registered in __REPO_ROOT__
+Documentation=https://github.com/plot-pm/plot/blob/main/skills/plot/units/README.md
+
+# The daemon reads git refs and asks the git host, so it starts after the
+# network. It does not REQUIRE the network: an unreachable host reads
+# `unreachable` and a tick decides to leave every agent alone, which is the
+# correct answer rather than a reason not to run.
+After=network-online.target
+
+# A CRASH LOOP IS THROTTLED AND NEVER GIVEN UP ON. `StartLimitIntervalSec=0`
+# turns off systemd's "fail permanently after N restarts" rule, because a
+# permanently stopped supervisor is the failure this unit exists to prevent —
+# the machine that was unreachable for an hour is exactly when the agents need
+# supervising.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+
+# A USER SERVICE, NOT A SYSTEM ONE. The daemon reaps worktrees and reads
+# `~/.claude` transcripts, both of which belong to the person who dispatched the
+# agents. Running it as root would give it write access to every desk on the
+# machine to save typing `--user`.
+
+WorkingDirectory=__REPO_ROOT__
+Environment=PLOT_REPO_ROOT=__REPO_ROOT__
+
+# git, gh and node must be findable: systemd gives a unit a minimal PATH.
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
+
+ExecStart=__NODE__ __REGISTRYD__
+
+# RESTART ALWAYS, and the reason is the same one the plist gives: every
+# recoverable failure is now a tick that reports and continues, so a process
+# that exited is a process that is gone and restarting it is always right.
+Restart=always
+
+# THE RESTART DELAY IS THE TICK INTERVAL. A daemon that cannot start must not
+# spend a core trying; a daemon whose tick failed has already waited an interval
+# inside its own loop.
+RestartSec=60
+
+# Two streams, two identifiers. The tick lines go to stdout and an INCOMPLETE
+# tick goes to stderr; `journalctl --user -u plot-registryd -p err` shows only
+# the ticks that could not be taken.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=plot-registryd
+
+# BACKGROUND PRIORITY. The daemon is idle 94% of a 60 s interval and shares a
+# machine with the workers it supervises; it must never be what makes a worker
+# slow.
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=default.target

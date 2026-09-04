@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  plot-registryd, kept alive by launchd — macOS.
+
+  Replace the three placeholders before installing:
+    __REPO_ROOT__   absolute path to the repository this daemon supervises
+    __NODE__        absolute path to node 24 (`which node` under `nvm use`)
+    __REGISTRYD__   absolute path to plot-registryd.mjs
+
+  Install: skills/plot/units/README.md
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.plot-pm.registryd</string>
+
+  <!-- ONE DAEMON PER REPOSITORY. The label carries no repository name, so a
+       second checkout needs a second file with a second label — see the README.
+       Two daemons sharing one label is launchd loading whichever was last. -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__REGISTRYD__</string>
+  </array>
+
+  <!-- THE DAEMON READS THE REPOSITORY IT IS STARTED IN. `registryd-main.ts`
+       takes `PLOT_REPO_ROOT` and falls back to `process.cwd()`; both are set
+       here so neither the fallback nor a launchd working-directory default
+       decides which estate is supervised. -->
+  <key>WorkingDirectory</key>
+  <string>__REPO_ROOT__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PLOT_REPO_ROOT</key>
+    <string>__REPO_ROOT__</string>
+    <!-- git, gh and node must be findable: launchd gives a job a minimal PATH
+         and none of the three is on it. Add homebrew's prefix for your arch. -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- KEEPALIVE IS THE WHOLE POINT, and it is unconditional. The daemon exits
+       only when killed or when the machine stops it; every recoverable failure
+       is now a tick that reports and continues, so an exit means the process
+       itself is gone and restarting it is always right. -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- A CRASH LOOP IS THROTTLED, not fought. launchd's floor is 10 s; this
+       raises it to the tick interval, so a daemon that cannot start does not
+       spend a core on the attempt. -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <!-- Two streams, two files. The tick lines go to stdout and an INCOMPLETE
+       tick goes to stderr, so `tail -f` on the error log shows exactly the
+       ticks that could not be taken. -->
+  <key>StandardOutPath</key>
+  <string>__REPO_ROOT__/.plot/logs/registryd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__REPO_ROOT__/.plot/logs/registryd.err</string>
+
+  <!-- BACKGROUND PRIORITY. The daemon is idle 94% of a 60 s interval and shares
+       a machine with the workers it supervises; it must never be what makes a
+       worker slow. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
