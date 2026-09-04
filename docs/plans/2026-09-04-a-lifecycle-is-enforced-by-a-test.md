@@ -131,11 +131,44 @@ find the lifecycle they are asking about.
 `issue` has 47 lifecycle mentions and is the least urgent — nothing is blocked
 on it. **Order by what is being violated**, which is Agent and Worktree.
 
+### Nothing may hide a lifecycle, and a gate says so
+
+**Three slices do not finish this.** Twenty-two entities remain, and the failure
+this plan exists to fix — a lifecycle nobody could enforce — recurs the moment a
+new state enum lands without a rule beside it.
+
+**Measured 2026-09-04: 21 state-shaped enums, 1 transitions file.**
+`AgentState`, `BranchState`, `WorktreeState`, `StoryStatus`, `ReleaseState`,
+`BuildState` and fifteen more each declare a set of states, and twenty of them
+say nothing about which transition is legal. `WorktreeState` reads `created →
+occupied → finished → reapable → gone` and nothing refuses `gone → occupied`.
+
+**So the last slice is a gate, in the estate's own ratchet form**
+(`ci.yml:230` holds direct spawns at `allowed=28` and moved 65 → 19 one slice at
+a time). It counts state enums with no transitions rule, fails when the number
+GROWS, and never when it falls.
+
+**A state enum is not always a lifecycle, and the gate must not pretend
+otherwise.** `SprintState` is `must | should | could | deferred` — a
+**priority**, and a Could Have becoming a Must Have is a re-prioritisation
+rather than a transition. `PrState` is `mergeable | conflicting | unknown`, a
+**reading of a moment** that nothing moves between.
+
+**The discriminator is a declaration, not a heuristic.** An entity either has a
+`transitions/<name>.ts`, or its enum carries one line saying it does not
+transition and why. **Measured: zero entities say so today**, so the gate starts
+by making twenty of them state which they are — and that statement is the
+review, in the place a reader meets the enum.
+
+A gate that guessed would be worse than none: it would refuse a priority for
+lacking a transition it cannot have, and the fix would be a rule that lies.
+
 ### Open Questions
 
-- [ ] **Does every entity earn a transitions file?** `Person`, `Version` and
-      `Identity` may have no transitions at all. A file per entity is a shape,
-      not a quota.
+- [x] **Does every entity earn a transitions file?** *Answered while writing:*
+      no, and the gate must therefore read a declaration rather than guess.
+      `SprintState` is a priority and `PrState` a reading; neither transitions.
+      An entity has a rule or says why it has none.
 - [ ] **Where does a refusal surface?** The board renders some; a hook blocks
       others; a script exits non-zero. The rule answers; who acts on the answer
       is per entity and may not be uniform.
@@ -162,6 +195,15 @@ on it. **Order by what is being violated**, which is Agent and Worktree.
   reaped checkout is re-creatable and a deleted ref is not** — the asymmetry
   that makes those two scripts refuse differently, currently held only in their
   comments.
+
+### Refusing the next hidden one
+
+- `infra/a-state-declares-its-lifecycle` — the ratchet. Counts state-shaped
+  enums with neither a `transitions/<entity>.ts` nor a stated reason they do not
+  transition; fails when the count grows. **Asserted: the gate fails on a new
+  enum added without either**, because a ratchet nobody can trip is a comment.
+  Starts at the measured number rather than zero — 21 enums, 1 rule — so the
+  migration lowers it slice by slice and the target is stated as a debt.
 
 ### The slice's lifecycle
 
