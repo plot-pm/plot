@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Plot helper: fan out one worktree + one worker per eligible branch.
+# Plot helper: hand one slice + its brief to the registry per eligible branch.
 # Usage: plot-dispatch.sh [--dry-run] [--no-start] [--no-brief] [--offline]
 #                         [--max N] [--allow-local] <slug>
 #        plot-dispatch.sh --migrate [--yes] [--max N]
@@ -27,12 +27,15 @@
 #               byte-identical, which is what lets it be diffed against a run
 #               from before a change to this script.
 #   --yes       with --migrate, actually move the worktrees (default is dry-run)
-#   --no-start  create worktrees and claim refs, but start no workers
-#   --no-brief  start a worker even when its branch has no brief. The named
-#               escape for the brief gate: a missing brief PREPARES (worktree +
-#               claim) but does not START, because the worker's first
-#               instruction is to read `.plot/briefs/<branch>.md` and it has
-#               nothing to read. --no-brief overrides that and says so.
+#   --no-start  hand nothing over. Dispatch starts no worker either way, so
+#               this now suppresses the hand-over itself — the inspect-first
+#               run that reports what is eligible and writes nothing.
+#   --no-brief  hand a slice over even when its branch has no brief. The named
+#               escape for the brief gate: a missing brief is not handed over,
+#               because the agent's first instruction is to read
+#               `.plot/briefs/<branch>.md` and it has nothing to read. A refused
+#               slice leaves no desk and no claim and stays in the queue.
+#               --no-brief overrides that and says so.
 #   --offline   skip `git fetch`
 #   --max N     dispatch at most N branches this run (default: all eligible)
 #   --allow-local  read the plan's phase from the working tree when
@@ -1709,31 +1712,20 @@ worker_state_field() {
   fi
 }
 
-# The summary block: an optional prose line, then the machine-countable footer.
+# The summary: the machine-countable footer, and nothing above it.
 #
-# The prose line is printed only when there is a consequence to state — a
-# summary that always explains itself teaches the reader to skip it, and then
-# it is worth nothing on the day it matters. `worktrees prepared` counts
-# dispatched + reused, because a re-adopted worktree is equally a desk nobody
-# was sat at.
+# THE PROSE LINE IS GONE, BY ITS OWN RULE. It existed to explain a zero that
+# had a cause worth naming — a `Worker command` nobody had configured, read off
+# a run that had prepared desks and staffed none. Dispatch starts no worker at
+# all now, so `started=0` is structural: the line would print on every run,
+# always true and never informative. `--dry-run` was held to exactly this rule
+# from the start — *"a dry run starts nothing BY CONSTRUCTION, so it explains
+# nothing"* — and the fan-out has become the same case.
+#
+# `worker=` still travels in the footer. It says how this repo is configured,
+# which remains a fact about the repo even where it no longer explains a count.
 print_summary() { # $1=dispatched $2=reused $3=skipped $4=started
-  local prepared=$(( $1 + $2 )) worker
-  worker=$(worker_state_field)
-  if [ "$prepared" -gt 0 ] && [ "$4" = 0 ]; then
-    case "$worker" in
-      unconfigured)
-        echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started, no \`Worker command\` configured" ;;
-      declined)
-        # Asked and answered: this repo starts its workers by hand. Stating the
-        # count without calling it a gap — hand-starting is a legitimate
-        # workflow, and repeating "not configured" at someone who decided that
-        # on purpose is the nag the plan rules out.
-        echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started — this repo starts them by hand" ;;
-      suppressed)
-        echo "$prepared worktree$([ "$prepared" = 1 ] || echo s) prepared, 0 workers started (--no-start)" ;;
-    esac
-  fi
-  echo "summary: dispatched=$1 reused=$2 skipped=$3 started=$4 brief=missing worker=$worker brief_asked=${n_brief_asked:-0}"
+  echo "summary: dispatched=$1 reused=$2 skipped=$3 started=$4 brief=missing worker=$(worker_state_field) brief_asked=${n_brief_asked:-0}"
 }
 
 # ---------------------------------------------------------------------------
@@ -2441,45 +2433,36 @@ if [ "$dry_run" = 1 ]; then
   exit 0
 fi
 
-# Ask the fleet scan for eligible-and-unclaimed branches, one at a time.
-# Re-asking after each claim is deliberate (pull, not push): the answer changes
-# as we claim, and a list computed up front would go stale mid-fan-out.
-while :; do
-  [ "$max" -gt 0 ] && [ "$n_dispatched" -ge "$max" ] && break
+# THE LIST IS READ ONCE, AND THAT FOLLOWS FROM THE CLAIM GOING.
+#
+# This was a PULL: `--next` was asked again after every claim, because claiming
+# a branch changed what the next ask would offer and a list computed up front
+# would have gone stale mid-fan-out. Dispatch claims nothing now — it hands a
+# slice to the registry and returns — so nothing this loop does changes the
+# scan's answer, and re-asking would return the same branch until a gate marked
+# it exhausted and the loop broke on it. Measured on the first run after the
+# claim was removed: `feature/one` handed over, `feature/two` never reached.
+#
+# ONE SCAN RATHER THAN N. The scan is 18.3 s here, so the pull cost one of those
+# per branch to re-derive an answer that could not have moved.
+#
+# `--allow-waiting`'s CANDIDATES COME LAST, after every branch the scan was
+# willing to name. `--list-eligible` reports a waiting branch as `waiting` and
+# never offers it, so the flag's candidates can only come from the preflight; a
+# held branch is one the operator chose to start early and must not displace one
+# that was ready. `sort -u` because a branch the scan DID offer — its host call
+# failed where the preflight's succeeded — must be handed over once, not twice.
+mapfile -t fan_out < <({ "$script_dir/plot-fleet-scan.sh" $offline --list-eligible "$slug" 2>/dev/null
+                         [ "$allow_waiting" = 1 ] && printf '%s\n' ${waits_freed[@]+"${waits_freed[@]}"}
+                         :; } | grep -v '^$' | sort -u)
 
-  branch=$("$script_dir/plot-fleet-scan.sh" $offline --next "$slug" 2>/dev/null) || branch=""
-  # WHAT `--allow-waiting` FREED, ONCE THE SCAN HAS RUN DRY. `--next` reports a
-  # waiting branch as `waiting` and will never offer it, so the flag's candidate
-  # can only come from the preflight — and it is taken LAST, after every branch
-  # the scan was willing to name. A held branch is the one the operator chose to
-  # start early; it must not displace one that was ready.
-  #
-  # `exhausted` is what terminates this: each freed branch is marked attempted
-  # below (or by a gate that refuses it), so the loop cannot re-offer it the way
-  # a pull from `--next` would.
-  from_freed=0
-  if [ -z "$branch" ] && [ "$allow_waiting" = 1 ]; then
-    for br in ${waits_freed[@]+"${waits_freed[@]}"}; do
-      is_exhausted "$br" && continue
-      branch="$br"
-      from_freed=1
-      # MARKED ATTEMPTED AT SELECTION, not after a successful dispatch. Every
-      # other candidate leaves this loop because `--next` stops naming it once
-      # it is claimed; `waits_freed` is a fixed list this script re-reads, so a
-      # branch marked only on failure would be offered again on the next pass
-      # and the loop would never end.
-      exhausted+=("$br")
-      break
-    done
-  fi
-  [ -n "$branch" ] || break
-  # --next has no memory; if it offers something we already failed on, the
-  # eligible set is exhausted for this run. A freed branch was just marked
-  # attempted one line above, so the test is asked of scan-offered branches
-  # only — asking it here would break the loop on the candidate it just chose.
-  if [ "$from_freed" = 0 ] && is_exhausted "$branch"; then
-    break
-  fi
+for branch in ${fan_out[@]+"${fan_out[@]}"}; do
+  [ "$max" -gt 0 ] && [ "$n_dispatched" -ge "$max" ] && break
+  # `exhausted` SURVIVES THE PULL IT WAS WRITTEN FOR. It no longer has to stop
+  # the loop re-offering a branch — a list cannot — but the gates below still
+  # mark what they refused, and `sort -u` cannot merge a preflight candidate
+  # with a scan-offered one where the two spellings differ.
+  is_exhausted "$branch" && continue
 
   # THE PATH DISPATCH NO LONGER CREATES, still composed for the two readers that
   # need it: the dry run, which names where a desk WOULD go, and the monitor
@@ -2614,11 +2597,6 @@ while :; do
   # who takes it is the registry's to decide and its own to record.
   claimed_now+=("$branch")
 
-  # `exhausted` KEEPS THE LOOP FINITE. Nothing this run does changes what
-  # `--next` offers any more — no claim is pushed, so the branch stays `open`
-  # and the scan would offer it on every pass. Marking it here is what the
-  # claim push used to do implicitly.
-  exhausted+=("$branch")
 done
 
 # Book AFTER the fan-out, in one commit, so a booking that fails cannot leave
