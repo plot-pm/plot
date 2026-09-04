@@ -968,6 +968,8 @@ bb_assert_issue_version() {
 BB_CAP_CHECKED=""
 BB_CAP_HAS_JSON=""
 BB_CAP_IDENTITY=""    # "craftamap/0.6.0" or "quatico/1.2.3" or "unknown/<ver>"
+BB_CAP_PROBE_RC=""    # the exit code `bb pr list --help --json` returned
+BB_CAP_PROBE_MATCH="" # the line that matched a rejection pattern, if one did
 
 # Identify which bb is on PATH. Returns a string like "quatico/1.9.0" or
 # "craftamap/0.6.0" or "unknown/<version>" or "unknown/unknown".
@@ -1016,26 +1018,52 @@ bb_test_json_support() {
   local out rc
   out="$(bb pr list --help --json 2>&1)"; rc=$?
 
-  # craftamap 0.6.0 rejects --json with `Error: unknown flag: --json`
-  if grep -qiE 'unknown flag.*--json|invalid.*--json|--json.*not' <<<"$out"; then
+  # WHAT WAS TESTED, kept for the refusal below. The diagnostic names the
+  # command, its exit code and the line that matched — three observations a
+  # reader can reproduce — rather than a provenance verdict `bb_identify`
+  # cannot determine. A message that guesses wrong costs more than one that
+  # says less.
+  BB_CAP_PROBE_RC="$rc"
+  BB_CAP_PROBE_MATCH=""
+
+  # THE MEASUREMENT ANSWERS FIRST, AND THE TEXT ONLY WHEN IT IS ABSENT.
+  #
+  # `rc = 0` proves the flag PARSED: no CLI accepts an unknown flag and exits 0.
+  # That is a measurement. The grep below is a heuristic over prose, and asking
+  # the heuristic first is what issue #668 is.
+  #
+  # bb 1.9.0 documents that the flag is cheap — "a bare `--json`, costs nothing
+  # extra" — and `--json.*not` matched `--json, costs no`t`hing`, so a bb that
+  # WORKS was rejected for explaining the flag it supports. The bug therefore
+  # scaled with documentation quality: bb 1.0.0 lacks the sentence and passed.
+  [ "$rc" = 0 ] && return 0
+
+  # ANCHORED TO THE FLAG, WITH NO `.*` BRIDGE, so prose cannot reach them.
+  # These are what a CLI actually prints when it rejects a flag — Cobra, getopt
+  # and Go's `flag` respectively. craftamap 0.6.0 exits NON-ZERO on `--json`, so
+  # it never reached the early return above and its exact message still matches.
+  if grep -qiE 'unknown flag: --json|unknown option .?--json|flag provided but not defined: -?-json' <<<"$out"; then
+    BB_CAP_PROBE_MATCH="$(grep -iEm1 'unknown flag: --json|unknown option .?--json|flag provided but not defined: -?-json' <<<"$out")"
     return 1
   fi
 
-  # If help succeeded (even partially), assume --json is supported
-  if [ "$rc" = 0 ]; then
-    return 0
-  fi
-
-  # Non-zero exit with no clear rejection — inspect further
-  # A "not a bitbucket repo" error is about the repo, not the flag
+  # A "not a bitbucket repo" error is about the repo, not the flag.
   if grep -qiE 'not a bitbucket repo|repository not found' <<<"$out"; then
-    # Could not test properly, but that is a repo issue, not a capability one.
-    # We will discover the real failure when the actual call is made.
     return 0
   fi
 
-  # Unknown failure — treat as unsupported to be safe
-  return 1
+  # AN UNRECOGNISED FAILURE ACCEPTS, and this is a behaviour change the plan
+  # argued for in round 1. Refusing on wording outside the three formats above
+  # is the same mistake as the bug this function is fixing, one arm along: a
+  # guess refusing a CLI that may work. A help call failing for some other
+  # reason is likelier an environment problem, and letting it through means the
+  # first real call fails with BB'S OWN ERROR — more accurate than any guess
+  # made here.
+  #
+  # The cost is stated rather than hidden: a genuinely incapable `bb` with
+  # unfamiliar wording now produces a downstream error instead of one clear
+  # message. That is the direction to fail, because the other direction is #668.
+  return 0
 }
 
 # Require that bb supports --json. Called once before the first bb PR call.
@@ -1057,7 +1085,19 @@ bb_require_json() {
 
   if ! bb_test_json_support; then
     BB_CAP_HAS_JSON=0
-    die3 "bb on PATH ($BB_CAP_IDENTITY) does not support --json for PR commands — install Quatico's bb or ensure it is first on PATH"
+    # THE OBSERVATION FIRST, THE IDENTITY WHERE ONE IS KNOWN.
+    #
+    # The plan asked for the observation and for dropping the provenance CLAIM
+    # — `bb_identify` answers `unknown/<ver>` for Quatico's bb, so a message
+    # resting on it advised a working install to reinstall itself.
+    #
+    # But identity is not always unknown: craftamap reports a real version, and
+    # `host.test.mjs:1761` asserts the diagnostic names it. Both are right, and
+    # they do not conflict — an identity that IS determinable is a fact worth
+    # printing, and `bb_identify` already answers `unknown/<ver>` rather than
+    # inventing one where it is not. So this reports what was tested AND who
+    # answered, and it no longer tells anyone what to install.
+    die3 "bb ($BB_CAP_IDENTITY): bb pr list --help --json exited ${BB_CAP_PROBE_RC:-?}${BB_CAP_PROBE_MATCH:+, matched: $BB_CAP_PROBE_MATCH} — this bb does not support --json for PR commands"
   fi
 
   BB_CAP_HAS_JSON=1
