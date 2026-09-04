@@ -240,13 +240,18 @@ costs.
 |------|--------|----------------|
 | [every-element-is-a-domain-concept](../../plans/2026-09-04-every-element-is-a-domain-concept.md) | Draft, PR #693 open | The TYPES: Branch, Plan and Slice stop being strings. Carries the host work — one slice per failure mode, because the four scripts that ask `gh` directly do not fail alike |
 | [a-lifecycle-is-enforced-by-a-test](../../plans/2026-09-04-a-lifecycle-is-enforced-by-a-test.md) | Draft, PR #698 open | The RULES: `transitions/` for Agent, Worktree, Slice and Story, each refusing with a test per refusal, plus the ratchet that stops the next lifecycle hiding |
+| [the-workflow-owns-the-word-phase](../../plans/2026-09-04-the-workflow-owns-the-word-phase.md) | Draft, PR #701 open | The VOCABULARY: a plan has a state, the development workflow has phases, and each phase names its work. Lands first — the rules above are written after it or they copy the conflation into four new files |
 
-Both links resolve once the plan PRs merge — a plan reaches `docs/plans/` on the
+The links resolve once the plan PRs merge — a plan reaches `docs/plans/` on the
 default branch by being approved, so until then the file lives on its `idea/`
 branch and the PR number is how to read it.
 
-**The two are independent and either may land first.** Types and rules meet
-only where a rule judges an entity, and the rules take readings as values
+**The vocabulary plan lands first; the other two are independent of each other.**
+A delivered plan is ready for testing — its state is `delivered`, its phase is
+`Testing` — and today one word carries both. Writing four `transitions/` files
+before that is settled copies the conflation into four new places.
+
+**Types and rules meet only where a rule judges an entity**, and the rules take readings as values
 (`reap(readings, input)`), so a transition can be written and tested before the
 thing it judges is a named type. Sequencing them would be ceremony.
 
