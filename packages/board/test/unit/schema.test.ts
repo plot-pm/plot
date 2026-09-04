@@ -253,14 +253,14 @@ describe('SourceBranchSchema — the worker', () => {
     }
   });
 
-  it('keeps the cue a cue — `idle` is NOT a sixth agent state', () => {
+  it('keeps the cue a cue — `idle` is NOT an agent state', () => {
     // ITEM 6 OF THE PLAN, stated against the cue directly. The naive fix adds
-    // `idle` as a sixth `AgentStateSchema` member; that would satisfy the
-    // render test and quietly change what `isLiveState`/`isBrokenState`
-    // classify. So this pins the enum at five AND asserts `idle` is not among
-    // them — the cue lives in its own `WorkerActivitySchema`, an attribute of
-    // `running`, never a peer state.
-    expect(AgentStateSchema.options).toHaveLength(5);
+    // `idle` as an `AgentStateSchema` member; that would satisfy the render test
+    // and quietly change what `isLiveState`/`isBrokenState` classify. So this
+    // pins the enum's size AND asserts `idle` is not among its members — the cue
+    // lives in its own `WorkerActivitySchema`, an attribute of `running`, never
+    // a peer state.
+    expect(AgentStateSchema.options).toHaveLength(9);
     expect(AgentStateSchema.options).not.toContain('idle');
     expect(WorkerActivitySchema.options).toEqual(['working', 'idle', '']);
   });

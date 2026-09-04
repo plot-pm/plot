@@ -42,41 +42,39 @@ const byBranch = (rows: AgentRow[]): Map<string, AgentRow> =>
 
 describe('workingAgentRows — the live workers, joined to their branch rows', () => {
   it('renders exactly the running and waiting entries, over the whole enum', () => {
-    // Done when #1: a registry holding an entry in EVERY one of the five states
+    // Done when #1: a registry holding an entry in EVERY one of the nine states
     // renders the `running` and `waiting` ones and NO other. Asserted over
-    // `AgentStateSchema.options` so a sixth state cannot be added without this
+    // `AgentStateSchema.options` so a new state cannot be added without this
     // test having an opinion about it, and its size is pinned so the enum cannot
-    // grow silently underneath the filter.
-    expect(AgentStateSchema.options).toHaveLength(5);
+    // grow silently underneath the filter. Pinned at NINE since 2026-09-04: the
+    // four the registry used to fold into `unknown` are members now, and every
+    // one of them is dead — a widened enum whose filter did not widen with it
+    // would have rendered four dead states as live workers.
+    expect(AgentStateSchema.options).toHaveLength(9);
     const agents = AgentStateSchema.options.map((state, i) =>
       agent({ session: `s${i}`, branch: `feature/${state}`, state }));
     const actual = workingAgentRows(agents, byBranch([]));
     expect(actual.map((e) => e.agent.state)).toEqual(['running', 'waiting']);
   });
 
-  it('drops a stalled, finished or unknown entry — an ended session is not a worker', () => {
-    // The three non-live states, each on a branch that HAS a WORKING row: the
+  it('drops every dead entry — an ended session is not a worker', () => {
+    // The seven non-live states, each on a branch that HAS a WORKING row: the
     // filter is on the entry's state, not on whether a row exists to join. None
-    // survives.
-    const rows = [
-      row({ branch: 'feature/stalled' }),
-      row({ branch: 'feature/finished' }),
-      row({ branch: 'feature/unknown' }),
-    ];
-    const agents = [
-      agent({ branch: 'feature/stalled', state: 'stalled' }),
-      agent({ branch: 'feature/finished', state: 'finished' }),
-      agent({ branch: 'feature/unknown', state: 'unknown' }),
-    ];
+    // survives. `failed`, `ended`, `none` and `elsewhere` are here because they
+    // became members on 2026-09-04 — before that they arrived as `unknown` and
+    // this test could not have named them.
+    const dead = ['stalled', 'finished', 'unknown', 'failed', 'ended', 'none', 'elsewhere'] as const;
+    const rows = dead.map((state) => row({ branch: `feature/${state}` }));
+    const agents = dead.map((state) => agent({ branch: `feature/${state}`, state }));
     expect(workingAgentRows(agents, byBranch(rows))).toHaveLength(0);
   });
 
-  it('renders an unrecognised sixth state — the filter is a denylist, not an allowlist', () => {
+  it('renders an unrecognised tenth state — the filter is a denylist, not an allowlist', () => {
     // Design: an OLDER board reading a NEWER registry must SHOW a state it does
     // not recognise, not hide it — a worker nobody can see is the worse failure.
     // The schema would reject `queued`, so the entry is constructed past it; the
-    // filter must still let it through because it is not one of the three known
-    // dead states.
+    // filter must still let it through because it is not one of the known dead
+    // states.
     const rogue = { ...agent(), state: 'queued' } as unknown as AgentEntry;
     const actual = workingAgentRows([rogue], byBranch([]));
     expect(actual).toHaveLength(1);

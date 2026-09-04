@@ -8,6 +8,7 @@ import {
   FindingSchema,
   FleetReadingSchema,
   MonitorNameSchema,
+  AgentStateSchema as DomainAgentStateSchema,
 } from '@plot-pm/domain';
 
 /**
@@ -2663,8 +2664,8 @@ export const AgentRowSchema = z.object({
    *
    * The secondary cue beside `worker`. `workerStatus` reads it to say WHICH kind
    * of running a `running` worker is in — a child mid-work reads differently
-   * from one whose clock is frozen — without a sixth `worker` state and without
-   * touching the registry's five-member `AgentStateSchema`. Empty on every state
+   * from one whose clock is frozen — without a ninth `worker` state and without
+   * adding `idle` to `AgentStateSchema`. Empty on every state
    * but `running`, where it answers nothing: the same absent-value shape the
    * other worker fields use. Forwarded, never re-derived — the scan measured it
    * once, and this carries that verdict outward.
@@ -2889,18 +2890,33 @@ export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
 /**
  * How the registry answers *is this agent still running?* — one fact per pulse.
  *
- * The first four are exactly the states `plot-worker-state.sh` distinguishes,
- * carried onto the entry unchanged: `running` where the pid answers `kill -0`,
- * `finished` where it is gone and the work reached review or left nothing
- * behind, `waiting` where a `PLOT-BLOCKED:` marker sits in the tree, `stalled`
- * where uncommitted or unpushed work is on the floor with no PR.
+ * The domain's eight, plus `unknown`. Six describe the PROCESS — `running`,
+ * `finished`, `failed`, `ended`, `none`, `elsewhere` — and two the TASK:
+ * `waiting` where a `PLOT-BLOCKED:` marker sits in the tree, `stalled` where
+ * uncommitted or unpushed work is on the floor with no PR. Every worker exits 0,
+ * so the exit code cannot say whether the work is done and the tree refines
+ * `finished`.
  *
- * `unknown` is the registry's own honest fifth: an older manifest with no pid,
- * an agent between branches with no worktree to look in, or a check that could
- * not run. Absent is not a guess — the rule this contract follows everywhere,
- * and the reason a stale record can never masquerade as a live one.
+ * BUILT FROM {@link DomainAgentStateSchema} rather than restated, so the two
+ * cannot drift. This enum carried five members until 2026-09-04 and collapsed
+ * `failed`, `ended`, `none` and `elsewhere` into `unknown` — answers
+ * `plot-worker-state.sh` already gave and `bashLiveness` already received. The
+ * four name different next moves: a recorded non-zero exit is a worker to look
+ * at, an absent record is a worker that never ran, and one worktree away is a
+ * question this machine cannot answer at all.
+ *
+ * `unknown` is the registry's OWN state and not a ninth shell answer. It means
+ * the board could not ask: the resolver threw, the answer count did not match
+ * its batch, or the entry names no worktree to look in. Three absences sit side
+ * by side and none may be read as another — `none` is *a record says no
+ * worker*, `elsewhere` is *no worktree on this machine*, `unknown` is *nobody
+ * looked*. Absent is not a guess, which is why a stale record can never
+ * masquerade as a live one.
  */
-export const AgentStateSchema = z.enum(['running', 'finished', 'waiting', 'stalled', 'unknown']);
+export const AgentStateSchema = z.enum([
+  ...DomainAgentStateSchema.options,
+  'unknown',
+]);
 export type AgentState = z.infer<typeof AgentStateSchema>;
 
 /**
@@ -2923,18 +2939,39 @@ export type AgentState = z.infer<typeof AgentStateSchema>;
 export const LIVE_STATES: ReadonlySet<AgentState> = new Set<AgentState>(['running', 'waiting']);
 
 /**
+ * The registry states that mean NO LIVE WORKER — the complement
+ * {@link isLiveState} is the denylist reading of.
+ *
+ * Seven of the nine. `finished` handed its branch back, `stalled` left work on
+ * the floor, `failed` recorded a non-zero exit, `ended` recorded no exit at all,
+ * `none` has no record, `elsewhere` has no worktree on this machine, and
+ * `unknown` is the board unable to say. What every one of them shares is that no
+ * process is working here now.
+ *
+ * NAMED SO THE ENUM AND THE FILTER CANNOT DRIFT APART. `isLiveState` reads this
+ * set rather than restating its members, and a test asserts the two partitions
+ * cover exactly {@link AgentStateSchema.options}. Widening the enum without
+ * widening this is the measured hazard: the four states added 2026-09-04 would
+ * each have read as a live worker and rendered in WORKING, which is
+ * `the-working-section-shows-every-worker`'s defect running backwards.
+ */
+const NOT_LIVE_STATES: ReadonlySet<string> = new Set<string>([
+  'finished', 'stalled', 'failed', 'ended', 'none', 'elsewhere', 'unknown',
+]);
+
+/**
  * Whether a registry state means a live worker — the DENYLIST reading of
  * {@link LIVE_STATES}, not the allowlist.
  *
- * A known-non-live state (`finished`, `stalled`, `unknown`) is not live; ANY
- * OTHER state — including a sixth an older board does not recognise from a newer
- * registry — reads as live and is shown. A worker nobody can see is the worse
- * failure, so the filter fails toward visibility rather than hiding a state it
- * was not taught. The cost, taken deliberately: `LIVE_STATES` is the complement
- * this is derived from, a weaker guarantee than a bare set-membership test.
+ * A known-non-live state is not live; ANY OTHER state — including a tenth an
+ * older board does not recognise from a newer registry — reads as live and is
+ * shown. A worker nobody can see is the worse failure, so the filter fails
+ * toward visibility rather than hiding a state it was not taught. The cost,
+ * taken deliberately: `LIVE_STATES` is the complement this is derived from, a
+ * weaker guarantee than a bare set-membership test.
  */
 export function isLiveState(state: string): boolean {
-  return state !== 'finished' && state !== 'stalled' && state !== 'unknown';
+  return !NOT_LIVE_STATES.has(state);
 }
 
 /**
@@ -2942,22 +2979,30 @@ export function isLiveState(state: string): boolean {
  * finishing and needs a person to look.
  *
  * `stalled` is work on the floor with no PR: the worker stopped without asking,
- * and what it was doing is uncommitted. `unknown` is a question the board cannot
- * answer: the pid is gone, no exit code was recorded, so the worker's fate is
- * unknown. Both belong in WAITING ON YOU as problem reports.
+ * and what it was doing is uncommitted. `failed` is a recorded non-zero exit —
+ * the process itself reported the failure, which is the clearest *go look at
+ * this* the fleet produces. `unknown` is a question the board cannot answer: the
+ * pid is gone, no exit code was recorded, so the worker's fate is unknown. All
+ * three belong in WAITING ON YOU as problem reports.
  *
  * `finished` is NOT broken — the work reached review, and the PR carries it. A
  * finished entry drains through the reconciliation; it needs no row of its own
  * while the PR still does.
  *
+ * NEITHER ARE `ended`, `none` AND `elsewhere`, and that is deliberate. Each says
+ * no worker is here — an unreadable record, an absent one, a worktree on another
+ * machine — and an agent with no process is not a problem report. Filing them in
+ * WAITING ON YOU would put a row in front of a person for every agent that has
+ * ever finished and been forgotten.
+ *
  * An allowlist, unlike {@link isLiveState}: an unrecognised state is NOT broken,
  * because calling it broken and filing it in WAITING ON YOU is a claim this
  * function cannot verify. The fallback for an unknown state is WORKING — see
- * `isLiveState` — so an unrecognised sixth state renders where a worker renders
+ * `isLiveState` — so an unrecognised tenth state renders where a worker renders
  * rather than where a problem report renders.
  */
 export function isBrokenState(state: string): boolean {
-  return state === 'stalled' || state === 'unknown';
+  return state === 'stalled' || state === 'failed' || state === 'unknown';
 }
 
 /**

@@ -22,11 +22,11 @@ import { isLiveState, isBrokenState, type AgentEntry, type AgentRow } from '../.
  * plan the entry cannot name rather than inventing an empty one.
  *
  * The filter is a DENYLIST via `isLiveState`, not an allowlist: an unrecognised
- * sixth state — an older board reading a newer registry — renders rather than
+ * tenth state — an older board reading a newer registry — renders rather than
  * vanishes, because a worker nobody can see is the worse failure and the one
- * this change exists to fix. A `stalled` or `unknown` entry is not lost; it
- * reaches WAITING ON YOU as a problem report (a separate slice), where its
- * subject — *needs a person* — belongs.
+ * this change exists to fix. A `stalled`, `failed` or `unknown` entry is not
+ * lost; it reaches WAITING ON YOU as a problem report, where its subject —
+ * *needs a person* — belongs.
  *
  * The join NEVER rewrites the row. A merged branch keeps its own row in DONE —
  * a true statement about the work — while a live worker row it joins to sits in
@@ -59,16 +59,18 @@ export function workingAgentRows(
  * agent that stopped and needs a person.
  *
  * A PROBLEM REPORT, NOT A WORKER. `stalled` is work on the floor with no PR,
- * `unknown` is a question the board cannot answer. Both say *go look at this* —
- * exactly what WAITING ON YOU exists to say. `finished` is not included: the work
- * reached review, and the PR carries it.
+ * `failed` is a recorded non-zero exit, and `unknown` is a question the board
+ * cannot answer. All three say *go look at this* — exactly what WAITING ON YOU
+ * exists to say. `finished` is not included: the work reached review, and the PR
+ * carries it. Neither are `ended`, `none` and `elsewhere`: each says no worker is
+ * here, and an agent with no process is not a problem report.
  *
  * THE COMPANION TO {@link workingAgentRows}, and the split is `isBrokenState`.
  * An entry reaches WORKING iff `isLiveState` is true, and WAITING ON YOU iff
- * `isBrokenState` is true. `finished` is neither — it is not live, and it is not
- * broken, so it appears in neither section. That is correct: a finished entry
- * drains through reconciliation and needs no row of its own while its PR still
- * does.
+ * `isBrokenState` is true. Four states are neither — `finished`, `ended`, `none`
+ * and `elsewhere` — so they appear in neither section. That is correct: a
+ * finished entry drains through reconciliation and needs no row of its own while
+ * its PR still does, and the other three say only that no worker is here.
  *
  * Joined to a branch row by the same rule as `workingAgentRows`: where a branch
  * row carries the same branch the entry holds, the row's facts (plan, slice, PR,
