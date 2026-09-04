@@ -1,8 +1,8 @@
 import type { DeclarationReading } from '../entities/declaration.js';
 import { isBlocked, isComplete } from '../entities/declaration.js';
 import type { Headroom } from '../entities/machine.js';
-import type { DeskReadings } from './gates.js';
-import { gateFailures } from './gates.js';
+import type { DeskReadings, Gate } from './gates.js';
+import { ALL_GATES, gateFailures } from './gates.js';
 import type { ResumeAvailability, ResumeReadings } from './resume.js';
 import { correctionPrompt, resumeAvailability } from './resume.js';
 
@@ -45,6 +45,22 @@ export interface SupervisionReadings {
   declaration: DeclarationReading;
   /** What was measured of the desk, for the gates. */
   desk: DeskReadings;
+  /**
+   * Which gates this desk's readings can honestly answer; all five by default.
+   *
+   * A READING ABOUT THE READINGS, and it is here rather than in the caller
+   * because dropping a gate is a statement about what was measured. The
+   * annotation gate needs the PR numbers ONE plan line carries, and
+   * `PlanRecordBranch` carries none — so a caller that cannot read them says so
+   * by narrowing this, rather than by passing a `planLine` that claims the line
+   * is unannotated when nobody looked.
+   *
+   * Running a gate on a reading nobody took fails every correctly finished
+   * branch and hands its agent a correction telling it to do work it already
+   * did. Omitting the gate reports one thing less; running it reports one thing
+   * wrong.
+   */
+  gates?: readonly Gate[];
   /** What was measured about resuming this agent's own conversation. */
   resume: ResumeReadings;
   /**
@@ -238,7 +254,7 @@ export const supervise = (readings: SupervisionReadings): Supervision => {
     return at('needs-a-person', 'agent-blocked', [], readings.attempts);
   }
 
-  const failures = [...gateFailures(readings.desk)];
+  const failures = [...gateFailures(readings.desk, readings.gates ?? ALL_GATES)];
 
   // COMPLETE MEANS DECLARED `ok` AND EVERY GATE PASSED, and both halves are
   // load-bearing. The declaration is the agent's claim; the gates are what was
