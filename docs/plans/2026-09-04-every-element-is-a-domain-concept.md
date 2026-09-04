@@ -157,6 +157,8 @@ them together is what makes the type earn its existence.
   the rules that judge one — `plot-reap.sh`'s five refusals and
   `plot-release-refs.sh`'s guards are the same question — move onto it.
 
+- `bug/the-default-branch-repairs-itself` — **folded in from `a-ref-is-not-a-claim` on 2026-09-04**, because a symref that will not resolve is a Branch question and this is where Branch becomes a type. Twice that day `refs/remotes/origin/HEAD` pointed at `origin/plot-corpus-pin`, a branch that does not exist, and `plot-dispatch.sh` refused every dispatch because it could not resolve the default branch. `git remote set-head origin --auto` repaired it in under a second, both times. A component that needs the default branch repairs an unresolvable symref rather than refusing, **and names what it repaired** — a recurring corruption silently fixed is one nobody investigates. It does not touch a symref that resolves: a deliberate non-default HEAD is somebody's choice. What leaves the pin behind is a lead, not a conclusion; record it rather than assume it.
+
 ### Naming the plan and the slice
 
 - `feature/a-plan-is-a-domain-entity` — `Plan` and `Slice` as types, with the
