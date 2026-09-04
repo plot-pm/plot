@@ -315,7 +315,7 @@ A declaration is a fact a person wrote.
 
 ### Watching
 
-- `feature/the-machine-keeps-the-daemon-alive` <!-- waits: feature/the-registry-supervises-its-agents --> — the launchd/systemd unit, and what the daemon does on a tick it cannot complete. Last, because a supervisor worth keeping alive has to exist first. Moved with the wave above, for the same reason.
+- `feature/the-machine-keeps-the-daemon-alive` <!-- waits: feature/the-registry-supervises-its-agents --> — the launchd/systemd unit, and what the daemon does on a tick it cannot complete. Last, because a supervisor worth keeping alive has to exist first. Moved with the wave above, for the same reason. → #699
 
 ## Notes
 
