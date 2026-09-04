@@ -17,6 +17,7 @@
 - **Started:** 2026-09-03, Jan Wloka, `docs/the-desk-belongs-to-the-agent`
 - **Started:** 2026-09-03, Jan Wloka, `feature/the-reaper-sweeps-every-kind`
 - **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-waits-for-work`
+- **Started:** 2026-09-04, Jan Wloka, `feature/the-registry-queues-a-brief`
 
 ## Changelog
 
