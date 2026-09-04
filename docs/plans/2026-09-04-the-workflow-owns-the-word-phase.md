@@ -237,8 +237,8 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
   `Phase:` would be worse at its own job than the one that confused two words.
 
   **Asserted: every existing plan still parses, byte-for-byte identically.**
-  The gate is `plot-plan-meta.sh` over all of `docs/plans/*.md` before and
-  after, with **zero** differences — the same sweep
+  Every plan in the plan directory is parsed before and after, with **zero**
+  differences — the same sweep
   [`plot-parser-ignores-fenced-code-blocks`] established when the parser last
   changed. **Asserted: a file still saying `Phase:` parses after the rename**,
   which is the property that makes the dual read a contract rather than a
