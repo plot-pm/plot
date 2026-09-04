@@ -1085,7 +1085,19 @@ bb_require_json() {
 
   if ! bb_test_json_support; then
     BB_CAP_HAS_JSON=0
-    die3 "bb pr list --help --json exited ${BB_CAP_PROBE_RC:-?}${BB_CAP_PROBE_MATCH:+, matched: $BB_CAP_PROBE_MATCH} — this bb does not support --json for PR commands"
+    # THE OBSERVATION FIRST, THE IDENTITY WHERE ONE IS KNOWN.
+    #
+    # The plan asked for the observation and for dropping the provenance CLAIM
+    # — `bb_identify` answers `unknown/<ver>` for Quatico's bb, so a message
+    # resting on it advised a working install to reinstall itself.
+    #
+    # But identity is not always unknown: craftamap reports a real version, and
+    # `host.test.mjs:1761` asserts the diagnostic names it. Both are right, and
+    # they do not conflict — an identity that IS determinable is a fact worth
+    # printing, and `bb_identify` already answers `unknown/<ver>` rather than
+    # inventing one where it is not. So this reports what was tested AND who
+    # answered, and it no longer tells anyone what to install.
+    die3 "bb ($BB_CAP_IDENTITY): bb pr list --help --json exited ${BB_CAP_PROBE_RC:-?}${BB_CAP_PROBE_MATCH:+, matched: $BB_CAP_PROBE_MATCH} — this bb does not support --json for PR commands"
   fi
 
   BB_CAP_HAS_JSON=1
