@@ -1,9 +1,9 @@
 ---
 title: How Plot cuts work into pieces
 author: jwloka
-status: active
+status: done
 created: 2026-08-16
-updated: 2026-08-22
+updated: 2026-09-04
 ---
 
 # How Plot cuts work into pieces

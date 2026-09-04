@@ -1,9 +1,9 @@
 ---
 title: Rules that do not enforce themselves
 author: jwloka
-status: active
+status: done
 created: 2026-08-16
-updated: 2026-08-16
+updated: 2026-09-04
 ---
 
 # Rules that do not enforce themselves

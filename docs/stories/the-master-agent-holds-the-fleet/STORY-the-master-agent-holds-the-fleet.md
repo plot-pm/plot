@@ -1,9 +1,9 @@
 ---
 title: The master agent holds the fleet
 author: jwloka
-status: draft
+status: active
 created: 2026-08-28
-updated: 2026-08-30
+updated: 2026-09-04
 ---
 
 # The master agent holds the fleet
