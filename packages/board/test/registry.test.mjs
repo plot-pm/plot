@@ -127,14 +127,19 @@ describe('the fleet payload carries the agent registry', () => {
   });
 
   it('carries a pid and a state on every agent, wired through to the payload', async () => {
-    // These two manifests carry no pid and point at worktrees that do not exist,
-    // so liveness cannot be decided: the honest wire value is `pid: ''` and
-    // `state: 'unknown'` — never absent, never a guess. A live agent reaching
-    // `running` is proven in its own block below.
+    // These two manifests carry no pid and point at worktrees holding no
+    // `.plot-worker.pid`, so the shell answers `none` — a record says no worker.
+    // The honest wire value is `pid: ''` and that answer verbatim.
+    //
+    // IT READ `unknown` UNTIL 2026-09-04, because the registry folded `none`,
+    // `failed`, `ended` and `elsewhere` into it. The two words are not the same
+    // claim: `none` is the shell reporting no worker, `unknown` is the board
+    // unable to ask. A live agent reaching `running` is proven in its own block
+    // below.
     const f = await fleet(server.port);
     for (const a of f.agents) {
       assert.equal(a.pid, '', `${a.session}: no pid on the manifest reads as ""`);
-      assert.equal(a.state, 'unknown', `${a.session}: undecidable liveness reads as unknown`);
+      assert.equal(a.state, 'none', `${a.session}: no worker record reads as none`);
     }
   });
 });

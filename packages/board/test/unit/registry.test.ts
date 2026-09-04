@@ -19,6 +19,7 @@ import {
   parseManifest, readAgentRegistry, gitWorktrees, AGENT_MANIFEST_DIR,
 } from '../../src/server/registry.js';
 import { execFileSync } from 'node:child_process';
+import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
 import { projectSlug } from '../../src/server/transcript.js';
 import { rmTree } from '../helpers.mjs';
 
@@ -362,6 +363,37 @@ describe('the state — pulse-refreshed liveness, landing on the entry', () => {
     assert.deepEqual(asked, ['/wt/old'], 'and it IS asked about — the worktree is the only input');
   });
 
+  it('carries every one of the eight shell answers through unchanged', async () => {
+    // ONE AGENT READS ONE STATE — the wave's assertion, stated over the whole
+    // shell vocabulary. `KNOWN_STATES` folded `failed`, `ended`, `none` and
+    // `elsewhere` into `unknown` until 2026-09-04, so a `failed` agent and an
+    // agent nobody had looked at were the same word on the board. Asserted over
+    // the domain enum so the shell, the domain and the registry cannot drift to
+    // three vocabularies again — which is what `DESIGN-agent.md:797` recorded.
+    const shellStates = DomainAgentStateSchema.options;
+    assert.equal(shellStates.length, 8);
+    const byWorktree: Record<string, string> = {};
+    shellStates.forEach((state, i) => {
+      manifest(`${i}.json`, { session: state, pid: String(100 + i), worktree: `/wt/${state}`,
+        startedAt: `2026-08-20T${String(10 + i).padStart(2, '0')}:00:00Z` });
+      byWorktree[`/wt/${state}`] = state;
+    });
+    const got = await readAgentRegistry(root, home, { liveness: fakeLiveness(byWorktree) });
+    for (const state of shellStates) {
+      assert.equal(got.find((e) => e.session === state)?.state, state, state);
+    }
+  });
+
+  it('still refuses a state the shell could never print', async () => {
+    // The widening is to the EIGHT the shell answers, not to anything a resolver
+    // hands back. A word outside the vocabulary is `unknown` — the same
+    // not-a-guess answer a check that could not run gets.
+    manifest('a.json', { session: 'rogue', pid: '4242', worktree: '/wt/rogue',
+      startedAt: '2026-08-20T10:00:00Z' });
+    const [e] = await readAgentRegistry(root, home, { liveness: fakeLiveness({ '/wt/rogue': 'queued' }) });
+    assert.equal(e.state, 'unknown');
+  });
+
   it('reports `unknown` for an entry with a pid but no worktree to look in', async () => {
     // The shell reads liveness from a worktree. An agent between branches holds
     // none, so there is nowhere to look — `unknown`, not a guess either way.
@@ -676,17 +708,31 @@ describe('liveness through the REAL plot-worker-state.sh — the reuse, proven',
     assert.equal(e.state, 'finished');
   });
 
-  it('maps a shell state outside the four onto `unknown`', async () => {
-    // A dead pid with no exit record is `ended` to the shell — a real answer
-    // about the process, but not one of the four the registry keeps. It becomes
-    // `unknown` rather than being forced into `finished`: absent is not a guess.
-    // This can only pass if the real shell was consulted; a stub could not
-    // produce `ended`.
+  it('reads `ended` from the shell rather than folding it into `unknown`', async () => {
+    // THE COLLAPSE, MEASURED THROUGH THE REAL SHELL. A dead pid with no exit
+    // record is `ended` — a specific answer about the process — and the registry
+    // discarded it into `unknown` until 2026-09-04, alongside `failed`, `none`
+    // and `elsewhere`. `unknown` means *nobody looked*; the shell looked and
+    // answered. This can only pass if the real shell was consulted; a stub could
+    // not produce `ended`.
     const wt = worktree('wt-ended', 999998);
     manifest('a.json', { session: 'ended', pid: '999998', worktree: wt,
       startedAt: '2026-08-20T10:00:00Z' });
     const [e] = await readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
-    assert.equal(e.state, 'unknown');
+    assert.equal(e.state, 'ended');
+  });
+
+  it('reads `failed` from the shell — a recorded non-zero exit is not a guess', async () => {
+    // The wrapper's exit record says 3. `plot_worker_state` does not refine
+    // `failed` by the tree, so this is the process's own report and the registry
+    // carries it verbatim. Under the five-state enum it read `unknown`, which
+    // sent a reader looking for evidence the desk already held.
+    const wt = worktree('wt-failed', 999996);
+    fs.writeFileSync(path.join(wt, '.plot-worker.exit'), '3');
+    manifest('a.json', { session: 'failed', pid: '999996', worktree: wt,
+      startedAt: '2026-08-20T10:00:00Z' });
+    const [e] = await readAgentRegistry(root, home, { scriptsDir: SCRIPTS_DIR });
+    assert.equal(e.state, 'failed');
   });
 
   it('stays `unknown` with no scriptsDir — lists the agent it cannot classify', async () => {

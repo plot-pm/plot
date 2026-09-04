@@ -269,6 +269,48 @@ describe('a GONE worktree is droppable; an unknown one that EXISTS is not', () =
     assert.ok(fs.existsSync(file), 'the manifest survives');
   });
 
+  it('a FAILED worker whose worktree exists drops — a recorded exit IS verification', async () => {
+    // The second copy of the collapse, removed 2026-09-04. `classifyState`
+    // carried its own four-state list and folded `failed` into `unknown`, so a
+    // worker whose process reported exit 3 was refused with *state could not be
+    // verified* — a refusal whose premise the desk had already disproved. The
+    // guard is unchanged in kind: it still refuses what nobody could measure.
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const present = path.join(root, 'plot-wt-feature-failed');
+    fs.mkdirSync(present, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-failed', present);
+
+    const got = await drop('sess-failed', {
+      repoRoot: root,
+      liveness: fixedLiveness('failed'),
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, true, 'a measured non-zero exit is not an unverifiable state');
+    assert.ok(!fs.existsSync(file), 'the manifest is removed');
+  });
+
+  it('a WAITING worker whose worktree exists is refused as live', async () => {
+    // `waiting` is live: the agent stopped to ask and its worktree still holds a
+    // half-done branch. Dropping its record would lose the question.
+    const root = repo();
+    configFile(root, 'shared-registry');
+    const present = path.join(root, 'plot-wt-feature-asking');
+    fs.mkdirSync(present, { recursive: true });
+    const file = manifest(path.join(root, 'shared-registry'), 'sess-waiting', present);
+
+    const got = await drop('sess-waiting', {
+      repoRoot: root,
+      liveness: fixedLiveness('waiting'),
+    });
+
+    const body = got.body as unknown as DropResult;
+    assert.equal(body.dropped, false);
+    assert.match(body.reason, /still running/);
+    assert.ok(fs.existsSync(file), 'the manifest survives');
+  });
+
   it('a RUNNING worker whose worktree is gone is still refused as live', async () => {
     // Ordering guard. The live check runs BEFORE the gone check, so a resolver
     // that positively reports `running` outranks the directory's absence. A fix

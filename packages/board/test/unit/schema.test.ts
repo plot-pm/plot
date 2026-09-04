@@ -3,8 +3,9 @@ import {
   FLEET_CONTROLS_DEFAULT,
   PlanMetaSchema, CardSchema, SourceBranchSchema, AgentRowSchema, AgentEntrySchema,
   FleetSchema, ServerInfoSchema,
-  AgentStateSchema, WorkerActivitySchema,
+  AgentStateSchema, WorkerActivitySchema, isLiveState, isBrokenState,
 } from '../../src/contract/schema';
+import { AgentStateSchema as DomainAgentStateSchema } from '@plot-pm/domain';
 
 describe('ServerInfoSchema — the branch the server serves', () => {
   it('carries the branch the server reported', () => {
@@ -37,8 +38,9 @@ describe('AgentEntrySchema — liveness on the wire', () => {
     expect(e.state).toBe('running');
   });
 
-  it('accepts each of the five states', () => {
-    for (const state of ['running', 'finished', 'waiting', 'stalled', 'unknown']) {
+  it('accepts each of the nine states', () => {
+    for (const state of ['running', 'waiting', 'stalled', 'finished',
+                         'failed', 'ended', 'none', 'elsewhere', 'unknown']) {
       expect(AgentEntrySchema.parse({ ...base, state }).state).toBe(state);
     }
   });
@@ -53,8 +55,11 @@ describe('AgentEntrySchema — liveness on the wire', () => {
     expect(e.state).toBe('unknown');
   });
 
-  it('rejects a state outside the five', () => {
-    expect(() => AgentEntrySchema.parse({ ...base, state: 'ended' })).toThrow();
+  it('rejects a state outside the nine', () => {
+    // `ended` stood here until 2026-09-04, when it became a member: the enum
+    // named five and folded four shell answers into `unknown`. The refusal is
+    // unchanged in kind — a word the shell could never print is still rejected.
+    expect(() => AgentEntrySchema.parse({ ...base, state: 'queued' })).toThrow();
   });
 
   it('defaults session to "" — a synthesized worktree has no launch id', () => {
@@ -436,5 +441,59 @@ describe('FLEET_CONTROLS_DEFAULT — one default, read by both sides', () => {
       prAgeSeconds: null, prError: null,
     });
     expect(parsed.fleetControls).toEqual(FLEET_CONTROLS_DEFAULT);
+  });
+});
+
+
+describe('AgentStateSchema — the registry reads the eight the shell answers', () => {
+  it('carries the domain enum verbatim, plus `unknown`', () => {
+    // THE DRIFT GUARD. `entities/agent.ts` had eight, `entities/fleet.ts` eight,
+    // `plot-worker-state.sh` eight and the board FIVE — recorded at
+    // `DESIGN-agent.md:797` as *"only the registry disagrees"*. Built from the
+    // domain's options rather than restated, so a ninth shell state reaches the
+    // board without an edit and a restated list cannot silently fall behind.
+    expect(AgentStateSchema.options).toEqual([...DomainAgentStateSchema.options, 'unknown']);
+    expect(DomainAgentStateSchema.options).toHaveLength(8);
+  });
+
+  it('keeps `unknown` off the shell side — it is the board that could not ask', () => {
+    // Three absences sit side by side and none may be read as another: `none` is
+    // a record saying no worker, `elsewhere` is no worktree on this machine, and
+    // `unknown` is nobody looked. Only the last is the board's own.
+    expect(DomainAgentStateSchema.options).not.toContain('unknown');
+    expect(AgentStateSchema.options).toContain('none');
+    expect(AgentStateSchema.options).toContain('elsewhere');
+  });
+
+  it('is live for exactly `running` and `waiting`, over the whole enum', () => {
+    // The hazard the widening created: `isLiveState` is a DENYLIST, so four new
+    // members would each have read as a live worker and rendered in WORKING.
+    const live = AgentStateSchema.options.filter(isLiveState);
+    expect(live).toEqual(['running', 'waiting']);
+  });
+
+  it('is broken for exactly `stalled`, `failed` and `unknown`', () => {
+    // Each says *go look at this*: work on the floor, a recorded non-zero exit,
+    // and a question the board cannot answer.
+    const broken = AgentStateSchema.options.filter(isBrokenState);
+    expect(broken).toEqual(['stalled', 'failed', 'unknown']);
+  });
+
+  it('files `finished`, `ended`, `none` and `elsewhere` in neither section', () => {
+    // `finished` drains through its PR. The other three say only that no worker
+    // is here — an agent with no process is not a problem report, and filing one
+    // in WAITING ON YOU would put a row in front of a person for every agent
+    // that ever finished and was forgotten.
+    const neither = AgentStateSchema.options
+      .filter((s) => !isLiveState(s) && !isBrokenState(s));
+    expect(neither).toEqual(['finished', 'ended', 'none', 'elsewhere']);
+  });
+
+  it('renders an unrecognised tenth state rather than hiding it', () => {
+    // The denylist reading is KEPT. A worker nobody can see is the worse
+    // failure, so a state this board was not taught reads live and is shown;
+    // calling it broken would be a claim `isBrokenState` cannot verify.
+    expect(isLiveState('queued')).toBe(true);
+    expect(isBrokenState('queued')).toBe(false);
   });
 });
