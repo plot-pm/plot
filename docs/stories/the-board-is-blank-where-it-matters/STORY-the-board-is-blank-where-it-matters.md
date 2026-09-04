@@ -1,7 +1,7 @@
 ---
 title: The board is blank where it matters
 author: jwloka
-status: done
+status: archived
 created: 2026-08-26
 updated: 2026-09-04
 ---
