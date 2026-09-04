@@ -141,6 +141,16 @@ Exit 1 is a normal state ("everything eligible is claimed, or the next wave is
 blocked"), not a failure — hence the exit code rather than an error message, so
 callers can branch on it without parsing output.
 
+### The offer asks the host, and `--offline` does not stop it
+
+A caller of `--next` claims the branch it is given by pushing a ref. Merge state is the one fact refs cannot supply: a squash merge rewrites the commits, and `gh pr merge --delete-branch` takes the ref away, so nothing local names a branch that landed. The offer therefore asks the host even under `--offline` — that flag names the fetch, and everything else it used to silence followed from the two being one variable.
+
+A branch the host could not be asked about reads `unknown` and is withheld. Silence is not permission: *"nobody has started this"* is precisely the claim that went unverified. The caller sees exit 1 and `--why-nothing` says which nothing it is.
+
+Measured 2026-09-04 on the Plot estate: ten merged branches carried a ref whose tip commit is `plot: claim <branch>`, dated two to six hours **after** the branch's own merge. One branch was re-claimed twice, the second time 35 minutes after its ref was deleted by hand, with four waves blocked behind it each time. Every one of those refs was pushed on this offer.
+
+The cost is one repo-wide `pr-list`, cached per run: 25 s against the ambient pulse's 0.76 s on that estate. It is paid only by a caller asking to be handed work, which is about to spend a worker on the answer. A repo with no git host configured asks nothing and still offers work.
+
 ## Strict vs loose eligibility
 
 `--loose` lets a prior wave count as satisfied when its branches carry **pushed
