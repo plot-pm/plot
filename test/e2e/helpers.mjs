@@ -56,6 +56,42 @@ export function stubHost(casesJs = 'process.stdout.write("{}")') {
   };
 }
 
+/**
+ * Lay a desk on `branch` and hand it to a worker — the launch, reached through
+ * the verb that still reaches it.
+ *
+ * **`--restart` IS THE ONLY CALLER OF `start_worker`.** The fan-out stopped
+ * being one on 2026-09-04: dispatch hands a slice to the registry and returns,
+ * because `DESIGN-agent.md:157` settles that nothing starts a worker — the
+ * registry spawns an agent, and spawning it IS starting its process.
+ *
+ * So the desk is cut HERE. That is the right seam rather than the cheap one:
+ * the tests below are about what a worker and its monitors DO once a desk
+ * exists, and dispatch was only ever how they obtained one. The launch
+ * machinery — manifest, monitors, pid files, `PLOT_SESSION_ID` — is unchanged,
+ * and every assertion about it stays exactly as written.
+ *
+ * `--offline` is what makes this cheap: `reached_review` returns at once
+ * without asking a host, so a fresh desk with no PR restarts.
+ *
+ * @param work the checkout to run in.
+ * @param branch the branch to lay out and staff.
+ * @param env extra environment for the launch (e.g. PLOT_MONITOR_INTERVAL).
+ * @param scripts the script directory, for a caller testing a copy of the tree.
+ * @returns { worktree, out } — where the desk is, and what the run printed.
+ */
+export function staffDesk(work, branch, { env = {}, scripts = SCRIPTS } = {}) {
+  const worktree = path.join(path.dirname(work), `plot-wt-${branch.replace(/\//g, '-')}`);
+  execFileSync('git', ['worktree', 'add', '-q', '-b', branch, worktree, 'origin/main'],
+    { cwd: work, encoding: 'utf8' });
+  sh(worktree, `git commit -q --allow-empty -m ${JSON.stringify(`plot: claim ${branch}`)}`);
+  sh(worktree, 'git push -q -u origin HEAD');
+  const out = execFileSync('bash',
+    [path.join(scripts, 'plot-dispatch.sh'), '--offline', '--restart', branch],
+    { cwd: work, encoding: 'utf8', env: { ...process.env, ...env } });
+  return { worktree, out };
+}
+
 export function runScript(script, args, { cwd, stub, env = {} }) {
   return execFileSync('bash', [path.join(SCRIPTS, script), ...args], {
     cwd,

@@ -38,7 +38,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
-import { makeSandbox, sh, SCRIPTS } from './helpers.mjs';
+import { makeSandbox, sh, SCRIPTS, staffDesk } from './helpers.mjs';
 
 const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n';
 
@@ -84,10 +84,12 @@ function dispatchOne(name, { workerCommand = "sh -c 'sleep 4'", interval = '1' }
     `# Sandbox\n\n## Plot Config\n\n${PLAN_CONFIG}- **Worker command:** ${workerCommand}\n`,
   );
   dispatchablePlan(sb.work);
-  execFileSync('bash', [path.join(SCRIPTS, 'plot-dispatch.sh'), '--offline', '--max', '1', 'monitor-end'],
-    { cwd: sb.work, encoding: 'utf8', env: { ...process.env, PLOT_MONITOR_INTERVAL: interval } });
-
-  const wt = path.join(path.dirname(sb.work), 'plot-wt-feature-watched');
+  // THE DESK IS LAID BY THE FIXTURE, not by the fan-out. Dispatch hands a slice
+  // to the registry and cuts nothing; what these tests are about is the worker
+  // and its monitors once a desk exists, so the fixture provides one and every
+  // assertion below stands unchanged.
+  const { worktree: wt } = staffDesk(sb.work, 'feature/watched',
+    { env: { PLOT_MONITOR_INTERVAL: interval } });
   return {
     sb,
     worktree: wt,
