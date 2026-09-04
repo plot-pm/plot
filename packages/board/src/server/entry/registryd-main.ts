@@ -16,7 +16,7 @@ import type { PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../registry.js';
 import { fileOrNull, worldFrom, type SupervisorWorld } from '../supervisor.js';
-import { tick, tickLine, TICK_INTERVAL_MS } from './registryd.js';
+import { tick, tickLine, TICK_INTERVAL_MS, type TickReport } from './registryd.js';
 
 /**
  * `plot-registryd` — the supervisor, one per repository.
@@ -393,32 +393,51 @@ export const run = async (
       max: args.max,
     });
 
-    // AN INCOMPLETE TICK GOES TO STDERR AND THE LOOP CONTINUES. `launchd` and
-    // `systemd` both route this stream to a separate log, which is where a
-    // person looks when the supervisor is not supervising — and the loop
-    // continuing is what makes the next tick the recovery. There is nothing to
-    // resume: `tick` re-reads the registry and the desks from disk, exactly as
-    // it does after a restart.
-    if (report.incomplete !== '') {
-      warn(`${tickLine(report)}\n`);
-      // A ONE-SHOT RUN EXITS NON-ZERO, a looping one does not. `--once` is what
-      // an operator and a `systemd` `Type=oneshot` unit read the exit code of;
-      // the loop's own failure signal is the log, and exiting would hand the OS
-      // supervisor a restart it does not need for a reading that will be taken
-      // again in a minute.
-      if (args.once) return 1;
-      await sleep(args.intervalMs);
-      continue;
-    }
+    const code = reportTick(report, write, warn);
 
-    write(`${tickLine(report)}\n`);
-    for (const row of report.decision.detail.agents) {
-      if (row.supervision.verdict === 'leave') continue;
-      write(`  ${row.branch}: ${row.supervision.verdict} (${row.supervision.cause})\n`);
-    }
-    if (args.once) return 0;
+    // THE LOOP CONTINUES WHATEVER THE TICK REPORTED, and that is the recovery.
+    // There is nothing to resume: the next tick re-reads the registry and the
+    // desks from disk, exactly as it does after a restart, so an incomplete
+    // tick costs one interval and no state. Exiting instead would hand the OS
+    // supervisor a restart it does not need for a reading that will be taken
+    // again in a minute.
+    if (args.once) return code;
     await sleep(args.intervalMs);
   }
+};
+
+/**
+ * Writes one tick's report, and says what a one-shot run would exit with.
+ *
+ * **AN INCOMPLETE TICK GOES TO STDERR, A COMPLETED ONE TO STDOUT.** Both units
+ * route the two streams separately, so watching the error stream alone shows
+ * exactly the ticks that could not be taken — which is what a person looks at
+ * when the supervisor is not supervising.
+ *
+ * The exit code is for `--once` only. An operator and a `systemd`
+ * `Type=oneshot` unit read it; the looping daemon's failure signal is the log,
+ * and it never exits on a tick it could not take.
+ *
+ * @param report - what the tick decided, or why it could not.
+ * @param write - where a completed tick's lines go.
+ * @param warn - where an incomplete tick's line goes.
+ * @returns 0 when the tick completed, 1 when it could not.
+ */
+export const reportTick = (
+  report: TickReport,
+  write: (s: string) => void,
+  warn: (s: string) => void,
+): number => {
+  if (report.incomplete !== '') {
+    warn(`${tickLine(report)}\n`);
+    return 1;
+  }
+  write(`${tickLine(report)}\n`);
+  for (const row of report.decision.detail.agents) {
+    if (row.supervision.verdict === 'leave') continue;
+    write(`  ${row.branch}: ${row.supervision.verdict} (${row.supervision.cause})\n`);
+  }
+  return 0;
 };
 
 // Only when RUN, never when imported — a test importing `run` must not have the
