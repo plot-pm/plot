@@ -214,6 +214,9 @@ fi
 # The name says what it holds. It said `merged_branches` until 2026-09-04, and
 # a set named for the question rather than for its evidence is how the two came
 # to be treated as one thing.
+#
+# plot-ancestry: evidence — handed to `branch_merged`, which asks the host's
+# merged-PR list first and reads this only where no PR exists to read.
 ancestor_of_main=$(git branch -r --merged "origin/$MAIN" 2>/dev/null \
   | sed 's/^[[:space:]]*//; s#^origin/##' \
   | grep -vE "^($MAIN|HEAD)" )
@@ -523,6 +526,9 @@ contained_in_open_pr() { # $1=branch → PR number, or empty
     head=${line#* }
     [ "$head" = "$br" ] && continue   # itself; the head test already ran
     git show-ref -q --verify "refs/remotes/origin/$head" </dev/null 2>/dev/null || continue
+    # plot-ancestry: prefilter — this asks whether one branch sits BELOW an open
+    # PR's head, never whether either landed. A miss prints one extra `orphan`
+    # row for a person to read; it hides nothing.
     if git merge-base --is-ancestor "origin/$br" "origin/$head" </dev/null 2>/dev/null; then
       echo "$n"; return 0
     fi

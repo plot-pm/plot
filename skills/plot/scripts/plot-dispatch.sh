@@ -2260,6 +2260,9 @@ held_worktree() { # $1=branch → prints the worktree path when held, else nothi
   # AN UNREACHABLE HOST ANSWERS "NOT MERGED", which keeps the worktree held.
   # That is `pr_merged`'s documented direction and the right one here too:
   # silence is never permission to hand somebody's desk to a second agent.
+  # plot-ancestry: prefilter — second only to `pr_merged` above, and it can
+  # only RELEASE a worktree the host already declined to release. It adds no
+  # refusal, so a squash merge it misreads changes nothing.
   pr_merged "$br" && return 1
   git merge-base --is-ancestor "$br" "origin/$MAIN" </dev/null 2>/dev/null && return 1
   printf '%s' "$wt"

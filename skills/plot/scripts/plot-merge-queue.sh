@@ -99,6 +99,10 @@ candidates=()
 while IFS=' ' read -r widx b; do
   [ -n "$b" ] || continue
   git show-ref -q --verify "refs/remotes/origin/$b" </dev/null 2>/dev/null || continue
+  # plot-ancestry: prefilter — a branch already in main has nothing to predict a
+  # conflict against, so this skips a `git merge-tree`. A squash-merged branch
+  # it misses costs one wasted prediction and appears in a queue nothing merges;
+  # this script merges nothing and decides nothing.
   git merge-base --is-ancestor "origin/$b" "origin/$MAIN" </dev/null 2>/dev/null && continue
   [ "$(git rev-list --count "origin/$MAIN..origin/$b" </dev/null 2>/dev/null || echo 0)" != "0" ] || continue
   candidates+=("$widx $b")

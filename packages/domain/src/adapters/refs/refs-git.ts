@@ -161,6 +161,9 @@ export const refsGit = (context: ShellContext): Refs => {
       if (!main.ok) return answered<MergeStatus>('unknown');
       const run = await runProcess(
         'git',
+        // plot-ancestry: evidence — this port answers `unknown` where it cannot
+        // tell, and the caller decides. It is named for its source precisely so
+        // no caller mistakes it for the host's answer.
         ['merge-base', '--is-ancestor', branch, `origin/${main.value}`],
         inRepo,
       );
@@ -341,6 +344,9 @@ export const refsGit = (context: ShellContext): Refs => {
     unmergedBranches: (ref) =>
       runScript(
         'git',
+        // plot-ancestry: evidence — the branches git cannot see in `ref`,
+        // reported as a list. A squash-merged branch appears here, and what
+        // reads the list asks the host about each one.
         ['branch', '-r', '--no-merged', ref, '--format=%(refname:short)'],
         (stdout) =>
           asLines(stdout)
