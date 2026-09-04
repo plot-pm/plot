@@ -52,6 +52,7 @@ export * from './rules/refusal.js';
 export * from './rules/sample.js';
 export * from './rules/acting.js';
 export * from './rules/free.js';
+export * from './rules/queue.js';
 export * from './rules/sweepable.js';
 export * from './rules/prompt.js';
 export * from './rules/quiet.js';
