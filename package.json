@@ -1,6 +1,6 @@
 {
   "name": "plot",
-  "version": "2.12.0",
+  "version": "2.13.0",
   "description": "Git-native planning workflow for software development",
   "author": "Max Albrecht",
   "license": "MIT",
@@ -18,7 +18,7 @@
     "test:board": "./scripts/bounded.sh 1200 sh -c 'pnpm --filter @plot-pm/board build && pnpm --filter @plot-pm/board test && pnpm --filter @plot-pm/board exec vitest run'",
     "test:reconcile": "node --test --test-reporter=tap --test-timeout=300000 test/reconcile/*.test.mjs",
     "test:e2e": "node --test test/e2e/*.test.mjs",
-    "changeset": "cp .changeset/_template \".changeset/$(date +%Y%m%d-%H%M%S).md\" && echo 'Created changeset \u2014 edit it now'",
+    "changeset": "cp .changeset/_template \".changeset/$(date +%Y%m%d-%H%M%S).md\" && echo 'Created changeset — edit it now'",
     "version": "bash .dev/scripts/bump-skill-versions.sh && changeset version && bash .dev/scripts/sync-versions.sh && pnpm run build:board",
     "validate": "bash .dev/scripts/validate-skills.sh",
     "release": "pnpm run version && git add -A && git commit -m \"chore: release v$(jq -r .version package.json)\" && git tag \"v$(jq -r .version package.json)\" && echo 'Release committed and tagged. Run: git push --follow-tags'"

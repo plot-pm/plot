@@ -1,7 +1,7 @@
 {
   "name": "@plot-pm/domain",
-  "version": "0.1.1",
-  "description": "Plot's entity graph \u2014 the plans, waves and branches the fleet is about, and the rules that read them",
+  "version": "0.2.0",
+  "description": "Plot's entity graph — the plans, waves and branches the fleet is about, and the rules that read them",
   "type": "module",
   "private": true,
   "license": "MIT",

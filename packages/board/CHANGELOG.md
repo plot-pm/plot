@@ -1,5 +1,1094 @@
 # @plot-pm/board
 
+## 0.11.0
+
+### Minor Changes
+
+- [#572](https://github.com/plot-pm/plot/pull/572) [`a8bfd05`](https://github.com/plot-pm/plot/commit/a8bfd05b01aaa0e6b90e05d7531b8ac0625296c1) Thanks [@jwloka](https://github.com/jwloka)! - The master agent reaches the board's controller without HTTP, and the delivery gate stops scanning an estate it already measured.
+
+  `plot-ask.mjs <board|fleet>` is the entry point: one call, no server, the same
+  typed answer the route serialises. `node` rather than an HTTP call to a live
+  board, because a board is optional and none was running when the choice was
+  measured — seven skills would have gained a dependency whose failure arrives as
+  a skill that works on the operator's machine and not in a worker's. The cost is
+  stated: this path re-derives what a running board already computed, and an HTTP
+  fast path can be added later without changing any caller, because the artifact
+  is the seam.
+
+  A second bundle rather than a flag on `board-server.mjs`: `index.ts` binds a
+  port at import time, so a flag would mean a skill that asks a question also
+  starts a server.
+
+  `plot-estate-changed.sh` is the shell half — _is a second ask owed?_ A
+  **measurement, never a timer**: it hashes what the scan reads, every remote
+  ref's SHA and every plan file's content, so the delivery gate's own fix is
+  always seen (a phase flip changes plan bytes, the push that follows moves a
+  ref). It fails toward scanning, because skipping a scan costs minutes while
+  skipping the gate costs a half-landed delivery nobody notices.
+
+  `plot-deliver`'s delivery-landed gate uses it. That gate is the single witness
+  for "a skill that asks twice in one run" — the plan believed five skills did,
+  and a recount found four were prose or a help block. Measured here 2026-08-31:
+  the reconcile scan takes **279.9 s** on this repo, so the gate's conditional
+  re-run is the expensive one. What changes is how often it asks; the grep, the
+  section-7 marker and both exit conditions are untouched.
+
+  The transport placeholders are left exactly as the controller emits them.
+  Rewriting them would invent a permission no caller granted, so an unavailable
+  capability with an empty reason reads as an absence and every real refusal
+  carries a sentence — a distinction `askedWithoutTransport` makes checkable.
+
+  <!--
+  bumps:
+    skills:
+      plot-deliver: minor
+  -->
+
+- [#573](https://github.com/plot-pm/plot/pull/573) [`6d54e8f`](https://github.com/plot-pm/plot/commit/6d54e8fbfa1d7d17c84515506a078e2cd07672e7) Thanks [@jwloka](https://github.com/jwloka)! - The registry reads the process group a dispatch recorded.
+
+  `AgentEntry` gains an optional `group` — the wrapper and both monitors — read
+  from the manifest fields the dispatcher now writes at spawn.
+
+  **Optional with no default, unlike every sibling field, and that is the
+  contract.** A default would turn _this manifest cannot say what it started_ into
+  _it started nothing_, and those are different facts. The whole object absent means
+  unknown; a member of `''` means that process was genuinely never started. Members
+  go through the same validation as `pid`, so `0` and junk read as absent — a group
+  member that cannot be a pid must not send a reader to check the wrong process.
+
+  Like `pid`, it is a **display fact a reader can go check, not an input** to
+  liveness: a manifest can go stale, and only the process table answers whether one
+  of these still runs.
+
+  `stampManifest` writes the group on both paths — first dispatch and relaunch —
+  and drops any stale copy unconditionally, so a re-stamp cannot leave a previous
+  run's processes on the row. The parity test that pins it byte-identical to the
+  dispatcher's inline `awk` gains three cases: an existing group replaced on each
+  shape, and a dispatch with no monitors attached.
+
+  `/api/continue` records the group **empty on purpose**. It spawns the agent
+  directly — no wrapper, no monitors — so `''` is the true answer, and passing it
+  explicitly is what stops the previous dispatch's processes surviving on the row.
+
+  Two tests asserting _a first stamp is byte-identical to today_ and _the six
+  launch-time keys_ were rewritten rather than worked around: they pinned the
+  contract this change deliberately moves. The half still true — a first dispatch
+  carries no relaunch bookkeeping — is kept.
+
+  The board renders unchanged.
+
+- [#624](https://github.com/plot-pm/plot/pull/624) [`90c32ad`](https://github.com/plot-pm/plot/commit/90c32ad4fb4f8fb8e8e52e7a96e906de486a33e6) Thanks [@jwloka](https://github.com/jwloka)! - The master agent opens a PR on `owes a review`, and on nothing else.
+
+  It subscribes to the channel with a purpose and asks the controller to act; the
+  monitors still report and write nothing. Opening a PR is the one act safe to
+  take without judgement, and the reason is reversibility — close it, and the
+  branch, the worktree and the work are untouched. Restarting an agent, reaping a
+  worktree and killing a worker stay with `plot-reap.sh` and `plot-dispatch.sh`.
+
+  It acts on the STATE and not on the message: the host is asked whether a PR
+  exists before the domain is asked whether to open one, so a finding republished
+  on every interval produces one PR and then a printable refusal. A branch that
+  also owes a gate still gets its PR, with the missing gate named in the body —
+  withholding it would leave finished work invisible until somebody happens to
+  write the changeset. It does not write that changeset: a changeset is a
+  judgement about what changed, and an agent guessing produces the `<!--` class of
+  entry this repo is already fixing.
+
+- [#619](https://github.com/plot-pm/plot/pull/619) [`0b1a849`](https://github.com/plot-pm/plot/commit/0b1a849803599d6f3f8d3c2061e2a8bb87d13ba5) Thanks [@jwloka](https://github.com/jwloka)! - The board asks a port to run Plot's helper scripts, and no longer starts one
+  itself.
+
+  `packages/board/src/` invoked `plot-*.sh` on 28 lines across 15 files, and three
+  of those read the exit code themselves. Reading it twice is what this removes:
+  `plot-host.sh` answers 4 for _this backend has no such capability at all_ and 1
+  or 3 for _this attempt failed_, and a second reading collapses a permanent
+  configuration fact into a transient incident — so a caller retries something
+  that will never work. `fleet.ts` matched `code === 4` by hand to tell a Bitbucket
+  with no issue tracker from a GitHub that was refusing.
+
+  That comparison now happens once, in the adapter, and what reaches the board is
+  a word rather than a number.
+
+  **Six call shapes, because the board really makes six.** `planMeta`/`config`
+  read; their `Sync` twins serve the write routes that are synchronous today;
+  `hostSaid` classifies and carries the host's own sentence, since a rate limit and
+  a DNS blip are both `failed` and only one is worth waiting for; `awaited` keeps
+  stdout, stderr and the code for the two scripts that explain themselves on the
+  way out — `plot-dispatch.sh` reports which branches it claimed while exiting
+  non-zero on a phase gate; `sourced` runs `plot-worker-state.sh` the way its two
+  shell callers do, so the eight worker states stay one implementation; `start`
+  runs detached and keeps its handle when a caller passes `onExit`, because
+  auto-deliver chains the reap and the ref release to that exit.
+
+  The port answers stdout verbatim rather than a shape. The scripts ARE the
+  plan-format and host contracts, and a second parse would be a second spelling of
+  them.
+
+  **Two gates, and they are different kinds.** The `plot-*.sh` gate is a refusal at
+  zero: this population could be finished in one branch and was, so a new
+  invocation fails the build rather than raising a budget. The broader spawn
+  ratchet tightens 54 → 28; what remains is `git`, `ps`, one `tailscale` and the
+  `sh -c` starts for a project's configured command, which reach different tools
+  through different contracts.
+
+  Every existing test passes unedited — 2545 across the board's 136 files,
+  browser suite included. That is the assertion the change rests on: a move that
+  needed a test changed moved behaviour with it.
+
+- [#659](https://github.com/plot-pm/plot/pull/659) [`4abc145`](https://github.com/plot-pm/plot/commit/4abc145d95094ffb905a235af2dc560d6ef3ca42) Thanks [@jwloka](https://github.com/jwloka)! - The banner names which limit was hit, and prints a reset only where the reset describes it.
+
+  Two ceilings were reported as one word. `host_failure_kind` matched a single regex and returned `throttled` for every match of it, so _"API rate limit already exceeded"_ and _"You have exceeded a secondary rate limit"_ came back identical; `hostErrorState` mirrored that with `/rate limit/i.test(error)`, and `prNote` printed one wording over both — including `service returns in ~${when}` from `prNextInSeconds`, which describes the primary bucket and nothing else.
+
+  **Both limits were measured here, and they recover minutes apart.** 2026-08-27: eight workers against a cap of seven produced a 403 naming abuse detection. 2026-09-01: `gh pr view` refused with _"API rate limit already exceeded"_ while the same account's GraphQL headers read 4854 of 5000 remaining — a bucket with 97 % left does not refuse on quota. A spent quota returns at the reset, minutes away, and the honest reaction is to stop until then and say when; a secondary limit clears in seconds and the reaction is to retry shortly and run fewer calls at once. One word for both counsels a wait of minutes for a ceiling that has already gone.
+
+  `plot-host.sh` now answers `throttled|secondary|failed` and carries the second out as exit 6 beside exit 5. **The secondary test runs first, and the order is the classification:** GitHub's secondary message contains the phrase _"rate limit"_ too, so a quota test applied first claims every secondary refusal and the distinction is lost at the point it is made.
+
+  **The wording decision lives in the domain**, per the rule that every rendered state is a domain property. `refusalKind` classifies, `resetApplies` says whether the reset describes the limit that refused, and `host-notes.ts` reads the answers rather than deciding.
+
+  **The secondary banner names how many spenders the record found**, because the fix for local contention is closing a board rather than waiting for GitHub. The count comes from the record and never a headcount — the spenders are eleven scripts, the board, and a person at a terminal, so a process count misses the person. `localSpenders` divides the observed rate by `boardSharePerHour`, the same share the cadence already divides by, so the two numbers cannot drift.
+
+  **A refusal still corrects only the prediction it is evidence about.** `correctForRefusal` moves on `throttled` and not on `secondary`: a burst refusal bounds requests at once and says nothing about the hourly ceiling. The concurrency bound is a later slice.
+
+  The cadence is untouched. It divides on observed spend and never on a refusal.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#650](https://github.com/plot-pm/plot/pull/650) [`b5e0c98`](https://github.com/plot-pm/plot/commit/b5e0c9889751a76e2361c4f7096144d7ac1702d6) Thanks [@jwloka](https://github.com/jwloka)! - Auto-dispatch names the plan it skipped and why. A plan whose every startable branch was filtered out reached `if (startable === 0) continue;` and left no trace — the branch logs named the branches, nothing named the plan. `skippedPlans()` reads the same three filters the planner reads, in the same order, and reports one of four reasons: `no-brief`, `ref-held`, `in-flight`, `no-eligible-wave`. A plan skipped for briefs is now distinguishable from one skipped for anything else.
+
+- [#666](https://github.com/plot-pm/plot/pull/666) [`ec475bc`](https://github.com/plot-pm/plot/commit/ec475bce668bef4e126246c653e3a0ae313e8b47) Thanks [@jwloka](https://github.com/jwloka)! - A cap on host calls in flight per account, discovered rather than compiled in.
+
+  Nothing bounded concurrency. `grep -niE 'semaphore|in-?flight|concurren'` over
+  `plot-host.sh` matched two comments and no code, and the board's `prConcurrency`
+  held a hard-coded 4 that no call site read. The failure that leaves is the one
+  measured on 2026-08-27: eight workers against a cap of seven produced a 403
+  naming abuse detection while both buckets read `5000/5000, used=0`. **A quota
+  budget cannot prevent it** — a secondary limit counts calls at one moment and
+  appears in no bucket, so spacing calls further apart does not reduce how many
+  are simultaneous when several spenders start at once.
+
+  **Seven is not shipped.** Both citations in `plot-host.sh` point at that one
+  incident, where eight failed and seven is the inference. The bound is derived
+  instead from the ceiling the record already holds: a limit is requests per HOUR
+  and a bound is requests at one MOMENT, so an account allowed `limit` an hour
+  sustains `limit / (3600 / 4)` of them at once at four seconds a call. GitHub's
+  5000/hr gives **5**, below the eight that was refused; 900/hr gives 1; a
+  connector reporting `unknown` gives none and stays unbounded, which is what
+  every caller was before this. A different ceiling gives a different bound, which
+  a constant could not do — asserted rather than described.
+
+  **The count is shared state because the population is processes.** Eight workers
+  are eight processes, each shelling `plot-host.sh` once, and the board's own
+  refresh is sequential — so an in-process semaphore bounds nothing that incident
+  measured. **The budget record cannot hold it either**: it is append-only with a
+  512-byte line cap, the two properties that make it lock-free, and an in-flight
+  count needs a delete on release. A process killed between claim and release
+  would leave a line nothing removes and the account would read as permanently
+  full — the cap degrading into a deadlock, which is worse than the 403. So the
+  claims sit beside the record, one file per slot under
+  `$PLOT_BUDGET_HOME/slots/<account>/`, where releasing is an unlink and a dead
+  claimant is a measurement.
+
+  **A claim is published by `link`, never by an exclusive create.** `O_CREAT |
+O_EXCL` is exclusive but publishes the NAME before the CONTENT: a second process
+  opens the empty file, reads no claim in it, and reclaims a slot the first is
+  about to write into. Measured here — **six processes against a bound of three
+  took five slots, two of them the same one**. `link` publishes a file that is
+  already complete and refuses an existing name, so the name and the claim arrive
+  together. Both halves are written that way and a contract test pins their
+  format, because the board is TypeScript and the eleven other spenders are shell:
+  two implementations that could not read each other would be two caps, which is
+  no cap at all.
+
+  **At the cap a caller waits, and the wait IS the degraded cadence.** Nothing is
+  refused; the call happens later. A wait that runs out after 30 seconds proceeds
+  rather than refusing, because a board that waited forever reads as broken
+  instead of busy — and the cost of one extra simultaneous call is a secondary
+  refusal that lowers the bound, which is evidence arriving through the mechanism
+  this slice is built on. An unreadable slot directory spends: the cap exists to
+  prevent a 403, not to become a second way to fail.
+
+  **The bound is corrected by the refusals it causes**, the mechanism the limit
+  itself uses. A secondary refusal halves it, floored at one; a spent quota leaves
+  it alone, because a quota is an hourly ceiling one caller reaches alone. It only
+  ever falls within a session — the absence of a refusal is not evidence that more
+  would have been allowed. **The cadence is untouched by either**, the constraint
+  slices 4 and 8 both state: a refusal that also lowered the interval would
+  compound with the division `cadenceStretch` is already performing and drift
+  downward with nothing to restore it.
+
+  **The record shows the bound working rather than merely quiet.** `prSlotsHeld`
+  and `prConcurrencyCap` travel in the board payload, read from one `readdir` per
+  refresh and no host request, so `2 of 5` says the account has two callers in
+  flight and room for three more. A cap that refuses nothing and reports nothing
+  is indistinguishable from no cap at all.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#644](https://github.com/plot-pm/plot/pull/644) [`a7e2be8`](https://github.com/plot-pm/plot/commit/a7e2be8107adbe8081e69a3ac0af9050d5dc1ec0) Thanks [@jwloka](https://github.com/jwloka)! - The PR refresh asks through the `Host` port instead of calling `plot-host.sh` directly, so a board handed a fixture host asks no CLI and spends no budget. The port gains a `runs` op that names its refusal, and one adapter is bound per refresh rather than defaulted independently by each caller.
+
+- [#679](https://github.com/plot-pm/plot/pull/679) [`bd29da3`](https://github.com/plot-pm/plot/commit/bd29da3e0bf76e6e3ff7fcf382309de3f41e7dd2) Thanks [@jwloka](https://github.com/jwloka)! - An agent declares what it is, and the worker loop resolves its prompt through that declaration. `AgentEntry` (`registry.ts:105`) carries eleven fields and every one describes a run — `session`, `resumeId`, `attempts`, `branch`, `worktree`, `command`, `startedAt`, `pid`, `previousPid`, `relaunches`, `state` — so an agent had a receipt and no identity. The charter carries capability and bounds, refuses all eleven, and `readCharter` refuses a document that names one rather than stripping it: a strict schema means stripping would parse, and the launch would succeed under a document the agent never reads. It lives in `.plot/charters/` rather than `.plot/agents/`, because `.plot/agents/` is gitignored — one machine-local manifest per dispatched worker, each with a pid and an absolute worktree path — while a charter is human-authored, true in every clone, and a committed file cannot sit inside an ignored directory. `prompt_file` was hardcoded at `plot-worker-loop.sh:526`, one prompt per repo; the loop now asks `plot-prompt.mjs`, a sixth bundle that reads one file and spawns nothing, where `plot-ask.mjs` would have run a whole fleet scan on the launch path. Nothing on the estate changes until a charter exists: `PLOT_AGENT` unset is every worker today and reaches exactly the path the hardcoded line named, as does a named agent with no charter on this clone. A charter that exists and cannot be believed ends the worker instead, because the fallback would run successfully under instructions nobody asked for and nothing in the log would say so.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#680](https://github.com/plot-pm/plot/pull/680) [`f85a8ca`](https://github.com/plot-pm/plot/commit/f85a8ca1b6a2f842037b546a6e511fb00012dea2) Thanks [@jwloka](https://github.com/jwloka)! - The board names a Slice in code. `WaveSchema` becomes `SliceSchema`, `type Wave` becomes `type Slice`, and 73 identifiers follow — measured 58 board `Wave` instances on this estate, every one holding exactly one branch, which is `DESIGN-slice.md`'s Slice rather than the fleet cohort.
+
+  The three wire schemas emit `slices` and accept `waves` through a `z.preprocess` reader, so an old client meeting a new server still parses instead of silently reading no slices. `plot-plan-meta.sh` ships separately and emits `waves` indefinitely, which makes that reader the steady state rather than a deploy-window courtesy.
+
+  The domain's `Wave` — the cohort spanning plans — is untouched. `AgentRow.wave` keeps its name: it feeds `data-wave-row`, and a selector moves with its tests in one commit.
+
+- [#682](https://github.com/plot-pm/plot/pull/682) [`fcfabcc`](https://github.com/plot-pm/plot/commit/fcfabccc1b68d10305a7dbff82586a75e553a2bf) Thanks [@jwloka](https://github.com/jwloka)! - The tests select a Slice. Every `data-wave-*` attribute becomes `data-slice-*` — fifteen names, 138 occurrences — together with every selector that grips it, in one commit. Five source files write the attributes and 21 test files select on them; the post-rename census matches the pre-rename one name for name, and no `data-slice*` attribute existed before.
+
+  The two halves cannot land apart. A renamed attribute with an un-renamed selector produces a test that finds nothing and passes: `querySelectorAll` returning an empty list is not an error, so `count()` returns 0 and every negative assertion in the suite goes green.
+
+  So the guard is a count, not a match. `countSliceRows` in `helpers.mjs` asserts that a fixture known to render N rows still yields N, and two assertions bind the two sites that write `data-slice-row`: `one-row-per-kind` yields `RowKindSchema.options.length` agent rows carrying the slice hook, `a-plan-in-waves` yields 2 rows through `SliceRow` itself. Verified 2026-09-03 by breaking each site alone — each turns exactly its own assertion red with `expected +0`.
+
+- [#700](https://github.com/plot-pm/plot/pull/700) [`bf05118`](https://github.com/plot-pm/plot/commit/bf0511816e9bf005a7e929ac89886e8e4924a3d9) Thanks [@jwloka](https://github.com/jwloka)! - The registry queues a brief and hands it to a free agent. `plot-dispatch.sh` stops calling `git worktree add` on the fan-out path: it hands slice and brief to the registry and returns, cutting no desk, pushing no claim and starting no worker. A desk is one per agent rather than one per slice — measured 2026-09-02 on the Plot estate as 2 manifests against 11 worktrees, five of them on branches that had already merged — and the agent creates or resets its own, because it is the only party that can see its tree.
+
+  The brief gate keeps its rule and changes its position, from the launch to the hand-over. A slice with no brief is still refused and `--no-brief` still hands it over and says so, so the override stays on the record; what changed is what a refusal leaves behind, which is now nothing rather than a prepared desk nobody sat at. The refusal still names the ref the agent will read, not a bare path.
+
+  `matchQueue` is the assignment lock and there is only one. It hands a slice to one agent and never hands the same slice twice, held by the shape of the pass rather than by a check: a matched agent leaves the pool and each slice is visited once. It refuses nothing for want of a free agent — `0 free` holds every remaining slice and reports it, because making the hand-over synchronous with fleet capacity is the coupling `DESIGN-machine.md` §10 rejected twice. The queue is derived and stores nothing: an eligible slice with a brief and no claim _is_ queued, so a daemon restarted mid-pass loses one pass's readings and no assignment.
+
+  `plot-worker-loop.sh` no longer calls `plot-fleet-scan.sh --offline --next`. The agent reads the branch the registry wrote into its manifest instead of shopping for one, so two agents racing for a branch stops being reachable rather than being caught by a rejected claim push — which is demoted to a backstop that should never fire and is still logged loudly when it does. The wait polls a file rather than a 12.7 s fleet scan, and the plan-slug scope goes with the ask: the registry reads every plan and sends the slug with the assignment.
+
+  The fan-out reads the eligible list once instead of pulling `--next` per branch, because nothing it does moves the scan's answer any more. Measured on the first run after the claim was removed: one branch handed over, the second never reached. The `Started:` record now checks for itself, since the claim used to be what made a re-dispatch skip a branch it had already booked.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+      plot-dispatch: minor
+  -->
+
+- [#686](https://github.com/plot-pm/plot/pull/686) [`cc2df7b`](https://github.com/plot-pm/plot/commit/cc2df7bc943e46bddf93b29fee45554bda372c11) Thanks [@jwloka](https://github.com/jwloka)! - The registry reads the eight states `plot-worker-state.sh` answers, plus its own
+  `unknown` — so a failed agent stops reading the same word as an agent nobody
+  looked at.
+
+  **Why this exists**: four state vocabularies described one thing.
+  `entities/agent.ts` had eight, `entities/fleet.ts` eight,
+  `plot-worker-state.sh` eight, and the board's `AgentStateSchema` **five** —
+  folding `failed`, `ended`, `none` and `elsewhere` into `unknown` inside
+  `KNOWN_STATES`. `bashLiveness` received all eight and discarded four on arrival.
+  `DESIGN-agent.md:797` recorded it: _"The shell and the contract agree on eight;
+  only the registry disagrees."_
+
+  The four name different next moves. A recorded non-zero exit is a worker to look
+  at; an absent record is a worker that never ran; a worktree on another machine is
+  a question this one cannot answer. `unknown` means _nobody looked_, and reporting
+  a measured answer as an absent one sends a reader to find evidence the desk
+  already held.
+
+  The enum is now built from the domain's, so the two cannot restate each other
+  into disagreement again.
+
+  **Both classifiers move with it.** `isLiveState` is a denylist — anything but
+  `finished`, `stalled` and `unknown` read as live — so widening the enum alone
+  would have rendered four dead states in WORKING, which is
+  `the-working-section-shows-every-worker`'s defect running backwards. `failed`
+  joins `isBrokenState`, and `ended`, `none` and `elsewhere` are neither live nor
+  broken: each says no worker is here, and an agent with no process is not a
+  problem report.
+
+  `drop.ts` carried a second copy of the same four-state list and refused a
+  `failed` agent with _state could not be verified_. A recorded exit is
+  verification; it reads the registry's `KNOWN_STATES` now.
+
+- [#692](https://github.com/plot-pm/plot/pull/692) [`5fd02f0`](https://github.com/plot-pm/plot/commit/5fd02f038942d7f261e2050e26f955462f931fde) Thanks [@jwloka](https://github.com/jwloka)! - An agent's context reading becomes a domain verdict. `contextTokensFromUsage` sums the three input fields a transcript turn carries — `input_tokens` and both cache fields, never `output_tokens` — and `contextVerdict` reads that against the agent's declared ceiling as `ample`, `spent` or `unknown`. No percentage crosses the boundary, for the reason `Machine` reports `Headroom` and not milliseconds: a threshold in a value is a threshold every consumer owns.
+
+  The window is declared rather than inferred. Measured 2026-09-04: a turn carries four token counts and the model's name, and no key in the transcript matches `window` or `limit` — so the numerator is measurable and the denominator is not. `CharterBounds` gains `contextWindow`, defaulting to `0` for unstated, and an agent that declares none reads `unknown`. That is the estate today, so nothing changes until a charter names a window.
+
+  A missing or unattributable reading answers `unknown`, never `ample`: `hasContextForAnotherSlice` and `agentIsSpent` both refuse it, so an unmeasured agent is neither given work nor declared finished. The board's transcript reader gains `contextSpend` beside the existing `contextTokens`, which keeps meaning `cache_read_input_tokens`.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#670](https://github.com/plot-pm/plot/pull/670) [`fd3e92c`](https://github.com/plot-pm/plot/commit/fd3e92c8e49de786511f8c29709ca37d8852ade4) Thanks [@jwloka](https://github.com/jwloka)! - An agent says when it is free: the worker loop clears `branch` when a slice finishes, and `free` — process alive AND manifest names no branch — becomes a domain rule the board asks.
+
+  **Why this exists**: `isFree` was written, exported and unit-tested by `a-dispatch-asks-for-a-free-agent`, and its empty-branch arm had no production caller that could ever satisfy it. `plot-worker-loop.sh` calls `seal_declaration` the moment a branch is done and `update_manifest_on_hop` only after `--next` answers and a worktree is built; between those two points the agent genuinely held no slice and the manifest still named the last one. Measured 2026-09-02: 2 manifests on this estate, neither ever carrying `branch: ""`.
+
+  **`branch` and only `branch` is cleared.** `worktree` still names the desk the agent is sitting at — it has not moved — and both the transcript join and the liveness check are keyed on that path. `wavesCount` counts hops and no hop has happened yet. The hop still rewrites `branch` and `worktree` together: clearing is added, not substituted.
+
+  **Availability is a second question**, and `DESIGN-agent.md:483` names the gap the eight process states leave. `running` is not busy — an agent between slices is running with no branch and is available, so a row says `running` and `free` at once and both are true. `finished` is not free: its worker exited. `waiting` is not free either — it is live and blocked on a person, so a merged slice does not release it.
+
+  `rules/free.ts` owns the derivation and takes readings as values, so it is asserted with no browser and no live process; `entities/agent.ts`'s `isFree` delegates rather than keeping a second copy. The board's `agentAvailability` asks it and renders `data-agent-availability`, sourcing `sliceHasMerged` from the joined row the pulse already published — never from a host call per agent.
+
+  **It is not derived from the tree, and there is no announced marker.** A clean desk says the agent left nothing behind, not that it has been handed the next brief, and under `an-agent-holds-one-desk` the desk outlives the slice. An agent that crashed between finishing and announcing would be free without saying so; `PLOT-BLOCKED` survives that objection only because a blocked agent is by definition still alive to write it.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#657](https://github.com/plot-pm/plot/pull/657) [`cb671db`](https://github.com/plot-pm/plot/commit/cb671db30361876fdf0a295e992d40a9769bf9c6) Thanks [@jwloka](https://github.com/jwloka)! - The board's PR refresh interval divides by what the account is observed to be spending, so two boards spend what one board spends. Counted from the budget record over 400 adjustments: one board holds the account at 60 requests an hour, and so do two, three, five and eight — each board reaching an interval of N times the 60 s it refreshes at alone. A third board changes that number by nothing.
+
+  No peer counting. The rate is read from the record every spender appends to, which also carries the operator's own `gh` calls and a dispatched worker's scans; a headcount of boards would miss both. `plot-host.sh spend-rate` supplies it, reads a file and asks no host.
+
+  One board on a quiet account is unchanged and refreshes exactly every 60 s. An absent rate — a record holding one line, or several written inside one millisecond — leaves the cadence where it is rather than collapsing it, and a board already stretched holds position on it rather than walking back: null is no evidence, while a rate that is zero is evidence of an idle account. The stretch is bounded at eight, because the rate is read over a window as short as the gap between two lines and a burst must not push a board somewhere it has stopped spending enough to return from.
+
+- [#539](https://github.com/plot-pm/plot/pull/539) [`83e63ca`](https://github.com/plot-pm/plot/commit/83e63cacdaf4bb6900db8ff20c1f585a5650dfe6) Thanks [@jwloka](https://github.com/jwloka)! - Agent logs live under the configured `Worktree root` instead of the repository's parent directory, with a path guard on `/api/dispatch-log` and a one-time move of existing logs.
+
+  The resolver reads the same key `plot-config.sh` documents and `plot-dispatch.sh`'s `resolve_wt_root()` reads, so a project that pointed its worktrees elsewhere gets its logs there too; a repository with no key keeps writing beside itself, because creating a `.worktrees/` so a log has somewhere to go invents a directory nobody asked for. The migration is bounded to the names Plot wrote, never deletes, runs once, and cannot fail a dispatch.
+
+- [#699](https://github.com/plot-pm/plot/pull/699) [`f8cb6b0`](https://github.com/plot-pm/plot/commit/f8cb6b03871826d16a7b8c41e643df045677b2fc) Thanks [@jwloka](https://github.com/jwloka)! - The machine keeps the daemon alive. `skills/plot/units/` ships a `launchd` plist and a `systemd` service that restart `plot-registryd`, with install steps a person can follow without reading the source. The OS is the correct owner because _"is a process that should be running actually running?"_ is a machine-side question, and it terminates the regress instead of adding another Plot component to babysit. Plot's own `Machine` entity gains no verb: it answers _is there room?_ and initiates nothing.
+
+  A tick that cannot complete now reports what it could not do instead of ending the loop. Every reading is a call to a machine that can refuse, and any one of them used to escape the tick and stop the daemon — so an OS restart was the only recovery from a reading that would have succeeded a minute later. The reason goes to stderr, which both units log separately, the decision is empty rather than truncated, and the next tick re-reads the registry and the desks from disk.
+
+  Nothing new is persisted between ticks. There is no journal, no lock file and no resume path, because there is nothing to resume: the recovery from a failed tick and the recovery from a `kill -9` are the same code path, and a test asserts that a tick following a failure reaches the decision it would have reached had the failure never happened.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+- [#695](https://github.com/plot-pm/plot/pull/695) [`30ddbcd`](https://github.com/plot-pm/plot/commit/30ddbcd7883a846b414c18656c1aa3da92989531) Thanks [@jwloka](https://github.com/jwloka)! - The registry supervises its agents. `plot-registryd` reads the registry and the desks it names on every tick, judges each agent by its declaration and the five gates, and decides: leave a live worker alone, reap a finished desk, hand an unfinished one a correction naming what is missing, or mark a spent one for a person. The tick holds nothing it cannot re-read, so `kill -9` costs one tick and no decision, and a daemon's first tick picks up desks that predate it.
+
+  `attempts` and `relaunches` are read separately — the automatic budget reads `attempts` only, so a person's `--restart`s never spend it. A spent budget writes a `PLOT-BLOCKED` marker and stops, which is a visible stop rather than a loop.
+
+  Tick interval 60 s, chosen after measuring the tick at 3496 ms for three agents under load.
+
+  <!--
+  bumps:
+    skills:
+      plot: minor
+  -->
+
+### Patch Changes
+
+- [`29e7cf8`](https://github.com/plot-pm/plot/commit/29e7cf801d9eeb24160b9e1a77ad6cb59fde6a97) Thanks [@jwloka](https://github.com/jwloka)! - A plan whose every non-deferred wave has merged delivers itself, and its desks
+  are reaped behind it.
+
+  The measurement already existed and acted on nothing. `allWavesMerged` computes
+  the exact condition and `planStatus` renders it as `deliverable`, and both
+  deliberately touch nothing — which is right for a measurement. What was missing
+  is the wire: four plans were delivered by hand in one day, each after the same
+  manual check, while eleven more sat `merged_not_delivered` and twelve worktrees
+  sat reapable because nobody had typed the command. The estate that accumulates
+  is what eventually stops the board working at all — a 90 s scan could not walk
+  54 worktrees and 43 branches.
+
+  It rides the scan's clock inside `refresh`'s success path, never a route: there
+  is nothing to reach from any binding, localhost included. Delivering on a failed
+  scan's last good answer would act on refs that may have moved.
+
+  **The board writes no part of the transition.** `plot-deliver.sh` owns the phase
+  flip, the `Delivered:` record and the index symlink, and performs them in one
+  commit — load-bearing rather than tidy, since the fleet scan reads its rolling
+  window from `delivered_raw` and a flip without the record makes a plan invisible
+  rather than delivered. Grep `packages/board/src` for a phase write and find
+  nothing; that absence is asserted by a test.
+
+  Two entrances and one implementation, the shape `Approve command` established: a
+  `Deliver command` routes through an agent, its absence runs the script Plot
+  ships, and the skill calls that same script either way.
+
+  **The reap runs after the delivery, and is gated on its exit code.** Chained to
+  the delivery's `exit` rather than spawned beside it — both orders end with a
+  delivered plan and no worktree, so an end-state assertion passes either way, and
+  only this one never shows a desk-less `Approved` plan mid-flight. A delivery
+  that refused reaps nothing, because reaping after a refusal would clear the
+  desks of work the delivery just declined to call finished.
+
+  A plan whose remaining waves are all `deferred` is not delivered: shelved is not
+  finished, and that call stays with a person.
+
+- [`29e7cf8`](https://github.com/plot-pm/plot/commit/29e7cf801d9eeb24160b9e1a77ad6cb59fde6a97) Thanks [@jwloka](https://github.com/jwloka)! - The Deliver gate reads the wave verdicts the pulse carries, and refuses to answer
+  at all from an incomplete scan — so a finished plan stops being told its branches
+  have not merged.
+
+  **Why this exists**: `allWavesMerged` opened with a lookup into `pulse.plans` and
+  returned `false` when it missed. `false` means _not merged_, so a scan that timed
+  out before reaching a plan produced a refusal naming that plan's branches.
+  Measured 2026-08-27 on a plan whose two PRs had merged the day before ([#446](https://github.com/plot-pm/plot/issues/446),
+  [#454](https://github.com/plot-pm/plot/issues/454)): the payload carried 52 waves — both of that plan's among them, both
+  `complete` — and zero plans, because the scan had not finished. The operator went
+  looking for an unmerged branch that did not exist.
+
+  **Absent is not false**, which is the rule Plot applies everywhere else:
+  `plot-host.sh` reports `checks:"unknown"` rather than red, and `--next` exits 1
+  for _nothing to start_. The two states conflated here need opposite responses —
+  _your branches have not landed_ means go finish the work, _the scan did not
+  finish_ means wait and retry — so the function now answers three ways (`merged`,
+  `not-merged`, `unknown`) and takes the scan's completeness beside the pulse. It
+  also reads each wave's own `verdict` rather than re-deriving completeness from
+  the branch states beneath it, removing a second implementation of one question.
+
+  Fixed in `allWavesMerged` rather than in the route because it has **two** callers
+  and an operator meets both symptoms at once: the Deliver gate returns a fifth
+  verdict (`scan-incomplete`) whose message names the SCAN, and `planStatus` stops
+  rendering an unreached plan's card as `in-progress`.
+
+- [#545](https://github.com/plot-pm/plot/pull/545) [`4111099`](https://github.com/plot-pm/plot/commit/411109922d8e1265bfb2e54454c1506ae7beb3ab) Thanks [@jwloka](https://github.com/jwloka)! - Auto-dispatch asks whether an agent is **free**, not only how many slots are taken.
+
+  `isFree` existed in `@plot-pm/domain`, carried six assertions, and had **zero
+  production callers** (measured 2026-08-30). `planAutoDispatch` now reads it
+  beside `liveAgentCount`, and a refusal names which of the two questions failed.
+
+  **The win:** a fleet at its cap whose agents are all between units, or holding
+  branches that have landed, now dispatches instead of waiting. An agent asking
+  for its next slice is `running` with no branch and is available _now_; the
+  fleet used to wait for a slot it already held.
+
+  **`isFree` joins the count; it does not replace it.** The two answer different
+  questions — _does this agent consume a machine?_ (`liveAgentCount`, which
+  protects the cap) and _can this agent take a slice?_ (`isFree`). A
+  landed-branch agent is **occupied and free at once**, so both are true of it.
+  Collapsing them re-inverts a measured defect: on 2026-08-25 eleven workers
+  whose branches had merged sat at zero CPU for up to ten hours, none counted
+  against the cap, and the fleet grew to 13 against a cap of 3. This slice adds a
+  reader and changes **no arithmetic** — asserted by `liveAgentCount`'s existing
+  tests passing unedited, and by a regression test that fails if the two counts
+  are ever merged.
+
+  **A free agent is an existing slot, never an extra one**, so a spent budget
+  _becomes_ the free count rather than growing by it. Verified by mutation: the
+  `budget + free` spelling is caught by the one test that lowers the cap below
+  the live count, which is the only case where the two spellings differ.
+
+  `sliceHasMerged` is sourced from the pulse, which already publishes
+  `state: 'merged'` per branch — no additional host round trip. A branch the
+  pulse does not mention is not treated as landed: silence is never permission.
+
+  `isFree`'s parameter widens from `Agent` to the two fields it reads. The
+  board's registry entry carries `state` and `branch` with the same meanings but
+  its own state vocabulary — it has `unknown`, and lacks `ended`/`none`/
+  `elsewhere` — so the two enums are **not** the same set and a cast would have
+  asserted an equality that does not hold. Every existing caller passes a full
+  `Agent` and is unaffected.
+
+  **Half of `isFree` stays unreachable in production, and that is not this
+  slice's to fix.** Its first condition is `branch === ''`, and no worker in this
+  repo has ever hopped: the 3600s `Worker bound` kills every agent mid-run, and
+  `update_manifest_on_hop` sets the next branch rather than clearing it. That
+  condition is asserted against a fixture and labelled as such;
+  `a-working-agent-is-not-a-hung-one` is what makes it reachable.
+
+- [#541](https://github.com/plot-pm/plot/pull/541) [`3506d78`](https://github.com/plot-pm/plot/commit/3506d788e40dcd2397d373c0eecc59f09cbbb7d3) Thanks [@jwloka](https://github.com/jwloka)! - `fleet-controls.ts` becomes `fleet-settings.ts`, freeing `controllers/` for the
+  layer that follows.
+
+  Two modules whose names differed by one letter — one holding the two settings an
+  operator sets, one answering every question about the estate — cost a reader an
+  hour to tell apart. The module that holds the settings is now named for them.
+
+  **Three names deliberately do not move**, because they are contracts rather than
+  code: the HTTP endpoint `/api/fleet-controls`, the state file
+  `.plot/state/fleet-controls.json`, and the payload field `fleet.fleetControls`.
+  Renaming any of them would break a running board or a client mid-poll, and this
+  slice is a rename with no behaviour change. `FleetControls.tsx` keeps its name
+  too — it is the surface an operator clicks.
+
+- [#544](https://github.com/plot-pm/plot/pull/544) [`c5afda5`](https://github.com/plot-pm/plot/commit/c5afda5021d272eb74665d2dc64461bb2006a409) Thanks [@jwloka](https://github.com/jwloka)! - The first controller: fleet state, the question `/api/board` and `/api/fleet`
+  both serve. `/api/board` becomes parse, call, enrich, serialise.
+
+  **It is not HTTP.** `boardState({ opts })` takes typed arguments and returns a
+  typed result — no `host`, no port, no request — so the master agent can ask the
+  question a browser asks and get the same answer. It lives in the board rather
+  than the domain package because a controller knows about requests and callers,
+  and that knowledge is exactly what the purity gate keeps out of
+  `packages/domain/src`.
+
+  **The enrichment stays on the route, and that was the design question this
+  slice owned.** `server` is transport knowledge, and all ten `*Availability`
+  flags are the same kind of fact wearing a lifecycle name: every one answers
+  _did this request come from this machine?_, which is meaningless to a caller
+  that never made a request. A controller returning them would have to invent a
+  binding for the master agent.
+
+  **The origin check now exists once.** Measured 2026-08-30: six literal copies of
+  `host === 'localhost' || host === '127.0.0.1' || host === '::1'` across
+  `dispatch`, `continue`, `idea`, `implement`, `drop` and `story`, with four more
+  capabilities delegating to those. What differed between the six was never the
+  condition — only the sentence naming what is unavailable — so
+  `localCapability(host, what, owns)` shares the condition and keeps the sentence
+  a parameter. The ten flags stay ten fields: one flag serving several
+  capabilities is how they diverge unnoticed.
+
+  **The payload is unchanged byte for byte**, captured from the artifact before
+  and after against a real estate — 104609 bytes, 18 top-level keys — with two
+  baseline captures diffed against each other first, so a later difference could
+  only be the change.
+
+- [#537](https://github.com/plot-pm/plot/pull/537) [`66400cd`](https://github.com/plot-pm/plot/commit/66400cdef7a32d863863db31bac897e817f4ccef) Thanks [@jwloka](https://github.com/jwloka)! - One place decides where an agent log lives.
+
+  Nine board modules each hard-coded `path.resolve(repoRoot, '..')` to place their
+  log, prompt and state files — **one decision written 22 times**. `agent-log.ts`
+  is now that decision, and the nine ask it.
+
+  **The returned path does not change.** Moving the logs and moving the decision
+  in one diff would mean a reviewer cannot tell a missed call site from an
+  intended path change; the move is its own slice. All 22 forms were verified
+  byte-identical against the pre-refactor expression.
+
+  **The 22nd call site is the one the grep missed.** `idea.ts` resolves a worktree
+  DIRECTORY rather than a log file and spells it `opts.repoRoot`, so it did not
+  match the pattern the plan states as its assertion. `agentLogDir` is exported
+  for it — without that split it would have had to fake a filename, which is how a
+  call site drifts back to hard-coding.
+
+  **Readers came along for free.** `auto-deliver.ts` and `auto-dispatch.ts` read
+  these logs and are not among the 22 writers, but both already went through the
+  exported helpers. A missed reader is worse than a missed writer — the writer
+  puts a file somewhere unswept, while the reader looks in the wrong directory and
+  reports nothing wrong — and one expression covers both where two lists drift.
+
+  `AgentLogKind` is a closed union rather than a string, because these names are
+  also what a sweep globs for: a tenth module inventing `plot-audit-*.log` would
+  write a file no cleanup knows to remove.
+
+  The grep is a test rather than a note. 22 call sites is exactly the kind of
+  change where one gets missed, and the missed one keeps writing to the old
+  location where nothing will ever clean it.
+
+- [#547](https://github.com/plot-pm/plot/pull/547) [`330c9c0`](https://github.com/plot-pm/plot/commit/330c9c0847684fbcfd5310e92bfce9517f994036) Thanks [@jwloka](https://github.com/jwloka)! - A browser test asks for a board state **by name**, and gets it without starting a board.
+
+  `test/catalogue` is one `row()`/`wave()`/`card()`/`column()`/`fleet()`/`board()`
+  builder, a set of named scenarios, and a mock server that answers `/` with the
+  built client and `/api/{board,fleet}` with the named state. It never imports
+  `board-server.mjs`, starts no refresh timer and runs no `git`.
+
+  **The census it answers, re-measured 2026-08-30:** 43 browser tests, 43
+  asserting rendered UI, 39 stubbing `/api/*`, 42 starting a full board — and
+  **0** importing a shared fixture. Every test builds its own state inline, so a
+  schema change breaks them one at a time and _quietly_: the client CASTS its
+  payload, so a field a fixture omits reaches the renderer as `undefined` rather
+  than as an error.
+
+  **The builders PARSE.** That moves the failure to the earliest place that can
+  see it — a missing required field throws naming the field, and a required field
+  the schema _gains_ fails `tsc` on the builder's defaults, which are typed as
+  `z.input<…>` so that exactly the defaulted fields are optional. It found two
+  fixture bugs while being written: `phase: 'Approved'` — a PLAN phase, where
+  `AgentRow.phase` and `Card.phase` carry one of the five BOARD phases — at five
+  places, and `checklist` declared on `Card` where the schema puts it on `Board`.
+
+  **That guarantee needed a gate, not a rule.** `tsconfig.json` included only
+  `src`, so `test/` was outside the typecheck entirely and a deliberate type error
+  in it passed `pnpm run typecheck` silently. `test/catalogue` is now in `include`;
+  a test asserts that it stays there. The rest of `test/` is deliberately still
+  out — it carries 26 pre-existing errors, and widening to it is the migration
+  slice's call rather than this one's.
+
+  **It is a server rather than a bundle, and the precedent was read first.**
+  `tuple-row.browser.test.ts` already starts no server: it bundles a component
+  with `esbuild` and `page.setContent`s it. That works because it mounts ONE
+  COMPONENT and hands it data as props — it never fetches. The board's client
+  does: `App.tsx` polls `/api/board` and `/api/fleet` on relative URLs and reads
+  `location.search` for `?tab=agents`. Under `setContent` the origin is
+  `about:blank`, so a relative fetch has no base, `page.route` has no request to
+  intercept, and the query string the tab reads cannot be set. The departure is
+  that the subject here IS a fetching, routing application. What the two shapes
+  share is what matters: neither starts the board.
+
+  **Demonstrated on one existing test, and only one.**
+  `wave-status-speaks-verdict.browser.test.ts` now reads `a-done-wave`: 62 lines
+  of inline assembly gone, every `expect` unchanged character for character, and
+  no mention of `startServer` left. Its old fixture was cast (`as Fleet`) and
+  carried the invalid phase plus three missing required `Wave` fields. Migrating
+  the suite is a separate slice on purpose — doing both at once means a reviewer
+  cannot tell a broken catalogue from a badly-moved test.
+
+  The catalogue is a CLAIM about what the server emits, and a claim can drift.
+  Nothing in it proves the real board would produce these payloads; the remaining
+  end-to-end browser tests are what keep it accountable, which is why they stay.
+
+- [#536](https://github.com/plot-pm/plot/pull/536) [`88ef93b`](https://github.com/plot-pm/plot/commit/88ef93b34a73722ade029a84d313759b5f10894c) Thanks [@jwloka](https://github.com/jwloka)! - A board installed from npm dispatches workers that are actually monitored.
+
+  `plot-dispatch.sh` now starts two monitors beside every worker it creates, and
+  it resolves them as `$script_dir` siblings — the same way it reaches every other
+  helper. The package ships the dispatcher, so without the monitors beside it an
+  installed board would dispatch workers that are silently unmonitored.
+
+  **Silently is the operative word, and it is why this is listed by hand.** A
+  missing monitor does not produce `bash exited 127` the way a missing helper
+  does: `start_worker` passes an empty path, the wrapper reads it as _not
+  attached_, and the worker starts unwatched. That is deliberate — a detached
+  `sh -c` nobody is reading must not spew `command not found` — but it means the
+  failure has no symptom, which is exactly the class of thing the monitors exist
+  to end.
+
+  The vendor gate derives its list from the scripts the SERVER spawns, and the
+  server spawns neither monitor; the dispatcher does. So the gate cannot see this
+  one, and `build.mjs` carries a comment saying so beside the two entries.
+
+- [`d2424af`](https://github.com/plot-pm/plot/commit/d2424af8987e73cf7d1c946492fefee6d54de6d0) Thanks [@jwloka](https://github.com/jwloka)! - A test-launched board server now exits when nobody has asked it for anything in
+  five minutes, not only when its launcher dies. `exitWithParent` polls the
+  parent pid, so a launcher that is alive but hung leaves it satisfied forever —
+  measured with two vitest processes asleep at 0% CPU for 33 and 47 minutes,
+  holding a board server that dutifully checked its ppid every second and kept
+  running. Gated on the same `PLOT_EXIT_WITH_PARENT` variable, so an operator's
+  `pnpm board` is untouched.
+
+- [`baa605f`](https://github.com/plot-pm/plot/commit/baa605f4d8547292a12c009a251e10b5885f0c02) Thanks [@jwloka](https://github.com/jwloka)! - `readConfig` caches its answers, keyed on the mtimes of `CLAUDE.md` and
+  `AGENTS.md`. Each miss spawns `bash plot-config.sh` synchronously — measured at
+  58 ms, called five times per `/api/board` — so a board answered 318 ms of
+  blocking spawns to read five lines from a file that changes twice a day. Keyed
+  on the files rather than a clock, so editing `## Plot Config` and reloading
+  shows the new value immediately.
+
+- [`be0e55b`](https://github.com/plot-pm/plot/commit/be0e55b0669019cb1c64d84e38d2d54dbb11aa10) Thanks [@jwloka](https://github.com/jwloka)! - The 375px wrap-point assertion is skipped on CI until it can serve its own
+  state. It failed six consecutive runs while several CI runs were live, then
+  passed twice once the queue was quiet — a load-sensitive flake rather than a
+  deterministic failure. Five candidate causes were measured and refuted; runner
+  contention is named as the untested sixth. `skipIf(CI)` keeps the assertion
+  guarding the layout everywhere it is reliable.
+
+- [#560](https://github.com/plot-pm/plot/pull/560) [`80bfc74`](https://github.com/plot-pm/plot/commit/80bfc748083ddbca472ae311b2ad4eeb0306021b) Thanks [@jwloka](https://github.com/jwloka)! - The browser tests read the catalogue instead of starting a board.
+
+  Every fully-stubbed browser test — one that supplies both `/api/board` and
+  `/api/fleet` itself — now serves its state by name through `openCatalogue()`.
+  A test that supplies both payloads has nothing to start a board FOR, and 42 of
+  them were starting one anyway: a full `board-server.mjs` with its refresh timer
+  and its estate scan, so that the fixture could be ignored.
+
+  **A gate rather than a rule.** `stubbed-tests-start-no-board.test.ts` greps the
+  suite for a fully-stubbed test that still reaches for the artifact and fails
+  naming the file. Two counts sit beside it — files and `it(` — so the gate cannot
+  pass by subtraction: a migration moves assertions, it does not delete them.
+
+  **The last file exposed what a cast fixture hides.** `unreachable-overlay`
+  built its fleet as a raw object literal cast to `Fleet`, which satisfies `tsc`
+  structurally while `.parse()` never runs — so Zod defaults never apply and a
+  wrong shape renders nothing at all, silently. Four of its tests reached for the
+  action menu on an eligible branch and found none, and three separate gaps were
+  behind it, each invisible for the same reason:
+
+  - the row carried no `kind: 'wave'`, and since `a-wave-is-a-kind` an eligible
+    branch renders as its WAVE, which is what carries the menu;
+  - the fleet named a plan the served board had no card for, and `Start work` is
+    gated on `verdict === 'eligible' && card && dispatch` — a missing card is a
+    `null` branch in a ternary, not an error;
+  - `BoardSchema.dispatch` defaults to `available: false`, so the menu was
+    already `aria-disabled` while the server was healthy, and the two assertions
+    reading that attribute would have passed vacuously.
+
+  None of the three was reachable before, because `/api/board` used to fall
+  through to a real board server over the tiny-garden fixture, which supplied the
+  waves and cards the fixture never mentioned. The payload was half real; serving
+  the whole state is what made the fixture answerable for itself.
+
+  `BOARD_DEFAULTS` now states `server` — a plausible restart command, port,
+  branch and repo — for the same reason the catalogue states `generatedAt`: the
+  schema's empty-string default is right for a parser and wrong for a catalogue,
+  because a component that renders a field only when the server sent one is
+  otherwise untestable.
+
+- [#576](https://github.com/plot-pm/plot/pull/576) [`51b5e30`](https://github.com/plot-pm/plot/commit/51b5e30d1bc4fcae08ed3eb22a2447494b77bec6) Thanks [@jwloka](https://github.com/jwloka)! - A browser test that starts a real board must say why, and the gate checks the
+  claim against the file's structure rather than taking the comment for it.
+
+  `// @needs-real-board: <reason>` declares; two structural arms entitle. A marker
+  alone would reintroduce the failure the gate's docblock already rejects a list
+  for — it fails open, one line at a time, and a test would join the exceptions by
+  asserting that it belongs there. The marker supplies the reason, which no
+  predicate can infer; the structure supplies the entitlement, which no comment
+  should be trusted for. A declaration nothing supports is an offence, reported
+  like any other.
+
+  **Two arms, not the three the plan named.** A write route entitles only when it
+  is UN-intercepted: six files touch a write endpoint, five `page.route` every one
+  they touch, and `approve.browser.test.ts` is the only one where a POST reaches
+  the configured `Approve command`. And `dead-fetch.browser.test.ts` asserts
+  neither a write nor a process — it needs a transport it can abandon, which is
+  structural, so it is an arm rather than an exception. _Asserts on process
+  behaviour_ is absent because it has no population here: `lifetime.test.mjs` is a
+  node:test file the gate never reads, and inside the browser suite `pid` is fleet
+  payload data in all 11 files that carry it while `.kill('SIGTERM')` is teardown
+  every board-starting file performs.
+
+  **The count is now keyed on what a file does, not where it sits** — the files
+  under `test/` that drive a page, so a slice moving a test to `test/unit/` no
+  longer reads as a deletion. 48/479 → 44/454 with nothing deleted: the three
+  `tiny-garden.{data,plan,story}` server-route tests and the gate file itself leave
+  a scope they were never about. A test moves a real file between directories and
+  counts again to prove it.
+
+  The predicate is a module, because both failure directions need a test and one of
+  them cannot be proved from the live suite without checking in a broken file. It
+  takes source text and nothing else, so the unit tests hand it invented sources
+  while the gate applies it to real ones.
+
+  Two defects surfaced, both of the shape that passes rather than fails: an
+  entitlement judged on raw source read a file as reaching a script on the strength
+  of one docblock line, and the population predicate counted the test that tests
+  it, whose fixtures contain the imports under test.
+
+  No `bumps:` block: this slice changes the board's test suite and no skill prose,
+  and CI validates that every skill a block names is a real directory rather than
+  that a block exists.
+
+- [`fe9a99f`](https://github.com/plot-pm/plot/commit/fe9a99fc05b511b2d88fe8a2b8165bf06f504340) Thanks [@jwloka](https://github.com/jwloka)! - Two git answers that cannot change while a board runs — `rev-parse
+--show-toplevel` and `symbolic-ref --short refs/remotes/origin/HEAD` — are asked
+  once per repository instead of on every request. Measured at 89 ms and 44 ms per
+  call, with `defaultBranchOf` reached from five sites. Nothing that reads
+  repository content is cached: `ls-tree`, `for-each-ref` and `show` answer
+  differently on every commit, and those calls belong behind the async `Refs` port
+  rather than in a cache.
+
+- [#603](https://github.com/plot-pm/plot/pull/603) [`7608805`](https://github.com/plot-pm/plot/commit/760880595fd508a1af2a1f517a74076eef319353) Thanks [@jwloka](https://github.com/jwloka)! - One `briefPath` for the board instead of five copies. `attention.ts`, `auto-dispatch.ts`, `continue.ts` and `fleet.ts` each computed a brief's path from a branch name, and the rule they held is easy to get subtly wrong: the branch prefix is **dropped**, not flattened, so `feature/a-brief-has-one-name` gives `.plot/briefs/a-brief-has-one-name.md` and never `feature-a-brief-has-one-name.md`. A flattened name is a file no reader computes, so a brief written that way is invisible to the dispatch gate and the branch reads as having none. `brief-path.ts` is a leaf module importing only `node:path`, so every reader can take it without a cycle, and `briefPathForSlug` names the `same-branch` case whose plan rides a branch it did not cut.
+
+- [#579](https://github.com/plot-pm/plot/pull/579) [`52be52f`](https://github.com/plot-pm/plot/commit/52be52f30f4eb14348d934515ad609e302d1bfcd) Thanks [@jwloka](https://github.com/jwloka)! - The deliverability controller asks ports instead of running scripts.
+
+  `deliverabilityOf` ran `plot-plan-meta.sh` and `plot-impl-status.sh` itself,
+  which inverts the layering rule: a controller calls the domain, an adapter calls
+  the script, and only an adapter may. Both readings already had ports —
+  `PlanStore.readPlan` and `Host.prMerged` — so nothing was designed, only
+  rewired. The estate gains a `host` port with a fixture, so the mock board
+  answers the question without spawning either.
+
+- [#610](https://github.com/plot-pm/plot/pull/610) [`1af6bd1`](https://github.com/plot-pm/plot/commit/1af6bd16ba08a50c75a111f93f95a8b27b6dbd50) Thanks [@jwloka](https://github.com/jwloka)! - The WorkerMonitor's two-sample judgement becomes a domain rule, reached through a fourth build artifact. `plot-monitor.mjs` takes `sample` and `publication` from `@plot-pm/domain/rules/sample` directly rather than through the barrel — once per pass per monitored worker, and the barrel would carry every entity's zod schema, none of which this entry calls. It bundles to 1.5 KB and **spawns nothing**, which is the property that lets the monitor keep its "no host call at all" guarantee while the judgement moves languages: `plot-ask.mjs` answers by running `plot-fleet-scan.sh`, so a monitor calling it would reach the estate through the scan — 127 git processes on a ~30 s cadence.
+
+- [#586](https://github.com/plot-pm/plot/pull/586) [`a4ca4f4`](https://github.com/plot-pm/plot/commit/a4ca4f4a59c286ba4ce583af965f4dd41cd3110e) Thanks [@jwloka](https://github.com/jwloka)! - `toBoardPhase`, `rowPhase` and `planStatus` are domain rules.
+
+  A phase is a rule about a Plan and a column is a rule about a Branch; neither is
+  a rendering concern. They move to `packages/domain/src/rules/phase.ts`, and the
+  board re-exports the first two for callers that already import them.
+
+  `planStatus` takes readings rather than a pulse: the board runs the two pulse
+  queries and the domain decides, which is what makes the rule testable without a
+  `FleetPulse`. `planStatusBySlug` stays in the board — it reads config, so it is
+  a reader rather than a rule.
+
+- [#630](https://github.com/plot-pm/plot/pull/630) [`a0cd752`](https://github.com/plot-pm/plot/commit/a0cd7529f883459dbd848b314ffda27888b62c81) Thanks [@jwloka](https://github.com/jwloka)! - A read route cannot reach a synchronous spawn, and a test fails the build when
+  one does.
+
+  The gate walks a CALL GRAPH from what `/api/board` and `/api/fleet` actually
+  call, not a list of files, and both halves of that matter. Three read-path files
+  keep a documented synchronous twin for the write routes that cannot await yet —
+  `board.ts:readConfig`, `registry.ts:readManifestDirConfig`,
+  `agent-log.ts:readWorktreeRoot` — so a per-file grep reddens files a later plan
+  owns, and it is a gate somebody turns off. It also passes on the guilty case:
+  `fleet-state.ts` holds no spawn and reaches 165 functions across fourteen
+  modules, any of which could gain one.
+
+  `await` is the boundary, and that is the measurement's definition rather than a
+  convenient one. `sample <pid> 5` found the defect BELOW the request handler, so
+  a spawn on a later tick is a different problem with a different blast radius. An
+  awaited call is still followed, because an async function runs synchronously to
+  its own first await — `fleet.ts:refresh` records that trap in its own comment.
+
+  Beside it, the behaviour the absence buys: `/` answered back to back with both
+  read routes IN FLIGHT, started and deliberately not awaited, because a board
+  with nothing to do is fast and that was never the question. Freshness is
+  asserted with it, and the two are load-bearing together — every latency
+  assertion gets faster if the board stops reading the estate, so a frozen
+  snapshot would pass them all and be worse than what this replaced.
+
+  **Measured 2026-09-01 with the same instrument that found the defect:**
+  `node::SyncProcessRunner::Spawn` holds **0 of 4012** main-thread samples, against
+  4258 of 4262 before. `ProcessWrap::Spawn` holds 139 — the calls moved to the
+  asynchronous path, they were not removed, which is what the plan asked for.
+
+  **The board is not much faster, and saying so is part of the result.**
+  `/api/board` reads 429–616 ms against ~770 ms, and most of that came from caches
+  shipped earlier. What changed by three orders of magnitude is what a second
+  request costs while the first runs: `/` went from timing out at 15 000 ms to
+  3–28 ms. That was always the defect.
+
+  **A finding, not fixed here:** with the spawns gone, `buildBoard`'s per-request
+  plan staging is the top of the profile — `WriteFileUtf8` 449, `RmSync` 445,
+  `MKDirpSync` 218 of 4012 samples, ~28 % of the main thread. Same defect class,
+  smaller instance, and its own change.
+
+- [#616](https://github.com/plot-pm/plot/pull/616) [`e61b3eb`](https://github.com/plot-pm/plot/commit/e61b3eb873c5a8702ef8d4397622eabe4f95076a) Thanks [@jwloka](https://github.com/jwloka)! - Every test teardown removes its tree through `rmTree` rather than calling `fs.rmSync` directly. `rmTree`'s first attempt IS the identical `fs.rmSync(target, { recursive: true, force: true })`, so a clean removal returns from it with no behaviour change and no delay — it only retries where a spawned process is still writing, which is the `ENOTEMPTY` a teardown races. Every teardown was converted rather than only the racing ones, because the racing population is not nameable: _"removes a directory a spawned process wrote in"_ is a judgement no grep decides, while _"a test teardown does not call `fs.rmSync` directly"_ is gateable. One site remains, inside `rmTree` itself, which is the one place that should have it.
+
+- [#583](https://github.com/plot-pm/plot/pull/583) [`f25b57f`](https://github.com/plot-pm/plot/commit/f25b57f0e55f11effcce96bf2f8ab8233cc45a86) Thanks [@jwloka](https://github.com/jwloka)! - `startabilityVerdict` and `waveVerdict` are domain rules.
+
+  A verdict answers a question about a Slice — _may I start this branch?_ — which
+  is a judgement rather than a rendering concern, and both lived in the board's
+  view layer. They move to `packages/domain/src/rules/verdict.ts` with the types
+  they produce, and `fleet.ts` re-exports them for the callers that already import
+  it. The board payload is unchanged.
+
+- [#590](https://github.com/plot-pm/plot/pull/590) [`5cb349e`](https://github.com/plot-pm/plot/commit/5cb349e2f92319c8bd232ac51e092c1a8d3ce2ac) Thanks [@jwloka](https://github.com/jwloka)! - One eligibility rule decides whether a slice can be started.
+
+  `sliceVerdict`, `sliceVerdicts` and `isClaimable` move to
+  `packages/domain/src/rules/eligible.ts`, and `plot-fleet-scan.sh` reaches them
+  through a bundled `plot-verdicts.mjs` entry point instead of deciding in shell.
+  The phase test is an allowlist of one — `approved` — so an unreadable phase
+  withholds `eligible` rather than inheriting it.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#592](https://github.com/plot-pm/plot/pull/592) [`a3079d5`](https://github.com/plot-pm/plot/commit/a3079d5f51541af10e75c3f1c5d11a0a979eabac) Thanks [@jwloka](https://github.com/jwloka)! - The last and largest browser test serves its own state: `agents-tab.browser.test.ts`, 117 tests that started `board-server.mjs` over the tiny-garden fixture and then stubbed `/api/fleet` in all fourteen of its routes. The obstacle was never the payload — the file carried its own `row()`, `agent()` and `fleet()`, 145 lines that had drifted from `test/catalogue/build.ts` while asserting the same contract, so reconciling the two builders was the migration. There is one set now and it parses through the Zod schemas rather than casting, which immediately found a fixture the cast had hidden: `previousAt` as an ISO string where `PulseShrinkSchema` says epoch ms, so five tests had asserted against a shrink payload the server cannot send. Running the rest surfaced three more fixture facts the real estate used to supply silently — a wave is placed as a unit, so one wave per plan per section; `waveSummary.eligible` is the action menu's render gate, which twelve tests had been reaching through a Plans-tab round trip and a git scan; and a card carries the story `Show in board` puts in the URL. `open()` gained `route`, installed before the first navigation, for the two helpers whose subject is a server not answering. 117 of 117 pass in 106 s against 295 s spawning a server; the serial project is 48 files, 495 tests, 297.99 s.
+
+- [#591](https://github.com/plot-pm/plot/pull/591) [`9e2e2e5`](https://github.com/plot-pm/plot/commit/9e2e2e5a8247cd6faf9983fad7826dec9b43dc5d) Thanks [@jwloka](https://github.com/jwloka)! - Fifty-three browser tests across seven files state the board state they are about instead of inheriting whatever the repository holds. `spinner`, `start-work-refusal`, `button-claims`, `fleet-settings`, `command-copy` and `worker-log` now open a named catalogue scenario and pass their own payload through `over`; `double-click` keeps one real server for its last describe, whose subject is a board bound to `0.0.0.0` refusing both clicks — the same declared exception `stuck-rows` holds, because a binding has to be non-local for the refusal to be real. A new scenario, `a-board-that-can-act`, states dispatch and approve as available, which is what the start-work and approval controls are gated on — the earlier reading that a capability could not be mocked was wrong, and correcting it moved five files off the server. `open()` gained `permissions`, because the clipboard tests need a grant and a fixed default can express only one side of it. The mock gained `served()` and `fail()` — the two behaviours the last file in this plan needs that a static payload cannot express: a test that swaps state waits for the served count to advance rather than for a duration, and a test about a dead board destroys the socket on the API while `/` keeps serving. Serial project after: 48 files, 491 tests, all passing, 316.51 s against the survey's 383 s baseline. Files that still start a real server: 8, from 29 at the plan's start.
+
+- [#580](https://github.com/plot-pm/plot/pull/580) [`831a979`](https://github.com/plot-pm/plot/commit/831a979e65bc1d2885926d209dee362bde545ec9) Thanks [@jwloka](https://github.com/jwloka)! - `/api/board` reads git through the `Refs` port instead of spawning child processes on the event loop, so the board answers other requests while it answers that one. Measured with `sample <pid> 5` on a board refusing every request: 4258 of 4262 main-thread samples sat under `node::SyncProcessRunner::Spawn`, below the request handler — and a synchronous spawn cannot yield, which is why a STATIC FILE timed out at 15 s beside it. That reading is what separated this from every "the board is slow" theory: a slow computation does not stop `/` from being served, a blocked loop does. All 13 `git()`/`gitBuffer()` call sites in `board.ts` are gone, `buildBoard` is async, and the static-git cache is deleted rather than kept — caching a synchronous function keeps it synchronous, which is why the two caches shipped as stopgaps bought 1.2 s → 0.77 s without changing the signature. The no-network guard was repointed rather than deleted: the git invocations moved into `refs-git.ts`, and a check still pinned to `board.ts` would fire on a refactor and pass on the regression.
+
+- [#582](https://github.com/plot-pm/plot/pull/582) [`ab349a6`](https://github.com/plot-pm/plot/commit/ab349a6a01ff311e8afde308d1bca8b794885f63) Thanks [@jwloka](https://github.com/jwloka)! - The catalogue can express the states the browser suite needs: 3 named scenarios become 8, each named for the state it describes rather than for the file that first wanted one. `a-full-estate`, `an-estate-that-cannot-act`, `a-plan-in-waves`, `one-row-per-kind` and `a-board-of-plans` join the three that existed, and every payload is built through `row()`, `wave()`, `card()`, `fleet()` and `board()` — 52 builder calls and no raw cast to a contract type, which is the shape that let a structurally valid, never-`.parse()`d `Fleet` ship with no `waves` array and render no action menu. `mock-board.browser.test.ts` gains one test per new shape, because a scenario nothing asserts against is a payload nobody has shown the board can render; the migration gate's test count is raised in this commit to match. No browser test migrates here — the catalogue is the deliverable, and moving files onto it is the next slice.
+
+- [#615](https://github.com/plot-pm/plot/pull/615) [`fc6962e`](https://github.com/plot-pm/plot/commit/fc6962ee4236cdc7de2148de8d05b62b2ebb9828) Thanks [@jwloka](https://github.com/jwloka)! - The Refs corpus tier's ref pin now arms on CI, where it had never once worked. The pin freezes `origin/HEAD` so both scans resolve one frozen main, but it resolves the branch name by reading `origin/HEAD` itself — a ref `actions/checkout` never creates. On every runner that lookup threw, `MAIN` fell back to `''`, the whole pin block was skipped, and the suite ran against two moments instead of one with nothing reporting it. Measured 2026-09-01 on PR [#610](https://github.com/plot-pm/plot/issues/610), which already carried the branch-tip fix: six disagreements in one run, all one cause — `read_ref` read `e0705bd9` against `4194d300`, two consecutive main commits; `eligible` differed by one; and four branches reported `conflicts: adapter=[] production=[board-server.mjs, plot-ask.mjs]`, the window in which [#608](https://github.com/plot-pm/plot/issues/608) merged and made them conflict. The lookup now falls back to `origin/main` then `origin/master`, the same fallback `plot-fleet-scan.sh:204` already makes, and a new assertion requires the pin to be armed rather than trusting it — verified discriminating: with both lookup paths disabled, that one test fails while the other thirteen pass, which is exactly the silence the pin failed in for months.
+
+- [#600](https://github.com/plot-pm/plot/pull/600) [`5432df3`](https://github.com/plot-pm/plot/commit/5432df32208b66d7b239abc4355f0202bf457ac2) Thanks [@jwloka](https://github.com/jwloka)! - The Refs corpus tier stops failing when a branch other than its own gains a commit while it runs. Its pin already froze `origin/HEAD`, the left endpoint of every `origin/<main>...origin/<branch>` diff both scans take; the right endpoint was unpinned and unpinnable, because any of the estate's branches may be pushed to at any moment and the two scans each fetch. Measured on CI 2026-09-01: PR [#601](https://github.com/plot-pm/plot/issues/601) pushed its second commit at 16:21:38Z, this job started at 16:21:39Z, and the two scans 36 s apart read that branch at its claim-only tip and then at its real tip, disagreeing on `changed_paths` by exactly the changeset file that landed between them. Every remote tip is now recorded before the first scan and after the second, and a branch whose SHA differs is skipped — a measurement rather than an exemption, so `changed_paths` stays compared on every branch that held still, and a floor in the non-vacuity test fails loudly if the skip ever swallows more than half the estate.
+
+- [`5d8ac1d`](https://github.com/plot-pm/plot/commit/5d8ac1da76f6f052f289ae0d2fd7132f0f775027) Thanks [@jwloka](https://github.com/jwloka)! - The corpus tier pins the ref both its scans read, so they are asked about one
+  estate.
+
+  The suite runs `plot-fleet-scan.sh` twice and each invocation fetches, so
+  `origin/main` could move between them and the two readings disagreed about a
+  moving world rather than about the adapter. Measured twice: `conflicts` on
+  2026-08-31 and `read_ref` itself on 2026-09-01, the latter reporting two
+  consecutive main commits pushed minutes apart.
+
+- [#612](https://github.com/plot-pm/plot/pull/612) [`03b9bd9`](https://github.com/plot-pm/plot/commit/03b9bd9b58f6bbc0cc7f2dfefd111ced1b8d0c0a) Thanks [@jwloka](https://github.com/jwloka)! - A monitor's finding reaches the row and becomes an attention entry.
+
+  `AgentRow` gains `findings` — what the WorkerMonitor, AgentMonitor and
+  BuildMonitor currently find about the branch, forwarded onto the row unchanged,
+  the rule `worker` and `worker_activity` already follow. `/api/attention` derives
+  entries from them beside the nine it already reads off row fields.
+
+  `owes a review` is the finding that earns the field. Its row reads `finished` or
+  `none` on `worker` and carries no PR — the shape of a branch nobody has started
+  — so the scan alone could not report it, and finished work sat on a branch with
+  no PR twice in one session with nothing noticing.
+
+  An entry names the monitor that found it. A WorkerMonitor `idle` is a process to
+  look at and an AgentMonitor finding is a debt to discharge, so `monitor` carries
+  the value a caller branches on and `subject` the phrase it shows a person.
+
+  Clearing is a derivation. A monitor publishes `clear` when a debt stops holding,
+  `currentFindings` drops the finding it retracts, and the entry disappears by not
+  being derived again — nothing marks it done and no state goes stale.
+
+- [#611](https://github.com/plot-pm/plot/pull/611) [`f33cc7f`](https://github.com/plot-pm/plot/commit/f33cc7fac1b6882324084cca4f5ba960f0ee9d52) Thanks [@jwloka](https://github.com/jwloka)! - The `/api/fleet` read path reads through the domain's ports instead of spawning. A new `Trees` port answers which branch a checkout is on, `planStoreShell` and `treesGit` are its adapters, and the board's route takes readings rather than shelling out — the layering rule's `controller → domain → port ← adapter` direction, applied to the read path the fleet scan drives. The worktree adapters gain specifications rather than only implementations, so what they promise is asserted rather than inferred from their code.
+
+- [#595](https://github.com/plot-pm/plot/pull/595) [`05a4eba`](https://github.com/plot-pm/plot/commit/05a4eba9b0abd78dc7f4911130a450c569eeede6) Thanks [@jwloka](https://github.com/jwloka)! - The declare-then-verify gate covers every browser test, not only the fully-stubbed ones. A file starts a board only if it declares `// @needs-real-board: <reason>` and the declaration survives a structural check — the rule is unchanged, the population is the whole suite. Measured 2026-09-01 across 48 browser files and 496 tests: five files start a board, each holding an entitlement its structure supports, from 29 at the plan's start. Two arms were added to the two the Deciding slice shipped, both held to the standard those were: a file behind it, and a signal that separates. A non-localhost binding covers `double-click` and `stuck-rows`, which each migrated their whole body and kept one server bound to `0.0.0.0` because the subject is what the board refuses when it is reachable over a network. The server's own page assembly covers `tiny-garden`, whose last test opens the plan page in a new tab and asserts the `plan-back` titlebar `renderPlanPage` adds only when `embed` is false — keyed on the popup AND the page shell, since a popup alone is also how a meta-click test proves a modal did not open. That arm replaced a broader one keyed on `srcdoc`, and the replacement is the finding: a document is a `fetch`, so `serveDoc` retired the reasoning and `story-overlay` migrated whole while still asserting the attribute, which would have licensed a spawn it does not need. `EXPECTED_EXCEPTIONS` is a count rather than a list, because a list of exceptions fails open twice; it was written at 6 and came down to 5 before the slice landed.
+
+- [#594](https://github.com/plot-pm/plot/pull/594) [`1f38599`](https://github.com/plot-pm/plot/commit/1f385995eab6effc2e1bb654d41e8bd1da8b7cd2) Thanks [@jwloka](https://github.com/jwloka)! - `tiny-garden.browser.test.ts` serves its estate: twelve of its thirteen tests state the board state they assert on, and the thirteenth keeps a real board and declares why. This file was read as un-migratable because its subject is an estate, and that was true of exactly one of its tests. `a-whole-small-estate` states eight cards and four sprints, because the counts these tests assert — `Spring planting` 2, `No sprint` 3, 2 of 8 after filtering — are facts about a population, and a population read from a directory is one nobody stated. Two payload facts the fixture had been supplying silently: sprint counts join on `sprint.members` and never on `card.sprint`, since a plan's `Sprint:` field is history that does not clear when its sprint closes and the board measured 5-of-19 once when it joined the other way; and the released phase is `Released`, not `Done`. The remaining test opens the plan page in a new tab and asserts the `plan-back` titlebar `renderPlanPage` adds only when `embed` is false — that flag is the assertion, and a mock serving a handed-over document can fail neither direction, so the board is what runs. A `sprint()` builder joins the seven that were there. 13 of 13 pass in 1.7 s against roughly 35 s; the serial project is 48 files, 496 tests, all passing, 292.50 s against the survey's 383 s baseline.
+
+- [#593](https://github.com/plot-pm/plot/pull/593) [`2b30ce7`](https://github.com/plot-pm/plot/commit/2b30ce7a8142bdf124266324e69b98fd7ef37351) Thanks [@jwloka](https://github.com/jwloka)! - The mock board can serve a rendered document, and `story-overlay.browser.test.ts` stops spawning a server. `DocModal` fetches `<href>?embed=1` and injects the response as the iframe's `srcDoc`, so a plan or story document is a route rather than a file — which is what the two remaining files were read as blocked on. `serveDoc` registers one; a path nobody registered 404s, and that 404 is as much of the feature as the 200: `story-overlay` asserts on a plan whose story nobody has written, and the board's own answer to a missing document is a failed fetch. A mock inventing an empty document would make that state unstatable. The new `a-story-with-and-without-a-file` scenario states three plans and three answers about a story — one with a file, one named and unwritten (`path: ''`, which `storyHref` reads as no link at all), and one with no story — plus a story document whose hand-written prose disagrees with the derived plan list on purpose, because winning that disagreement is why the list is derived. A `story()` builder joins the six that were there. 12 of 12 pass in 2.59 s; the serial project is 48 files, 496 tests, all passing.
+
+- [#588](https://github.com/plot-pm/plot/pull/588) [`3496711`](https://github.com/plot-pm/plot/commit/3496711f1b49be11e9c1f14d10b46163ee71f7b0) Thanks [@jwloka](https://github.com/jwloka)! - Fifteen agent-tab browser tests state the board state they are about instead of inheriting whatever the repository holds. Each had spawned `board-server.mjs` over the tiny-garden fixture for one reason — to serve `index.html` — while stubbing `/api/fleet` itself, so the server was a static file host with a git scan attached and the assertion read "a row appears" about an estate nobody stated. They now open a named scenario and pass their own payload through `over`, which is the property the plan exists for: if the server delivers a given state, the board shows exactly that. Two tests stay real and both are capabilities rather than payloads — the approval control is gated on the server reporting `approve: {available: true}`, a claim about a transport the mock has none of, and the non-localhost binding test needs a binding to be non-local. The catalogue's `open()` gained `reducedMotion`, because one file asserts both halves of an animation and a fixed default can only express one. Serial project after: 48 files, 491 tests, all passing.
+
+- [#585](https://github.com/plot-pm/plot/pull/585) [`891c675`](https://github.com/plot-pm/plot/commit/891c6751f72ae41f9f2f7559cdc78da058ceb778) Thanks [@jwloka](https://github.com/jwloka)! - The two Plans-tab browser tests whose subject is the board payload now serve
+  their own state and start no board.
+
+  `branch-served.browser.test.ts` and `plan-source.browser.test.ts` name a
+  scenario and override the field they are about — `server.branch` for one,
+  `planSource` and the cards for the other. Both previously spawned
+  `board-server.mjs` against the `tiny-garden` fixture and then routed
+  `/api/board` over it, so each paid for a process whose payload it discarded.
+  11 tests, 4.95 s → 1.85 s.
+
+  **Override ratio, for the plan's scenario-count gate.** The served payload
+  carries 44 top-level fields (18 board, 26 fleet). `branch-served` overrides 1
+  of them per test (2.3 %), `plan-source` overrides 2 (4.5 %); weighted over 11
+  tests the average is **1.82 fields, 4.1 %**. The gate fires above 50 %, so
+  `an-empty-estate` fits these tests with room to spare.
+
+  **No assertion changed its meaning, and one changed its input on purpose.**
+  `plan-source` asserts twice about a payload the schema cannot produce: an older
+  server that sends no `planSource`, and one that sends no `behind`. `BoardSchema`
+  defaults both, so `board()` always returns them — and a defaulted `planSource`
+  renders the `unresolved` line where the test asserts silence. Those two cases
+  therefore layer `page.route` over the served baseline and delete the key, which
+  is the interception-over-baseline pattern `unreachable-overlay` established for
+  a board that cannot answer. Verified by sabotage: with the deletion disabled the
+  `planSource` case fails.
+
+  **Two files the brief listed did not migrate, and the reason is a gap in the
+  catalogue rather than in them.** `a-board-of-plans` carries `sprints: []` and
+  `stories: []` while naming a sprint and a story on its cards. The board derives
+  its sprint filter from `board.sprints` and its story overlay from
+  `board.stories`, so `tiny-garden.browser.test.ts` (3 sprint-filter tests) and
+  `story-overlay.browser.test.ts` (all 12) have nothing to filter or open. Both
+  also read the `/plan/<file>` and `/story/<slug>` document routes — markdown the
+  real server renders from the fixture's own files, asserted down to
+  `<h2>Approach</h2>`, the `?embed=1` titlebar and an `h1` — and the mock serves
+  neither. A scenario with a populated `sprints` and `stories`, and a decision
+  about document routes, are Naming-slice deliverables; migrating these two
+  without them would replace a real dependency with a fixture that asserts the
+  mock's own opinion.
+
+- [#587](https://github.com/plot-pm/plot/pull/587) [`548f923`](https://github.com/plot-pm/plot/commit/548f9232524658bb24acc2b5d78743346f991f16) Thanks [@jwloka](https://github.com/jwloka)! - The pulse derivations are domain rules.
+
+  `sliceReadings` (what each slice is and whether it is complete),
+  `doubleClaimedBranches` (a branch two plans both name) and `pulseLoss` (what the
+  fleet stopped seeing between two readings) move to
+  `packages/domain/src/rules/pulse.ts`. The board maps their results onto the
+  payload it renders, and `planSlugOf` replaces two copies of one regex.
+
+- [#614](https://github.com/plot-pm/plot/pull/614) [`6a0f491`](https://github.com/plot-pm/plot/commit/6a0f491360db9cc8b36cd952624c4885d7870e81) Thanks [@jwloka](https://github.com/jwloka)! - The four refusals that stop a worktree moving become a domain rule. `plot-dispatch.sh`'s migrate mode holds no `if` about whether a tree may move: it gathers what was measured — the desk's activity, a live pid, a dirty path, unlanded commits — and `plot-movable.mjs` returns the refusal. They were shell `if`s until now, and nothing could trigger one in isolation, least of all the combinations an estate will not produce on demand: a live pid and a dirty tree at once. Liveness and unlanded work stay two separate measurements, because `plot_worker_state` is keyed on the records a dispatch writes and a hand-made worktree that never ran one reads `none` however dirty its tree is — and hand-made worktrees are precisely the estate migrate mode exists to tidy.
+
+- [#620](https://github.com/plot-pm/plot/pull/620) [`31ee538`](https://github.com/plot-pm/plot/commit/31ee53852e34786f54712b3f8c120448ecc8d6eb) Thanks [@jwloka](https://github.com/jwloka)! - `readAgentRegistry` reads through a port instead of touching the filesystem itself, and became async with it — the layering rule's direction applied to the registry: `controller → domain → port ← adapter`. Its own tests await it, and `agent-panel.test.ts` follows the calls. A commit restoring the tiny-garden pulse fixture was dropped on rebase: that path is gitignored on main now, so the file it restored is a run cache rather than a fixture.
+
+- [#600](https://github.com/plot-pm/plot/pull/600) [`5432df3`](https://github.com/plot-pm/plot/commit/5432df32208b66d7b239abc4355f0202bf457ac2) Thanks [@jwloka](https://github.com/jwloka)! - `FleetPulse` becomes `FleetReading` across the estate, and the `--stream` protocol's terminal line becomes `{"kind":"reading",…}` with it. The board's `FleetScanLineSchema` literal, the scan's own `printf` and the derived-state tests all move together, so the contract is unchanged — a consumer that sees no terminal line still reads the scan as unfinished, which is what `fleet.ts` throws on. Only the word moved: a reading is what a scan produces at a moment, while the pulse is the clock that asks for one, and `the-pulse-is-an-entity` needs that word free for the thing every poller subscribes to.
+
+- [#578](https://github.com/plot-pm/plot/pull/578) [`ed1f73b`](https://github.com/plot-pm/plot/commit/ed1f73b0156237abdbd9300acc3ce20f3784fc2b) Thanks [@jwloka](https://github.com/jwloka)! - The stub fixture's teardown goes through the bounded retry, so a doomed child writing into the tree no longer fails the test that was cleaning up after it. `rmTree` was written for exactly this on 2026-08-31 — with a test proving it absorbs a transient `ENOTEMPTY` — and `helpers.mjs` went on calling `fs.rmSync` directly in the one place every server test tears down through, so the absorption existed and the failure kept happening: six `test:board` runs died there on 2026-08-31, from `port.test.mjs` and `write-gate.test.mjs` alternately, each blaming a test that had passed. Measured after: a first run reports 2525 passed with two `ENOTEMPTY` events absorbed rather than raised. A test on the retry could not have caught this, so the new one asserts the CALLER — `cleanup()` survives an injected transient, and an injected `EACCES` still surfaces, because a retry that swallowed a permission error would be worse than the bug.
+
+- [#636](https://github.com/plot-pm/plot/pull/636) [`9222ba0`](https://github.com/plot-pm/plot/commit/9222ba0182e3d13e276cddb8cc6084c03a26decd) Thanks [@jwloka](https://github.com/jwloka)! - The board's two refresh timers become one clock with two subscribers. `Pulse` is a domain entity now: it beats at 5 s, the fleet scan counts every beat, and the PR reader counts every twelfth — both cadences exactly what they were. The `12` is read off `PR_REFRESH_MS / REFRESH_MS` rather than written down, so moving the base moves the cadence with it. A subscriber that throws or hangs leaves the other's beat untouched, which is the isolation the split timers bought and this keeps.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#665](https://github.com/plot-pm/plot/pull/665) [`a6658b1`](https://github.com/plot-pm/plot/commit/a6658b1b35eeafdb4160a99e58651f910712bb37) Thanks [@jwloka](https://github.com/jwloka)! - A CI gate refuses a vendor name in domain code outside `adapters/`, and a test drives a connector Plot ships no adapter for end to end through the `Host` port. `HostBackend` was `'github' | 'bitbucket'` until 2026-09-01 — one line, in the domain — so a third connector was not an adapter change however the port documented itself; wave 1 widened the type and this makes the property mechanical. The gate strips comments first: 24 vendor mentions sit outside `adapters/` today, every one in a TSDoc block arguing for the property, while the union it exists to catch carries no vendor word in a comment. The adapter's refusal now names the host it could not drive — the guard threw from the day the union went, but `resultOf` discarded the message and `record` cleared the refusal on the zero exit the script returns, so `lastRefusal()` answered `null` and a caller held `failed` with no way to learn which host.
+
+- [#661](https://github.com/plot-pm/plot/pull/661) [`7526edf`](https://github.com/plot-pm/plot/commit/7526edfb6a2b238750d229d611f8b729fab5899d) Thanks [@jwloka](https://github.com/jwloka)! - Vendor `plot-budget.sh` into the npm package. `plot-host.sh` sources it as a `$here` sibling, and without it every budget function is undefined — `graphql_budget_spent` calls `budget_rate`, so every `pr-state` in the npm layout would route on a `command not found`. The same shape as `plot-transcript-quiet.sh`, which the list already carries by hand because a gate derived from the server's own spawns cannot see a sourced file.
+
+- [#638](https://github.com/plot-pm/plot/pull/638) [`c8cc029`](https://github.com/plot-pm/plot/commit/c8cc029ca0cb7d0202de731ffed1af9813b7f765) Thanks [@jwloka](https://github.com/jwloka)! - Route the last synchronous spawns behind their ports. The agent panel asks `Processes` for a pid's uptime and the brief lookup asks through a port, so the read-route ratchet reaches zero: no read route reaches a synchronous spawn, awaits ignored.
+
+- [#663](https://github.com/plot-pm/plot/pull/663) [`c3ad0f4`](https://github.com/plot-pm/plot/commit/c3ad0f4ec76328d32c0b95890a74191be50f3cca) Thanks [@jwloka](https://github.com/jwloka)! - React to a host refusal, which nothing did: a spent quota waits for the reset the response header carried and resumes at its previous cadence; a secondary limit retries after seconds and lowers concurrency, never frequency. The two are different ceilings and recover differently — a caller handed one word for both waits minutes for a limit that cleared in one, or retries in seconds into an empty bucket. A 403 naming abuse detection carries no wait, no stamp and no "rate limit" wording, so the message parser answered null and the board re-fired on the ordinary cadence into the burst that had just refused it: the 2026-08-27 shape, where eight workers produced that 403. The cadence is untouched by either reaction, because it already divides on observed spend and a refusal that also lowered it would compound with that division and drift downward with nothing to restore it — asserted as a field on the reaction rather than described in a comment. A quota that states no reset waits a bounded ceiling and reports the wait unstated, so a banner never prints a reset it did not receive. Nothing sleeps inside `plot-host.sh`: the rule computes a duration and the caller schedules around it, which is what keeps `plot-reap.sh` answering _not merged_ on an unreachable host rather than blocking a worker for a window's length. `gh api rate_limit` is no longer consulted and `graphqlResetMs` is removed with it — the reset now comes from the budget record, free where that endpoint is metered and right where it was measured wrong.
+
+- [#645](https://github.com/plot-pm/plot/pull/645) [`7cb6e40`](https://github.com/plot-pm/plot/commit/7cb6e40a0d63fbc23871071106cfdb4bce73895f) Thanks [@jwloka](https://github.com/jwloka)! - A CI gate keeps the `rmTree` conversion. A raw recursive `fs.rmSync` in a test teardown races whatever child the fixture left running, throws ENOTEMPTY, and `node --test` reports it as the last test failing — so a green suite depends on 157 converted sites staying converted. The gate counts them, because a conversion nothing enforces is undone one merge at a time.
+
+- [#664](https://github.com/plot-pm/plot/pull/664) [`2c4c7e9`](https://github.com/plot-pm/plot/commit/2c4c7e9a9b99c97cc38b428a548d3b1cf8ceef24) Thanks [@jwloka](https://github.com/jwloka)! - `HostBackend` is a string the domain does not validate, so a third git host
+  costs an adapter rather than a domain edit.
+
+  The closed enum `'github' | 'bitbucket'` was protecting something real: two
+  `fleet.ts` expressions branched on the backend's name to decide whether to pass
+  a reset reader, and a word that reached them unnarrowed would have been a
+  runtime question where the type asked a compile-time one. Removing the enum
+  before those branches existed would have traded a check for nothing.
+
+  [#661](https://github.com/plot-pm/plot/issues/661) landed the header-read budget behind them, and this removes the branches
+  themselves. The reset reader asks the connector through `limit()`, which reports
+  one reading per bucket with the reset it stated; the soonest future `actual`
+  reading is the wait, and a connector that meters nothing answers null — the same
+  ceiling a host with no limit API already fell back to, without this having to
+  know which host that is. `fetchGraphqlResetMs` goes with them, its `gh api
+rate_limit` call being the only thing the vendor branch selected.
+
+  **The refusal moves rather than disappearing.** `host-shell.ts` keeps a `DRIVES`
+  list and still fails on a backend it cannot drive, naming the word it could not.
+  That list belongs to the adapter because the adapter is the layer that could act
+  on it — driving a host means a CLI `plot-host.sh` has been taught, and adding one
+  is an edit to that file and the script beside it.
+
+  The domain now names a vendor in exactly two places, both under `adapters/`,
+  which is the property `Ports § A connector is a kind of adapter` records as a
+  target. `LimitReading.connector` and the `CI` backend already read this way; `Git
+host` was the outlier.
+
+- [#639](https://github.com/plot-pm/plot/pull/639) [`cc18aa5`](https://github.com/plot-pm/plot/commit/cc18aa55af1591021825e8776e156937f8afb3d4) Thanks [@jwloka](https://github.com/jwloka)! - The corpus vacuity guard counts waves rather than unfinished plans. The scan reads only unfinished plans, so that count is the backlog and falls whenever work is delivered — a night of deliveries took it from over 20 to 19 and failed four PRs that had not touched the scan. Waves stay well clear of zero (74 against those 19 plans) and are still zero exactly when the scan read nothing.
+
+- [#681](https://github.com/plot-pm/plot/pull/681) [`2239c69`](https://github.com/plot-pm/plot/commit/2239c6905afcbd05c1019902347bee6ae11cd023) Thanks [@jwloka](https://github.com/jwloka)! - A domain rule tells the four kinds of quiet apart: a closed PR, an orphaned claim, abandoned work, and a branch nobody is on. QUIET was the classifier's fallthrough and described all of them by commit age — 26 rows on this estate, 17 of them decisions somebody had already taken. The rule decides; nothing renders it yet.
+
+- [#678](https://github.com/plot-pm/plot/pull/678) [`985723a`](https://github.com/plot-pm/plot/commit/985723a51b9025d07258748ec98e38f759c56419) Thanks [@jwloka](https://github.com/jwloka)! - The board says _slice_ wherever it means the part of a plan that one branch carries out.
+
+  The warning that named the defect stated its opposite. `stuckEvidence` printed _"a wave is carried out in one branch, so this plan needs slicing"_, and a Wave is the fleet's cohort — it spans plans and is supposed to hold many branches (`DESIGN-slice.md`). Read literally the sentence said a wave holds one branch. The verdict underneath it was right and had been right since it shipped; only the prose taught the model backwards, and the author of the plan the warning fired on had already made that exact mistake.
+
+  **The board's `Wave` is a Slice, and that is measured rather than argued.** `contract/schema.ts` defines it as `{ plan, name, branches }` — belonging to one plan, named by its `### ` heading in the plan file. 58 slices on this estate, every one holding exactly one branch; not one has ever held the cohort that would make it a wave.
+
+  So every message, label, `aria-label`, title and agent prompt follows: the row kind reads **Slice** where it read _Wave_, a plan head counts _3 slices_ rather than _3 waves_, a blocked branch waits on _an earlier slice_, and `/plot-reslice`'s prompt asks an agent to cut one slice per branch. 1130 lines of comment prose move with them, because a comment that contradicts the entity is what produced this.
+
+  **No identifier changes.** `WaveRow`, `waveGroupsFor`, `WaveSchema`, `data-wave-row` and the `unsliced-wave` state all keep their names, so this diff reviews as prose and `git blame` moves for text only. `branches` stays plural — the array is what lets the board DETECT an over-full slice, and the warning above exists because it can.
+
+  **One use of _wave_ was correct and stays.** `contract/schema.ts` distinguishes the domain's `Slice` from the domain's `Wave` in the same sentence — _"a Slice belongs to one plan, a Wave is the fleet's cohort"_ — which is the one place in the board the word means what the spec says it means.
+
+  The sentence is now pinned by a test that asserts the rendered text on a two-branch heading, not the enum. A test on `'unsliced-wave'` passes whatever the prose says, which is how the wrong sentence survived.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#683](https://github.com/plot-pm/plot/pull/683) [`3ad8581`](https://github.com/plot-pm/plot/commit/3ad8581ea8b36ad00001635395e419b62a06aa3a) Thanks [@jwloka](https://github.com/jwloka)! - The board tells a closed PR from an abandoned branch from an unworked claim,
+  instead of filing all three under QUIET with a commit age.
+
+  QUIET was the classifier's fallthrough, and its last two lines described
+  whatever nothing else matched by how long ago the branch was touched. **Age is
+  not a state.** _"No commit for 126 days"_ is equally true of work somebody
+  rejected, work somebody abandoned, and work nobody started. Measured on this
+  estate 2026-09-03: 26 rows said QUIET — 17 closed PRs, 2 claim-only branches, 6
+  abandoned — and the last eight said _in progress_ while zero workers ran.
+
+  The rule that tells them apart shipped in the previous slice and decided
+  nothing on screen. Both readers now call it.
+
+  **`classifyGroup` answers the branch kinds, `prState` the closed one**, and the
+  split is not an implementation detail: that function's `byHead` map is
+  open-only, so a closed PR never reaches it, and it says so twice. The closed
+  case is read in `rowsFromPulse` from the any-state map, where both are in hand.
+
+  **A declined PR reads as declined and stays on the board.** An earlier draft had
+  it leave; interrogation disproved that — [#53](https://github.com/plot-pm/plot/issues/53), [#363](https://github.com/plot-pm/plot/issues/363) and [#654](https://github.com/plot-pm/plot/issues/654) all still have live
+  refs. The branch exists, still holds a worktree slot, and is still findable by
+  everything except the surface a person acts through. It stays in QUIET rather
+  than DONE, because DONE would read a declined branch as an equal outcome to a
+  merged one, and it asks for nothing: somebody already decided, which is the
+  answer that empties 17 of the 26 rows.
+
+  **The rows MOVE, they are not only relabelled.** An orphaned claim and abandoned
+  work each go to WAITING ON YOU, because the group is the half that asks a person
+  for something and both need one — reap it or dispatch it, revive it or drop it.
+  [#669](https://github.com/plot-pm/plot/issues/669) changed a withdrawn plan's sentence and kept its group, calling that
+  conservative, and the row went on requesting a decision its own note said was
+  made.
+
+  **The status word moved too**, which is the half a note cannot fix. `stateStatus`
+  maps `wip` to _in progress_, so a four-month-old branch rendered as work under
+  way whatever its sentence said. `AgentRow.quietKind` now carries the rule's
+  answer onto the row and the client maps four values to four words — `declined`,
+  `unclaimed`, `abandoned`, `quiet` — deriving nothing, per the Layering Rule.
+
+  The age is not lost. It rides beside the state rather than standing in for it:
+  _commits, no PR ever opened — last commit 126 days ago_ is what a revive-or-drop
+  call is made on.
+
+  QUIET keeps what it still means — a shelved branch with a written reason, a
+  record of work nobody is coming back for.
+
+- [#685](https://github.com/plot-pm/plot/pull/685) [`dc9d1aa`](https://github.com/plot-pm/plot/commit/dc9d1aa733a6d03670fa0c31e937650f9771f663) Thanks [@jwloka](https://github.com/jwloka)! - The task state is decided once, in the domain.
+
+  `taskState` moves to `packages/domain/src/rules/task.ts`, and
+  `plot_worker_task_state` reaches it through a bundled `plot-task.mjs` entry
+  point instead of deciding in shell. The shell keeps all four world reads; only
+  the decision leaves. The unpushed reading is `boolean | null` — a branch with no
+  `@{upstream}` cannot be asked, and `null` must not become `stalled`, which is
+  the failure a fallback counting against `origin/main` produced when it reported
+  every clean branch stalled in a repo with no remote. A rule that cannot be asked
+  refuses and names `pnpm build:board`; there is no shell fallback, because a
+  second implementation kept "just in case" is the drift this move removes.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
+- [#690](https://github.com/plot-pm/plot/pull/690) [`5394588`](https://github.com/plot-pm/plot/commit/539458861f43191f4984f7f44694137ef6a8650c) Thanks [@jwloka](https://github.com/jwloka)! - A branch whose PR the host closed leaves WAITING ON YOU. The loose-branch path — the one a branch of a delivered plan falls to — hardcoded the closed flag to `null`, so `quietKind` could never answer `closed-pr`, the one kind `quietNeedsPerson` releases. The row said `closed` and sat in the section that means a person owes something.
+
+- [#688](https://github.com/plot-pm/plot/pull/688) [`ddfb909`](https://github.com/plot-pm/plot/commit/ddfb9090036d2b23e2c8fdcb8cb34221edde7bc7) Thanks [@jwloka](https://github.com/jwloka)! - A merged branch whose plan has delivered no longer reports as abandoned work waiting on a person. Such a branch is no longer carried as a slice, so it reaches the board through the loose-branch loop — which walks an ancestry answer, and squash-merge leaves a branch permanently ahead of main. The host's explicit `MERGED` now reaches that arm too.
+
+- [#632](https://github.com/plot-pm/plot/pull/632) [`e8d7581`](https://github.com/plot-pm/plot/commit/e8d75813a402d0880c0519671bde4236fb79f456) Thanks [@jwloka](https://github.com/jwloka)! - The streaming-scan fixture initialises a git repository, so its three assertions on `fleet.error` stop depending on a race. `refresh()` asks git as well as the scan, and the fixture's bare temp directory is not a repository — `git for-each-ref` failed there and its stderr became the error the assertions read.
+
+- [#684](https://github.com/plot-pm/plot/pull/684) [`a09c0df`](https://github.com/plot-pm/plot/commit/a09c0dfd084d73dad42b61f00fcaa799cd713492) Thanks [@jwloka](https://github.com/jwloka)! - A branch the host merged no longer reports as abandoned work waiting on a person. Squash-merge deletes the head ref, so a merged branch has no open PR and read _"commits, no PR ever opened"_ — false, and enough to put roughly fifteen branches merged the same evening into WAITING ON YOU, which held 35 rows of which 3 were work anyone was waiting on.
+
+- [#669](https://github.com/plot-pm/plot/pull/669) [`41c2731`](https://github.com/plot-pm/plot/commit/41c27311ce72fda591cbcff44b87b4e9179f64bc) Thanks [@jwloka](https://github.com/jwloka)! - A deferred branch's row says why it was given up, and a refused _Start work_ says what the server refused. Both sentences existed and neither reached the reader: a withdrawn plan keeps `Phase: Draft` deliberately, so its row read _plan not approved yet — still in review_ about a decision its author had already made; and `/api/dispatch` answers a refusal with `detail`, which the button did not read, so a 409 rendered as a bare `HTTP 409`.
+
+- [#675](https://github.com/plot-pm/plot/pull/675) [`a17723a`](https://github.com/plot-pm/plot/commit/a17723a8f1dd526364fdc1e78be2dab3f08c8c4d) Thanks [@jwloka](https://github.com/jwloka)! - A withdrawn plan's branch leaves WAITING ON YOU for QUIET. The note was fixed first and the placement was not, so the row said the decision had been made while sitting in the section that means one is owed — `the-board-answers-while-it-scans` sat there for a day after its withdrawal rendered correctly. A deferred branch whose reason is written is a record; with no reason the phase sentence and the placement both still stand.
+
+- [#635](https://github.com/plot-pm/plot/pull/635) [`9a3b88a`](https://github.com/plot-pm/plot/commit/9a3b88a109edfe74f283bcd46dbe3ee00dec2719) Thanks [@jwloka](https://github.com/jwloka)! - Tighten the read-route spawn ratchet from three to one. Two of the three synchronous spawns it counted are already migrated on main, so the assertion refused every board PR while main's own source had moved past it.
+
+- [#568](https://github.com/plot-pm/plot/pull/568) [`1d52478`](https://github.com/plot-pm/plot/commit/1d5247848b78ccdfda4ab227ed645d850e3ef36f) Thanks [@jwloka](https://github.com/jwloka)! - The board says when the fleet scan could not reach the git host. A pulse
+  carrying `host=throttled` or `host=failed` raises a notice beside the existing
+  PR-failure treatment, naming the cause and what it costs — every branch below
+  was derived from local evidence alone and none was offered to `--next`. The two
+  words get different advice, because a spent budget refills on a clock and an
+  unreachable host does not. A pulse that says nothing about the host renders
+  exactly as before.
+
 ## 0.10.0
 
 ### Minor Changes
@@ -1855,11 +2944,11 @@ HEAD..origin/main` with `0`, indistinguishable from a genuinely current
 command` in CLAUDE.md is tightened to name the `PLOT-BLOCKED.md` file it asks
   workers to write, so the instruction and the classifier agree.
 
-          <!--
-          bumps:
-            skills:
-              plot: patch
-          -->
+            <!--
+            bumps:
+              skills:
+                plot: patch
+            -->
 
 - [#352](https://github.com/plot-pm/plot/pull/352) [`299b4e1`](https://github.com/plot-pm/plot/commit/299b4e19c0b8093418b61053e70de0c6044df2ed) Thanks [@jwloka](https://github.com/jwloka)! - board: a release row's fallback number says it is a PR
 
@@ -3176,11 +4265,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   controls and their shared state on top of wave 1's live registry, and it
   dispatches nothing — the dispatch loop is wave 3.
 
-            <!--
-            bumps:
-              skills:
-                plot: minor
-            -->
+              <!--
+              bumps:
+                skills:
+                  plot: minor
+              -->
 
 ### Patch Changes
 
@@ -3378,11 +4467,11 @@ N +` stepper in the **WORKING** header asks _how many agents at once?_ Each
   never mounted, and it fails against the pre-fix code for the stated reason:
   the Commission design item is absent without the prop.
 
-            <!--
-            bumps:
-              skills:
-                plot: patch
-            -->
+              <!--
+              bumps:
+                skills:
+                  plot: patch
+              -->
 
   ## And a wave said _nobody has taken it_ over finished work
 
@@ -4241,10 +5330,10 @@ has taken it`. The server was right on every field — the row sat in
   Nothing new reads the prose: `verdict` and `blockedBy` remain the fields a
   consumer reads, and this only sharpens the sentence a person sees.
 
-              <!--
-              bumps:
-                skills:
-              -->
+                <!--
+                bumps:
+                  skills:
+                -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched. `blockedNote` gains an optional argument, so every existing caller is
@@ -4334,10 +5423,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   PR for this branch_, which was never a decision about the contract so much as
   this cache filter leaking into it.
 
-              <!--
-              bumps:
-                skills:
-              -->
+                <!--
+                bumps:
+                  skills:
+                -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and `plot-fleet-scan.sh` already resolves each branch's PR to decide
@@ -4547,10 +5636,10 @@ story, waveSummary`, and a branch row carried `branch, path`. Zero of seven
   order, a new status flashes then sorts in, the panel is absent when there is
   nothing to report, and the footer line stays at the foot and unchanged.
 
-              <!--
-              bumps:
-                skills:
-              -->
+                <!--
+                bumps:
+                  skills:
+                -->
 
 - [#287](https://github.com/plot-pm/plot/pull/287) [`50ef368`](https://github.com/plot-pm/plot/commit/50ef3681fb332ecc2b862af18a6722d1ca9dd9f6) Thanks [@jwloka](https://github.com/jwloka)! - board: a failing check shows its step and its age, and its file list moves to the menu
 
@@ -4949,10 +6038,10 @@ bottom 801.3125 in 800px` — the footer really is past the fold there, by 1.3px
   the test says in a comment why it does not — and the defect gets its own plan,
   `2026-08-21-the-page-is-as-tall-as-the-screen.md`.
 
-              <!--
-              bumps:
-                skills:
-              -->
+                <!--
+                bumps:
+                  skills:
+                -->
 
   No skill version bumps: this is a board-side rendering change only. No helper
   script decides how a section is drawn, `/api/fleet` loses and gains no field,
@@ -5300,11 +6389,11 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   by construction (a plan's branches move through the lifecycle together), so the
   predicate can demand that every row be wave-grouped rather than handle a mixture.
 
-              <!--
-              bumps:
-                skills:
-                  plot: patch
-              -->
+                <!--
+                bumps:
+                  skills:
+                    plot: patch
+                -->
 
 - [#300](https://github.com/plot-pm/plot/pull/300) [`93a1e41`](https://github.com/plot-pm/plot/commit/93a1e415ca5903a50280ade19899bb21ecb06b98) Thanks [@jwloka](https://github.com/jwloka)! - board: an agent is the machine, so it never appears in WAITING ON A MACHINE
 
@@ -5496,10 +6585,10 @@ null` on every row in this section while `ageMinutes` read real values. A plan i
   on the pulse, so a brief written between two scans shows up on the next pulse
   instead of waiting out the scan's cadence.
 
-              <!--
-              bumps:
-                skills:
-              -->
+                <!--
+                bumps:
+                  skills:
+                -->
 
   No skill version bumps: this is a board-side change only. No helper script is
   touched, and the `/api/fleet` payload gains a field rather than changing one —
@@ -6002,10 +7091,10 @@ spawn`. Every number is measured, not estimated — the worktree count and the
   field — the estate is appended to the existing `error` string, which the tab
   already renders as `Last scan failed: …`.
 
-              <!--
-              bumps:
-                skills:
-              -->
+                <!--
+                bumps:
+                  skills:
+                -->
 
   The estate report is board-side only. `plot-fleet-scan.sh` is deliberately not
   changed: a SIGKILLed scan cannot append its own diagnosis, so the measurement is
@@ -6635,10 +7724,10 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   as the follow-up: this change's job is to stop asserting a false cause, not to
   find the true one.
 
-              <!--
-              bumps:
-                skills:
-              -->
+                <!--
+                bumps:
+                  skills:
+                -->
 
   Board-side only, and no schema change: the estate rides the existing `error`
   string. `plot-fleet-scan.sh` is untouched for the same reason it was untouched
@@ -6924,12 +8013,12 @@ at startup; pruning stale worktrees cuts both the count and the per-spawn cost`.
   a row's `⋯` menu holds — so no skill's behaviour changed.
 
 - [#219](https://github.com/plot-pm/plot/pull/219) [`a4ecf36`](https://github.com/plot-pm/plot/commit/a4ecf3632db03b9c40f7062a304eabcd742f481e) Thanks [@jwloka](https://github.com/jwloka)! - <!--
-                  bumps:
-                    skills:
-                      plot: minor
-                      plot-dispatch: minor
-                      plot-fleet: minor
-                  -->
+                    bumps:
+                      skills:
+                        plot: minor
+                        plot-dispatch: minor
+                        plot-fleet: minor
+                    -->
 
   plot: `finished` is not a verdict
 
@@ -7079,10 +8168,10 @@ failing` since the previous day, and [#203](https://github.com/plot-pm/plot/issu
   than a review comment — the window where rows are git-fresh and host-unfetched
   is not an edge case, it is most of every minute.
 
-                  <!--
-                  bumps:
-                    skills:
-                  -->
+                    <!--
+                    bumps:
+                      skills:
+                    -->
 
   No skill version bumps: this is a board-side change only. Nothing under
   `skills/` reads or documents what the Agents tab prints in an empty section,
@@ -7589,11 +8678,11 @@ time`), computed server-side where the wave verdict and the plan phase
   here, because this same change reworded a neighbouring note. The client
   no longer imports any note constant.
 
-                      <!--
-                      bumps:
-                        skills:
-                          plot: patch
-                      -->
+                        <!--
+                        bumps:
+                          skills:
+                            plot: patch
+                        -->
 
 - [#182](https://github.com/plot-pm/plot/pull/182) [`07eeceb`](https://github.com/plot-pm/plot/commit/07eecebe6b1d915e1d05fe8d35391c1bbb02f903) Thanks [@jwloka](https://github.com/jwloka)! - A row on the Agents tab now marks itself when something is actually being written to it, rather than when it happens to sit in the WORKING group.
 

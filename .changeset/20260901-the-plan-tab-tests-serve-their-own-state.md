@@ -1,5 +1,0 @@
----
-'@plot-pm/board': patch
----
-
-Fifteen agent-tab browser tests state the board state they are about instead of inheriting whatever the repository holds. Each had spawned `board-server.mjs` over the tiny-garden fixture for one reason — to serve `index.html` — while stubbing `/api/fleet` itself, so the server was a static file host with a git scan attached and the assertion read "a row appears" about an estate nobody stated. They now open a named scenario and pass their own payload through `over`, which is the property the plan exists for: if the server delivers a given state, the board shows exactly that. Two tests stay real and both are capabilities rather than payloads — the approval control is gated on the server reporting `approve: {available: true}`, a claim about a transport the mock has none of, and the non-localhost binding test needs a binding to be non-local. The catalogue's `open()` gained `reducedMotion`, because one file asserts both halves of an animation and a fixed default can only express one. Serial project after: 48 files, 491 tests, all passing.
