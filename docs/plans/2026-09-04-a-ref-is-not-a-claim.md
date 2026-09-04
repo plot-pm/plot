@@ -93,7 +93,7 @@ Ten out of ten is the number that matters. `git merge-base --is-ancestor` is not
 
 ### Finding the re-claim
 
-- `bug/a-merged-branch-cannot-be-claimed` — **find the cause first, then refuse.** Reproduce the 13:35 re-claim, name what did it, and make whatever offers work ask the host before offering. The refusal is the deliverable only once the cause is written down.
+- `bug/a-merged-branch-cannot-be-claimed` — **find the cause first, then refuse.** Reproduce the 13:35 re-claim, name what did it, and make whatever offers work ask the host before offering. The refusal is the deliverable only once the cause is written down. → #697
 
 ### Repairing the symref
 
