@@ -82,6 +82,43 @@ describe('reading the last assistant turn', () => {
     });
   });
 
+  it('sums every input token into contextSpend, beside the cache read', () => {
+    // TWO NUMBERS, KEPT APART. `contextTokens` is the cache read alone and has
+    // been rendered since 2026-08-19; `contextSpend` is what a context ceiling
+    // is a fraction of. Measured on a real turn 2026-09-04: the two differ by
+    // what the turn just added, which is the part that grows toward a ceiling.
+    const line = assistantLine({
+      message: {
+        model: 'claude-opus-5',
+        usage: {
+          input_tokens: 2,
+          cache_creation_input_tokens: 1_913,
+          cache_read_input_tokens: 124_820,
+          output_tokens: 293,
+        },
+      },
+    });
+    withFile(`${line}\n`, (file) => {
+      const facts = readTranscriptFacts(file);
+      assert.equal(facts.contextTokens, 124_820, 'the cache read, unchanged');
+      assert.equal(facts.contextSpend, 126_735, 'every input token, output excluded');
+    });
+  });
+
+  it('omits contextSpend rather than reporting zero when no field is recognised', () => {
+    // A renamed field must reach the domain as unknown. A zero would report an
+    // agent with a full window as having spent nothing, and a ceiling would
+    // read it as ample.
+    const line = assistantLine({
+      message: { model: 'claude-opus-5', usage: { total_tokens: 900, output_tokens: 12 } },
+    });
+    withFile(`${line}\n`, (file) => {
+      const facts = readTranscriptFacts(file);
+      assert.equal(facts.contextSpend, undefined, 'no spend may be invented');
+      assert.equal(facts.model, 'claude-opus-5', 'and the readable fields survive');
+    });
+  });
+
   it('takes the LAST assistant turn, not the first', () => {
     const older = assistantLine({
       timestamp: '2026-08-19T07:00:00.000Z',
@@ -159,6 +196,7 @@ describe('an unreadable or unrecognised transcript omits rather than guesses', (
         const facts = readTranscriptFacts(file);
         assert.equal(facts.model, undefined, 'no model may be invented');
         assert.equal(facts.contextTokens, undefined, 'no context may be invented');
+        assert.equal(facts.contextSpend, undefined, 'no spend may be invented');
         assert.equal(facts.lastActivity, undefined, 'no activity may be invented');
       });
     });

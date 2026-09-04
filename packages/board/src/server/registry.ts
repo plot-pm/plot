@@ -199,6 +199,8 @@ export interface AgentEntry {
   /** From the transcript. Absent when it could not be read — never guessed. */
   model?: string;
   contextTokens?: number;
+  /** Every input token the last turn carried, summed by the domain. */
+  contextSpend?: number;
   lastActivity?: string;
 }
 

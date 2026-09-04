@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { contextTokensFromUsage } from '@plot-pm/domain';
+
 /**
  * What the session transcript can tell the panel about a live agent.
  *
@@ -29,6 +31,25 @@ export interface TranscriptFacts {
    * implementation detail that happens to record it.
    */
   contextTokens?: number;
+  /**
+   * Every input token the last turn carried, summed by the domain.
+   *
+   * **NOT `contextTokens`, and the two are kept apart deliberately.** That one
+   * is `cache_read_input_tokens` alone and is what the panel has rendered since
+   * 2026-08-19; this is `input_tokens` plus both cache fields, which is the
+   * number a context ceiling is a fraction of. They differ by whatever the turn
+   * just added — small on a settled agent, and largest exactly as one
+   * approaches its ceiling.
+   *
+   * Renaming the older field to mean the sum was the alternative. It is refused
+   * for the reason this repo's vocabulary section gives: two meanings for one
+   * word is how `Wave`/`Slice` drifted, and the drift is silent because both
+   * are plausible token counts.
+   *
+   * Summed by `contextTokensFromUsage` in `@plot-pm/domain` rather than here,
+   * so the arithmetic a verdict depends on has one implementation.
+   */
+  contextSpend?: number;
   /** ISO-8601 timestamp of the last assistant turn — when the agent last spoke. */
   lastActivity?: string;
 }
@@ -193,6 +214,11 @@ export function readTranscriptFacts(file: string): TranscriptFacts {
       // the panel would render as "NaN tokens", which is a guess wearing a
       // number's clothes.
       if (typeof read === 'number' && Number.isFinite(read)) facts.contextTokens = read;
+      // The sum a ceiling is a fraction of, decided in the domain. Null there
+      // means no field was recognised, which stays an absence here rather than
+      // becoming a zero — a renamed field must read as unknown, not as empty.
+      const spend = contextTokensFromUsage(usage);
+      if (spend !== null) facts.contextSpend = spend;
     }
     if (typeof rec.timestamp === 'string' && rec.timestamp !== '') {
       facts.lastActivity = rec.timestamp;
