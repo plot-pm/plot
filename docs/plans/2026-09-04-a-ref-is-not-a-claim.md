@@ -86,7 +86,7 @@ Ten out of ten is the number that matters. `git merge-base --is-ancestor` is not
 
 ### Asking the host
 
-- `feature/one-answer-to-did-this-land` — every path whose answer **decides work** reads `plot-pr-merged.sh`, and none derives one from ancestry or from `state`.
+- `feature/one-answer-to-did-this-land` — every path whose answer **decides work** reads `plot-pr-merged.sh`, and none derives one from ancestry or from `state`. → #691
 
   **The gate bans the decision, not the call.** Two of the seven ancestry callers are correct and must survive it: `plot-merge-queue.sh:102` skips a branch already in main before predicting conflicts, and `refs-git.ts:159` is named `isMergedByAncestry` and answers `unknown` when it cannot tell. Neither asks *did this land* — they ask *can I skip this cheaply*, and a wrong answer there costs extra work rather than hiding finished work. A gate that bans every `is-ancestor` would ban `refs-git.ts`'s own documented `unknown`, which is the honest answer this plan is asking for everywhere else.
 
