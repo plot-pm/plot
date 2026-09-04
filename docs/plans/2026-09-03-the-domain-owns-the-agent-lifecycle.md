@@ -251,7 +251,7 @@ A declaration is a fact a person wrote.
   `plot-fleet-scan.sh:3436` already pipes into `plot-verdicts.mjs`. All nine
   sourcing callers are untouched, and no window exists in which two
   implementations both decide — which is what drifted before, when this script
-  carried five of its six states in duplicate until 2026-08-18.
+  carried five of its six states in duplicate until 2026-08-18. → #685
 
 ### Agreeing on the states
 
