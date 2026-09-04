@@ -331,27 +331,33 @@ said*.
 
 ## 4. Lifecycle
 
-### Eight states — and three models that disagree
+### Eight states, and three models that agree
 
 | model | where | states |
 |---|---|---|
 | `plot-worker-state.sh` | shell, **sourced** | **8** — 6 process + 2 task |
 | `WorkerStateSchema` | contract | **8** — matches the shell |
-| `AgentState` | `registry.ts` | **5** — keeps 4, collapses the rest |
+| `AgentState` | `registry.ts` | **8 + `unknown`** — derived from the domain enum |
 
-**The registry collapses at `registry.ts:533`**, and documents it honestly:
-`none`, `ended`, `failed` and `elsewhere` are *"not a state the registry claims
-to understand"*.
+**The registry collapsed the four until 2026-09-04**, and documented it
+honestly: `none`, `ended`, `failed` and `elsewhere` were *"not a state the
+registry claims to understand"*.
 
-**But that discards the distinction that costs most.** *"`failed` and `finished`
-are opposite actions — restart versus review"*, and collapsing `failed` into
-`unknown` means the board cannot tell a worker that needs restarting from one
+**That discarded the distinction that costs most.** *"`failed` and `finished`
+are opposite actions — restart versus review"*, and folding `failed` into
+`unknown` meant the board could not tell a worker that needs restarting from one
 whose state could not be read.
 
-**`plot-dispatch.sh --restart` had to compensate**: it asks the PR **before**
-the state word, because *"five of five `failed` worktrees measured here held a
-PR (four open, one merged)"* — so a gate on the state alone would have restarted
-all five and destroyed what the `finished` refusal protects.
+**The board's enum is now built from the domain's**, so the two cannot restate
+each other into disagreement. `unknown` stays beside them as the registry's own
+ninth — *nobody looked*, which is a different absence from `none` (*a record
+says no worker*) and from `elsewhere` (*no worktree on this machine*).
+
+**`plot-dispatch.sh --restart` compensated while the collapse held**: it asks
+the PR **before** the state word, because *"five of five `failed` worktrees
+measured here held a PR (four open, one merged)"* — so a gate on the state alone
+would have restarted all five and destroyed what the `finished` refusal
+protects. The ordering stands on its own measurement and is unaffected.
 
 ### The eight
 
@@ -752,7 +758,7 @@ board may be served from a different worktree than the dispatcher writes to.
 |---|---|---|
 | 1 | **Every agent row here is synthesized** — 0 manifests, 13 worktrees, 0 live | **now, measured** |
 | 2 | **A synthesized row cannot say so** — no `identity` field | now |
-| 3 | **The registry collapses 8 states to 5** — `failed` becomes `unknown` | now |
+| 3 | ~~**The registry collapses 8 states to 5** — `failed` becomes `unknown`~~ | **closed 2026-09-04** |
 | 4 | **No `machineAtDeath`** — `exit 124` reads as agent failure | now |
 | 5 | `worker_*` duplicated onto branch rows | now |
 | 6 | **The desk is per branch, not per agent** — an agent creates a new worktree per unit and removes the old one only on its own success path | **now, measured** |
@@ -793,7 +799,10 @@ nothing reaping them (Worktree §13).
 - **Were manifests written for these 13 and cleaned up, or never written?** The
   directory is empty and all 13 agents are gone, so the estate cannot say —
   which is itself an argument for the manifest outliving the run.
-- **Should the registry stop collapsing?** The shell and the contract agree on
-  eight; only the registry disagrees.
+- ~~**Should the registry stop collapsing?** The shell and the contract agree on
+  eight; only the registry disagrees.~~ *Settled 2026-09-04:* it stopped. The
+  board's `AgentStateSchema` is built from the domain's eight plus its own
+  `unknown`, and `KNOWN_STATES` is derived from it rather than listed. `failed`,
+  `ended`, `none` and `elsewhere` reach an entry as themselves.
 - **Should a desk be reused across units?** The loop creates one per branch;
   the model says one per agent, which is cheaper and leaks less.

@@ -104,8 +104,8 @@ export type WorkerState = z.infer<typeof WorkerStateSchema>;
  * coarse — measured across the fleet 2026-08-25 it covered a worker mid-thought,
  * a worker between tasks, and a worker whose child had crashed hours earlier
  * while the loop waited on it, with 11 of 13 workers in that last, worst case.
- * This tells the first from the last WITHOUT promoting `idle` to a sixth
- * `worker` state and WITHOUT touching `AgentStateSchema`, whose five members are
+ * This tells the first from the last WITHOUT promoting `idle` to a ninth
+ * `worker` state and WITHOUT adding it to `AgentStateSchema`, whose members are
  * pinned by a test: an idle worker with a live child still IS running.
  *
  * `working` when the worker's descendant CPU is advancing, `idle` when its clock

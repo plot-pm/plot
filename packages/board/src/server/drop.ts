@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import type { BuildBoardOptions } from './board.js';
 import { isSameOrigin, readJsonBody } from './dispatch.js';
-import { parseManifest, resolveManifestDir, type AgentEntry, type LivenessResolver } from './registry.js';
+import { KNOWN_STATES, parseManifest, resolveManifestDir, type AgentEntry, type LivenessResolver } from './registry.js';
 import { LIVE_STATES } from '../contract/schema.js';
 import { localCapability } from './controllers/caller.js';
 
@@ -113,8 +113,8 @@ function readManifest(manifestDir: string, session: string): AgentEntry | null {
  * advice the refusal used to give ("check the worktree manually") named a
  * directory the reader could not look at.
  *
- * Deliberately NOT a sixth {@link AgentEntry.state}: the five-member
- * `AgentStateSchema` is a published contract the board renders against, and
+ * Deliberately NOT a tenth {@link AgentEntry.state}: `AgentStateSchema` is a
+ * published contract the board renders against, and
  * this question is asked at ONE decision point. It is a local predicate about
  * droppability, not a new thing an agent can be.
  *
@@ -135,6 +135,13 @@ function worktreeIsGone(entry: AgentEntry): boolean {
  * place. An entry with no worktree stays `unknown` — there is nothing to look
  * in, and the drop is refused.
  *
+ * IT READS THE REGISTRY'S OWN {@link KNOWN_STATES}, never its own list. This
+ * route carried a second four-state list until 2026-09-04 and discarded
+ * `failed`, `ended`, `none` and `elsewhere` into `unknown` exactly as the
+ * registry did — so a `failed` agent, whose process reported its own non-zero
+ * exit, was refused a drop with *state could not be verified*. A recorded exit
+ * is verification; the guard's premise was never true for it.
+ *
  * Awaited because {@link LivenessResolver} became awaitable when the registry
  * moved off the event loop. This is a WRITE route, so the await buys it
  * nothing it needed — it is the shared resolver's shape, followed rather than
@@ -149,9 +156,7 @@ async function classifyState(
   if (!liveness) return 'unknown';
   try {
     const [answer] = await liveness([entry.worktree]);
-    if (answer === 'running' || answer === 'finished' || answer === 'waiting' || answer === 'stalled') {
-      return answer;
-    }
+    if (KNOWN_STATES.has(answer)) return answer as AgentEntry['state'];
   } catch {
     // Liveness check failed — cannot verify, cannot drop.
   }

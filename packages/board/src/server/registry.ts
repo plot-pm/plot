@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { transcriptDir, transcriptFile, readTranscriptFacts } from './transcript.js';
+import { AgentStateSchema, type AgentState as ContractAgentState } from '../contract/schema.js';
 import { scriptsShell } from '@plot-pm/domain/adapters';
 
 /**
@@ -23,24 +24,37 @@ import { scriptsShell } from '@plot-pm/domain/adapters';
  *   person owes the branch an answer.
  * - `stalled` — the pid is gone and uncommitted or unpushed work is on the
  *   floor, with no PR to show for it.
+ * - `failed` — a non-zero exit was recorded. The process reported its own
+ *   failure, which no tree reading can improve on.
+ * - `ended` — a record exists and could not be read.
+ * - `none` — no record exists; nothing ever ran here, as far as the desk knows.
+ * - `elsewhere` — this machine holds no worktree to look in. An agent whose
+ *   worker runs on another host, which is a different answer from *no worker*.
  * - `unknown` — the registry could not decide, and says so rather than guessing.
- *   An older manifest with no pid, an agent between branches with no worktree to
- *   look in, or a liveness check that could not run. Absent is not a guess — the
- *   rule this contract follows everywhere.
+ *   The resolver threw, its answer count did not match the batch, or the entry
+ *   names no worktree at all. Absent is not a guess — the rule this contract
+ *   follows everywhere.
  *
- * The first four are exactly the states `plot-worker-state.sh` distinguishes,
- * carried onto the entry unchanged; `unknown` is the registry's own honest
- * fifth for the cases the shell is never asked about.
+ * The first eight are exactly the states `plot-worker-state.sh` distinguishes,
+ * carried onto the entry unchanged; `unknown` is the registry's own ninth for
+ * the cases the shell is never asked about. It read five until 2026-09-04, when
+ * `failed`, `ended`, `none` and `elsewhere` stopped being folded into `unknown`
+ * — answers `bashLiveness` had received all along.
  */
-export type AgentState = 'running' | 'finished' | 'waiting' | 'stalled' | 'unknown';
+export type AgentState = ContractAgentState;
 
 /**
- * The four states `plot-worker-state.sh` can hand back that this registry keeps.
- * Anything else the shell might print (`none`, `ended`, `failed`, `elsewhere`)
- * is not a state the registry claims to understand and becomes `unknown` — the
- * same not-a-guess answer an unreadable check gets.
+ * The eight states `plot-worker-state.sh` can hand back. Anything else the shell
+ * might print is not a state the registry claims to understand and becomes
+ * `unknown` — the same not-a-guess answer an unreadable check gets.
+ *
+ * DERIVED FROM THE CONTRACT ENUM rather than listed, minus the registry's own
+ * `unknown`, which no shell ever prints. Listing it a second time is how the
+ * collapse this removes survived a schema that already knew better.
  */
-const KNOWN_STATES = new Set<AgentState>(['running', 'finished', 'waiting', 'stalled']);
+export const KNOWN_STATES: ReadonlySet<string> = new Set<string>(
+  AgentStateSchema.options.filter((s) => s !== 'unknown'),
+);
 
 /**
  * Resolve liveness for a batch of worktrees, in the same order.
