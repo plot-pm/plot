@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
@@ -15,6 +15,7 @@
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
+- **Approved:** 2026-09-04, Jan Wloka, plan-PR #693 merged
 -->
 
 ## Changelog
