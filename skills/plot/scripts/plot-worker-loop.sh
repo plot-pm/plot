@@ -349,11 +349,16 @@ desk_hold_reason() { # $1=worktree → a phrase naming what holds it
 #   uncommitted changes        work on the floor
 #   commits above the upstream work that exists only here
 #
-# THE BRANCH BEING MERGED IS NOT ASKED, and that is deliberate. `--offline`
-# above means the host was never consulted, so a merge check here would be an
-# inference rather than a reading — and a branch whose PR is open but whose work
-# is fully pushed has left nothing behind on the desk. What the desk holds is
-# the question; where the branch stands in review is the sweep's.
+# THE BRANCH BEING MERGED IS NOT ASKED, and that is deliberate. The question
+# this block answers is what the DESK holds, and merge state does not bear on
+# it: a branch whose PR is open but whose work is fully pushed has left nothing
+# behind, and one whose PR merged with uncommitted changes still has. What the
+# desk holds is the question; where the branch stands in review is the sweep's.
+#
+# (The hop's `--next` does ask the host, since 2026-09-04 — see
+# `plot-fleet-scan.sh`, `HOST_LOOKUP_OK`. That answer decides what may be
+# CLAIMED, which is a different question from what this desk still owes, and
+# borrowing it here would make the reset depend on a fact about somewhere else.)
 #
 # AN UNANSWERABLE UPSTREAM YIELDS NO VERDICT, the same rule
 # `plot_worker_task_state` reaches: with no `@{upstream}` the count cannot be
@@ -1236,19 +1241,32 @@ while true; do
 
   # Ask for the next claimable branch of the same plan.
   #
-  # `--offline` IS DELIBERATE, AND IT IS A TRADE. Without it, a host that
-  # answers `failed` (an unauthenticated CI runner, a rate limit, a token that
-  # expired mid-run) makes every unmerged branch read `unknown`, and `--next`
-  # does not hand out an `unknown` branch. The hop then finds nothing and a
-  # long-running agent stops taking work — silently, which is the worst shape
-  # for it to fail in.
+  # `--offline` MEANS NO FETCH, AND NO LONGER MEANS NO HOST. It skips the fetch
+  # so the hop is not charged for one; the scan asks the host anyway on this
+  # path, because `--next` names a branch this loop is about to claim by
+  # pushing a ref, and merge state is the one fact refs cannot supply once a
+  # squash merge has rewritten the commits.
   #
-  # WHAT IT COSTS: the hop claims on git alone, so it can take a branch whose
-  # merge state was never verified against the host. That is the inference this
-  # very scan tightened, applied one level down. It is accepted here because
-  # `--offline` means *the question was never put* rather than *the answer was
-  # refused* — and a claim is re-checked by the push, which is rejected if the
-  # ref already exists.
+  # THE TRADE THIS COMMENT USED TO RECORD WAS PAID, and the bill is what
+  # removed it. It read: without `--offline`, a host answering `failed` makes
+  # every unmerged branch `unknown`, `--next` withholds those, and a
+  # long-running agent silently stops taking work. True, and the cost on the
+  # other side was left as *the hop claims on git alone*. Measured 2026-09-04:
+  # that cost arrived as ten refs whose tip commit is `plot: claim <branch>`
+  # dated hours after their own merge, one branch re-claimed twice 35 minutes
+  # after its ref was deleted, and four waves held blocked behind it. The
+  # closing argument — *a claim is re-checked by the push, which is rejected if
+  # the ref already exists* — is exactly what does not hold here: the merge
+  # DELETED the ref, so the push succeeds and re-creates it.
+  #
+  # THE STARVATION IT FEARED IS STILL REFUSED, AND SAID OUT LOUD. An
+  # unanswerable host reads `unknown`, `--next` stays silent, and `wait_for_work`
+  # takes the loop into a wait with a reason a reader can act on — rather than
+  # into a claim on a branch whose merge state nobody verified.
+  #
+  # THE HOP IS UNCHANGED. It asks `--next` and claims what it is offered, which
+  # was always correct; the offer is what was fixed. See `plot-fleet-scan.sh`,
+  # `HOST_LOOKUP_OK`.
   # ---------------------------------------------------------------------------
   # CREATE OR RESET — the agent decides what happens to its desk
   # ---------------------------------------------------------------------------

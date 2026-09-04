@@ -2,13 +2,17 @@
 # Plot helper: fleet pulse — deterministic extractor for wave/claim state.
 # Usage: plot-fleet-scan.sh [--no-fetch] [--offline] [--next] [<slug>]
 #   --no-fetch  skip `git fetch`
-#   --offline   same (no network) — used for cheap, ambient pulses.
+#   --offline   same (no fetch) — used for cheap, ambient pulses.
 #               The fetch also PRUNES remote-tracking refs, so skipping it
 #               keeps whatever stale refs this checkout holds: a branch merged
 #               and deleted upstream may read `wip` rather than `merged`, and
 #               its wave may read blocked. That is the honest answer for a scan
 #               that asked nothing, and the footer says so rather than leaving
 #               it to be discovered.
+#               IT DOES NOT SILENCE THE HOST ON THE OFFER PATH. With `--next`
+#               or `--list-eligible` the host is asked anyway — see those flags
+#               — because naming a branch to claim turns on a fact refs cannot
+#               supply. Every other use of the flag asks nothing, as before.
 #   --list-eligible  print EVERY claimable branch, one per line (exit 1 if none).
 #               For callers that need the count rather than one item — a dry
 #               run changes nothing, so its answer cannot go stale.
@@ -24,6 +28,13 @@
 #               exit 1 when there is none. Used by /plot-implement to pick work
 #               without re-deriving eligibility. "Nothing to start" is a normal
 #               state — the exit code, not stderr, is what says so.
+#               ASKS THE HOST EVEN UNDER `--offline`, and withholds a branch it
+#               could not ask about. A merged branch is not claimable, and once
+#               a squash merge has rewritten the commits and `--delete-branch`
+#               has removed the ref, the host is the only source that can say
+#               so. Measured 2026-09-04: ten refs on this estate carry the tip
+#               commit `plot: claim <branch>` dated hours AFTER their own merge,
+#               all pushed on this offer.
 #   --why-nothing  print WHY `--next` would be silent, and exit 0 either way:
 #               `none` when there is no work left for this plan, or `not-yet`
 #               followed by the branches whose landing would open a blocked
@@ -439,8 +450,39 @@ fi
 # host would be lying in the direction of a slow ambient pulse. Without a
 # backend — or offline — the lookup is simply never attempted and every branch
 # answers exactly as it did before.
+#
+# THE OFFER IS THE EXCEPTION, AND IT IS NARROW. `--next` and `--list-eligible`
+# do not report an estate; they name a branch a worker is about to CLAIM by
+# pushing a ref. That question cannot be answered from refs alone, because the
+# fact it turns on — did this branch's PR merge — is one only the host holds
+# once a squash merge has rewritten the commits and `--delete-branch` has taken
+# the ref away.
+#
+# WHAT `--offline` ACTUALLY PROMISES IS NO FETCH. Everything else followed from
+# `do_fetch` because the two were one flag, and that conflation is the defect.
+# Measured 2026-09-04 on this estate, from `plot-worker-loop.sh`'s own call:
+#
+#   plot-fleet-scan.sh --offline --next the-domain-owns-the-agent-lifecycle
+#     → feature/an-agent-declares-what-it-is
+#
+# whose PR #679 merged at 20:46 the previous evening. The same scan WITHOUT
+# `--offline` read that branch `merged`, its slice `complete`, and named
+# nothing. Five of that plan's eight branches moved between the two readings.
+# Ten refs across four days carry the tip commit `plot: claim <branch>` dated
+# hours AFTER their own merge — this offer is what pushed every one of them.
+#
+# THE AMBIENT PULSE IS UNTOUCHED. `--offline` without `--next` still asks
+# nothing, so the 5 s board poll and the cheap operator glance keep the cost
+# they were given the flag for. The call is one repo-wide `pr-list`, already
+# cached per run, and it is paid only by a caller asking to be handed work —
+# which is about to spend a worker on the answer.
+#
+# NO BACKEND STILL MEANS NO LOOKUP. A repo with no git host has no merge state
+# to withhold on, and refusing there would stop `--next` in every fixture and
+# every hostless checkout. The `backend` test below is what keeps that case
+# working, and it is the only condition the offer path drops.
 HOST_LOOKUP_OK=0
-if [ "$do_fetch" = 1 ] \
+if { [ "$do_fetch" = 1 ] || [ "$next_only" = 1 ]; } \
    && [ "$("$script_dir/plot-host.sh" backend 2>/dev/null)" != "none" ]; then
   HOST_LOOKUP_OK=1
 fi
@@ -544,9 +586,11 @@ PR_LIST_LIMIT="${PLOT_PR_LIST_LIMIT:-1000}"
 #   secondary  — a burst refusal (`plot-host.sh` exit 6). Nothing is broken
 #                either, and it clears in seconds rather than minutes.
 #   failed     — any other failure (exit 3, or anything unclassified).
-#   unasked    — no host to ask, or --offline. Not a degradation: the scan was
-#                never going to ask, and saying `failed` would report a fault
-#                where there is a configuration.
+#   unasked    — no host to ask, or --offline WITHOUT `--next`. Not a
+#                degradation: the scan was never going to ask, and saying
+#                `failed` would report a fault where there is a configuration.
+#                `--offline --next` DOES ask, so it reaches one of the words
+#                above rather than this one.
 #
 # THREE WORDS FOR THREE FAILURES BECAUSE THEY ASK FOR DIFFERENT RESPONSES.
 # `throttled` says wait for the reset; `secondary` says retry shortly and run
