@@ -47,6 +47,27 @@ function run(args, cwd = repo) {
  * @param wt where the desk goes.
  * @returns what the run printed.
  */
+/**
+ * Lay a desk out, without staffing it — what dispatch used to do and no longer
+ * does.
+ *
+ * `--status` and `--stop` READ DESKS, and the desks they read are the agents'
+ * own: since 2026-09-04 an agent creates or resets its desk when it takes a
+ * brief, so a fixture that means to have one makes it. That is the honest
+ * shape — a desk with no agent is exactly what these verbs report on.
+ *
+ * @param repoRoot the checkout to run in.
+ * @param branch the branch to lay out.
+ * @param wt where the desk goes.
+ * @returns the desk's path.
+ */
+function desk(repoRoot, branch, wt) {
+  git(repoRoot, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
+  git(wt, 'commit', '-q', '--allow-empty', '-m', `plot: claim ${branch}`);
+  git(wt, 'push', '-qu', 'origin', branch);
+  return wt;
+}
+
 function staff(repoRoot, branch, wt) {
   git(repoRoot, 'worktree', 'add', '-q', '-b', branch, wt, 'origin/main');
   git(wt, 'commit', '-q', '--allow-empty', '-m', `plot: claim ${branch}`);
@@ -783,15 +804,14 @@ test('dispatch: --status reports each worktree, its pid, and whether it lives', 
   // read .plot-worker.log and the pid file by hand, and could not tell a
   // working worker from a dead one at all.
   const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'status');
-  execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
-    { encoding: 'utf8', cwd: r, timeout: 20_000 });
+  desk(r, 'feature/g', path.join(path.dirname(r), 'plot-wt-feature-g'));
 
   const out = execFileSync('bash', [dispatch, '--status', 'g'],
     { encoding: 'utf8', cwd: r, timeout: 20_000 });
   assert.match(out, /feature\/g/);
   assert.match(out, /plot-wt-feature-g/);
-  // --no-start means no worker was started; that must read as "no worker",
-  // not as a dead one — the difference matters when deciding to reap.
+  // Nothing was ever started here; that must read as "no worker", not as a
+  // dead one — the difference matters when deciding to reap.
   assert.match(out, /no worker/i);
   assert.match(out, /summary: /);
 
@@ -801,9 +821,7 @@ test('dispatch: --status reports each worktree, its pid, and whether it lives', 
 
 test('dispatch: --status distinguishes a live worker from a dead one', () => {
   const { tmp, repo: r } = repoWithPlan('- **Phase:** Approved', 'alive');
-  execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
-    { encoding: 'utf8', cwd: r, timeout: 20_000 });
-  const wt = path.join(path.dirname(r), 'plot-wt-feature-g');
+  const wt = desk(r, 'feature/g', path.join(path.dirname(r), 'plot-wt-feature-g'));
 
   // An impossible-but-well-formed pid. Not 0: `kill -0 0` signals the caller's
   // whole process group and succeeds, so 0 reads as running.
@@ -902,9 +920,7 @@ test('dispatch: --status tells a finished worker from a crashed one', () => {
   // exit status has to be recorded when the process ends or the information
   // is gone.
   const { tmp: t, repo: r } = repoWithPlan('- **Phase:** Approved', 'exit');
-  execFileSync('bash', [dispatch, '--offline', '--no-start', 'g'],
-    { encoding: 'utf8', cwd: r, timeout: 20_000 });
-  const wt = path.join(path.dirname(r), 'plot-wt-feature-g');
+  const wt = desk(r, 'feature/g', path.join(path.dirname(r), 'plot-wt-feature-g'));
 
   // Assert on the branch's OWN line. The summary footer contains every state
   // word ("finished=0 failed=0 …"), so a regex over the whole report matches
