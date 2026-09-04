@@ -9,7 +9,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -149,11 +149,55 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
 
   **`BOARD_PHASES` stops being declared twice.** `domain/rules/phase.ts:12` and `board/contract/schema.ts:202` are byte-identical today while `schema.ts:1095` already re-exports `toBoardPhase` from the domain; the board imports the values the same way. One import line, and the drift this repo has now measured three times cannot start here.
 
-  **Asserted: a phase knows what may follow it**, so `Testing` before `Development` is refused by a rule rather than by nothing. **Asserted: a plan state maps to exactly one phase**, including its `null` for a state the workflow does not know — `toBoardPhase`'s 14 tests move with it and keep passing, which is what proves the concept moved rather than got rewritten.
+  **The order is a view of the plan's states, not a second machine.** The
+  transitions already enforce it — `deliver()` accepts `approved` or
+  `delivered` and refuses `draft` — so a phase ordering that refused
+  independently could disagree with the rule that actually gates the work, and
+  a disagreement between two enforcers is worse than one enforcer. The phases
+  carry their sequence as data; what refuses is the state transition.
+
+  **Asserted: a plan state maps to exactly one phase**, including its `null` for
+  a state the workflow does not know — `toBoardPhase`'s 14 tests move with it
+  and keep passing, which is what proves the concept moved rather than got
+  rewritten. **Asserted: the phase order agrees with the state transitions** —
+  no state may map to a phase earlier than the phase its predecessor maps to,
+  which is the one property a derived order can get wrong.
 
 ### Naming the work in a phase
 
 - `feature/a-phase-names-its-work` — each phase declares which workflows belong to it, giving `WorkflowName`'s flat eight-value union its missing structure. **Asserted: the fleet's workflows are not phases of this one** — `assign`, `reap` and `supervise` act on agents and desks, and a list that mixes them with `approve`/`deliver`/`release` cannot answer *what comes next*.
+
+### The states nothing can write
+
+- `feature/a-plan-can-be-rejected` — `reject()` and `supersede()` in
+  `transitions/plan.ts`. **Both states already exist and neither is
+  reachable:** `Phase` declares them (`:19`, `:20`), the parser accepts them
+  (`plot-plan-meta.sh:338`), `plot-reconcile-scan.sh:662` acts on them, the
+  board drops such plans from its cards — and **four plan files carry them
+  today, written by hand**: three `Superseded`
+  (`a-wave-is-a-thing-not-a-label`, `the-plan-actions-read-a-field-that-is-always-null`,
+  `the-row-is-legible`) and one `Rejected` (`the-board-suite-fits-its-budget`).
+
+  A state a person has to write by hand, into a file the whole estate reads, is
+  the shape this story exists to remove. Every other state has a transition
+  that records who did it and when; these two have a text editor.
+
+  **The two differ and the plan must not merge them.** `rejected` is a verdict —
+  somebody decided this will not be built. `superseded` is a relation — another
+  plan replaced this one, and the record is worth nothing without naming which.
+  So `supersede()` takes the replacing plan's slug and `reject()` does not.
+
+  **Asserted: a Delivered plan cannot be rejected** — the refusal that stops a
+  verdict erasing landed work, in the same `Precondition` / `RefusalReason`
+  shape as the three transitions beside it. **Asserted: a superseding plan is
+  named**, so a `Superseded:` record with no slug is refused rather than
+  written. **Asserted: the four existing files parse unchanged** — this slice
+  gives their state a writer, it does not restate what they already say.
+
+  It is in this plan rather than in `a-lifecycle-is-enforced-by-a-test` because
+  that plan writes `transitions/` files for **other** entities; the plan's own
+  state model is what this plan settles, and a rename that leaves two of its
+  states unreachable has not settled it.
 
 ### Renaming the field every plan carries
 
@@ -163,6 +207,29 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
   follow. The parser gains `([Pp]hase|[Ss]tate)` at both read sites
   (`plot-plan-meta.sh:637`, `:743`) and the domain at both write sites
   (`workflows/rendering.ts:96`, `decision.ts:46`).
+
+  **It edits the `## Status` section and nothing else, and the domain already
+  owns that scoping.** `withPhase` (`workflows/rendering.ts:99`) is confined to
+  that section for exactly this reason, in its own words: a plan that QUOTES a
+  status block in its prose *"would otherwise have its illustration rewritten
+  too, silently corrupting the very files that specify the format."* **24 plan
+  files mention `Phase:` more than once** — one of them six times — so a blanket
+  `sed` would rewrite the documentation of the field it is renaming. The
+  migration reuses `withPhase`'s rule rather than re-learning it.
+
+  **Then the prose is updated deliberately, as a second pass.** Leaving 24 files
+  describing a field that no longer exists trades one wrong document for
+  another. The difference is that a person decides each one: a delivered plan
+  explaining why the old format read `Phase:` is history and stays, while a
+  skill or a template telling somebody what to type must say `State:`.
+
+  **Sprints are renamed too, and on purpose rather than by regex.** Nine sprint
+  and story files carry `**Phase:**` with their own values — `Planned`,
+  `Active`, `Closed`, which are `SprintState`'s. A sprint has a **state** for
+  the same reason a plan does: it is an artefact Plot writes, so Plot records
+  what it did to it. That is a decision about a second entity and it is stated
+  here rather than left to a pattern match. **Asserted: `plot-sprint-release.sh`
+  reads a renamed sprint unchanged.**
 
   **The dual read is permanent, not scaffolding.** A plan file is a document
   someone may have written a year ago or copied from another project. Plot
@@ -212,3 +279,30 @@ is dishonest — a plan arguing that a plan has states, while every plan file sa
 `Phase:`, teaches the conflation it exists to remove. The measurement made it
 tractable: 196 plan files, 9 sprint and story files, and seven code sites of one
 regex each.
+
+**Round 2, 2026-09-04.** Surveyed what the estate actually writes in the field,
+which found three things the migration had not accounted for.
+
+**`Phase:` is overloaded a fourth way.** Nine sprint and story files carry it
+with `SprintState`'s values — `Planned`, `Active`, `Closed`. The rename now
+covers them as a stated decision about a second entity, rather than as
+something a regex would have done silently.
+
+**24 plan files mention `Phase:` more than once**, one of them six times: prose
+explaining the format, quoted Status blocks. The domain had already learned this
+— `withPhase` is scoped to `## Status` because rewriting a quoted block *"would
+silently corrupt the very files that specify the format"* — and the migration
+now reuses that rule instead of re-learning it, with a deliberate second pass
+over the prose.
+
+**Four files already carry a state nothing can write.** Three `Superseded`, one
+`Rejected`, hand-edited, in a field the whole estate reads.
+`feature/a-plan-can-be-rejected` gives both a transition, and separates them:
+`rejected` is a verdict, `superseded` is a relation that must name the plan
+replacing it.
+
+The round also **narrowed** an assertion. The plan had claimed a phase ordering
+that refuses; the states already enforce the order (`deliver()` accepts
+`approved` or `delivered`, refuses `draft`), so a second enforcer could only
+disagree with the first. The phases carry their sequence as data, and what is
+asserted instead is that the two agree.
