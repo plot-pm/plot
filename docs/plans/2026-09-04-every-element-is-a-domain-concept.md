@@ -66,7 +66,8 @@ generalised it, so the scripts kept growing beside it.
 
 `plot-pr-merged.sh` is **12 lines of code carrying 75 lines of reasoning**, and
 it is the single answer to *"did the host merge any PR for this branch?"* —
-sourced by ten scripts and read by three domain files.
+sourced by **eleven** scripts and read by one domain file (re-counted
+2026-09-04; the plan first said ten and three).
 
 Both of its functions call `gh` directly. **On a Bitbucket project, `gh` is not
 installed**, and the script's own contract says an unreachable host answers *not
