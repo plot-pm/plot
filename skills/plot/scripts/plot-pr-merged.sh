@@ -22,7 +22,7 @@
 # about it. The reaper removes a checkout, which is re-creatable with
 # `git worktree add`; ref deletion is not re-creatable at all. A second
 # implementation that drifted toward permissive would therefore fail in the
-# direction that cannot be undone. One function, two callers, no drift.
+# direction that cannot be undone. One function, one answer, no drift.
 #
 # `merged` IS READ, NEVER `state`. A merged PR reports state CLOSED, and
 # trusting `state` would refuse every squash-merged branch — which is the whole
