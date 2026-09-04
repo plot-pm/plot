@@ -88,5 +88,5 @@ ${r.map(n=>`- ${n}`).join(`
 `);;){if(t())return 0;let f=await _m({registry:()=>Db(l,o),world:d,queue:p,max:a.max}),h=Nb(f,n,o);if(a.once)return h;await i(a.intervalMs)}},Nb=(e,r,n)=>{if(e.incomplete!=="")return n(`${Ru(e)}
 `),1;r(`${Ru(e)}
 `);for(let i of e.decision.detail.agents)i.supervision.verdict!=="leave"&&r(`  ${i.branch}: ${i.supervision.verdict} (${i.supervision.cause})
-`);for(let i of e.handOver?.detail.assignments??[])r(`  ${i.branch}: hand over to ${i.session}
+`);for(let i of e.handOver?.detail?.assignments??[])r(`  ${i.branch}: hand over to ${i.session}
 `);return 0};process.argv[1]&&import.meta.url===`file://${process.argv[1]}`&&Ab(process.argv.slice(2),_b(wb(import.meta.url))).then(e=>process.exit(e));export{zb as argsFrom,Ob as queueWorldForRepo,Db as readRegistry,Rb as registryDirFor,Nb as reportTick,Ab as run,jb as worldForRepo};

@@ -523,7 +523,7 @@ export const reportTick = (
   // THE HAND-OVER IS NAMED PER SLICE, where supervision is named per agent.
   // A tick that handed nothing over prints its counts and no rows, the same
   // way a quiet estate prints `left=3` and nothing else.
-  for (const assignment of report.handOver?.detail.assignments ?? []) {
+  for (const assignment of report.handOver?.detail?.assignments ?? []) {
     write(`  ${assignment.branch}: hand over to ${assignment.session}\n`);
   }
   return 0;
