@@ -9,6 +9,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -61,15 +62,31 @@ Ten out of ten is the number that matters. `git merge-base --is-ancestor` is not
 
 ### Open Questions
 
-- [ ] **What re-creates the claim ref?** Measured twice, cause unknown. A worker loop hopping, a dispatch racing, or the corpus tests — `plot-corpus-pin` is theirs, and the phantom `origin/HEAD` points at it. The cause must be found before the fix, or this plan patches a symptom for the third time.
+- [ ] **What OFFERS a merged branch, and why does `--next` consider it claimable?** The mechanism is now measured: a worker finishing a slice asks `--next` for another claimable branch and claims what it is offered. The hop is correct — `plot-worker-loop.sh` is doing exactly what it was written to do. **The offer is wrong**, and that is where the fix belongs, not at the hop.
+
+  Observed 2026-09-04: two workers idled at 0% CPU on `feature/a-worker-names-its-session`, whose PR #689 had already merged, while `feature/an-agent-declares-what-it-is` carried a claim made at 13:35 with no worker behind it. Ten refs across four days carry the same signature.
+
+  **`--next` uses `--offline`**, which is the likely reason: an offline answer cannot ask the host whether a branch landed, and `plot-worker-loop.sh:952` records that trade in its own comment. Confirm that before changing it — this plan has already reported one cause it had not proven.
 - [ ] **Does the push-claim survive as the lock?** `DESIGN-branch.md:52` says it is the whole locking mechanism, and `an-agent-holds-one-desk` already argues the registry becomes the assignment lock with git's refusal demoted to a backstop. This plan should not decide that twice — but a claim that is *held* rather than *implied* is the same change seen from the ref's side, and the two plans must agree.
-- [ ] **Should a merged branch's ref be deleted at merge?** `plot-release-refs.sh` deletes refs plan-scoped, after delivery, for a stated reason: a deleted ref is not re-creatable and the blast radius must be bounded by the plan file. Deleting at merge is simpler and removes the population entirely — but it is exactly the estate-wide sweep that script declines to be.
+- [x] **Should a merged branch's ref be deleted at merge? It already is — and something puts it back.** Every merge this session passed `gh pr merge --delete-branch`, so ten surviving refs looked like ten silent failures. Measured 2026-09-04, and it is not that: **every one of the ten has a ref tip LATER than its own merge**, by two to six hours.
+
+  | branch | merged | ref tip |
+  |---|---|---|
+  | `feature/the-shell-stops-parsing-plans` | 09-01 05:44 | 09-02 00:09 |
+  | `feature/the-scan-reads-a-fleet-reading` | 09-01 17:06 | 09-02 00:09 |
+  | `feature/a-monitor-is-a-pure-rule` | 09-01 19:29 | 09-02 00:14 |
+  | `feature/quiet-holds-one-kind-of-row` | 09-03 21:10 | 09-04 00:20 |
+  | `feature/the-board-reads-the-quiet-kinds` | 09-04 06:06 | 09-04 08:36 |
+
+  **The tip commits are `plot: claim <branch>`.** `--delete-branch` worked; a worker re-created the ref afterwards by claiming a branch whose work had already landed. So the ten surviving refs and the re-claim in §3 are **one mechanism, not two** — and no new deletion policy is needed. `plot-release-refs.sh` keeps its plan-scoped licence untouched.
 
 ## Branches
 
 ### Asking the host
 
-- `feature/one-answer-to-did-this-land` — every path that decides merge state reads `plot-pr-merged.sh`, and no caller derives one from ancestry or from `state`. Includes a gate: a grep in CI for `--no-merged` and `is-ancestor` outside that script, so the next caller cannot quietly add an eleventh wrong answer.
+- `feature/one-answer-to-did-this-land` — every path whose answer **decides work** reads `plot-pr-merged.sh`, and none derives one from ancestry or from `state`.
+
+  **The gate bans the decision, not the call.** Two of the seven ancestry callers are correct and must survive it: `plot-merge-queue.sh:102` skips a branch already in main before predicting conflicts, and `refs-git.ts:159` is named `isMergedByAncestry` and answers `unknown` when it cannot tell. Neither asks *did this land* — they ask *can I skip this cheaply*, and a wrong answer there costs extra work rather than hiding finished work. A gate that bans every `is-ancestor` would ban `refs-git.ts`'s own documented `unknown`, which is the honest answer this plan is asking for everywhere else.
 
 ### Finding the re-claim
 
@@ -80,6 +97,13 @@ Ten out of ten is the number that matters. `git merge-base --is-ancestor` is not
 - `bug/the-default-branch-repairs-itself` — a component that needs the default branch repairs an unresolvable `origin/HEAD` rather than refusing. Names what it repaired, so a recurring corruption is visible rather than silently patched.
 
 ## Notes
+
+**Round 1, 2026-09-04, in-session.** Three challenges; one settled an open question and one narrowed a gate that would have banned correct code.
+
+**The ten surviving refs and the re-claim are one mechanism.** The plan reported them as separate symptoms. They are not: every one of the ten has a ref tip later than its own merge, and the tip commits are `plot: claim`. `gh pr merge --delete-branch` worked every time — a worker put the ref back afterwards.
+
+**The gate narrowed from banning a call to banning a decision.** Checking the seven ancestry callers found two using it correctly as a pre-filter. A rule with exceptions is one agents rationalise around, which argues for banning it everywhere — but banning `refs-git.ts`'s `unknown` would remove the very honesty this plan asks for. The gate has to tell *is this done* from *can I skip this*, and that is harder to write than a grep.
+
 
 **This plan came from a question after four fixes.** Asked *"the ref seems to be the cause in most of the cases, should we introduce a different concept?"* — the answer is that the concept is already right and the inference is wrong. A Branch is its ref; what a ref *means* is where the estate keeps guessing.
 
