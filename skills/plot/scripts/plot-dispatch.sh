@@ -139,6 +139,14 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=plot-worker-state.sh
 . "$script_dir/plot-worker-state.sh"
 
+# The ONE answer to "did the host merge ANY PR for this branch?" — `pr_merged`,
+# read by `held_worktree` rather than derived from ancestry. Sourced for the
+# same reason `plot-reap.sh` and `plot-release-refs.sh` source it: three callers
+# gate on one fact and must never disagree about it. The helper defines two
+# functions and does nothing else on load.
+# shellcheck source=plot-pr-merged.sh
+. "$script_dir/plot-pr-merged.sh"
+
 # ---------------------------------------------------------------------------
 # WHERE THE WORKTREES LIVE, and by what name
 # ---------------------------------------------------------------------------
@@ -2224,7 +2232,35 @@ held_worktree() { # $1=branch → prints the worktree path when held, else nothi
   # in-flight report a few lines up.
   [ -z "$(uncommitted_files "$wt")" ] || { printf '%s' "$wt"; return 0; }
 
-  # Its tip landed already — a leftover desk, not a held one.
+  # DID ITS WORK LAND? THE HOST ANSWERS, NOT ANCESTRY.
+  #
+  # This asked `git merge-base --is-ancestor "$br" "origin/$MAIN"` until
+  # 2026-09-04. Measured that day on this estate: ten merged branches still
+  # carried a remote ref and ancestry disagreed with the host on TEN OF TEN.
+  # Squash-merge is not occasionally wrong here — the squashed commit is not the
+  # branch's commit, so the branch stays ahead of main forever and ancestry
+  # answers "not landed" about every squash-merged branch there is.
+  #
+  # The failure direction is throughput, not safety: ancestry called a landed
+  # leftover HELD, so dispatch refused a branch that was free. That is the
+  # cheap half of the plan's measurement and it is still a refusal an operator
+  # has to route around.
+  #
+  # `pr_merged` is the ONE answer, sourced rather than re-derived — the same
+  # gate `plot-reap.sh` and `plot-release-refs.sh` read, for the reason that
+  # file states: two implementations of one question drift, and one of them
+  # drifts permissive.
+  #
+  # ANCESTRY REMAINS AS A SECOND CHANCE, and only toward "landed". A
+  # fast-forward or rebase merge leaves the tip genuinely in main while the host
+  # may hold no PR at all — a branch pushed straight to main, which this repo's
+  # own fixtures do. It can only ever release a worktree the host already
+  # declined to release, so it adds no way to refuse and no way to hide work.
+  #
+  # AN UNREACHABLE HOST ANSWERS "NOT MERGED", which keeps the worktree held.
+  # That is `pr_merged`'s documented direction and the right one here too:
+  # silence is never permission to hand somebody's desk to a second agent.
+  pr_merged "$br" && return 1
   git merge-base --is-ancestor "$br" "origin/$MAIN" </dev/null 2>/dev/null && return 1
   printf '%s' "$wt"
 }
