@@ -137,7 +137,7 @@ them together is what makes the type earn its existence.
 - [ ] **Does the ratchet count scripts, lines, or rules?** Lines fall for
       reasons unrelated to the migration; a script count moves in jumps of one.
 
-## Branches
+## Slices
 
 ### Answering the merge question
 

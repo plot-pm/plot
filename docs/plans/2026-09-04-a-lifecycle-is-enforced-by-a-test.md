@@ -239,7 +239,7 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
       already known. Each is a decision about which document is wrong, and
       neither answer is free.
 
-## Branches
+## Slices
 
 ### The story's lifecycle
 

@@ -310,6 +310,14 @@ jobs:
       - name: One answer to did-this-land
         run: ./scripts/check-ancestry-decisions.sh
 
+      # A PLAN'S BRANCH SECTION IS `## Slices`. The parser reads all three
+      # spellings and always will — a plan file may be a year old, and refusing
+      # to read the old word would make Plot worse at its job. This gates what
+      # Plot WRITES. Measured 2026-09-05: three plans authored under the story
+      # that exists to fix this vocabulary all said `## Branches`.
+      - name: Plan headings say Slices
+        run: ./scripts/check-plan-headings.sh
+
       # A TEARDOWN DOES NOT FAIL A SUITE — the gate that keeps the conversion.
       #
       # A raw recursive `fs.rmSync` in a test teardown races whatever child the

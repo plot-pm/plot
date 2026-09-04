@@ -138,7 +138,7 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
 - [ ] **Does `Release` the phase and `released` the state need different names?** Four of the five phases differ from their nearest state; this one does not, and a mapping where one pair is identical invites the two to be conflated again.
 - [ ] **Where do the fleet's three workflows belong?** `assign`, `reap` and `supervise` act on agents and desks rather than on a plan. They may be a second workflow with its own phases, or they may not be phased work at all.
 
-## Branches
+## Slices
 
 ### Naming what a plan is
 
@@ -255,13 +255,28 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
 
 ## Notes
 
-**The template's `## Slices` heading does not parse as slices.**
-`plot-plan-meta.sh:732` reads `## Slices` as the *waves* section and `:719`
-reads `## Branches` as the branches — so a plan written from
-`.plot/templates/plan.md` reports `slices=0`. Both sibling plans under this
-story use `## Branches`, which is why they parse. This plan follows them.
-Recorded here rather than fixed: it is a plan-format defect and belongs to
-whoever owns the template, not to a vocabulary rename.
+**A retracted claim, kept because of how it failed.** An earlier draft of these
+Notes reported that the template's `## Slices` heading *"does not parse as
+slices"*, citing `plot-plan-meta.sh:732`, and switched this plan to
+`## Branches` on that basis. The claim was false. The matcher is one rule at
+`:736` accepting all three headings, and `## Slices` parses identically — proved
+by running the parser over both spellings of this file: 5 slices either way.
+
+One run did report `slices=0` — that part happened — but **the cause was never
+found**, and the write-up named one anyway.
+`scripts/migrate-plans-to-slices.sh` had measured a real version of that failure
+the same day (a plan going 6 branches to 0 on rename, because the parser takes a
+section's layout from its first `### ` heading rather than from the heading
+word), which is close enough to have felt like confirmation and is not the same
+thing. A flat-bullet `## Slices` parses fine; so does a `### `-headed one.
+
+So the retraction is two claims wide: the defect does not exist, and the
+explanation offered for it was invented rather than measured. Two sibling plans
+copied the heading before either was caught.
+
+That is the shape this story is about, committed inside it — and the reason
+`scripts/check-plan-headings.sh` now refuses `## Branches` in an unfinished plan
+rather than trusting anyone to remember.
 
 Written 2026-09-04, during the interrogation of `a-lifecycle-is-enforced-by-a-test`. The conflation was found by the operator reading a question of mine that called a plan's states its phases for the third time.
 
