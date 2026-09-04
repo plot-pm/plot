@@ -234,6 +234,42 @@ costs.
 - **Is `archived` a seventh state or a derived view?** The board says state, the
   domain says `done` plus a date. Both are defensible; the story needs one.
 
+## Plans
+
+| Plan | Status | What it covers |
+|------|--------|----------------|
+| [every-element-is-a-domain-concept](../../plans/2026-09-04-every-element-is-a-domain-concept.md) | Draft, PR #693 open | The TYPES: Branch, Plan and Slice stop being strings. Carries the host work — one slice per failure mode, because the four scripts that ask `gh` directly do not fail alike |
+| [a-lifecycle-is-enforced-by-a-test](../../plans/2026-09-04-a-lifecycle-is-enforced-by-a-test.md) | Draft, PR #698 open | The RULES: `transitions/` for Agent, Worktree, Slice and Story, each refusing with a test per refusal, plus the ratchet that stops the next lifecycle hiding |
+
+Both links resolve once the plan PRs merge — a plan reaches `docs/plans/` on the
+default branch by being approved, so until then the file lives on its `idea/`
+branch and the PR number is how to read it.
+
+**The two are independent and either may land first.** Types and rules meet
+only where a rule judges an entity, and the rules take readings as values
+(`reap(readings, input)`), so a transition can be written and tested before the
+thing it judges is a named type. Sequencing them would be ceremony.
+
+### What they do not yet cover
+
+Six Jobs, two plans, and the fit is not exact. Read against the Jobs above:
+
+| Job | where |
+|---|---|
+| Every state enum declares its kind | `infra/a-state-declares-its-lifecycle` (#698) |
+| Every lifecycle has a refusing rule | four slices in #698 |
+| Elements are types rather than strings | three slices in #693 |
+| One answer per lifecycle | `feature/a-story-lifecycle-refuses` (#698) |
+| A ratchet holds it | `infra/a-state-declares-its-lifecycle` (#698) |
+| Plot runs on a host that is not GitHub | three slices in #693 |
+
+**Every Job is claimed, and that is not the same as finished.** #698 takes four
+entities of the ten-odd that have lifecycles, and says so: Agent, Worktree and
+Slice because they were measurably violated, Story because it is declared three
+times over. The rest follow the same shape once these prove it, and the ratchet
+is what makes their absence visible rather than forgotten — which is the whole
+argument for building the harness before the remaining rules.
+
 ## Session Log
 
 **2026-09-04** — Written after a review of the fleet layer (Machine, Registry,
