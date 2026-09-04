@@ -43,6 +43,20 @@ what a lifecycle with no owner looks like.
 `done`, three of them wrongly, and what caught it was the board rendering a ⚠️
 and a human reading it. A rule would have refused the write.
 
+**And the estate cannot leave GitHub.** `plot-pr-merged.sh` is 12 lines of code
+under 75 lines of reasoning, sourced by ten scripts and read by three domain
+files, and both its functions call `gh` directly. On a host without `gh` its own
+contract answers *not merged*, so the fleet never reaps a worktree, never
+releases a ref, never advances a slice — **and reports nothing**, because
+failing safe is what it was built for.
+
+It is the worst of seven, not the only one. Measured 2026-09-04, six further
+scripts reach `gh` without going through `plot-host.sh`:
+`plot-reconcile-scan.sh` (two live `gh pr list` calls, `:291` and `:302`),
+`plot-update-board.sh`, `plot-budget.sh`, `plot-agent-monitor.sh`,
+`plot-worker-monitor.sh` and `plot-pr-state.sh`. The others break loudly on a
+host without `gh`; this one goes quiet, which is why it is named first.
+
 **And the failure mode is already named in this repo.** `CLAUDE.md`:
 
 > *"If your skill includes a MUST or NEVER instruction, ask: is this enforced by
@@ -104,15 +118,31 @@ Of the 35, three kinds are present and only one transitions:
 | **reading** | what is true right now? | `MergeabilitySchema`, `HeadroomSchema`, `AgentActivity` | no — a moment, not a move |
 | **classification** | which kind is this? | `MoscowTier`, `IdentityKind`, `MonitorName` | no — re-labelling is not a transition |
 
-`SprintState` (`must | should | could | deferred`) is the clarifying case: it
+`MoscowTier` (`must | should | could | deferred`) is the clarifying case: it
 looks ordered and is not. A Could Have becoming a Must Have is
 re-prioritisation, and a transition rule over it would refuse a legitimate
 planning act.
+
+**And its neighbour is the trap.** `SprintStateSchema` — `Planning | Committed |
+Active | Closed` — sits **one line above it in the same file** and *is* a
+lifecycle. Two enums, adjacent, opposite kinds, and the names give no hint: an
+earlier draft of this story cited `SprintState` for the priority example and was
+wrong. If a careful reader misreads it while writing the story about it, a
+heuristic will misread it too.
 
 **So the gate reads a declaration, never a heuristic.** An enum either has a
 `transitions/<name>.ts`, or carries one line saying which kind it is and why it
 does not transition. A gate that inferred the kind would demand a rule from a
 priority and get a rule that lies.
+
+**And it must count `z.enum` occurrences, not exported names.** Measured
+2026-09-04: 37 occurrences, **35** of them named exports. The other two —
+`charter.ts:81` (`atCeiling`) and `fleet.ts:702` (`host`) — are inline field
+enums with no name to hang a declaration on. A gate written against
+`export const …Schema = z.enum(` would report a clean estate while skipping
+them, which is the blind-spot shape [`a-nul-byte-blinds-a-grep-gate`] already
+cost this repo six gates. An anonymous enum either gets a name or is declared
+where it sits.
 
 ### The harness
 
@@ -158,8 +188,10 @@ go when their callers are gone, not before.
   than computing a second one.
 - **A ratchet holds it**, starting at the measured count of undeclared enums and
   falling to zero, so an element added later cannot arrive without a lifecycle.
-- **Plot runs on a host that is not GitHub** — the merge question answered
-  without `gh`, which is the single thing blocking a Bitbucket project today.
+- **Plot runs on a host that is not GitHub** — every script that asks the host
+  asks it through `plot-host.sh`. Seven reach `gh` directly today;
+  `plot-pr-merged.sh` is first because it fails silently where the others fail
+  loudly.
 
 ## Excluded from Scope
 
@@ -221,3 +253,21 @@ lifecycle is owned and enforced"*: the first framing named three lifecycles to
 fix by hand, which leaves the thirty-second one to be found by a person reading
 a diff. The inventory and the ratchet are what make it a harness rather than a
 list.
+
+**2026-09-04, challenged.** One round against the code, and it found three
+errors in the story's own claims — all three in the direction of overstating how
+clean the estate is.
+
+1. **The priority example named the wrong schema.** `SprintStateSchema` is
+   `Planning | Committed | Active | Closed` — a lifecycle. The priority enum is
+   `MoscowTierSchema`, one line below it in the same file. The argument survives
+   and is now stronger: two adjacent enums of opposite kinds, whose names give
+   no hint, is the case for a declaration over a heuristic.
+2. **The count was of names, not of enums.** 37 `z.enum` occurrences, 35 named
+   exports; the two inline ones have nothing to declare a kind against.
+3. **`plot-pr-merged.sh` is not the single GitHub blocker.** Six further scripts
+   call `gh` outside `plot-host.sh`, two of them live on the reconcile path.
+
+The pattern is worth keeping: every error was a claim that the problem was
+smaller and tidier than it is. A story arguing that prose drifts from code
+drifted from the code within a day of being written.
