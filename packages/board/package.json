@@ -1,7 +1,7 @@
 {
   "name": "@plot-pm/board",
   "version": "0.10.0",
-  "description": "Local Kanban board for Plot — a glanceable view of plan phases from docs/plans, with sprint and story filters",
+  "description": "Local Kanban board for Plot \u2014 a glanceable view of plan phases from docs/plans, with sprint and story filters",
   "type": "module",
   "license": "MIT",
   "author": "Max Albrecht",
@@ -34,6 +34,7 @@
     "plot-reap.sh",
     "plot-release-refs.sh",
     "plot-resolve-artifact.sh",
+    "plot-transcript-quiet.sh",
     "plot-worker-monitor.sh",
     "plot-worker-state.sh"
   ],

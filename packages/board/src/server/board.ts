@@ -1295,6 +1295,36 @@ function parseStoryFile(absPath: string, slug: string, relPath: string, storyDir
   } catch {
     return null;
   }
+  return parseStoryContent(content, slug, relPath, storyDir);
+}
+
+/**
+ * The same parse, from content a caller already holds.
+ *
+ * THE SPLIT SPRINTS ALREADY HAVE, and stories needed it for the same reason: a
+ * story read out of a git ref arrives as a string with no path to open. Before
+ * this, `collectStories` walked the working tree and nothing else, so the
+ * Stories filter — and the Topics list derived from it — was empty on any
+ * checkout whose `docs/stories/` differed from the ref the plans came from,
+ * while the plans themselves showed. Reported 2026-09-04 against the published
+ * board.
+ *
+ * `storyDir` is still a PATH because design docs are listed from disk. A story
+ * read from a ref passes `''` and lists none, which is the honest answer: the
+ * ref carries the story file the caller asked for, not its siblings.
+ *
+ * @param content - the story file's text.
+ * @param slug - the story's slug, from its filename.
+ * @param relPath - the file's path relative to the repository root.
+ * @param storyDir - the story's own directory, or `''` when it came from a ref.
+ * @returns the parsed story, or null when the content is not one.
+ */
+function parseStoryContent(
+  content: string,
+  slug: string,
+  relPath: string,
+  storyDir: string,
+): StoryCardInput | null {
 
   // Parse YAML frontmatter
   let title = '';
@@ -1406,10 +1436,16 @@ function computeStatusDrift(declaredStatus: string, derivedStatus: string): stri
  *
  * Also computes plan counts and status drift by querying the provided plans.
  */
-function collectStories(repoRoot: string, storyDir: string, allPlans: PlanMeta[]): StoryCard[] {
+export async function collectStories(
+  repoRoot: string,
+  storyDir: string,
+  allPlans: PlanMeta[],
+  ref?: string,
+  refs?: Refs,
+): Promise<StoryCard[]> {
   const root = path.join(repoRoot, storyDir);
-  if (!fs.existsSync(root)) return [];
   const stories: StoryCard[] = [];
+  const takenSlugs = new Set<string>();
 
   // Build a map of story slug -> plans for efficient lookup
   const plansByStory = new Map<string, PlanMeta[]>();
@@ -1421,7 +1457,38 @@ function collectStories(repoRoot: string, storyDir: string, allPlans: PlanMeta[]
     }
   }
 
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+  // THE REF FIRST, THEN THE WORKING TREE, and the ref wins — the same
+  // one-directional merge `collectSprints` makes, and for the same reason. The
+  // plans come from `origin/<main>`; stories came from the checkout alone, so
+  // the Stories filter and the Topics list derived from it were EMPTY on any
+  // checkout whose `docs/stories/` differed from that ref, while the plans
+  // beside them showed. Reported 2026-09-04 against the published board, where
+  // `repoRoot` defaults to `process.cwd()`.
+  //
+  // `ref` and `refs` are both optional and both must be present, exactly as in
+  // `collectSprints`: a caller supplying neither reads the working tree alone.
+  const found: { slug: string; input: StoryCardInput }[] = [];
+  const fromRef = ref && refs
+    ? await readPlansFromRef(refs, ref, storyDir)
+    : new Map<string, string>();
+  for (const [relPath, content] of fromRef) {
+    const base = path.basename(relPath);
+    const m = base.match(/^STORY-(.+)\.md$/);
+    if (!m) continue;
+    // `archived` is skipped on both paths — an archived story never populates
+    // the filter list, which is what the walk below has always done.
+    if (relPath.split('/').includes('archived')) continue;
+    const slug = m[1];
+    if (takenSlugs.has(slug)) continue;
+    // No design docs from a ref: the tree carries the story file the caller
+    // asked for, not its siblings. `listDesignDocs('')` answers [].
+    const input = parseStoryContent(content, slug, relPath, '');
+    if (!input) continue;
+    takenSlugs.add(slug);
+    found.push({ slug, input });
+  }
+
+  for (const entry of fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }) : []) {
     if (!entry.isDirectory() || entry.name === 'archived') continue;
     const dir = path.join(root, entry.name);
     let storyFile: string | undefined;
@@ -1433,12 +1500,18 @@ function collectStories(repoRoot: string, storyDir: string, allPlans: PlanMeta[]
     if (!storyFile) continue;
     const m = storyFile.match(/^STORY-(.+)\.md$/);
     const slug = m ? m[1] : entry.name;
+    if (takenSlugs.has(slug)) continue;
     const abs = path.join(dir, storyFile);
     // Repo-relative, computed once here rather than reassembled by whoever
     // needs it. Same rule as `planFile` on a fleet row: stripping and rebuilding
     // a path is where the mistakes live, so the consumer is handed the answer.
     const input = parseStoryFile(abs, slug, path.relative(repoRoot, abs), dir);
     if (!input) continue;
+    takenSlugs.add(slug);
+    found.push({ slug, input });
+  }
+
+  for (const { slug, input } of found) {
 
     // Get plans for this story and compute counts
     const storyPlans = plansByStory.get(slug) || [];
@@ -1506,7 +1579,7 @@ const resolveStoryFile = async (
   const repoRoot = resolvedRepoRoot(opts);
   const storyDir = await readConfigAsync(opts, 'Story directory', 'docs/stories/');
   // Pass empty plans array - resolveStoryFile only needs the path, not plan counts
-  for (const story of collectStories(repoRoot, storyDir, [])) {
+  for (const story of await collectStories(repoRoot, storyDir, [])) {
     // `story.slug` came from a real STORY-*.md filename the board walked; a
     // request naming anything else — traversal, an archived story, a typo —
     // matches nothing and 404s.
@@ -1801,7 +1874,9 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
     cards: cards.filter((c) => c.phase === phase),
   }));
 
-  const stories = collectStories(repoRoot, storyDir, metas);
+  const stories = await collectStories(
+    repoRoot, storyDir, metas, `origin/${defaultBranch}`, refs,
+  );
   // THE LAST TWO READS, ASKED TOGETHER, for the same reason the three config
   // reads at the top are: the sprint estate and the release directory need
   // nothing from each other. Both are hoisted out of the object literal
