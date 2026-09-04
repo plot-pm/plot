@@ -11,6 +11,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
@@ -58,8 +59,8 @@ a PR's merge are all decided.
 **And the pattern that replaces it already exists, five times.**
 `plot-verdicts.mjs`, `plot-transition.mjs`, `plot-movable.mjs`,
 `plot-monitor.mjs` and `plot-prompt.mjs` are domain rules compiled to bundles
-and called from shell. `plot-fleet-scan.sh:3436` pipes readings into one;
-`plot-approve.sh:453` and `plot-deliver.sh:320` call another. Nobody
+and called from shell. `plot-fleet-scan.sh:3499` pipes readings into one;
+`plot-approve.sh:453` and `plot-deliver.sh:336` call another. Nobody
 generalised it, so the scripts kept growing beside it.
 
 ### What it costs today, in one measured example
@@ -225,11 +226,26 @@ them together is what makes the type earn its existence.
 
 ### Naming the branch
 
-- `feature/a-branch-is-a-domain-entity` — `Branch` becomes a type. Today
-  `SourceBranchSchema:125` opens `branch: z.string()` and the facts about it are
-  spread across a payload. The entity carries what the specs already name and
-  the rules that judge one — `plot-reap.sh`'s five refusals and
-  `plot-release-refs.sh`'s guards are the same question — move onto it.
+- `feature/a-branch-is-a-domain-entity` — `Branch` becomes a type, and **the
+  type is a home for the rules rather than a wrapper round a string.**
+
+  The wrapper framing does not survive measurement: only **4** fields in the
+  whole domain are a bare branch string (`declaration.ts:32`, `fleet.ts:125`,
+  `subscription.ts:29`, `ending.ts:75`), none is a plan slug, and this repo has
+  **no branded-type precedent** to follow. A `Branch` that only stopped a slug
+  being passed where a branch belongs would move no judgement and buy little.
+
+  **What is scattered is the judging.** `SourceBranchSchema` (`fleet.ts:124`)
+  already carries `branch`, `state`, `deferred` and the deferral reason — a
+  Branch entity in all but name — while the rules that decide anything about a
+  branch live in shell: `plot-reap.sh`'s five refusals and
+  `plot-release-refs.sh`'s five guards are the same question asked twice, about
+  the same thing, in two scripts that must never disagree. This slice renames
+  the schema to what it is and moves those rules onto it.
+
+  **Asserted: the reaper's refusals and the ref-deleter's guards are one rule
+  with two callers**, which is the property that makes the type worth having —
+  and the one a wrapper would not deliver.
 
 - `bug/the-default-branch-repairs-itself` — **folded in from `a-ref-is-not-a-claim` on 2026-09-04**, because a symref that will not resolve is a Branch question and this is where Branch becomes a type. Twice that day `refs/remotes/origin/HEAD` pointed at `origin/plot-corpus-pin`, a branch that does not exist, and `plot-dispatch.sh` refused every dispatch because it could not resolve the default branch. `git remote set-head origin --auto` repaired it in under a second, both times. A component that needs the default branch repairs an unresolvable symref rather than refusing, **and names what it repaired** — a recurring corruption silently fixed is one nobody investigates. It does not touch a symref that resolves: a deliberate non-default HEAD is somebody's choice. What leaves the pin behind is a lead, not a conclusion; record it rather than assume it.
 
@@ -238,9 +254,21 @@ them together is what makes the type earn its existence.
 - `feature/a-plan-is-a-domain-entity` — `Plan` and `Slice` as types, with the
   phase and eligibility rules that `plot-plan-meta.sh` (494 lines of code, **4**
   world calls — almost pure parsing) and `plot-fleet-scan.sh` decide today.
-  **The two must not collapse into one:** a Slice is the plan's intent about a
-  branch, a Branch is the ref's state, and they disagree constantly — that
-  disagreement is what the board renders.
+  **The two must not collapse into one, and ownership is what keeps them
+  apart.** They are 1:1 — a Slice holds exactly one branch — so the distinction
+  has to be argued rather than assumed. It is: **a plan writes the Slice, git
+  writes the Branch**, and the two disagree constantly. Measured 2026-09-04, the
+  estate carries **33 annotations** stating something about a branch that no ref
+  can tell you: 29 `deferred:`, 3 `moved:`, 1 `split-from:`. A deferred slice is
+  a plan's decision about work it will not do; the branch it names may not exist,
+  may exist unmerged, or may have merged under another plan.
+
+  A Slice therefore has a plan, a wave, an order and an intent; a Branch has a
+  ref, a state and merge facts. **Asserted: a deferred Slice keeps its meaning
+  when its Branch does not exist** — the case that proves neither is derivable
+  from the other.
+
+  That disagreement is what the board renders.
 
 ## Notes
 
@@ -255,3 +283,26 @@ of six states carried twice until 2026-08-18 — comes back.
 
 **Not a rename.** `the-board-says-slice` moved the board's vocabulary; this
 gives the vocabulary something to refer to.
+
+**Interrogated 2026-09-04, one round.** It did not change the plan's shape and
+it sharpened two claims that would not have survived implementation.
+
+**A type is a home for rules, not a wrapper.** The plan led with
+`branch: z.string()`, which measures thinner than it reads: 4 bare branch
+fields in the whole domain, 0 plan slugs, and no branded-type precedent here.
+`SourceBranchSchema` is already a Branch in all but name. What is actually
+scattered is the *judging* — the reaper's five refusals and the ref-deleter's
+five guards are one question asked twice in two scripts that must never
+disagree — so that is what the entity is for, and what the slice now asserts.
+
+**Ownership is what keeps Slice and Branch apart.** They are 1:1, so the
+distinction needed an argument rather than an assertion. It has one: a plan
+writes the Slice and git writes the Branch, and the estate carries **33
+annotations** — 29 `deferred:`, 3 `moved:`, 1 `split-from:` — saying things
+about a branch that no ref can tell you. A deferred Slice whose Branch does not
+exist is the case that proves neither derives from the other.
+
+Two citations had drifted onto comments and are corrected;
+`bug/the-default-branch-repairs-itself` was examined and kept — resolving the
+default branch is a Branch operation, it broke dispatch twice in one day, and
+the plan already requires the repair to name itself.
