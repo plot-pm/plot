@@ -867,6 +867,28 @@ describe('classify', () => {
     expect(r.note).toBe(reason);
   });
 
+  it('does not call a merged branch abandoned', () => {
+    // SQUASH-MERGE DELETES THE HEAD REF, so a merged branch has no OPEN PR and
+    // read *"commits, no PR ever opened"* — which is false. `wipReadings`
+    // hardcoded `hasMergedPr: false`, so `quietKind`'s first guard could never
+    // fire and every merged branch fell through to `abandoned`, which #683
+    // placed in WAITING ON YOU. Measured 2026-09-04: that section held 35 rows,
+    // ~15 of them branches merged the same evening, against 3 that were work
+    // anyone was waiting on.
+    const merged = classify(
+      'wip', 'eligible', 60 * 24 * 2, QUIET, null, false, 0, 'approved',
+      '', '', '', false, '', '', false, '', false, '', true,
+    );
+    expect(merged.group).toBe('quiet');
+
+    // And the same branch, unmerged, still reaches a person.
+    const notMerged = classify(
+      'wip', 'eligible', 60 * 24 * 2, QUIET, null, false, 0, 'approved',
+      '', '', '', false, '', '', false, '', false, '', false,
+    );
+    expect(notMerged.group).toBe('waiting-on-you');
+  });
+
   it('falls back to the phase sentence when a deferred branch names no reason', () => {
     // `deferred:` with no text parses to an empty string, and an empty string is
     // not a reason — it is the absence of one. The generic sentence is then the

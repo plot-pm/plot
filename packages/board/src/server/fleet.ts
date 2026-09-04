@@ -3357,6 +3357,7 @@ import {
   divisorFor,
   doubleClaimedBranches,
   quietKind,
+  quietNeedsPerson,
   quietNote,
   readingLoss,
   rowPhase,
@@ -3711,6 +3712,24 @@ function classifyGroup(
    * made. Measured on the live board 2026-09-02, on that plan's own row.
    */
   deferredReason = '',
+  /**
+   * Whether the host merged ANY PR from this branch — the any-state answer,
+   * not the open one.
+   *
+   * LAST, BECAUSE IT IS THE NEWEST, by the rule `prUnknown` records above.
+   *
+   * `wipReadings` hardcoded `hasMergedPr: false`, so `quietKind`'s first guard
+   * could never fire and every merged branch fell through to `abandoned`.
+   * Squash-merge is why it matters: the head ref is deleted on merge, so the
+   * branch has no OPEN PR and reads *"commits, no PR ever opened"* — which is
+   * false, and put ~15 branches merged the same evening into WAITING ON YOU.
+   * Measured 2026-09-04: that section held 35 rows, of which 3 were work
+   * anyone was waiting on.
+   *
+   * The same trap `plot-pr-merged.sh` exists for: a merged PR reports `CLOSED`,
+   * and an absent head ref reports nothing at all.
+   */
+  hasMergedPr = false,
 ): { group: WaitingGroup; note: string } {
   // A deferred branch is never `working` — the group is about the claim the row
   // makes, not about the age of its last commit, so a fresh commit does not
@@ -4451,11 +4470,26 @@ function classifyGroup(
   // orphaned claim above. *no commit for 126 days* was the whole note and it
   // named a duration where a state belonged; *how long* is still the fact the
   // revive-or-drop call turns on, so it is said second and only where known.
-  const abandoned = quietNote(wipReadings(pr));
+  // THE KIND DECIDES THE SECTION, not this arm. `waiting-on-you` was hardcoded
+  // here, so a merged branch got the right sentence in the wrong place — the
+  // same half-fix #669 made on the withdrawn-plan row and #675 had to finish.
+  // The group is the part that asks a person for something, and nobody is
+  // waiting on work the host already merged.
+  const readings = wipReadings(pr, hasMergedPr);
+  const abandoned = quietNote(readings);
+  // MERGED IS DONE, AND THIS ARM IS WHERE IT HAS TO BE SAID. `quietNeedsPerson`
+  // releases only `closed-pr`, and `quiet.test.ts` states why: a merged branch
+  // "answers `quiet` here and `classifyGroup` places it as done, above this
+  // rule." That premise holds for a branch the scan marks `merged` — and this
+  // arm is reached by one that squash-merged with its head ref deleted, which
+  // arrives `wip` with no open PR and never meets the arm above.
+  const group: WaitingGroup = hasMergedPr || !quietNeedsPerson(readings)
+    ? 'quiet'
+    : 'waiting-on-you';
   if (ageMinutes === null) {
-    return { group: 'waiting-on-you', note: `${abandoned}, age unknown` };
+    return { group, note: `${abandoned}, age unknown` };
   }
-  return { group: 'waiting-on-you', note: `${abandoned} — last commit ${humanAge(ageMinutes)} ago` };
+  return { group, note: `${abandoned} — last commit ${humanAge(ageMinutes)} ago` };
 }
 
 /**
@@ -4495,10 +4529,10 @@ const claimedReadings = (pr?: PrRecord | null): QuietBranchReadings => ({
  * would be the rule re-derived on this side.
  * @returns the readings for pushed work nobody is on.
  */
-const wipReadings = (pr?: PrRecord | null): QuietBranchReadings => ({
+const wipReadings = (pr?: PrRecord | null, hasMergedPr = false): QuietBranchReadings => ({
   branch: '',
   prState: pr ? 'open' : 'none',
-  hasMergedPr: false,
+  hasMergedPr,
   isEmptyClaim: false,
 });
 
@@ -4569,6 +4603,8 @@ const rowQuietKind = (
   group: WaitingGroup,
   worker: WorkerState,
   pr?: PrRecord | null,
+  /** Whether the host merged ANY PR from this branch — see `classifyGroup`. */
+  merged = false,
 ): QuietKind | null => {
   if (closed) return quietKind(closedReadings());
   if (group !== 'waiting-on-you') return null;
@@ -4576,7 +4612,7 @@ const rowQuietKind = (
   // state is handled by an arm above it, and each of those means something ran.
   if (worker !== 'none' && worker !== 'elsewhere') return null;
   if (state === 'claimed') return quietKind(claimedReadings(pr));
-  if (state === 'wip' && !pr) return quietKind(wipReadings(pr));
+  if (state === 'wip' && !pr) return quietKind(wipReadings(pr, merged));
   return null;
 };
 
@@ -5740,7 +5776,11 @@ export function rowsFromPulse(
         // Asked of the SAME readings the group and the note came from, so the
         // three cannot describe different branches — the shape `quietNote`
         // itself uses when it asks `quietKind` rather than restating its arms.
-        const kind = rowQuietKind(closedPr ? 'closed' : null, b.state, group, b.worker, pr);
+        // `b.state === 'merged'` IS THE MERGED FACT, and it is the scan's own
+        // answer rather than one re-derived from the PR here. `closedPr` above
+        // already trusts it for the same reason.
+        const kind = rowQuietKind(
+          closedPr ? 'closed' : null, b.state, group, b.worker, pr, b.state === 'merged');
         // Derived once, read twice below — and derived from `group` rather than
         // re-deciding it, so a row `classify` placed outside `not-started`
         // cannot pick up a waiting-state by a rule that drifted apart from it.
