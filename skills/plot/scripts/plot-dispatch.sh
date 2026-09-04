@@ -371,11 +371,16 @@ write_agent_manifest() { # $1=path $2=session $3=branch $4=worktree $5=command
 #
 # READ FROM `origin/<main>`, NOT THE WORKING TREE, for the same reason the phase
 # gate above does: the question is not "does a brief exist in this filesystem?"
-# but "will the WORKER find one?". The worker's worktree is created from
-# `origin/$MAIN` (see `git worktree add` below), so a brief committed nowhere —
-# or committed locally and never pushed — is invisible to it. Checking the
-# working tree passes the gate and starts a worker into an empty specification,
-# which is the exact failure this gate exists to prevent.
+# but "will the AGENT find one?". The agent cuts or resets its desk from
+# `origin/$MAIN`, so a brief committed nowhere — or committed locally and never
+# pushed — is invisible to it. Checking the working tree passes the gate and
+# hands over a slice whose specification is empty, which is the exact failure
+# this gate exists to prevent.
+#
+# THAT HOLDS ACROSS THE GATE'S MOVE, and is why the move cost this function
+# nothing: the desk was cut from `origin/$MAIN` when dispatch cut it and is cut
+# from `origin/$MAIN` now that the agent does. The ref the brief must be on did
+# not change, only who reads it there.
 #
 # Both directions were measured 2026-08-27. Running the filesystem check from a
 # checkout 8 commits behind main reported three branches' briefs missing while
