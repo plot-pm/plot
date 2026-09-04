@@ -10,7 +10,7 @@
 - **Review:** in-session
 - **Rounds:** 1
 - **Approved:** 2026-09-04, Jan Wloka, in-session
-- **Impl:** same branch
+- **Impl:** own branches
 
 ## Changelog
 
