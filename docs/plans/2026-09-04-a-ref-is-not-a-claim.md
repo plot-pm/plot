@@ -97,7 +97,7 @@ Ten out of ten is the number that matters. `git merge-base --is-ancestor` is not
 
 ### Repairing the symref
 
-- `bug/the-default-branch-repairs-itself` — a component that needs the default branch repairs an unresolvable `origin/HEAD` rather than refusing. Names what it repaired, so a recurring corruption is visible rather than silently patched.
+- `bug/the-default-branch-repairs-itself` <!-- deferred: moved to 2026-09-04-every-element-is-a-domain-concept on 2026-09-04 — a symref that will not resolve is a Branch question, and that plan is where Branch becomes a type --> — a component that needs the default branch repairs an unresolvable `origin/HEAD` rather than refusing. Names what it repaired, so a recurring corruption is visible rather than silently patched.
 
 ## Notes
 
