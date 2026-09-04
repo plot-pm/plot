@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
@@ -18,6 +18,7 @@
 - **Started:** 2026-09-03, Jan Wloka, `feature/the-reaper-sweeps-every-kind`
 - **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-waits-for-work`
 - **Started:** 2026-09-04, Jan Wloka, `feature/the-registry-queues-a-brief`
+- **Delivered:** 2026-09-04
 
 ## Changelog
 
