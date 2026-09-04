@@ -18,7 +18,7 @@ describe('evidence — what each workflow’s expression can be checked against'
     },
   );
 
-  it.each(['implement', 'release'] as const)(
+  it.each(['implement', 'release', 'supervise'] as const)(
     '%s is FIXTURE-VERIFIED ONLY — its specification is prose, and prose cannot fail',
     (workflow) => {
       expect(EVIDENCE[workflow]).toBe('fixture');
@@ -34,6 +34,7 @@ describe('evidence — what each workflow’s expression can be checked against'
       'implement',
       'reap',
       'release',
+      'supervise',
     ]);
   });
 });
