@@ -9,6 +9,14 @@
 # time, so sourcing it would run the reaper's argument parser against its
 # caller's arguments.
 #
+# THREE CALLERS SINCE 2026-09-04. `plot-dispatch.sh` joined them: its
+# `held_worktree` asked ancestry whether a worktree's branch had landed, and on
+# this estate that day ancestry disagreed with the host on TEN OF TEN merged
+# branches. It fails in the cheap direction — a landed leftover reads as a held
+# desk, so dispatch refuses a branch that is free — but it is the same
+# substitution, and a fourth implementation of one question is the thing this
+# file exists to prevent.
+#
 # WHY IT WAS EXTRACTED. `plot-reap.sh` and `plot-release-refs.sh` gate on the
 # SAME fact — has this branch's work landed — and they must never disagree
 # about it. The reaper removes a checkout, which is re-creatable with
