@@ -12,9 +12,9 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 2
+- **Approved:** 2026-09-04, Jan Wloka, plan-PR #698 merged
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <branch>
-- **Approved:** 2026-09-04, Jan Wloka, plan-PR #698 merged
 -->
 
 ## Changelog
