@@ -65,6 +65,10 @@ queued.push({ branch: line.branch, slug, claimable });
 
 ## Notes
 
+### It waits for its sibling — 2026-09-05
+
+[`a-second-slice-needs-its-own-session`](2026-09-05-a-second-slice-needs-its-own-session.md) was found by the same hand-over and goes first. Until it lands **no agent can take a second slice at all** — the prompt dies on the session id before any queue answer matters — so this defect cannot be observed again and a fix for it cannot be tested end to end. Landing this one first would produce correct offers that still fail on arrival.
+
 ### Why this surfaced only today — 2026-09-05
 
 The queue has been derived on every tick for weeks, and `agents=0` on every one of them. A queue nobody could take is a list; matching is what made its contents load-bearing. The estate reached three free agents and two merges within the same hour, and the defect was in the first tick that could act.

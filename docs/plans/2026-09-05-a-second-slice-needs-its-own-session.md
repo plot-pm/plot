@@ -9,6 +9,7 @@
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -55,19 +56,31 @@ plot-worker-loop: free on <slug> — nothing handed over yet …
 
 ### The second prompt resumes (Branch: bug/a-second-slice-needs-its-own-session)
 
-The prompt asks the runtime to create a session on the first slice and to continue one on the next.
+The prompt asks the runtime to CREATE a session on the first slice and to CONTINUE one on every slice after it: `--session-id` once, then `--resume`.
 
-**THE CHOICE IS BETWEEN TWO SHAPES AND THE SLICE MUST PICK ONE ALOUD.**
+**ONE TRANSCRIPT PER AGENT, AND THE BOARD IS WHY.** `transcript.ts:100` opens `${sessionId}.jsonl` literally — one id names one file, with no chain to follow. So the agent keeps a single session for its whole life, which is exactly what `session` was made to join, and this is the only shape that needs no board change at all.
 
-*Resume the same session* — `--resume` on a hop rather than `--session-id`. One transcript for the agent's whole life, which is what `session` was made to join. The risk is context: a second slice inherits the first's conversation, and a long-lived agent's transcript grows without bound.
+**TWO ALTERNATIVES WERE REJECTED, AND BOTH WOULD HAVE WORKED.**
 
-*A fresh session per slice, joined by the agent's identity* — the manifest keeps `session` as the agent's key and gains the per-slice id. Bounded context per slice, at the cost of the join the board relies on now.
+`--resume <id> --fork-session` mints a fresh id while inheriting the prior transcript. It solves the collision and bounds nothing else, but the transcript becomes a linked list of files and `session` stops naming the current one — the board would have to learn to walk it.
 
-**`resumeId` is the field that exists for this.** Whichever shape wins, the two meanings stop sharing one value.
+*A fresh session per slice* gives the cleanest context boundary and breaks the join outright: the agent starts each slice cold, having forgotten what it learned on the last.
 
-**A FAILED PROMPT MUST NOT READ AS AN IDLE AGENT.** Whatever the fix, a prompt that could not start is a `failed` reading, not a return to waiting. The loop distinguishes four endings already and this is a fifth: nothing ran.
+**THE COST OF WHAT WAS CHOSEN IS STATED RATHER THAN HIDDEN.** A long-lived agent's transcript and context grow across slices, and nothing here bounds them. `Worker bound: 28800` bounds the agent's LIFE, not its context. When a transcript is measured large enough to matter, `--fork-session` is the change that answers it, and this decision is the reason to reach for that one rather than a fourth.
 
-**Done when** an agent handed a second slice starts a prompt on it, a prompt that cannot start reports rather than waits, and the two identities are separately named in the manifest.
+**`resumeId` IS THE FIELD THAT CARRIES IT, and this slice is what makes it real.** `registry.ts:126` already declares it *"a second field, not an alias"* and says the question *"cannot even be ASKED while one field carries both meanings."* It is written once at dispatch, equal to `session`, and read by nothing — a field with one writer, no readers and a twin is drift waiting to happen.
+
+So the hop writes it and the prompt reads it. `update_manifest_on_hop` (`plot-worker-loop.sh:249`) rewrites `branch`, `worktree` and `wavesCount` today and leaves `resumeId` alone; it gains that write. `session` stays fixed and stays the join key. The two diverge exactly where the docstring predicted, and a later `--fork-session` becomes a change to one field's value rather than a new concept.
+
+**A FAILED PROMPT MUST NOT READ AS AN IDLE AGENT, AND IT MUST NOT LOSE ITS SLICE.** Both, because they answer different questions.
+
+*Fail loudly.* `EndingReasonSchema` holds four values — `bound`, `quiet`, `unreadable`, `spent` — and none of them means *nothing ran*. A prompt that could not start writes a fifth and exits non-zero, so `plot-worker-state.sh` answers `failed`, the supervisor's `attempts` budget applies, and `--restart` is reachable. Today the loop returns from `run_bounded` (`:1237`) and falls through to a wait.
+
+*Keep the assignment.* The manifest's `branch` is cleared on the way into the wait, so an agent that failed to start reads free and the slice returns to the queue. It must stay claimed: nothing else should take a slice this agent was given and is still holding a desk for.
+
+**Done when** an agent handed a second slice starts a prompt on it, a prompt that cannot start writes an ending record and exits non-zero rather than waiting, the slice stays assigned across that failure, and `resumeId` is written by the hop and read by the prompt.
+
+**THIS SLICE LEADS ITS SIBLING.** [`a-merged-slice-leaves-the-queue`](2026-09-05-a-merged-slice-leaves-the-queue.md) was found by the same event and is the same age, and this one goes first: until it lands **no agent can take a second slice at all**, so the queue defect cannot be observed again. Fixing the queue first would produce correct offers that still die on arrival.
 
 ## Notes
 
