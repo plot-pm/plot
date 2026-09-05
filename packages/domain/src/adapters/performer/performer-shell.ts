@@ -42,14 +42,20 @@ const START_TIMEOUT_MS = 60_000;
  */
 export const performerShell = (context: ShellContext): Performer => ({
   startFreeAgent: async (worktree): Promise<PortResult<number>> => {
-    // ONE DESK PER CALL, and the count comes from the decision. The script
-    // takes a count of its own and would happily cut three desks of its own
-    // naming; passing 1 with the desk the decision named keeps the writes and
-    // the decision in step, so a performer that applied two of three writes
-    // started exactly two agents.
+    // ONE AGENT PER CALL, AND THE COUNT IS ALREADY DECIDED. `PLOT_START_ONE`
+    // says exactly that to the script: start this one, do not re-derive a
+    // fleet size. The script's own `--start N` subtracts the workers already
+    // running, which is right for a person asking for a fleet of N and wrong
+    // for a caller applying N writes one at a time — the second call would
+    // subtract the agent the first just started. Measured 2026-09-05: a tick
+    // that decided `started=3` produced one agent without this.
+    //
+    // THE DESK MAY BE EMPTY, and that is the domain declining to invent a path
+    // rather than a missing value. The script then names one from its own
+    // `Worktree root` convention, which is the one every other desk follows.
     const run = await runProcess(scriptPath(context, DISPATCH), ['--start', '1'], {
       cwd: context.repoRoot,
-      env: { PLOT_START_DESK: worktree },
+      env: { PLOT_START_ONE: '1', PLOT_START_DESK: worktree },
       timeoutMs: START_TIMEOUT_MS,
     });
 

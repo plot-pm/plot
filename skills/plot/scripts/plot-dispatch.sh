@@ -1155,7 +1155,30 @@ if [ "$mode" = "start" ]; then
   # worker, and the question `--start` asks is about the machine's load. The
   # count is what `fleetSize` subtracts, so asking for three twice gives three
   # agents rather than six.
+  #
+  # A CALLER THAT HAS ALREADY DECIDED THE COUNT SUBTRACTS NOTHING, and
+  # `PLOT_START_ONE` is how it says so. The supervisor's tick ran `fleetSize`
+  # against the WHOLE fleet, decided N, and hands this script one write at a
+  # time; re-counting per call subtracts the agent the PREVIOUS call just
+  # started. Measured 2026-09-05 in a sandbox: a tick that decided `started=3`
+  # produced ONE agent, because calls two and three each saw a fleet already
+  # the size they were asked for.
+  #
+  # SO IT MEANS *START THIS ONE*: the count is one and the subtraction is
+  # skipped. The machine keeps its veto — a starved one still answers with
+  # fewer, which is the reading that must not be skipped, because it is about
+  # the load this very call would add.
+  #
+  # A SEPARATE VARIABLE FROM `PLOT_START_DESK`, and not a side effect of it.
+  # The two answer different questions — *where does this desk go* and *has the
+  # count already been decided* — and the caller that has decided the count is
+  # not always the caller that can name a path. The supervisor is exactly that
+  # caller: the domain names no worktree, so it sets this and leaves the path
+  # to the script's own `Worktree root` convention.
   start_running=0
+  if [ -n "${PLOT_START_ONE:-}" ]; then
+    start_count=1
+  else
   while IFS= read -r wt; do
     [ -n "$wt" ] || continue
     [ -f "$wt/.plot-worker.pid" ] || continue
@@ -1164,6 +1187,7 @@ if [ "$mode" = "start" ]; then
   done <<EOF
 $(git worktree list --porcelain </dev/null 2>/dev/null | awk '/^worktree /{print $2}')
 EOF
+  fi
 
   # THE MACHINE'S OWN READING, one timed fork. `machine-system.ts` samples five
   # and divides; this takes ONE, because the decision it feeds is coarse — three

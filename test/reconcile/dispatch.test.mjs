@@ -3036,3 +3036,257 @@ test('dispatch: a nested worktree stays invisible to git status and the marker g
     fs.rmSync(t, { recursive: true, force: true });
   }
 });
+
+
+// ---------------------------------------------------------------------------
+// `--start`: agents with no slice assigned
+// ---------------------------------------------------------------------------
+//
+// THE LAST LINK IN THE CHAIN, and it had no starter until 2026-09-05: a
+// dispatch reported `handed over feature/... → the registry` and `started=0`,
+// the supervisor ticked `queued=456 idle=0`, and `.plot/agents/` was empty. The
+// slice was queued, the registry was willing, and nobody existed to take it.
+//
+// A SEPARATE REPO PER TEST, because `--start` counts the workers already
+// running on this disk and the shared fixture's worktrees would be counted.
+
+/**
+ * Kill every process a `--start` fixture left running, agent AND wrapper.
+ *
+ * **BOTH PIDS, because the wrapper outlives its agent by construction** — it
+ * must, or there would be no exit code to write. Killing `.plot-worker.pid`
+ * alone satisfies the wrapper's `wait` and leaves the wrapper itself; measured
+ * 2026-09-05, two `sh -c` wrappers and their `sleep`s survived every run of
+ * this file and accumulated across runs.
+ *
+ * SIGKILL rather than SIGTERM: this is a fixture being torn down, not a worker
+ * being stopped, and nothing here has anything to flush.
+ *
+ * @param checkout the repository whose desks are being torn down.
+ */
+function reapFixtureWorkers(checkout) {
+  const desks = path.join(checkout, '.worktrees');
+  if (!fs.existsSync(desks)) return;
+  // THE WRAPPER WRITES ITS OWN PID FIRST AND THE AGENT'S SECOND, so a teardown
+  // arriving between the two reads one file and misses the other. One settle
+  // beats a per-file poll here: the fixture is being discarded, so the cost of
+  // waiting is 50 ms and the cost of missing is a process that outlives the run.
+  spawnSync('sleep', ['0.05']);
+  for (const desk of fs.readdirSync(desks)) {
+    for (const name of ['.plot-worker.pid', '.plot-worker.wrapper.pid']) {
+      const file = path.join(desks, desk, name);
+      if (!fs.existsSync(file)) continue;
+      const pid = Number(fs.readFileSync(file, 'utf8').trim());
+      if (!Number.isInteger(pid) || pid <= 0) continue;
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    }
+  }
+}
+
+/**
+ * Run `--start` without holding a pipe open on the detached worker.
+ *
+ * **THE PIPE IS WHAT BLOCKS, NOT THE SCRIPT.** A worker is spawned detached with
+ * its own log redirection, but it inherits the process group's stdout, so a
+ * PARENT reading through a pipe waits for EOF that the grandchild holds — for
+ * as long as the agent lives. Measured 2026-09-05: `--start 1` with a
+ * `Worker command: sleep 300` returned in 4 ms to a file and blocked for the
+ * full 300 s to `| tail`.
+ *
+ * That is the fan-out's own spawn shape and predates this verb; what changes
+ * here is only that a fixture may now keep a worker alive across two calls, so
+ * the reading has to be taken the way a real operator's shell takes it — to a
+ * terminal or a file, never through a pipe that outlives the read.
+ *
+ * @param args the arguments after the script name.
+ * @param cwd the checkout to run in.
+ * @param env extra environment for the run.
+ * @returns what the run printed.
+ */
+function runDetached(args, cwd, env = {}) {
+  const log = path.join(cwd, '.plot-start-test.out');
+  spawnSync('bash', [dispatch, ...args], {
+    cwd,
+    env: { ...process.env, ...env },
+    stdio: ['ignore', fs.openSync(log, 'w'), fs.openSync(log, 'a')],
+  });
+  return fs.readFileSync(log, 'utf8');
+}
+
+/**
+ * A checkout with a remote and a `Worker command` that returns at once.
+ *
+ * `true` is the command deliberately: these tests assert what the SCRIPT writes
+ * — desks, manifests, the summary — and a real agent would only add minutes and
+ * a process to reap. `plot-worker-loop.sh`'s own behaviour on an empty branch is
+ * `workerloop.test.mjs`'s, where the prompt is the witness.
+ */
+function repoForStart(label, workerCommand = 'true') {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `plot-start-${label}-`));
+  const origin = path.join(root, 'origin.git');
+  const checkout = path.join(root, 'repo');
+  git(root, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(root, 'clone', '-q', origin, checkout);
+  git(checkout, 'config', 'user.email', 'test@example.invalid');
+  git(checkout, 'config', 'user.name', 'Plot Test');
+  git(checkout, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(checkout, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Worktree root:** .worktrees\n'
+    + (workerCommand === '' ? '' : `- **Worker command:** ${workerCommand}\n`));
+  git(checkout, 'add', '-A');
+  git(checkout, 'commit', '-qm', 'init');
+  git(checkout, 'push', '-q', '-u', 'origin', 'main');
+  return { root, checkout };
+}
+
+test('dispatch: --start defaults to three free agents', () => {
+  const { root, checkout } = repoForStart('three');
+  try {
+    const out = runDetached(['--start'], checkout);
+    assert.match(out, /summary: agents=3 /, out);
+    const desks = fs.readdirSync(path.join(checkout, '.worktrees'));
+    assert.equal(desks.length, 3, `three desks, found ${desks.length}`);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: a started agent holds NO branch', () => {
+  // THE WHOLE POINT. `isAgentFree` reads `alive && branch === ""` as available
+  // and has since it was written; nothing ever produced a manifest carrying the
+  // empty value AT LAUNCH, only at the finish of a slice.
+  const { root, checkout } = repoForStart('branchless');
+  try {
+    runDetached(['--start', '1'], checkout);
+    const dir = path.join(checkout, '.plot', 'agents');
+    const files = fs.readdirSync(dir);
+    assert.equal(files.length, 1, `one manifest, found ${files.length}`);
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, files[0]), 'utf8'));
+    assert.equal(manifest.branch, '', 'the manifest names no branch');
+    assert.ok(manifest.worktree, 'and it still names a desk');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: a free desk is DETACHED, never on the default branch', () => {
+  // A tree sitting on the default branch is one of `plot-reap.sh`'s five
+  // refusals, and that refusal describes a tree whose dispatched branch was
+  // never checked out — which a free desk is not. A detached desk reads
+  // `branch: ""`, so the refusal that keeps it is `no-merged-pr`, which
+  // describes it accurately.
+  const { root, checkout } = repoForStart('detached');
+  try {
+    runDetached(['--start', '1'], checkout);
+    const desk = path.join(checkout, '.worktrees',
+      fs.readdirSync(path.join(checkout, '.worktrees'))[0]);
+    const head = execFileSync('git', ['symbolic-ref', '-q', 'HEAD'],
+      { cwd: desk, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .catch?.(() => '') ?? '';
+    assert.equal(head.trim(), '', 'the desk holds no branch — HEAD is detached');
+  } catch (err) {
+    // `symbolic-ref -q` exits 1 on a detached HEAD, which is the answer.
+    assert.match(String(err.status ?? err), /1/,
+      'the desk holds no branch — HEAD is detached');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: --start asks for a fleet OF N, so running it twice does not double it', () => {
+  // THE SUBTRACTION, and it is what a person asking for a fleet wants: an
+  // operator who has lost track asks for the size they want rather than for the
+  // difference.
+  //
+  // THE WORKER MUST OUTLIVE THE SECOND CALL, because the subtraction counts
+  // LIVE PIDS: a command that has already exited is a desk with a dead pid,
+  // which is honestly *not running* and would make this assert the opposite of
+  // what it means to. `sleep 300` is longer than any run of this file.
+  const { root, checkout } = repoForStart('idempotent', 'sleep 120');
+  try {
+    const first = runDetached(['--start', '2'], checkout);
+    assert.match(first, /summary: agents=2 /, first);
+    // THE WRAPPER WRITES THE PID AFTER IT SPAWNS, and there is a window in
+    // which the file is absent — honest, and read as `none`. A second call
+    // landing inside it counts a worker that IS running as absent, so the wait
+    // is for the RECORD rather than for the process.
+    //
+    // COUNTED ACROSS THE WHOLE ESTATE, not per desk: the desk directories
+    // themselves appear as the first call proceeds, so a loop that enumerated
+    // them once could wait on a set of one and return while the second was
+    // still being cut. Measured 2026-09-05 — this test passed alone and failed
+    // beside its neighbours until the wait counted the total.
+    const livePids = () =>
+      fs.readdirSync(path.join(checkout, '.worktrees'))
+        .filter((desk) =>
+          fs.existsSync(path.join(checkout, '.worktrees', desk, '.plot-worker.pid')))
+        .length;
+    for (let i = 0; i < 200 && livePids() < 2; i += 1) spawnSync('sleep', ['0.05']);
+    assert.equal(livePids(), 2, 'both workers recorded a pid before the second call');
+    const second = runDetached(['--start', '2'], checkout);
+    assert.match(second, /summary: agents=0 /, second);
+    assert.match(second, /already running/, second);
+  } finally {
+    reapFixtureWorkers(checkout);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: PLOT_START_ONE skips the subtraction, because the count was already decided', () => {
+  // THE SUPERVISOR'S CALL, AND THE DEFECT IT FIXES. The tick runs `fleetSize`
+  // against the WHOLE fleet, decides N, and hands the script one write at a
+  // time; re-counting per call subtracts the agent the PREVIOUS call just
+  // started. Measured 2026-09-05 in a sandbox: a tick that decided `started=3`
+  // produced ONE agent without this.
+  const { root, checkout } = repoForStart('startone', 'sleep 120');
+  try {
+    for (let i = 0; i < 3; i += 1) {
+      const out = runDetached(['--start', '1'], checkout, { PLOT_START_ONE: '1' });
+      assert.match(out, /summary: agents=1 /, `call ${i + 1}: ${out}`);
+    }
+    assert.equal(fs.readdirSync(path.join(checkout, '.plot', 'agents')).length, 3,
+      'three calls, three agents — none of them subtracted the ones before it');
+  } finally {
+    reapFixtureWorkers(checkout);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: --start --dry-run names the desks and creates none', () => {
+  const { root, checkout } = repoForStart('dryrun');
+  try {
+    const out = runDetached(['--start', '--dry-run'], checkout);
+    assert.match(out, /would create/, out);
+    assert.equal(fs.existsSync(path.join(checkout, '.worktrees')), false,
+      'a dry run creates no desk');
+    assert.equal(fs.existsSync(path.join(checkout, '.plot', 'agents')), false,
+      'and registers no agent');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: with no Worker command --start says so and starts nothing', () => {
+  // `worker=unconfigured` is what the performer reads to answer `unaskable` —
+  // asked, and this repo has no answer — rather than reporting a failure it
+  // should retry every sixty seconds.
+  const { root, checkout } = repoForStart('nocommand', '');
+  try {
+    const out = runDetached(['--start', '1'], checkout);
+    assert.match(out, /worker=unconfigured/, out);
+    assert.match(out, /summary: agents=0 /, out);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dispatch: `Worker command: none` is an answer, and --start reports it as one', () => {
+  const { root, checkout } = repoForStart('declined', 'none');
+  try {
+    const out = runDetached(['--start', '1'], checkout);
+    assert.match(out, /worker=declined/, out);
+    assert.match(out, /summary: agents=0 /, out);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
