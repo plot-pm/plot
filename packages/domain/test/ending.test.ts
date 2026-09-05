@@ -41,8 +41,8 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the four reasons apart', () => {
-    expect(EndingReasonSchema.options).toEqual(['bound', 'quiet', 'unreadable', 'spent']);
+  it('reads the five reasons apart', () => {
+    expect(EndingReasonSchema.options).toEqual(['bound', 'quiet', 'unreadable', 'spent', 'unstarted']);
   });
 
   it('does not collapse spent into bound', () => {
@@ -74,6 +74,32 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
     expect(endedOnAReading(readEnding(ended({ reason: 'spent', actor: 'monitor' })))).toBe(true);
     expect(endedOnAReading(readEnding(ended({ reason: 'bound' })))).toBe(false);
     expect(endedOnAReading(readEnding(ended({ reason: 'unreadable' })))).toBe(false);
+    // An exit code is a fact about a command, not a measurement of an agent —
+    // and no slice ran for anything to be read about.
+    expect(endedOnAReading(readEnding(ended({ reason: 'unstarted', actor: 'agent' })))).toBe(false);
+  });
+
+  it('keeps a prompt that never ran apart from every ending a watcher produced', () => {
+    // The other four are the floor firing or the monitor publishing. This one
+    // is the agent's own process reporting its command's exit code, which is
+    // why its actor is `agent` — `EndingActorSchema`'s only unwritten value
+    // until 2026-09-05, when three agents were refused
+    // `Session ID … is already in use` and each sub-second exit read as a
+    // completed slice.
+    const unstarted = readEnding(ended({
+      reason: 'unstarted',
+      actor: 'agent',
+      detail: 'the worker prompt exited 1 without running, on 3 attempts',
+    }));
+
+    expect(unstarted.read).toBe('ended');
+    expect(unstarted).not.toEqual(readEnding(ended({ reason: 'bound' })));
+    expect(unstarted).not.toEqual(readEnding(ended({ reason: 'quiet', actor: 'monitor' })));
+    expect(unstarted).not.toEqual(readEnding(ended({ reason: 'unreadable' })));
+    expect(endedSpent(unstarted)).toBe(false);
+    // `detail` carries the whole diagnosis, which is why no actor names the
+    // runtime.
+    expect(unstarted.read === 'ended' && unstarted.ending.detail).toContain('without running');
   });
 
   it('refuses a reason nobody defined', () => {
