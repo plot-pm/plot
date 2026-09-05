@@ -9,7 +9,7 @@
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 4
+- **Rounds:** 5
 
 ## Changelog
 
@@ -74,7 +74,9 @@ So the hop writes it and the prompt reads it. `update_manifest_on_hop` (`plot-wo
 
 **A FAILED PROMPT MUST NOT READ AS AN IDLE AGENT, AND IT MUST NOT LOSE ITS SLICE.** Both, because they answer different questions.
 
-*Fail loudly.* `EndingReasonSchema` holds four values — `bound`, `quiet`, `unreadable`, `spent` — and none of them means *nothing ran*. A prompt that could not start writes a fifth and exits non-zero, so `plot-worker-state.sh` answers `failed`, the supervisor's `attempts` budget applies, and `--restart` is reachable. Today the loop returns from `run_bounded` (`:1237`) and falls through to a wait.
+*Fail loudly.* `EndingReasonSchema` holds four values — `bound`, `quiet`, `unreadable`, `spent` — and none of them means *nothing ran*. A prompt that could not start writes a fifth and exits non-zero, so `plot-worker-state.sh` answers `failed`, the `attempts` budget applies, and `--restart` is reachable. Today the loop returns from `run_bounded` (`:1237`) and falls through to a wait.
+
+**The ACTOR is `agent`, and `detail` carries the runtime's words.** The agent's own process ran the command and received the refusal, so the party that acted is the agent — `bound` and `monitor` name watchers that did not fire here. This gives `EndingActorSchema`'s only unwritten value its first writer: [`an-agent-lifecycle-refuses`](2026-09-04-a-lifecycle-is-enforced-by-a-test.md) measured `'agent'` as admitted, documented *"the agent stopped itself"*, and produced by nothing. No new actor is invented for the runtime, because `detail` already exists to carry what separates one ending from another, and *"Session ID … is already in use"* is the entire diagnosis.
 
 *Keep the assignment.* The manifest's `branch` is cleared on the way into the wait, so an agent that failed to start reads free and the slice returns to the queue. It must stay claimed: nothing else should take a slice this agent was given and is still holding a desk for.
 
@@ -120,7 +122,15 @@ So the flag is emitted only with a value, inside the same `[ -n … ]` guard the
 
 **Done when** `plot-init` writes `.plot/worker-prompt.sh` in a fresh repository, offers the update where one already exists and overwrites nothing, this repo's copy handles a second slice, and the template contains no session decision of its own.
 
-**A FAILED START IS RESTARTED, NOT ESCALATED.** `plot-worker-state.sh` will read `failed` on a desk holding a live claim and no work, and that is the case the supervisor's `attempts` budget exists for — `--restart` inherits the tree untouched, so nothing is lost by trying. A transient runtime failure recovers itself; a deterministic one spends the budget and is marked for a person with the reason already written in the ending record. No special-casing: a start that failed is a failure like the others.
+**A FAILED START IS RESTARTED IN PLACE, NOT REPLACED.** What is restarted is the agent, on the branch it was handed, at the desk it already holds — a fresh prompt, nothing else moved. The claim and the desk are both correct; only the invocation failed. That is exactly what `--restart` does today: it *"inherits the tree untouched"* and refuses on a live pid, a `PLOT-BLOCKED` marker and a PR, none of which a failed start produces.
+
+**Handing the slice to a different agent would be the wrong reading**, because the fault is the invocation's and not the agent's — a second agent invoked the same way fails the same way, having paid for a desk and a claim move.
+
+**THE LOOP BOUNDS ITS OWN RETRIES ON `attempts`, AND THAT WIDENS THE FIELD'S MEANING.** `registry.ts:141` documents it as *"how many times a SUPERVISOR retried this agent"* and states plainly that *"nothing in Plot raises it yet; the field exists so the two counters were never one."* This slice is what raises it, and the loop is not a supervisor.
+
+**The widening is deliberate and the alternative is worse.** `attempts` versus `relaunches` separates *automatic* from *a person's* — not *supervisor* from *loop*. A loop retry is automatic by every property the distinction was drawn for: it spends no human patience, and counting it against `relaunches` would let a self-retry exhaust an operator's record. So the field keeps its dividing line and loses only the word *supervisor* from its docstring, which the slice updates.
+
+**Without a bound the agent spins.** The slice stays assigned, `wait_for_work` finds a branch, the prompt fails in under a second, and nothing stops that repeating for the full eight hours of `Worker bound: 28800`. Past the budget the loop ends the worker, leaving a `failed` desk and a `PLOT-BLOCKED` marker for a person, with the runtime's own words already in the ending record.
 
 **AN AGENT HOLDING A CLAIM WITH NO PROMPT RUNNING IS A FINDING.** The AgentMonitor reports three today — `clear`, `owes a review`, `owes an answer`, `holds unlanded work` — and gains a fourth. **This is deliberately wider than the bug.** The fifth `EndingReason` makes THIS cause visible; the finding catches the next cause of the same shape, which is what today's measurement argues for: three agents sat `running · idle` for over an hour with every exit code zero, and what found them was a person reading a log.
 
