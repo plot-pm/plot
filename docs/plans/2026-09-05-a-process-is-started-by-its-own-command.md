@@ -6,7 +6,7 @@
 
 - **Phase:** Approved
 - **Type:** feature
-- **Sprint:** every-concept-has-one-owner
+- **Sprint:** the-domain-owns-the-lifecycle
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 4

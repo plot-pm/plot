@@ -1,1 +1,0 @@
-../2026-W36-every-concept-has-one-owner.md

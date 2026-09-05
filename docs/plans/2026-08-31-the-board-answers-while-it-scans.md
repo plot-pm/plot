@@ -48,7 +48,7 @@ than one with no headline: it is the sentence a reader carries away.
 
 - **Phase:** Draft
 - **Type:** bug
-- **Sprint:** every-concept-has-one-owner
+- **Sprint:** the-domain-owns-the-lifecycle
 - **Review:** pr
 - **Impl:** own branches
 <!-- WITHDRAWN 2026-08-31, Jan Wloka, in-session. The phase stays Draft because

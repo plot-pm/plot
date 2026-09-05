@@ -8,7 +8,6 @@
 
 - **Phase:** Approved
 - **Type:** feature
-- **Sprint:** every-concept-has-one-owner
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
