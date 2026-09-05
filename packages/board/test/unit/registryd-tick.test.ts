@@ -699,6 +699,7 @@ describe('a tick starts agents when queued > running', () => {
     claimedBranches: async () => new Set<string>(),
     briefPresent: async () => true,
     sliceHasMerged: async () => false,
+    queuedHasLanded: async () => 'not-landed',
     workerAlive: async () => true,
     blocked: async () => false,
     ...over,
@@ -758,6 +759,63 @@ describe('a tick starts agents when queued > running', () => {
       now: () => 0,
     });
     expect(tickLine(report)).toContain('started=0');
+  });
+
+  it('offers nothing for a branch the host says merged, and starts nobody to take it', async () => {
+    // THE DEFECT, THROUGH THE TICK THAT FOUND IT. Measured 2026-09-05: the
+    // first supervisor tick that ever matched decided three hand-overs, and
+    // two were branches merged an hour earlier. The ref reading could not see
+    // it — merging deletes the ref, so a finished branch reads exactly like one
+    // nobody has started.
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ queuedHasLanded: async () => 'landed' }),
+      fleet: cap(3),
+    });
+
+    expect(report.handOver?.detail.assignments).toEqual([]);
+    expect(report.handOver?.detail.held).toEqual([
+      { branch: 'feature/waiting', hold: 'already-merged' },
+    ]);
+    expect(report.handOver?.writes.some((w) => w.kind === 'worker-start')).toBe(false);
+  });
+
+  it('offers nothing when the host could not be asked, and names the reading that failed', async () => {
+    // SILENCE HOLDS THE SLICE. The reaper reads an unreachable host as *not
+    // merged* and keeps a checkout; here the same word would hand finished
+    // work to a free agent, so the direction inverts.
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ queuedHasLanded: async () => 'unknown' }),
+      fleet: cap(3),
+    });
+
+    expect(report.handOver?.detail.assignments).toEqual([]);
+    expect(report.handOver?.detail.held).toEqual([
+      { branch: 'feature/waiting', hold: 'merge-unknown' },
+    ]);
+  });
+
+  it('asks the host only about a slice it could otherwise hand over', async () => {
+    // THE HOST IS THE ONE READING WITH A RATE LIMIT BEHIND IT, and this estate
+    // carried 454 queued slices on the tick that found the defect. A slice
+    // already held by a missing brief cannot be handed over whatever the host
+    // says, so asking would spend the budget on an answer nothing reads.
+    const asked: string[] = [];
+    await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({
+        briefPresent: async () => false,
+        queuedHasLanded: async (branch) => {
+          asked.push(branch);
+          return 'not-landed';
+        },
+      }),
+    });
+    expect(asked).toEqual([]);
   });
 
   it('writes nothing between ticks — the same estate twice reaches the same decision', async () => {

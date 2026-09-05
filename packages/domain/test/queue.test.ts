@@ -28,6 +28,7 @@ const slice = (over: Partial<QueuedSlice> = {}): QueuedSlice => ({
   slug: 'a-plan',
   briefPresent: true,
   claimable: true,
+  landed: 'not-landed',
   ...over,
 });
 
@@ -53,6 +54,106 @@ describe('isHandOverReady — the brief gate, at the hand-over', () => {
     // is not a slice missing a brief, and a reader sent to write one would be
     // sent to fix the wrong thing.
     expect(whyNotReady(slice({ claimable: false, briefPresent: false }))).toBe('not-claimable');
+  });
+});
+
+describe('whyNotReady — a finished slice leaves the queue', () => {
+  /**
+   * **THE DEFECT THIS ASSERTS COST NOTHING ONLY BECAUSE `--once` WRITES
+   * NOTHING.** Measured 2026-09-05, on the first supervisor tick that ever
+   * matched agents to slices: three hand-overs were decided and two were
+   * branches whose PRs had merged an hour earlier. The queue read *claimed*
+   * off the remote ref, and merging deletes the ref — so the one event that
+   * finishes a slice returned it to the queue looking untouched. A performing
+   * tick would have put two agents on work already on `main`, each opening a
+   * duplicate PR.
+   */
+
+  it('holds a slice the host says merged, and names the merge rather than the queue', () => {
+    expect(whyNotReady(slice({ landed: 'landed' }))).toBe('already-merged');
+  });
+
+  it('offers a slice with no PR — the reading that stays is the ref', () => {
+    // The correct offer of the three measured: a branch nobody had started,
+    // with no PR at all. Adding the landing question must not cost it.
+    expect(whyNotReady(slice({ landed: 'not-landed' }))).toBeNull();
+    expect(isHandOverReady(slice({ landed: 'not-landed' }))).toBe(true);
+  });
+
+  it('holds a slice whose host could not be asked, and says which reading failed', () => {
+    // SILENCE WITHHOLDS WORK HERE, WHICH INVERTS THE REAPER'S DIRECTION. There
+    // an unreachable host answers *not merged* and keeps a checkout that was
+    // about to be deleted; here the same word means *hand this over*, so a
+    // quiet host would return every finished branch to the queue at once.
+    expect(whyNotReady(slice({ landed: 'unknown' }))).toBe('merge-unknown');
+  });
+
+  it('blames the merge before the brief, so nobody is sent to write one for finished work', () => {
+    // A merged branch keeps its brief and its plan, so it answers `claimable`
+    // and `briefPresent` exactly as unstarted work does. Asked in either other
+    // order the hold would read `no-brief` and send a reader to do nothing.
+    expect(whyNotReady(slice({ landed: 'landed', briefPresent: false }))).toBe('already-merged');
+    expect(whyNotReady(slice({ landed: 'landed', claimable: false }))).toBe('already-merged');
+  });
+
+  it('leaves `isHandOverReady` alone — the gate rule was told the wrong thing, not wrong', () => {
+    // `rules/queue.ts` reads `claimable && briefPresent` and still does. The
+    // landing is asked by `whyNotReady`, which is what `matchQueue` consults.
+    expect(isHandOverReady(slice({ landed: 'landed' }))).toBe(true);
+    expect(isHandOverReady(slice({ landed: 'unknown' }))).toBe(true);
+  });
+
+  it('keeps a merged slice out of the hand-over, and leaves the agent idle', () => {
+    // THE PROPERTY THE DEFECT BROKE, asserted where it is decided. A free agent
+    // and a finished slice must produce no assignment at all.
+    const match = matchQueue({
+      slices: [slice({ branch: 'feature/merged', landed: 'landed' })],
+      agents: [agent('a')],
+    });
+    expect(match.assignments).toEqual([]);
+    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged' }]);
+    expect(match.idle).toEqual(['a']);
+  });
+
+  it('does not ask for an agent to take a merged slice', () => {
+    // `scaleUp` COUNTS `no-free-agent` AND NOTHING ELSE, and this is what says
+    // the new holds join the right side of that line: a finished branch is not
+    // work waiting for capacity, so it must not pull a worker into existence.
+    const decision = assign(
+      {
+        slices: [
+          slice({ branch: 'feature/merged', landed: 'landed' }),
+          slice({ branch: 'feature/quiet-host', landed: 'unknown' }),
+        ],
+        agents: [],
+      },
+      {
+        fleet: {
+          size: 3,
+          headroom: 'clear',
+          spawnCostMs: 1,
+          desks: ['/desks/new-1', '/desks/new-2', '/desks/new-3'],
+        },
+      },
+    );
+    expect(decision.detail.scaling?.start).toBe(0);
+    expect(decision.writes.some((write) => write.kind === 'worker-start')).toBe(false);
+  });
+
+  it('hands over the unmerged branch of a slice whose sibling merged', () => {
+    // `claimable` IS A PROPERTY OF THE SLICE, applied to every branch in it. A
+    // slice with one merged branch and one open branch is eligible, so the
+    // merged branch used to inherit `claimable: true` — which is why the
+    // reading has to be per branch rather than per slice.
+    const match = matchQueue({
+      slices: [
+        slice({ branch: 'feature/merged', landed: 'landed' }),
+        slice({ branch: 'feature/open', landed: 'not-landed' }),
+      ],
+      agents: [agent('a')],
+    });
+    expect(match.assignments.map((a) => a.branch)).toEqual(['feature/open']);
+    expect(match.held).toEqual([{ branch: 'feature/merged', hold: 'already-merged' }]);
   });
 });
 
