@@ -87,11 +87,43 @@ deliberately pushes no claim, so there is nothing for it to restart.
 it.** An estate that happens to hold a free agent hides the gap; an empty one
 shows it. The gap is in the model, not in the estate.
 
+**AN AGENT IS A RUNNING WORKER, NOT A REGISTRY ROW.** `isAgentFree` opens with
+`if (reading.state !== 'running') return false`, so a manifest without a live
+process is not an agent the registry can hand anything to. Three agents means
+three worker loops, and on this machine one agent is four processes — wrapper,
+loop, and two monitors. Twelve processes stand before any slice is taken.
+
+**That is the cost, and it is accepted rather than hidden.** The alternative —
+desks with no process, workers started only on assignment — would need
+`isAgentFree` to stop requiring `running`, and the rule's own docstring explains
+why it does: a manifest field would need clearing by whoever hands over the
+work, and an agent that crashed between finishing and writing it would read free
+without being so. Standing capacity that can be measured beats a cheaper state
+that can lie.
+
+**The loop already starts branchless.** It reads `${PLOT_BRANCH:-?}` and
+`${PLOT_WORKTREE:-$PWD}` throughout and has a `wait_for_work` that polls its own
+manifest for an assignment — the half `the-registry-queues-a-brief` delivered.
+This slice starts N of those with nothing assigned; it does not teach the loop
+to wait.
+
 **A COUNT, AND A DEFAULT OF THREE.** The command takes how many agents to bring
 up and defaults to 3, so an operator who has just installed the supervisor has a
 fleet rather than an empty registry. Three because it is small enough to be
 wrong about cheaply and large enough to prove the hand-over matches more than
 one agent to more than one slice.
+
+**`--start` BRINGS UP BOTH, because a supervisor with no agents does nothing.**
+`/plot-fleet --start` starts the supervisor and three agents; `--agents N`
+chooses a different number, and `--agents 0` is how an operator asks for the
+supervisor alone. One command for the ordinary case, and the flag for the
+exception rather than the reverse.
+
+**AN IDLE AGENT DIES ON THE EXISTING BOUND.** `Worker bound: 28800` already caps
+a worker's life at eight hours, and an agent handed nothing lives under the same
+number as one mid-task. No idle-specific bound: a second number would need its
+own answer to *how long is too long to wait*, and there is no measurement for
+that yet. When there is, it can have one.
 
 **`--max` IS NOT THIS NUMBER, and the two must not be confused.**
 `registryd --max` bounds *how many agents one tick may act on* — a rate limit on
@@ -103,6 +135,16 @@ A fleet size is a third thing: how many workers this machine runs at once.
 costs — *"7 workers died `exit 124`"*, *"five workers ran fine at load 10"* — so
 the count is a request, and a machine already at its bound may answer with
 fewer. It says so rather than silently starting three.
+
+**The shortfall is dropped, not remembered.** A run that starts two of three
+reports which and why — *"started 2 of 3 — the machine is at its bound (load
+14.2, 5 workers already running)"* — and the operator runs it again when the
+machine settles. **A stored target would be the daemon's first piece of state**,
+and its statelessness is a measured property rather than an accident: a
+`kill -9` two seconds into a 3.4 s tick was followed by a whole tick reaching
+the identical decision, with nothing written. Topping up to a remembered number
+would trade that for a convenience the operator can supply by typing the command
+twice.
 
 **Done when** a command brings agents into existence with no slice assigned —
 free, registered, waiting — defaulting to three, and the supervisor's next tick
