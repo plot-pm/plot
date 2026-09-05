@@ -360,16 +360,16 @@ export const archiveStory = (story: Story, input: ArchiveStoryInput): Transition
 };
 
 /**
- * A plan's phase as this rule reads it — the spelling `plot-plan-meta.sh`
- * emits, lower-cased.
+ * A plan's state as this rule reads it — the spelling `plot-plan-meta.sh`
+ * emits, lower-cased. The field is named `phase` because the wire key is.
  *
- * Taken as a reading rather than as the domain's `Phase` type so a caller
+ * Taken as a reading rather than as the domain's `PlanState` type so a caller
  * holding the board's plan records passes them unchanged; an unrecognised
  * spelling is representable and counts as *not released*, which is the safe
  * direction: it can only hold a story back from `archived`.
  */
 export interface StoryPlanReading {
-  /** The plan's phase, as the parser normalized it. */
+  /** The plan's state, as the parser normalized it. */
   phase: string;
 }
 
