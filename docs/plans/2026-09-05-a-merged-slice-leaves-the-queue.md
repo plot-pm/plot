@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-05, Jan Wloka, in-session
 - **Started:** 2026-09-05, Jan Wloka, `bug/a-merged-slice-leaves-the-queue`
+- **Delivered:** 2026-09-05
 
 ## Changelog
 
