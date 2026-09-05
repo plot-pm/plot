@@ -230,6 +230,53 @@ an agent headless" is a per-project, per-tool answer that Plot must not
 hardcode (Principle 5). Without the key, worktrees are prepared and the human
 starts them — a useful mode in its own right.
 
+## Starting an agent with no slice
+
+`--start [N]` is the last link in *dispatch queues → registry matches → an agent
+takes it*, and until 2026-09-05 the chain had no starter: a dispatch reported
+`started=0`, the supervisor ticked `queued=456 idle=0`, and `.plot/agents/` was
+empty. The slice was queued, the registry was willing, and nobody existed to
+take it.
+
+**The manifest names no branch, and that is the whole instruction.**
+`isAgentFree` reads `alive && branch === ''` as available and has since it was
+written; nothing ever produced a manifest carrying the empty value at LAUNCH,
+only at the finish of a slice. `write_agent_manifest` already took the branch as
+a parameter, so `""` needed no change to its shape.
+
+**The loop had to learn to wait.** It opened `while true; do ... run_bounded`
+with no guard on `PLOT_BRANCH` anywhere above it, so a branchless start ran the
+project's worker prompt — *"You are implementing the branch $PLOT_BRANCH"* —
+against an empty variable. The wait it should have entered already existed and
+already said the right sentence; what was missing was reaching it, since the
+wait sits on the hop path after a prompt has already run. The branch-holding
+block is now guarded rather than duplicated.
+
+**Where a free agent sits, and why it is detached.** The loop reads
+`${PLOT_WORKTREE:-$PWD}` throughout and derives the transcript directory from
+that path, so a free agent still needs a desk. It has no branch to cut one from.
+`reset_desk` step 1 already checks out `origin/<main>` **detached** before
+attaching a slice's branch, so a desk that starts detached is where every
+hand-over passes through anyway, and the first assignment is a plain
+`checkout -b` from it.
+
+Detached rather than *on* the default branch: `on-default-branch` is one of
+`plot-reap.sh`'s five refusals, and the refusal describes a tree whose
+dispatched branch was never checked out — which is not what a free desk is. A
+detached desk reads `branch: ''`, so the refusal that keeps it is
+`no-merged-pr`, which describes it accurately.
+
+**The count is a request.** `packages/domain/src/rules/fleet-size.ts` owns it:
+subtract the workers already running (so `--start 3` twice gives three agents,
+not six), then let the machine reduce it further. A starved machine still gives
+**one** rather than refusing — the load comes from work already running, so a
+fleet that starts nothing while starved can never recover on its own.
+
+**The shortfall is reported and never remembered.** *"started 2 of 3 — the
+machine is at its bound"* is a sentence an operator reads before running the
+command again. A stored target would be the fleet's first piece of state, and
+the supervisor's statelessness is measured rather than assumed.
+
 ## Why fan-out is human-paced
 
 Monitoring is mechanical; committing to N parallel agents is a decision with

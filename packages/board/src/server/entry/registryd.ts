@@ -1,5 +1,5 @@
 import { supervise, type SuperviseDetail } from '@plot-pm/domain/workflows/supervise';
-import { assign, type AssignDetail } from '@plot-pm/domain/workflows/assign';
+import { assign, type AssignDetail, type FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Decision } from '@plot-pm/domain/workflows/decision';
 
 import { readTick, type SupervisorWorld } from '../supervisor.js';
@@ -121,6 +121,20 @@ export interface TickOptions {
   queue?: QueueWorld;
   /** How many agents one tick may act on; 0 for no bound. */
   max?: number;
+  /**
+   * How large the fleet may grow, what the machine says, and the desks this
+   * tick is willing to cut — or absent to decide nothing about the fleet's size.
+   *
+   * **READ ONCE PER TICK, LIKE EVERY OTHER READING.** A cap that changed
+   * between the queue read and the decision would let one tick match against a
+   * fleet it then sized differently.
+   *
+   * **ASKED, NOT HELD.** It is a function rather than a value so a tick reads
+   * the operator's current cap and the machine's current load; a value captured
+   * at daemon start would make a control the board writes take effect only on
+   * restart.
+   */
+  fleet?(): Promise<FleetCap>;
   /** The clock, so a test can hold one. */
   now?(): number;
 }
@@ -174,10 +188,18 @@ export const tick = async (options: TickOptions): Promise<TickReport> => {
     //
     // BOTH HALVES READ THE SAME REGISTRY LIST. A second read between them would
     // let one tick supervise one set of agents and hand work to another.
+    //
+    // THE FLEET CAP IS ASKED HERE AND NOWHERE ELSE IN THE TICK, so the size
+    // decision reads the same estate the match did. A tick with no `fleet`
+    // starts nothing and reports `scaling: null` — *nobody asked*, which is
+    // what an operator running the supervision half alone gets.
     const handOver =
       options.queue === undefined
         ? null
-        : assign(await readQueue(entries, options.queue), { max: options.max ?? 0 });
+        : assign(await readQueue(entries, options.queue), {
+            max: options.max ?? 0,
+            fleet: options.fleet === undefined ? undefined : await options.fleet(),
+          });
 
     return {
       startedAt,
@@ -286,6 +308,11 @@ export const tickLine = (report: TickReport): string => {
       `queued=${queue.held.length}`,
       `idle=${queue.idle.length}`,
     );
+    // `started=` IS OMITTED WHEN NOBODY ASKED TO SCALE, the same rule the three
+    // fields above follow: `started=0` on a tick that never read a cap claims
+    // the fleet was already the size it should be, which is a claim this tick
+    // did not measure.
+    if (queue.scaling !== null) fields.push(`started=${queue.scaling.start}`);
   }
 
   fields.push(`cost=${report.costMs}ms`);

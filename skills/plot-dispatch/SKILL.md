@@ -35,6 +35,7 @@ parallel work is a decision. This command therefore never runs itself, and
 
 **Input:** `$ARGUMENTS` = `[--dry-run] [--no-start] [--max N] [--allow-local]
 [--allow-waiting] <slug>`,
+or `--start [N]` to bring free agents into existence,
 or `--status` / `--stop <branch>` / `--restart <branch>` to inspect, stop or
 replace a worker, or `--migrate [--yes]` to move idle legacy worktrees into the
 configured `Worktree root:`.
@@ -401,6 +402,44 @@ harness or drops the flag is reported honestly rather than assumed compliant.
 transcript at all, and some name it differently. Both read as *resume
 unavailable*, which is the truth about that project rather than a defect in it.
 
+## Starting free agents
+
+A fan-out hands slices to the registry and starts nothing. The registry matches
+a queued slice to a **free** agent — running, holding no branch — and until one
+exists there is nobody to match. Measured 2026-09-05: a dispatch reported
+`handed over feature/... → the registry` and `started=0`, the supervisor ticked
+`queued=456 idle=0`, and `agents registered: 0`.
+
+```bash
+../plot/scripts/plot-dispatch.sh --start        # three free agents
+../plot/scripts/plot-dispatch.sh --start 5      # five
+../plot/scripts/plot-dispatch.sh --start --dry-run
+```
+
+Each agent gets a desk, a manifest naming **no branch**, and a loop that waits.
+`isAgentFree` already reads that state as available, so the supervisor's next
+tick can hand each one a queued slice with nobody touching a desk.
+
+**The count is a request, and the machine has the last word.** It is reduced by
+the workers already running — so `--start 3` twice gives three agents, not six —
+and reduced again by what the machine can bear. A run that starts two of three
+says which and why; run it again when the machine clears. **The shortfall is
+never remembered**, because a stored target would be the fleet's first piece of
+state.
+
+**Where a free agent sits.** Its desk is cut DETACHED at `origin/<main>`. It has
+no branch to cut one from, and the worker loop's own hand-over already passes
+through exactly that state — `reset_desk` checks out `origin/<main>` detached
+before attaching the next slice. Detached rather than *on* the default branch:
+a tree sitting on the default branch is one of `plot-reap.sh`'s five refusals,
+and that refusal exists to describe a tree whose dispatched branch was never
+checked out, which a free desk is not.
+
+**An idle agent dies on the existing bound.** `Worker bound` caps a worker at
+eight hours and an agent handed nothing lives under the same number. There is no
+idle-specific bound, because *how long is too long to wait* has no measurement
+behind it yet.
+
 ## Inspecting, stopping and restarting workers
 
 Detached workers would otherwise be invisible:
@@ -411,7 +450,7 @@ Detached workers would otherwise be invisible:
 ../plot/scripts/plot-dispatch.sh --restart feature/x   # hand a stopped branch to a new worker
 ```
 
-All three work **regardless of the plan's phase** — work already running must
+These and `--start` all work **regardless of the plan's phase** — work already running must
 stay inspectable even if the plan was since delivered. `--stop` and `--restart`
 each require an explicit branch name (containing `/`); there is deliberately no
 "stop everything", and no "restart whatever looks stuck".

@@ -15,6 +15,7 @@ import {
   type SupervisorWorld,
 } from '../../src/server/supervisor.js';
 import { tick, tickLine, TICK_INTERVAL_MS, TICK_COST_MS } from '../../src/server/entry/registryd.js';
+import type { QueueWorld } from '../../src/server/queue-reading.js';
 import type { AgentEntry } from '../../src/server/registry.js';
 
 const OPEN = '<!' + '--';
@@ -672,5 +673,108 @@ describe('the next tick re-reads and continues', () => {
 
     const freshProcess = await tick({ registry, world: world({ deskFile: () => null }) });
     expect(continued.decision).toEqual(freshProcess.decision);
+  });
+});
+
+
+describe('a tick starts agents when queued > running', () => {
+  /**
+   * A queue world holding one plan with one unclaimed, briefed branch.
+   *
+   * NO REPOSITORY AND NO PROCESS TABLE. Every member is a reading the fleet
+   * scan and the brief gate already take, so the whole hand-over half is
+   * reachable from plain records.
+   */
+  const queueWorld = (over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [
+      {
+        file: 'docs/plans/2026-09-05-a-plan.md',
+        // LOWERCASE, as `plot-plan-meta.sh` normalises it and `sliceVerdicts`
+        // reads it. `Approved` is what the file says; this is what the parser
+        // emits, and the rule tests the parser's spelling.
+        phase: 'approved',
+        slices: [{ branches: [{ branch: 'feature/waiting', deferred: false }] }],
+      } as never,
+    ],
+    claimedBranches: async () => new Set<string>(),
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    workerAlive: async () => true,
+    blocked: async () => false,
+    ...over,
+  });
+
+  const cap = (size: number) => async () => ({
+    size,
+    headroom: 'clear' as const,
+    spawnCostMs: 1,
+    desks: ['', '', ''],
+  });
+
+  it('names a start for a slice nothing could take', async () => {
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld(),
+      fleet: cap(3),
+    });
+
+    expect(report.handOver?.detail.held).toEqual([
+      { branch: 'feature/waiting', hold: 'no-free-agent' },
+    ]);
+    expect(report.handOver?.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(3);
+  });
+
+  it('starts nothing and reports `null` when nobody asked it to scale', async () => {
+    // NULL IS *NOBODY ASKED*, NOT *THE FLEET WAS THE RIGHT SIZE*. A daemon
+    // running without `--start-agents` must not claim it measured a fleet it
+    // was never allowed to grow.
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld(),
+    });
+
+    expect(report.handOver?.detail.scaling).toBeNull();
+    expect(report.handOver?.writes.some((w) => w.kind === 'worker-start')).toBe(false);
+  });
+
+  it('omits `started=` from the line when nobody asked, rather than printing a zero', async () => {
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ plans: async () => [] }),
+      now: () => 0,
+    });
+    expect(tickLine(report)).not.toContain('started=');
+  });
+
+  it('prints `started=` when it was asked, including a zero it measured', async () => {
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ plans: async () => [] }),
+      fleet: cap(3),
+      now: () => 0,
+    });
+    expect(tickLine(report)).toContain('started=0');
+  });
+
+  it('writes nothing between ticks — the same estate twice reaches the same decision', async () => {
+    // THE STATELESSNESS IS THE TICK'S OWN CONTRACT, and scaling must not be the
+    // thing that breaks it. The count comes from the queue and the fleet as
+    // each pass measures them, so a daemon SIGKILLed between deciding and
+    // starting repeats the reading rather than resuming a target.
+    const options = {
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld(),
+      fleet: cap(3),
+      now: () => 0,
+    };
+    const first = await tick(options);
+    const second = await tick(options);
+    expect(second.handOver?.detail.scaling).toEqual(first.handOver?.detail.scaling);
+    expect(second.handOver?.writes).toEqual(first.handOver?.writes);
   });
 });

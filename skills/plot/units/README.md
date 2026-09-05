@@ -139,11 +139,16 @@ node skills/plot/scripts/board/plot-registryd.mjs --once      # one tick, then e
 node skills/plot/scripts/board/plot-registryd.mjs --dry-run   # accepted; every run is one
 node skills/plot/scripts/board/plot-registryd.mjs --max 3     # act on at most three agents
 node skills/plot/scripts/board/plot-registryd.mjs --interval 30
+node skills/plot/scripts/board/plot-registryd.mjs --start-agents  # and start them
 ```
 
 `--once` exits `1` when the tick could not complete and `0` when it did, which is what an operator and a `Type=oneshot` unit read. The looping form never exits on an incomplete tick — its failure signal is the log, and exiting would hand the OS supervisor a restart it does not need for a reading that will be taken again in a minute.
 
-**The tick decides and performs nothing.** It names every write it would make and makes none, so running it against a live estate is safe at any time.
+**Deciding is the default and performing is opt-in.** The tick names every write it would make and makes none, so running it against a live estate is safe at any time.
+
+**`--start-agents` is the one exception**, and it is the one write this daemon performs. A tick with a queue nothing can take starts free agents towards the board's own **Parallel agents** cap, read fresh every tick so the stepper and the daemon cannot give two answers to one question. Three desks per tick bound how fast it grows; the cap bounds how far. Every other write the tick names — a reap, a correction, a blocked marker, an assignment — is still decided and never performed, and a run without the flag changes nothing on the machine.
+
+The flag is off in both unit templates. Turn it on by adding it to `ProgramArguments` (launchd) or `ExecStart` (systemd) once you have watched a few ticks and agree with what they decided.
 
 ## If it does not start
 

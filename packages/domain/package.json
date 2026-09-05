@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./adapters": "./src/adapters/index.ts",
     "./entities/*": "./src/entities/*.ts",
+    "./ports/*": "./src/ports/*.ts",
     "./rules/*": "./src/rules/*.ts",
     "./transitions/*": "./src/transitions/*.ts",
     "./workflows/*": "./src/workflows/*.ts"
