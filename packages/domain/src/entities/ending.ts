@@ -17,7 +17,7 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
 /**
  * Why a worker stopped.
  *
- * FOUR REASONS, AND `bound` IS NOT THE OTHERS. Until this record existed a
+ * FIVE REASONS, AND `bound` IS NOT THE OTHERS. Until this record existed a
  * worker ended for two reasons and both were time — the bound expired or the
  * monitor reported idle — so an operator reading a desk could not tell a clock
  * from a finding.
@@ -33,13 +33,23 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  *   rather than an agent's fault.
  * - `spent` — the agent's context ran out. Nothing is wrong with it; it simply
  *   should not be handed another slice.
+ * - `unstarted` — the prompt never ran. The command the agent launched exited
+ *   non-zero before doing any work, so no slice was attempted and no watcher
+ *   fired. `detail` carries the runtime's own words, which is the whole
+ *   diagnosis: measured 2026-09-05, three agents handed a second slice were
+ *   refused with *"Session ID … is already in use"* and the loop read each
+ *   sub-second exit as a completed slice.
+ *
+ * `unstarted` IS THE ONLY REASON NO WATCHER PRODUCED. The other four are the
+ * floor firing or the monitor publishing; this one is the agent's own process
+ * reporting its command's exit code, which is why its actor is `agent`.
  *
  * `unreadable` IS KEPT APART FROM `bound` DELIBERATELY. Both are the floor
  * firing, and they differ in what was known WHILE the worker ran rather than in
  * what stopped it — collapsing them claims a measurement was made and came back
  * empty, when Plot never had the reading at all.
  */
-export const EndingReasonSchema = z.enum(['bound', 'quiet', 'unreadable', 'spent']);
+export const EndingReasonSchema = z.enum(['bound', 'quiet', 'unreadable', 'spent', 'unstarted']);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 
 /**
@@ -52,22 +62,31 @@ export type EndingReason = z.infer<typeof EndingReasonSchema>;
  *
  * - `bound` — the wall-clock watchdog.
  * - `monitor` — the WorkerMonitor.
+ * - `agent` — the agent's own process ran the command and it failed to start.
  *
- * **TWO ACTORS, AND THE AGENT IS NOT ONE.** A third value `agent` was admitted
- * here and documented as *"the agent stopped itself"*. Nothing ever wrote it:
- * `plot-worker-loop.sh` makes three `write_ending` calls and passes `monitor`
- * and `bound` only. The agent's PROCESS runs `exit 124` at `:1296`, but the
- * party that ACTED is the watchdog that fired or the monitor that found it
- * idle — which is what the loop's own comment at `:1284` already says: *"The
- * actor is the bound either way."*
+ * **THE `agent` ACTOR WAS REMOVED AND IS BACK FOR ONE REASON.** It was admitted
+ * from the start, documented as *"the agent stopped itself"*, and written by
+ * nothing; `a-lifecycle-is-enforced-by-a-test` removed it on that measurement
+ * and on the reading `transitions/agent.ts` states — *an agent does not decide
+ * to stop; something measures it and stops it, and the ending records that
+ * party.*
  *
- * So the value is removed rather than left admitted and unreachable, and
- * `transitions/agent.ts` states the rule that keeps it out: an ending naming
- * `agent` is an agent claiming it decided its own stop, which the design gives
- * no party for. The refusal reads a STRING rather than this type, because an
- * ending file on a desk is bytes until something validates them.
+ * **That reading holds for every ending a WATCHER produced, and `unstarted` is
+ * not one.** `bound` and `unreadable` are the floor firing, `quiet` and `spent`
+ * are the monitor publishing. For a prompt whose command exited non-zero
+ * without running, no watcher fired at all: the agent's own process launched
+ * the command and received the refusal, and there is no third party to name.
+ * `bound` would claim a clock expired and `monitor` a finding was published,
+ * and both would be false.
+ *
+ * **No actor names the runtime**, because `detail` is where the text that
+ * separates one ending from another already goes — *"Session ID … is already in
+ * use"* is the whole diagnosis, and it is a sentence rather than a party.
+ *
+ * `ENDING_ACTORS` in `transitions/agent.ts` is the list a reader off disk is
+ * checked against, and it carries all three again for the same reason.
  */
-export const EndingActorSchema = z.enum(['bound', 'monitor']);
+export const EndingActorSchema = z.enum(['bound', 'monitor', 'agent']);
 export type EndingActor = z.infer<typeof EndingActorSchema>;
 
 /**
@@ -161,6 +180,8 @@ export const readEnding = (text: string | null): EndingReading => {
  * `quiet` and `spent` are findings: something was measured about the agent and
  * the measurement is what ended it. `bound` and `unreadable` are the floor —
  * time passed, and in the second case nothing could be read at all.
+ * `unstarted` is neither: an exit code is a fact about a command rather than a
+ * measurement of an agent, and no slice ran for anything to be read about.
  *
  * This is the distinction the plan asserts and the estate could not draw: a
  * bound expiry and a context exhaustion are different endings.

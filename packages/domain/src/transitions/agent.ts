@@ -77,23 +77,35 @@ const NEXT: Readonly<Record<AgentState, readonly AgentState[]>> = {
 /**
  * Who may end a worker.
  *
- * **THE `actor: 'agent'` QUESTION, DECIDED.** `entities/ending.ts` admitted
- * three actors and documented the third as *"the agent stopped itself"*. No
- * caller has ever written it: `plot-worker-loop.sh` makes three `write_ending`
- * calls (`:1274`, `:1287`, `:1291`) and passes `monitor` and `bound` only.
+ * **THE `actor: 'agent'` QUESTION, DECIDED — AND THEN RE-OPENED BY A WRITER.**
+ * `entities/ending.ts` admitted three actors and documented the third as *"the
+ * agent stopped itself"*, and no caller had ever written it: `write_ending` was
+ * called three times in `plot-worker-loop.sh` and passed `monitor` and `bound`
+ * only. So `agent` was removed here on 2026-09-04, on the reading the loop's
+ * own comment states — *"The actor is the bound either way"*. An agent does not
+ * decide to stop; something measures it and stops it, and the ending records
+ * that party.
  *
- * The reading this file takes is the one the loop's own comment already states
- * at `:1284` — *"The actor is the bound either way"*. The agent's PROCESS runs
- * `exit 124`, but the party that ACTED is the watchdog that fired or the
- * monitor that found it idle. An agent does not decide to stop; something
- * measures it and stops it, and the ending records that party.
+ * **THAT READING HOLDS FOR EVERY ENDING A WATCHER PRODUCED, AND THE FOURTH
+ * WRITER IS NOT ONE.** `a-second-slice-needs-its-own-session` added an ending
+ * for a prompt whose command exited non-zero WITHOUT RUNNING — measured
+ * 2026-09-05, three agents refused `Session ID … is already in use`, each
+ * sub-second exit read as a completed slice. No watcher fired: the floor did
+ * not expire and the monitor published nothing. The party that acted is the
+ * agent's own process, which launched the command and received the refusal, and
+ * naming `bound` or `monitor` would claim a measurement neither made.
  *
- * So `agent` is removed from `EndingActorSchema` in the same change. This list
- * is what remains, and {@link endingIsAttributable} refuses anything else — a
- * refusal that stays meaningful after the enum narrows, because a manifest or
+ * So the premise this removal rested on — *nothing writes it* — is what the
+ * fourth `write_ending` call changed, and `agent` is back in
+ * `EndingReasonSchema`'s company for that one reason. The narrowing argument
+ * survives intact for the other four, which is why this list is three rather
+ * than open: {@link endingIsAttributable} still refuses anything else, and a
+ * fifth actor still needs a writer before it is admitted.
+ *
+ * The refusal stays meaningful whatever the enum holds, because a manifest or
  * an ending file read off disk carries a string before it carries a type.
  */
-export const ENDING_ACTORS: readonly EndingActor[] = ['bound', 'monitor'];
+export const ENDING_ACTORS: readonly EndingActor[] = ['bound', 'monitor', 'agent'];
 
 /**
  * A fact a transition needs but cannot measure — supplied by a caller.

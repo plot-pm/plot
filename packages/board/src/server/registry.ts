@@ -138,13 +138,22 @@ export interface AgentEntry {
    */
   resumeId: string;
   /**
-   * How many times a SUPERVISOR retried this agent — 0 on a first dispatch.
+   * How many times this agent was retried AUTOMATICALLY — 0 on a first
+   * dispatch.
    *
    * Distinct from {@link relaunches}, which counts operator-initiated restarts
    * and is a human's record. This is the automatic budget's own counter, so a
-   * person's three manual restarts cannot exhaust it and a supervisor's retries
-   * cannot be mistaken for a person losing patience. Nothing in Plot raises it
-   * yet; the field exists so the two counters were never one.
+   * person's three manual restarts cannot exhaust it and an automatic retry
+   * cannot be mistaken for a person losing patience.
+   *
+   * WRITTEN BY THE SUPERVISOR AND BY THE LOOP. It said *supervisor* alone until
+   * 2026-09-05, when `plot-worker-loop.sh` gained a retry of its own: a prompt
+   * whose command exits non-zero without running keeps its slice and is tried
+   * again, and without a budget it repeats for the full `Worker bound`. The
+   * loop is not a supervisor, but the line this field draws is AUTOMATIC versus
+   * A PERSON'S, and a loop retry is automatic by every property that
+   * distinction was made for. Past the budget the loop ends the worker and
+   * leaves a `PLOT-BLOCKED` marker, which is where a person takes over.
    */
   attempts: number;
   /** The branch it holds, or `''` while it holds none. */
