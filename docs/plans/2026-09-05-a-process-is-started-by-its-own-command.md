@@ -8,7 +8,7 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Problem
 
@@ -61,8 +61,14 @@ untouched by any of this.
 **`--once` is the gate.** The supervisor decides and performs nothing, so one tick against the live estate is free and proves the thing works before any unit is installed — the same shape as `--start` proving the board serves.
 
 **`--start` BRINGS UP BOTH THE SUPERVISOR AND THE AGENTS**, because a supervisor
-with no agents does nothing — see *Starting an agent* for the count and its
-default.
+with no agents does nothing — see *Starting an agent* for the count, which is
+what the queue needs rather than a fixed three.
+
+**`--status` ANSWERS ABOUT PROCESSES, NOT ABOUT WORK.** Is the supervisor alive,
+how many agents are running, how long each has been idle — machine facts, with
+pids. What the slices are doing is `/plot-pulse`'s question, and the split is
+the same one that separated the two commands in the first place: this one is
+about what is running here, that one about what the estate holds.
 
 **`--stop` IS AN ORCHESTRATION, NOT A SECOND STOP RULE.** It calls
 `plot-dispatch.sh --stop <branch>` once per dispatched agent, waits for each
@@ -125,7 +131,31 @@ The starting logic MOVES rather than being rewritten: `--start` already resolves
 
 **`plot-board-setup --start` is removed, not aliased**, for the reason the first slice gives: a flag that still works teaches the wrong command.
 
-**Done when** `/plot-board --start` starts what `--start` started, `--status` reports the port and whether it answers, `plot-board-setup` no longer documents a `--start` step, and its README says where the flag went.
+**`--stop` FINDS THE BOARD BY TWO FACTS THAT MUST AGREE.** `--start` writes the
+pid; `--stop` reads it AND asks the port who is listening, and stops only when
+the two describe the same process tree. Where they disagree it refuses and says
+which — a stale pidfile names a process that is gone or, worse, one that has
+been recycled.
+
+**Neither fact is sufficient alone.** A pidfile outlives its process, which is
+why `plot-worker-state.sh` never reads one without `ps` beside it. And the port
+alone would find whichever board answers, which on a machine running several is
+not necessarily this repository's. Measured 2026-09-05: the board runs as
+`node --watch` (pid 9518) supervising the child that binds the port (9520), so
+"the board" is a tree rather than a pid, and asking only the port finds the
+child.
+
+**This is the failure that prompted it.** On 2026-09-04 a `pkill -f
+'board-server.mjs'` in this session killed the operator's board along with the
+stale jobs it was aimed at. A pattern match over process names is exactly the
+guess the two-fact rule refuses.
+
+**`--status` reports processes, not work.** Whether the board answers, on which
+port, since when. What the estate is doing is `/plot-pulse`'s question, and the
+two commands are worth keeping apart: one is about this machine, the other about
+the plans.
+
+**Done when** `/plot-board --start` starts what `--start` started, `--status` reports the port and whether it answers, `--stop` stops the tree only when pidfile and port agree and names the disagreement otherwise, `plot-board-setup` no longer documents a `--start` step, and its README says where the flag went.
 
 ### Starting an agent (Branch: feature/an-agent-is-started-by-a-command)
 
@@ -167,6 +197,31 @@ that can lie.
 manifest for an assignment — the half `the-registry-queues-a-brief` delivered.
 This slice starts N of those with nothing assigned; it does not teach the loop
 to wait.
+
+**`--start` STARTS WHAT THE QUEUE NEEDS, up to the count.** An empty queue
+brings the supervisor up and no agents: three Claude sessions idling against no
+work is a cost with nothing on the other side of it, and the eight-hour bound
+caps the waste rather than justifying it.
+
+**THE SUPERVISOR SCALES UP WHEN WORK ARRIVES, and this is the answer to the
+question that shape otherwise leaves open** — a dispatch an hour later would
+queue a slice with nobody to take it, which is precisely tonight's failure. The
+daemon already ticks every 60 s and already reads the queue; when `queued >
+running` it starts agents up to the cap, and when the queue empties it leaves
+the idle ones to their bound.
+
+**It gains a verb, and the verb is one the domain already names.**
+`AgentStartWrite` — kind `worker-start`, carrying a branch and a worktree — has
+been in `workflows/decision.ts` since the lifecycle work, with its command
+deliberately absent so that no project's agent tooling sits inside the domain.
+Nothing has ever applied it. So the supervisor is not learning to decide
+something new: it is having an existing decision performed, by the performer
+that already applies every other write a tick names.
+
+**The tick stays stateless and the decision stays inert.** `supervise` names the
+writes and makes none; a `kill -9` mid-tick still loses nothing, because the
+count it would start is re-derived from the queue on the next pass rather than
+remembered between them.
 
 **A COUNT, AND A DEFAULT OF THREE.** The command takes how many agents to bring
 up and defaults to 3, so an operator who has just installed the supervisor has a
