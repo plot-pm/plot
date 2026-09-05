@@ -174,7 +174,7 @@ them together is what makes the type earn its existence.
 
   Two scripts are deliberately **not** in this list. `plot-budget.sh` and
   `plot-worker-monitor.sh` mention `gh` only in comments — zero live calls — and
-  an earlier count that included them was reading prose as code.
+  an earlier count that included them was reading prose as code. — PR #717
 
 ### Giving issue tracking its own port
 
