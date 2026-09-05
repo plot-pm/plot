@@ -157,6 +157,46 @@ export type {
 } from './transitions/story.js';
 
 /**
+ * The agent's transitions, disambiguated the way the plan's and the story's
+ * are — the same four type names collide, for the third time.
+ *
+ * The SHAPE diverges further than the story's did, and the spec says why.
+ * `DESIGN-plan.md:810` splits stated state from observed state: a plan and a
+ * story state their own, so both decide a WRITE. An agent's is observed, so
+ * this `Decision` carries a verdict — `from`, `to` and the component that read
+ * it — and nothing to persist. Nothing anywhere writes an `AgentState`.
+ *
+ * The VERBS are not aliased, for the reason `transitions/story.ts` gives:
+ * `observeAgentState`, `endingIsAttributable`, `manifestIsRegistryWritten` and
+ * `elsewhereIsHonest` collide with nothing, and an alias on an uncollided name
+ * is the residue `scripts/count-domain-aliases.sh` holds at zero.
+ */
+export {
+  observeAgentState,
+  agentStateObservable,
+  endingIsAttributable,
+  manifestIsRegistryWritten,
+  elsewhereIsHonest,
+  STATE_SOURCE,
+  ENDING_ACTORS,
+  isDecision as isAgentDecision,
+  isRefusal as isAgentRefusal,
+} from './transitions/agent.js';
+export type {
+  StateSource,
+  ManifestWriter,
+  ObserveStateInput,
+  EndingAttributionInput,
+  ManifestWriterInput,
+  ElsewhereInput,
+  Precondition as AgentPrecondition,
+  RefusalReason as AgentRefusalReason,
+  TransitionResult as AgentTransitionResult,
+  Decision as AgentDecision,
+  Refusal as AgentRefusal,
+} from './transitions/agent.js';
+
+/**
  * The lifecycle workflows — `readings -> Decision | Refusal`, deciding and
  * performing nothing. Exported from the pure barrel because they are pure:
  * every rule is reachable from a plain call with no adapter in scope.

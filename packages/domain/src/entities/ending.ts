@@ -52,9 +52,22 @@ export type EndingReason = z.infer<typeof EndingReasonSchema>;
  *
  * - `bound` — the wall-clock watchdog.
  * - `monitor` — the WorkerMonitor.
- * - `agent` — the agent stopped itself.
+ *
+ * **TWO ACTORS, AND THE AGENT IS NOT ONE.** A third value `agent` was admitted
+ * here and documented as *"the agent stopped itself"*. Nothing ever wrote it:
+ * `plot-worker-loop.sh` makes three `write_ending` calls and passes `monitor`
+ * and `bound` only. The agent's PROCESS runs `exit 124` at `:1296`, but the
+ * party that ACTED is the watchdog that fired or the monitor that found it
+ * idle — which is what the loop's own comment at `:1284` already says: *"The
+ * actor is the bound either way."*
+ *
+ * So the value is removed rather than left admitted and unreachable, and
+ * `transitions/agent.ts` states the rule that keeps it out: an ending naming
+ * `agent` is an agent claiming it decided its own stop, which the design gives
+ * no party for. The refusal reads a STRING rather than this type, because an
+ * ending file on a desk is bytes until something validates them.
  */
-export const EndingActorSchema = z.enum(['bound', 'monitor', 'agent']);
+export const EndingActorSchema = z.enum(['bound', 'monitor']);
 export type EndingActor = z.infer<typeof EndingActorSchema>;
 
 /**
