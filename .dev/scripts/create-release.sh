@@ -62,13 +62,36 @@ if command -v gh >/dev/null 2>&1; then
     echo "  Release v${VERSION} already exists — skipping"
   else
     tmp_notes=$(mktemp)
-    echo "$release_notes" > "$tmp_notes"
-    gh release create "v${VERSION}" \
+    # GITHUB REFUSES A BODY OVER 125,000 CHARACTERS, and a release that consumes
+    # a large backlog exceeds it. Measured 2026-09-04: v2.13.0's notes were
+    # 141,496 characters across 163 changesets, and the API answered
+    # `HTTP 422: body is too long`.
+    #
+    # Truncated to 120,000 with a pointer to the changelog, which is the
+    # complete record and is in the tag. The notes are a convenience; the
+    # CHANGELOG is the artifact.
+    max_body=120000
+    if [ "${#release_notes}" -gt "$max_body" ]; then
+      printf '%s\n' "${release_notes:0:$max_body}" > "$tmp_notes"
+      printf '\n\n---\n\n**These notes are truncated.** The full changelog for this release is in [CHANGELOG.md](https://github.com/plot-pm/plot/blob/v%s/CHANGELOG.md) — %s changesets, %s characters, against the 125,000 limit.\n' \
+        "$VERSION" "$(printf '%s' "$release_notes" | grep -c '^- ' || echo '?')" "${#release_notes}" >> "$tmp_notes"
+      echo "  notes truncated: ${#release_notes} -> ${max_body} characters"
+    else
+      printf '%s\n' "$release_notes" > "$tmp_notes"
+    fi
+    # NEVER FATAL. The release object is a convenience; the tag and the npm
+    # publish are the release. `set -e` here meant a 422 on the notes aborted
+    # the script BEFORE npm ever ran, so v2.13.0 was tagged and never published.
+    if gh release create "v${VERSION}" \
       --title "v${VERSION}" \
       --notes-file "$tmp_notes" \
-      --latest
+      --latest; then
+      echo "  ✓ Created GitHub Release v${VERSION}"
+    else
+      echo "  WARN: GitHub Release creation failed — the tag stands and the publish continues"
+      echo "  Create it by hand: gh release create v${VERSION} --title 'v${VERSION}' --notes-file CHANGELOG.md"
+    fi
     rm -f "$tmp_notes"
-    echo "  ✓ Created GitHub Release v${VERSION}"
   fi
 else
   echo "  WARN: gh CLI not available — skipping GitHub Release creation"
