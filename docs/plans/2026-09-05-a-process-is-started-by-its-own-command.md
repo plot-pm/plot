@@ -4,11 +4,12 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 4
+- **Approved:** 2026-09-05, Jan Wloka, in-session
 
 ## Design
 
