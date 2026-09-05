@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-05, Jan Wloka, in-session
 - **Rounds:** 5
+- **Started:** 2026-09-05, Jan Wloka, `bug/a-second-slice-needs-its-own-session`
 
 ## Changelog
 
