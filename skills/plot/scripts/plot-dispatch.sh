@@ -2711,7 +2711,7 @@ report_in_flight() { # $1=candidate branch
       # Said once, on the last line, rather than per branch.
       [ "$n" = "$((IN_FLIGHT_MAX_BRANCHES + 1))" ] && \
         echo "  in flight: …and $((total - IN_FLIGHT_MAX_BRANCHES)) more branches" \
-             "— plot-fleet for the full picture"
+             "— plot-pulse for the full picture"
       continue
     fi
     # Commas to ", " for reading; the machine-countable summary is the footer,

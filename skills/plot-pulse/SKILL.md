@@ -1,10 +1,10 @@
 ---
-name: plot-fleet
+name: plot-pulse
 description: >-
   Fleet pulse — report which branch waves of a plan are complete, eligible,
   blocked or unapproved, and which branches are claimed. Stateless — every fact is
   re-derived from git; the only thing written is a pulse line. Use on
-  /plot-fleet.
+  /plot-pulse.
 globs: []
 license: MIT
 metadata:
@@ -16,7 +16,7 @@ compatibility: >-
   CLI needed — the pulse reads refs, not pull requests.
 ---
 
-# Plot: Fleet
+# Plot: Pulse
 
 One plan can spawn many implementation branches (Manifesto Principle 4). Once
 more than one is in flight, the question stops being "what is the next step?"
@@ -27,6 +27,14 @@ It is a **pulse**, not a supervisor: it starts no work, claims no branch, and
 merges nothing. It reports, and a human decides. The companion command that
 *does* fan out (`/plot-dispatch`) is deliberately separate and human-paced —
 fanning out is a scope commitment, monitoring is not.
+
+**This command was `/plot-fleet` until 2026-09-05.** It answers the same
+question with the same scan, and it took the name it had always printed:
+`/plot-fleet` now starts, stops and reports on the supervisor and the agents —
+the processes on this machine. This one is about the estate. **There is no
+alias**, because the name is reused rather than retired: a `/plot-fleet` that
+answered a pulse would give the old behaviour to somebody asking for the new
+one.
 
 **Input:** `$ARGUMENTS` is optional. A `<slug>` limits the pulse to one plan
 (default: all active plans, plus any plan **delivered within the last 24
@@ -227,7 +235,7 @@ duration — so reusing it would silently read "3 iterations" as "3 hours".
 
 ### 5. Append a Pulse Line — by default, not on request
 
-**Pass `--log-pulse` on every `/plot-fleet` run** unless the user asks you not
+**Pass `--log-pulse` on every `/plot-pulse` run** unless the user asks you not
 to. A pulse that finds nothing wrong must still leave a trace, or an idle fleet
 and a dead fleet are indistinguishable — which is the failure this command
 exists to prevent.

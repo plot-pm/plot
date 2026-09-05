@@ -103,7 +103,7 @@ A plan with no subheadings is a single wave: every branch eligible at once. That
 **Claiming** answers the second, and it is simpler than it sounds:
 
 ```
-/plot-fleet
+/plot-pulse
 ```
 
 shows which waves are complete, eligible, or blocked, and which branches are already taken:

@@ -165,7 +165,7 @@ export const implement = (
     if (readings.nextBranch === '') {
       return no(
         'nothing-claimable',
-        'Nothing claimable: every eligible branch is taken, or the next slice is blocked on unmerged work. Run /plot-fleet to see why.',
+        'Nothing claimable: every eligible branch is taken, or the next slice is blocked on unmerged work. Run /plot-pulse to see why.',
       );
     }
     branch = readings.nextBranch;

@@ -23,7 +23,7 @@ Turn one approved plan into several agents working at once — one git worktree
 and one detached worker per eligible branch, each branch claimed atomically so
 no two sessions collide.
 
-This is the **writing** half of the fleet; `/plot-fleet` is the reading half.
+This is the **writing** half of the fleet; `/plot-pulse` is the reading half.
 They never talk to each other: the pulse reports what is eligible, a human
 decides to dispatch it. That separation is what makes the whole thing
 restartable — kill anything, and the next pulse re-derives the truth from git.
@@ -126,7 +126,7 @@ reassurance nobody would keep reading.
 
 The report is capped at 8 branches and 6 files each, with the remainder counted
 (`(+4 more)`, `…and 5 more branches`). When you see an overflow line, the fleet
-is busy enough that `/plot-fleet <slug>` is the better view — say so rather than
+is busy enough that `/plot-pulse <slug>` is the better view — say so rather than
 re-deriving the omitted rows yourself.
 
 #### The held-branch gate
@@ -143,7 +143,7 @@ skipped feature/the-row-carries-its-verdict (held — worktree exists with unlan
   abandoned desk. Check it, then remove the worktree or let it finish.
 ```
 
-**Why this exists.** `/plot-fleet` derives every state from `origin/<branch>`,
+**Why this exists.** `/plot-pulse` derives every state from `origin/<branch>`,
 so a branch whose work was never pushed has no claim, and no claim reads
 *eligible*. On 2026-08-20 a dry run reported `claimed=0` across a fleet with
 four live agents and offered two branches that were already implemented, tested
@@ -301,7 +301,7 @@ summary: dispatched=3 reused=0 skipped=1 started=3 brief=missing worker=configur
 ```
 
 Say what is now running, where the worktrees are, and how to watch:
-`/plot-fleet <slug>` for state, `../plot-wt-*/.plot-worker.log` for output.
+`/plot-pulse <slug>` for state, `../plot-wt-*/.plot-worker.log` for output.
 
 `brief=missing` is the script reporting that **it** wrote none, which is always
 true — it never can. If step 5 ran, say so; the summary is describing the

@@ -1,7 +1,22 @@
-# plot-fleet — developer notes
+# plot-pulse — developer notes
 
 Fleet pulse for wave-structured plans. `SKILL.md` is the agent-facing
 instruction; this file is why it looks the way it does.
+
+## The name
+
+This skill was `plot-fleet` until 2026-09-05. It kept every behaviour and took
+the word it had always printed: the skill said *pulse* 26 times, its step 5 is
+*Append a Pulse Line*, and the scan ends with `Pulse complete.`
+
+`/plot-fleet` is now fleet control — `--start`, `--stop`, `--status`, `--once`
+over `plot-registryd` and the agents. The split is machine against estate: that
+command answers *what is running here*, this one answers *what does the estate
+hold*. No alias was left behind; the name is reused, and one that answered a
+pulse would give the old behaviour to somebody asking for the new one.
+
+`plot-fleet-scan.sh` did **not** move. The scan reads the fleet and that name
+is still right.
 
 ## What it is
 
@@ -20,7 +35,7 @@ report*:
 | Layer | Responsibility |
 |-------|----------------|
 | `skills/plot/scripts/plot-fleet-scan.sh` | All arithmetic. Wave eligibility, claim detection, counts. Deterministic, small-model consumable. |
-| `skills/plot-fleet/SKILL.md` | Interpretation. Which eligible branch to suggest, whether a stall is worth mentioning, what to tell the user next. |
+| `skills/plot-pulse/SKILL.md` | Interpretation. Which eligible branch to suggest, whether a stall is worth mentioning, what to tell the user next. |
 
 The scan's last line is a machine-countable footer; consumers read it and never
 re-count the body — the same contract `plot-reconcile-scan.sh` uses.
