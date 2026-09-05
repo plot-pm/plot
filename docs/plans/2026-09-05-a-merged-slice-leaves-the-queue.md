@@ -4,11 +4,12 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-05, Jan Wloka, in-session
 
 ## Changelog
 
