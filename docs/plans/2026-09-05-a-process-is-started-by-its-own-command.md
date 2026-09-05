@@ -55,6 +55,130 @@ holds is the per-agent one. Halving it is what lets N grow.
 
 ## Slices
 
+### Starting an agent (Branch: feature/an-agent-is-started-by-a-command)
+
+The supervisor runs. Nothing brings an AGENT up, and without one the supervisor
+has nobody to hand work to.
+
+**THIS SLICE LEADS, AND THE ORDER WAS CHANGED BY A MEASUREMENT RATHER THAN A
+PREFERENCE.** It was written fourth, behind the rename that gives it the flag it
+is invoked by. Dispatching the rename first on 2026-09-05 queued its own slice
+against `agents=0`, so the plan's first branch could not be worked by the fleet
+the plan exists to build. Every later slice is dispatchable normally once an
+agent can exist; none of them is, before.
+
+**It does not need the rename to land.** The starter's body is the missing half
+of `start_worker`, which takes a branch and a worktree — neither of which a free
+agent has. That is this slice's design question, and it is answered in
+`plot-dispatch.sh` and the domain, not in whatever command spells the flag. Its
+door is named below and arrives with the rename; until then the starter is
+reachable as the script it is.
+
+**Measured 2026-09-05, and this slice was added because of it.**
+`/plot-dispatch the-workflow-owns-the-word-phase` reported `handed over
+feature/a-plan-has-a-state → the registry` and `started=0`, which is correct
+under the hand-over model. The supervisor then ticked `agents=0 queued=455
+handed=0`: the slice is queued, the registry is willing, and there is no agent
+in `.plot/agents/` to take it.
+
+**The chain is dispatch queues → registry matches → an agent takes it, and the
+last link has no starter.** Dispatch no longer spawns, by design. `--restart`
+cannot stand in: it hands an EXISTING claim to a new worker, and the hand-over
+deliberately pushes no claim, so there is nothing for it to restart.
+
+**The four reaped desks are how this became visible rather than what caused
+it.** An estate that happens to hold a free agent hides the gap; an empty one
+shows it. The gap is in the model, not in the estate.
+
+**AN AGENT IS A RUNNING WORKER, NOT A REGISTRY ROW.** `isAgentFree` opens with
+`if (reading.state !== 'running') return false`, so a manifest without a live
+process is not an agent the registry can hand anything to. Three agents means
+three worker loops, and on this machine one agent is four processes — wrapper,
+loop, and two monitors. Twelve processes stand before any slice is taken.
+
+**That is the cost, and it is accepted rather than hidden.** The alternative —
+desks with no process, workers started only on assignment — would need
+`isAgentFree` to stop requiring `running`, and the rule's own docstring explains
+why it does: a manifest field would need clearing by whoever hands over the
+work, and an agent that crashed between finishing and writing it would read free
+without being so. Standing capacity that can be measured beats a cheaper state
+that can lie.
+
+**The loop already starts branchless.** It reads `${PLOT_BRANCH:-?}` and
+`${PLOT_WORKTREE:-$PWD}` throughout and has a `wait_for_work` that polls its own
+manifest for an assignment — the half `the-registry-queues-a-brief` delivered.
+This slice starts N of those with nothing assigned; it does not teach the loop
+to wait.
+
+**`--start` STARTS WHAT THE QUEUE NEEDS, up to the count.** An empty queue
+brings the supervisor up and no agents: three Claude sessions idling against no
+work is a cost with nothing on the other side of it, and the eight-hour bound
+caps the waste rather than justifying it.
+
+**THE SUPERVISOR SCALES UP WHEN WORK ARRIVES, and this is the answer to the
+question that shape otherwise leaves open** — a dispatch an hour later would
+queue a slice with nobody to take it, which is precisely tonight's failure. The
+daemon already ticks every 60 s and already reads the queue; when `queued >
+running` it starts agents up to the cap, and when the queue empties it leaves
+the idle ones to their bound.
+
+**It gains a verb, and the verb is one the domain already names.**
+`AgentStartWrite` — kind `worker-start`, carrying a branch and a worktree — has
+been in `workflows/decision.ts` since the lifecycle work, with its command
+deliberately absent so that no project's agent tooling sits inside the domain.
+Nothing has ever applied it. So the supervisor is not learning to decide
+something new: it is having an existing decision performed, by the performer
+that already applies every other write a tick names.
+
+**The tick stays stateless and the decision stays inert.** `supervise` names the
+writes and makes none; a `kill -9` mid-tick still loses nothing, because the
+count it would start is re-derived from the queue on the next pass rather than
+remembered between them.
+
+**A COUNT, AND A DEFAULT OF THREE.** The command takes how many agents to bring
+up and defaults to 3, so an operator who has just installed the supervisor has a
+fleet rather than an empty registry. Three because it is small enough to be
+wrong about cheaply and large enough to prove the hand-over matches more than
+one agent to more than one slice.
+
+**ONE START BRINGS UP BOTH, because a supervisor with no agents does nothing.**
+Starting the fleet starts the supervisor and three agents; a count chooses a
+different number, and zero is how an operator asks for the supervisor alone. One
+command for the ordinary case, and the flag for the exception rather than the
+reverse. *The fleet changes hands* spells that command `/plot-fleet --start` and
+`--agents N`; this slice owes the behaviour, that one owes the name.
+
+**AN IDLE AGENT DIES ON THE EXISTING BOUND.** `Worker bound: 28800` already caps
+a worker's life at eight hours, and an agent handed nothing lives under the same
+number as one mid-task. No idle-specific bound: a second number would need its
+own answer to *how long is too long to wait*, and there is no measurement for
+that yet. When there is, it can have one.
+
+**`--max` IS NOT THIS NUMBER, and the two must not be confused.**
+`registryd --max` bounds *how many agents one tick may act on* — a rate limit on
+decisions, defaulting to 0 for no bound. It says nothing about how many agents
+exist. The board's `parallel agents (cap)` control is the same kind of quantity.
+A fleet size is a third thing: how many workers this machine runs at once.
+
+**The machine has the last word.** `DESIGN-machine.md` measures what a fleet
+costs — *"7 workers died `exit 124`"*, *"five workers ran fine at load 10"* — so
+the count is a request, and a machine already at its bound may answer with
+fewer. It says so rather than silently starting three.
+
+**The shortfall is dropped, not remembered.** A run that starts two of three
+reports which and why — *"started 2 of 3 — the machine is at its bound (load
+14.2, 5 workers already running)"* — and the operator runs it again when the
+machine settles. **A stored target would be the daemon's first piece of state**,
+and its statelessness is a measured property rather than an accident: a
+`kill -9` two seconds into a 3.4 s tick was followed by a whole tick reaching
+the identical decision, with nothing written. Topping up to a remembered number
+would trade that for a convenience the operator can supply by typing the command
+twice.
+
+**Done when** a command brings agents into existence with no slice assigned —
+free, registered, waiting — defaulting to three, and the supervisor's next tick
+hands each a queued slice without a person touching a desk.
+
 ### The fleet changes hands (Branch: feature/the-fleet-changes-hands)
 
 `/plot-fleet` becomes `/plot-pulse`, and `/plot-fleet` returns in the same
@@ -179,115 +303,6 @@ two commands are worth keeping apart: one is about this machine, the other about
 the plans.
 
 **Done when** `/plot-board --start` starts what `--start` started, `--status` reports the port and whether it answers, `--stop` stops the tree only when pidfile and port agree and names the disagreement otherwise, `plot-board-setup` no longer documents a `--start` step, and its README says where the flag went.
-
-### Starting an agent (Branch: feature/an-agent-is-started-by-a-command)
-
-`/plot-fleet --start` brings the supervisor up. Nothing brings an AGENT up, and
-without one the supervisor has nobody to hand work to.
-
-**Measured 2026-09-05, and this slice was added because of it.**
-`/plot-dispatch the-workflow-owns-the-word-phase` reported `handed over
-feature/a-plan-has-a-state → the registry` and `started=0`, which is correct
-under the hand-over model. The supervisor then ticked `agents=0 queued=455
-handed=0`: the slice is queued, the registry is willing, and there is no agent
-in `.plot/agents/` to take it.
-
-**The chain is dispatch queues → registry matches → an agent takes it, and the
-last link has no starter.** Dispatch no longer spawns, by design. `--restart`
-cannot stand in: it hands an EXISTING claim to a new worker, and the hand-over
-deliberately pushes no claim, so there is nothing for it to restart.
-
-**The four reaped desks are how this became visible rather than what caused
-it.** An estate that happens to hold a free agent hides the gap; an empty one
-shows it. The gap is in the model, not in the estate.
-
-**AN AGENT IS A RUNNING WORKER, NOT A REGISTRY ROW.** `isAgentFree` opens with
-`if (reading.state !== 'running') return false`, so a manifest without a live
-process is not an agent the registry can hand anything to. Three agents means
-three worker loops, and on this machine one agent is four processes — wrapper,
-loop, and two monitors. Twelve processes stand before any slice is taken.
-
-**That is the cost, and it is accepted rather than hidden.** The alternative —
-desks with no process, workers started only on assignment — would need
-`isAgentFree` to stop requiring `running`, and the rule's own docstring explains
-why it does: a manifest field would need clearing by whoever hands over the
-work, and an agent that crashed between finishing and writing it would read free
-without being so. Standing capacity that can be measured beats a cheaper state
-that can lie.
-
-**The loop already starts branchless.** It reads `${PLOT_BRANCH:-?}` and
-`${PLOT_WORKTREE:-$PWD}` throughout and has a `wait_for_work` that polls its own
-manifest for an assignment — the half `the-registry-queues-a-brief` delivered.
-This slice starts N of those with nothing assigned; it does not teach the loop
-to wait.
-
-**`--start` STARTS WHAT THE QUEUE NEEDS, up to the count.** An empty queue
-brings the supervisor up and no agents: three Claude sessions idling against no
-work is a cost with nothing on the other side of it, and the eight-hour bound
-caps the waste rather than justifying it.
-
-**THE SUPERVISOR SCALES UP WHEN WORK ARRIVES, and this is the answer to the
-question that shape otherwise leaves open** — a dispatch an hour later would
-queue a slice with nobody to take it, which is precisely tonight's failure. The
-daemon already ticks every 60 s and already reads the queue; when `queued >
-running` it starts agents up to the cap, and when the queue empties it leaves
-the idle ones to their bound.
-
-**It gains a verb, and the verb is one the domain already names.**
-`AgentStartWrite` — kind `worker-start`, carrying a branch and a worktree — has
-been in `workflows/decision.ts` since the lifecycle work, with its command
-deliberately absent so that no project's agent tooling sits inside the domain.
-Nothing has ever applied it. So the supervisor is not learning to decide
-something new: it is having an existing decision performed, by the performer
-that already applies every other write a tick names.
-
-**The tick stays stateless and the decision stays inert.** `supervise` names the
-writes and makes none; a `kill -9` mid-tick still loses nothing, because the
-count it would start is re-derived from the queue on the next pass rather than
-remembered between them.
-
-**A COUNT, AND A DEFAULT OF THREE.** The command takes how many agents to bring
-up and defaults to 3, so an operator who has just installed the supervisor has a
-fleet rather than an empty registry. Three because it is small enough to be
-wrong about cheaply and large enough to prove the hand-over matches more than
-one agent to more than one slice.
-
-**`--start` BRINGS UP BOTH, because a supervisor with no agents does nothing.**
-`/plot-fleet --start` starts the supervisor and three agents; `--agents N`
-chooses a different number, and `--agents 0` is how an operator asks for the
-supervisor alone. One command for the ordinary case, and the flag for the
-exception rather than the reverse.
-
-**AN IDLE AGENT DIES ON THE EXISTING BOUND.** `Worker bound: 28800` already caps
-a worker's life at eight hours, and an agent handed nothing lives under the same
-number as one mid-task. No idle-specific bound: a second number would need its
-own answer to *how long is too long to wait*, and there is no measurement for
-that yet. When there is, it can have one.
-
-**`--max` IS NOT THIS NUMBER, and the two must not be confused.**
-`registryd --max` bounds *how many agents one tick may act on* — a rate limit on
-decisions, defaulting to 0 for no bound. It says nothing about how many agents
-exist. The board's `parallel agents (cap)` control is the same kind of quantity.
-A fleet size is a third thing: how many workers this machine runs at once.
-
-**The machine has the last word.** `DESIGN-machine.md` measures what a fleet
-costs — *"7 workers died `exit 124`"*, *"five workers ran fine at load 10"* — so
-the count is a request, and a machine already at its bound may answer with
-fewer. It says so rather than silently starting three.
-
-**The shortfall is dropped, not remembered.** A run that starts two of three
-reports which and why — *"started 2 of 3 — the machine is at its bound (load
-14.2, 5 workers already running)"* — and the operator runs it again when the
-machine settles. **A stored target would be the daemon's first piece of state**,
-and its statelessness is a measured property rather than an accident: a
-`kill -9` two seconds into a 3.4 s tick was followed by a whole tick reaching
-the identical decision, with nothing written. Topping up to a remembered number
-would trade that for a convenience the operator can supply by typing the command
-twice.
-
-**Done when** a command brings agents into existence with no slice assigned —
-free, registered, waiting — defaulting to three, and the supervisor's next tick
-hands each a queued slice without a person touching a desk.
 
 ### The fleet runs lean (Branch: feature/one-monitor-watches-the-slice)
 
