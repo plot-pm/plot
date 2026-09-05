@@ -332,8 +332,18 @@ export const observeAgentState = (
 export interface EndingAttributionInput {
   /** The actor the ending record names, as read — a string, because a file supplies it. */
   actor: string;
-  /** Readings a caller measured, such as whether the ending file parsed. */
-  preconditions?: readonly Precondition[];
+  /**
+   * The reason the ending record names, as read — a string, for the same reason
+   * {@link actor} is one.
+   *
+   * **THE ACTOR ALONE CANNOT DECIDE THIS.** `agent` is attributable for exactly
+   * one reason and self-attributed for every other, so a rule reading only the
+   * actor either refuses a legitimate ending or admits an agent claiming it
+   * decided its own stop. Absent — an older caller, or a record that named no
+   * reason — reads as *not `unstarted`*, which keeps the refusal that was there
+   * before this field existed.
+   */
+  reason?: string;
 }
 
 /**
@@ -349,15 +359,24 @@ export interface EndingAttributionInput {
  *
  * The exit at `:1296` is legal, and this rule says why: the ending it writes
  * attributes itself to the `bound` or the `monitor`, never to the agent. An
- * ending naming `agent` would be an agent claiming it decided its own stop,
- * which no component in Plot produces and the design gives no party for.
+ * ending naming `agent` there would be an agent claiming it decided its own
+ * stop, and neither watcher's finding is the agent's to claim.
  *
- * The check survives the enum narrowing because it reads a STRING: an ending
- * file on a desk is bytes until something validates them, and a worker of an
- * older vintage may have written a third value.
+ * **`unstarted` IS THE ONE READING WHERE `agent` IS THE HONEST ANSWER, AND THE
+ * REASON IS WHAT SEPARATES THEM.** A prompt whose command exited non-zero
+ * without running was ended by no watcher: the floor did not expire and the
+ * monitor published nothing. The agent's own process launched the command and
+ * received the refusal, so `bound` would claim a clock expired and `monitor`
+ * that a finding was published, and both would be false. This is still not an
+ * agent DECIDING to stop — it is an agent reporting what its command did — and
+ * that is why the pair is checked rather than the actor alone.
+ *
+ * The check survives every enum change because it reads STRINGS: an ending file
+ * on a desk is bytes until something validates them, and a worker of an older
+ * vintage may have written a value no type admits.
  *
  * @param session - the agent's session id.
- * @param input - the actor the ending names, plus any readings.
+ * @param input - the actor and reason the ending names, plus any readings.
  * @returns a decision that the ending is attributable, or a refusal naming the
  *   gate: `ending-self-attributed`, `ending-actor-unrecognised` or
  *   `precondition-unmet`.
@@ -366,11 +385,11 @@ export const endingIsAttributable = (
   session: string,
   input: EndingAttributionInput,
 ): TransitionResult => {
-  if (input.actor === 'agent') {
+  if (input.actor === 'agent' && input.reason !== 'unstarted') {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted' ending names the agent, because no watcher produces that one.`,
     );
   }
 
@@ -378,7 +397,7 @@ export const endingIsAttributable = (
     return refuse(
       session,
       'ending-actor-unrecognised',
-      `'${input.actor}' is not an ending actor — the two are ${ENDING_ACTORS.join(' and ')}.`,
+      `'${input.actor}' is not an ending actor — the three are ${ENDING_ACTORS.join(', ')}.`,
     );
   }
 

@@ -108,16 +108,24 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
 });
 
 describe('the actor is carried with the reason, and does not follow from it', () => {
-  it('reads the two actors', () => {
-    expect(EndingActorSchema.options).toEqual(['bound', 'monitor']);
+  it('reads the three actors', () => {
+    expect(EndingActorSchema.options).toEqual(['bound', 'monitor', 'agent']);
   });
 
-  it('refuses an ending that attributes itself to the agent', () => {
-    // A third value `agent` was admitted here and written by nobody. The
-    // agent's process runs `exit 124` at `plot-worker-loop.sh:1296`; the party
-    // that acted is the bound or the monitor. `transitions/agent.ts` carries
-    // the rule, and this is the parse refusing the record.
-    expect(readEnding(ended({ reason: 'bound', actor: 'agent' })).read).toBe('unreadable');
+  it('parses an ending that attributes itself to the agent, and judges it elsewhere', () => {
+    // `agent` was admitted here from the start, written by nobody, and removed
+    // on 2026-09-04 on that measurement. The `unstarted` writer arrived the
+    // next day and it is back — for that reason ONLY, which is the pair
+    // `endingIsAttributable` reads.
+    //
+    // THE PARSE DECIDES SHAPE AND THE TRANSITION DECIDES ATTRIBUTION, which is
+    // the division this file already draws for `reason` and `actor` not
+    // determining each other. `{ reason: 'bound', actor: 'agent' }` is a
+    // well-formed record making a claim nothing may act on, and reporting it
+    // `unreadable` would say the bytes were bad when what is wrong is what they
+    // assert.
+    expect(readEnding(ended({ reason: 'bound', actor: 'agent' })).read).toBe('ended');
+    expect(readEnding(ended({ reason: 'unstarted', actor: 'agent' })).read).toBe('ended');
   });
 
   it('lets one actor end a worker for more than one reason', () => {
