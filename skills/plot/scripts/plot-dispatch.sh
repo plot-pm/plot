@@ -2,10 +2,17 @@
 # Plot helper: hand one slice + its brief to the registry per eligible branch.
 # Usage: plot-dispatch.sh [--dry-run] [--no-start] [--no-brief] [--offline]
 #                         [--max N] [--allow-local] <slug>
+#        plot-dispatch.sh --start [N] [--dry-run]
 #        plot-dispatch.sh --migrate [--yes] [--max N]
 #   --status    list fleet worktrees with worker pid, liveness, and last log
 #               line; then exit. Works regardless of plan phase.
 #   --stop <br> stop the worker on <br> (branch required — never "all").
+#   --start [N] start N free agents — registered, waiting, holding no slice.
+#               Defaults to three. Each gets a desk detached at origin/<main>
+#               and a manifest naming no branch, so the registry's next tick can
+#               hand each a queued slice with nobody touching a desk. The count
+#               is a REQUEST: a machine at its bound answers with fewer and says
+#               so, and the shortfall is reported rather than remembered.
 #   --restart <br>
 #               start a worker on <br>, which already holds a claim — the
 #               counterpart to --stop, and the only way to hand a stopped
@@ -199,6 +206,10 @@ no_brief=0
 mode=dispatch
 stop_branch=""
 restart_branch=""
+# EMPTY MEANS "THE DEFAULT", AND THE DEFAULT IS THE RULE'S. `fleetSize` owns the
+# number and the argument for it; a literal here would be a second copy of a
+# decision that has one home. It is filled from the rule below.
+start_count=""
 offline=""
 allow_local=0
 allow_waiting=0
@@ -230,6 +241,16 @@ while [ $# -gt 0 ]; do
     # plan for feature/x", which describes neither what was asked nor what
     # went wrong. The branch is consumed only when it looks like one.
     --restart)  mode=restart; case "${2:-}" in */*) restart_branch="$2"; shift ;; esac ;;
+    # `--start [N]` brings FREE agents into existence — registered, waiting, and
+    # holding no slice. The count is OPTIONAL and only a bare number is consumed,
+    # the same rule `--stop` and `--restart` apply to a branch: a value that does
+    # not look like a count is left for the parser rather than swallowed, so
+    # `--start --dry-run` means what it reads as.
+    --start)    mode=start
+                case "${2:-}" in
+                  ''|*[!0-9]*) ;;
+                  *) start_count="$2"; shift ;;
+                esac ;;
     --no-start) no_start=1 ;;
     --no-brief) no_brief=1 ;;
     --offline|--no-fetch) offline="--offline" ;;
@@ -240,7 +261,7 @@ while [ $# -gt 0 ]; do
                   ''|*[!0-9]*) echo "plot-dispatch: --max needs a number, got '$max'" >&2; exit 1 ;;
                 esac
                 shift ;;
-    -h|--help)  sed -n '2,46p' "$0"; exit 0 ;;
+    -h|--help)  sed -n '2,59p' "$0"; exit 0 ;;
     *)          slug="$1" ;;
   esac
   shift
@@ -1097,6 +1118,232 @@ if [ "$mode" = "restart" ]; then
     none|NONE|None) worker_cmd_declined=1 ;;
   esac
   start_worker "$restart_branch" "$restart_wt" || exit 1
+  exit 0
+fi
+
+if [ "$mode" = "start" ]; then
+  # THE LAST LINK IN THE CHAIN. `plot-dispatch.sh <slug>` queues slices and the
+  # registry matches them to free agents, but until this verb existed nothing
+  # brought a free agent into being. Measured 2026-09-05: a dispatch reported
+  # `handed over feature/... → the registry` and `started=0`, the supervisor
+  # ticked `queued=456 idle=0 agents registered: 0`, and `.plot/agents/` was
+  # empty. The slice was queued, the registry was willing, and there was nobody
+  # to hand it to.
+  #
+  # AN AGENT IS STARTED WITH NO SLICE, and that is the whole shape. It gets a
+  # desk, a manifest naming no branch, and a loop that waits — `isAgentFree`
+  # already reports exactly that state as free (`rules/free.ts:64`: alive, and
+  # `branch === ""`), so the supervisor's next tick can hand each one a queued
+  # slice with nobody touching a desk.
+  #
+  # HERE, BESIDE --stop AND --restart AND BEFORE THE PHASE GATE, for the reason
+  # that block already gives from the other side: starting a free agent is not
+  # about any plan, so there is no plan whose phase could refuse it. A gate on a
+  # slug this verb never takes would refuse every call.
+  repo_root="$repo_root_early"
+  resolve_wt_root "$repo_root"
+
+  # THE DEFAULT BRANCH, by the same three steps the fan-out takes below — the
+  # config key, then origin's own HEAD, then `main`. Resolved here because the
+  # fan-out's `MAIN` is set past the phase gate this path exits before.
+  start_main=$(bash "$script_dir/plot-config.sh" get "Main branch")
+  [ -n "$start_main" ] || start_main=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+  [ -n "$start_main" ] || start_main="main"
+
+  # HOW MANY WORKERS ARE ALREADY UP, counted from the desks on this disk rather
+  # than from the registry. A manifest records a launch; a live pid records a
+  # worker, and the question `--start` asks is about the machine's load. The
+  # count is what `fleetSize` subtracts, so asking for three twice gives three
+  # agents rather than six.
+  start_running=0
+  while IFS= read -r wt; do
+    [ -n "$wt" ] || continue
+    [ -f "$wt/.plot-worker.pid" ] || continue
+    p=$(cat "$wt/.plot-worker.pid" 2>/dev/null) || continue
+    [ -n "$p" ] && ps -p "$p" >/dev/null 2>&1 && start_running=$((start_running + 1))
+  done <<EOF
+$(git worktree list --porcelain </dev/null 2>/dev/null | awk '/^worktree /{print $2}')
+EOF
+
+  # THE MACHINE'S OWN READING, one timed fork. `machine-system.ts` samples five
+  # and divides; this takes ONE, because the decision it feeds is coarse — three
+  # bands — and a start that spent 250 ms sampling before deciding whether the
+  # machine is busy would be the story's own complaint reproduced by its fix.
+  #
+  # UNMEASURABLE IS NOT STARVED. A `date` that cannot answer in milliseconds
+  # (BSD `date` without `%N`) leaves the cost empty, the rule reads `unmeasured`,
+  # and an absent veto is not a refusal. The machine vetoes what it can measure.
+  #
+  # THE CLOCK IS BASH'S OWN `EPOCHREALTIME`, not `date` and not `python3`. Both
+  # of those are a FORK, which is precisely the thing being timed — the
+  # measurement would cost two of what it measures and report the sum. Bash 5
+  # expands `EPOCHREALTIME` in-process; where it is empty (bash 4, still the
+  # system shell on macOS) the cost stays unmeasured, which the rule reads as
+  # `unmeasured` rather than as clear.
+  start_cost=""
+  if [ -n "${EPOCHREALTIME:-}" ]; then
+    start_t0=${EPOCHREALTIME/[.,]/}
+    git -C "$repo_root" rev-parse --git-dir >/dev/null 2>&1
+    start_t1=${EPOCHREALTIME/[.,]/}
+    # Microseconds to milliseconds. Integer division, so a fork faster than a
+    # millisecond reports 0 — which is honest about a machine this clear and is
+    # the same band `clear` covers anyway.
+    case "$start_t0$start_t1" in
+      *[!0-9]*) ;;
+      *) start_cost=$(( (start_t1 - start_t0) / 1000 )) ;;
+    esac
+  fi
+
+  # THE COUNT IS THE RULE'S, and the rule is `packages/domain/src/rules/
+  # fleet-size.ts` — imported directly, the same shape `plot-reap.sh` uses for
+  # `reapable.ts`. Node 24 strips the types, so there is no build step between
+  # this script and the decision it asks for, and there is no second copy of the
+  # default, the subtraction or the machine's veto living in shell.
+  #
+  # A RULE THAT CANNOT BE ASKED STARTS NOTHING AND SAYS SO. Missing node, a
+  # failed import, a module that throws all leave the answer empty. The
+  # direction is the reaper's: silence is never permission, and here permission
+  # would spawn detached processes.
+  #
+  # TWO MODULES, BECAUSE THE VERDICT AND THE COUNT ARE TWO RULES. `headroomFor`
+  # owns what a fork cost MEANS and `fleetSize` owns what to do about it; the
+  # count rule takes the verdict as a reading rather than deriving it, so the
+  # thresholds have exactly one home and this block is the join.
+  #
+  # IMPORTED AS `.ts` WITH NO `.js` REWRITING. Node 24 strips types but does not
+  # remap a relative specifier, so `fleet-size.ts` may only `import type` from
+  # its neighbours — which is why the verdict arrives as a value here rather
+  # than being computed inside the rule.
+  start_domain="$(cd "$script_dir/../../.." 2>/dev/null && pwd)/packages/domain/src"
+  start_rule="file://$start_domain/rules/fleet-size.ts"
+  start_answer=$(PLOT_REQUESTED="$start_count" PLOT_RUNNING="$start_running" \
+                 PLOT_COST="$start_cost" PLOT_RULE="$start_rule" \
+                 PLOT_MACHINE="file://$start_domain/entities/machine.ts" \
+                 node --input-type=module - <<'NODE_EOF' 2>/dev/null
+const { fleetSize, DEFAULT_FLEET_SIZE } = await import(process.env.PLOT_RULE);
+const { headroomFor } = await import(process.env.PLOT_MACHINE);
+
+// AN ABSENT COUNT IS THE RULE'S DEFAULT, resolved here rather than in the
+// shell: the number and the argument for it have one home.
+const requested =
+  process.env.PLOT_REQUESTED === "" ? DEFAULT_FLEET_SIZE : Number(process.env.PLOT_REQUESTED);
+
+// An UNMEASURED cost is null, never zero: zero is the fastest fork there is and
+// would read as the clearest possible machine.
+const spawnCostMs = process.env.PLOT_COST === "" ? null : Number(process.env.PLOT_COST);
+
+const answer = fleetSize({
+  requested,
+  running: Number(process.env.PLOT_RUNNING),
+  spawnCostMs,
+  headroom: headroomFor(spawnCostMs),
+});
+
+process.stdout.write(`${answer.start}\t${answer.headroom}\t${answer.shortfall}`);
+NODE_EOF
+  )
+
+  if [ -z "$start_answer" ]; then
+    echo "plot-dispatch: --start could not ask how many agents to start — starting none." >&2
+    echo "  The rule is $start_rule" >&2
+    echo "  It needs node 24 and a readable checkout of packages/domain." >&2
+    exit 1
+  fi
+
+  start_n=${start_answer%%$'\t'*}
+  start_rest=${start_answer#*$'\t'}
+  start_headroom=${start_rest%%$'\t'*}
+  start_why=${start_rest#*$'\t'}
+
+  echo "starting $start_n agent(s) — machine $start_headroom, $start_running already running"
+
+  # THE WORKER COMMAND IS ASKED ONCE, BEFORE THE LOOP. `start_worker` prints its
+  # own "start it yourself" line per agent when the key is absent, and N
+  # identical copies of it is a wall rather than a message. Asked here, the
+  # refusal is one sentence naming what to configure.
+  worker_cmd_declined=0
+  case "$("$script_dir/plot-config.sh" get "Worker command" "")" in
+    none|NONE|None) worker_cmd_declined=1 ;;
+  esac
+
+  # `slug` STAYS EMPTY, and the loop reads it. A free agent belongs to no plan
+  # — the registry sends the slug WITH the assignment, which is the same reason
+  # `wait_for_work` skips the outlook scan for an agent that holds none.
+  slug=""
+
+  start_made=0
+  start_i=0
+  while [ "$start_i" -lt "$start_n" ]; do
+    start_i=$((start_i + 1))
+
+    # THE DESK IS DETACHED AT `origin/<main>`, AND NEITHER HALF IS INCIDENTAL.
+    #
+    # A free agent still needs a desk: the loop reads `${PLOT_WORKTREE:-$PWD}`
+    # throughout and the transcript directory is derived from that path. It has
+    # no branch to cut one from, so the base is the only thing left — which is
+    # what the loop's own hop already does. `reset_desk` step 1 checks out
+    # `origin/$main_branch` DETACHED before attaching the slice's branch, so a
+    # desk that starts detached at the base is where every reset passes through
+    # anyway, and the first hand-over is a plain `checkout -b` from it.
+    #
+    # DETACHED RATHER THAN ON THE DEFAULT BRANCH, and that is the guard. A tree
+    # sitting on the default branch is one of `plot-reap.sh`'s five refusals
+    # (`on-default-branch`) — so it is never reaped, but it is also never
+    # measured: the refusal exists because that tree's dispatched branch was
+    # never checked out. A detached desk reads `branch: ''`, so the refusal that
+    # keeps it is `no-merged-pr` — unlanded work, the honest reading of a desk
+    # holding nothing yet — and it is kept for a reason that describes it.
+    #
+    # Git refuses to check out one branch in two worktrees, and the main
+    # checkout usually holds the default branch, so an attached desk could not
+    # be cut here at all.
+    start_wt="$wt_root/${wt_prefix}free-$(plot_session_id | cut -c1-8)"
+    if [ -e "$start_wt" ]; then
+      echo "  skipped $start_wt — a desk of that name already exists"
+      continue
+    fi
+    if [ "$dry_run" = 1 ]; then
+      echo "  would create $start_wt (detached at origin/$start_main) and start a free agent"
+      start_made=$((start_made + 1))
+      continue
+    fi
+    mkdir -p "$wt_root" 2>/dev/null || true
+    if ! git worktree add -q --detach "$start_wt" "origin/$start_main" 2>/dev/null; then
+      # NO REMOTE REF IS NOT A FAILURE OF THIS VERB. A fresh clone or a repo
+      # with no remote has no `origin/<main>`; the local one is the same commit
+      # in every case that matters, and a desk on it is still detached.
+      if ! git worktree add -q --detach "$start_wt" "$start_main" 2>/dev/null; then
+        echo "  could not create a desk at $start_wt — skipping" >&2
+        continue
+      fi
+    fi
+
+    # SPOTLIGHT IS TOLD NOT TO INDEX THE DESK, exactly as the loop's hop does.
+    # A desk is a full checkout and the fleet makes and unmakes them all day;
+    # the marker is ignored via `info/exclude` rather than `.gitignore`, because
+    # an untracked file in a desk reads as unlanded work to
+    # `plot-worker-state.sh` and would make every free agent look stalled.
+    _excl="$(git -C "$start_wt" rev-parse --git-common-dir 2>/dev/null)/info/exclude"
+    if [ -f "$_excl" ] && ! grep -qxF '.metadata_never_index' "$_excl" 2>/dev/null; then
+      printf '%s\n' '.metadata_never_index' >> "$_excl" 2>/dev/null || true
+    fi
+    : > "$start_wt/.metadata_never_index" 2>/dev/null || true
+
+    echo "  desk $start_wt (detached at origin/$start_main)"
+    # THE EMPTY BRANCH IS THE WHOLE POINT, and `start_worker` already takes it
+    # as a parameter: `write_agent_manifest` writes `"branch": ""`, the loop
+    # reads `PLOT_BRANCH` empty and enters its wait rather than its prompt, and
+    # `isAgentFree` reports the agent free with no change to `rules/free.ts`.
+    if start_worker "" "$start_wt"; then
+      start_made=$((start_made + 1))
+    fi
+  done
+
+  # THE SHORTFALL IS SAID HERE AND STORED NOWHERE. An operator reads it and runs
+  # the command again; a remembered target would be the first piece of state in
+  # a fleet whose statelessness is measured rather than assumed.
+  [ -n "$start_why" ] && echo "  $start_why"
+  echo "summary: agents=$start_made requested=${start_count:-default} running=$start_running headroom=$start_headroom"
   exit 0
 fi
 

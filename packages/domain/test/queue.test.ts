@@ -4,6 +4,7 @@ import {
   isHandOverReady,
   matchQueue,
   whyNotReady,
+  type FleetCap,
   type QueueAgent,
   type QueuedSlice,
 } from '../src/index.js';
@@ -200,5 +201,117 @@ describe('assign — the hand-over workflow', () => {
   it('performs nothing — the decision holds every write and makes none', () => {
     const decision = assign({ slices: [slice()], agents: [agent('s1')] });
     expect(decision.writes.every((write) => write.kind === 'agent-assign')).toBe(true);
+  });
+
+  it('scales nothing and reports `null` when no fleet cap was given', () => {
+    // INERT FOR EVERY EXISTING CALLER. `null` is *nobody asked*, which is what
+    // separates a daemon with no cap from one over a quiet estate.
+    const decision = assign({ slices: [slice()], agents: [agent('s1')] });
+    expect(decision.detail.scaling).toBeNull();
+    expect(decision.writes.some((write) => write.kind === 'worker-start')).toBe(false);
+  });
+});
+
+describe('assign — the tick starts agents when queued > running', () => {
+  const cap = (over: Partial<FleetCap> = {}): FleetCap => ({
+    size: 3,
+    headroom: 'clear',
+    spawnCostMs: 1,
+    desks: ['/desks/new-1', '/desks/new-2', '/desks/new-3'],
+    ...over,
+  });
+
+  it('starts agents for slices nothing could take, up to the cap', () => {
+    const decision = assign(
+      {
+        slices: [slice({ branch: 'feature/a' }), slice({ branch: 'feature/b' })],
+        agents: [],
+      },
+      { fleet: cap() },
+    );
+
+    expect(decision.detail.held).toEqual([
+      { branch: 'feature/a', hold: 'no-free-agent' },
+      { branch: 'feature/b', hold: 'no-free-agent' },
+    ]);
+    expect(decision.writes).toEqual([
+      { kind: 'worker-start', branch: '', worktree: '/desks/new-1' },
+      { kind: 'worker-start', branch: '', worktree: '/desks/new-2' },
+      { kind: 'worker-start', branch: '', worktree: '/desks/new-3' },
+    ]);
+  });
+
+  it('starts agents with NO branch — the hand-over is what fills it', () => {
+    const decision = assign({ slices: [slice()], agents: [] }, { fleet: cap() });
+    const starts = decision.writes.filter((write) => write.kind === 'worker-start');
+    expect(starts.length).toBeGreaterThan(0);
+    expect(starts.every((write) => write.kind === 'worker-start' && write.branch === '')).toBe(true);
+  });
+
+  it('starts nothing over an empty queue — an idle fleet costs with nothing on the other side', () => {
+    const decision = assign({ slices: [], agents: [] }, { fleet: cap() });
+    expect(decision.detail.scaling?.start).toBe(0);
+    expect(decision.writes).toEqual([]);
+  });
+
+  it('starts nothing for a slice held by its brief or its plan, not by a shortage', () => {
+    // A worker put in front of a gate is not a worker put in front of work.
+    const decision = assign(
+      { slices: [slice({ briefPresent: false }), slice({ claimable: false })], agents: [] },
+      { fleet: cap() },
+    );
+    expect(decision.detail.scaling?.start).toBe(0);
+  });
+
+  it('asks for the CAP and never for the queue — 456 slices do not start 456 agents', () => {
+    const many = Array.from({ length: 20 }, (_, i) => slice({ branch: `feature/${i}` }));
+    const decision = assign({ slices: many, agents: [] }, { fleet: cap({ size: 3 }) });
+    expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(3);
+  });
+
+  it('counts a FREE agent as running — it holds a slot and is about to be handed work', () => {
+    // Counting only the busy ones would start a second agent beside every idle
+    // one, every tick.
+    const decision = assign(
+      { slices: [slice({ branch: 'feature/a' }), slice({ branch: 'feature/b' })], agents: [agent('s1')] },
+      { fleet: cap({ size: 3 }) },
+    );
+    // One free agent takes `feature/a`; `feature/b` waits, and the fleet grows
+    // by two rather than by three.
+    expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(2);
+  });
+
+  it('grows towards the cap and never past it', () => {
+    const decision = assign(
+      { slices: [slice({ branch: 'feature/a' }), slice({ branch: 'feature/b' })], agents: [] },
+      { fleet: cap({ size: 1 }) },
+    );
+    expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(1);
+  });
+
+  it('lets a starved machine give fewer, and says which reading did it', () => {
+    const decision = assign(
+      { slices: [slice({ branch: 'feature/a' }), slice({ branch: 'feature/b' })], agents: [] },
+      { fleet: cap({ headroom: 'starved', spawnCostMs: 300 }) },
+    );
+    expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(1);
+    expect(decision.detail.scaling?.shortfall).toContain('starved');
+  });
+
+  it('bounds itself by the desks offered, and says so rather than blaming the machine', () => {
+    const decision = assign(
+      { slices: [slice({ branch: 'feature/a' }), slice({ branch: 'feature/b' })], agents: [] },
+      { fleet: cap({ size: 3, desks: ['/desks/only-one'] }) },
+    );
+    expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(1);
+    expect(decision.detail.scaling?.shortfall).toContain('desk was offered');
+  });
+
+  it('is a function of its readings — the same pass twice reaches the same decision', () => {
+    // THE STATELESSNESS THE TICK RESTS ON: a daemon SIGKILLed between deciding
+    // and starting repeats the reading rather than resuming a target.
+    const readings = { slices: [slice()], agents: [] };
+    const input = { fleet: cap() };
+    expect(assign(readings, input)).toEqual(assign(readings, input));
   });
 });
