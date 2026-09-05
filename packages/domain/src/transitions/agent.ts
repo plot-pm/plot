@@ -23,8 +23,8 @@ import type { EndingActor } from '../entities/ending.js';
  *
  * `DESIGN-agent.md:366` tabulates this per state and CLAUDE.md restates it: the
  * enum carries two kinds of answer and the SOURCE decides which. A state
- * answering *what is the process doing?* is a Worker fact; one answering *what
- * does this agent still hold?* is an Agent fact read from the desk.
+ * answering *what is the process doing?* is read from the process table; one
+ * answering *what does this agent still hold?* is read from the desk.
  *
  * - `worker` — read from the process: the pid answers, or an exit was recorded.
  * - `desk` — read from the tree: a `PLOT-BLOCKED` marker, or unlanded work.
@@ -35,7 +35,7 @@ export type StateSource = 'worker' | 'desk' | 'machine';
 /**
  * Which component reads each of the eight.
  *
- * Transcribed from `DESIGN-agent.md:366`. `finished` is a Worker fact the desk
+ * Transcribed from `DESIGN-agent.md:366`. `finished` is a process fact the desk
  * REFINES — exited 0 **and** the desk is clear — and it is sourced `worker`
  * here because the exit is what makes it reachable at all; the desk only
  * narrows it away from `stalled`.
@@ -247,7 +247,7 @@ export const agentStateObservable = (
  * {@link NEXT}. Anything else refuses — including a move whose SOURCE does not
  * own the state it reports.
  *
- * **The source gate is the Worker/Agent split, enforced.** CLAUDE.md states
+ * **The source gate is the process/desk split, enforced.** CLAUDE.md states
  * that `waiting` and `stalled` are Agent facts read from the desk and that the
  * two kinds sharing one enum *"is not a licence to add a workflow state to the
  * process side"*. `plot-worker-state.sh:46` decides both from the TREE, never
@@ -443,8 +443,8 @@ export interface ElsewhereInput {
  * Judges whether calling an agent `elsewhere` is honest.
  *
  * `elsewhere` means *no worktree on this machine* — CLAUDE.md calls it the proof
- * that a Worker is the LINK between Agent and Machine rather than a view of
- * either: *"a view of an agent cannot be somewhere the agent is not."*
+ * that the process is the LINK between an Agent and a Machine rather than a
+ * view of either: *"a view of an agent cannot be somewhere the agent is not."*
  *
  * Two refusals, and they fail in opposite directions. An agent WITH a desk here
  * is answerable here, so `elsewhere` would hide a row a reader can act on. An
