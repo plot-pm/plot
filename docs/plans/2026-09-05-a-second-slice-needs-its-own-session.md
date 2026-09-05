@@ -9,11 +9,11 @@
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
-- An agent taking a second slice starts a prompt instead of failing on the session id it used for its first.
+- An agent taking a second slice starts a prompt instead of failing on the session id it used for its first, and `plot-init` ships the prompt file that carries the rule.
 
 <!-- Board impact: an agent stuck this way reads `running` with a live pid and
      an idle transcript — the board shows it working while it polls. -->
@@ -78,7 +78,35 @@ So the hop writes it and the prompt reads it. `update_manifest_on_hop` (`plot-wo
 
 *Keep the assignment.* The manifest's `branch` is cleared on the way into the wait, so an agent that failed to start reads free and the slice returns to the queue. It must stay claimed: nothing else should take a slice this agent was given and is still holding a desk for.
 
-**Done when** an agent handed a second slice starts a prompt on it, a prompt that cannot start writes an ending record and exits non-zero rather than waiting, the slice stays assigned across that failure, and `resumeId` is written by the hop and read by the prompt.
+**THE PROMPT ASKS THE TRANSCRIPT, NOT A COUNTER.** A prompt cannot tell a first slice from a hop today: the hop exports `PLOT_BRANCH` and `PLOT_WORKTREE` (`plot-worker-loop.sh:1498`) and nothing else, and `PLOT_SESSION_ID` never changes. So the prompt resumes when a transcript already exists under the id and creates otherwise.
+
+**That test is already the board's, and it is deliberately the only honest one.** `readResumeAvailability` (`resume.ts:42`) exists for this exact question, and its docstring says why a probe rather than an assertion: Plot *"exports the session id … and documents the `--session-id` an adopting project's `.plot/worker-prompt.sh` must pass on. It can require neither — that file and the harness it invokes belong to the project — so the one honest test is whether a transcript exists under the id Plot asserted."*
+
+**IT ALSO SELF-CORRECTS, WHICH A COUNTER WOULD NOT.** A `wavesCount` branch is right only while every earlier prompt actually ran. The transcript is the ground truth: an agent whose first prompt never started has no transcript, so its second correctly CREATES rather than failing to resume something that does not exist. That is precisely the state today's three agents were left in.
+
+**THE DIRECTORY IS THE SUBTLETY, AND IT MUST BE READ FROM THE RIGHT DESK.** `transcriptDir` (`transcript.ts:79`) keys on the **cwd** the runtime ran in, not on the agent. A hop that RESETS the desk keeps its path, so the transcript stays where it was; a hop that CREATES one (`plot-worker-loop.sh:1415`, the fallback when the desk holds unaccounted work) moves it, and a probe in the new desk finds nothing and creates a fresh session. That is the correct outcome, not a bug — but it means the plain `--resume` shape yields one transcript per agent **per desk**, and a slice must say so rather than promise one per agent unconditionally.
+
+**Done when** an agent handed a second slice starts a prompt on it, the prompt resumes when a transcript exists under the id and creates when none does, a prompt that cannot start writes an ending record and exits non-zero rather than waiting, the slice stays assigned across that failure, and `resumeId` is written by the hop and read by the prompt.
+
+### The prompt template Plot never shipped (Branch: bug/a-worker-prompt-has-a-template)
+
+`plot-init` writes `.plot/worker-prompt.sh` from a shipped template, and this repo's own copy learns the resume rule.
+
+**MEASURED 2026-09-05: `find skills -name '*worker-prompt*'` RETURNS NOTHING.** The file the loop invokes on every prompt has no template, no generator and no example in the repository. Every adopting project writes it from prose, and the prose it follows is a comment inside `plot-worker-loop.sh`. This bug is what that costs: a rule written once in a docstring, implemented once by hand, wrong on the second slice.
+
+**A TEMPLATE IS A GATE THE OTHER OPTIONS ARE NOT.** Documenting the resume rule for adopters answers CLAUDE.md's own test with a *yes* — you can say you did it without doing it. A file `plot-init` writes is either present or absent.
+
+**`plot-init` ALREADY DOES THIS FOR ANOTHER FILE.** `SKILL.md:129` copies a **Plan template** into `.plot/templates/plan.md`, and the `Plan template` config key makes it overridable. The worker prompt takes the same shape: shipped, copied on adoption, overridable by any project that wants different wording.
+
+**PLOT STILL DOES NOT OWN THE WORDING.** The template carries the session handling and the invocation; what the agent is *told* stays the project's. That is why this is a template rather than a hardcoded prompt — the loop's own comment (`plot-worker-loop.sh:19`) settles that a project's prompt is its own, and a starting point is not ownership.
+
+**THIS REPO'S COPY IS FIXED IN THE SAME SLICE**, because a template nobody runs proves nothing, and this estate is where the defect was measured.
+
+**Done when** `plot-init` writes `.plot/worker-prompt.sh` in a fresh repository, this repo's copy handles a second slice, and a project that already has one is told what changed rather than having it overwritten.
+
+**A FAILED START IS RESTARTED, NOT ESCALATED.** `plot-worker-state.sh` will read `failed` on a desk holding a live claim and no work, and that is the case the supervisor's `attempts` budget exists for — `--restart` inherits the tree untouched, so nothing is lost by trying. A transient runtime failure recovers itself; a deterministic one spends the budget and is marked for a person with the reason already written in the ending record. No special-casing: a start that failed is a failure like the others.
+
+**AN AGENT HOLDING A CLAIM WITH NO PROMPT RUNNING IS A FINDING.** The AgentMonitor reports three today — `clear`, `owes a review`, `owes an answer`, `holds unlanded work` — and gains a fourth. **This is deliberately wider than the bug.** The fifth `EndingReason` makes THIS cause visible; the finding catches the next cause of the same shape, which is what today's measurement argues for: three agents sat `running · idle` for over an hour with every exit code zero, and what found them was a person reading a log.
 
 **THIS SLICE LEADS ITS SIBLING.** [`a-merged-slice-leaves-the-queue`](2026-09-05-a-merged-slice-leaves-the-queue.md) was found by the same event and is the same age, and this one goes first: until it lands **no agent can take a second slice at all**, so the queue defect cannot be observed again. Fixing the queue first would produce correct offers that still die on arrival.
 
