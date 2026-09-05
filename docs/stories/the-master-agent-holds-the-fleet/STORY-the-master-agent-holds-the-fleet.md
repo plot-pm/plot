@@ -123,6 +123,15 @@ and a shell subprocess to parse it back.
   its place in an order: four verdicts of which none is a state, fully derived —
   no file, no record. **Called a Wave until 2026-08-28**, and the rename split
   one word that was doing two jobs (below).
+- **[Wave](DESIGN-wave.md)** — **what the fleet lands together**: slices from
+  several plans, filtered by what can merge and capped by the agents available,
+  formed at dispatch and persisted nowhere. The entity this story is named for
+  and the only one nothing constructs — measured 2026-09-05, both halves exist
+  and neither has ever been asked the other's question.
+- **[Process](DESIGN-process.md)** — what Plot *runs*, against what it knows:
+  fleet control and the board as two topologies that share a machine, resident
+  against transient, and the `1 + 4N` per-agent multiplier that decides how many
+  agents fit.
 - **[Sprint](DESIGN-sprint.md)** — the timebox: a commitment about *when*, over
   plans that already exist. MoSCoW as graduated promise, the double link to Plan
   that makes `disputed` expressible, and a phase nothing observes — measured

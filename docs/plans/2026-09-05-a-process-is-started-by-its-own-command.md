@@ -7,6 +7,7 @@
 - **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
+- **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 4
