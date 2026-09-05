@@ -181,7 +181,7 @@ twice.
 free, registered, waiting — defaulting to three, and the supervisor's next tick
 hands each a queued slice without a person touching a desk.
 
-### The fleet changes hands (Branch: feature/the-fleet-changes-hands)
+### The fleet changes hands (Branch: feature/the-fleet-changes-hands, PR: #712)
 
 `/plot-fleet` becomes `/plot-pulse`, and `/plot-fleet` returns in the same
 branch as the supervisor's command: `--start`, `--stop`, `--status`.
