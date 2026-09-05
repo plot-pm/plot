@@ -9,7 +9,7 @@
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -114,11 +114,43 @@ So the flag is emitted only with a value, inside the same `[ -n … ]` guard the
 
 **THE TEMPLATE CARRIES NO SESSION LOGIC.** The loop exports the finished flag, so the template interpolates it and states nothing about resuming. That is what keeps this slice about distribution rather than about the rule — and it is why a project rewriting its prompt wholesale still cannot reintroduce the bug.
 
-**Done when** `plot-init` writes `.plot/worker-prompt.sh` in a fresh repository, this repo's copy handles a second slice, the template contains no session decision of its own, and a project that already has one is told what changed rather than having it overwritten.
+**AN EXISTING PROMPT FILE IS OFFERED THE UPDATE, NEVER GIVEN IT.** Round 3 moved the decision into the loop, so a project still passing a bare `--session-id` from its own prompt stays broken on its second slice and nothing tells it. `plot-init` already probes what a repository is and proposes rather than imposes — every field it writes is *"a proposal a human confirms"* — so it detects an out-of-date prompt and offers the template, leaving the operator's own wording theirs to keep.
+
+**A release note would not have reached this repo.** The prompt file here was written by hand, has been edited twice since, and would have gone on passing `--session-id` until a second slice failed again. Detection at adoption is where the mismatch is visible; a changelog entry is a rule, and this bug is what that rule's violation looks like.
+
+**Done when** `plot-init` writes `.plot/worker-prompt.sh` in a fresh repository, offers the update where one already exists and overwrites nothing, this repo's copy handles a second slice, and the template contains no session decision of its own.
 
 **A FAILED START IS RESTARTED, NOT ESCALATED.** `plot-worker-state.sh` will read `failed` on a desk holding a live claim and no work, and that is the case the supervisor's `attempts` budget exists for — `--restart` inherits the tree untouched, so nothing is lost by trying. A transient runtime failure recovers itself; a deterministic one spends the budget and is marked for a person with the reason already written in the ending record. No special-casing: a start that failed is a failure like the others.
 
 **AN AGENT HOLDING A CLAIM WITH NO PROMPT RUNNING IS A FINDING.** The AgentMonitor reports three today — `clear`, `owes a review`, `owes an answer`, `holds unlanded work` — and gains a fourth. **This is deliberately wider than the bug.** The fifth `EndingReason` makes THIS cause visible; the finding catches the next cause of the same shape, which is what today's measurement argues for: three agents sat `running · idle` for over an hour with every exit code zero, and what found them was a person reading a log.
+
+**THE HOP TEST WAS GREEN THROUGHOUT, AND THAT IS WHY THIS REACHED PRODUCTION.**
+`test/reconcile/declaration-hop.test.mjs` performs a REAL hop against a real
+loop — its own header insists *"the hop is performed, not mocked"* — and it has
+never failed. It could not catch this: its fixture prompt is a shell script
+that writes a file, commits and pushes, and **never invokes `claude`**, so no
+session id is ever consumed and the second slice starts happily.
+
+**A fixture standing in for the thing under test will pass whatever the real
+thing does.** The test asserts the hop's BOOKKEEPING — one declaration per
+branch — and the bookkeeping was correct. What was broken was the hop's actual
+work starting, which nothing in that fixture exercises. This is the same lesson
+[`a-lifecycle-is-enforced-by-a-test`](2026-09-04-a-lifecycle-is-enforced-by-a-test.md)
+is written about: a rule the test cannot violate is a rule the test does not
+check.
+
+**So this slice tests both halves, and the fixture is where they part.**
+
+*The flag is asserted.* The fixture prompt records the session arguments it was
+handed, and the test reads them: `--session-id <id>` on the first slice,
+`--resume <id>` on the second, and never a bare `--resume`. No `claude` is
+needed, because since round 3 the decision is the LOOP's and the argv is what
+carries it.
+
+*The failure is reproduced.* A second fixture exits non-zero when handed a
+session id it has already seen — the exact shape of the real refusal. That is
+the only way to prove the fifth `EndingReason` is written, the exit is non-zero
+and the assignment survives; a flag assertion cannot reach any of them.
 
 **THIS SLICE LEADS ITS SIBLING.** [`a-merged-slice-leaves-the-queue`](2026-09-05-a-merged-slice-leaves-the-queue.md) was found by the same event and is the same age, and this one goes first: until it lands **no agent can take a second slice at all**, so the queue defect cannot be observed again. Fixing the queue first would produce correct offers that still die on arrival.
 
