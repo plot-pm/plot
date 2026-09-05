@@ -8,6 +8,7 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 2
 
 ## Problem
 
@@ -31,17 +32,22 @@
 
 ## Slices
 
-### Freeing the name (Branch: feature/the-pulse-is-called-a-pulse)
+### The fleet changes hands (Branch: feature/the-fleet-changes-hands)
 
-`/plot-fleet` becomes `/plot-pulse`. The skill directory moves, its frontmatter and the 22 live command references follow, and `plot-fleet-scan.sh` does not move.
+`/plot-fleet` becomes `/plot-pulse`, and `/plot-fleet` returns in the same
+branch as the supervisor's command: `--start`, `--stop`, `--status`.
 
-**A clean break, not an alias.** The name is being REUSED by the next slice, so an alias answering the old behaviour would be worse than an error: a user typing `/plot-fleet` expecting to start something would get a report and no indication they had asked for the wrong thing. Between the two slices the command is simply gone, which is a state a person can read.
+**ONE SLICE, BECAUSE THE NAME NEVER STOPS WORKING.** Split in two, the rename
+lands first and `/plot-fleet` does not exist until the second branch merges —
+however long that takes. An alias would be worse than the gap, since it would
+answer the OLD behaviour to somebody asking for the new one; but the gap is
+avoidable entirely by changing the name's meaning in a single commit. The cost
+is a slice with two subjects in one review, which is the smaller price.
 
-**Done when** `/plot-pulse` reports what `/plot-fleet` reported, `pnpm test` passes (it validates that every skill parses and every `bumps:` names a real directory, so a missed reference fails CI), and `grep -rn 'plot-fleet' skills/ packages/*/src CLAUDE.md README.md` returns only `plot-fleet-scan` matches.
-
-### Starting the fleet (Branch: feature/the-fleet-has-a-door)
-
-`/plot-fleet` returns as the supervisor's command: `--start`, `--stop`, `--status`.
+The rename is 22 live command references across 13 files. `plot-fleet-scan.sh`
+does not move: the scan reads the fleet and that name stays right, and the pulse
+line it appends is written by the SCAN rather than the command, so the log is
+untouched by any of this.
 
 **It probes before it acts, and refuses rather than repairs** — the discipline `plot-board-setup` already applies. Four refusals, each a measurement:
 
@@ -54,7 +60,62 @@
 
 **`--once` is the gate.** The supervisor decides and performs nothing, so one tick against the live estate is free and proves the thing works before any unit is installed — the same shape as `--start` proving the board serves.
 
-**Done when** `/plot-fleet --start` installs and loads the unit on macOS and Linux, `--status` answers whether it is alive without starting it, `--stop` unloads it, and each refusal above is reachable and names its repair.
+**`--start` BRINGS UP BOTH THE SUPERVISOR AND THE AGENTS**, because a supervisor
+with no agents does nothing — see *Starting an agent* for the count and its
+default.
+
+**`--stop` IS AN ORCHESTRATION, NOT A SECOND STOP RULE.** It calls
+`plot-dispatch.sh --stop <branch>` once per dispatched agent, waits for each
+worker to exit, and only then unloads the supervisor. There is exactly one rule
+for stopping an agent and it stays where it already lives.
+
+**That is what dissolves the apparent conflict.** `plot-dispatch --stop` refuses
+a bare invocation — *"Refusing to guess — stopping the wrong worker discards its
+work"* — and a fleet-level stop that signalled everything itself would be a
+second, laxer rule for the same act. Naming each branch in turn is not guessing:
+the fleet knows which agents it has, so every call is as specific as the one an
+operator would type.
+
+**IT REPORTS EACH BRANCH AS IT GOES, and that is a requirement rather than a
+nicety.** A fleet stop is the slowest thing this command does — one signal per
+agent, each waited on — and a silent wait is indistinguishable from a hang. So
+every branch announces itself as it is signalled and again when its worker
+exits, with the outcome named:
+
+```
+/plot-fleet --stop
+  stopping 3 agents, then the supervisor
+  feature/a  signalled ... exited (2.1s)
+  feature/b  signalled ... exited (0.4s), 4 uncommitted files kept
+  feature/c  signalled ... still running after 30s — kept, see below
+  supervisor unloaded
+  1 agent did not exit: feature/c (pid 4471). Its desk and claim stand.
+```
+
+**An agent that does not exit is named, not waited on forever.** Each wait is
+bounded; past the bound the branch is reported as still running and the run
+carries on to the next. The summary says which, so a person is left with a fact
+rather than a stalled terminal — the same shape as the reaper reporting what it
+refused and why.
+
+**The supervisor goes LAST, and the order is the point.** It is what would
+notice a desk falling idle, so unloading it first would leave the agents
+unwatched for the length of the shutdown. Stopping the watched before the
+watcher also means a stop that fails partway leaves a supervisor still running
+over whatever is left, rather than an unsupervised remainder.
+
+**Each agent keeps its desk and its claim**, because `plot-dispatch --stop`
+keeps them — *"the worktree kept at ... the claim stands until you release it"*.
+`--stop` ends processes and decides nothing about disk; what may be removed is
+`plot-reap.sh`'s question, on its own five measurements.
+
+**Done when** `/plot-pulse` reports what `/plot-fleet` reported, `/plot-fleet
+--start` installs and loads the unit on macOS and Linux and brings up the
+agents, `--status` answers whether the supervisor is alive without starting it,
+`--stop` stops every dispatched agent through `plot-dispatch --stop` and waits
+before unloading the supervisor, `pnpm test` passes, and `grep -rn 'plot-fleet'
+skills/ packages/*/src CLAUDE.md README.md` returns only `plot-fleet-scan`
+matches and the new command's own files.
 
 ### Starting the board (Branch: feature/the-board-has-a-door)
 
@@ -156,7 +217,25 @@ hands each a queued slice without a person touching a desk.
 
 This is the slice the whole plan exists for: **the supervisor was invisible**, and a door nobody is told about is the same as no door.
 
-**Done when** a reader who has just run `/plot-init` in a fresh repository is told, in that command's own output, that `/plot-board --start` and `/plot-fleet --start` exist and what each one does.
+**IT NAMES THEM WITH THEIR PREREQUISITE RATHER THAN ONLY WHEN RUNNABLE.**
+`/plot-init` runs in repositories that have no board artifact and no built
+daemon, and offering only what works there would say nothing at all — which is
+exactly how the supervisor came to be invisible. So the commands are named
+alongside what they need:
+
+```
+Next:
+  /plot-board --start   — needs @plot-pm/board (pnpm build:board, or install it)
+  /plot-fleet --start   — same package; supervises the agents you dispatch
+```
+
+**A missing prerequisite is a fact, not a reason for silence.** A reader told
+that a command exists and what it wants can go and get it; a reader told nothing
+cannot learn the thing exists at all. The probe still runs — it is what fills in
+which prerequisite is missing — but its answer changes the SENTENCE rather than
+whether there is one.
+
+**Done when** a reader who has just run `/plot-init` in a fresh repository is told, in that command's own output, that `/plot-board --start` and `/plot-fleet --start` exist, what each one does, and what each needs before it will run.
 
 ## Notes
 
