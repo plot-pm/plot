@@ -144,7 +144,7 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
 
 ### Naming what a plan is
 
-- `feature/a-plan-has-a-state` — `Phase` → `PlanState` in `transitions/plan.ts`, the `phase-*` refusal reasons → `state-*`, and the callers through the domain and board. **Asserted: nothing named `Phase` in the domain refers to a plan.** The file field and the wire key are untouched, so the board renders identically and 196 plan files parse unchanged.
+- `feature/a-plan-has-a-state` — `Phase` → `PlanState` in `transitions/plan.ts`, the `phase-*` refusal reasons → `state-*`, and the callers through the domain and board. **Asserted: nothing named `Phase` in the domain refers to a plan.** The file field and the wire key are untouched, so the board renders identically and 196 plan files parse unchanged. → #711
 
 ### Naming what the workflow is
 
