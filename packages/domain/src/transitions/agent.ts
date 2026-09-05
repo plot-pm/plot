@@ -344,6 +344,8 @@ export interface EndingAttributionInput {
    * before this field existed.
    */
   reason?: string;
+  /** Readings a caller measured, such as whether the ending file parsed. */
+  preconditions?: readonly Precondition[];
 }
 
 /**
