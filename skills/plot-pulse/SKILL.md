@@ -10,7 +10,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.5.1
+  version: 0.6.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git and python3. No git-host
   CLI needed — the pulse reads refs, not pull requests.

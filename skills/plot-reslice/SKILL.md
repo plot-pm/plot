@@ -11,7 +11,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 1.0.0
+  version: 1.0.1
 compatibility: Designed for Claude Code and Cursor. Requires git. Host operations (PRs, diffs) go through plot-host.sh (GitHub or Bitbucket).
 ---
 
