@@ -41,6 +41,12 @@
 #   pr-ready <number>              take a PR out of draft
 #                                 merge the PR
 #   pr-list [--state open|merged|closed|all] [--limit N] [--rich]
+#                                 [--repo <owner/repo>] pins the list to ONE
+#                                 repository, exactly as pr-state and pr-merged
+#                                 do. A checkout with remotes on two hosts lets
+#                                 an unpinned list resolve the wrong one, and a
+#                                 caller joining it against `origin/*` refs then
+#                                 reads every branch as having no PR.
 #                                 JSON lines: {"number":N,"title":"...",
 #                                 "state":"...","head":"..."}
 #                                 --rich adds: draft, checks, mergeable, review,
@@ -2067,6 +2073,13 @@ case "$op" in
   pr-list)
     state="open"
     rich=0
+    # PIN THE LIST TO ONE REPOSITORY, the same `--repo` `pr-state` and
+    # `pr-merged` already take. A checkout may carry several remotes on several
+    # hosts, and an unpinned `gh pr list` resolves whichever of them it prefers
+    # — so a caller comparing `origin/*` refs would join its refs against
+    # another repository's PRs and report every branch as having none. The
+    # caller knows which remote its refs came from; this op cannot guess it.
+    repo_args=()
     # `gh pr list` and `bb pr list` both cap at 30 by default. That is invisible
     # with --state open (few repos have 30 open PRs) and bites immediately with
     # --state all, where the newest 30 crowd out every older merged PR. A caller
@@ -2078,6 +2091,7 @@ case "$op" in
         --state) state="${2:?}"; shift 2 ;;
         --limit) limit="${2:?}"; shift 2 ;;
         --rich) rich=1; shift ;;
+        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
         *) die "pr-list: unknown arg $1" ;;
       esac
     done
@@ -2196,7 +2210,7 @@ case "$op" in
           #   $jstatus != "ok"  → Jenkins could not answer; every row `unknown`.
           #   $jentry == null   → the branch has no Jenkins job; `none`.
           #   otherwise         → the joined colour's `checks`, job named on fail.
-          _gh_raw="$(pr_list_call gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
             --json number,title,state,headRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,url)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -2225,7 +2239,7 @@ case "$op" in
               }'
         else
           # GitHub without Jenkins (or Jenkins not configured): use GitHub rollup
-          _gh_raw="$(pr_list_call gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+          _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
             --json number,title,state,headRefName,isDraft,statusCheckRollup,mergeable,mergeStateStatus,reviewDecision,url)" || exit $?
           pr_list_report_truncation github "$limit" "$state" \
             "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -2256,7 +2270,7 @@ case "$op" in
               }'
         fi
       else
-        _gh_raw="$(pr_list_call gh pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
+        _gh_raw="$(pr_list_call gh ${repo_args[@]+"${repo_args[@]}"} pr list --state "$state" ${limit_args[@]+"${limit_args[@]}"} \
           --json number,title,state,headRefName)" || exit $?
         pr_list_report_truncation github "$limit" "$state" \
           "$(jq 'length' <<<"$_gh_raw" 2>/dev/null || echo 0)"
@@ -2296,7 +2310,7 @@ case "$op" in
           # the GitHub arm uses, which is why it lives above the backend branch.
           # `bb`'s standing `unknown` becomes a real value where Jenkins answers.
           for _s in $bb_states; do
-            _bb_raw="$(pr_list_call bb pr list --state "$_s" --json)" || exit $?
+            _bb_raw="$(pr_list_call bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json)" || exit $?
             pr_list_report_truncation bitbucket "$limit" "$_s" \
               "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
             printf '%s' "$_bb_raw" \
@@ -2325,7 +2339,7 @@ case "$op" in
         else
           # Bitbucket without Jenkins: checks remain unknown
           for _s in $bb_states; do
-            _bb_raw="$(pr_list_call bb pr list --state "$_s" --json)" || exit $?
+            _bb_raw="$(pr_list_call bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json)" || exit $?
             pr_list_report_truncation bitbucket "$limit" "$_s" \
               "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
             printf '%s' "$_bb_raw" \
@@ -2334,7 +2348,7 @@ case "$op" in
         fi
       else
         for _s in $bb_states; do
-          _bb_raw="$(pr_list_call bb pr list --state "$_s" --json)" || exit $?
+          _bb_raw="$(pr_list_call bb ${repo_args[@]+"${repo_args[@]}"} pr list --state "$_s" --json)" || exit $?
           pr_list_report_truncation bitbucket "$limit" "$_s" \
             "$(jq 'length' <<<"$_bb_raw" 2>/dev/null || echo 0)"
           printf '%s' "$_bb_raw" \

@@ -227,21 +227,35 @@ publish() { # $1=finding $2=evidence $3=since
 # helpers throw away: `gh` absent, unauthed, or failing is `unaskable`, and an
 # unaskable host produces NO finding rather than a wrong one. A failure to
 # observe is not evidence of something to see.
+#
+# THE HOST IS ASKED THROUGH `plot-host.sh`, never `gh` directly. This port
+# called `gh pr list` until 2026-09-05, so the monitor could see a PR on GitHub
+# and nowhere else: on Bitbucket `command -v gh` failed and every branch on the
+# estate read `unaskable` — the refusal was right about the wrong thing, since
+# the host was reachable and simply not GitHub. `pr-state` answers on both.
+#
+# THE ADAPTER'S TWO OUTCOMES ARE ALREADY THIS PORT'S TWO. `pr-state` exits 0
+# with `state:"NONE"` when the host answered and there is no PR, and non-zero
+# when the call itself failed — which is exactly the line between `no PR` and
+# `unaskable` that the `gh` version drew with `|| return 2`. So the split is
+# read from the exit status and the payload together, and neither answer moved.
 monitor_pr_state() { # → 0 has a PR | 1 no PR | 2 unaskable
   [ -n "$branch" ] || return 2
-  command -v gh >/dev/null 2>&1 || return 2
-  local out
-  # `--state all` and `mergedAt`, never `state`: a merged PR reports CLOSED, and
-  # squash-merge leaves the branch ahead of main forever, so neither the state
-  # word nor ancestry can answer this. The same reading `plot-pr-merged.sh`
-  # makes, and deliberately the same query, so the two never disagree about a
-  # branch.
-  out=$(gh pr list --head "$branch" --state all --limit 100 --json mergedAt,number 2>/dev/null) || return 2
-  # An empty LIST is a real answer — the host was asked and said none. Only a
-  # failed call is unaskable, which is what the `|| return 2` above separates.
-  case "$out" in
-    *'"number"'*) return 0 ;;
-    *) return 1 ;;
+  local host_script out state
+  host_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-host.sh"
+  [ -r "$host_script" ] || return 2
+  # `</dev/null` so a host CLI that decides to prompt cannot hang a monitor
+  # whose whole contract is one bounded reading per pass.
+  out=$(bash "$host_script" pr-state "$branch" </dev/null 2>/dev/null) || return 2
+  # A miss arrives on exit 0 as `state:"NONE"` — the host was asked and said
+  # none, which is a real answer. An unparseable payload is not: the call
+  # reported success and produced nothing this port can read, and reading that
+  # as `no PR` would invent the same finding storm the port exists to prevent.
+  state=$(printf '%s' "$out" | jq -r '.state // ""' 2>/dev/null) || return 2
+  case "$state" in
+    "") return 2 ;;
+    NONE) return 1 ;;
+    *) return 0 ;;
   esac
 }
 

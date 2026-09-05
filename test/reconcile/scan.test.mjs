@@ -329,15 +329,31 @@ let sprTmp, sprRepo, sprBin;
 // invocation's argv so the limit and repo pin can be asserted, not assumed.
 // Both list calls answer in "<number> <head>" lines — the shape the scan's
 // --jq produces for `--json number,headRefName`.
+// THE STUB EMITS WHAT `gh --json` EMITS: a JSON array of PR objects.
+//
+// It printed `"<number> <head>"` text lines until 2026-09-05, because the scan
+// passed `--jq` and read the already-flattened result. The scan now asks
+// through `plot-host.sh`, which requests raw `--json` and flattens with its own
+// `jq` — so a stub printing flattened text would be reproducing a call shape no
+// caller makes any more, and would pass while the real CLI's output failed.
+//
+// The `"<number> <head>"` NOTATION IS KEPT at every call site: it is what the
+// tests are about, and rendering it as the host's wire shape belongs in one
+// place rather than seven. `title` and `state` ride along because the adapter
+// requests them in the same call; the scan reads neither.
 function makeGhStub(dir, mergedLines, { openLines = '' } = {}) {
   const argvLog = path.join(dir, 'gh.argv');
-  const emit = (lines) =>
-    lines.split('\n').filter(Boolean).map((l) => `printf '%s\\n' ${JSON.stringify(l)}`).join('\n');
+  const asJson = (lines, state) => JSON.stringify(
+    lines.split('\n').filter(Boolean).map((l) => {
+      const [number, ...head] = l.split(' ');
+      return { number: Number(number), title: head.join(' '), state, headRefName: head.join(' ') };
+    }));
+  const emit = (lines, state) => `printf '%s' ${JSON.stringify(asJson(lines, state))}`;
   fs.writeFileSync(path.join(dir, 'gh'), `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> ${JSON.stringify(argvLog)}
 case "$*" in
-  *"--state merged"*) ${emit(mergedLines) || 'true'} ;;
-  *"--state open"*)   ${emit(openLines) || 'true'} ;;
+  *"--state merged"*) ${emit(mergedLines, 'MERGED')} ;;
+  *"--state open"*)   ${emit(openLines, 'OPEN')} ;;
 esac
 exit 0
 `);
@@ -784,7 +800,13 @@ test('scan: open-PR heads are fetched with their numbers, in one bundled call', 
   const openCalls = fs.readFileSync(argvLog, 'utf8').split('\n')
     .filter((l) => l.includes('--state open'));
   assert.equal(openCalls.length, 1, `expected 1 open-PR call, got ${openCalls.length}`);
-  assert.match(openCalls[0], /--json number,headRefName/);
+  // BOTH FIELDS ON THE ONE CALL — the property, not the field string. The
+  // assertion named `--json number,headRefName` exactly until 2026-09-05, which
+  // pinned the scan's private query rather than what it needs: `plot-host.sh`
+  // asks for `number,title,state,headRefName` in the same single call, and the
+  // old regex failed on a routing change that cost no extra round trip.
+  assert.match(openCalls[0], /--json [^ ]*\bnumber\b/);
+  assert.match(openCalls[0], /--json [^ ]*\bheadRefName\b/);
   assert.match(openCalls[0], /-R plot-pm\/fixture/);
 });
 
