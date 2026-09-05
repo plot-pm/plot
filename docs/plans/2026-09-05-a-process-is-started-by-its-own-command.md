@@ -6,6 +6,7 @@
 
 - **Phase:** Approved
 - **Type:** feature
+- **Sprint:** every-concept-has-one-owner
 - **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 4

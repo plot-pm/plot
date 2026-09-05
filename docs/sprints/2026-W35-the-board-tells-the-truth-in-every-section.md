@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Active
+- **Phase:** Closed
 - **Start:** 2026-08-23
 - **End:** 2026-09-02
 - **Release:** 2.9.0
@@ -221,3 +221,15 @@ that record rather than deleted.
   above is by **dependency and blast radius**: Must Have is what changes what a
   section *admits*, Should and Could are what a section *says* once its
   membership is settled.
+
+### Closed 2026-09-05, three days after its end date
+
+**It was never closed and it was never indexed.** Its `Phase:` read `Active`
+while `docs/sprints/active/` held three other sprints and not this one, so the
+one field that says a sprint is running disagreed with the directory that lists
+what is running.
+
+**19 of 26 items done, release 2.9.0 shipped.** The seven unchecked items stay
+unchecked: closing a sprint does not finish its work, and rewriting them as done
+would be the exact half-landed record [[2026-W36-a-half-landed-workflow-says-so]]
+was written about.

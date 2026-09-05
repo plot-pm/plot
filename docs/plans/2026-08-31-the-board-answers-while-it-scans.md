@@ -48,7 +48,7 @@ than one with no headline: it is the sentence a reader carries away.
 
 - **Phase:** Draft
 - **Type:** bug
-- **Sprint:** the-domain-is-one-implementation
+- **Sprint:** every-concept-has-one-owner
 - **Review:** pr
 - **Impl:** own branches
 <!-- WITHDRAWN 2026-08-31, Jan Wloka, in-session. The phase stays Draft because

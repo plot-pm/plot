@@ -1,11 +1,12 @@
 # Every generated bundle is marked
 
-> `.gitattributes` marks one of the nine bundles `build.mjs` emits. The other eight are blended by git, which splices conflict markers into generated JavaScript — and the one script licensed to repair such a conflict refuses, because its definition of *the artifact* is that single marked file.
+> `.gitattributes` marks one of the eight bundles `build.mjs` emits. The other seven are blended by git, which splices conflict markers into generated JavaScript — and the one script licensed to repair such a conflict refuses, because its definition of *the artifact* is that single marked file.
 
 ## Status
 
 - **Phase:** Draft
 - **Type:** bug
+- **Sprint:** every-concept-has-one-owner
 - **Review:** pr
 - **Impl:** own branches
 
