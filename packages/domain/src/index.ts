@@ -197,6 +197,40 @@ export type {
 } from './transitions/agent.js';
 
 /**
+ * The worktree's transitions, disambiguated the way the other three are — the
+ * same four type names collide, for the fourth time.
+ *
+ * A desk's state is OBSERVED, like an agent's, so this `Decision` carries a
+ * verdict rather than a write. It adds one field the agent's has no use for:
+ * `destroys`, naming what a move costs. Only `reapable -> gone` costs anything,
+ * and what it costs is the slice's whole assertion — a checkout, which
+ * `git worktree add` restores, and never a ref, which nothing does.
+ *
+ * The VERBS are not aliased, for the reason the other three give:
+ * `observeWorktreeState` and `removalIsRecreatable` collide with nothing, and
+ * an alias on an uncollided name is the residue
+ * `scripts/count-domain-aliases.sh` holds at zero.
+ */
+export {
+  observeWorktreeState,
+  worktreeStateObservable,
+  removalIsRecreatable,
+  REMOVAL_IS_RECREATABLE,
+  isDecision as isWorktreeDecision,
+  isRefusal as isWorktreeRefusal,
+} from './transitions/worktree.js';
+export type {
+  RemovalTarget,
+  ObserveStateInput as WorktreeObserveStateInput,
+  RemovalInput,
+  Precondition as WorktreePrecondition,
+  RefusalReason as WorktreeRefusalReason,
+  TransitionResult as WorktreeTransitionResult,
+  Decision as WorktreeDecision,
+  Refusal as WorktreeRefusal,
+} from './transitions/worktree.js';
+
+/**
  * The lifecycle workflows — `readings -> Decision | Refusal`, deciding and
  * performing nothing. Exported from the pure barrel because they are pure:
  * every rule is reachable from a plain call with no adapter in scope.
