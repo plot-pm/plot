@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
@@ -14,6 +14,7 @@
 - **Rounds:** 3
 - **Approved:** 2026-09-03, Jan Wloka, pr
 - **Delivered:** 2026-09-04
+- **Released:** 2026-09-05, 2.13.0
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)

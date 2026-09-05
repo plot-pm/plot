@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** plot-board
@@ -14,6 +14,7 @@
 - **Rounds:** 0
 - **Approved:** 2026-09-01, Jan Wloka, in-session
 - **Delivered:** 2026-09-02
+- **Released:** 2026-09-05, 2.13.0
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)

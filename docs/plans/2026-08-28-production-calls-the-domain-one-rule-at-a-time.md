@@ -4,10 +4,11 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Delivered:** 2026-09-02
+- **Released:** 2026-09-05, 2.13.0
 - **Issue:** <!-- optional -->
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session

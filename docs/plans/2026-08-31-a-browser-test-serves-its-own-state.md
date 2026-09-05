@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** infra
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
@@ -16,6 +16,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-08-31, Jan Wloka, in-session
 - **Delivered:** 2026-09-01, Jan Wloka
+- **Released:** 2026-09-05, 2.13.0
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Started:** <date>, <who>, <branch>   (one line per started branch)
 - **Started:** 2026-08-31, Jan Wloka, `infra/the-browser-tests-say-which-need-a-server`

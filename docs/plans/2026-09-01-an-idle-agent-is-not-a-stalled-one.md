@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
@@ -14,6 +14,7 @@
 - **Started:** 2026-09-02, Jan Wloka, `bug/the-loop-reads-the-agents-own-stream`
 - **Started:** 2026-09-02, Jan Wloka, `bug/an-ended-worker-names-its-reading`
 - **Delivered:** 2026-09-02
+- **Released:** 2026-09-05, 2.13.0
 
 ## Changelog
 

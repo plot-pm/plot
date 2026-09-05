@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Delivered:** 2026-09-01
@@ -16,7 +16,7 @@
 - **Amended:** 2026-08-30, Jan Wloka, in-session — a third monitor for the Build; 6 slices → 7
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
-- **Released:** <!-- YYYY-MM-DD, version -->
+- **Released:** 2026-09-05, 2.13.0
 - **Started:** 2026-08-30, Jan Wloka, `feature/every-worker-is-born-monitored`
 - **Started:** 2026-08-30, Jan Wloka, `feature/the-worker-monitor-samples-the-process`
 - **Started:** 2026-08-30, Jan Wloka, `bug/a-monitor-ends-with-its-agent`

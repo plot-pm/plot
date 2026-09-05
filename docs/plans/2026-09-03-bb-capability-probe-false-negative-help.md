@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Issue:** #668
 - **Review:** in-session
@@ -12,6 +12,7 @@
 - **Approved:** 2026-09-04, Jan Wloka, in-session
 - **Impl:** own branches
 - **Delivered:** 2026-09-04
+- **Released:** 2026-09-05, 2.13.0
 
 ## Changelog
 

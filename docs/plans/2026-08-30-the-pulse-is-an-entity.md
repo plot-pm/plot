@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
@@ -15,7 +15,7 @@
 - **Delivered:** 2026-09-02
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
-- **Released:** <!-- YYYY-MM-DD, version -->
+- **Released:** 2026-09-05, 2.13.0
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-scan-reads-a-fleet-reading`
 - **Started:** 2026-09-01, Jan Wloka, `docs/the-pulse-has-a-design`
 - **Started:** 2026-09-02, Jan Wloka, `feature/an-agent-waits-instead-of-asking`

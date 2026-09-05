@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** infra
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
@@ -14,7 +14,7 @@
 - **Delivered:** 2026-09-01
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** <!-- YYYY-MM-DD -->
-- **Released:** <!-- YYYY-MM-DD, version -->
+- **Released:** 2026-09-05, 2.13.0
 - **Started:** 2026-08-30, Jan Wloka, `infra/only-an-adapter-reaches-a-script`
 - **Started:** 2026-09-01, Jan Wloka, `infra/the-gate-counts-what-production-keeps`
 - **Started:** 2026-09-01, Jan Wloka, `infra/the-board-says-how-far-adoption-got`

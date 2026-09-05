@@ -6,9 +6,10 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Delivered:** 2026-09-02
+- **Released:** 2026-09-05, 2.13.0
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->
 - **Story:** plot-board

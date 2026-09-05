@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** infra
 - **Story:** plot-planning-model
 - **Review:** pr
@@ -17,6 +17,7 @@
 - **Started:** 2026-08-22, Jan Wloka, `infra/the-template-writes-waves`
 - **Started:** 2026-08-23, Jan Wloka, `infra/the-parser-reads-a-wave-heading`
 - **Delivered:** 2026-08-24
+- **Released:** 2026-09-05, 2.13.0
 
 ## Changelog
 

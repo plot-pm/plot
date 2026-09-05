@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
@@ -14,6 +14,7 @@
 - **Started:** 2026-09-04, Jan Wloka, `feature/one-answer-to-did-this-land`
 - **Started:** 2026-09-04, Jan Wloka, `bug/a-merged-branch-cannot-be-claimed`
 - **Delivered:** 2026-09-04
+- **Released:** 2026-09-05, 2.13.0
 
 ## Changelog
 

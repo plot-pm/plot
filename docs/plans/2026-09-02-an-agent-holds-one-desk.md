@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** in-session
@@ -19,6 +19,7 @@
 - **Started:** 2026-09-03, Jan Wloka, `feature/an-agent-waits-for-work`
 - **Started:** 2026-09-04, Jan Wloka, `feature/the-registry-queues-a-brief`
 - **Delivered:** 2026-09-04
+- **Released:** 2026-09-05, 2.13.0
 
 ## Changelog
 

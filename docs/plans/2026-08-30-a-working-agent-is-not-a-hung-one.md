@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** bug
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
@@ -13,7 +13,7 @@
 - **Approved:** 2026-08-30, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** 2026-08-31
-- **Released:** <!-- YYYY-MM-DD, version -->
+- **Released:** 2026-09-05, 2.13.0
 - **Started:** 2026-08-30, Jan Wloka, `bug/the-loop-reads-the-monitor`
 - **Started:** 2026-08-31, Jan Wloka, `bug/a-long-agent-reaches-its-second-slice`
 

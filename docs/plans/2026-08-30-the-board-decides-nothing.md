@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
@@ -15,8 +15,7 @@
 - **Started:** 2026-09-01, Jan Wloka, `feature/a-phase-is-a-domain-rule`
 - **Started:** 2026-09-01, Jan Wloka, `feature/the-pulse-derives-in-the-domain`
 - **Delivered:** 2026-09-01
-- **Released:** <!-- YYYY-MM-DD, version -->
-
+- **Released:** 2026-09-05, 2.13.0
 ## Changelog
 
 The verdicts, phases and pulse derivations the board computes become domain

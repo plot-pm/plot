@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Story:** the-master-agent-holds-the-fleet
@@ -14,6 +14,7 @@
 - **Started:** 2026-08-30, Jan Wloka, `feature/a-dispatch-asks-for-a-free-agent`
 - **Started:** 2026-08-31, Jan Wloka, `feature/a-manifest-names-every-process`
 - **Delivered:** 2026-09-01
+- **Released:** 2026-09-05, 2.13.0
 
 ## Approval
 

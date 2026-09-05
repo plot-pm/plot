@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** infra
 - **Sprint:** the-domain-is-one-implementation
 - **Issue:** <!-- optional -->
@@ -12,7 +12,7 @@
 - **Approved:** 2026-08-30, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, branch -->
 - **Delivered:** 2026-08-31
-- **Released:** <!-- YYYY-MM-DD, version -->
+- **Released:** 2026-09-05, 2.13.0
 - **Started:** 2026-08-30, Jan Wloka, `infra/the-artifact-drift-has-a-cause`
 
 ## Approval

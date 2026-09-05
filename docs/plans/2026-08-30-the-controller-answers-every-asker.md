@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **Phase:** Released
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Issue:** <!-- optional -->
@@ -14,7 +14,7 @@
 - **Approved:** 2026-08-30, Jan Wloka, in-session
 - **Started:** <!-- YYYY-MM-DD, who, `branch` -->
 - **Delivered:** 2026-08-31
-- **Released:** <!-- YYYY-MM-DD, version -->
+- **Released:** 2026-09-05, 2.13.0
 - **Started:** 2026-08-30, Jan Wloka, `feature/fleet-settings-is-not-fleet-control`
 - **Started:** 2026-08-30, Jan Wloka, `feature/one-controller-answers-the-board`
 - **Started:** 2026-08-31, Jan Wloka, `feature/the-mock-is-an-adapter`
