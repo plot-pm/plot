@@ -232,6 +232,36 @@ await esbuild.build({
 fs.copyFileSync(registrydArtifact, shippedRegistryd);
 fs.chmodSync(shippedRegistryd, 0o755);
 
+// Did this branch's work land, reachable from the four scripts that gate on it.
+//
+// A NINTH artifact, for the reason the third through eighth ones give:
+// plot-ask.mjs answers by RUNNING plot-fleet-scan.sh, and that scan sources
+// plot-pr-merged.sh — so the gate asking it would be a script calling an
+// artifact that calls the script.
+//
+// Vendored beside plot-pr-merged.sh, which resolves it from its own
+// ${BASH_SOURCE[0]} directory. Its callers are shipped in the published npm
+// package, where `packages/` does not exist, so an inline import of the domain
+// source would resolve only in the plot checkout — and every gate would then
+// answer "not merged", which keeps every worktree and every ref forever.
+const landedArtifact = path.join(here, 'dist/plot-landed.mjs');
+const shippedLanded = path.join(here, '../../skills/plot/scripts/board/plot-landed.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/landed.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: landedArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(landedArtifact, shippedLanded);
+fs.chmodSync(shippedLanded, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -264,6 +294,15 @@ const vendoredScripts = [
   'plot-fleet-scan.sh',
   'plot-host.sh',
   'plot-plan-meta.sh',
+  // Sourced BY plot-reap.sh, plot-release-refs.sh and plot-dispatch.sh as a
+  // `$script_dir` sibling — three files already on this list. It was NOT on it,
+  // measured 2026-09-05, so the npm layout has shipped without it: the source
+  // prints one line to stderr and `pr_merged` is then undefined, which every
+  // caller reads through `||` as "not merged" — the safe direction, and a
+  // reaper that keeps every worktree while saying nothing. A gate derived from
+  // the server's own spawns cannot see a SOURCED file, so it is listed by hand
+  // and this comment says why, exactly as `plot-budget.sh` above does.
+  'plot-pr-merged.sh',
   'plot-reap.sh',
   'plot-release-refs.sh',
   'plot-resolve-artifact.sh',
@@ -299,6 +338,7 @@ const transitionKb = (fs.statSync(shippedTransition).size / 1024).toFixed(1);
 const promptKb = (fs.statSync(shippedPrompt).size / 1024).toFixed(1);
 const taskKb = (fs.statSync(shippedTask).size / 1024).toFixed(1);
 const registrydKb = (fs.statSync(shippedRegistryd).size / 1024).toFixed(1);
+const landedKb = (fs.statSync(shippedLanded).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -307,4 +347,5 @@ console.log(`Built plot-transition.mjs (${transitionKb} KB) → skills/plot/scri
 console.log(`Built plot-prompt.mjs (${promptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-task.mjs (${taskKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-registryd.mjs (${registrydKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-landed.mjs (${landedKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
