@@ -300,25 +300,54 @@ pr_head_branches() { # $1="<number> <head>" lines → head lines
 # the host is worth more than any word this scan could substitute.
 load_open_pr_branches() {
   local out err rc tmpstderr host_script backend
-  git remote get-url origin >/dev/null 2>&1 || return 0
 
   host_script="$script_dir/plot-host.sh"
   if [ ! -r "$host_script" ]; then
     PR_SOURCE="absent"; PR_ERROR="plot-host.sh not found beside this script"; return 0
   fi
 
-  # WHICH BACKEND ANSWERED is still reported, because `pr_source=gh` and
-  # `pr_source=bb` are a documented, machine-countable contract this scan's
-  # footer has carried since before the adapter existed. The adapter names it;
-  # this no longer works it out from a URL.
-  backend=$(bash "$host_script" backend 2>/dev/null) || backend=""
-  case "$backend" in
-    github) backend="gh" ;;
-    bitbucket) backend="bb" ;;
-    # An unresolvable backend is the legacy `degraded` state — the host is
-    # unknown rather than broken, and git merge-state alone still answers.
+  # ORIGIN NAMES THE HOST, AND THE ADAPTER TALKS TO IT. These are two different
+  # facts and this function now holds only the first.
+  #
+  # WHY ORIGIN AND NOT `plot-host.sh backend`. The adapter resolves its backend
+  # from the `Git host` config key, defaulting to github — a DECLARATION about
+  # the repo. This scan needs the host that origin actually points at, because
+  # it compares `origin/*` refs and a repo may carry extra remotes on other
+  # hosts: letting the CLI resolve "any" remote silently enumerates the wrong
+  # repo's PRs. That was this function's original reason for the URL `case` and
+  # it is untouched by routing. A Bitbucket checkout that never wrote the config
+  # key still reads `pr_source=bb` here, as it always has.
+  #
+  # `PLOT_HOST` IS HOW THE ANSWER IS CARRIED, and it is the adapter's own
+  # documented override — `plot-host.sh:1306`, "$PLOT_HOST (github|bitbucket)
+  # wins". So the scan states which host it means and the adapter obeys, rather
+  # than each reaching a private conclusion. Exported for the call only; a repo
+  # whose config disagrees with its origin is still asking about origin, which
+  # is the only remote whose refs this scan reads.
+  #
+  # `degraded` SURVIVES as the legacy state for an origin on neither host — the
+  # host is unknown rather than broken, and git merge-state alone still answers.
+  local url host_env slug repo_args
+  url=$(git remote get-url origin 2>/dev/null) || return 0
+  case "$url" in
+    *github.com*) backend="gh"; host_env="github" ;;
+    *bitbucket*)  backend="bb"; host_env="bitbucket" ;;
     *) return 0 ;;
   esac
+
+  # PIN THE LIST TO ORIGIN'S REPOSITORY, for the same reason the host is read
+  # from origin one comment up: this scan joins the PR list against `origin/*`
+  # refs, and a checkout with a second remote on the same host lets an unpinned
+  # list enumerate the other repository — every branch would read as having no
+  # open PR, and section 3 would call the whole estate orphaned.
+  #
+  # GitHub only. `bb` is already scoped to the repository it is run in and
+  # takes no `-R`, so passing one would fail the call rather than narrow it.
+  repo_args=""
+  if [ "$backend" = "gh" ]; then
+    slug=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/]+/[^/]+)$#\1#')
+    [ -n "$slug" ] && repo_args="--repo $slug"
+  fi
 
   tmpstderr=$(mktemp) || { PR_SOURCE="failed"; PR_ERROR="could not create a temp file"; return 0; }
   # Clean up the temp file on return. Use /bin/rm to avoid PATH issues.
@@ -326,7 +355,7 @@ load_open_pr_branches() {
 
   # SEPARATE call from parse: capture the adapter's own exit status, not jq's.
   # A 429 makes it exit 5; testing `$?` after a pipe loses that.
-  out=$(bash "$host_script" pr-list --state open </dev/null 2>"$tmpstderr")
+  out=$(PLOT_HOST="$host_env" bash "$host_script" pr-list --state open $repo_args </dev/null 2>"$tmpstderr")
   rc=$?
   err=$(head -1 "$tmpstderr" 2>/dev/null)
   if [ "$rc" -ne 0 ]; then
@@ -356,7 +385,7 @@ load_open_pr_branches() {
   # cost is constant in plan count. A failure here is TOLERATED and always was
   # — the merged list feeds one advisory check, and section 8 says so in its
   # own note when the heads are missing.
-  if out=$(bash "$host_script" pr-list --state merged --limit "$MERGED_PR_LIMIT" </dev/null 2>/dev/null); then
+  if out=$(PLOT_HOST="$host_env" bash "$host_script" pr-list --state merged --limit "$MERGED_PR_LIMIT" $repo_args </dev/null 2>/dev/null); then
     merged_pr_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
   fi
 
