@@ -247,14 +247,24 @@ monitor_pr_state() { # → 0 has a PR | 1 no PR | 2 unaskable
   # `</dev/null` so a host CLI that decides to prompt cannot hang a monitor
   # whose whole contract is one bounded reading per pass.
   out=$(bash "$host_script" pr-state "$branch" </dev/null 2>/dev/null) || return 2
-  # A miss arrives on exit 0 as `state:"NONE"` — the host was asked and said
-  # none, which is a real answer. An unparseable payload is not: the call
-  # reported success and produced nothing this port can read, and reading that
-  # as `no PR` would invent the same finding storm the port exists to prevent.
-  state=$(printf '%s' "$out" | jq -r '.state // ""' 2>/dev/null) || return 2
+  # THE EXIT STATUS DECIDES WHETHER THE HOST WAS ASKED; the payload only says
+  # what it answered. `pr-state` exits non-zero when the call failed and 0 when
+  # it did not, so anything reaching this line is an answer.
+  #
+  # A MISS IS `NONE`, AND SO IS A NULL. `state:"NONE"` is the adapter's word for
+  # "no PR found", but the same miss reaches here as `state:null` when the host
+  # CLI answers with a payload carrying no PR — measured 2026-09-05 against
+  # `test/e2e/agent-monitor-reads.test.mjs`, where `gh pr view` on a branch with
+  # no PR produced `{"number":null,"state":null,…}` and exit 0.
+  #
+  # Reading that null as `unaskable` is what the first draft of this port did,
+  # and it is wrong in the direction that hides the finding: an agent that
+  # committed and opened nothing produced no `owes a review` at all, because the
+  # monitor believed it had never measured. A failure to observe is not evidence
+  # of something to see — but neither is an observation evidence of a failure.
+  state=$(printf '%s' "$out" | jq -r '.state // "NONE"' 2>/dev/null) || return 2
   case "$state" in
-    "") return 2 ;;
-    NONE) return 1 ;;
+    NONE|null|"") return 1 ;;
     *) return 0 ;;
   esac
 }
