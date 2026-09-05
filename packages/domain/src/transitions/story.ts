@@ -232,9 +232,11 @@ export const setStatus = (story: Story, input: SetStatusInput): TransitionResult
     return refuse(
       story.slug,
       'status-unreachable',
-      `story '${story.slug}' cannot go '${story.status}' -> '${to}' — from '${story.status}' it may become ${
-        NEXT[story.status].join(' or ') || 'nothing'
-      }.`,
+      // Every status reaching here has a non-empty edge list: `done` is the
+      // one with none, and `status-terminal` above already refused it.
+      `story '${story.slug}' cannot go '${story.status}' -> '${to}' — from '${story.status}' it may become ${NEXT[
+        story.status
+      ].join(' or ')}.`,
     );
   }
 
