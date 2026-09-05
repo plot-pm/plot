@@ -1,5 +1,27 @@
 import { type Story, type StoryStatus, storyIsDone } from '../entities/story.js';
 
+/*
+ * THE VERBS CARRY THE ENTITY NAME — `setStoryStatus`, not `setStatus`.
+ *
+ * `transitions/plan.ts` names its verbs `approve`, `deliver`, `release` and the
+ * barrel aliases them, because `workflows/` declares the same three and one of
+ * the two must be renamed where both are in scope. That collision is what
+ * excuses the alias: `scripts/count-domain-aliases.sh` counts a renaming
+ * re-export whose original name is declared by exactly ONE module, and holds
+ * the total at zero.
+ *
+ * A story's verbs collide with nothing today, so an alias on them would be a
+ * name somebody chose to preserve — the residue that gate exists to refuse.
+ * They also would not stay uncollided: `archive`, `settable` and `setStatus`
+ * are exactly the words the agent, worktree and slice lifecycles behind this
+ * slice will reach for.
+ *
+ * The TYPES do not follow that rule. `Decision`, `Refusal`, `Precondition`,
+ * `RefusalReason` and `TransitionResult` are declared by `transitions/plan.ts`
+ * too, so they genuinely collide and the barrel disambiguates them there — the
+ * shape the gate already ignores, and the one `plan.ts` established.
+ */
+
 /**
  * What a story's status can be once `archived` is derived beside it.
  *
@@ -33,7 +55,7 @@ export const STORY_LIFECYCLE: readonly StoryStatus[] = [
  *
  * Transcribed from `diagrams/story-lifecycle.mmd`, which is the spec's own
  * source for §4's diagram. A status not listed here is not reachable from the
- * key, and {@link setStatus} refuses it.
+ * key, and {@link setStoryStatus} refuses it.
  *
  * `done` leads nowhere: the exit from `done` is the archival — a date plus a
  * directory move — and not another status.
@@ -159,8 +181,8 @@ const unmet = (slug: string, preconditions: readonly Precondition[]): Refusal | 
 const known = (status: string): status is StoryStatus =>
   (STORY_LIFECYCLE as readonly string[]).includes(status);
 
-/** What `setStatus` needs beyond the story. */
-export interface SetStatusInput {
+/** What `setStoryStatus` needs beyond the story. */
+export interface SetStoryStatusInput {
   /** The status to move to. */
   to: string;
   /** The date to record where the move is to `done`, ISO-8601. */
@@ -173,15 +195,15 @@ export interface SetStatusInput {
  * Whether a story may move to a given status.
  *
  * Callable alone, because a board must know whether to offer the move before
- * anyone takes it. It is not a permission: {@link setStatus} re-checks, because
+ * anyone takes it. It is not a permission: {@link setStoryStatus} re-checks, because
  * a caller that asked is indistinguishable from one that did not.
  *
  * @param story - the story to test.
  * @param to - the status it would move to.
  * @returns true when the mechanical gates would pass.
  */
-export const settable = (story: Story, to: string): boolean =>
-  !isRefusal(setStatus(story, { to, on: '0000-00-00' }));
+export const storyStatusSettable = (story: Story, to: string): boolean =>
+  !isRefusal(setStoryStatus(story, { to, on: '0000-00-00' }));
 
 /**
  * Decides the write that moving a story to a status calls for.
@@ -202,7 +224,7 @@ export const settable = (story: Story, to: string): boolean =>
  *   `status-unreachable`, `status-unchanged`, `archive-date-missing` or
  *   `precondition-unmet`.
  */
-export const setStatus = (story: Story, input: SetStatusInput): TransitionResult => {
+export const setStoryStatus = (story: Story, input: SetStoryStatusInput): TransitionResult => {
   if (!known(input.to)) {
     return refuse(
       story.slug,
@@ -261,8 +283,8 @@ export const setStatus = (story: Story, input: SetStatusInput): TransitionResult
   };
 };
 
-/** What `archive` needs beyond the story. */
-export interface ArchiveInput {
+/** What `archiveStory` needs beyond the story. */
+export interface ArchiveStoryInput {
   /** The date to record, ISO-8601. */
   on: string;
   /** Readings a caller measured, such as whether the `archived/` home exists. */
@@ -272,13 +294,13 @@ export interface ArchiveInput {
 /**
  * Whether a story is in a state where Archive should be offered.
  *
- * Callable alone; {@link archive} re-checks regardless.
+ * Callable alone; {@link archiveStory} re-checks regardless.
  *
  * @param story - the story to test.
  * @returns true when the mechanical gates would pass.
  */
-export const archivable = (story: Story): boolean =>
-  !isRefusal(archive(story, { on: '0000-00-00' }));
+export const storyArchivable = (story: Story): boolean =>
+  !isRefusal(archiveStory(story, { on: '0000-00-00' }));
 
 /**
  * Decides the write that archiving a story calls for.
@@ -299,7 +321,7 @@ export const archivable = (story: Story): boolean =>
  *   the gate that fired: `archive-not-done`, `archive-already`,
  *   `archive-date-missing` or `precondition-unmet`.
  */
-export const archive = (story: Story, input: ArchiveInput): TransitionResult => {
+export const archiveStory = (story: Story, input: ArchiveStoryInput): TransitionResult => {
   if (!storyIsDone(story)) {
     return refuse(
       story.slug,

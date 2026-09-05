@@ -14,6 +14,10 @@ returns `StoryStanding` so its `return 'archived'` no longer type-checks against
 `string`, and `StoriesTab` names its four columns as a subset of the union
 rather than as a fifth list.
 
+The verbs are declared `setStoryStatus` and `archiveStory` rather than aliased
+at the barrel: nothing collides with `setStatus` or `archive` today, so an alias
+on them would be the residue `scripts/count-domain-aliases.sh` holds at zero.
+
 <!--
 bumps:
   skills:

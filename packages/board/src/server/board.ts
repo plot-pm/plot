@@ -7,7 +7,7 @@ import {
   StoryCardSchema,
   toBoardPhase,
   BOARD_PHASES,
-  STORY_STATUSES,
+  STORY_LIFECYCLE,
   type Board,
   type Card,
   type Column,
@@ -1403,7 +1403,7 @@ function deriveStoryStatus(
   declaredStatus: string,
   plans: Array<{ phase: string }>,
 ): StoryStanding {
-  const declared = (STORY_STATUSES as readonly string[]).includes(declaredStatus)
+  const declared = (STORY_LIFECYCLE as readonly string[]).includes(declaredStatus)
     ? (declaredStatus as StoryStatus)
     : 'draft';
   return derivedStanding(declared, plans);

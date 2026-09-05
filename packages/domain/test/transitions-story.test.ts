@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Story } from '../src/entities/story.js';
 import {
-  archivable,
-  archive,
+  archiveStory,
   derivedStanding,
   isDecision,
   isRefusal,
-  setStatus,
-  settable,
+  setStoryStatus,
+  storyArchivable,
+  storyStatusSettable,
   STORY_LIFECYCLE,
 } from '../src/transitions/story.js';
 
@@ -24,9 +24,9 @@ const storyWith = (over: Partial<Story> = {}): Story => ({
   ...over,
 });
 
-describe('setStatus decides the write a move calls for', () => {
+describe('setStoryStatus decides the write a move calls for', () => {
   it('moves draft to ready, the first edge in the spec graph', () => {
-    const result = setStatus(storyWith({ status: 'draft' }), { to: 'ready' });
+    const result = setStoryStatus(storyWith({ status: 'draft' }), { to: 'ready' });
     expect(isDecision(result)).toBe(true);
     if (!isDecision(result)) return;
     expect(result.status).toBe('ready');
@@ -34,10 +34,10 @@ describe('setStatus decides the write a move calls for', () => {
   });
 
   it('moves active to in-review, and in-review to done', () => {
-    const toReview = setStatus(storyWith({ status: 'active' }), { to: 'in-review' });
+    const toReview = setStoryStatus(storyWith({ status: 'active' }), { to: 'in-review' });
     expect(isDecision(toReview)).toBe(true);
 
-    const toDone = setStatus(storyWith({ status: 'in-review' }), {
+    const toDone = setStoryStatus(storyWith({ status: 'in-review' }), {
       to: 'done',
       on: '2026-09-05',
     });
@@ -48,27 +48,27 @@ describe('setStatus decides the write a move calls for', () => {
   });
 
   it('lets a paused story resume, the one edge that goes backwards', () => {
-    expect(isDecision(setStatus(storyWith({ status: 'paused' }), { to: 'active' }))).toBe(true);
+    expect(isDecision(setStoryStatus(storyWith({ status: 'paused' }), { to: 'active' }))).toBe(true);
   });
 
   it('carries the archive date on a move to done, so the two writes cannot separate', () => {
-    const result = setStatus(storyWith({ status: 'active' }), { to: 'done', on: '2026-09-05' });
+    const result = setStoryStatus(storyWith({ status: 'active' }), { to: 'done', on: '2026-09-05' });
     expect(isDecision(result)).toBe(true);
     if (!isDecision(result)) return;
     expect(result.archived).toBe('2026-09-05');
   });
 
   it('carries no archive date on any move that is not to done', () => {
-    const result = setStatus(storyWith({ status: 'ready' }), { to: 'active', on: '2026-09-05' });
+    const result = setStoryStatus(storyWith({ status: 'ready' }), { to: 'active', on: '2026-09-05' });
     expect(isDecision(result)).toBe(true);
     if (!isDecision(result)) return;
     expect(result.archived).toBeNull();
   });
 });
 
-describe('setStatus refuses what the lifecycle graph does not admit', () => {
+describe('setStoryStatus refuses what the lifecycle graph does not admit', () => {
   it('refuses a status the domain does not name', () => {
-    const result = setStatus(storyWith(), { to: 'archived' });
+    const result = setStoryStatus(storyWith(), { to: 'archived' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('status-unrecognised');
@@ -76,7 +76,7 @@ describe('setStatus refuses what the lifecycle graph does not admit', () => {
 
   it('refuses `archived` by name — it is derived, never stored', () => {
     // The seventh value `deriveStoryStatus` returned against a `string` type.
-    const result = setStatus(storyWith({ status: 'done', archived: '2026-09-05' }), {
+    const result = setStoryStatus(storyWith({ status: 'done', archived: '2026-09-05' }), {
       to: 'archived',
     });
     expect(isRefusal(result)).toBe(true);
@@ -85,7 +85,7 @@ describe('setStatus refuses what the lifecycle graph does not admit', () => {
   });
 
   it('refuses a move out of done — the exit from done is the archival', () => {
-    const result = setStatus(storyWith({ status: 'done', archived: '2026-09-05' }), {
+    const result = setStoryStatus(storyWith({ status: 'done', archived: '2026-09-05' }), {
       to: 'active',
     });
     expect(isRefusal(result)).toBe(true);
@@ -94,7 +94,7 @@ describe('setStatus refuses what the lifecycle graph does not admit', () => {
   });
 
   it('refuses draft straight to active, skipping ready', () => {
-    const result = setStatus(storyWith({ status: 'draft' }), { to: 'active' });
+    const result = setStoryStatus(storyWith({ status: 'draft' }), { to: 'active' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('status-unreachable');
@@ -104,35 +104,35 @@ describe('setStatus refuses what the lifecycle graph does not admit', () => {
   it('refuses draft straight to done, the move that cost a person an hour', () => {
     // Measured 2026-09-04: five stories were marked `done` while consolidating
     // the estate, three of them wrongly.
-    const result = setStatus(storyWith({ status: 'draft' }), { to: 'done', on: '2026-09-05' });
+    const result = setStoryStatus(storyWith({ status: 'draft' }), { to: 'done', on: '2026-09-05' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('status-unreachable');
   });
 
   it('refuses ready straight to done', () => {
-    const result = setStatus(storyWith({ status: 'ready' }), { to: 'done', on: '2026-09-05' });
+    const result = setStoryStatus(storyWith({ status: 'ready' }), { to: 'done', on: '2026-09-05' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('status-unreachable');
   });
 
   it('refuses ready straight to in-review', () => {
-    const result = setStatus(storyWith({ status: 'ready' }), { to: 'in-review' });
+    const result = setStoryStatus(storyWith({ status: 'ready' }), { to: 'in-review' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('status-unreachable');
   });
 
   it('refuses in-review going back to active — the graph has no such edge', () => {
-    const result = setStatus(storyWith({ status: 'in-review' }), { to: 'active' });
+    const result = setStoryStatus(storyWith({ status: 'in-review' }), { to: 'active' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('status-unreachable');
   });
 
   it('refuses in-review going to paused', () => {
-    const result = setStatus(storyWith({ status: 'in-review' }), { to: 'paused' });
+    const result = setStoryStatus(storyWith({ status: 'in-review' }), { to: 'paused' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('status-unreachable');
@@ -140,7 +140,7 @@ describe('setStatus refuses what the lifecycle graph does not admit', () => {
 
   it('refuses paused going anywhere but active', () => {
     for (const to of ['draft', 'ready', 'in-review', 'done'] as const) {
-      const result = setStatus(storyWith({ status: 'paused' }), { to, on: '2026-09-05' });
+      const result = setStoryStatus(storyWith({ status: 'paused' }), { to, on: '2026-09-05' });
       expect(isRefusal(result)).toBe(true);
       if (!isRefusal(result)) continue;
       expect(result.reason).toBe('status-unreachable');
@@ -149,7 +149,7 @@ describe('setStatus refuses what the lifecycle graph does not admit', () => {
 
   it('refuses every move back to draft', () => {
     for (const from of ['ready', 'active', 'in-review', 'paused'] as const) {
-      const result = setStatus(storyWith({ status: from }), { to: 'draft' });
+      const result = setStoryStatus(storyWith({ status: from }), { to: 'draft' });
       expect(isRefusal(result)).toBe(true);
       if (!isRefusal(result)) continue;
       expect(result.reason).toBe('status-unreachable');
@@ -157,28 +157,28 @@ describe('setStatus refuses what the lifecycle graph does not admit', () => {
   });
 
   it('refuses a move to the status the story already holds', () => {
-    const result = setStatus(storyWith({ status: 'active' }), { to: 'active' });
+    const result = setStoryStatus(storyWith({ status: 'active' }), { to: 'active' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('status-unchanged');
   });
 
   it('refuses done with no archive date — the half-archived story the lint reports as S3', () => {
-    const result = setStatus(storyWith({ status: 'active' }), { to: 'done' });
+    const result = setStoryStatus(storyWith({ status: 'active' }), { to: 'done' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('archive-date-missing');
   });
 
   it('refuses done with a blank archive date', () => {
-    const result = setStatus(storyWith({ status: 'active' }), { to: 'done', on: '   ' });
+    const result = setStoryStatus(storyWith({ status: 'active' }), { to: 'done', on: '   ' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('archive-date-missing');
   });
 
   it('refuses an unmet reading, naming it', () => {
-    const result = setStatus(storyWith({ status: 'draft' }), {
+    const result = setStoryStatus(storyWith({ status: 'draft' }), {
       to: 'ready',
       preconditions: [{ name: 'file-writable', met: false, detail: 'read-only checkout' }],
     });
@@ -190,7 +190,7 @@ describe('setStatus refuses what the lifecycle graph does not admit', () => {
   });
 
   it('tests the graph before the readings, so a bad move refuses for its own reason', () => {
-    const result = setStatus(storyWith({ status: 'draft' }), {
+    const result = setStoryStatus(storyWith({ status: 'draft' }), {
       to: 'done',
       on: '2026-09-05',
       preconditions: [{ name: 'file-writable', met: false }],
@@ -201,25 +201,25 @@ describe('setStatus refuses what the lifecycle graph does not admit', () => {
   });
 });
 
-describe('settable answers before anyone moves', () => {
-  it('agrees with setStatus on a legal move', () => {
-    expect(settable(storyWith({ status: 'draft' }), 'ready')).toBe(true);
+describe('storyStatusSettable answers before anyone moves', () => {
+  it('agrees with setStoryStatus on a legal move', () => {
+    expect(storyStatusSettable(storyWith({ status: 'draft' }), 'ready')).toBe(true);
   });
 
-  it('agrees with setStatus on an illegal one', () => {
-    expect(settable(storyWith({ status: 'draft' }), 'done')).toBe(false);
-    expect(settable(storyWith({ status: 'done', archived: '2026-09-05' }), 'active')).toBe(false);
+  it('agrees with setStoryStatus on an illegal one', () => {
+    expect(storyStatusSettable(storyWith({ status: 'draft' }), 'done')).toBe(false);
+    expect(storyStatusSettable(storyWith({ status: 'done', archived: '2026-09-05' }), 'active')).toBe(false);
   });
 
   it('answers about the graph rather than about a missing date', () => {
     // Tested with a placeholder date, the way `releasable` is.
-    expect(settable(storyWith({ status: 'active' }), 'done')).toBe(true);
+    expect(storyStatusSettable(storyWith({ status: 'active' }), 'done')).toBe(true);
   });
 });
 
-describe('archive is the second write, and it refuses to happen alone', () => {
+describe('archiveStory is the second write, and it refuses to happen alone', () => {
   it('decides the date for a done story carrying none', () => {
-    const result = archive(storyWith({ status: 'done' }), { on: '2026-09-05' });
+    const result = archiveStory(storyWith({ status: 'done' }), { on: '2026-09-05' });
     expect(isDecision(result)).toBe(true);
     if (!isDecision(result)) return;
     expect(result.status).toBe('done');
@@ -228,7 +228,7 @@ describe('archive is the second write, and it refuses to happen alone', () => {
 
   it('refuses to archive a story that is not done', () => {
     for (const status of ['draft', 'ready', 'active', 'in-review', 'paused'] as const) {
-      const result = archive(storyWith({ status }), { on: '2026-09-05' });
+      const result = archiveStory(storyWith({ status }), { on: '2026-09-05' });
       expect(isRefusal(result)).toBe(true);
       if (!isRefusal(result)) continue;
       expect(result.reason).toBe('archive-not-done');
@@ -236,7 +236,7 @@ describe('archive is the second write, and it refuses to happen alone', () => {
   });
 
   it('refuses to overwrite the date a story already closed on', () => {
-    const result = archive(storyWith({ status: 'done', archived: '2026-08-01' }), {
+    const result = archiveStory(storyWith({ status: 'done', archived: '2026-08-01' }), {
       on: '2026-09-05',
     });
     expect(isRefusal(result)).toBe(true);
@@ -246,14 +246,14 @@ describe('archive is the second write, and it refuses to happen alone', () => {
   });
 
   it('refuses an archival with no date', () => {
-    const result = archive(storyWith({ status: 'done' }), { on: '' });
+    const result = archiveStory(storyWith({ status: 'done' }), { on: '' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('archive-date-missing');
   });
 
   it('refuses an unmet reading', () => {
-    const result = archive(storyWith({ status: 'done' }), {
+    const result = archiveStory(storyWith({ status: 'done' }), {
       on: '2026-09-05',
       preconditions: [{ name: 'archived-home-exists', met: false }],
     });
@@ -262,10 +262,10 @@ describe('archive is the second write, and it refuses to happen alone', () => {
     expect(result.reason).toBe('precondition-unmet');
   });
 
-  it('archivable agrees with archive', () => {
-    expect(archivable(storyWith({ status: 'done' }))).toBe(true);
-    expect(archivable(storyWith({ status: 'active' }))).toBe(false);
-    expect(archivable(storyWith({ status: 'done', archived: '2026-08-01' }))).toBe(false);
+  it('storyArchivable agrees with archiveStory', () => {
+    expect(storyArchivable(storyWith({ status: 'done' }))).toBe(true);
+    expect(storyArchivable(storyWith({ status: 'active' }))).toBe(false);
+    expect(storyArchivable(storyWith({ status: 'done', archived: '2026-08-01' }))).toBe(false);
   });
 });
 

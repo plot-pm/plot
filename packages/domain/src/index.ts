@@ -126,30 +126,33 @@ export type {
  * `archived:` date, and one `Decision` serving both would abstract over the
  * distinction that gives each its fields.
  *
- * `derivedStanding` is exported plain because nothing else answers to it: it is
- * the ONE place `archived` is computed, and `board.ts` reads it rather than
- * deriving a second answer.
+ * The VERBS are not aliased here: they are declared `setStoryStatus` and
+ * `archiveStory` in their own module, because nothing collides with `setStatus`
+ * or `archive` today and an alias on an uncollided name is the residue
+ * `scripts/count-domain-aliases.sh` holds at zero. The four types below DO
+ * collide with `transitions/plan.ts`, which is why they are aliased and the
+ * verbs are not.
  */
 export {
-  setStatus as setStoryStatus,
-  archive as archiveStory,
-  settable as storyStatusSettable,
-  archivable as storyArchivable,
-  isDecision as isStoryDecision,
-  isRefusal as isStoryRefusal,
+  setStoryStatus,
+  archiveStory,
+  storyStatusSettable,
+  storyArchivable,
   derivedStanding,
   STORY_LIFECYCLE,
+  isDecision as isStoryDecision,
+  isRefusal as isStoryRefusal,
 } from './transitions/story.js';
 export type {
   StoryStanding,
   StoryPlanReading,
+  SetStoryStatusInput,
+  ArchiveStoryInput,
   Precondition as StoryPrecondition,
   RefusalReason as StoryRefusalReason,
   TransitionResult as StoryTransitionResult,
   Decision as StoryDecision,
   Refusal as StoryRefusal,
-  SetStatusInput as SetStoryStatusInput,
-  ArchiveInput as ArchiveStoryInput,
 } from './transitions/story.js';
 
 /**
