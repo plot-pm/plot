@@ -302,7 +302,7 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
   `plot-release-refs.sh` applies are one question about a desk. **Asserted: a
   reaped checkout is re-creatable and a deleted ref is not** — the asymmetry
   that makes those two scripts refuse differently, currently held only in their
-  comments.
+  comments. — PR #716
 
 
 ### Refusing the next hidden one
