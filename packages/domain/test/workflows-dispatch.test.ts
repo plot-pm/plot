@@ -116,17 +116,17 @@ describe('dispatch — the phase gate, read from the shared ref', () => {
 
   it.each(['delivered', 'released'])('refuses a %s plan — its work is done', (phase) => {
     const out = dispatch(estate({ gate: gate({ phase }) }));
-    expect(refused(out) && out.reason).toBe('phase-terminal');
+    expect(refused(out) && out.reason).toBe('state-terminal');
   });
 
   it.each(['', 'NONE'])('refuses an unreadable phase (%s) rather than guessing', (phase) => {
     const out = dispatch(estate({ gate: gate({ phase }) }));
-    expect(refused(out) && out.reason).toBe('phase-unreadable');
+    expect(refused(out) && out.reason).toBe('state-unreadable');
   });
 
   it('refuses a phase it does not recognise', () => {
     const out = dispatch(estate({ gate: gate({ phase: 'design' }) }));
-    expect(refused(out) && out.reason).toBe('phase-wrong');
+    expect(refused(out) && out.reason).toBe('state-wrong');
   });
 });
 

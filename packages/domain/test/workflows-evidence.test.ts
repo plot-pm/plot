@@ -46,7 +46,7 @@ describe('outcomes carry the workflow that produced them', () => {
   });
 
   it('names the workflow and the rule on a refusal', () => {
-    const out = refuse('deliver', 'phase-wrong', 'because');
-    expect([out.workflow, out.reason, out.detail]).toEqual(['deliver', 'phase-wrong', 'because']);
+    const out = refuse('deliver', 'state-wrong', 'because');
+    expect([out.workflow, out.reason, out.detail]).toEqual(['deliver', 'state-wrong', 'because']);
   });
 });

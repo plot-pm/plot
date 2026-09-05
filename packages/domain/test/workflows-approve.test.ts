@@ -45,17 +45,17 @@ describe('approve — the refusals, each without a repository', () => {
 
   it.each(['delivered', 'released'])('refuses a plan already %s', (phase) => {
     const out = approve(ready({ phase }), on);
-    expect(refused(out) && out.reason).toBe('phase-terminal');
+    expect(refused(out) && out.reason).toBe('state-terminal');
   });
 
   it.each(['NONE', ''])('refuses a phase it cannot read (%s)', (phase) => {
     const out = approve(ready({ phase }), on);
-    expect(refused(out) && out.reason).toBe('phase-unreadable');
+    expect(refused(out) && out.reason).toBe('state-unreadable');
   });
 
   it('refuses a phase it does not recognise', () => {
     const out = approve(ready({ phase: 'rejected' }), on);
-    expect(refused(out) && out.reason).toBe('phase-wrong');
+    expect(refused(out) && out.reason).toBe('state-wrong');
   });
 
   it.each(['in-session', 'ballot'])('refuses %s review — the approval needs a human', (review) => {

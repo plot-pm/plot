@@ -9,10 +9,10 @@ import { type Outcome, type Write, decide, refuse } from './decision.js';
 export type DeliverRefusal =
   | 'plan-not-found'
   | 'plan-unparseable'
-  | 'phase-terminal'
-  | 'phase-too-early'
-  | 'phase-unreadable'
-  | 'phase-wrong'
+  | 'state-terminal'
+  | 'state-too-early'
+  | 'state-unreadable'
+  | 'state-wrong'
   | 'branches-unmerged';
 
 /** One branch of the plan being delivered, with what the host said about it. */
@@ -88,8 +88,8 @@ export interface DeliverDetail {
  * @param readings - what the adapters measured about the plan and its branches.
  * @param input - the date to record.
  * @returns a decision naming every write, or a refusal naming the rule that
- *   fired: `plan-not-found`, `plan-unparseable`, `phase-terminal`,
- *   `phase-too-early`, `phase-unreadable`, `phase-wrong` or
+ *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
+ *   `state-too-early`, `state-unreadable`, `state-wrong` or
  *   `branches-unmerged`.
  */
 export const deliver = (
@@ -111,20 +111,20 @@ export const deliver = (
     case 'delivered':
       break;
     case 'released':
-      return no('phase-terminal', `plan '${slug}' is already released — nothing to deliver.`);
+      return no('state-terminal', `plan '${slug}' is already released — nothing to deliver.`);
     case 'draft':
     case 'design':
-      return no('phase-too-early', `plan '${slug}' is still '${readings.phase}' — approve it first.`);
+      return no('state-too-early', `plan '${slug}' is still '${readings.phase}' — approve it first.`);
     case 'NONE':
     case '':
       return no(
-        'phase-unreadable',
-        `cannot read the phase of '${slug}' (${readings.file}) — refusing rather than guessing.`,
+        'state-unreadable',
+        `cannot read the state of '${slug}' (${readings.file}) — refusing rather than guessing.`,
       );
     default:
       return no(
-        'phase-wrong',
-        `plan '${slug}' is in phase '${readings.phase}' — only an Approved plan can be delivered.`,
+        'state-wrong',
+        `plan '${slug}' is in state '${readings.phase}' — only an Approved plan can be delivered.`,
       );
   }
 

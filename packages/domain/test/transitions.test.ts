@@ -77,7 +77,7 @@ describe('approve', () => {
 
   // --- one test per refusal, named for it ---------------------------------
 
-  it('refuses phase-terminal: a delivered plan has nothing to approve', () => {
+  it('refuses state-terminal: a delivered plan has nothing to approve', () => {
     const result = approve(planWith({ phase: 'delivered' }), {
       on: '2026-08-29',
       who: 'Jan',
@@ -85,11 +85,11 @@ describe('approve', () => {
     });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-terminal');
+    expect(result.reason).toBe('state-terminal');
     expect(result.detail).toContain('delivered');
   });
 
-  it('refuses phase-terminal: a released plan has nothing to approve', () => {
+  it('refuses state-terminal: a released plan has nothing to approve', () => {
     const result = approve(planWith({ phase: 'released' }), {
       on: '2026-08-29',
       who: 'Jan',
@@ -97,10 +97,10 @@ describe('approve', () => {
     });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-terminal');
+    expect(result.reason).toBe('state-terminal');
   });
 
-  it('refuses phase-unreadable rather than guessing an empty phase', () => {
+  it('refuses state-unreadable rather than guessing an empty phase', () => {
     const result = approve(planWith({ phase: 'none' }), {
       on: '2026-08-29',
       who: 'Jan',
@@ -108,10 +108,10 @@ describe('approve', () => {
     });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-unreadable');
+    expect(result.reason).toBe('state-unreadable');
   });
 
-  it('refuses phase-wrong for a phase that does not approve', () => {
+  it('refuses state-wrong for a phase that does not approve', () => {
     const result = approve(planWith({ phase: 'rejected' }), {
       on: '2026-08-29',
       who: 'Jan',
@@ -119,7 +119,7 @@ describe('approve', () => {
     });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-wrong');
+    expect(result.reason).toBe('state-wrong');
     expect(result.detail).toContain('rejected');
   });
 
@@ -223,40 +223,40 @@ describe('deliver', () => {
     expect(result.record).toBe('2026-08-01');
   });
 
-  it('refuses phase-terminal: a released plan has nothing to deliver', () => {
+  it('refuses state-terminal: a released plan has nothing to deliver', () => {
     const result = deliver(planWith({ phase: 'released' }), { on: '2026-08-29' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-terminal');
+    expect(result.reason).toBe('state-terminal');
   });
 
-  it('refuses phase-too-early: a draft plan must be approved first', () => {
+  it('refuses state-too-early: a draft plan must be approved first', () => {
     const result = deliver(planWith({ phase: 'draft' }), { on: '2026-08-29' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-too-early');
+    expect(result.reason).toBe('state-too-early');
     expect(result.detail).toContain('approve it first');
   });
 
-  it('refuses phase-too-early: a design plan must be approved first', () => {
+  it('refuses state-too-early: a design plan must be approved first', () => {
     const result = deliver(planWith({ phase: 'design' }), { on: '2026-08-29' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-too-early');
+    expect(result.reason).toBe('state-too-early');
   });
 
-  it('refuses phase-unreadable rather than guessing an empty phase', () => {
+  it('refuses state-unreadable rather than guessing an empty phase', () => {
     const result = deliver(planWith({ phase: 'none' }), { on: '2026-08-29' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-unreadable');
+    expect(result.reason).toBe('state-unreadable');
   });
 
-  it('refuses phase-wrong for a phase that does not deliver', () => {
+  it('refuses state-wrong for a phase that does not deliver', () => {
     const result = deliver(planWith({ phase: 'superseded' }), { on: '2026-08-29' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-wrong');
+    expect(result.reason).toBe('state-wrong');
   });
 
   it('refuses precondition-unmet when a branch reading says work is outstanding', () => {
@@ -315,39 +315,39 @@ describe('release', () => {
     expect(result.record).toBe('2026-08-01, v2.5.0');
   });
 
-  it('refuses phase-too-early: an approved plan must be delivered first', () => {
+  it('refuses state-too-early: an approved plan must be delivered first', () => {
     const result = release(planWith({ phase: 'approved' }), {
       on: '2026-08-29',
       version: 'v2.6.0',
     });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-too-early');
+    expect(result.reason).toBe('state-too-early');
     expect(result.detail).toContain('deliver it first');
   });
 
-  it('refuses phase-too-early: a draft plan must be delivered first', () => {
+  it('refuses state-too-early: a draft plan must be delivered first', () => {
     const result = release(planWith({ phase: 'draft' }), { on: '2026-08-29', version: 'v2.6.0' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-too-early');
+    expect(result.reason).toBe('state-too-early');
   });
 
-  it('refuses phase-unreadable rather than guessing an empty phase', () => {
+  it('refuses state-unreadable rather than guessing an empty phase', () => {
     const result = release(planWith({ phase: 'none' }), { on: '2026-08-29', version: 'v2.6.0' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-unreadable');
+    expect(result.reason).toBe('state-unreadable');
   });
 
-  it('refuses phase-wrong for a phase that does not release', () => {
+  it('refuses state-wrong for a phase that does not release', () => {
     const result = release(planWith({ phase: 'rejected' }), {
       on: '2026-08-29',
       version: 'v2.6.0',
     });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
-    expect(result.reason).toBe('phase-wrong');
+    expect(result.reason).toBe('state-wrong');
   });
 
   it('refuses version-missing rather than recording a phase with no version', () => {

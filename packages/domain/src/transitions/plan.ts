@@ -5,12 +5,16 @@
 import { normalizeVersion } from '../entities/version.js';
 
 /**
- * A plan's lifecycle phase as the parser normalizes it.
+ * A plan's state as the parser normalizes it.
  *
- * `none` is the parser's answer for a plan whose phase could not be read, and
- * is distinct from every real phase: it means unmeasured, not early.
+ * A plan has a state; the development workflow has phases. The two are
+ * different concepts and {@link ../rules/phase.js#Phase} names the other one:
+ * a `delivered` plan is in the `Testing` phase.
+ *
+ * `none` is the parser's answer for a plan whose state could not be read, and
+ * is distinct from every real state: it means unmeasured, not early.
  */
-export type Phase =
+export type PlanState =
   | 'draft'
   | 'design'
   | 'approved'
@@ -38,8 +42,8 @@ export type ReviewChannel = 'pr' | 'in-session' | 'ballot' | 'none' | (string & 
 export interface TransitionPlan {
   /** The plan's slug, carried onto the decision. */
   slug: string;
-  /** The phase as the parser normalized it. */
-  phase: Phase;
+  /** The state as the parser normalized it. The wire key stays `phase`. */
+  phase: PlanState;
   /** The declared review channel. */
   review: ReviewChannel;
   /** The `Approved:` line as written, or `''`. */
@@ -67,10 +71,10 @@ export interface Precondition {
 
 /** Why a transition refused, as a value a caller can branch on. */
 export type RefusalReason =
-  | 'phase-terminal'
-  | 'phase-too-early'
-  | 'phase-wrong'
-  | 'phase-unreadable'
+  | 'state-terminal'
+  | 'state-too-early'
+  | 'state-wrong'
+  | 'state-unreadable'
   | 'review-human'
   | 'review-unrecognised'
   | 'version-missing'
@@ -92,9 +96,9 @@ export interface Refusal {
 }
 
 /**
- * A transition that should happen: a phase and the record that dates it.
+ * A transition that should happen: a state and the record that dates it.
  *
- * The two travel together because they came apart in practice — a phase flip
+ * The two travel together because they came apart in practice — a state flip
  * written without its record made a delivered plan invisible to the scan. Both
  * fields are required, so a decision missing either does not typecheck.
  */
@@ -102,13 +106,13 @@ export interface Decision {
   readonly outcome: 'decided';
   /** The plan to write to. */
   readonly slug: string;
-  /** The phase to write. */
-  readonly phase: Extract<Phase, 'approved' | 'delivered' | 'released'>;
+  /** The state to write. The field is named `phase` because the wire key is. */
+  readonly phase: Extract<PlanState, 'approved' | 'delivered' | 'released'>;
   /** The `## Status` field the record belongs on. */
   readonly field: 'Approved' | 'Delivered' | 'Released';
   /** The record's value, without its `- **Field:** ` prefix. */
   readonly record: string;
-  /** Whether the plan already carries this phase and record, leaving nothing to write. */
+  /** Whether the plan already carries this state and record, leaving nothing to write. */
   readonly alreadyRecorded: boolean;
 }
 
@@ -187,7 +191,7 @@ export const approvable = (plan: TransitionPlan): boolean =>
 /**
  * Decides the write that approving a plan calls for.
  *
- * Carries the mechanical refusals only — the phase and the review channel. A
+ * Carries the mechanical refusals only — the state and the review channel. A
  * host-dependent check, such as whether the plan PR merged, is supplied as a
  * precondition reading rather than performed here.
  *
@@ -197,7 +201,7 @@ export const approvable = (plan: TransitionPlan): boolean =>
  * @param plan - the plan to approve.
  * @param input - the date, approver and channel to record, plus any readings.
  * @returns a decision carrying `approved` and its record, or a refusal naming
- *   the gate that fired: `phase-terminal`, `phase-unreadable`, `phase-wrong`,
+ *   the gate that fired: `state-terminal`, `state-unreadable`, `state-wrong`,
  *   `review-human`, `review-unrecognised` or `precondition-unmet`.
  */
 export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionResult => {
@@ -210,20 +214,20 @@ export const approve = (plan: TransitionPlan, input: ApproveInput): TransitionRe
     case 'released':
       return refuse(
         plan.slug,
-        'phase-terminal',
+        'state-terminal',
         `plan '${plan.slug}' is already ${plan.phase} — nothing to approve.`,
       );
     case 'none':
       return refuse(
         plan.slug,
-        'phase-unreadable',
-        `cannot read the phase of '${plan.slug}' — refusing rather than guessing.`,
+        'state-unreadable',
+        `cannot read the state of '${plan.slug}' — refusing rather than guessing.`,
       );
     default:
       return refuse(
         plan.slug,
-        'phase-wrong',
-        `plan '${plan.slug}' is in phase '${plan.phase}' — only a Draft or Design plan can be approved.`,
+        'state-wrong',
+        `plan '${plan.slug}' is in state '${plan.phase}' — only a Draft or Design plan can be approved.`,
       );
   }
 
@@ -289,8 +293,8 @@ export const deliverable = (plan: TransitionPlan): boolean => !isRefusal(deliver
  * @param plan - the plan to deliver.
  * @param input - the date to record, plus any readings.
  * @returns a decision carrying `delivered` and its record, or a refusal naming
- *   the gate that fired: `phase-terminal`, `phase-too-early`,
- *   `phase-unreadable`, `phase-wrong` or `precondition-unmet`.
+ *   the gate that fired: `state-terminal`, `state-too-early`,
+ *   `state-unreadable`, `state-wrong` or `precondition-unmet`.
  */
 export const deliver = (plan: TransitionPlan, input: DeliverInput): TransitionResult => {
   switch (plan.phase) {
@@ -300,27 +304,27 @@ export const deliver = (plan: TransitionPlan, input: DeliverInput): TransitionRe
     case 'released':
       return refuse(
         plan.slug,
-        'phase-terminal',
+        'state-terminal',
         `plan '${plan.slug}' is already released — nothing to deliver.`,
       );
     case 'draft':
     case 'design':
       return refuse(
         plan.slug,
-        'phase-too-early',
+        'state-too-early',
         `plan '${plan.slug}' is still '${plan.phase}' — approve it first.`,
       );
     case 'none':
       return refuse(
         plan.slug,
-        'phase-unreadable',
-        `cannot read the phase of '${plan.slug}' — refusing rather than guessing.`,
+        'state-unreadable',
+        `cannot read the state of '${plan.slug}' — refusing rather than guessing.`,
       );
     default:
       return refuse(
         plan.slug,
-        'phase-wrong',
-        `plan '${plan.slug}' is in phase '${plan.phase}' — only an Approved plan can be delivered.`,
+        'state-wrong',
+        `plan '${plan.slug}' is in state '${plan.phase}' — only an Approved plan can be delivered.`,
       );
   }
 
@@ -352,7 +356,7 @@ export interface ReleaseInput {
  * Whether a plan is in a state where Release should be offered.
  *
  * Callable alone; {@link release} re-checks regardless. Tested with a
- * placeholder version, so it answers about the phase rather than the input.
+ * placeholder version, so it answers about the state rather than the input.
  *
  * @param plan - the plan to test.
  * @returns true when the mechanical gates would pass.
@@ -371,7 +375,7 @@ export const releasable = (plan: TransitionPlan): boolean =>
  * @param plan - the plan to release.
  * @param input - the date and version to record, plus any readings.
  * @returns a decision carrying `released` and its record, or a refusal naming
- *   the gate that fired: `phase-too-early`, `phase-unreadable`, `phase-wrong`,
+ *   the gate that fired: `state-too-early`, `state-unreadable`, `state-wrong`,
  *   `version-missing` or `precondition-unmet`.
  */
 export const release = (plan: TransitionPlan, input: ReleaseInput): TransitionResult => {
@@ -384,20 +388,20 @@ export const release = (plan: TransitionPlan, input: ReleaseInput): TransitionRe
     case 'approved':
       return refuse(
         plan.slug,
-        'phase-too-early',
+        'state-too-early',
         `plan '${plan.slug}' is still '${plan.phase}' — deliver it first.`,
       );
     case 'none':
       return refuse(
         plan.slug,
-        'phase-unreadable',
-        `cannot read the phase of '${plan.slug}' — refusing rather than guessing.`,
+        'state-unreadable',
+        `cannot read the state of '${plan.slug}' — refusing rather than guessing.`,
       );
     default:
       return refuse(
         plan.slug,
-        'phase-wrong',
-        `plan '${plan.slug}' is in phase '${plan.phase}' — only a Delivered plan can be released.`,
+        'state-wrong',
+        `plan '${plan.slug}' is in state '${plan.phase}' — only a Delivered plan can be released.`,
       );
   }
 
@@ -409,7 +413,7 @@ export const release = (plan: TransitionPlan, input: ReleaseInput): TransitionRe
     return refuse(
       plan.slug,
       'version-missing',
-      `plan '${plan.slug}' cannot be released without a version — a phase with no version is a record nobody can resolve.`,
+      `plan '${plan.slug}' cannot be released without a version — a state with no version is a record nobody can resolve.`,
     );
   }
 

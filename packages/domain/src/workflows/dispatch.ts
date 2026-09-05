@@ -19,9 +19,9 @@ export type DispatchRefusal =
   | 'plan-not-found'
   | 'plan-unreadable'
   | 'phase-draft'
-  | 'phase-terminal'
-  | 'phase-unreadable'
-  | 'phase-wrong'
+  | 'state-terminal'
+  | 'state-unreadable'
+  | 'state-wrong'
   | 'impl-same-branch'
   | 'impl-other-repo'
   | 'impl-none'
@@ -525,15 +525,15 @@ const plangate = (
       );
     case 'delivered':
     case 'released':
-      return no('phase-terminal', `plan '${slug}' is already ${gate.phase} — its work is done.`);
+      return no('state-terminal', `plan '${slug}' is already ${gate.phase} — its work is done.`);
     case 'NONE':
     case '':
       return no(
-        'phase-unreadable',
-        `cannot read the phase of '${slug}' (${gate.source}). Refusing rather than guessing — dispatching starts real work.`,
+        'state-unreadable',
+        `cannot read the state of '${slug}' (${gate.source}). Refusing rather than guessing — dispatching starts real work.`,
       );
     default:
-      return no('phase-wrong', `plan '${slug}' is in phase '${gate.phase}', not Approved.`);
+      return no('state-wrong', `plan '${slug}' is in state '${gate.phase}', not Approved.`);
   }
 
   // NONE is a pre-Plot-2 plan that never recorded an answer — allowed, since
