@@ -64,7 +64,13 @@ describe('fleetSize — the request, and what is already running', () => {
   it('says why it started nothing when the fleet is already the size asked for', () => {
     const answer = fleetSize(readings({ requested: 3, running: 3, spawnCostMs: CLEAR }));
     expect(answer.start).toBe(0);
-    expect(answer.shortfall).toContain('already running');
+    expect(answer.shortfall).toContain('3 workers already running');
+  });
+
+  it('counts one worker in the singular, because an operator reads the sentence', () => {
+    const answer = fleetSize(readings({ requested: 1, running: 1, spawnCostMs: CLEAR }));
+    expect(answer.shortfall).toContain('1 worker already running');
+    expect(answer.shortfall).not.toContain('1 workers');
   });
 
   it('starts the difference when part of the fleet is already up', () => {
@@ -108,6 +114,25 @@ describe('fleetSize — the machine has the last word', () => {
     const answer = fleetSize(readings({ requested: 3, spawnCostMs: STARVED }));
     expect(answer.shortfall).toContain('starved');
     expect(answer.shortfall).toContain(`${Math.round(STARVED)}ms`);
+    expect(answer.shortfall).toContain('0 workers already running');
+  });
+
+  it('counts one running worker in the singular in the machine sentence too', () => {
+    const answer = fleetSize(readings({ requested: 4, running: 1, spawnCostMs: STARVED }));
+    expect(answer.shortfall).toContain('1 worker already running');
+    expect(answer.shortfall).not.toContain('1 workers');
+  });
+
+  it('says `unmeasured` rather than a cost it never took', () => {
+    // A sentence quoting `0ms` for a machine nobody sampled would claim the
+    // fastest fork there is was observed.
+    const answer = fleetSize({
+      requested: 3,
+      running: 0,
+      spawnCostMs: null,
+      headroom: 'starved',
+    });
+    expect(answer.shortfall).toContain('one fork costs unmeasured');
   });
 
   it('treats an unmeasured machine as clear — an absent veto is not a refusal', () => {

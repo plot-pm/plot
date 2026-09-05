@@ -304,7 +304,23 @@ describe('assign — the tick starts agents when queued > running', () => {
       { fleet: cap({ size: 3, desks: ['/desks/only-one'] }) },
     );
     expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(1);
-    expect(decision.detail.scaling?.shortfall).toContain('desk was offered');
+    expect(decision.detail.scaling?.shortfall).toContain('only 1 desk was offered');
+  });
+
+  it('counts more than one desk in the plural, because an operator reads it', () => {
+    const decision = assign(
+      {
+        slices: [
+          slice({ branch: 'feature/a' }),
+          slice({ branch: 'feature/b' }),
+          slice({ branch: 'feature/c' }),
+        ],
+        agents: [],
+      },
+      { fleet: cap({ size: 3, desks: ['/desks/one', '/desks/two'] }) },
+    );
+    expect(decision.writes.filter((w) => w.kind === 'worker-start')).toHaveLength(2);
+    expect(decision.detail.scaling?.shortfall).toContain('only 2 desks were offered');
   });
 
   it('is a function of its readings — the same pass twice reaches the same decision', () => {
