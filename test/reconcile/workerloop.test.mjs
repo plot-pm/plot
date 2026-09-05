@@ -1132,3 +1132,104 @@ test('worker-loop: exactly three endings are spelled, one per reading', serial, 
   assert.doesNotMatch(waitEndings[0], /ending worker without hopping/,
     'the wait\'s ending is not one of the three, so it does not carry their phrase');
 });
+
+// ---------------------------------------------------------------------------
+// A BRANCHLESS AGENT WAITS — the guard `an-agent-is-started-by-a-command` added
+// ---------------------------------------------------------------------------
+//
+// `plot-dispatch.sh --start` brings agents into existence with NO slice
+// assigned: free, registered, and waiting for the registry to hand one over.
+// The loop opened `while true; do ... run_bounded` with no guard on
+// `PLOT_BRANCH` anywhere above it, so such an agent ran the project's worker
+// prompt — which begins *"You are implementing the branch $PLOT_BRANCH"* —
+// against an empty variable, and reached the hand-over having already spent its
+// bound on a sentence with a hole in it. Measured 2026-09-05.
+//
+// THE PROMPT ITSELF IS THE WITNESS. Every test here uses a stub prompt that
+// prints a marker; the assertion is that the marker is absent, which is the one
+// thing no reading of the loop's own log can fake.
+
+test('worker-loop: a branchless agent waits and never runs the prompt', serial, async () => {
+  const t = fixture('branchless-waits', 5, 'echo "PROMPT-RAN branch=[$PLOT_BRANCH]" >&2\n');
+  const { stderr } = await runLoop(t, { env: { PLOT_BRANCH: '', PLOT_SLUG: '' } });
+  discard(t);
+
+  assert.doesNotMatch(stderr, /PROMPT-RAN/,
+    'a loop started with no branch must not run the worker prompt');
+  assert.match(stderr, /nothing handed over yet/,
+    'it enters the wait instead, and the wait says what it is waiting for');
+});
+
+test('worker-loop: a branchless agent ends on the WAIT bound, not a prompt reading',
+  serial, async () => {
+  // The fourth ending, and it is the right one: no prompt was running, nothing
+  // was cut short, and the desk is clean by construction. An agent that had run
+  // the prompt would end with one of the three prompt readings instead.
+  const t = fixture('branchless-ending', 5, 'echo "PROMPT-RAN" >&2\n');
+  const { stderr } = await runLoop(t, { env: { PLOT_BRANCH: '', PLOT_SLUG: '' } });
+  discard(t);
+
+  assert.match(stderr, /the wait ran out/,
+    'the branchless agent ends on the wait bound');
+  assert.doesNotMatch(stderr, /ending worker without hopping/,
+    'which is not one of the three prompt endings, so it does not carry their phrase');
+});
+
+test('worker-loop: a branchless agent takes the branch its manifest names', serial, async () => {
+  // THE HAND-OVER IS REACHED, which is the other half of the guard: skipping the
+  // prompt block must not skip the wait's exit. The manifest already names a
+  // branch, so the wait returns at once and the loop goes on to take it — here
+  // it fails to cut a desk (no remote in the fixture) and says so, which is
+  // proof it got past the wait rather than proof of anything about desks.
+  const t = fixture('branchless-takes', 5, 'echo "PROMPT-RAN" >&2\n');
+  fs.mkdirSync(path.join(t, '.plot', 'agents'), { recursive: true });
+  const manifest = path.join(t, '.plot', 'agents', 'free.json');
+  fs.writeFileSync(manifest, JSON.stringify({
+    session: 'free', branch: 'feature/handed-over', worktree: t,
+  }));
+  const { stderr } = await runLoop(t, {
+    env: { PLOT_BRANCH: '', PLOT_SLUG: '', PLOT_MANIFEST_FILE: manifest },
+  });
+  discard(t);
+
+  assert.doesNotMatch(stderr, /PROMPT-RAN/,
+    'the prompt is still not run: this agent held no branch when it started');
+  assert.match(stderr, /feature\/handed-over/,
+    'the loop reached the hand-over and read the branch the registry wrote');
+});
+
+test('worker-loop: an agent WITH a branch still runs its prompt', serial, async () => {
+  // THE GUARD IS A GUARD AND NOT A REMOVAL. Every existing path must be
+  // unchanged, which is what this asserts from the other side: the same fixture,
+  // the same stub, one variable different.
+  const t = fixture('branch-still-runs', 5, 'echo "PROMPT-RAN branch=[$PLOT_BRANCH]" >&2\n');
+  const { stderr } = await runLoop(t, { env: { PLOT_BRANCH: 'feature/held' } });
+  discard(t);
+
+  assert.match(stderr, /PROMPT-RAN branch=\[feature\/held\]/,
+    'an agent holding a branch runs the prompt with it, exactly as before');
+});
+
+test('worker-loop: a branchless wait asks no fleet scan', serial, () => {
+  // THE OUTLOOK COSTS 18.3 s AND HAS NOTHING TO SAY HERE. `--why-nothing` over
+  // an empty slug walks the whole estate to name branches belonging to plans
+  // this agent was never given, so the loop asks it only where a slug exists.
+  //
+  // COUNTED OVER THE LINES THE LOOP RUNS, never over the file: this script is
+  // two-thirds prose, and a grep that read its own comments would pass on a
+  // paragraph and fail on a rename. `--why-nothing` appears in several of them.
+  const src = fs.readFileSync(loop, 'utf8');
+  const code = src.split('\n').filter((l) => !/^\s*#/.test(l));
+  const asks = code.filter((l) => l.includes('--why-nothing'));
+  assert.equal(asks.length, 1, `the outlook is asked in exactly one place, found ${asks.length}`);
+  assert.match(asks[0], /wait_for_work "\$\(/,
+    'the one ask is the wait\'s outlook argument');
+
+  // THE GUARD, read from the line before it: a slug-less agent takes the other
+  // arm and hands the wait a bare `none`.
+  const where = code.indexOf(asks[0]);
+  assert.match(code[where - 1] ?? '', /PLOT_SLUG/,
+    'and it sits behind a test on the agent holding a slug');
+  assert.ok(code.slice(where, where + 4).some((l) => /wait_for_work none/.test(l)),
+    'with a `none` outlook for the agent that holds none');
+});
