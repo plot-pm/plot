@@ -245,7 +245,7 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
 ### The story's lifecycle
 
 - `feature/a-story-lifecycle-refuses` — `transitions/story.ts`. **The one
-  lifecycle that is already declared three times, disagreeing.**
+  lifecycle that is already declared three times, disagreeing.** — PR #707
   `entities/story.ts:10` admits six states and no `archived`, and states the
   archival rule as an invariant: `done` and an `archived:` date are two writes
   that must agree (`archivalIsConsistent`, `:74`). The board's
