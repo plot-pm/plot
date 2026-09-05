@@ -56,7 +56,7 @@ holds is the per-agent one. Halving it is what lets N grow.
 
 ## Slices
 
-### Starting an agent (Branch: feature/an-agent-is-started-by-a-command)
+### Starting an agent (Branch: feature/an-agent-is-started-by-a-command, PR: #708)
 
 The supervisor runs. Nothing brings an AGENT up, and without one the supervisor
 has nobody to hand work to.
