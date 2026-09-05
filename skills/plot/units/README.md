@@ -4,6 +4,8 @@
 
 This directory holds one unit file for each, plus the install steps. Both are templates — replace three placeholders and install.
 
+**`/plot-fleet --start` automates every step below**, and adds four refusals this page cannot enforce: a missing artifact, a `node` that is not the pinned major, no init system, and a label already loaded. Follow the steps by hand when you want to see what it does, or when you are giving a second checkout its own label.
+
 ## Why the OS and not Plot
 
 *"Is a process that should be running actually running?"* is a machine-side question. Answering it with another Plot component would need a supervisor for that component too. `launchd` and `systemd` terminate the regress: they are already running, they already restart processes, and they need no help from Plot to do it.

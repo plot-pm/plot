@@ -73,7 +73,7 @@ Four phases, four artefacts. Each transition is recorded in the plan itself — 
      ▼
  Approved ──────────  /plot-implement  branches, worktrees, briefs
      │
-     │                /plot-dispatch · /plot-fleet · /plot-merge-queue
+     │                /plot-dispatch · /plot-pulse · /plot-merge-queue
      │                agents work; you land what comes back
      │
      ├─ /plot-deliver  every branch merged
@@ -105,7 +105,9 @@ Plot answers both without adding a database.
 
 ### The fleet commands, and the failure each one removes
 
-**`/plot-fleet` — a dead agent and a slow one look identical from outside.** Re-reads git every run and reports which waves are complete, eligible or blocked, and which branches are claimed. It also surfaces a blocker that only exists once work is parallel — *approved, and nobody has taken it* — which no ticket board has a column for. Read-only.
+**`/plot-pulse` — a dead agent and a slow one look identical from outside.** Re-reads git every run and reports which waves are complete, eligible or blocked, and which branches are claimed. It also surfaces a blocker that only exists once work is parallel — *approved, and nobody has taken it* — which no ticket board has a column for. Read-only.
+
+**`/plot-fleet` — a supervisor nobody starts supervises nothing.** Starts, stops and reports on `plot-registryd` and the agents that run on this machine. It probes before it acts and refuses rather than repairs, and `--stop` orchestrates the one existing stop rule per branch rather than adding a laxer second one. Processes, not slices — the estate is `/plot-pulse`'s question.
 
 **`/plot-dispatch` — fanning out is a decision, not a mechanical step.** Gives each eligible branch its own worktree and a detached worker, each claimed by ref push. Deliberately a command you run rather than something on a timer, because four agents mean four pull requests somebody has to read.
 
@@ -169,7 +171,8 @@ The keys cover plan and sprint directories, branch prefixes, git host and CI, th
 | [plot-release](skills/plot-release/) | Cut a versioned release from delivered plans |
 | [plot-sprint](skills/plot-sprint/) | Time-boxed sprint coordination with MoSCoW prioritization |
 | [plot-dispatch](skills/plot-dispatch/) | Fan out a plan — one worktree and one worker per eligible branch |
-| [plot-fleet](skills/plot-fleet/) | Fleet pulse — which waves are eligible, which branches are claimed |
+| [plot-pulse](skills/plot-pulse/) | Fleet pulse — which waves are eligible, which branches are claimed |
+| [plot-fleet](skills/plot-fleet/) | Fleet control — start, stop and report on the supervisor and its agents |
 | [plot-merge-queue](skills/plot-merge-queue/) | Safe merge order with collision prediction |
 | [plot-reslice](skills/plot-reslice/) | Slice a multi-branch wave into one wave per branch |
 | [ralph-plot-sprint](skills/ralph-plot-sprint/) | Automated sprint runner (extension) |

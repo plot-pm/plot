@@ -63,41 +63,6 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LABEL="com.plot-pm.registryd"
 UNIT_DIR="$script_dir/../units"
 
-mode=""
-start_count=""
-dry_run=0
-# THIRTY SECONDS, and it is a bound rather than a deadline. A worker signalled
-# mid-prompt finishes the syscall it is in and exits; the two measured here took
-# 2.1 s and 0.4 s. The bound exists for the one that does not, so a fleet stop
-# ends in a fact rather than a stalled terminal.
-wait_bound=30
-
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --status) mode=status ;;
-    --once)   mode=once ;;
-    # Only a bare number is consumed, the same rule `plot-dispatch.sh --start`
-    # applies, so `--start --dry-run` means what it reads as.
-    --start)  mode=start
-              case "${2:-}" in
-                ''|*[!0-9]*) ;;
-                *) start_count="$2"; shift ;;
-              esac ;;
-    --stop)   mode=stop ;;
-    --wait)   wait_bound="${2:?--wait needs a value}"
-              case "$wait_bound" in
-                ''|*[!0-9]*) echo "plot-fleetctl: --wait needs a number, got '$wait_bound'" >&2; exit 1 ;;
-              esac
-              shift ;;
-    --dry-run) dry_run=1 ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
-    *) echo "plot-fleetctl: unknown argument '$1'" >&2; exit 1 ;;
-  esac
-  shift
-done
-
-[ -n "$mode" ] || { echo "plot-fleetctl: one of --status, --once, --start, --stop is required" >&2; exit 1; }
-
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "plot-fleetctl: not a git repository" >&2; exit 1; }
 repo_root=$(git rev-parse --show-toplevel)
 registryd="$repo_root/skills/plot/scripts/board/plot-registryd.mjs"
@@ -176,6 +141,53 @@ resolve_wt_root() { # sets wt_root, wt_prefix
   wt_prefix=""
 }
 resolve_wt_root
+
+# SOURCEABLE, so a test can take the probes and the fill without an init system.
+# The same guard `plot-worker-loop.sh` uses, and for the same reason: the
+# refusals are the thing worth asserting, and three of the four are decided
+# before anything is written. Sourcing stops here; nothing below runs.
+#
+# CI IS `ubuntu-latest` ONLY, so the launchd arm can never be exercised there —
+# and that is the arm a macOS operator uses. The fill and the parse ARE
+# assertable on Linux, which is what this guard makes reachable.
+if [ -n "${PLOT_FLEETCTL_SOURCED:-}" ]; then
+  return 0 2>/dev/null || true
+fi
+
+mode=""
+start_count=""
+dry_run=0
+# THIRTY SECONDS, and it is a bound rather than a deadline. A worker signalled
+# mid-prompt finishes the syscall it is in and exits; the two measured here took
+# 2.1 s and 0.4 s. The bound exists for the one that does not, so a fleet stop
+# ends in a fact rather than a stalled terminal.
+wait_bound=30
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --status) mode=status ;;
+    --once)   mode=once ;;
+    # Only a bare number is consumed, the same rule `plot-dispatch.sh --start`
+    # applies, so `--start --dry-run` means what it reads as.
+    --start)  mode=start
+              case "${2:-}" in
+                ''|*[!0-9]*) ;;
+                *) start_count="$2"; shift ;;
+              esac ;;
+    --stop)   mode=stop ;;
+    --wait)   wait_bound="${2:?--wait needs a value}"
+              case "$wait_bound" in
+                ''|*[!0-9]*) echo "plot-fleetctl: --wait needs a number, got '$wait_bound'" >&2; exit 1 ;;
+              esac
+              shift ;;
+    --dry-run) dry_run=1 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    *) echo "plot-fleetctl: unknown argument '$1'" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+[ -n "$mode" ] || { echo "plot-fleetctl: one of --status, --once, --start, --stop is required" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
 # --status: processes, not work
