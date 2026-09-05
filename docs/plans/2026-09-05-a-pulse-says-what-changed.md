@@ -10,6 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -31,6 +32,16 @@
 Verified 2026-09-05: that plan is **Released**. The condition is met and this is the plan it called for.
 
 **The estate is large enough that the delta is the only readable form.** Measured the same day: **13 plans, 47 slices, 48 branches.** A full picture is the right output for a first read and the wrong one for the tenth.
+
+## The pulse writes it; everyone else reads it
+
+**THE FILE IS WRITTEN BY THE WRONG COMPONENT TODAY, AND THE ROUND FOUND IT.** Measured 2026-09-05: `fleet.ts:2804` is the **only** writer of `last-pulse.json`, and `plot-fleet-scan.sh` names it **zero times**. So `/plot-pulse` in a repository with no board running has nothing to diff — and `DESIGN-process.md` §1 requires the fleet to work with no board at all.
+
+**So the pulse becomes the writer and every other reader stays a reader.** The scan produces the pulse; the file is *the last pulse*; the component that produces one is the component that records it. The board reads it, as it already does on a `--watch` restart.
+
+**THE BOARD'S WRITE IS NOT LOST, IT BECOMES REDUNDANT.** The board spawns `plot-fleet-scan.sh` (`fleet.ts:902`) to produce the pulse it renders — so a scan that writes the bridge writes it on the board's path too, from inside the same run. What changes is which process does it, not whether it happens.
+
+**One property must survive the move and it is stated at `fleet.ts:2800`:** the write sits *inside the success path on purpose*, because *"a scan that failed must not overwrite the last good answer — the only thing standing between a `--watch` restart and an empty board."* A scan that writes its bridge before knowing it completed would take that guarantee away from the board.
 
 ## The state to diff against already exists
 
@@ -54,15 +65,35 @@ Verified 2026-09-05: that plan is **Released**. The condition is met and this is
 
 ## Slices
 
+### The pulse records itself (Branch: feature/a-pulse-writes-its-own-record)
+
+`plot-fleet-scan.sh` writes `last-pulse.json`, and the board reads what the scan it spawned left behind.
+
+**IT LEADS, BECAUSE A DELTA WITH NO HISTORY IS THE `first run` CASE FOREVER.** In a repository with no board — which `DESIGN-process.md` §1 requires to work — nothing writes the bridge today, so every pulse would be a first one.
+
+**THE WRITE STAYS INSIDE THE SUCCESS PATH.** `fleet.ts:2800` states the property: *"a scan that failed must not overwrite the last good answer."* The scan knows when it completed — its terminal `pulse` line is what says so — and the write goes there, not at exit.
+
+**THE VERSION AND THE EXPIRY ARE THE BOARD'S AND STAY THE BOARD'S.** `BRIDGE_VERSION` and `BRIDGE_MAX_AGE_MS` live in `pulse-bridge.ts` and the scan must produce a file that satisfies both, or the board reads its own format back as a mismatch and renders nothing.
+
+**Done when** a scan writes the bridge on success and not on failure, the board reads a scan-written pulse without change, and a repository with no board accumulates history across pulses.
+
 ### The delta is a domain rule (Branch: feature/a-pulse-says-what-changed)
 
 A function from two pulses to what moved between them, in `packages/domain/src/rules/`.
 
 **READINGS AS VALUES, AS EVERY RULE HERE IS.** Two pulses in, a delta out — no port, nothing awaited, no I/O. The caller reads `last-pulse.json`; the rule compares. That is what makes it testable against recorded estates rather than against a live one.
 
-**THREE OUTCOMES, NOT TWO.** *Changed*, *unchanged*, and *cannot say*. The third covers an absent file, a version mismatch and a pulse older than `BRIDGE_MAX_AGE_MS` — three causes, one answer, and it must never render as *nothing changed*. A quiet estate and an unreadable history look identical to a reader and mean opposite things.
+**FOUR OUTCOMES, AND THE ROUND SPLIT THE LAST ONE.** *Changed*, *unchanged*, *first run*, and *history unusable*.
 
-**WHAT COUNTS AS A CHANGE IS THE SLICE'S REAL WORK.** The story names three kinds — a PR merged, a worker died, a plan became deliverable — and the pulse carries more than those. The rule reports transitions that a reader would act on, and says which kinds it covers; a delta over every field would re-print the estate with extra words.
+**A first run is not a failure and must not read as one.** No file means nobody has pulsed here yet — a normal state with an obvious message, and the state every new adopter starts in.
+
+**An expired or version-mismatched pulse is a different fact:** there WAS history and it cannot be used. The reader learns the fleet has been quiet longer than the bound, or that the format moved under them.
+
+**Neither may render as *nothing changed*.** A quiet estate and an unreadable history look identical to a reader and mean opposite things — that is the whole reason this is not two outcomes.
+
+**EXACTLY THE THREE THE STORY NAMES, AND NOTHING ELSE UNTIL SOMEBODY ASKS.** A PR merged, a worker died, a plan became deliverable. The bridge carries far more — every slice verdict, every branch state, `ages`, `approvedAt`, `ideaPlans` — and diffing all of it would produce a report where three branches each advancing one step print three lines nobody reads.
+
+**Those three were chosen by the story rather than by the data**, which is the point: they are what a returning operator acts on. A fourth gets added when someone names the one they wanted and could not see, not because the field exists.
 
 **Done when** two pulses yield a delta, an expired or absent previous pulse says *cannot say* rather than *nothing changed*, and the rule performs no I/O.
 
