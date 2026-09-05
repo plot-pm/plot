@@ -57,7 +57,7 @@ plot-worker-loop: free on <slug> — nothing handed over yet …
 
 ## Slices
 
-### The second prompt resumes (Branch: bug/a-second-slice-needs-its-own-session)
+### The second prompt resumes (Branch: bug/a-second-slice-needs-its-own-session, PR: #715)
 
 The prompt asks the runtime to CREATE a session on the first slice and to CONTINUE one on every slice after it: `--session-id` once, then `--resume`.
 
