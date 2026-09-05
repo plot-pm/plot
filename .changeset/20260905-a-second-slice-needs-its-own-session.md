@@ -10,8 +10,11 @@ The probe self-corrects where a `wavesCount` branch would not: an agent whose fi
 
 `update_manifest_on_hop` writes `resumeId`, which had one writer, no readers and a twin since dispatch minted it.
 
+`plot-dispatch`'s documentation of the session contract says which half is whose: a one-shot `Worker command` creates a session and passes `--session-id`, and a looping one interpolates the flag the loop decided.
+
 <!--
 bumps:
   skills:
     plot: minor
+    plot-dispatch: patch
 -->

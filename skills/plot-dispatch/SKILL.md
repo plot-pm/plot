@@ -335,6 +335,14 @@ hardcodes no tooling):
 The command runs inside the worktree with `PLOT_BRANCH`, `PLOT_WORKTREE` and
 `PLOT_SESSION_ID` set, detached, with output to `.plot-worker.log`.
 
+**`--session-id` IS RIGHT HERE AND WRONG IN A LOOPING PROMPT.** This command is
+dispatch's, it runs once, and one prompt CREATES one session. A `Worker command`
+that starts `plot-worker-loop.sh` instead is a different case: that loop hops
+between slices and runs the project's `.plot/worker-prompt.sh` once per slice,
+so the flag is the loop's decision and the prompt file interpolates
+`$PLOT_SESSION_FLAG`. See *`PLOT_SESSION_ID`, and the one line an adopting
+project must add* below.
+
 `--session-id` is shown because the command is the one place a person writes
 the invocation, and passing the id is the only half of the contract Plot cannot
 fulfil itself: dispatch mints the id and records it in the manifest, and the
@@ -368,18 +376,37 @@ and the workers keep going — which is also why a dead worker needs the reaper
 
 The dispatcher mints a session id, records it in the manifest as both `session`
 and `resumeId`, and exports it into the worker's environment as
-`PLOT_SESSION_ID`. **Plot stops there.** The invocation lives in the project's
-own `.plot/worker-prompt.sh` — or in its `Worker command` — and Plot owns
-neither that file nor the harness it runs, so it cannot add a flag to it and
-must not quietly require one.
+`PLOT_SESSION_ID`. Where the `Worker command` is `plot-worker-loop.sh`, that
+loop runs the project's prompt once per slice and decides which FLAG the id must
+carry, re-exporting the pair as `PLOT_SESSION_FLAG` and `PLOT_SESSION_ID` before
+each one. **Plot stops there.** The invocation
+lives in the project's own `.plot/worker-prompt.sh` — or in its `Worker command`
+— and Plot owns neither that file nor the harness it runs, so it cannot add a
+flag to it and must not quietly require one.
 
 The contract is therefore split, and each side does exactly its half:
 
 ```
-Plot            → PLOT_SESSION_ID in the worker's environment
-project's file  → claude -p "…" --session-id "$PLOT_SESSION_ID"
+Plot            → PLOT_SESSION_FLAG and PLOT_SESSION_ID, before each prompt
+project's file  → claude -p "…" "$PLOT_SESSION_FLAG" "$PLOT_SESSION_ID"
 Plot            → checks whether a transcript for that id exists
 ```
+
+**THE FLAG IS PLOT'S DECISION, AND HARDCODING `--session-id` FAILS ON A SECOND
+SLICE.** `--session-id` asks the runtime to CREATE a session and succeeds
+exactly once; the id is minted at launch and does not change when an agent hops.
+Measured 2026-09-05: three agents finished their first slices, were handed a
+second each, and every one was refused with `Session ID … is already in use` —
+the prompt exiting in under a second and the loop reading it as a completed
+slice. The loop now probes the transcript and emits `--session-id` on a first
+prompt and `--resume` after, so a project interpolating the exported flag cannot
+reproduce this whatever else it rewrites.
+
+**A blank value must never reach `--resume`.** That flag is optional-valued —
+*"Resume a conversation by session ID, or open interactive picker"* — so a blank
+opens a picker inside a `-p` run with no terminal and hangs, where
+`--session-id ""` at least fails loudly. Build both arguments inside one
+`[ -n "${PLOT_SESSION_ID:-}" ]` guard, or omit both.
 
 Pass it on, and two things become possible: the board joins the agent's row to
 its transcript (model, context size, last activity), and a correction can be
