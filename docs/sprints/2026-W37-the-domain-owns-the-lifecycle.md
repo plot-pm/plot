@@ -99,9 +99,14 @@ and it holds no plans outside this sprint.
 
 ### Should Have
 
+- [ ] [a-process-is-started-by-its-own-command] Both long-lived processes get a command that owns them, and an agent can be brought into existence — measured 2026-09-05: a dispatch reported `handed over … started=0` and the supervisor ticked `agents=0 queued=456`, so the chain *dispatch queues → registry matches → an agent takes it* had no last link. **Approved 2026-09-05, 5 slices, 4 rounds**, reordered the same day so the agent starter leads: dispatching the rename first queued the plan's own first branch against an estate with no agent to take it
+
 - [ ] [a-branch-state-is-derived-once] Three domain rules read `BranchState` and none produces one — the eight states are decided in four places across a 4,008-line shell script, and `unknown` versus `open` turns on whether a question was put or went unanswered. **Draft (#702), 2 slices, 2 rounds.** Should rather than Must because the three above give the domain its words and its rules; this gives it an answer it currently has to be told
 
 ### Could Have
+
+- [ ] [every-generated-bundle-is-marked] Every bundle `build.mjs` emits is marked `-merge`, and the repair path recognises the set rather than one file — measured 2026-09-05: `board-server.mjs` took 0 conflict markers through a rebase while the two unmarked bundles took 8, and `plot-resolve-artifact.sh` then refused the branch as *not artifact-only*, declining the exact case it exists for. **Draft, 2 slices, 4 rounds**
+- [ ] [the-board-answers-while-it-scans] The board keeps serving while it scans — it stops for seconds at a time at zero CPU. **Draft**
 
 - [ ] [the-scripts-say-slice] The reconcile scan says slice where it means slice — section 7 read *"Unsliced waves (a wave holds one branch)"*, a Slice described in Wave's vocabulary by its own parenthetical. Footer keys renamed with the skill documenting them. **#703, no plan — a rename small enough to be its own PR**
 
