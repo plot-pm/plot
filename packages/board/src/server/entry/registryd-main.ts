@@ -15,6 +15,7 @@ import {
 import { headroomFor } from '@plot-pm/domain/entities/machine';
 import type { FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Performer } from '@plot-pm/domain/ports/performer';
+import { landed } from '@plot-pm/domain/rules/landed';
 import type { MergeReading } from '@plot-pm/domain/rules/reapable';
 import type { PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
@@ -348,6 +349,32 @@ export const queueWorldForRepo = (repoRoot: string, scriptsDir: string): QueueWo
       // SILENCE IS NOT LANDED. An unreachable host answers *not merged*, so an
       // agent stays holding its branch rather than being handed a second one.
       return answer.ok && answer.value === 'merged';
+    },
+    queuedHasLanded: async (branch) => {
+      const answer = await host.prMerged(branch);
+      // THE DOMAIN DECIDES THE WORD, from a `LookupReading` this join takes.
+      // `landed` is the ONE answer to *did this land* — it reads the merge
+      // timestamp, never a PR's `state` and never ancestry — and consuming it
+      // here rather than re-testing `=== 'merged'` is what keeps the queue and
+      // the reaper from drifting to two answers about one branch.
+      //
+      // SILENCE REACHES THE RULE AS SILENCE. Above, `sliceHasMerged` collapses
+      // an unreachable host into *not merged* because the subject is an agent
+      // already holding its branch; here the subject is work nobody holds, and
+      // the same collapse would offer every finished branch to a free agent the
+      // moment the host went quiet.
+      return landed({
+        merged:
+          !answer.ok || answer.value === 'unknown'
+            ? 'unaskable'
+            : answer.value === 'merged'
+              ? 'found'
+              : 'none',
+        // NOT READ BY `landed`, and named rather than guessed. `PrReadings`
+        // carries both questions because `mayRemove` couples them; this caller
+        // asks only whether the work landed, so the open lookup was never run.
+        open: 'unaskable',
+      });
     },
     workerAlive: async (worktree) => {
       const text = fileOrNull(join(worktree, '.plot-worker.pid'));

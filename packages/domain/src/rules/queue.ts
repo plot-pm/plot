@@ -1,4 +1,5 @@
 import { type AgentReading, isAgentFree } from './free.js';
+import type { LandedAnswer } from './landed.js';
 
 /**
  * One slice waiting to be handed to an agent.
@@ -37,6 +38,28 @@ export interface QueuedSlice {
    * `waits:` prerequisite, and none of those is this rule's to fetch.
    */
   claimable: boolean;
+  /**
+   * Whether the host says this branch's work already landed.
+   *
+   * **A SECOND QUESTION, NOT A SECOND OPINION ON {@link QueuedSlice.claimable}.**
+   * The caller's other reading — a remote ref — answers *has somebody started
+   * this*, and merging DELETES that ref, so the event that finishes a slice is
+   * the same event that returns it to the queue looking untouched. Measured
+   * 2026-09-05: of the first three hand-overs this fleet ever decided, two were
+   * branches whose PRs had merged an hour earlier.
+   *
+   * **THE ANSWER IS THE HOST'S `mergedAt`** — {@link landed} over the readings
+   * `plot-pr-merged.sh` takes — never a PR's `state` and never ancestry. A
+   * merged PR reports `CLOSED`, and squash-merge leaves a branch ahead of the
+   * default branch forever.
+   *
+   * `unknown` is a host that could not be asked, and it HOLDS the slice. That
+   * inverts the reaper's direction on purpose: there, *not merged* keeps what
+   * was about to be deleted, and here the same word means *offer this to an
+   * agent*, so an unreachable host would return every finished branch to the
+   * queue at once.
+   */
+  landed: LandedAnswer;
 }
 
 /**
@@ -82,7 +105,23 @@ export type QueueHold =
   /** The slice is not startable: its plan, its ordering or a `waits:` prerequisite. */
   | 'not-claimable'
   /** Nothing was free. The queue absorbs the timing; this is not an error. */
-  | 'no-free-agent';
+  | 'no-free-agent'
+  /**
+   * The host says this branch's work already merged — the slice is finished.
+   *
+   * Not a failure and not a queue that drains: the branch leaves the queue for
+   * good, and this is what says why it left rather than being handed over.
+   */
+  | 'already-merged'
+  /**
+   * The host could not be asked whether this branch landed.
+   *
+   * **A HOLD RATHER THAN AN OFFER, WHICH INVERTS THE REAPER'S DIRECTION.**
+   * Silence there keeps a checkout that would otherwise be deleted; silence
+   * here would hand finished work to an agent. So an unreachable host costs
+   * this pass its hand-overs and the next tick re-asks.
+   */
+  | 'merge-unknown';
 
 /** One slice that stayed in the queue, and what held it there. */
 export interface HeldSlice {
@@ -129,10 +168,23 @@ export const isHandOverReady = (slice: QueuedSlice): boolean =>
  * negative, the discipline `whyNotFree` already holds: the word and its
  * explanation cannot then describe different slices.
  *
+ * **THE LANDING QUESTION IS ASKED HERE AND NOT IN {@link isHandOverReady}.**
+ * That rule reads *claimable and briefed* and was never wrong — it was being
+ * told the wrong thing, because the reading that said *nobody has started
+ * this* is a remote ref, and merging deletes the ref. So the ref keeps its own
+ * question, this one gains a second, and the gate rule is untouched.
+ *
+ * **THE LANDING IS TESTED FIRST.** A merged branch keeps its brief and its
+ * plan, so it answers `claimable` and `briefPresent` exactly as unstarted work
+ * does; asked in either other order the hold would read `no-brief` or
+ * `not-claimable` and send a reader to fix something that is already finished.
+ *
  * @param slice - the queued slice.
  * @returns the hold, or null when the slice is ready.
  */
 export const whyNotReady = (slice: QueuedSlice): QueueHold | null => {
+  if (slice.landed === 'landed') return 'already-merged';
+  if (slice.landed === 'unknown') return 'merge-unknown';
   if (isHandOverReady(slice)) return null;
   return slice.claimable ? 'no-brief' : 'not-claimable';
 };

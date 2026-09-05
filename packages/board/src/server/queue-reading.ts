@@ -1,5 +1,6 @@
 import { sliceVerdicts } from '@plot-pm/domain/rules/eligible';
 import type { QueueAgent, QueueReadings, QueuedSlice } from '@plot-pm/domain/rules/queue';
+import type { LandedAnswer } from '@plot-pm/domain/rules/landed';
 import type { PlanRecord, PlanRecordSlice } from '@plot-pm/domain';
 
 import type { AgentEntry } from './registry.js';
@@ -25,6 +26,17 @@ export interface QueueWorld {
   briefPresent(branch: string): Promise<boolean>;
   /** Whether the branch this agent holds has landed. */
   sliceHasMerged(branch: string): Promise<boolean>;
+  /**
+   * Whether the host merged any PR for a QUEUED branch.
+   *
+   * **A DIFFERENT SUBJECT FROM {@link QueueWorld.sliceHasMerged}, WHICH IS WHY
+   * IT IS A SECOND MEMBER.** That one asks about the branch an agent is
+   * holding and answers a boolean, because `free.ts` reads it as *this agent
+   * is done*. This one asks about work nobody holds, and its three-valued
+   * answer is the point: a host that could not be asked must hold the slice
+   * rather than offer it.
+   */
+  queuedHasLanded(branch: string): Promise<LandedAnswer>;
   /** Whether a worker process is alive in this desk. */
   workerAlive(worktree: string): Promise<boolean>;
   /** Whether the desk carries a `PLOT-BLOCKED*` marker. */
@@ -57,6 +69,11 @@ export const slugOf = (file: string): string => {
  * A branch the plan deferred is skipped: the plan gave it up rather than
  * finishing it, so it is not work waiting for anybody.
  *
+ * **IT ANSWERS NEITHER OF THE TWO ASKED READINGS**, which is what the `Omit`
+ * names: the brief and the landing are questions for the machine and the host,
+ * and this function reads one plan record. `readQueue` asks them, under the
+ * bound documented there.
+ *
  * @param plan - the plan, as the plan store parsed it.
  * @param claimed - the remote branches that exist.
  * @returns one entry per branch this plan has queued, in plan order.
@@ -64,7 +81,7 @@ export const slugOf = (file: string): string => {
 export const queueOfPlan = (
   plan: PlanRecord,
   claimed: ReadonlySet<string>,
-): readonly Omit<QueuedSlice, 'briefPresent'>[] => {
+): readonly Omit<QueuedSlice, 'briefPresent' | 'landed'>[] => {
   const slug = slugOf(plan.file);
   // OUTSTANDING IS COUNTED FROM THE REFS, the same reading `--offline` takes.
   // A branch with a ref has been started by somebody; one without has not.
@@ -77,7 +94,7 @@ export const queueOfPlan = (
     })),
   );
 
-  const queued: Omit<QueuedSlice, 'briefPresent'>[] = [];
+  const queued: Omit<QueuedSlice, 'briefPresent' | 'landed'>[] = [];
   plan.slices.forEach((slice: PlanRecordSlice, index: number) => {
     const claimable = verdicts[index] === 'eligible';
     for (const line of slice.branches) {
@@ -103,6 +120,22 @@ export const queueOfPlan = (
  * is a `git cat-file` per branch, and asking it of a slice already held by its
  * plan's phase would pay for an answer nothing reads.
  *
+ * **THE HOST IS ASKED UNDER THE SAME BOUND, AND HERE IT IS THE POINT RATHER
+ * THAN A SAVING.** The brief is a local `git cat-file`; the landing question is
+ * a call to the one reading with an account and a rate limit behind it. This
+ * estate had **454 queued slices** on the tick that found the defect, and a
+ * daemon asking the host about every one of them each minute would spend its
+ * whole budget on branches three other words were already holding. So the
+ * question goes only to a slice that {@link isHandOverReady} would otherwise
+ * pass, which is the only place its answer changes an outcome.
+ *
+ * **A SLICE NOBODY ASKED ABOUT READS `not-landed`, AND THAT IS SAFE HERE WHILE
+ * `unknown` WOULD NOT BE.** It is unasked rather than unanswered: the slice is
+ * already held by its plan, its ordering or a missing brief, so no hand-over
+ * can follow it and the word only decides which reason gets printed.
+ * `unknown` is reserved for a host that was ASKED and did not answer — the one
+ * case where silence must withhold work.
+ *
  * @param entries - the registry's manifests, as `readAgentRegistry` reports them.
  * @param world - what to read the estate through.
  * @returns the queue and the fleet, as one pass measured them.
@@ -116,9 +149,14 @@ export const readQueue = async (
   const slices: QueuedSlice[] = [];
   for (const plan of plans) {
     for (const entry of queueOfPlan(plan, claimed)) {
+      const briefPresent = entry.claimable ? await world.briefPresent(entry.branch) : false;
       slices.push({
         ...entry,
-        briefPresent: entry.claimable ? await world.briefPresent(entry.branch) : false,
+        briefPresent,
+        landed:
+          entry.claimable && briefPresent
+            ? await world.queuedHasLanded(entry.branch)
+            : 'not-landed',
       });
     }
   }
