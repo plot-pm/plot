@@ -15,6 +15,7 @@
 - **Approved:** 2026-09-04, Jan Wloka, plan-PR #698 merged
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <branch>
+- **Started:** 2026-09-05, Jan Wloka, `feature/a-story-lifecycle-refuses`
 -->
 
 ## Changelog
