@@ -146,6 +146,7 @@ export type * from './ports/host.js';
 export type * from './ports/budget.js';
 export type * from './ports/slots.js';
 export type * from './ports/processes.js';
+export type * from './ports/performer.js';
 export type * from './ports/trees.js';
 export type * from './ports/clock.js';
 export type * from './ports/scripts.js';

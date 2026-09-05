@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   hostShell,
+  performerShell,
   processesShell,
   refsGit,
   scriptsShell,
@@ -11,10 +12,14 @@ import {
   machineSystem,
   planStoreShell,
 } from '@plot-pm/domain/adapters';
+import { headroomFor } from '@plot-pm/domain/entities/machine';
+import type { FleetCap } from '@plot-pm/domain/workflows/assign';
+import type { Performer } from '@plot-pm/domain/ports/performer';
 import type { MergeReading } from '@plot-pm/domain/rules/reapable';
 import type { PlanBranchLine } from '@plot-pm/domain/rules/gates';
 
 import { parseManifest, AGENT_MANIFEST_DIR, AGENT_MANIFEST_DIR_KEY, type AgentEntry } from '../registry.js';
+import { readFleetSettings } from '../fleet-settings.js';
 import { fileOrNull, worldFrom, type SupervisorWorld } from '../supervisor.js';
 import type { QueueWorld } from '../queue-reading.js';
 import { tick, tickLine, TICK_INTERVAL_MS, type TickReport } from './registryd.js';
@@ -26,6 +31,7 @@ import { tick, tickLine, TICK_INTERVAL_MS, type TickReport } from './registryd.j
  * node skills/plot/scripts/board/plot-registryd.mjs           # loop
  * node skills/plot/scripts/board/plot-registryd.mjs --once    # one tick
  * node skills/plot/scripts/board/plot-registryd.mjs --dry-run # decide, write nothing
+ * node skills/plot/scripts/board/plot-registryd.mjs --start-agents  # and start them
  * ```
  *
  * **A FIFTH artifact rather than a flag on the board's.** `index.ts` binds a
@@ -42,11 +48,17 @@ import { tick, tickLine, TICK_INTERVAL_MS, type TickReport } from './registryd.j
  * `Agent registry` directory, sharing widens what is SEEN and never what can be
  * DONE.
  *
- * **`--dry-run` IS THE DEFAULT-SAFE PATH AND THE ONLY ONE IMPLEMENTED HERE.**
- * The tick decides and performs nothing; applying its writes is the performer's
- * job, and this slice does not own one. What this artifact delivers is the
- * supervisor's judgement, made visible on a cadence — which is the half the
- * plan's gate measured as missing.
+ * **DECIDING IS THE DEFAULT AND PERFORMING IS OPT-IN.** The tick names every
+ * write and makes none; applying them is the performer's job, and this artifact
+ * owns exactly one of them. `--start-agents` lets it start free agents for a
+ * queue nothing can take — the last link in *dispatch queues, registry matches,
+ * an agent takes it*, which had no starter at all until 2026-09-05. Every other
+ * write the tick names is still decided and not performed, and a run without the
+ * flag changes nothing on the machine.
+ *
+ * ```
+ * node skills/plot/scripts/board/plot-registryd.mjs --once --start-agents
+ * ```
  */
 
 /**
@@ -70,6 +82,18 @@ export interface DaemonArgs {
   max: number;
   /** How long to wait between ticks. */
   intervalMs: number;
+  /**
+   * Whether this daemon may START agents, rather than only deciding to.
+   *
+   * **OFF BY DEFAULT, AND THAT IS THE WHOLE FLAG.** Every other write this tick
+   * names is still the performer's to apply and this artifact applies none; this
+   * one starts detached processes that outlive the daemon, so it is the first
+   * thing here that changes a machine. Making it opt-in keeps the documented
+   * property — *the tick decides and performs nothing* — true of every run that
+   * did not ask for the exception, including a `--once` an operator types to see
+   * what the supervisor thinks.
+   */
+  startAgents: boolean;
 }
 
 /**
@@ -80,14 +104,26 @@ export interface DaemonArgs {
  * make an operator think it changed something; refusing to name it would make
  * them think it was not considered.
  *
+ * **IT STAYS ACCEPTED-AND-IGNORED NOW THAT `--start-agents` EXISTS**, because
+ * the two are not opposites: `--dry-run` describes a run that writes nothing,
+ * which is still what a run without `--start-agents` is. Making it refuse the
+ * pair would be a third state to reason about for no behaviour nobody can
+ * already express by leaving the other flag off.
+ *
  * @param argv - the arguments after the script name.
  * @returns what to do, or null when an argument is not one this takes.
  */
 export const argsFrom = (argv: readonly string[]): DaemonArgs | null => {
-  const args: DaemonArgs = { once: false, max: 0, intervalMs: TICK_INTERVAL_MS };
+  const args: DaemonArgs = {
+    once: false,
+    max: 0,
+    intervalMs: TICK_INTERVAL_MS,
+    startAgents: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--once') args.once = true;
+    else if (arg === '--start-agents') args.startAgents = true;
     else if (arg === '--dry-run') continue;
     else if (arg === '--max') {
       const value = Number(argv[++i]);
@@ -336,6 +372,72 @@ export const queueWorldForRepo = (repoRoot: string, scriptsDir: string): QueueWo
 };
 
 /**
+ * How many desks one tick is willing to cut.
+ *
+ * **THREE.** A tick's whole job is to keep the fleet moving, and a tick that
+ * cut ten desks would spend minutes of `git worktree add` inside a pass measured
+ * at 3.5 s — and would do it again 60 seconds later if the queue had not
+ * drained. Three per tick reaches a cap of nine in three minutes, which is
+ * faster than any queue this daemon has been measured against drains.
+ *
+ * It is a rate limit on the tick and NOT the fleet's size: the size is the
+ * operator's `Parallel agents`, and `fleetSize` is what applies it.
+ */
+const DESKS_PER_TICK = 3;
+
+/**
+ * The cap, the machine reading, and the desks this tick offers.
+ *
+ * **THE CAP IS THE BOARD'S OWN `Parallel agents` CONTROL**, read fresh every
+ * tick from the same file the board writes. A second number for *how many
+ * agents may run at once* is exactly the drift the control exists to prevent —
+ * an operator lowering the stepper and watching the daemon start a fourth agent
+ * would be reading two answers to one question.
+ *
+ * **THE DESK PATHS ARE NAMED HERE BECAUSE THE DOMAIN MUST NOT INVENT ONE.**
+ * Where a worktree goes depends on the `Worktree root` config key, which is an
+ * adapter's reading; the decision takes the paths and starts at most that many.
+ *
+ * **THE MACHINE IS SAMPLED, AND AN UNSAMPLED ONE IS NOT A STARVED ONE.** A
+ * measurement that fails answers `unmeasured`, which `fleetSize` treats as
+ * clear: an absent veto is not a refusal.
+ *
+ * @param repoRoot - the repository root.
+ * @param scriptsDir - where the helper scripts are.
+ * @returns what the fleet may grow to this tick.
+ */
+export const fleetCapForRepo = async (
+  repoRoot: string,
+  scriptsDir: string,
+): Promise<FleetCap> => {
+  const context = { repoRoot, scriptDir: scriptsDir };
+  const settings = await readFleetSettings({ repoRoot, scriptsDir });
+  const reading = await machineSystem(context).measure(MACHINE_SAMPLES);
+  const spawnCostMs = reading.ok ? reading.value.spawnCostMs : null;
+
+  // THE NAMING IS THE SCRIPT'S AND THE PATHS ARE EMPTY, deliberately.
+  //
+  // `plot-dispatch.sh --start` already names a desk from its own `Worktree
+  // root` and a fresh session id, and that convention is the one every other
+  // desk on the estate follows. A daemon that rebuilt the path here would be
+  // this file's own second naming convention — precisely what
+  // `resolve_wt_root`'s comment refuses, since a second convention gives
+  // path-guessing a second way to be wrong.
+  //
+  // So the LIST'S LENGTH is what the decision reads — it is this tick's rate
+  // limit, and it is the only thing the domain needs to bound a start — while
+  // its contents are the performer's `PLOT_START_DESK`, which the script reads
+  // as *name it yourself* when empty. The port still takes a desk, because a
+  // caller that HAS one must be able to say so; this caller does not.
+  return {
+    size: settings.parallelAgents,
+    headroom: headroomFor(spawnCostMs),
+    spawnCostMs,
+    desks: Array.from({ length: DESKS_PER_TICK }, () => ''),
+  };
+};
+
+/**
  * Every plan line the estate holds, keyed by branch.
  *
  * **READ ONCE PER TICK, NOT ONCE PER AGENT, and the difference was measured.**
@@ -417,6 +519,55 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
 };
 
 /**
+ * Applies the tick's `worker-start` writes — the one thing this daemon performs.
+ *
+ * **IT APPLIES ONE KIND AND SKIPS EVERY OTHER.** The tick names reaps, blocked
+ * markers, corrections and assignments too, and none of them is performed here:
+ * this slice owns starting an agent and nothing else, so a write it does not
+ * own is left for whoever does. Naming the kind rather than falling through a
+ * default is `perform-fs.ts`'s discipline — *skipped on purpose* and *a kind
+ * the author forgot* look identical from inside a loop.
+ *
+ * **A START THAT FAILS COSTS ONE TICK.** The next tick re-derives the queue and
+ * the fleet from disk and reaches the same decision if the shortage is still
+ * there, which is the same recovery a `kill -9` gets. So a failure is reported
+ * and the loop continues; there is nothing to retry and nothing to remember.
+ *
+ * @param report - what the tick decided.
+ * @param performer - what starts an agent on this machine.
+ * @param write - where the started agents are reported.
+ * @param warn - where a start that could not be made is reported.
+ * @returns how many agents were actually started.
+ */
+export const startAgents = async (
+  report: TickReport,
+  performer: Performer,
+  write: (s: string) => void,
+  warn: (s: string) => void,
+): Promise<number> => {
+  let started = 0;
+  for (const item of report.handOver?.writes ?? []) {
+    if (item.kind !== 'worker-start') continue;
+    const answer = await performer.startFreeAgent(item.worktree);
+    if (!answer.ok) {
+      // `unaskable` IS A FIRST-CLASS ANSWER AND NOT A FAILURE. It means the
+      // repository has no `Worker command` — asked, and answered *we start them
+      // by hand* — so the line says what to configure rather than reading as an
+      // error to chase every sixty seconds.
+      warn(
+        answer.why === 'unaskable'
+          ? 'plot-registryd: nothing starts agents in this repository — set a `Worker command` in Plot Config, or start them with `plot-dispatch.sh --start`\n'
+          : 'plot-registryd: an agent could not be started; the next tick re-derives the queue and tries again\n',
+      );
+      continue;
+    }
+    started += answer.value;
+  }
+  if (started > 0) write(`  started ${started} free agent(s) for the queue\n`);
+  return started;
+};
+
+/**
  * Runs the daemon.
  *
  * **THE INTERVAL IS WAITED AFTER A TICK, NOT BETWEEN STARTS.** A slow tick
@@ -451,7 +602,7 @@ export const run = async (
   const args = argsFrom(argv);
   if (args === null) {
     process.stderr.write(
-      'usage: plot-registryd.mjs [--once] [--dry-run] [--max N] [--interval SECONDS]\n',
+      'usage: plot-registryd.mjs [--once] [--dry-run] [--start-agents] [--max N] [--interval SECONDS]\n',
     );
     return 2;
   }
@@ -461,6 +612,9 @@ export const run = async (
   const registryDir = registryDirFor(repoRoot, scriptsDir);
   const world = worldForRepo(repoRoot, scriptsDir);
   const queue = queueWorldForRepo(repoRoot, scriptsDir);
+  // BUILT WHETHER OR NOT IT IS USED, because building it reaches nothing: the
+  // adapter is a closure over two paths and spawns only when it is called.
+  const performer = performerShell({ repoRoot, scriptDir: scriptsDir });
 
   write(`plot-registryd: supervising ${registryDir}\n`);
 
@@ -473,10 +627,16 @@ export const run = async (
       registry: () => readRegistry(registryDir, warn),
       world,
       queue,
+      // THE CAP IS ASKED ONLY WHERE THE DAEMON MAY ACT ON IT. A tick that read
+      // the cap and started nothing would print `started=0` beside a queue it
+      // was never allowed to serve, which reads as *the fleet is the right
+      // size* rather than as *nobody asked me to grow it*.
+      fleet: args.startAgents ? () => fleetCapForRepo(repoRoot, scriptsDir) : undefined,
       max: args.max,
     });
 
     const code = reportTick(report, write, warn);
+    if (args.startAgents) await startAgents(report, performer, write, warn);
 
     // THE LOOP CONTINUES WHATEVER THE TICK REPORTED, and that is the recovery.
     // There is nothing to resume: the next tick re-reads the registry and the

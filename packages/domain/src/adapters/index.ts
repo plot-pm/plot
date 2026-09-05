@@ -62,3 +62,9 @@ export {
 } from './machine/machine-system.js';
 
 export { processesShell, parseEtime } from './processes/processes-shell.js';
+
+// THE PRODUCTION PERFORMER, beside the sandbox one and never replacing it.
+// `perform-fs.ts` skips `worker-start`; this reaches the process table, and the
+// composition root chooses which world it is in. Exporting both from one barrel
+// is the whole substitution the ports exist for.
+export { performerShell } from './performer/performer-shell.js';

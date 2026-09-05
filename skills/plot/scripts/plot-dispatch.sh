@@ -1261,10 +1261,22 @@ NODE_EOF
   # own "start it yourself" line per agent when the key is absent, and N
   # identical copies of it is a wall rather than a message. Asked here, the
   # refusal is one sentence naming what to configure.
+  #
+  # THE THREE-WAY ANSWER IS THE FAN-OUT'S OWN `worker=` FIELD, in the footer for
+  # the same reason it is there: `agents=0` with no reason beside it is what was
+  # printed and missed five times on 2026-08-17. A caller reading only the
+  # summary — which is now a performer as well as a person — must be able to
+  # tell *the machine bounded it* from *nobody has configured how to start one*.
   worker_cmd_declined=0
+  start_worker_state=configured
   case "$("$script_dir/plot-config.sh" get "Worker command" "")" in
-    none|NONE|None) worker_cmd_declined=1 ;;
+    none|NONE|None) worker_cmd_declined=1; start_worker_state=declined ;;
+    '') start_worker_state=unconfigured ;;
   esac
+  if [ "$start_worker_state" != configured ]; then
+    echo "  no worker will start — 'Worker command' is $start_worker_state in this repo's Plot Config."
+    echo "  The desks below are cut and registered; start them by hand, or set the key."
+  fi
 
   # `slug` STAYS EMPTY, and the loop reads it. A free agent belongs to no plan
   # — the registry sends the slug WITH the assignment, which is the same reason
@@ -1297,7 +1309,23 @@ NODE_EOF
     # Git refuses to check out one branch in two worktrees, and the main
     # checkout usually holds the default branch, so an attached desk could not
     # be cut here at all.
-    start_wt="$wt_root/${wt_prefix}free-$(plot_session_id | cut -c1-8)"
+    # THE DESK PATH IS THE SCRIPT'S UNLESS A CALLER NAMED ONE.
+    #
+    # `PLOT_START_DESK` is how the supervisor's performer passes the desk the
+    # DECISION named. It is an environment variable rather than a flag because
+    # it takes exactly one path and is set by exactly one caller: a flag would
+    # put a machine-only interface in the help text an operator reads, beside
+    # the count they actually type. A person typing `--start 3` never names
+    # three paths.
+    #
+    # It applies to ONE desk, so a run that was handed it starts one agent —
+    # `fleetSize` is what decides the count and the performer applies its writes
+    # one at a time, which is what keeps the decision and the writes in step.
+    if [ -n "${PLOT_START_DESK:-}" ]; then
+      start_wt="$PLOT_START_DESK"
+    else
+      start_wt="$wt_root/${wt_prefix}free-$(plot_session_id | cut -c1-8)"
+    fi
     if [ -e "$start_wt" ]; then
       echo "  skipped $start_wt — a desk of that name already exists"
       continue
@@ -1343,7 +1371,7 @@ NODE_EOF
   # the command again; a remembered target would be the first piece of state in
   # a fleet whose statelessness is measured rather than assumed.
   [ -n "$start_why" ] && echo "  $start_why"
-  echo "summary: agents=$start_made requested=${start_count:-default} running=$start_running headroom=$start_headroom"
+  echo "summary: agents=$start_made requested=${start_count:-default} running=$start_running headroom=$start_headroom worker=$start_worker_state"
   exit 0
 fi
 
