@@ -166,6 +166,28 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
   no state may map to a phase earlier than the phase its predecessor maps to,
   which is the one property a derived order can get wrong.
 
+  **AMENDED 2026-09-05, AND IT WIDENS WHAT MAPS.** Stories and plans have
+  **states**; only the workflow has **phases**. Both states map onto the
+  workflow's phases, and neither entity carries one.
+
+  **A STORY MAPS TOO, AND TODAY NOTHING SAYS SO.** `toBoardPhase`
+  (`rules/phase.ts:43`) takes a plan state and nothing else, so a phase reads as
+  a property of one plan. It is not: **Discovery produces an approved story** —
+  brainstormed, challenged, agreed — and **Design produces approved,
+  dispatchable plans from it.** A plan cannot be *in Discovery*, because a plan
+  is what Discovery has not produced yet.
+
+  That is why `design` has been entered by **0 of 207 plans**: it is a plan
+  state naming a phase whose output is plans. The state was declared where the
+  mapping belongs.
+
+  **So the mapping is from EACH state set, not from one.** `StoryStatusSchema`'s
+  six values map onto the same five phases that the plan states map onto, and
+  the phases belong to neither.
+
+  **Asserted: a story status maps to exactly one phase**, the same property
+  already asserted for plan states, and asserted the same way.
+
 ### Naming the work in a phase
 
 - `feature/a-phase-names-its-work` — each phase declares which workflows belong to it, giving `WorkflowName`'s flat eight-value union its missing structure. **Asserted: the fleet's workflows are not phases of this one** — `assign`, `reap` and `supervise` act on agents and desks, and a list that mixes them with `approve`/`deliver`/`release` cannot answer *what comes next*.
@@ -324,3 +346,21 @@ that refuses; the states already enforce the order (`deliver()` accepts
 `approved` or `delivered`, refuses `draft`), so a second enforcer could only
 disagree with the first. The phases carry their sequence as data, and what is
 asserted instead is that the two agree.
+
+### Amended after approval — 2026-09-05
+
+**The separation was right and did not go far enough.** The plan said a plan
+has a state and the workflow has phases; the amendment says **a story has a
+state too**, and both map onto the same phases.
+
+**What prompted it:** a withdrawn plan,
+[`the-plan-format-drops-what-nothing-uses`](2026-09-05-the-plan-format-drops-what-nothing-uses.md),
+measured that `design` has been entered by 0 of 207 plans and reasoned about it
+as a dead field. It is a plan state named for a phase whose output is plans —
+which only reads as wrong once the phases are understood as the workflow's
+rather than the plan's.
+
+**The scope grows by one assertion**, in a slice that was already about the
+mapping: a story status maps to exactly one phase, held the same way the plan
+state's mapping is. Nothing else in the plan changes, and no slice already
+started is affected — `feature/the-workflow-has-phases` is unstarted.
