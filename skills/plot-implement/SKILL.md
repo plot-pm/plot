@@ -127,7 +127,7 @@ ceremony questions now and record the answers first.
   ```bash
   BRANCH=$(../plot/scripts/plot-fleet-scan.sh --next <slug>) || {
     echo "Nothing claimable: every eligible branch is taken, or the next
-    wave is blocked on unmerged work. Run /plot-fleet to see why."; exit 0
+    wave is blocked on unmerged work. Run /plot-pulse to see why."; exit 0
   }
   ```
 
@@ -165,7 +165,7 @@ ceremony questions now and record the answers first.
   that annotation to tell deliberate abandonment from a dead worker.
 
   Several eligible branches means several sessions may run concurrently,
-  each claiming its own. Check the fleet any time with `/plot-fleet`.
+  each claiming its own. Check the fleet any time with `/plot-pulse`.
 - **`same-branch`** — the plan already rides the work branch; just check
   it out (or confirm you're on it). No new branches.
 - **`other-repo`** — no branches here. The hand-off brief (step 4) is the

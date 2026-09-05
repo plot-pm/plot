@@ -55,7 +55,7 @@
      `### Tracer` proves the seam before `### Implementation` fans out. Add
      `### Wave 3`, `### Wave 4`, … for anything that must follow.
      No subheadings at all = one wave = every branch eligible at once (the
-     pre-wave behaviour). Check state with /plot-fleet.
+     pre-wave behaviour). Check state with /plot-pulse.
      Annotations (deferred:/claimed:/moved:) must sit on the SAME line as
      the backticked branch name — a wrapped continuation line is not read. -->
 

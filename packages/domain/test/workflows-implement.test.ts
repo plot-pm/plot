@@ -47,7 +47,7 @@ describe('implement — the refusals, each without a repository', () => {
   it('refuses when nothing is claimable — a normal state, not an error', () => {
     const out = implement(ready({ nextBranch: '' }), on);
     expect(refused(out) && out.reason).toBe('nothing-claimable');
-    expect(refused(out) && out.detail).toContain('/plot-fleet');
+    expect(refused(out) && out.detail).toContain('/plot-pulse');
   });
 });
 

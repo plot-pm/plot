@@ -411,7 +411,7 @@ test('fleet: the scan stays read-only by default, so internal callers cannot wri
   // /plot-implement and /plot-dispatch both call this script internally (for
   // --next). If writing were the script's default, claiming a branch would
   // silently amend the plan file mid-dispatch. So: the script writes only when
-  // asked, and /plot-fleet — the human-facing command — asks every time.
+  // asked, and /plot-pulse — the human-facing command — asks every time.
   const plan = path.join(repo, 'plans', '2026-01-01-fleet.md');
   const before = fs.readFileSync(plan, 'utf8');
 

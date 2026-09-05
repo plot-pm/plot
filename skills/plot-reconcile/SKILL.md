@@ -129,7 +129,7 @@ cleanup, never lost or duplicated work.
 
 **Never offer to delete a claim that was not explicitly given up.** A worker
 that is simply slow looks exactly like a dead one, and deleting its branch
-destroys work in progress. Check `/plot-fleet` and the worker's log
+destroys work in progress. Check `/plot-pulse` and the worker's log
 (`../plot-wt-*/.plot-worker.log`) before deciding.
 
 4. **Concurrent-delivery check** — each active plan's impl branch shown as ahead/behind `origin/<main>`, so a parallel session's delivery is visible before you act on the same plan.

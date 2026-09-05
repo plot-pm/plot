@@ -133,6 +133,37 @@ jobs:
         timeout-minutes: 15
         run: pnpm run test:e2e
 
+      # THE SUPERVISOR'S UNIT, LOADED FOR REAL — the one arm of `/plot-fleet
+      # --start` that CI can actually exercise.
+      #
+      # This runner is `ubuntu-latest`, so the launchd path can NEVER run here,
+      # and that is the path a macOS operator uses. `fleetctl.test.mjs` asserts
+      # both units fill and parse, which is a real failing check on Linux; what
+      # it cannot assert is that systemd ACCEPTS the filled unit. `systemd-analyze
+      # verify` does, and it needs no session bus and starts nothing.
+      #
+      # A DIRECTIVE SYSTEMD REJECTS IS A DAEMON THAT NEVER STARTS, and the
+      # failure arrives as a unit sitting in `failed` on somebody's machine —
+      # exactly the silent shape the four refusals exist to prevent. Loading the
+      # plist for real stays a manual step, named as such in the release test
+      # list, because there is no macOS runner in this workflow.
+      - name: The systemd unit is one systemd accepts
+        run: |
+          mkdir -p ~/.config/systemd/user
+          sed -e "s|__REPO_ROOT__|$PWD|g" \
+              -e "s|__NODE__|$(command -v node)|g" \
+              -e "s|__REGISTRYD__|$PWD/skills/plot/scripts/board/plot-registryd.mjs|g" \
+              skills/plot/units/plot-registryd.service \
+              > ~/.config/systemd/user/plot-registryd.service
+          left=$(grep -c '__[A-Z_]*__' ~/.config/systemd/user/plot-registryd.service || true)
+          if [ "$left" != "0" ]; then
+            echo "::error::$left placeholder(s) survived the fill"
+            grep -n '__[A-Z_]*__' ~/.config/systemd/user/plot-registryd.service
+            exit 1
+          fi
+          systemd-analyze --user verify ~/.config/systemd/user/plot-registryd.service
+          echo "The systemd unit verifies."
+
       # ── Domain: the package the board now imports its entities from. Gated
       #    BEFORE the board, because the board resolves these shapes from here
       #    and a domain that does not hold cannot produce a meaningful board

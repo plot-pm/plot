@@ -331,7 +331,7 @@ as *volume* rather than as false positives. Both caps are plain truncation with
 the remainder counted (`(+4 more)`, `…and 5 more branches`) — never a judgment
 about which branch or file matters, because nothing here can know that, and
 pretending to would be the candidate-side prediction this design refuses. The
-overflow line names `plot-fleet` as where the full picture lives.
+overflow line names `plot-pulse` as where the full picture lives.
 
 ### Two designs that were tried on paper and killed by measurement
 

@@ -1777,7 +1777,7 @@ test('dispatch: the report is bounded, and says what it left out', () => {
     `at most 8 branches may be listed:\n${out}`);
   assert.match(omitted[0], /and 3 more branches/,
     `the omitted COUNT must be exact — 11 branches, 8 shown:\n${omitted[0]}`);
-  assert.match(omitted[0], /plot-fleet/,
+  assert.match(omitted[0], /plot-pulse/,
     'it must say where the full picture lives, not just that it truncated');
 
   // The file cap, on the branch that exceeds it.
