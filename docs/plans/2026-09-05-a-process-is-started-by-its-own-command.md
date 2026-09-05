@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-05, Jan Wloka, in-session
 - **Started:** 2026-09-05, Jan Wloka, `feature/the-fleet-changes-hands`
 - **Started:** 2026-09-05, Jan Wloka, `feature/an-agent-is-started-by-a-command`
+- **Started:** 2026-09-05, Jan Wloka, `feature/the-board-has-a-door`
 
 ## Design
 
