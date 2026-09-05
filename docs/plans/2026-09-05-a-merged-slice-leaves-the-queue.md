@@ -55,7 +55,7 @@ queued.push({ branch: line.branch, slug, claimable });
 
 ## Slices
 
-### The queue asks whether it landed (Branch: bug/a-merged-slice-leaves-the-queue)
+### The queue asks whether it landed (Branch: bug/a-merged-slice-leaves-the-queue, PR: #713)
 
 `buildQueue` excludes a branch the host says merged, alongside the claimed-ref check rather than instead of it.
 
