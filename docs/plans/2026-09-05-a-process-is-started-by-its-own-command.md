@@ -8,7 +8,28 @@
 - **Type:** feature
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
+
+## Design
+
+[`DESIGN-process.md`](../stories/the-master-agent-holds-the-fleet/DESIGN-process.md)
+settles the topology this plan builds doors for. Two of its claims govern every
+slice below:
+
+**Fleet control and the board are independent systems that share a machine.**
+Either runs without the other, neither is a component of the other, and the two
+process trees share no edge. That is why there are two commands rather than one,
+and why neither may become a dependency of the other.
+
+**Fleet control is `1 + 2N`: one supervisor, and per agent one worker and one
+monitor.** That is the target the design sets, and the last slice below reaches
+it. Today it is `1 + 4N`, because the one monitor is three — `WorkerMonitor`,
+`AgentMonitor` and `BuildMonitor` each run their own loop around a rule they
+already share.
+
+**Only fleet control has a multiplier.** The board's two processes are fixed
+however large the fleet, so the number that decides how many agents a machine
+holds is the per-agent one. Halving it is what lets N grow.
 
 ## Problem
 
@@ -265,6 +286,52 @@ twice.
 **Done when** a command brings agents into existence with no slice assigned —
 free, registered, waiting — defaulting to three, and the supervisor's next tick
 hands each a queued slice without a person touching a desk.
+
+### The fleet runs lean (Branch: feature/one-monitor-watches-the-slice)
+
+Three per-agent monitors become one, taking fleet control from `1 + 4N` to the
+`1 + 2N` the design sets.
+
+**The rule is already one; only the loop is three.**
+`packages/domain/src/rules/sample.ts` exports `sample(previous, current)` and
+`publication(...)`, `monitoring-is-a-domain-concept` is Released, and
+`plot-monitor-subject.sh` calls itself *"the ONE answer to 'is this monitor's
+subject still there?'"* and is sourced by two of the three. What differs between
+them is the subject, not the logic.
+
+**The findings split where the design puts the boundary**, read from the live
+logs on 2026-09-05:
+
+| monitor | findings | subject |
+|---|---|---|
+| `WorkerMonitor` | `gone`, `idle` | the **process** |
+| `AgentMonitor` | `clear`, `owes a review`, `owes an answer`, `holds unlanded work` | the **desk** |
+| `BuildMonitor` | `build passed`, `build failed`, `head moved` | **CI** |
+
+**`WorkerMonitor` moves to the supervisor**, which already reads what it
+reports: session, tokens and cost became manifest fields when
+`an-agent-remembers-its-session` and `an-agent-knows-what-it-spent` landed, and
+every tick re-reads every manifest. One process per agent duplicating a read one
+process already makes is the whole of the saving.
+
+**`AgentMonitor` and `BuildMonitor` become one loop over two subjects**, because
+both watch the SLICE — its desk and its CI — and a slice is what an agent holds.
+One wake, two `sample()` calls, publish what changed.
+
+**GRANULARITY IS THE TRADE, AND IT IS WORTH NAMING.** The supervisor ticks at
+60 s where `WorkerMonitor` samples faster, so a wedged agent is noticed a tick
+later than today. Measured 2026-09-04: four agents sat at **0.3–0.7 s of CPU for
+6–8 hours**, which 60 s finds with room to spare. A prompt that dies in ten
+seconds is the case that gets slower, and the cost of that miss is one tick
+against N duplicate readers paid continuously.
+
+**Nothing here touches the board.** Its two processes never scaled with the
+fleet, and its scans are a separate question the design leaves open.
+
+**Done when** an agent runs two resident processes rather than four, the
+supervisor reports `gone` and `idle` for every agent it supervises,
+`monitors-end.test.mjs` still passes — a monitor must still end with its subject
+— and a wedged agent is still reported, one tick later at worst.
 
 ### Saying so where a user looks (Branch: docs/adoption-names-the-processes)
 
