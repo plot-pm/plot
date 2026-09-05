@@ -3,7 +3,14 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { argsFrom, readRegistry, reportTick } from '../../src/server/entry/registryd-main.js';
+import {
+  argsFrom,
+  readRegistry,
+  reportTick,
+  startAgents,
+} from '../../src/server/entry/registryd-main.js';
+import type { Performer } from '@plot-pm/domain/ports/performer';
+import { answered, failed, unaskable } from '@plot-pm/domain';
 import { TICK_INTERVAL_MS, type TickReport } from '../../src/server/entry/registryd.js';
 import { readTick, worldFrom, type SupervisorWorld } from '../../src/server/supervisor.js';
 import type { AgentEntry } from '../../src/server/registry.js';
@@ -22,8 +29,29 @@ const manifest = (over: Record<string, unknown> = {}) =>
   });
 
 describe('the daemon’s arguments', () => {
-  it('loops by default, unbounded, at the measured interval', () => {
-    expect(argsFrom([])).toEqual({ once: false, max: 0, intervalMs: TICK_INTERVAL_MS });
+  it('loops by default, unbounded, at the measured interval, starting nothing', () => {
+    expect(argsFrom([])).toEqual({
+      once: false,
+      max: 0,
+      intervalMs: TICK_INTERVAL_MS,
+      startAgents: false,
+    });
+  });
+
+  it('starts no agent unless asked — deciding is the default, performing is opt-in', () => {
+    // THE ONE WRITE THIS ARTIFACT PERFORMS, and it starts detached processes
+    // that outlive the daemon. Off by default is what keeps *the tick decides
+    // and performs nothing* true of every run that did not ask otherwise —
+    // including a `--once` an operator types to see what the supervisor thinks.
+    expect(argsFrom([])?.startAgents).toBe(false);
+    expect(argsFrom(['--start-agents'])?.startAgents).toBe(true);
+  });
+
+  it('reads --dry-run and --start-agents as independent, not as opposites', () => {
+    // A run without --start-agents already writes nothing, so --dry-run keeps
+    // describing it. Refusing the pair would be a third state to reason about
+    // for behaviour anyone can express by leaving the other flag off.
+    expect(argsFrom(['--dry-run', '--start-agents'])?.startAgents).toBe(true);
   });
 
   it('takes --once', () => {
@@ -287,5 +315,111 @@ describe('where a tick’s report goes', () => {
     const err: string[] = [];
     reportTick(incomplete('scandir failed'), () => {}, (s) => err.push(s));
     expect(err.join('')).toContain('next=re-reads');
+  });
+});
+
+
+describe('starting agents is the one write this daemon performs', () => {
+  /** A tick whose hand-over named `n` starts. */
+  const withStarts = (n: number): TickReport => ({
+    startedAt: 0,
+    costMs: 10,
+    agents: 0,
+    incomplete: '',
+    decision: {
+      outcome: 'decided',
+      workflow: 'supervise',
+      writes: [],
+      detail: {
+        agents: [],
+        left: [],
+        reaping: [],
+        correcting: [],
+        needingAPerson: [],
+        deferred: [],
+      },
+    },
+    handOver: {
+      outcome: 'decided',
+      workflow: 'assign',
+      writes: [
+        // A WRITE THIS APPLIER DOES NOT OWN, sitting first on purpose: the tick
+        // names reaps and corrections too, and none of them is performed here.
+        { kind: 'manifest-clear', worktree: '/estate/gone' },
+        ...Array.from({ length: n }, () => ({
+          kind: 'worker-start' as const,
+          branch: '',
+          worktree: '',
+        })),
+      ],
+      detail: {
+        assignments: [],
+        held: [],
+        idle: [],
+        scaling: {
+          start: n,
+          requested: n,
+          running: 0,
+          headroom: 'clear' as const,
+          shortfall: '',
+        },
+      },
+    },
+  });
+
+  /** A performer that records what it was asked to start. */
+  const spy = (answer: () => ReturnType<Performer['startFreeAgent']>) => {
+    const asked: string[] = [];
+    const performer: Performer = {
+      startFreeAgent: (worktree) => {
+        asked.push(worktree);
+        return answer();
+      },
+    };
+    return { performer, asked };
+  };
+
+  it('starts one agent per `worker-start` write and reports the count', async () => {
+    const { performer, asked } = spy(async () => answered(1));
+    const out: string[] = [];
+    const started = await startAgents(withStarts(2), performer, (s) => out.push(s), () => {});
+    expect(started).toBe(2);
+    expect(asked).toHaveLength(2);
+    expect(out.join('')).toContain('started 2 free agent(s)');
+  });
+
+  it('performs no other write kind, however many the tick named', async () => {
+    // NAMING THE KIND RATHER THAN FALLING THROUGH. This slice owns starting an
+    // agent and nothing else; a reap or a correction is left for whoever does.
+    const { performer, asked } = spy(async () => answered(1));
+    await startAgents(withStarts(1), performer, () => {}, () => {});
+    expect(asked).toHaveLength(1);
+  });
+
+  it('reports what to configure when nothing starts agents in this repository', async () => {
+    // `unaskable` IS A FIRST-CLASS ANSWER. `Worker command: none` means asked,
+    // and answered *we start them by hand* — not an error to chase every tick.
+    const { performer } = spy(async () => unaskable<number>());
+    const err: string[] = [];
+    const started = await startAgents(withStarts(1), performer, () => {}, (s) => err.push(s));
+    expect(started).toBe(0);
+    expect(err.join('')).toContain('Worker command');
+  });
+
+  it('reports a failed start and lets the next tick re-derive it', async () => {
+    // A START THAT FAILS COSTS ONE TICK. There is nothing to retry and nothing
+    // to remember: the next tick reads the queue and the fleet from disk again.
+    const { performer } = spy(async () => failed<number>());
+    const err: string[] = [];
+    expect(await startAgents(withStarts(1), performer, () => {}, (s) => err.push(s))).toBe(0);
+    expect(err.join('')).toContain('the next tick re-derives');
+  });
+
+  it('starts nothing for a tick that named no start', async () => {
+    const { performer, asked } = spy(async () => answered(1));
+    const out: string[] = [];
+    expect(await startAgents(withStarts(0), performer, (s) => out.push(s), () => {})).toBe(0);
+    expect(asked).toEqual([]);
+    expect(out).toEqual([]);
   });
 });
