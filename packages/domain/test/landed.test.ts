@@ -74,6 +74,18 @@ describe('mayRemove', () => {
     }
   });
 
+  // THE ONE CASE THE PAIR ALONE DOES NOT COVER, and the reason `mayRemove`
+  // exists rather than a caller composing the two answers. `landed` refusing on
+  // silence protects every combination where the MERGE lookup failed. It says
+  // nothing about a found merge beside an OPEN lookup that failed — asked
+  // independently, the two functions answer *merged* and *no veto* there, and a
+  // caller reading them removes a ref on half an answer.
+  it('refuses a found merge whose open lookup could not be asked', () => {
+    expect(landed(readings('found', 'unaskable'))).toBe('landed');
+    expect(openPr(readings('found', 'unaskable'))).toBe(false);
+    expect(mayRemove(readings('found', 'unaskable'))).toBe(false);
+  });
+
   // THE COUPLING, STATED AS A PROPERTY RATHER THAN A COMMENT. Removal needs
   // both readings to be positive statements the host made. Exactly one of the
   // nine combinations qualifies.

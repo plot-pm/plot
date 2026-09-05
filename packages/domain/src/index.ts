@@ -58,6 +58,7 @@ export * from './rules/sweepable.js';
 export * from './rules/prompt.js';
 export * from './rules/quiet.js';
 export * from './rules/task.js';
+export * from './rules/landed.js';
 export * from './rules/spend.js';
 /**
  * The per-agent half of the tick, disambiguated for the same reason the phase
