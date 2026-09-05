@@ -87,9 +87,26 @@ deliberately pushes no claim, so there is nothing for it to restart.
 it.** An estate that happens to hold a free agent hides the gap; an empty one
 shows it. The gap is in the model, not in the estate.
 
-**Done when** a command brings an agent into existence with no slice assigned —
-free, registered, waiting — and the supervisor's next tick hands it the queued
-slice without a person touching the desk.
+**A COUNT, AND A DEFAULT OF THREE.** The command takes how many agents to bring
+up and defaults to 3, so an operator who has just installed the supervisor has a
+fleet rather than an empty registry. Three because it is small enough to be
+wrong about cheaply and large enough to prove the hand-over matches more than
+one agent to more than one slice.
+
+**`--max` IS NOT THIS NUMBER, and the two must not be confused.**
+`registryd --max` bounds *how many agents one tick may act on* — a rate limit on
+decisions, defaulting to 0 for no bound. It says nothing about how many agents
+exist. The board's `parallel agents (cap)` control is the same kind of quantity.
+A fleet size is a third thing: how many workers this machine runs at once.
+
+**The machine has the last word.** `DESIGN-machine.md` measures what a fleet
+costs — *"7 workers died `exit 124`"*, *"five workers ran fine at load 10"* — so
+the count is a request, and a machine already at its bound may answer with
+fewer. It says so rather than silently starting three.
+
+**Done when** a command brings agents into existence with no slice assigned —
+free, registered, waiting — defaulting to three, and the supervisor's next tick
+hands each a queued slice without a person touching a desk.
 
 ### Saying so where a user looks (Branch: docs/adoption-names-the-processes)
 
