@@ -12,8 +12,8 @@ import { type Outcome, type Write, decide, refuse } from './decision.js';
  * `PLOT-UNASKED` stops, and step 3's nothing-claimable.
  */
 export type ImplementRefusal =
-  | 'phase-too-early'
-  | 'phase-terminal'
+  | 'state-too-early'
+  | 'state-terminal'
   | 'plan-ambiguous'
   | 'drift-unresolved'
   | 'nothing-claimable';
@@ -103,7 +103,7 @@ export interface ImplementDetail {
  * @param readings - what the adapters measured about the plan and the fleet.
  * @param input - the date and starter to record, and whether anyone is present.
  * @returns a decision naming every write, or a refusal naming the rule that
- *   fired: `phase-too-early`, `phase-terminal`, `plan-ambiguous`,
+ *   fired: `state-too-early`, `state-terminal`, `plan-ambiguous`,
  *   `drift-unresolved` or `nothing-claimable`.
  */
 export const implement = (
@@ -134,12 +134,12 @@ export const implement = (
     case 'draft':
     case 'design':
       return no(
-        'phase-too-early',
+        'state-too-early',
         `plan isn't approved yet — review it and run /plot-approve ${readings.slug} first.`,
       );
     default:
       return no(
-        'phase-terminal',
+        'state-terminal',
         `plan '${readings.slug}' is ${readings.phase} — nothing to start.`,
       );
   }

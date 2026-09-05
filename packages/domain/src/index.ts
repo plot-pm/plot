@@ -103,7 +103,7 @@ export {
   isRefusal,
 } from './transitions/plan.js';
 export type {
-  Phase,
+  PlanState,
   ReviewChannel,
   TransitionPlan,
   Precondition,

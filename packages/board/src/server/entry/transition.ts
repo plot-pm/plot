@@ -3,7 +3,7 @@ import {
   deliver,
   release,
   isRefusal,
-  type Phase,
+  type PlanState,
   type TransitionPlan,
   type TransitionResult,
 } from '@plot-pm/domain/transitions/plan';
@@ -100,7 +100,7 @@ export const requestFrom = (text: string): Request => {
       // absent field `''`. Both mean unmeasured, which the domain calls `none`
       // — and `none` refuses rather than proceeding, so neither collapses into
       // a phase that would let the transition through.
-      phase: (phase === '' || phase === 'NONE' ? 'none' : phase.toLowerCase()) as Phase,
+      phase: (phase === '' || phase === 'NONE' ? 'none' : phase.toLowerCase()) as PlanState,
       review: review === '' || review === 'NONE' ? 'none' : review,
       approvedRecord: approved,
       deliveredRecord: delivered,

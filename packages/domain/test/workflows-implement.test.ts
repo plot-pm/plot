@@ -27,12 +27,12 @@ const kinds = (writes: readonly Write[]) => writes.map((w) => w.kind);
 describe('implement — the refusals, each without a repository', () => {
   it.each(['draft', 'design'])('refuses a plan still %s', (phase) => {
     const out = implement(ready({ phase }), on);
-    expect(refused(out) && out.reason).toBe('phase-too-early');
+    expect(refused(out) && out.reason).toBe('state-too-early');
   });
 
   it.each(['delivered', 'released'])('refuses a %s plan — nothing to start', (phase) => {
     const out = implement(ready({ phase }), on);
-    expect(refused(out) && out.reason).toBe('phase-terminal');
+    expect(refused(out) && out.reason).toBe('state-terminal');
   });
 
   it('refuses when no slug was named and several plans are ready', () => {

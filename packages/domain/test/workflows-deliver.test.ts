@@ -33,22 +33,22 @@ describe('deliver — the refusals, each without a repository', () => {
 
   it('refuses a plan already released', () => {
     const out = deliver(ready({ phase: 'released' }), on);
-    expect(refused(out) && out.reason).toBe('phase-terminal');
+    expect(refused(out) && out.reason).toBe('state-terminal');
   });
 
   it.each(['draft', 'design'])('refuses a plan still %s — approve it first', (phase) => {
     const out = deliver(ready({ phase }), on);
-    expect(refused(out) && out.reason).toBe('phase-too-early');
+    expect(refused(out) && out.reason).toBe('state-too-early');
   });
 
   it.each(['NONE', ''])('refuses a phase it cannot read (%s)', (phase) => {
     const out = deliver(ready({ phase }), on);
-    expect(refused(out) && out.reason).toBe('phase-unreadable');
+    expect(refused(out) && out.reason).toBe('state-unreadable');
   });
 
   it('refuses a phase it does not recognise', () => {
     const out = deliver(ready({ phase: 'superseded' }), on);
-    expect(refused(out) && out.reason).toBe('phase-wrong');
+    expect(refused(out) && out.reason).toBe('state-wrong');
   });
 
   it('refuses while any non-deferred branch is unmerged — one of the four guardrails', () => {

@@ -10,9 +10,9 @@ import { type Outcome, type Write, decide, refuse } from './decision.js';
 export type ApproveRefusal =
   | 'plan-not-found'
   | 'plan-unparseable'
-  | 'phase-terminal'
-  | 'phase-unreadable'
-  | 'phase-wrong'
+  | 'state-terminal'
+  | 'state-unreadable'
+  | 'state-wrong'
   | 'review-human'
   | 'review-unrecognised'
   | 'pr-closed'
@@ -97,8 +97,8 @@ export interface ApproveDetail {
  * @param readings - what the adapters measured about the plan and its PR.
  * @param input - the date and approver to record.
  * @returns a decision naming every write, or a refusal naming the rule that
- *   fired: `plan-not-found`, `plan-unparseable`, `phase-terminal`,
- *   `phase-unreadable`, `phase-wrong`, `review-human`, `review-unrecognised`,
+ *   fired: `plan-not-found`, `plan-unparseable`, `state-terminal`,
+ *   `state-unreadable`, `state-wrong`, `review-human`, `review-unrecognised`,
  *   `pr-closed` or `pr-absent`.
  */
 export const approve = (
@@ -129,17 +129,17 @@ export const approve = (
       break;
     case 'delivered':
     case 'released':
-      return no('phase-terminal', `plan '${slug}' is already ${readings.phase} — nothing to approve.`);
+      return no('state-terminal', `plan '${slug}' is already ${readings.phase} — nothing to approve.`);
     case 'NONE':
     case '':
       return no(
-        'phase-unreadable',
-        `cannot read the phase of '${slug}' (${readings.file}) — refusing rather than guessing.`,
+        'state-unreadable',
+        `cannot read the state of '${slug}' (${readings.file}) — refusing rather than guessing.`,
       );
     default:
       return no(
-        'phase-wrong',
-        `plan '${slug}' is in phase '${readings.phase}' — only a Draft or Design plan can be approved.`,
+        'state-wrong',
+        `plan '${slug}' is in state '${readings.phase}' — only a Draft or Design plan can be approved.`,
       );
   }
 
