@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.11.0
+  version: 0.12.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git with worktree support and
   python3. Starting workers needs a `Worker command` in Plot Config; the first
