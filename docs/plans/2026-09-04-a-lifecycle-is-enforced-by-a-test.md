@@ -280,7 +280,7 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
 - `feature/an-agent-lifecycle-refuses` — `transitions/agent.ts`. The eight
   states `DESIGN-agent.md` names, and the refusals it already states: an agent
   is terminated by the Registry, a manifest belongs to the Registry, `elsewhere`
-  means no worktree on this machine.
+  means no worktree on this machine. — PR #710
 
   **Asserted: an agent cannot end itself on a bound** — `plot-worker-loop.sh:1270`
   does exactly that today, writing `write_ending … bound bound` and calling
