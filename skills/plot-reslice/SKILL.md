@@ -211,7 +211,7 @@ git commit -m "plot-reslice: slice <slug>'s <wave-name> wave into one wave per b
 Close by orienting: the wave is now N waves, each with one branch and a
 well-defined verdict. What falls out next is **not** this command's business
 — dispatching or building the branches is a separate decision. If the plan
-belongs to a sprint whose rules were undefined over the unsliced wave, note
+belongs to a sprint whose rules were undefined over the uncut slice, note
 that those rules now hold.
 
 > The reslice is a plan-file edit and nothing more. It does not merge, does

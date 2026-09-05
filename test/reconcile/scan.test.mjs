@@ -251,9 +251,9 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // when the derived phase grouping (#254) made an unlinked plan visible, and
   // asserting the NUMBER is what proves the demotion rather than a reworded
   // line. concurrent: beta + gamma branches of active plans (sigma has none).
-  // unsliced_waves: 0 — every plan in this fixture carries at most one branch
+  // uncut_slices: 0 — every plan in this fixture carries at most one branch
   // per wave, so that section is silent and contributes a zero counter.
-  // prose_wave_names: 0 — every wave name in this fixture is a label, so the
+  // prose_slice_names: 0 — every slice name in this fixture is a label, so the
   // prose-name section is silent too and contributes its own zero counter.
   // sprint_drift: 0 — the fixture has no sprint files, so the section is silent.
   // stale_tally: 0 — no sprint files, so section 11 is also silent.
@@ -263,7 +263,7 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // so section 13 is silent; its stale-round case has its own fixture.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -933,7 +933,7 @@ before(() => {
   fs.mkdirSync(path.join(uwRepo, 'plans', 'active'), { recursive: true });
   fs.mkdirSync(path.join(uwRepo, 'plans', 'delivered'), { recursive: true });
   // Link every plan so index drift (section 9) stays silent — keeps this
-  // fixture's footer focused on unsliced_waves without unrelated noise.
+  // fixture's footer focused on uncut_slices without unrelated noise.
   fs.symlinkSync('../2026-02-01-tangled.md', path.join(uwRepo, 'plans', 'active', 'tangled.md'));
   fs.symlinkSync('../2026-02-02-tidy.md', path.join(uwRepo, 'plans', 'active', 'tidy.md'));
   fs.symlinkSync('../2026-02-03-prose.md', path.join(uwRepo, 'plans', 'active', 'prose.md'));
@@ -992,7 +992,7 @@ test('scan: section 7 footer counter matches the number of findings', () => {
   const bodyFindings = uwSections['7'].split('\n').filter((l) => l.includes('carries')).length;
   assert.equal(bodyFindings, 2, `expected 2 body findings, got ${bodyFindings}`);
   const footer = uwReport.trim().split('\n').at(-1);
-  assert.match(footer, /\bunsliced_waves=2\b/);
+  assert.match(footer, /\buncut_slices=2\b/);
 });
 
 test('scan: an unsliced wave leaves attention= unchanged — the section does NOT gate', () => {
@@ -1098,7 +1098,7 @@ before(() => {
   fs.mkdirSync(path.join(pwRepo, 'plans', 'active'), { recursive: true });
   fs.mkdirSync(path.join(pwRepo, 'plans', 'delivered'), { recursive: true });
   // Link the two real plans so index drift stays silent — keeps this fixture's
-  // footer focused on prose_wave_names without unrelated noise.
+  // footer focused on prose_slice_names without unrelated noise.
   fs.symlinkSync('../2026-03-01-prose.md', path.join(pwRepo, 'plans', 'active', 'prose.md'));
   fs.symlinkSync('../2026-03-02-labels.md', path.join(pwRepo, 'plans', 'active', 'labels.md'));
 
@@ -1140,7 +1140,7 @@ test('scan: section 8 footer counter matches the number of findings', () => {
   const bodyFindings = pwSections['8'].split('\n').filter((l) => l.includes('reads as prose')).length;
   assert.equal(bodyFindings, 1, `expected 1 body finding, got ${bodyFindings}`);
   const footer = pwReport.trim().split('\n').at(-1);
-  assert.match(footer, /\bprose_wave_names=1\b/);
+  assert.match(footer, /\bprose_slice_names=1\b/);
 });
 
 test('scan: a prose wave name leaves attention= unchanged — the section does NOT gate', () => {
@@ -1903,7 +1903,7 @@ test('scan: section 12 stays below the blocking set, leaving /plot-deliver\'s `=
   // shrink the delivery gate, so every new one goes after the last. This pins
   // that placement; section 13 (stale rounds) now sits after it.
   assert.match(dcReport, /^== 12\. Double-claimed branches/m);
-  assert.match(dcReport, /^== 7\. Unsliced waves/m, 'section 7 must still be unsliced waves');
+  assert.match(dcReport, /^== 7\. Uncut slices/m, 'section 7 must still be uncut slices');
 });
 
 // ---------------------------------------------------------------------------
@@ -2084,6 +2084,6 @@ test('scan: section 13 sits last, leaving /plot-deliver\'s `== 7.` gate marker i
   const nums = srReport.split('\n')
     .map((l) => /^== (\d+)\. /.exec(l)).filter(Boolean).map((m) => Number(m[1]));
   assert.equal(Math.max(...nums), 13, 'the stale-round section must be the last one');
-  assert.match(srReport, /^== 7\. Unsliced waves/m, 'section 7 must still be unsliced waves');
+  assert.match(srReport, /^== 7\. Uncut slices/m, 'section 7 must still be uncut slices');
   assert.match(srReport, /^== 12\. Double-claimed branches/m, 'section 12 must keep its number');
 });
