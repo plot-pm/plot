@@ -150,7 +150,7 @@ them together is what makes the type earn its existence.
   failure direction is safe only because `pr_merged` already refused on the same
   silence. **Asserted: a host that cannot be asked deletes nothing**, and
   **asserted: the rule answers without `gh`**. The shell function survives; only
-  its body moves, so all ten sourcing callers are untouched.
+  its body moves, so all ten sourcing callers are untouched. — PR #706
 
 ### Routing every PR question
 
