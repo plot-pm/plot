@@ -1,4 +1,12 @@
-// THE WORKER PROMPT NAMES ITS SESSION — `--session-id "$PLOT_SESSION_ID"`.
+// THE WORKER PROMPT NAMES ITS SESSION — `"$PLOT_SESSION_FLAG" "$PLOT_SESSION_ID"`.
+//
+// THE FLAG IS THE LOOP'S SINCE 2026-09-05, and this file interpolates it. The
+// prompt hardcoded `--session-id`, which asks the runtime to CREATE a session
+// and succeeds exactly once — so an agent handed a SECOND slice was refused
+// with `Session ID … is already in use` and its prompt exited in under a
+// second. `plot-worker-loop.sh` now probes the transcript and exports
+// `--session-id` or `--resume`; the assertions below are about what this file
+// does with that answer, including the one it must never build.
 //
 // This is `a-worker-names-its-session`, wave 5 of
 // docs/plans/2026-09-03-the-domain-owns-the-agent-lifecycle.md. Measured on
@@ -60,7 +68,7 @@ const shells = () => {
  * it. `set -uo pipefail` matches what `plot-worker-loop.sh:58` runs, so a
  * version that aborts on an empty array aborts here too.
  */
-const argv = (sh, session) => {
+const argv = (sh, session, flag = undefined) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-sessid-'));
   const seen = path.join(dir, 'argv');
   try {
@@ -73,10 +81,13 @@ const argv = (sh, session) => {
       PLOT_BRANCH: 'feature/x',
       PLOT_WORKTREE: dir,
     };
-    // A dispatched worker runs this suite, so its OWN PLOT_SESSION_ID is in the
-    // environment. Deleting it is what makes the absent case observable at all.
+    // A dispatched worker runs this suite, so its OWN PLOT_SESSION_ID and
+    // PLOT_SESSION_FLAG are in the environment. Deleting both is what makes the
+    // absent cases observable at all.
     delete env.PLOT_SESSION_ID;
+    delete env.PLOT_SESSION_FLAG;
     if (session !== null) env.PLOT_SESSION_ID = session;
+    if (flag !== undefined) env.PLOT_SESSION_FLAG = flag;
     execFileSync(sh, ['-c', 'set -uo pipefail; . "$1"', '_', promptFile],
       { encoding: 'utf8', env, timeout: 30_000 });
     return fs.readFileSync(seen, 'utf8').split('\n').filter((l) => l !== '');
@@ -85,18 +96,60 @@ const argv = (sh, session) => {
   }
 };
 
+const ID = 'a94c1f30-0000-4000-8000-000000000001';
+
 for (const { sh, version } of shells()) {
   // THE PLAN'S DONE-WHEN. A dispatched worker's transcript is attributable to
   // the id the manifest records, because the runtime was told which session it
   // is. Asserted on the pair, not on the flag alone: `--session-id` followed by
   // the wrong value is the same defect wearing the right name.
+  //
+  // NO `PLOT_SESSION_FLAG` IS SET HERE, and that is the case a loop older than
+  // the export produces, along with every hand run. The default must be
+  // `--session-id`: it is what this file hardcoded before 2026-09-05, so an
+  // unset variable behaves exactly as the file used to.
   test(`worker-prompt: a dispatched id reaches claude as --session-id (bash ${version})`, () => {
-    const got = argv(sh, 'a94c1f30-0000-4000-8000-000000000001');
+    const got = argv(sh, ID);
     const at = got.indexOf('--session-id');
     assert.notEqual(at, -1, `the flag is passed\n${got.join(' ')}`);
-    assert.equal(got[at + 1], 'a94c1f30-0000-4000-8000-000000000001',
-      'and carries the id the dispatcher minted');
+    assert.equal(got[at + 1], ID, 'and carries the id the dispatcher minted');
   });
+
+  // THE LOOP'S DECISION REACHES THE RUNTIME. `plot-worker-loop.sh` probes the
+  // transcript and exports `--session-id` or `--resume`; this file interpolates
+  // the answer and states no rule. Asserted on both flags with one id, because
+  // the defect this replaces was a file that could only ever say one of them.
+  for (const flag of ['--session-id', '--resume']) {
+    test(`worker-prompt: the loop's ${flag} is what reaches claude (bash ${version})`, () => {
+      const got = argv(sh, ID, flag);
+      const at = got.indexOf(flag);
+      assert.notEqual(at, -1, `the exported flag is passed\n${got.join(' ')}`);
+      assert.equal(got[at + 1], ID, 'and carries the handle beside it');
+      // ONE FLAG, NOT BOTH. `--session-id --resume <id>` would ask the runtime
+      // to create and continue in one invocation.
+      const other = flag === '--resume' ? '--session-id' : '--resume';
+      assert.equal(got.includes(other), false,
+        `only the flag the loop decided is passed\n${got.join(' ')}`);
+    });
+  }
+
+  // A BARE `--resume` MUST NEVER BE BUILT, and this is the assertion the plan
+  // asks for by name. `--session-id ""` is malformed and fails loudly;
+  // `--resume` is OPTIONAL-VALUED — *"Resume a conversation by session ID, or
+  // open interactive picker"* — so a blank value does not fail, it opens a
+  // picker inside a `-p` run with no terminal and hangs. The `[ -n … ]` guard
+  // prevents it; this proves the guard.
+  for (const [label, value] of [['unset', null], ['empty', '']]) {
+    test(`worker-prompt: an ${label} id with --resume exported passes no flag (bash ${version})`, () => {
+      const got = argv(sh, value, '--resume');
+      assert.equal(got.includes('--resume'), false,
+        `no --resume without a handle to resume\n${got.join(' ')}`);
+      assert.equal(got.includes('--session-id'), false,
+        `and no session flag of any kind\n${got.join(' ')}`);
+      assert.equal(got.includes(''), false,
+        'and no stray empty argument — bash 3.2 expands an empty array to one');
+    });
+  }
 
   // THE OTHER ARM. A prompt file run outside dispatch has no id, and the
   // defensible answer is to pass nothing — not `--session-id ""`, which is a
