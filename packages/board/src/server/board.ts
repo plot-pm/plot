@@ -7,6 +7,7 @@ import {
   StoryCardSchema,
   toBoardPhase,
   BOARD_PHASES,
+  STORY_STATUSES,
   type Board,
   type Card,
   type Column,
@@ -19,9 +20,12 @@ import {
   type StoryCardInput,
   type FleetReading,
   type PlanMeta,
-  type SliceSummary } from '../contract/schema.js';
+  type SliceSummary,
+  type StoryStatus,
+  type StoryStanding } from '../contract/schema.js';
 import {
   allSlicesMerged,
+  derivedStanding,
   planStatus as decidePlanStatus,
   type Host,
   type PlanStore,
@@ -1383,32 +1387,33 @@ function parseStoryContent(
 /**
  * Derive story status from plan phases.
  *
- * - All plans released → 'archived'
- * - All plans delivered (or released) → 'done'
- * - Any approved plan (in progress) → 'active'
- * - Otherwise → 'draft'
+ * **The rule is `derivedStanding`'s, and this function only feeds it.** The
+ * three phase counts were computed here inline against a `string` return type
+ * until 2026-09-05, which is how the board came to return `'archived'` — a
+ * seventh status neither the domain's six nor this package's hand-copied six
+ * admitted, and nothing objected because `string` admits everything.
  *
- * A story with no plans stays at its declared status (or 'draft').
+ * The return type is now `StoryStanding`, so a status the domain cannot
+ * represent does not compile.
+ *
+ * A story whose declared status is unreadable is read as `draft`: the domain
+ * takes a `StoryStatus`, and frontmatter is a file a person edits.
  */
-function deriveStoryStatus(declaredStatus: string, plans: Array<{ phase: string }>): string {
-  if (plans.length === 0) return declaredStatus || 'draft';
-
-  const phases = plans.map((p) => p.phase.toLowerCase());
-  const allReleased = phases.every((p) => p === 'released');
-  const allDelivered = phases.every((p) => p === 'released' || p === 'delivered');
-  const hasApproved = phases.some((p) => p === 'approved');
-
-  if (allReleased) return 'archived';
-  if (allDelivered) return 'done';
-  if (hasApproved) return 'active';
-  return declaredStatus || 'draft';
+function deriveStoryStatus(
+  declaredStatus: string,
+  plans: Array<{ phase: string }>,
+): StoryStanding {
+  const declared = (STORY_STATUSES as readonly string[]).includes(declaredStatus)
+    ? (declaredStatus as StoryStatus)
+    : 'draft';
+  return derivedStanding(declared, plans);
 }
 
 /**
  * Compute status drift: when a story's manual `status:` field conflicts with
  * the derived status from plan phases. Returns a warning message, or null if no drift.
  */
-function computeStatusDrift(declaredStatus: string, derivedStatus: string): string | null {
+function computeStatusDrift(declaredStatus: string, derivedStatus: StoryStanding): string | null {
   if (!declaredStatus) return null;
   if (declaredStatus === derivedStatus) return null;
 

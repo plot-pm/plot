@@ -221,9 +221,16 @@ export const PHASE_LEADERSHIP: Record<Phase, { icon: string; who: string }> = {
 export const SPRINT_PHASES = ['Planning', 'Committed', 'Active', 'Closed'] as const;
 export type SprintPhase = (typeof SPRINT_PHASES)[number];
 
-/** Story lifecycle statuses (from story-tracking front matter). */
-export const STORY_STATUSES = ['draft', 'ready', 'active', 'in-review', 'paused', 'done'] as const;
-export type StoryStatus = (typeof STORY_STATUSES)[number];
+/**
+ * Story lifecycle statuses (from story-tracking front matter).
+ *
+ * Re-exported from `@plot-pm/domain` rather than declared. This line held the
+ * same six by hand, importing nothing, from 2026-07 until 2026-09-05 — and the
+ * duplicate is the dangerous half of the drift, because two lists that agree
+ * look correct right up to the edit that separates them.
+ */
+export { STORY_LIFECYCLE as STORY_STATUSES } from '@plot-pm/domain';
+export type { StoryStatus, StoryStanding } from '@plot-pm/domain';
 
 /**
  * Slice state condensed to the numbers a board tile can show — from TWO sources,

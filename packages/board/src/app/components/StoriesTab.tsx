@@ -1,17 +1,45 @@
 import { useMemo, useState } from 'react';
-import type { StoryCard, Topic } from '../../contract/schema.js';
+import type { StoryCard, StoryStanding, Topic } from '../../contract/schema.js';
 
 /**
  * Story status columns in display order.
  *
  * Follows the lifecycle: Draft → Active → Done → Archived.
  * Archived is hidden by default behind a toggle.
+ *
+ * **Four columns for seven standings, and the collapse is stated rather than
+ * accidental.** This list declared its own four values until 2026-09-05, which
+ * made it a sixth reading of a lifecycle already declared three times. It now
+ * names a subset of `StoryStanding` — the domain's six plus the derived
+ * `archived` — so a column for a standing the domain does not admit no longer
+ * compiles, and {@link COLUMN_OF} says where each of the other three lands.
  */
-const STORY_STATUSES = ['draft', 'active', 'done', 'archived'] as const;
-type StoryStatus = (typeof STORY_STATUSES)[number];
+const STORY_COLUMNS = ['draft', 'active', 'done', 'archived'] as const satisfies readonly StoryStanding[];
+type StoryColumn = (typeof STORY_COLUMNS)[number];
+
+/**
+ * Which column each standing renders in.
+ *
+ * `ready`, `in-review` and `paused` have no column of their own: measured
+ * 2026-09-04, of nine stories 6 were `active` and 3 `draft`, and none of the
+ * three has ever been used here. They were already collapsing into Draft
+ * through an untyped `groups[status] ?? groups.draft` fallback; this map says
+ * so, and it is exhaustive, so a seventh standing cannot land silently.
+ *
+ * Giving each its own column is a display decision with its own slice.
+ */
+const COLUMN_OF: Record<StoryStanding, StoryColumn> = {
+  draft: 'draft',
+  ready: 'draft',
+  active: 'active',
+  'in-review': 'active',
+  paused: 'draft',
+  done: 'done',
+  archived: 'archived',
+};
 
 /** Column metadata for display. */
-const STATUS_META: Record<StoryStatus, { label: string; icon: string }> = {
+const STATUS_META: Record<StoryColumn, { label: string; icon: string }> = {
   draft: { label: 'Draft', icon: '📝' },
   active: { label: 'Active', icon: '🚀' },
   done: { label: 'Done', icon: '✅' },
@@ -106,16 +134,18 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
 
   // Group stories by status
   const byStatus = useMemo(() => {
-    const groups: Record<StoryStatus, StoryCard[]> = {
+    const groups: Record<StoryColumn, StoryCard[]> = {
       draft: [],
       active: [],
       done: [],
       archived: [],
     };
     for (const story of stories) {
-      const status = (story.status?.toLowerCase() ?? 'draft') as StoryStatus;
-      const bucket = groups[status] ?? groups.draft;
-      bucket.push(story);
+      // The server sends a `StoryStanding`, but this is a wire value and a
+      // hand-edited frontmatter key reaches it — so an unrecognised word is
+      // read as `draft` rather than trusted into an index.
+      const standing = story.status?.toLowerCase() as StoryStanding | undefined;
+      groups[(standing && COLUMN_OF[standing]) ?? 'draft'].push(story);
     }
     return groups;
   }, [stories]);
@@ -125,13 +155,13 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
   const filteredByStatus = useMemo(() => {
     if (!selectedTag) return byStatus;
     const matchingSlugs = topicToSlugs.get(selectedTag) ?? new Set();
-    const result: Record<StoryStatus, StoryCard[]> = {
+    const result: Record<StoryColumn, StoryCard[]> = {
       draft: [],
       active: [],
       done: [],
       archived: [],
     };
-    for (const status of STORY_STATUSES) {
+    for (const status of STORY_COLUMNS) {
       result[status] = byStatus[status].filter((s) => matchingSlugs.has(s.slug));
     }
     return result;
@@ -139,8 +169,8 @@ export function StoriesTab({ stories, topics, onOpenStory, onOpenSprint }: Stori
 
   // Which columns to show
   const visibleStatuses = showArchived
-    ? STORY_STATUSES
-    : STORY_STATUSES.filter((s) => s !== 'archived');
+    ? STORY_COLUMNS
+    : STORY_COLUMNS.filter((s) => s !== 'archived');
 
   // Max topic count for sizing
   const maxTopicCount = topics.length > 0 ? Math.max(...topics.map((t) => t.count)) : 1;
