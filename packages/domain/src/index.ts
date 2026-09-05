@@ -116,6 +116,43 @@ export type {
 } from './transitions/plan.js';
 
 /**
+ * The story's transitions, disambiguated the way the plan's are and for the
+ * same reason: both files carry a `Decision`, a `Refusal` and a `Precondition`,
+ * and both spellings are right in their own module.
+ *
+ * The SHAPES diverge on purpose. `DESIGN-plan.md:810` says Plan and Story are
+ * the two entities whose state is a stated fact, so both decide a write — but a
+ * plan writes a `## Status` line and a story writes a frontmatter key plus an
+ * `archived:` date, and one `Decision` serving both would abstract over the
+ * distinction that gives each its fields.
+ *
+ * `derivedStanding` is exported plain because nothing else answers to it: it is
+ * the ONE place `archived` is computed, and `board.ts` reads it rather than
+ * deriving a second answer.
+ */
+export {
+  setStatus as setStoryStatus,
+  archive as archiveStory,
+  settable as storyStatusSettable,
+  archivable as storyArchivable,
+  isDecision as isStoryDecision,
+  isRefusal as isStoryRefusal,
+  derivedStanding,
+  STORY_LIFECYCLE,
+} from './transitions/story.js';
+export type {
+  StoryStanding,
+  StoryPlanReading,
+  Precondition as StoryPrecondition,
+  RefusalReason as StoryRefusalReason,
+  TransitionResult as StoryTransitionResult,
+  Decision as StoryDecision,
+  Refusal as StoryRefusal,
+  SetStatusInput as SetStoryStatusInput,
+  ArchiveInput as ArchiveStoryInput,
+} from './transitions/story.js';
+
+/**
  * The lifecycle workflows — `readings -> Decision | Refusal`, deciding and
  * performing nothing. Exported from the pure barrel because they are pure:
  * every rule is reachable from a plain call with no adapter in scope.
