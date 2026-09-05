@@ -27,6 +27,8 @@
 
 **Not a new supervisor.** `plot-registryd` exists, ticks in 427 ms, and decides without performing. This plan gives it a door, not a body.
 
+**And not a new agent.** The worker loop exists too. What is missing is the command that brings one into existence — see *Starting an agent*, which was added after a dispatch on 2026-09-05 queued a slice that no agent could take.
+
 ## Slices
 
 ### Freeing the name (Branch: feature/the-pulse-is-called-a-pulse)
@@ -63,6 +65,31 @@ The starting logic MOVES rather than being rewritten: `--start` already resolves
 **`plot-board-setup --start` is removed, not aliased**, for the reason the first slice gives: a flag that still works teaches the wrong command.
 
 **Done when** `/plot-board --start` starts what `--start` started, `--status` reports the port and whether it answers, `plot-board-setup` no longer documents a `--start` step, and its README says where the flag went.
+
+### Starting an agent (Branch: feature/an-agent-is-started-by-a-command)
+
+`/plot-fleet --start` brings the supervisor up. Nothing brings an AGENT up, and
+without one the supervisor has nobody to hand work to.
+
+**Measured 2026-09-05, and this slice was added because of it.**
+`/plot-dispatch the-workflow-owns-the-word-phase` reported `handed over
+feature/a-plan-has-a-state → the registry` and `started=0`, which is correct
+under the hand-over model. The supervisor then ticked `agents=0 queued=455
+handed=0`: the slice is queued, the registry is willing, and there is no agent
+in `.plot/agents/` to take it.
+
+**The chain is dispatch queues → registry matches → an agent takes it, and the
+last link has no starter.** Dispatch no longer spawns, by design. `--restart`
+cannot stand in: it hands an EXISTING claim to a new worker, and the hand-over
+deliberately pushes no claim, so there is nothing for it to restart.
+
+**The four reaped desks are how this became visible rather than what caused
+it.** An estate that happens to hold a free agent hides the gap; an empty one
+shows it. The gap is in the model, not in the estate.
+
+**Done when** a command brings an agent into existence with no slice assigned —
+free, registered, waiting — and the supervisor's next tick hands it the queued
+slice without a person touching the desk.
 
 ### Saying so where a user looks (Branch: docs/adoption-names-the-processes)
 
