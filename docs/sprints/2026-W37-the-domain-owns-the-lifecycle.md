@@ -15,8 +15,12 @@
 
 ## Sprint Goal
 
-**Every lifecycle the domain owns refuses an illegal transition, and a test
-proves each refusal.**
+**Every domain element's lifecycle is enforced by a test, and no script changes
+a lifecycle state without asking the domain.**
+
+Two halves, and the second is what makes the first stick. A rule the domain owns
+that a script routes around is not enforced; a script that asks a rule which
+refuses nothing is not governed.
 
 **Three conditions, and all three must hold.**
 
@@ -25,6 +29,20 @@ proves each refusal.**
 | **named** | a concept the code discusses in two vocabularies — a plan's *states* called its *phases*, a Slice called a Wave |
 | **owned** | a lifecycle decided in a shell script the domain cannot call, or in a comment nothing enforces |
 | **enforced** | a rule written down and violated anyway, which is where this sprint starts |
+| **routed** | a script that changes a lifecycle state on its own authority |
+
+**The fourth is measurable, and the estate is further along than it looks.**
+`plot-approve.sh` and `plot-deliver.sh` ask the domain through
+`plot-transition.mjs`, and `plot-reap.sh` says so in its own header: it *"reads
+`packages/domain/src/rules/reapable.ts` and ACTS on the answer; it holds no
+judgement."* That is the shape, already working, in the script whose five
+refusals are the most consequential in the fleet.
+
+**`plot-release-refs.sh` is the one that decides for itself.** Its five guards
+answer the same question about the same desk — is this branch finished with? —
+and they are written separately, in a script that deletes a remote ref, which
+`plot-reap.sh`'s own comments call out as the operation that cannot be undone.
+Two implementations of one judgement, where the more dangerous one is the copy.
 
 **The third is what makes it a sprint rather than a refactor.** `CLAUDE.md`
 already states the failure mode — *"If prose-only, it's a rule and will
