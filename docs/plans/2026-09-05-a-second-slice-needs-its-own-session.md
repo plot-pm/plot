@@ -9,7 +9,7 @@
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -78,13 +78,23 @@ So the hop writes it and the prompt reads it. `update_manifest_on_hop` (`plot-wo
 
 *Keep the assignment.* The manifest's `branch` is cleared on the way into the wait, so an agent that failed to start reads free and the slice returns to the queue. It must stay claimed: nothing else should take a slice this agent was given and is still holding a desk for.
 
-**THE PROMPT ASKS THE TRANSCRIPT, NOT A COUNTER.** A prompt cannot tell a first slice from a hop today: the hop exports `PLOT_BRANCH` and `PLOT_WORKTREE` (`plot-worker-loop.sh:1498`) and nothing else, and `PLOT_SESSION_ID` never changes. So the prompt resumes when a transcript already exists under the id and creates otherwise.
+**THE LOOP ASKS THE TRANSCRIPT AND EXPORTS THE FINISHED FLAG.** A prompt cannot tell a first slice from a hop today: the hop exports `PLOT_BRANCH` and `PLOT_WORKTREE` (`plot-worker-loop.sh:1498`) and nothing else, and `PLOT_SESSION_ID` never changes. So the decision — resume when a transcript exists under the id, create when none does — is made in the loop, and the prompt file receives an argument it interpolates without knowing the rule.
+
+**THE PROJECT'S FILE CARRIES WORDING, NOT LOGIC**, and that is what makes the template of the second slice worth shipping. A rule placed in `.plot/worker-prompt.sh` is a rule in the one file every project rewrites for itself — the same file that got `--session-id` wrong. Exported as a finished flag, a project can rewrite its whole prompt and still cannot get this wrong.
+
+**AND IT AVOIDS A SECOND IMPLEMENTATION OF A PATH THE BOARD ALREADY COMPUTES.** A `test -f` in the template would re-derive `transcriptDir`'s slug rule in shell; `readResumeAvailability` is already TypeScript and already the board's answer to *which transcript is this agent's*.
 
 **That test is already the board's, and it is deliberately the only honest one.** `readResumeAvailability` (`resume.ts:42`) exists for this exact question, and its docstring says why a probe rather than an assertion: Plot *"exports the session id … and documents the `--session-id` an adopting project's `.plot/worker-prompt.sh` must pass on. It can require neither — that file and the harness it invokes belong to the project — so the one honest test is whether a transcript exists under the id Plot asserted."*
 
 **IT ALSO SELF-CORRECTS, WHICH A COUNTER WOULD NOT.** A `wavesCount` branch is right only while every earlier prompt actually ran. The transcript is the ground truth: an agent whose first prompt never started has no transcript, so its second correctly CREATES rather than failing to resume something that does not exist. That is precisely the state today's three agents were left in.
 
-**THE DIRECTORY IS THE SUBTLETY, AND IT MUST BE READ FROM THE RIGHT DESK.** `transcriptDir` (`transcript.ts:79`) keys on the **cwd** the runtime ran in, not on the agent. A hop that RESETS the desk keeps its path, so the transcript stays where it was; a hop that CREATES one (`plot-worker-loop.sh:1415`, the fallback when the desk holds unaccounted work) moves it, and a probe in the new desk finds nothing and creates a fresh session. That is the correct outcome, not a bug — but it means the plain `--resume` shape yields one transcript per agent **per desk**, and a slice must say so rather than promise one per agent unconditionally.
+**A BLANK HANDLE MUST NEVER REACH `--resume`, AND THIS TRAP IS WORSE THAN THE ONE THE FILE ALREADY DOCUMENTS.** `--session-id ""` is a malformed argument that fails loudly, and `.plot/worker-prompt.sh:14` carries a paragraph about it. `--resume` is **optional-valued** — *"Resume a conversation by session ID, or open interactive picker"* — so a blank value does not fail: it opens a picker, in a `-p` run with no terminal.
+
+So the flag is emitted only with a value, inside the same `[ -n … ]` guard the file already uses, **and a test asserts the built argv never contains a bare `--resume`.** The guard prevents it; the test proves the guard. The existing bash 3.2 note — a plain `"${a[@]}"` on an empty array expanding to one empty argument, measured 2026-09-04 — is this exact class of bug surviving careful prose, in this exact file.
+
+**THE DIRECTORY IS THE SUBTLETY, AND IT MUST BE READ FROM THE RIGHT DESK.** `transcriptDir` (`transcript.ts:79`) keys on the **cwd** the runtime ran in, not on the agent. A hop that RESETS the desk keeps its path, so the transcript stays where it was; a hop that CREATES one (`plot-worker-loop.sh:1415`, the fallback when the desk holds unaccounted work) moves it, and a probe in the new desk finds nothing and creates a fresh session.
+
+**THAT SPLIT IS A DEFECT, NOT A PROPERTY, AND IT IS RECORDED RATHER THAN FIXED HERE.** `session` is meant to be the agent's identity for its whole life — `registry.ts:120` calls it *"the identity, and the transcript's name"* — and a per-desk transcript breaks that promise quietly: the board would show an agent whose transcript apparently restarts, with nothing saying why. Following an agent across desks is its own change, in the board rather than in the loop, and it needs a measurement of how often a created desk actually happens before it is designed. This plan states the split, and the next one closes it.
 
 **Done when** an agent handed a second slice starts a prompt on it, the prompt resumes when a transcript exists under the id and creates when none does, a prompt that cannot start writes an ending record and exits non-zero rather than waiting, the slice stays assigned across that failure, and `resumeId` is written by the hop and read by the prompt.
 
@@ -102,7 +112,9 @@ So the hop writes it and the prompt reads it. `update_manifest_on_hop` (`plot-wo
 
 **THIS REPO'S COPY IS FIXED IN THE SAME SLICE**, because a template nobody runs proves nothing, and this estate is where the defect was measured.
 
-**Done when** `plot-init` writes `.plot/worker-prompt.sh` in a fresh repository, this repo's copy handles a second slice, and a project that already has one is told what changed rather than having it overwritten.
+**THE TEMPLATE CARRIES NO SESSION LOGIC.** The loop exports the finished flag, so the template interpolates it and states nothing about resuming. That is what keeps this slice about distribution rather than about the rule — and it is why a project rewriting its prompt wholesale still cannot reintroduce the bug.
+
+**Done when** `plot-init` writes `.plot/worker-prompt.sh` in a fresh repository, this repo's copy handles a second slice, the template contains no session decision of its own, and a project that already has one is told what changed rather than having it overwritten.
 
 **A FAILED START IS RESTARTED, NOT ESCALATED.** `plot-worker-state.sh` will read `failed` on a desk holding a live claim and no work, and that is the case the supervisor's `attempts` budget exists for — `--restart` inherits the tree untouched, so nothing is lost by trying. A transient runtime failure recovers itself; a deterministic one spends the budget and is marked for a person with the reason already written in the ending record. No special-casing: a start that failed is a failure like the others.
 
