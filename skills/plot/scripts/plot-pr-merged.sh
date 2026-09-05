@@ -9,13 +9,9 @@
 # time, so sourcing it would run the reaper's argument parser against its
 # caller's arguments.
 #
-# THREE CALLERS SINCE 2026-09-04. `plot-dispatch.sh` joined them: its
-# `held_worktree` asked ancestry whether a worktree's branch had landed, and on
-# this estate that day ancestry disagreed with the host on TEN OF TEN merged
-# branches. It fails in the cheap direction — a landed leftover reads as a held
-# desk, so dispatch refuses a branch that is free — but it is the same
-# substitution, and a fourth implementation of one question is the thing this
-# file exists to prevent.
+# FOUR CALLERS. `plot-reap.sh`, `plot-release-refs.sh`, `plot-dispatch.sh`, and
+# `plot-quiet-stretch.sh` — the last sourcing it guarded and calling it behind
+# `command -v pr_merged`, so it still works with this file absent.
 #
 # WHY IT WAS EXTRACTED. `plot-reap.sh` and `plot-release-refs.sh` gate on the
 # SAME fact — has this branch's work landed — and they must never disagree
@@ -24,7 +20,21 @@
 # implementation that drifted toward permissive would therefore fail in the
 # direction that cannot be undone. One function, one answer, no drift.
 #
-# `merged` IS READ, NEVER `state`. A merged PR reports state CLOSED, and
+# THIS FILE IS NOW THE ADAPTER, AND THE DECISION IS THE DOMAIN'S. The two
+# functions still ask the host, because the host is asked in shell; what they no
+# longer do is decide. Each turns its lookup into one of three READINGS —
+# `found`, `none`, `unaskable` — and hands the pair to
+# `board/plot-landed.mjs`, which bundles `rules/landed.ts`. The layering runs
+# one way: caller → this adapter → the rule.
+#
+# WHAT MOVED IS THE COUPLING. `pr_merged` and `pr_open` fail in the SAME
+# direction and to OPPOSITE effect — an unreachable host makes the first refuse
+# a removal and the second release its veto — so neither is safe alone and the
+# pair is. That was a comment in this file and could not be checked. It is now
+# `mayRemove` in the rule, asserted over all nine combinations of the two
+# readings, and exactly one of them permits a removal.
+#
+# `mergedAt` IS READ, NEVER `state`. A merged PR reports state CLOSED, and
 # trusting `state` would refuse every squash-merged branch — which is the whole
 # population these scripts exist for. Squash-merge rewrites the commits, so the
 # branch stays "ahead of main" forever and ancestry alone can never clear it.
@@ -50,17 +60,62 @@
 # PRs whose only merge is the oldest would still be missed — a far narrower
 # window than "any duplicate at all", and it fails SAFE, toward keeping.
 
+# Where the rule lives, resolved from THIS file rather than from the cwd.
+#
+# Both callers run with their cwd wherever the operator invoked them, and the
+# reconcile suite runs them against sandbox repos in the temp directory. The
+# artifact sits beside this script in the plot checkout and in the published
+# npm package alike, which is why both are vendored together.
+_plot_landed_mjs="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/board/plot-landed.mjs"
+
+# Ask the rule about one branch's two lookups.
+#
+# $1=merged reading, $2=open reading, both `found`/`none`/`unaskable`.
+# Prints the rule's two words; returns non-zero when it could not be asked at
+# all, which every caller below reads as the refusing direction.
+_plot_landed() {
+  [ -f "$_plot_landed_mjs" ] || return 1
+  printf '%s\t%s\n' "$1" "$2" | node "$_plot_landed_mjs" 2>/dev/null
+}
+
+# What the host says about ANY PR on this branch: found / none / unaskable.
+#
+# A MISSING CLI, AN UNAUTHED ONE AND A NETWORK FAILURE ARE ALL `unaskable`, and
+# they are not `none`. The whole rule turns on that difference — a lookup that
+# ran and matched nothing is the host speaking, while a lookup that did not run
+# is silence, and silence is never permission.
+_plot_merged_lookup() {
+  local br="$1" out
+  command -v gh >/dev/null 2>&1 || { echo unaskable; return; }
+  out=$(gh pr list --head "$br" --state all --limit 100 --json mergedAt 2>/dev/null) \
+    || { echo unaskable; return; }
+  case "$out" in *'"mergedAt":"'*) echo found ;; *) echo none ;; esac
+}
+
+# What the host says about an OPEN PR on this branch: found / none / unaskable.
+_plot_open_lookup() {
+  local br="$1" out
+  command -v gh >/dev/null 2>&1 || { echo unaskable; return; }
+  out=$(gh pr list --head "$br" --state open --limit 1 --json number 2>/dev/null) \
+    || { echo unaskable; return; }
+  case "$out" in *'"number"'*) echo found ;; *) echo none ;; esac
+}
+
 # Did the host merge ANY PR for this branch?
 #
 # Returns 0 (merged) / 1 (not merged, or the host cannot be asked). The failure
 # direction is deliberate and load-bearing: an unreachable host, an unauthed
 # `gh`, a missing CLI all answer "not merged", so every caller KEEPS what it
 # was considering removing. Silence is never permission.
+#
+# The rule answers `unknown` on that silence and this function reports it as a
+# refusal, which is the same contract the four callers were written against —
+# `plot-reap.sh:385` says so explicitly. A rule that cannot be reached at all
+# refuses here too, for the same reason.
 pr_merged() {
-  local br="$1" out
-  command -v gh >/dev/null 2>&1 || return 1
-  out=$(gh pr list --head "$br" --state all --limit 100 --json mergedAt 2>/dev/null) || return 1
-  case "$out" in *'"mergedAt":"'*) return 0 ;; *) return 1 ;; esac
+  local answer
+  answer=$(_plot_landed "$(_plot_merged_lookup "$1")" none) || return 1
+  case "$answer" in landed*) return 0 ;; *) return 1 ;; esac
 }
 
 # Does the branch have an OPEN PR right now?
@@ -81,9 +136,9 @@ pr_merged() {
 # OPPOSITE effect, since this answer vetoes. The safety therefore does not come
 # from this function: it comes from `pr_merged` already having refused on the
 # same silence, so a host that cannot be asked deletes nothing regardless.
+# `mayRemove` is where that pair is now asserted rather than described.
 pr_open() {
-  local br="$1" out
-  command -v gh >/dev/null 2>&1 || return 1
-  out=$(gh pr list --head "$br" --state open --limit 1 --json number 2>/dev/null) || return 1
-  case "$out" in *'"number"'*) return 0 ;; *) return 1 ;; esac
+  local answer
+  answer=$(_plot_landed none "$(_plot_open_lookup "$1")") || return 1
+  case "$answer" in *"	open-pr") return 0 ;; *) return 1 ;; esac
 }

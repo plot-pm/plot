@@ -12,6 +12,7 @@ dist/
 /plot-fleet-scan.sh
 /plot-host.sh
 /plot-plan-meta.sh
+/plot-pr-merged.sh
 /plot-reap.sh
 /plot-release-refs.sh
 /plot-resolve-artifact.sh
