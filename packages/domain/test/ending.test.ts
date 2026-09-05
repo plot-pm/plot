@@ -82,8 +82,16 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
 });
 
 describe('the actor is carried with the reason, and does not follow from it', () => {
-  it('reads the three actors', () => {
-    expect(EndingActorSchema.options).toEqual(['bound', 'monitor', 'agent']);
+  it('reads the two actors', () => {
+    expect(EndingActorSchema.options).toEqual(['bound', 'monitor']);
+  });
+
+  it('refuses an ending that attributes itself to the agent', () => {
+    // A third value `agent` was admitted here and written by nobody. The
+    // agent's process runs `exit 124` at `plot-worker-loop.sh:1296`; the party
+    // that acted is the bound or the monitor. `transitions/agent.ts` carries
+    // the rule, and this is the parse refusing the record.
+    expect(readEnding(ended({ reason: 'bound', actor: 'agent' })).read).toBe('unreadable');
   });
 
   it('lets one actor end a worker for more than one reason', () => {
@@ -176,9 +184,9 @@ describe('what a worker knew at the time', () => {
   });
 
   it('parses the schema directly to the same shape', () => {
-    expect(EndingSchema.parse({ reason: 'spent', actor: 'agent' })).toEqual({
+    expect(EndingSchema.parse({ reason: 'spent', actor: 'monitor' })).toEqual({
       reason: 'spent',
-      actor: 'agent',
+      actor: 'monitor',
       branch: '',
       detail: '',
     });
