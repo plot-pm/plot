@@ -18,6 +18,7 @@
 - **Approved:** <date>, <who>, <branch>
 - **Started:** 2026-09-05, Jan Wloka, `feature/a-story-lifecycle-refuses`
 - **Started:** 2026-09-05, Jan Wloka, `feature/an-agent-lifecycle-refuses`
+- **Started:** 2026-09-05, Jan Wloka, `feature/a-worktree-lifecycle-refuses`
 -->
 
 ## Changelog
