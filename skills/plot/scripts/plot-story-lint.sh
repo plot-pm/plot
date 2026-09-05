@@ -88,6 +88,23 @@ for home in $homes; do
       */archived/*) in_archived=1 ;;
       *) in_archived=0 ;;
     esac
+    # S3 is the shell half of `archivalIsConsistent`
+    # (packages/domain/src/entities/story.ts) and of the `archive-date-missing`
+    # refusal in `transitions/story.ts`: done and an `archived:` date are two
+    # writes that must agree, so either alone is a half-archived story.
+    #
+    # DELIBERATELY DUPLICATED, not bundled, and this comment is the choice.
+    # The nine bundles under scripts/board/ each answer a question their caller
+    # cannot compute — a merge state, a transition record, an eligibility
+    # verdict. This one is `status == done` against `grep -qi '^archived:'`, two
+    # lines that cannot drift from the invariant because they ARE the invariant.
+    # A bundle would buy nothing and cost a `node` spawn per story on a lint
+    # that already reads every frontmatter itself; there is no Story object here
+    # to hand it without writing a second parser to build one.
+    #
+    # The duplication that mattered was the VOCABULARY — six statuses declared
+    # twice and a seventh derived against a `string` type. This check names no
+    # status but `done`, so it cannot drift by gaining one.
     if [ "${status_lc%% *}" = "done" ] && [ "$in_archived" = 0 ] \
        && ! grep -qi '^archived:' "$story"; then
       say "S3 $story — status done but not archived (no archived/ location, no archived: date)"

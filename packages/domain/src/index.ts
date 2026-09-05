@@ -116,6 +116,46 @@ export type {
 } from './transitions/plan.js';
 
 /**
+ * The story's transitions, disambiguated the way the plan's are and for the
+ * same reason: both files carry a `Decision`, a `Refusal` and a `Precondition`,
+ * and both spellings are right in their own module.
+ *
+ * The SHAPES diverge on purpose. `DESIGN-plan.md:810` says Plan and Story are
+ * the two entities whose state is a stated fact, so both decide a write — but a
+ * plan writes a `## Status` line and a story writes a frontmatter key plus an
+ * `archived:` date, and one `Decision` serving both would abstract over the
+ * distinction that gives each its fields.
+ *
+ * The VERBS are not aliased here: they are declared `setStoryStatus` and
+ * `archiveStory` in their own module, because nothing collides with `setStatus`
+ * or `archive` today and an alias on an uncollided name is the residue
+ * `scripts/count-domain-aliases.sh` holds at zero. The four types below DO
+ * collide with `transitions/plan.ts`, which is why they are aliased and the
+ * verbs are not.
+ */
+export {
+  setStoryStatus,
+  archiveStory,
+  storyStatusSettable,
+  storyArchivable,
+  derivedStanding,
+  STORY_LIFECYCLE,
+  isDecision as isStoryDecision,
+  isRefusal as isStoryRefusal,
+} from './transitions/story.js';
+export type {
+  StoryStanding,
+  StoryPlanReading,
+  SetStoryStatusInput,
+  ArchiveStoryInput,
+  Precondition as StoryPrecondition,
+  RefusalReason as StoryRefusalReason,
+  TransitionResult as StoryTransitionResult,
+  Decision as StoryDecision,
+  Refusal as StoryRefusal,
+} from './transitions/story.js';
+
+/**
  * The lifecycle workflows — `readings -> Decision | Refusal`, deciding and
  * performing nothing. Exported from the pure barrel because they are pure:
  * every rule is reachable from a plain call with no adapter in scope.
