@@ -1201,6 +1201,32 @@ wait_for_work() { # $1=outlook line: "<outlook>[<TAB><blocker>]..."
 }
 
 while true; do
+  # A BRANCHLESS AGENT WAITS; IT DOES NOT RUN THE PROMPT.
+  #
+  # `plot-dispatch.sh --start` brings agents into existence with no slice
+  # assigned — free, registered, and waiting for the registry to hand one over.
+  # An agent in that state reaches this line with `PLOT_BRANCH` empty, and the
+  # whole of the block below is about a branch: `run_bounded` sources the
+  # project's prompt, which begins *"You are implementing the branch
+  # $PLOT_BRANCH"*, and `seal_declaration` writes a record naming it.
+  #
+  # Measured 2026-09-05: no guard on `PLOT_BRANCH` existed anywhere above this
+  # line, so a branchless start ran the worker prompt with the variable empty —
+  # an agent told to implement nothing, burning its bound on a sentence with a
+  # hole in it, and arriving at the hand-over having already spent the run.
+  #
+  # THE WAIT IS NOT NEW AND NEITHER IS ITS SENTENCE. `wait_for_work` already
+  # holds an agent that finished one slice and has not been handed the next, and
+  # its own message already reads *"the agent holds no branch"*. What was
+  # missing is REACHING it: the wait sits on the hop path, after a prompt has
+  # already run. So the block below is skipped rather than duplicated, and a
+  # free agent falls through to exactly the hand-over an agent between slices
+  # takes.
+  #
+  # THE THREE SKIPPED STEPS ARE ALL ABOUT A FINISHED BRANCH, which is why
+  # skipping them costs nothing: there is no prompt to bound, no branch to
+  # declare, and no manifest field to clear — `--start` wrote it empty.
+  if [ -n "${PLOT_BRANCH:-}" ]; then
   # Run the worker prompt in the current worktree, watched by both readings.
   # The prompt file is sourced (inside a child) so $PLOT_BRANCH etc. expand at
   # runtime. If either watcher fires the worker EXITS rather than hopping: an
@@ -1291,6 +1317,11 @@ while true; do
   if [ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ]; then
     clear_manifest_branch "$PLOT_MANIFEST_FILE"
   fi
+  # END of the branch-holding block. The body it closes is NOT re-indented: the
+  # guard adds no behaviour to any line inside it, and shifting 85 commented
+  # lines by two columns would destroy `git blame` for every one of them to say
+  # nothing. Same measurement that scoped the domain package's arrow conversion.
+  fi
 
   # Take the slice the registry handed over — see `assigned_branch`.
   #
@@ -1359,8 +1390,19 @@ while true; do
   # names the branches whose landing would open a slice, which is the one
   # sentence an operator waiting needs and the manifest cannot supply. It is
   # asked ONCE per wait, on the way in, and never inside the poll.
+  #
+  # THE OUTLOOK IS ASKED ONLY OF AN AGENT THAT HAS A PLAN. A free agent started
+  # by `plot-dispatch.sh --start` holds no slug, and `--why-nothing` with an
+  # empty one walks the whole estate — an 18.3 s scan to produce a sentence that
+  # would name branches belonging to plans this agent was never given. It has no
+  # slice waiting on anything, so `none` is the true outlook: *nothing handed
+  # over yet*, which is exactly what the wait's second arm already prints.
   while ! next_branch=$(assigned_branch "${PLOT_MANIFEST_FILE:-}"); do
-    wait_for_work "$("$script_dir/plot-fleet-scan.sh" --offline --why-nothing "$PLOT_SLUG" 2>/dev/null)" || exit 124
+    if [ -n "${PLOT_SLUG:-}" ]; then
+      wait_for_work "$("$script_dir/plot-fleet-scan.sh" --offline --why-nothing "$PLOT_SLUG" 2>/dev/null)" || exit 124
+    else
+      wait_for_work none || exit 124
+    fi
   done
 
   wt_root=$(dirname "$PLOT_WORKTREE")
