@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -72,7 +72,13 @@ The lint reports a story whose written status and derived standing disagree.
 
 **REPORTED, NEVER CORRECTED.** The status is the person's statement about knowledge, and `entities/story.ts:3` gives the reason nothing may derive it: *"no mechanism can observe whether knowledge is still being added to, so a story whose plans have all delivered may still be `active`."* A story can legitimately be `paused` with approved plans; it cannot legitimately be nothing at all.
 
-**THE BOARD ALREADY COMPUTES BOTH SIDES.** `deriveStoryStatus` produces the standing and `computeStatusDrift` compares them — the board warns, and a person reading the board is the only thing that catches it today. The lint is where a gate can.
+**THE BOARD ALREADY COMPUTES BOTH SIDES, AND THE COMPARISON IS ALREADY WRITTEN.** Checked against the estate 2026-09-06: `computeStatusDrift` (`board.ts:1416`) takes the declared status and the derived standing and returns a message — *"All plans released"*, *"All plans delivered"*, *"Has approved plans"* — and warns **only when the declared status is behind the derived one**, which is this slice's stated rule, already implemented.
+
+**SO THE SLICE IS A MOVE, NOT A BUILD.** The logic is a board function, not a domain rule: `plot-story-lint.sh` cannot call it, `contract/schema.ts:718` carries its output as a nullable string, and a person reading the board is the only thing that catches the drift today.
+
+**It moves to `transitions/story.ts` beside the standing it compares against**, and the lint reads it through a bundle the way `plot-approve.sh` reads `plot-transition.mjs`. That is the layering rule applied to a rule already correct and living in the wrong layer — the same shape `the-board-decides-nothing` is about.
+
+**Its four-value `statusOrder` is a second declaration and travels with it.** `['draft','active','done','archived']` sits inline in the board while `StoryStatusSchema` holds six and `StoryStanding` adds the seventh — three lists, and the ordering one silently omits `ready`, `in-review` and `paused`. Whether a paused story can be *behind* its plans is a question that list answers by accident.
 
 **ONE MEASURED CASE, AND IT IS THE DIRECTION THAT MATTERS.** `the-domain-knows-what-plot-knows`: `draft` on disk, three approved plans, nothing said. A story behind its plans is a story nobody updated; a story ahead of them is one that finished early. The first is the common one.
 

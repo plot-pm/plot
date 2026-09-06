@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -63,6 +63,22 @@ Verified 2026-09-05: that plan is **Released**. The condition is met and this is
 
 **Not a board feature.** The story places it deliberately: *"This is also what an operator's status update wants, which is why it belongs here rather than in the board."* The board may render it; the answer is the fleet's.
 
+## Half of it exists, and the half that does is the shape to follow
+
+**Checked against the domain 2026-09-06, before writing another line of it.** `rules/pulse.ts` already exports `readingLoss(previous, incoming, previousAt)` — a pure function over two readings, returning what the second no longer holds, and `fleet.ts:1126` already calls it.
+
+**It answers three of this plan's own design questions, and answers them the same way:**
+
+| this plan says | `readingLoss` already does |
+|---|---|
+| readings as values, no I/O | `(previous, incoming, previousAt)`, no port |
+| a first run is not a failure | *"A FIRST READING LOSES NOTHING … reporting that as a shrink announces a loss on every start"* |
+| name what changed, do not count it | *"NAMED rather than counted … 3 plans became 2 makes the reader open a terminal to find out which"* |
+
+**WHAT IT DOES NOT DO IS THE WHOLE REMAINING PLAN.** It reports **losses**: plans and branches the previous reading held and this one does not. The story asks for *"2 PRs merged, 1 worker died, 3 plans became deliverable"* — **gains and transitions**, none of which a shrink can express. A plan that merged and a plan that became unreadable both leave the reading; only one is news.
+
+**So the delta rule extends `rules/pulse.ts` rather than opening a file beside it.** Same signature shape, same first-read rule, same named-not-counted discipline — and the three transitions the story names, which `readingLoss` cannot see.
+
 ## Slices
 
 ### The pulse records itself (Branch: feature/a-pulse-writes-its-own-record)
@@ -110,3 +126,9 @@ A function from two pulses to what moved between them, in `packages/domain/src/r
 ### Why this is not the supervisor's — 2026-09-05
 
 The supervisor already *"diffs it against memory, badly"*, and its statelessness is a measured property: a daemon `kill -9`ed two seconds into a 3.4 s tick reached the identical decision on the next pass, with no state file written. Giving it a memory to diff against would trade that for a convenience the bridge already provides from disk.
+
+### Checked against the domain — 2026-09-06
+
+Three plans this week proposed something the estate already had: `normalizeVersion`, `check-host-cli-callers.sh`, and section 7 of the reconcile scan. This plan was checked before it was approved rather than after, and half of it was there — `readingLoss`, doing the losses and settling three design questions this plan had answered independently and identically.
+
+**That is the argument for extending it rather than writing beside it.** Two functions over two readings, disagreeing about what a first read means, is the drift this repo keeps measuring.
