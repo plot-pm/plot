@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-domain-knows-what-plot-knows
@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-09-04, Jan Wloka, plan-PR #698 merged
+- **Delivered:** 2026-09-06
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <branch>
 - **Started:** 2026-09-05, Jan Wloka, `feature/a-story-lifecycle-refuses`
