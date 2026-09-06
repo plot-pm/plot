@@ -249,6 +249,31 @@ justify**, and say what triggered the offer:
 | Repo has `docs/stories/` | Note that `story-tracking` pairs with it | It is a companion, not a spoke — it works standalone |
 | Repo has `docs/sessionlogs/` (or a session-wrap tool is in use) | A `## Session Wrap Up` section in the hub | Session-scoped tools write the log; Plot only supplies the plot-shaped facts |
 | Repo has a plan directory with plans in it | `/plot-board-setup` — a local Kanban view of those plans | The board is first-class and gated in the Definition of Done, but nothing else in adoption mentions it |
+| Repo dispatches agents (a `Worktree root` key, or `.plot/agents/`) | The `post-commit` commit record | Several writers to one plan estate is where a commit silently reverts a file it never edited; the record is what makes the next one diagnosable |
+
+**The commit record**, when offered, is installed by the script and never by
+hand:
+
+```bash
+../plot/scripts/plot-install-commit-record.sh
+```
+
+**It is a `post-commit` hook, so it can never block or slow a commit**, and it
+is silent on ordinary work: it writes only when a commit sets a file to content
+that path already held. That is the signature of a defect measured three times
+on this estate — a commit reverting a plan annotation its author never looked
+at — whose cause is still unknown after three explanations were proposed and
+disproved. The record exists so the next occurrence arrives with evidence
+rather than a reconstruction.
+
+**Ask before installing, and say why it is a question.** A git hook is a change
+to every contributor's machine, and git deliberately ships none on clone. An
+existing `post-commit` is reported and never touched — show the one line to add
+and let the operator decide.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** a git hook changes the operator's
+> machine, so it is NOT installed without an answer.
+> `PLOT-UNASKED: Install the post-commit commit record? — refused — a git hook is a change to every contributor's machine; run skills/plot/scripts/plot-install-commit-record.sh to add it`
 
 **The `## Session Wrap Up` section**, when offered, tells whatever writes
 session logs which Plot facts belong in one:
@@ -297,6 +322,36 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
 >
 > Deferred to you: <anything the user must add by hand>.
 
+**Then name the two long-lived processes.** Plot runs a board and a supervisor,
+each started by its own command. Read which prerequisite is missing:
+
+```bash
+../plot/scripts/plot-board-probe.sh
+```
+
+`artifact_source` answers where `@plot-pm/board` lives — `plugin`, `npm`,
+`checkout`, or `none`. Print the block either way; the probe's answer changes
+the sentence after the dash, never whether there is a line:
+
+> Next, when you have work in flight:
+>
+> ```
+> /plot-board --start   — the local board; <prerequisite>
+> /plot-fleet --start   — supervises the agents you dispatch; <prerequisite>
+> ```
+>
+> `/plot-board-setup` adopts the board properly — it verifies that it serves.
+
+Fill `<prerequisite>` from `artifact_source`: on `none`, *needs
+`@plot-pm/board` — `pnpm build:board` in a checkout, or install the package*;
+otherwise *ready, from the <source> artifact*. Both commands read the same
+package, so both lines carry the same answer.
+
+**Name both commands whether or not the artifact is present.** `/plot-init`
+runs in repositories that have neither, and offering only what works there says
+nothing at all — which is how the supervisor came to be invisible. A missing
+prerequisite is a fact a reader can act on; silence is not.
+
 ## Guardrails
 
 - **Never move, rewrite, or delete existing files.** Adoption is additive.
@@ -308,8 +363,14 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
   add and where, then continue.
 - **Never invent a Definition of Done.** The probe finds candidates; only a
   human knows which gate a merge.
+- **Never drop `/plot-board --start` or `/plot-fleet --start` from the summary
+  because the artifact is absent.** The probe fills in what each command needs;
+  it does not decide whether the command is mentioned.
 - **Never claim a detected value is certain.** Everything from the probe is a
   proposal.
+- **Never install a git hook without an answer.** `post-commit` runs on every
+  commit on the operator's machine, and git ships no hooks on clone for that
+  reason. The record is offered; it is never a side effect of adoption.
 - **Never overwrite `.plot/worker-prompt.sh`.** The installer refuses to; do
   not work around it by hand. A project's prompt wording is the project's, and
   an out-of-date invocation is one line inside it.
@@ -335,8 +396,10 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
 | Aborting when the settings file is unwritable | The whole adoption fails over the least important step | Print the block, continue |
 | Adding every posture key to the config | A new adopter faces settings they never chose | Defaults stay implicit |
 | Rewriting an existing `.plot/worker-prompt.sh` to match the template | Destroys instructions the project wrote for its own agents | Report what the script said and offer the one line |
+| Installing the `post-commit` record because adoption ran | A git hook changes every contributor's machine, and nothing in the probe asked for it | Offer it on the dispatch signal, and let the operator answer |
 | Treating `stale` or `present` as a failed adoption | An adoption stops over a file that runs correctly today | Both are reports; step 3 continues |
 | Writing `Worktree root` and printing the ignore line to paste | Every dispatched desk becomes untracked work; the next `git add -A` stages a whole checkout | Adoption writes both, on one confirmation |
 | Proposing `.worktrees` to a repo whose worktrees already live elsewhere | Adoption relocates a working arrangement nobody asked it to touch | Read `git worktree list` first; propose what is there |
 | Rewriting `.gitignore` rather than appending | Silently drops rules the team depends on | Append a block; create the file only when absent |
 | Writing an ignore line for an absolute worktree root | The line matches nothing — the desks are outside the repository | Say no rule is needed and write none |
+| Naming the board and the supervisor only where the artifact is present | The two processes a user must start stay invisible in exactly the fresh repository this command runs in | Print both lines always; the probe writes the prerequisite, not the line |

@@ -50,7 +50,7 @@ plot-reject  plot-release  plot-sprint  ralph-plot-sprint
 
 ## Slices
 
-### The brief command reaches a skill the agent has (Branch: bug/the-brief-command-invokes-a-skill)
+### The brief command reaches a skill the agent has (Branch: bug/the-brief-command-invokes-a-skill, PR: #753)
 
 The brief prompt invokes `plot-implement` in a way that resolves for the agent that runs it, and one real brief is written end to end.
 

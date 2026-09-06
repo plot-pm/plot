@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -17,6 +17,7 @@
 - **Started:** 2026-09-05, Jan Wloka, `feature/the-board-has-a-door`
 - **Started:** 2026-09-06, Jan Wloka, `feature/one-monitor-watches-the-slice`
 - **Started:** 2026-09-07, Jan Wloka, `docs/adoption-names-the-processes`
+- **Delivered:** 2026-09-07
 
 ## Design
 
