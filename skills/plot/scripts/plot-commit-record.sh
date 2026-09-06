@@ -115,7 +115,7 @@ records=$(
 records=$(
   printf '%s\n' "$records" | while IFS=$'\t' read -r f new_blob match_commit; do
     [ -n "$f" ] || continue
-    parent_blob=$(git rev-parse --verify --quiet "$parent_sha:$f" 2>/dev/null) || parent_blob=''
+    parent_blob=$(git rev-parse --verify --quiet "$parent_sha:$f" 2>/dev/null || true)
     [ "$parent_blob" = "$new_blob" ] && continue
     printf '%s\t%s\t%s\t%s\n' "$f" "$new_blob" "$parent_blob" "$match_commit"
   done
@@ -135,9 +135,13 @@ log="$dir/$day.jsonl"
 # `origin/<main>` as it stands at this moment — read from the ref that is
 # already local. NOT fetched: this runs on every commit, and the question is
 # what the shared ref said when the commit was made, not what it says now.
-main_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+# Every lookup here is allowed to fail: a repository with no remote must still
+# get its record, and `symbolic-ref` exits non-zero exactly there. The `|| true`
+# is what keeps the ERR trap from discarding a record already computed.
+main_branch=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
+main_branch="${main_branch#origin/}"
 [ -n "$main_branch" ] || main_branch=main
-origin_sha=$(git rev-parse --verify --quiet "refs/remotes/origin/$main_branch" 2>/dev/null) || origin_sha=''
+origin_sha=$(git rev-parse --verify --quiet "refs/remotes/origin/$main_branch" 2>/dev/null || true)
 
 esc() { printf '%s' "$1" | sed 's|\\|\\\\|g; s|"|\\"|g'; }
 
@@ -146,7 +150,7 @@ while IFS=$'\t' read -r f new_blob parent_blob match_commit; do
   [ -n "$f" ] || continue
   origin_blob=''
   if [ -n "$origin_sha" ]; then
-    origin_blob=$(git rev-parse --verify --quiet "$origin_sha:$f" 2>/dev/null) || origin_blob=''
+    origin_blob=$(git rev-parse --verify --quiet "$origin_sha:$f" 2>/dev/null || true)
   fi
   entry=$(printf '{"path":"%s","committed":"%s","parent":"%s","heldBy":"%s","origin":"%s"}' \
     "$(esc "$f")" "$new_blob" "$parent_blob" "$match_commit" "$origin_blob")
