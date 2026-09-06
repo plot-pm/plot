@@ -107,7 +107,7 @@ const ACTIVITY_VALUES = ['working', 'idle', ''];
 const UNCARRIED_TOP = ['fetch_failed', 'fetch_error', 'plan_source'];
 const UNCARRIED_SUMMARY = ['merge_detect', 'host'];
 
-/** The branch fields `SourceBranchSchema` declares, beside their wire spelling. */
+/** The branch fields `BranchSchema` declares, beside their wire spelling. */
 const BRANCH_FIELDS = [
   'branch',
   'state',
