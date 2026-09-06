@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 2
 - **Started:** 2026-09-06, Jan Wloka, `bug/an-empty-slice-is-not-finished`
+- **Started:** 2026-09-06, Jan Wloka, `docs/a-spec-says-how-to-count`
 
 ## Changelog
 
