@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -73,16 +73,6 @@ active plans         0   of either shape
 
 **Done when** an empty slice does not read as `complete`, `eligible` and `deliverable` give the same answer for it, a test holds both, and `pnpm run test:reconcile` passes.
 
-### A multi-branch slice is reported (Branch: infra/a-slice-names-one-branch)
-
-`plot-reconcile-scan.sh` reports a slice naming more than one branch. Nothing refuses, nothing rewrites.
-
-**A FINDING, NEVER A REFUSAL.** The scan already reports twelve kinds of drift by naming a file and a line so a person can judge; this is the thirteenth. The 24 shipped and the board still renders them.
-
-**IT WILL REPORT 24 FINDINGS ON DAY ONE, AND THAT MUST NOT BURY THE OUTPUT.** The scan's footer is machine-countable and its sections gate selectively — section 5 gates, section 7 does not. This belongs with the ungating kind: it is a statement about how the estate was written, not a thing to fix.
-
-**Done when** the scan reports a multi-branch slice with its file and line, gates nothing on it, and the footer counts it separately.
-
 ### The specs cite the command, not its output (Branch: docs/a-spec-says-how-to-count)
 
 `DESIGN-slice.md` and `DESIGN-plan.md` stop carrying counts and name the command that produces them.
@@ -94,6 +84,20 @@ active plans         0   of either shape
 **Done when** neither doc carries a slice count, both name the command, and nothing in either contradicts the other.
 
 ## Notes
+
+### The reporting slice was dropped — it already exists — 2026-09-06
+
+This plan carried a slice adding a multi-branch-slice finding to `plot-reconcile-scan.sh`. **Section 7 already is that finding**, and reading the eight open drafts together is what surfaced it:
+
+```
+== 7. Uncut slices (a slice holds one branch — candidate /plot-reslice) ==
+  <plan> — wave '<name>' carries N branch lines (a wave holds one)
+    reslice: /plot-reslice <slug>
+```
+
+It jq-passes the parser's output for multi-branch waves, drops phase-less files, counts into `uncut_slices=` in the machine-countable footer, and gates nothing — every property the dropped slice specified, including the reslice hint it did not think to offer.
+
+**That makes three this week.** `normalizeVersion` already existed when a plan proposed it; `check-host-cli-callers.sh` had shipped when another planned to build it; this is the third. **A plan should end by grepping for its own deliverable**, and none of the three did.
 
 ### Why this is a bug rather than infra — 2026-09-05
 

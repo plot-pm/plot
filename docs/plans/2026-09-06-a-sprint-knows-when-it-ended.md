@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -40,6 +40,18 @@ This repeats a defect fixed the day before: `2026-W35-the-board-tells-the-truth-
 **Not a sprint-file migration.** Nothing rewrites a sprint. The `Planned` on the live sprint is corrected in this plan's own commit, by hand, because it is one field on one file and a plan is not needed to fix what a plan is written about.
 
 ## Slices
+
+### The gate names what it gates on (Branch: infra/a-delivery-gate-stops-by-name)
+
+`/plot-deliver`'s gate stops at the blocking sections by name rather than at the literal `== 7.`.
+
+**IT LEADS, BECAUSE THIS PLAN ADDS TWO SECTIONS AND THE MARKER IS POSITIONAL.** `plot-deliver/SKILL.md:318` and `:331` run `sed -n '/^== 7\./q;p'` — stop reading at section 7 — and the scan's own comment (`:1097`) says the number is load-bearing: *"Sections 1-6 keep their numbers, so /plot-deliver's gate marker still stops before the first non-blocking section."*
+
+**THE MEANING IS "STOP BEFORE THE FIRST NON-BLOCKING SECTION" AND THE EXPRESSION IS A LINE NUMBER.** Those agree today by maintenance rather than by construction — the scan has been renumbered at least twice, and each time somebody had to notice.
+
+**AND THE COUNT IS ALREADY WRONG WHERE IT IS DOCUMENTED.** `CLAUDE.md:150` says *"twelve sections"*; the scan emits **thirteen** — `rounds_drift=` joined the footer without the description following. That is the drift arriving in the place a reader trusts.
+
+**Done when** the gate selects the blocking sections without depending on their number, `/plot-deliver` refuses and permits exactly what it does today, and CLAUDE.md's count matches the scan.
 
 ### The index and the phase agree (Branch: bug/a-sprint-phase-meets-its-index)
 
@@ -78,3 +90,7 @@ The scan reports a non-Closed sprint whose `Release:` has been tagged.
 ### Why the live sprint's phase is fixed here and not in a slice — 2026-09-06
 
 It is one word in one file, and the plan that reports the class of defect should not leave its own instance standing while it waits to be approved. The slice is the gate; the edit is the repair.
+
+### Read with the other seven drafts — 2026-09-06
+
+The scan sections were the finding of an interrogation across all eight open plans rather than of this plan's own round. **Four drafts touch `plot-reconcile-scan.sh`**, and no per-plan round could see that two of them proposed new sections while a fifth had already been added without its documentation.
