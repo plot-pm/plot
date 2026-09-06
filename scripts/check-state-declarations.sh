@@ -117,7 +117,17 @@ while IFS= read -r hit; do
   # The five lines above the enum, where the declaration must sit. A marker at
   # the top of a file is a claim about a file; this is a claim about a set of
   # states, and `sprint.ts` holds three sets of two kinds.
+  #
+  # AND THE WINDOW STOPS AT THE PREVIOUS ENUM, which the contract test found by
+  # failing. Two enums three lines apart — the `finding.ts` and `identity.ts`
+  # shape — put the first one's marker inside the second one's window, so a
+  # single declaration licensed BOTH sets of states. That is the file-level gate
+  # this one exists to avoid, arriving through the back door: a declaration
+  # cannot reach past a set of states it has already described.
   from=$(( line > 5 ? line - 5 : 1 ))
+  prev=$(sed -n "${from},$((line - 1))p" "$file" 2>/dev/null \
+    | grep -nE 'z\.enum\(' | tail -n 1 | cut -d: -f1)
+  [ -n "$prev" ] && from=$(( from + prev ))
   window=$(sed -n "${from},$((line - 1))p" "$file" 2>/dev/null)
   marker=$(printf '%s' "$window" | grep -oE "$MARKER" | tail -n 1)
 
