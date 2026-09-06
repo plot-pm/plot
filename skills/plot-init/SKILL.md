@@ -110,9 +110,11 @@ Then ask only what the probe **could not** answer:
   default implicit. A relative value resolves inside the repo and the prefix is
   dropped.
 
-  > **Unattended (`PLOT_UNATTENDED=1`):** step 2 already stops and writes
-  > nothing, so this key is named in the printed proposal and no file is
-  > touched — the `.gitignore` write least of all.
+  **This question declares no unattended shape of its own.** Step 2 already
+  stops and writes nothing when `PLOT_UNATTENDED=1` is set, and its existing
+  `PLOT-UNASKED` line covers the whole proposal — this key is named in what is
+  printed, and no file is touched, the `.gitignore` write least of all. A
+  second declaration here would be a second disclosure for one stop.
 
 Do not ask about anything the probe answered confidently. A user who is asked
 to confirm their own git host learns that the tool is not paying attention.

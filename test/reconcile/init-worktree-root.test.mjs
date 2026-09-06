@@ -103,10 +103,22 @@ test('init: never moves existing worktrees — that is --migrate', () => {
 test('init: a decline writes neither half', () => {
   // There is no new mechanism for declining: step 2's confirmation already
   // gates every write in step 3, and unattended adoption stops before it.
-  const unattended = skill.slice(skill.indexOf('> **Unattended (`PLOT_UNATTENDED=1`):** stop, and create nothing.'));
-  assert.ok(unattended.length > 0, 'step 2 must still stop and create nothing unattended');
-  assert.match(skill, /step 2 already stops and writes\s+>?\s*nothing/,
-    'the worktree key must inherit that stop rather than invent an exception');
+  assert.ok(skill.includes('> **Unattended (`PLOT_UNATTENDED=1`):** stop, and create nothing.'),
+    'step 2 must still stop and create nothing unattended');
+  assert.match(skill, /This question declares no unattended shape of its own/,
+    'the worktree key must inherit that stop rather than declare a second one');
+});
+
+test('init: the worktree question adds no second unattended disclosure', () => {
+  // `unattended.test.mjs` counts `**Unattended (` declarations against
+  // `PLOT-UNASKED:` lines, and a shape that discloses nothing is a skill
+  // silently taking a default. Step 2's stop already covers this key, so a
+  // declaration here would be a second disclosure for one stop — which is why
+  // the skill states the inheritance in prose instead.
+  const declarations = skill.match(/\*\*Unattended \(`PLOT_UNATTENDED=1`\)/g) || [];
+  const disclosures = skill.match(/PLOT-UNASKED:/g) || [];
+  assert.ok(disclosures.length >= declarations.length,
+    `every declared shape needs a disclosure: ${declarations.length} shapes, ${disclosures.length} lines`);
 });
 
 // ── The desk's own exclusion belongs to dispatch, and is not touched ─────────
