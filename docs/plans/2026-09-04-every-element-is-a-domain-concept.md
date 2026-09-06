@@ -231,7 +231,7 @@ them together is what makes the type earn its existence.
   textual mentions are all comments. Two earlier drafts of this slice called it
   *the board is a GitHub capability* and *the project tracker is optional*; the
   first asserts the opposite of what is true about Plot's board, and the second
-  treats a supported integration as an extra.
+  treats a supported integration as an extra. — PR #718
 
 ### Naming the branch
 
