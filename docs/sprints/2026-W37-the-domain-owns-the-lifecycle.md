@@ -105,7 +105,7 @@ and it holds no plans outside this sprint.
 
 ### Could Have
 
-- [ ] [every-generated-bundle-is-marked] Every bundle `build.mjs` emits is marked `-merge`, and the repair path recognises the set rather than one file — measured 2026-09-05: `board-server.mjs` took 0 conflict markers through a rebase while the two unmarked bundles took 8, and `plot-resolve-artifact.sh` then refused the branch as *not artifact-only*, declining the exact case it exists for. **Draft, 2 slices, 4 rounds**
+- [x] [every-generated-bundle-is-marked] Every bundle `build.mjs` emits is marked `-merge`, and the repair path recognises the set rather than one file — measured 2026-09-05: `board-server.mjs` took 0 conflict markers through a rebase while the two unmarked bundles took 8, and `plot-resolve-artifact.sh` then refused the branch as *not artifact-only*, declining the exact case it exists for. **Draft, 2 slices, 4 rounds** <!-- status: delivered -->
 - [ ] [the-board-answers-while-it-scans] The board keeps serving while it scans — it stops for seconds at a time at zero CPU. **Draft**
 
 - [ ] [the-scripts-say-slice] The reconcile scan says slice where it means slice — section 7 read *"Unsliced waves (a wave holds one branch)"*, a Slice described in Wave's vocabulary by its own parenthetical. Footer keys renamed with the skill documenting them. **#703, no plan — a rename small enough to be its own PR**

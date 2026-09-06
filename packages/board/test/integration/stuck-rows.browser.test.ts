@@ -6,8 +6,11 @@ import { expandAgentFolds } from '../helpers.mjs';
 import { startServer } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import {
-  BOARD_ARTIFACT_PATH, type AgentRow, type Fleet, type Stuck,
+  BOARD_ARTIFACT_PATHS, type AgentRow, type Fleet, type Stuck,
 } from '../../src/contract/schema.js';
+
+/** One bundle, standing for any of the nine — the set is asserted separately. */
+const ARTIFACT = BOARD_ARTIFACT_PATHS[0]!;
 
 // @needs-real-board: one test asserts what the board refuses over a non-localhost binding, and the mock binds nothing
 //
@@ -79,7 +82,7 @@ function fleet(over: Partial<Fleet> = {}): Fleet {
     row({
       branch: 'feature/artifact', group: 'waiting-on-you', note: 'PR #202 conflicts',
       branchUrl: `${GH}feature/artifact`,
-      stuck: stuck({ state: 'artifact-conflict', conflicts: [BOARD_ARTIFACT_PATH] }),
+      stuck: stuck({ state: 'artifact-conflict', conflicts: [ARTIFACT] }),
     }),
     // A failing check: EVIDENCE, never a verdict. TWO lines in the row since
     // 2026-08-20 — the changed-file list moved into the menu — and the run
@@ -484,7 +487,7 @@ describe('a stuck branch says so in its row', () => {
       const row = rowFor(page, 'feature/artifact');
       expect(await row.locator('[data-stuck-link]').count()).toBe(0);
       expect(await row.locator('[data-stuck-cue]').count()).toBe(0);
-      expect(await row.locator('[data-stuck]').innerText()).toContain(BOARD_ARTIFACT_PATH);
+      expect(await row.locator('[data-stuck]').innerText()).toContain(ARTIFACT);
     } finally {
       await page.close();
     }

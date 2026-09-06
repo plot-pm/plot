@@ -25,6 +25,28 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS = path.join(here, '..', '..', 'skills', 'plot', 'scripts');
 const resolver = path.join(SCRIPTS, 'plot-resolve-artifact.sh');
 const ARTIFACT = 'skills/plot/scripts/board/board-server.mjs';
+// A SECOND BUNDLE IN THE FIXTURE, because the defect was about the second one.
+// Until 2026-09-06 the script named `board-server.mjs` and nothing else, so a
+// conflict in any other bundle was refused — measured on PR #727, refused on
+// `plot-registryd.mjs` and repaired automatically on `board-server.mjs` hours
+// later. A fixture holding one bundle cannot tell those two runs apart.
+const ARTIFACT2 = 'skills/plot/scripts/board/plot-registryd.mjs';
+const BUNDLES = [ARTIFACT, ARTIFACT2];
+
+// The script derives its set from the repository's own `build.mjs`, by the same
+// `shippedX = path.join(…)` pipeline `scripts/check-bundle-attributes.sh` uses.
+// The fixture therefore ships a build declaring its bundles in that shape —
+// nothing here parses JavaScript, so the declarations only have to be spelled
+// the way the derivation reads them.
+// The names are LETTERS, matching the real build's `shippedAsk`, `shippedTask`
+// and so on — the derivation's pattern is `shipped[A-Za-z]*`, so a fixture
+// spelling them `shipped0` would silently derive nothing and every test here
+// would fail on an empty set rather than on what it meant to assert.
+const SHIPPED_NAMES = ['shippedServer', 'shippedRegistryd'];
+const FIXTURE_BUILD = `import path from 'node:path';
+const here = path.dirname(new URL(import.meta.url).pathname);
+${BUNDLES.map((b, i) => `const ${SHIPPED_NAMES[i]} = path.join(here, '../../${b}');`).join('\n')}
+`;
 
 let tmp, origin, repo, stubDir;
 
@@ -72,11 +94,13 @@ function writePnpmStub({ build = 0, tests = 0 } = {}) {
 echo "$*" >> "${stubDir}/pnpm.log"
 case "$*" in
   *build:board*)
-    # A rebuild WRITES the artifact — that is the property being relied on, and
+    # A rebuild WRITES the artifacts — that is the property being relied on, and
     # a stub that only exited 0 would let a test pass where the real rebuild
-    # produced nothing.
+    # produced nothing. EVERY bundle, like the real build: one
+    # \`pnpm build:board\` regenerates all of them, which is why the script
+    # stages the whole set rather than only what conflicted.
     mkdir -p "$(dirname "${ARTIFACT}")"
-    printf 'REBUILT\\n' > "${ARTIFACT}"
+${BUNDLES.map((b) => `    printf 'REBUILT\\n' > "${b}"`).join('\n')}
     exit ${build} ;;
   *test:board*) exit ${tests} ;;
 esac
@@ -100,7 +124,10 @@ after(() => {
  * A repo whose artifact conflicts between `main` and a feature branch, exactly
  * as this repo's does: `-merge` set, both sides having rewritten the whole file.
  */
-function makeRepo({ alsoConflictElsewhere = false } = {}) {
+// `conflictIn` names the bundles the branch and main both rewrite. It defaults
+// to the first, which is every pre-2026-09-06 test unchanged; passing the
+// second is what asks whether the widening actually happened.
+function makeRepo({ alsoConflictElsewhere = false, conflictIn = [ARTIFACT] } = {}) {
   const id = Math.random().toString(36).slice(2, 8);
   origin = path.join(tmp, `origin-${id}.git`);
   // The repo must sit one level down from a directory the script may write
@@ -115,24 +142,30 @@ function makeRepo({ alsoConflictElsewhere = false } = {}) {
   git(repo, 'config', 'user.name', 'Test');
 
   fs.mkdirSync(path.join(repo, path.dirname(ARTIFACT)), { recursive: true });
-  fs.writeFileSync(path.join(repo, ARTIFACT), 'BASE\n');
+  for (const b of BUNDLES) fs.writeFileSync(path.join(repo, b), 'BASE\n');
   fs.writeFileSync(path.join(repo, 'other.txt'), 'base\n');
-  fs.writeFileSync(path.join(repo, '.gitattributes'), `${ARTIFACT} -merge\n`);
+  // Every bundle marked, which is what `check-bundle-attributes.sh` gates in
+  // the real repo — property 1, without which nothing here is licensed at all.
+  fs.writeFileSync(path.join(repo, '.gitattributes'),
+    BUNDLES.map((b) => `${b} -merge`).join('\n') + '\n');
+  // The set's single source, read by the script from the repo it repairs.
+  fs.mkdirSync(path.join(repo, 'packages', 'board'), { recursive: true });
+  fs.writeFileSync(path.join(repo, 'packages', 'board', 'build.mjs'), FIXTURE_BUILD);
   git(repo, 'add', '-A');
   git(repo, 'commit', '-qm', 'base');
   git(repo, 'push', '-q', 'origin', 'main');
   git(repo, 'remote', 'set-head', 'origin', 'main');
 
-  // The branch rewrites the artifact.
+  // The branch rewrites the named bundles.
   git(repo, 'checkout', '-qb', 'feature/x');
-  fs.writeFileSync(path.join(repo, ARTIFACT), 'BRANCH SIDE\n');
+  for (const b of conflictIn) fs.writeFileSync(path.join(repo, b), 'BRANCH SIDE\n');
   if (alsoConflictElsewhere) fs.writeFileSync(path.join(repo, 'other.txt'), 'branch\n');
   git(repo, 'commit', '-qam', 'branch work');
   git(repo, 'push', '-q', '-u', 'origin', 'feature/x');
 
-  // main rewrites it too — the collision this whole design is about.
+  // main rewrites them too — the collision this whole design is about.
   git(repo, 'checkout', '-q', 'main');
-  fs.writeFileSync(path.join(repo, ARTIFACT), 'MAIN SIDE\n');
+  for (const b of conflictIn) fs.writeFileSync(path.join(repo, b), 'MAIN SIDE\n');
   if (alsoConflictElsewhere) fs.writeFileSync(path.join(repo, 'other.txt'), 'main\n');
   git(repo, 'commit', '-qam', 'main work');
   git(repo, 'push', '-q', 'origin', 'main');
@@ -166,8 +199,52 @@ test('resolves an artifact-only conflict: rebuilds, tests, and pushes on green',
   assert.match(log, /test:board/);
 });
 
-// THE PAIRING THAT MATTERS. An implementation asking *is the artifact among the
-// conflicts* passes the test above and silently repairs merges that need
+// THE DEFECT THIS SLICE EXISTS FOR, end to end.
+//
+// MEASURED 2026-09-06: PR #727 conflicted in `plot-registryd.mjs` — a `-merge`
+// bundle with a deterministic rebuild, exactly the licensed case — and the
+// script refused `not-artifact-only` against a list naming only
+// `board-server.mjs`. The repair was done by hand. Hours later the same branch
+// conflicted in `board-server.mjs` and the same script repaired it
+// automatically: same class of conflict, opposite outcome, one filename apart.
+//
+// The test above proves the FIRST bundle is repaired; only this one proves the
+// list is no longer a list of one.
+test('repairs a conflict in a bundle that is not board-server.mjs', () => {
+  makeRepo({ conflictIn: [ARTIFACT2] });
+  writePnpmStub({ build: 0, tests: 0 });
+
+  const { out, code } = run('feature/x', { expectFail: false });
+  assert.equal(code, 0, out);
+  assert.equal(footer(out).outcome, 'pushed', out);
+
+  // The pushed commit carries the REBUILD, not either side of the conflict.
+  assert.equal(git(repo, 'show', `origin/feature/x:${ARTIFACT2}`).trim(), 'REBUILT');
+
+  // And the gate still ran before the push.
+  const log = fs.readFileSync(path.join(stubDir, 'pnpm.log'), 'utf8');
+  assert.match(log, /build:board/);
+  assert.match(log, /test:board/);
+});
+
+test('repairs a conflict spanning several bundles at once', () => {
+  // One `pnpm build:board` regenerates every bundle, so a set of them is no
+  // less mechanical than a set of one — and a merge routinely collides in more
+  // than one.
+  makeRepo({ conflictIn: BUNDLES });
+  writePnpmStub({ build: 0, tests: 0 });
+
+  const { out, code } = run('feature/x', { expectFail: false });
+  assert.equal(code, 0, out);
+  assert.equal(footer(out).outcome, 'pushed', out);
+  for (const bundle of BUNDLES) {
+    assert.equal(git(repo, 'show', `origin/feature/x:${bundle}`).trim(), 'REBUILT',
+      `${bundle} must carry the rebuild`);
+  }
+});
+
+// THE PAIRING THAT MATTERS. An implementation asking *is a bundle among the
+// conflicts* passes every test above and silently repairs merges that need
 // judgement as a whole. This is that merge.
 test('refuses a mixed conflict set — the artifact plus another file', () => {
   makeRepo({ alsoConflictElsewhere: true });
@@ -180,6 +257,29 @@ test('refuses a mixed conflict set — the artifact plus another file', () => {
   assert.equal(footer(out).reason, 'not-artifact-only');
   // NOTHING WAS PUSHED, and nothing was built: the refusal happens before the
   // rebuild, so the gate was never even reached.
+  assert.equal(git(repo, 'rev-parse', 'origin/feature/x').trim(), before);
+  assert.ok(!fs.existsSync(path.join(stubDir, 'pnpm.log')),
+    'a refused conflict set must not reach the rebuild');
+});
+
+// THE DISCIPLINE MUST SURVIVE THE WIDENING, and this is the test that says so.
+//
+// The refusal above could pass while the guard asked the forbidden question, as
+// long as the ONE licensed bundle was the one it looked for. Widened to nine,
+// the same mistake has eight more ways to hide — so the mixed set is asserted
+// against a bundle that is NOT the first, over a set that is not of size one.
+test('refuses a mixed set even when every other path IS a bundle', () => {
+  makeRepo({ conflictIn: BUNDLES, alsoConflictElsewhere: true });
+  writePnpmStub({ build: 0, tests: 0 });
+
+  const before = git(repo, 'rev-parse', 'origin/feature/x').trim();
+  const { out } = run('feature/x');
+
+  assert.equal(footer(out).outcome, 'refused');
+  assert.equal(footer(out).reason, 'not-artifact-only');
+  // It NAMES what put it outside the set — a refusal that only says no sends a
+  // reader to reproduce the merge to find out which file it meant.
+  assert.match(out, /outside the bundle set: .*other\.txt/);
   assert.equal(git(repo, 'rev-parse', 'origin/feature/x').trim(), before);
   assert.ok(!fs.existsSync(path.join(stubDir, 'pnpm.log')),
     'a refused conflict set must not reach the rebuild');
@@ -409,19 +509,65 @@ test('finds a worktree it did not create, whose name matches no convention', () 
   assert.equal(registered, 2, 'exactly the main repo and the one hand-made worktree — no guessed third');
 });
 
-// THE ARTIFACT PATH IS ONE FACT IN TWO LANGUAGES. The script cannot import the
+// THE BUNDLE SET IS ONE FACT IN TWO LANGUAGES. The script cannot import the
 // board's contract constant and the contract cannot read the script, so the
-// pairing is asserted rather than trusted — a rename on one side that missed the
-// other would make the resolver refuse everything, or worse, accept the wrong
-// file.
-test('the script and the board contract name the same artifact', () => {
+// pairing is asserted rather than trusted — a bundle added on one side and
+// missed on the other would make the resolver refuse a repair it is licensed to
+// make, or worse, claim one it is not.
+//
+// SET EQUALITY, NOT ONE STRING. It asserted a single filename until 2026-09-06,
+// and that is precisely the assertion that passed while the two sides disagreed
+// about the other eight: `board-server.mjs` matched on both, so the test was
+// green throughout the window in which PR #727's repair was refused.
+//
+// `build.mjs` IS THE SOURCE and the other two are checked against it. The
+// script derives from it at run time and the contract lists it by hand — a list
+// is unavoidable there, because the board is a bundle that must not read the
+// repository to load — so this test is what makes the hand-written one true.
+test('build.mjs, the script and the board contract name the same bundle set', () => {
+  const root = path.join(here, '..', '..');
+
+  // 1. THE SOURCE. The same derivation `scripts/check-bundle-attributes.sh`
+  //    runs, so a third spelling of it cannot appear here either.
+  const build = fs.readFileSync(path.join(root, 'packages', 'board', 'build.mjs'), 'utf8');
+  const emitted = [...build.matchAll(/shipped[A-Za-z]* = path\.join\([^)]*'\.\.\/\.\.\/([^']*)'\)/g)]
+    .map((m) => m[1]).sort();
+  assert.ok(emitted.length > 0, 'the derivation found no bundles — the build changed shape');
+
+  // 2. THE SCRIPT derives rather than lists, so what is asserted is that it
+  //    derives from that file by that shape. A hardcoded path would not match.
   const script = fs.readFileSync(resolver, 'utf8');
-  assert.match(script, new RegExp(`ARTIFACT_PATH="${ARTIFACT.replace(/\//g, '\\/')}"`));
+  assert.match(script, /packages\/board\/build\.mjs/,
+    'the script must derive its set from the build, never list it');
+  assert.match(script, /shipped\[A-Za-z\]\* = path\\\.join/,
+    'the script must use the same derivation as check-bundle-attributes.sh');
+  assert.doesNotMatch(script, /ARTIFACT_PATH=/,
+    'a single hardcoded artifact is the defect this replaced');
+
+  // 3. THE CONTRACT's hand-written list must equal the derived set exactly.
+  //    Equality in BOTH directions: a missing entry makes a licensed repair be
+  //    refused, and an extra one claims a rebuild that does not exist.
   const schema = fs.readFileSync(
-    path.join(here, '..', '..', 'packages', 'board', 'src', 'contract', 'schema.ts'), 'utf8');
-  assert.match(schema, new RegExp(`BOARD_ARTIFACT_PATH = '${ARTIFACT.replace(/\//g, '\\/')}'`));
-  // And .gitattributes marks it — property 1, without which nothing here is
-  // licensed at all.
-  const attrs = fs.readFileSync(path.join(here, '..', '..', '.gitattributes'), 'utf8');
-  assert.match(attrs, new RegExp(`^${ARTIFACT.replace(/\//g, '\\/')} -merge$`, 'm'));
+    path.join(root, 'packages', 'board', 'src', 'contract', 'schema.ts'), 'utf8');
+  const declared = schema.match(/BOARD_ARTIFACT_PATHS: readonly string\[\] = \[([^\]]*)\]/);
+  assert.ok(declared, 'BOARD_ARTIFACT_PATHS is not declared in the shape this test reads');
+  const listed = [...declared[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual(listed, emitted,
+    'the board contract and build.mjs disagree about which bundles exist');
+
+  // 4. AND `.gitattributes` MARKS EVERY ONE — property 1, without which nothing
+  //    here is licensed at all. `check-bundle-attributes.sh` is the gate; this
+  //    asserts the same fact from the side that acts on it.
+  const attrs = fs.readFileSync(path.join(root, '.gitattributes'), 'utf8');
+  for (const bundle of emitted) {
+    assert.match(attrs, new RegExp(`^${bundle.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')} -merge$`, 'm'),
+      `${bundle} is emitted by the build and not marked -merge`);
+  }
+
+  // 5. `plot-monitor.mjs` IS NOT IN THE SET. Nothing rebuilds it, so it has no
+  //    deterministic rebuild — and that is the whole licence. Asserted rather
+  //    than assumed, because the natural mistake when widening a list is to
+  //    sweep in every file in the directory.
+  assert.ok(!emitted.includes('skills/plot/scripts/board/plot-monitor.mjs'),
+    'plot-monitor.mjs has no build output; including it asserts a rebuild that does not exist');
 });

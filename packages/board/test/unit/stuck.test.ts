@@ -3,7 +3,7 @@ import {
   isArtifactOnly, stuckState, summarizeStuck, stuckSummaryLine,
   type StuckInput,
 } from '../../src/server/stuck.js';
-import { BOARD_ARTIFACT_PATH, StuckSchema } from '../../src/contract/schema.js';
+import { BOARD_ARTIFACT_PATHS, StuckSchema } from '../../src/contract/schema.js';
 
 // Detection is where this wave's judgments live: whether a branch can MOVE is a
 // different question from what it IS, and none of `classify`'s answers can say
@@ -12,6 +12,9 @@ import { BOARD_ARTIFACT_PATH, StuckSchema } from '../../src/contract/schema.js';
 // that matters, which is what a person does next.
 
 const OTHER = 'packages/board/src/server/fleet.ts';
+
+/** One bundle, standing for any of the nine — the set is asserted separately. */
+const ARTIFACT = BOARD_ARTIFACT_PATHS[0]!;
 
 /** A healthy in-progress branch: pushed work, no conflicts, nothing failing. */
 function healthy(over: Partial<StuckInput> = {}): StuckInput {
@@ -31,7 +34,7 @@ describe('stuckState — each state is named separately', () => {
   // thing: they differ in what happens next, and the whole cost this wave pays
   // off is a reader having to go find out which.
   it('names an artifact-only conflict, a real conflict, unpushed work and a failing check apart', () => {
-    const artifact = stuckState(healthy({ conflicts: [BOARD_ARTIFACT_PATH] }));
+    const artifact = stuckState(healthy({ conflicts: [ARTIFACT] }));
     const conflict = stuckState(healthy({ conflicts: [OTHER] }));
     const unpushed = stuckState(healthy({ localAhead: 2 }));
     const ci = stuckState(healthy({ prState: 'failing' }));
@@ -68,8 +71,8 @@ describe('artifact-only versus artifact-among', () => {
   // the conflicts?" passes the first assertion and silently misclassifies the
   // second — resolving, mechanically, a merge that needs judgement.
   it('treats exactly the artifact as resolvable and the artifact plus anything else as not', () => {
-    const only = stuckState(healthy({ conflicts: [BOARD_ARTIFACT_PATH] }));
-    const mixed = stuckState(healthy({ conflicts: [BOARD_ARTIFACT_PATH, OTHER] }));
+    const only = stuckState(healthy({ conflicts: [ARTIFACT] }));
+    const mixed = stuckState(healthy({ conflicts: [ARTIFACT, OTHER] }));
 
     expect(only?.state).toBe('artifact-conflict');
     expect(mixed?.state).toBe('conflict');
@@ -79,25 +82,66 @@ describe('artifact-only versus artifact-among', () => {
     // Asserted directly as well as through the detector: a test that could only
     // reach this through the whole function would be testing two things, and
     // the predicate is the sentence the resolver in wave 3 will read.
-    expect(isArtifactOnly([BOARD_ARTIFACT_PATH])).toBe(true);
-    expect(isArtifactOnly([BOARD_ARTIFACT_PATH, OTHER])).toBe(false);
+    expect(isArtifactOnly([ARTIFACT])).toBe(true);
+    expect(isArtifactOnly([ARTIFACT, OTHER])).toBe(false);
     expect(isArtifactOnly([OTHER])).toBe(false);
     expect(isArtifactOnly([])).toBe(false);
     // Order must not decide it either — a set is a set.
-    expect(isArtifactOnly([OTHER, BOARD_ARTIFACT_PATH])).toBe(false);
+    expect(isArtifactOnly([OTHER, ARTIFACT])).toBe(false);
   });
 
   it('does not let ordering hide a mixed set', () => {
     // The detector sorts before deciding, so a scan that emitted the artifact
     // last cannot read as artifact-only.
-    expect(stuckState(healthy({ conflicts: [OTHER, BOARD_ARTIFACT_PATH] }))?.state)
+    expect(stuckState(healthy({ conflicts: [OTHER, ARTIFACT] }))?.state)
       .toBe('conflict');
   });
 
   it('does not accept a path that merely ends in the artifact name', () => {
     // `vendor/…/board-server.mjs` is a different file, and a suffix match would
     // hand wave 3 a rebuild that proves nothing about it.
-    expect(isArtifactOnly([`vendor/${BOARD_ARTIFACT_PATH}`])).toBe(false);
+    expect(isArtifactOnly([`vendor/${ARTIFACT}`])).toBe(false);
+  });
+
+  // THE WIDENING, 2026-09-06. This predicate compared against ONE filename, and
+  // the cost was measured the day it was found: PR #727 conflicted in
+  // `plot-registryd.mjs` — a `-merge` bundle with a deterministic rebuild,
+  // exactly the licensed case — and the repair was refused and done by hand.
+  // Hours later the same branch conflicted in `board-server.mjs` and was
+  // repaired automatically. Same class of conflict, opposite outcome.
+  it('accepts EVERY bundle the build emits, not just board-server.mjs', () => {
+    for (const bundle of BOARD_ARTIFACT_PATHS) {
+      expect(isArtifactOnly([bundle])).toBe(true);
+    }
+    // The one the defect was reported against, named so a regression says why.
+    expect(isArtifactOnly(['skills/plot/scripts/board/plot-registryd.mjs'])).toBe(true);
+  });
+
+  it('accepts several bundles conflicting together', () => {
+    // One merge routinely collides in more than one bundle — they are rebuilt
+    // by a single `pnpm build:board`, so a set of them is no less mechanical
+    // than a set of one.
+    expect(isArtifactOnly([...BOARD_ARTIFACT_PATHS])).toBe(true);
+  });
+
+  it('still refuses a non-bundle path beside ANY bundle', () => {
+    // THE PROPERTY THE WIDENING MUST NOT COST. The guard asks whether every
+    // conflicted path is a bundle — never whether a bundle is among them, which
+    // would pass every bundle-only case and silently repair merges that need
+    // judgement as a whole.
+    for (const bundle of BOARD_ARTIFACT_PATHS) {
+      expect(isArtifactOnly([bundle, OTHER])).toBe(false);
+      expect(isArtifactOnly([OTHER, bundle])).toBe(false);
+    }
+    // And the whole set plus one source file is still a person's merge.
+    expect(isArtifactOnly([...BOARD_ARTIFACT_PATHS, OTHER])).toBe(false);
+  });
+
+  it('refuses `plot-monitor.mjs`, which no build emits', () => {
+    // Committed and documented, named by no `outfile`. The deterministic
+    // rebuild is the whole licence, so a file nothing rebuilds cannot be in the
+    // set — including it would assert a rebuild that does not exist.
+    expect(isArtifactOnly(['skills/plot/scripts/board/plot-monitor.mjs'])).toBe(false);
   });
 });
 
@@ -232,10 +276,10 @@ describe('the host and the prediction disagree', () => {
     // agree about the fact and differ about the detail. The detail is what
     // decides the state, so the observed set wins.
     const s = stuckState(healthy({
-      conflicts: [BOARD_ARTIFACT_PATH], prState: 'conflicts',
+      conflicts: [ARTIFACT], prState: 'conflicts',
     }));
     expect(s?.state).toBe('artifact-conflict');
-    expect(s?.conflicts).toEqual([BOARD_ARTIFACT_PATH]);
+    expect(s?.conflicts).toEqual([ARTIFACT]);
   });
 
   it('reports a host-declared conflict ahead of the checks it caused', () => {
@@ -292,7 +336,7 @@ describe('nothing is written', () => {
   it('does not mutate the input it is handed', () => {
     // A detector that sorted its caller's array in place would be a write, and
     // the quietest kind: the scan's own document would change under it.
-    const conflicts = [OTHER, BOARD_ARTIFACT_PATH];
+    const conflicts = [OTHER, ARTIFACT];
     const changedPaths = ['b.md', 'a.md'];
     const before = [[...conflicts], [...changedPaths]];
     stuckState(healthy({ conflicts, changedPaths, prState: 'failing' }));
@@ -316,8 +360,8 @@ describe('stateless', () => {
   it('reaches identical conclusions from identical inputs, in any order, any number of times', () => {
     const inputs: StuckInput[] = [
       healthy(),
-      healthy({ conflicts: [BOARD_ARTIFACT_PATH] }),
-      healthy({ conflicts: [BOARD_ARTIFACT_PATH, OTHER] }),
+      healthy({ conflicts: [ARTIFACT] }),
+      healthy({ conflicts: [ARTIFACT, OTHER] }),
       healthy({ localAhead: 2 }),
       healthy({ prState: 'failing', failingChecks: ['validate'] }),
     ];
@@ -344,7 +388,7 @@ describe('stateless', () => {
 describe('the machine-countable footer', () => {
   it('counts each state separately and prints every one at zero', () => {
     const results = [
-      stuckState(healthy({ conflicts: [BOARD_ARTIFACT_PATH] })),
+      stuckState(healthy({ conflicts: [ARTIFACT] })),
       stuckState(healthy({ conflicts: [OTHER] })),
       stuckState(healthy()),
     ];
@@ -364,7 +408,7 @@ describe('the machine-countable footer', () => {
 
   it('counts every state, so the total is never a label over four errands', () => {
     const summary = summarizeStuck([
-      stuckState(healthy({ conflicts: [BOARD_ARTIFACT_PATH] })),
+      stuckState(healthy({ conflicts: [ARTIFACT] })),
       stuckState(healthy({ conflicts: [OTHER] })),
       stuckState(healthy({ localAhead: 1 })),
       stuckState(healthy({ prState: 'failing' })),
@@ -378,7 +422,7 @@ describe('the machine-countable footer', () => {
 describe('the contract', () => {
   it('validates every state the detector produces', () => {
     for (const input of [
-      healthy({ conflicts: [BOARD_ARTIFACT_PATH] }),
+      healthy({ conflicts: [ARTIFACT] }),
       healthy({ conflicts: [OTHER] }),
       healthy({ localAhead: 1 }),
       healthy({ prState: 'failing', failingChecks: ['validate'] }),

@@ -221,17 +221,17 @@ if [ "$do_fetch" = 1 ]; then
   git fetch origin --prune >/dev/null 2>&1 || true
 fi
 
-# Main branch: `## Plot Config` override, else origin/HEAD (self-heal it once
-# via set-head when unset and we're allowed to touch the network), else `main`.
+# Main branch: `## Plot Config` override, else `default_branch`, which repairs
+# an unresolvable origin/HEAD before answering, else `main`.
+#
+# THE SELF-HEAL HERE COULD NOT SEE THE CORRUPTION IT WAS WRITTEN FOR. It ran
+# `set-head` only when the symref was UNSET — and a symref pointing at a branch
+# that no longer exists is not unset: it returns a plausible name and exits 0.
+# Measured 2026-09-04, that is exactly the state the estate reached twice.
+# shellcheck source=plot-default-branch.sh
+. "$script_dir/plot-default-branch.sh"
 MAIN=$(cfg "Main branch")
-if [ -z "$MAIN" ]; then
-  MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-  if [ -z "$MAIN" ] && [ "$do_fetch" = 1 ]; then
-    git remote set-head origin -a >/dev/null 2>&1 || true
-    MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-  fi
-fi
-[ -n "$MAIN" ] || MAIN="main"
+[ -n "$MAIN" ] || MAIN=$(default_branch)
 
 # Branches whose tip is already contained in origin/<main>.
 #
