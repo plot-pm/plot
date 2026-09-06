@@ -70,6 +70,68 @@ A blocked settings file costs slash-command convenience and nothing else —
 the entire lifecycle works with plain git. Aborting the adoption over the
 least important step would be the worst possible trade.
 
+## Why adoption writes `.gitignore`
+
+**This is the one file adoption touches that Plot does not own.** Everything
+else lands in Plot's own territory — a `## Plot Config` section, `docs/plans/`,
+`.plot/`. `.gitignore` is read by every tool the team uses, which is why the
+line is appended on the confirmation step 2 already takes, and why the file is
+never rewritten.
+
+**The alternative was printing it for a human to paste, and that is the
+defect.** `Worktree root: .worktrees` with no ignore rule turns every
+dispatched desk into untracked files in `git status`, and the operator's next
+`git add -A` stages a whole checkout. A line left to a person is a line that
+does not get added — so the key and its ignore rule are confirmed together and
+written together, and neither is written alone.
+
+Measured 2026-09-06, which is why the slice exists: the skill named
+`Worktree root` **zero times** and `.gitignore` **zero times**. An adopting
+repository got the layout without being told and without the rule.
+
+**A directory and a plan skeleton are larger commitments than one ignore
+line**, and adoption writes both today. The novelty here is the file, not the
+size of the write.
+
+## The absent-key default is not the proposal
+
+With no `Worktree root` key, `plot-dispatch.sh` uses the repository's **parent**
+with a `plot-wt-` prefix — desks scattered beside the checkout, mixed with
+unrelated repositories. A relative value resolves inside the repo and the
+prefix is dropped, because the directory already says what those checkouts are.
+
+So proposing `.worktrees` **changes** where desks go. That is the reason to
+propose it rather than leave the default implicit, and the reason the ignore
+line is needed at all: the legacy default puts nothing inside the repository,
+and the proposed layout puts a whole checkout there.
+
+## A repo with its own convention keeps it
+
+`plot-init`'s guiding rule is *propose, don't interrogate*, and every field
+`plot-detect-repo.sh` reports is *a proposal a human confirms*. This joins
+them, so the skill reads `git worktree list` before proposing and names what it
+found — the same thing `plot-board-setup` does when it counts `plot-wt-*`
+siblings.
+
+**The signal is read in the skill, not added to the probe.** The probe's
+contract has other callers, and interpreting *where do this repo's worktrees
+live* into a proposal is judgment rather than collection — Manifesto Principle
+3, the same argument that keeps `ticket_prefix` out of `plot-board-probe.sh`.
+
+**Relocating is never adoption's.** `/plot-dispatch --migrate` moves existing
+worktrees on a person's say; adoption is additive and moves nothing.
+
+## The desk's own exclusion is a different rule
+
+`plot-dispatch.sh` writes a marker into each desk's `.git/info/exclude`. That
+is per-clone on purpose: a rule living in branch content is invisible to a
+worktree cut from an older branch, and an untracked file there reads as
+unlanded work.
+
+Adoption writes the **repository's** line, in the repository's `.gitignore`.
+The two look similar and protect different things, and this slice does not move
+the second one.
+
 ## What is NOT created by default
 
 `docs/sprints/` and `docs/stories/`. Both are optional lenses, and an adopting
@@ -89,6 +151,15 @@ Two properties matter most and are asserted directly: the probe is
 **read-only** (a probe that edits the repo it is inspecting is unusable as the
 first thing a stranger runs), and it **survives an empty repo** without
 crashing.
+
+`test/reconcile/init-worktree-root.test.mjs` covers the two cases this
+proposal adds, both of them about a skill rather than a script — so what is
+asserted is the **instruction**, in the same way `test/reconcile/hooks.test.mjs`
+asserts what a hook file declares. It checks that the skill proposes the key
+with its ignore line as one decision, that it reads the existing convention
+before proposing, that it forbids printing the line to paste, and that it
+leaves `.git/info/exclude` to dispatch. A decline writes neither half, which is
+step 2's existing confirmation gate rather than a new mechanism.
 
 ## Known gaps
 
