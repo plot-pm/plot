@@ -128,6 +128,19 @@
 #                  says: a prerequisite no plan declares still parses, and the
 #                  scan is what turns that into a verdict. `waits:` and
 #                  `deferred:` are independent — a branch may carry both.
+#                  `<!-- builds: normalizeVersion, a shared helper -->` names
+#                  what this slice BUILDS, reported as
+#                  `waves[].branches[].builds`. OPTIONAL, like `Sprint:` and
+#                  `Story:` — a docs plan, a rejection or a measurement builds
+#                  nothing nameable, and nothing warns about its absence. The
+#                  key is ABSENT where none was written, never "". The value
+#                  runs to the closing marker rather than stopping at the first
+#                  space the way `waits:` does: a prerequisite is a branch NAME
+#                  and a deliverable is a name plus enough words to search for.
+#                  An annotation rather than a `Builds:` field line precisely
+#                  BECAUSE annotations already work in both slice dialects from
+#                  one block of code — a field line would need two spellings,
+#                  and the template writes the list dialect.
 #   prs            PR numbers, sorted and unique, read from EITHER spelling:
 #                  `→ #NNN` / `→ owner/repo#NNN` links in the `## Branches`
 #                  section, OR `PR: #NNN` in a `## Waves` `### ` heading. The
