@@ -9,6 +9,8 @@ import {
   FleetReadingSchema,
   MonitorNameSchema,
   AgentStateSchema as DomainAgentStateSchema,
+  BOARD_PHASES,
+  type Phase,
 } from '@plot-pm/domain';
 
 /**
@@ -170,52 +172,18 @@ export type PlanMeta = z.infer<typeof PlanMetaSchema>;
 
 // ─── Board output: what GET /api/board returns ───────────────────────────────
 
-/**
- * The columns the board renders, in order. These are the WORKFLOW phases, which
- * differ from the plan's lifecycle states by asking *who leads* rather than
- * *what has happened*:
- *
- *   Discovery    Draft — the plan is still being found          👤 human-led
- *   Design       Design — a question approval cannot answer     👤 human-led
- *   Development  Approved — handed to an agent, or waiting      🤖 agent-led
- *   Testing      Delivered, not yet Released                    👤 human-led
- *   Released     done
- *
- * Design is a real phase now, not a state the board infers. A plan enters it
- * when it is written but a question stands that approval cannot answer —
- * whether the approach works — and someone runs a spike, a tracer bullet or a
- * spec against reality to find out. It is work performed, not the absence of
- * it. Draft belongs in Discovery: while a plan is under review the work is
- * deciding what the plan should be, and approval is where that ends.
- *
- * `Approved` is Development whether or not a branch has started. An
- * approved-but-unstarted plan is work waiting for an agent — it belongs beside
- * the Start button that offers it, not in Design. The board once forked
- * `approved` on `started` to manufacture the Design column; that fork is gone,
- * because Design now holds design in progress rather than approved work nobody
- * has picked up.
- *
- * Development ends at the MERGE, not at the release: Delivered means the code
- * landed and the agents are done, so what remains is verification and signoff.
- * A column is a partition, so Delivered belongs to Testing alone.
- */
-export const BOARD_PHASES = [
-  'Discovery', 'Design', 'Development', 'Testing', 'Released',
-] as const;
-export type Phase = (typeof BOARD_PHASES)[number];
-
-/**
- * Who leads each column. Carried as a symbol AND a word, never as colour alone:
- * roughly one man in twelve distinguishes red from green poorly, and the same
- * page shows up in greyscale screenshots. Colour may only repeat what these say.
- */
-export const PHASE_LEADERSHIP: Record<Phase, { icon: string; who: string }> = {
-  Discovery: { icon: '👤', who: 'human-led' },
-  Design: { icon: '👤', who: 'human-led' },
-  Development: { icon: '🤖', who: 'agent-led' },
-  Testing: { icon: '👤', who: 'human-led' },
-  Released: { icon: '✓', who: 'done' },
-};
+// THE PHASES ARE A DOMAIN CONCEPT, RE-EXPORTED HERE. They were declared in this
+// file and in `domain/entities/workflow.ts` byte-identically, while `schema.ts`
+// already re-exported `toBoardPhase` from the domain — the board imported the
+// function and hand-copied the values it operates on.
+//
+// `PHASE_LEADERSHIP` travels with them, icon included: who leads Discovery
+// against who leads Testing is a fact about how a team works, and the icon is
+// how that leader is named without colour.
+export { PHASE_LEADERSHIP } from '@plot-pm/domain';
+export { BOARD_PHASES };
+export type { Phase };
+export type { PhaseLeadership } from '@plot-pm/domain';
 
 /** Sprint lifecycle phases (parsed from sprint files, not plan files). */
 export const SPRINT_PHASES = ['Planning', 'Committed', 'Active', 'Closed'] as const;

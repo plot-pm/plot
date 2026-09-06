@@ -1,18 +1,15 @@
 import { z } from 'zod';
 
 import type { BranchState } from '../entities/fleet.js';
+import type { StoryStatus } from '../entities/story.js';
+import type { Phase } from '../entities/workflow.js';
 import type { Landed } from './deliverable.js';
 
-/**
- * The columns a board shows, in the order work passes through them.
- *
- * Five rather than one per plan phase: Delivered and Released are both work
- * that has landed, and a column is a partition.
- */
-export const BOARD_PHASES = [
-  'Discovery', 'Design', 'Development', 'Testing', 'Released',
-] as const;
-export type Phase = (typeof BOARD_PHASES)[number];
+// THE PHASES BELONG TO THE WORKFLOW, RE-EXPORTED HERE. This file holds the
+// mappings onto them; `entities/workflow.ts` holds the phases, their order and
+// their leadership.
+export { BOARD_PHASES, PHASE_LEADERSHIP, DevelopmentWorkflow, phaseOrder } from '../entities/workflow.js';
+export type { Phase, PhaseLeadership } from '../entities/workflow.js';
 
 /**
  * A plan's status, as a reader acts on it rather than as the file spells it.
@@ -31,15 +28,15 @@ export const PlanStatusSchema = z.enum([
 export type PlanStatus = z.infer<typeof PlanStatusSchema>;
 
 /**
- * The board column a plan phase belongs to, or `null` for a phase there is none.
+ * The workflow phase a plan state belongs to, or `null` for a state there is none.
  *
- * `null` rather than a default: a phase this does not know is a plan format
- * this board does not understand, and putting it in Discovery would render a
- * confident answer to a question nobody could answer.
+ * `null` rather than a default: a state this does not know is a plan format the
+ * workflow does not understand, and putting it in Discovery would answer a
+ * question nobody could answer.
  *
- * @param helperPhase - the phase as the plan file spells it, lowercased.
- * @param _started - unused; kept as the seam a `started`-forking phase would use.
- * @returns the column, or `null` where the phase is not one this board knows.
+ * @param helperPhase - the state as the plan file spells it, lowercased.
+ * @param _started - unused; kept as the seam a `started`-forking state would use.
+ * @returns the phase, or `null` where the state is not one the workflow knows.
  */
 export const toBoardPhase = (helperPhase: string, _started = false): Phase | null => {
   switch (helperPhase) {
@@ -55,6 +52,36 @@ export const toBoardPhase = (helperPhase: string, _started = false): Phase | nul
       return 'Released';
     default:
       return null;
+  }
+};
+
+
+/**
+ * The workflow phase a story status belongs to.
+ *
+ * Total over the six statuses, unlike {@link toBoardPhase}: a status is a value
+ * of a closed enum, so there is no unrecognised case to answer `null` for.
+ *
+ * Discovery produces an approved story, so a story being written is in it and a
+ * `ready` story is what Design starts from. `paused` holds Development rather
+ * than returning to Design: pausing stops work, it does not undo it.
+ *
+ * @param status - the story's status, from its frontmatter.
+ * @returns the phase the story's work has reached.
+ */
+export const storyPhase = (status: StoryStatus): Phase => {
+  switch (status) {
+    case 'draft':
+      return 'Discovery';
+    case 'ready':
+      return 'Design';
+    case 'active':
+    case 'paused':
+      return 'Development';
+    case 'in-review':
+      return 'Testing';
+    case 'done':
+      return 'Released';
   }
 };
 
