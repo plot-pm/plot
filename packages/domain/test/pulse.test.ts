@@ -4,6 +4,7 @@ import { FleetReadingSchema, type FleetReading } from '../src/entities/fleet.js'
 import {
   doubleClaimedBranches,
   planSlugOf,
+  pulseDelta,
   readingLoss,
   sliceReadings,
 } from '../src/rules/pulse.js';
@@ -193,5 +194,170 @@ describe('readingLoss — what the fleet stopped seeing', () => {
       1700,
     );
     expect(loss?.plans).toEqual(['2026-01-02-b.md', '2026-01-03-c.md']);
+  });
+});
+
+describe('pulseDelta — what moved since the last pulse', () => {
+  const one = (over: Record<string, unknown> = {}, verdict = 'eligible') =>
+    pulse([plan('2026-01-01-a.md', [slice('S', [branch('feature/a', over)], verdict)])]);
+
+  describe('the four outcomes, which must never collapse to two', () => {
+    it('says `first` when nobody has pulsed here yet', () => {
+      // The state every new adopter starts in. A normal state, not a failure,
+      // and the reason `historyExists` defaults false.
+      const got = pulseDelta(null, one(), null);
+      expect(got.outcome).toBe('first');
+      expect(got.previousAt).toBeNull();
+    });
+
+    it('says `unusable` when history WAS found and could not be read', () => {
+      // Expired past BRIDGE_MAX_AGE_MS, or written by a build whose
+      // BRIDGE_VERSION this one does not know. Both leave the caller holding
+      // no previous reading — and the caller is what knows which case it is,
+      // because the rule reads nothing.
+      const got = pulseDelta(null, one(), null, true);
+      expect(got.outcome).toBe('unusable');
+    });
+
+    it('tells `unusable` from `unchanged`, which mean opposite things', () => {
+      // The whole reason this is four outcomes. A quiet estate and an
+      // unreadable history look identical to a reader: one says nothing needs
+      // your attention, the other says nothing could be compared.
+      const quiet = pulseDelta(one(), one(), 1700);
+      expect(quiet.outcome).toBe('unchanged');
+      expect(pulseDelta(null, one(), null, true).outcome).toBe('unusable');
+    });
+
+    it('says `changed` only when one of the three moved', () => {
+      const before = one({ state: 'wip' });
+      expect(pulseDelta(before, one({ state: 'wip' }), 1700).outcome).toBe('unchanged');
+      expect(pulseDelta(before, one({ state: 'merged' }), 1700).outcome).toBe('changed');
+    });
+  });
+
+  describe('the three the story names, and nothing else', () => {
+    it('names the branch whose PR merged, and its plan', () => {
+      const got = pulseDelta(one({ state: 'wip' }), one({ state: 'merged' }), 1700);
+      expect(got.merged).toEqual([{ branch: 'feature/a', plan: 'a' }]);
+    });
+
+    it('names the worker that died, and what it became', () => {
+      const got = pulseDelta(
+        one({ worker: 'running' }),
+        one({ worker: 'failed' }),
+        1700,
+      );
+      expect(got.workersDied).toEqual([{ branch: 'feature/a', plan: 'a', state: 'failed' }]);
+    });
+
+    it('does NOT call `elsewhere` a death', () => {
+      // `elsewhere` means no worktree on this machine, so the question could
+      // not be asked. A reading that stops being able to SEE a worker has not
+      // watched one die, and reporting it as one would fire on every scan run
+      // from a second checkout.
+      const got = pulseDelta(one({ worker: 'running' }), one({ worker: 'elsewhere' }), 1700);
+      expect(got.workersDied).toEqual([]);
+      expect(got.outcome).toBe('unchanged');
+    });
+
+    it('names the plan that became deliverable', () => {
+      const before = one({ state: 'wip' }, 'eligible');
+      const after = one({ state: 'merged' }, 'complete');
+      expect(pulseDelta(before, after, 1700).deliverable).toEqual(['a']);
+    });
+
+    it('does not re-announce a plan that was ALREADY deliverable', () => {
+      const done = one({ state: 'merged' }, 'complete');
+      const got = pulseDelta(done, done, 1700);
+      expect(got.deliverable).toEqual([]);
+      expect(got.outcome).toBe('unchanged');
+    });
+
+    it('a plan nobody built has not become deliverable', () => {
+      // Every slice complete over no branches at all. `allSlicesMerged` refuses
+      // this for the same reason, and two answers to one question would drift.
+      const empty = pulse([plan('2026-01-01-a.md', [slice('S', [], 'complete')])]);
+      expect(pulseDelta(empty, empty, 1700).deliverable).toEqual([]);
+    });
+
+    it('ignores a branch this reading names for the FIRST time', () => {
+      // New, not moved. All three answers are about movement, and a branch that
+      // arrives already merged transitioned from nothing rather than from wip.
+      const before = pulse([plan('2026-01-01-a.md', [slice('S', [branch('feature/a')])])]);
+      const after = pulse([plan('2026-01-01-a.md', [
+        slice('S', [branch('feature/a'), branch('feature/b', { state: 'merged' })]),
+      ])]);
+      expect(pulseDelta(before, after, 1700).merged).toEqual([]);
+    });
+  });
+
+  describe('what it carries from readingLoss', () => {
+    it('consumes the loss rather than re-deriving it', () => {
+      // One implementation of *what did the estate stop seeing*. A second here
+      // is the drift the brief names: two functions over two readings that
+      // disagree about a first read.
+      const before = pulse([
+        plan('2026-01-01-a.md', [slice('S', [branch('feature/a')])]),
+        plan('2026-01-02-b.md', [slice('S', [branch('feature/b')])]),
+      ]);
+      const after = pulse([plan('2026-01-01-a.md', [slice('S', [branch('feature/a')])])]);
+      const got = pulseDelta(before, after, 1700);
+      expect(got.loss).toEqual(readingLoss(before, after, 1700));
+      expect(got.loss?.plans).toEqual(['2026-01-02-b.md']);
+      // A loss is news, so the estate changed.
+      expect(got.outcome).toBe('changed');
+    });
+
+    it('carries no loss on a first run, as readingLoss does not', () => {
+      expect(pulseDelta(null, one(), null).loss).toBeNull();
+    });
+  });
+
+  it('sorts what it names, so two readings of one delta agree', () => {
+    const before = pulse([plan('2026-01-01-a.md', [slice('S', [
+      branch('feature/c', { state: 'wip' }),
+      branch('feature/a', { state: 'wip' }),
+      branch('feature/b', { state: 'wip' }),
+    ])])]);
+    const after = pulse([plan('2026-01-01-a.md', [slice('S', [
+      branch('feature/c', { state: 'merged' }),
+      branch('feature/a', { state: 'merged' }),
+      branch('feature/b', { state: 'merged' }),
+    ])])]);
+    expect(pulseDelta(before, after, 1700).merged.map((m) => m.branch))
+      .toEqual(['feature/a', 'feature/b', 'feature/c']);
+  });
+
+  it('sorts the dead workers too, not only the merges', () => {
+    // Each list carries its own comparator, so each needs its own case: the
+    // merge sort passing says nothing about this one. The domain's 100%
+    // coverage gate is what noticed — a comparator no test invokes is a line
+    // nothing runs.
+    const running = (name: string) => branch(name, { worker: 'running' });
+    const before = pulse([plan('2026-01-01-a.md', [slice('S', [
+      running('feature/c'), running('feature/a'), running('feature/b'),
+    ])])]);
+    const after = pulse([plan('2026-01-01-a.md', [slice('S', [
+      branch('feature/c', { worker: 'failed' }),
+      branch('feature/a', { worker: 'ended' }),
+      branch('feature/b', { worker: 'finished' }),
+    ])])]);
+    const got = pulseDelta(before, after, 1700);
+    expect(got.workersDied.map((w) => w.branch))
+      .toEqual(['feature/a', 'feature/b', 'feature/c']);
+    // And each carries the state it actually reached, not a shared word.
+    expect(got.workersDied.map((w) => w.state)).toEqual(['ended', 'finished', 'failed']);
+  });
+
+  it('performs no I/O — the caller reads, the rule compares', () => {
+    // Readings as values, the shape every rule here takes: two readings in, a
+    // value out, nothing awaited and no port passed. A rule that reached for a
+    // file could not return before it had one.
+    const got = pulseDelta(one(), one(), 1700);
+    expect(got).not.toBeInstanceOf(Promise);
+    expect(got.outcome).toBe('unchanged');
+    // And it is a pure function of its arguments: the same two readings answer
+    // the same thing however often they are asked.
+    expect(pulseDelta(one(), one(), 1700)).toEqual(got);
   });
 });
