@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
-# Plot helper: the AgentMonitor — watches the DESK, and what the agent at it owes.
+# Plot helper: the SLICE monitor — watches the DESK and the slice's CI, in ONE loop.
 #
 # RUN, NOT SOURCED, and started by `start_worker()` in `plot-dispatch.sh` as a
-# child of the wrapper, beside the WorkerMonitor.
+# child of the wrapper. It is the only monitor a dispatched agent gets.
 #
 # ═══════════════════════════════════════════════════════════════════════════
-# TWO MONITORS, BECAUSE THERE ARE TWO SUBJECTS
+# ONE LOOP, TWO SUBJECTS — AND THE CADENCES ARE STILL TWO
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# CLAUDE.md settles the split for new code: *"a state answering what is the
-# process doing? goes on the worker; one answering what does this agent owe, or
-# still hold? goes on the agent."* This is the second half.
+# `DESIGN-process.md` §8 sets fleet control at `1 + 2N`: one supervisor, and per
+# agent one worker and one monitor. This is that one monitor. It was two
+# processes until 2026-09-06 — an AgentMonitor over the desk and a BuildMonitor
+# over the run — and they merged because **both watch the SLICE**, which is what
+# an agent holds. The WorkerMonitor did not merge into them; it watches the
+# PROCESS, and the supervisor already re-reads every manifest each tick.
 #
-# | monitor           | samples            | cadence | answers                        |
-# |-------------------|--------------------|---------|--------------------------------|
-# | **WorkerMonitor** | the process table  | seconds | is this process doing anything?|
-# | **AgentMonitor**  | the desk, the host | minutes | does this agent still owe?     |
+# | subject     | samples            | cadence | answers                       |
+# |-------------|--------------------|---------|-------------------------------|
+# | the desk    | the tree, the host | 300 s   | does this agent still owe?    |
+# | the run     | the head sha, CI   | 30 s    | did the build change?         |
 #
-# **They cannot share a cadence, which is the practical reason they are two.**
-# CPU delta is meaningless unless sampled close together. Whether a branch has a
-# PR is a host round trip, and asking it every few seconds is the rate problem
-# this repository already measured at 127 git processes per scan. One subject
-# wants tight sampling of a cheap fact; the other occasional sampling of an
-# expensive one. Merging them would force one of those two to be wrong.
+# **THE MERGE KEEPS BOTH CADENCES, and that is the whole difficulty of it.** The
+# loop wakes on the FASTER subject and runs the slower one every Nth wake, so
+# neither budget moves: the host is still asked about a PR every 300 s, and a
+# build is still noticed within 30 s. A merged loop that split the difference
+# would break both — the desk pass asks a host on EVERY pass, which is the rate
+# problem 300 s exists to avoid, while a 300 s build pass would report a failure
+# ten times later than the run that produced it.
+#
+# **WHY IN ONE PROCESS RATHER THAN TWO INVOCATIONS.** The build subject holds
+# `settled_shas` in memory — a sha whose run reached a terminal answer is never
+# asked about again — and that memory is the second half of *it polls nothing
+# when no run is live*. A loop that re-entered a fresh shell per pass would lose
+# it and spend a host round trip re-learning a published fact, every 30 s, per
+# agent. The saving this slice exists for would be paid straight back to the
+# host.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 # FOUR FINDINGS, AND SILENCE MEANS THE DESK OWES NOTHING
@@ -511,7 +523,79 @@ monitor_pass() {
 # line defines, and nothing below it runs when the guard is set.
 [ -n "${PLOT_MONITOR_NO_MAIN:-}" ] && return 0 2>/dev/null
 
+# ---------------------------------------------------------------------------
+# THE SECOND SUBJECT: the slice's CI
+# ---------------------------------------------------------------------------
+#
+# LOADED BELOW THE GUARD, deliberately. `agentmonitor.test.mjs` sources this
+# file with `PLOT_MONITOR_NO_MAIN=1` and drives `monitor_pass` against redefined
+# ports; everything above the guard is what that test sees, and it sees exactly
+# what it saw before the merge. The build subject is a property of the RUNNING
+# monitor, not of the desk pass, so it loads where the loop does.
+#
+# IN A SUBSHELL FUNCTION, because both scripts define `monitor_pass`,
+# `sample_finding`, `publish` and `json_escape`, and both hold module-level
+# state under the same names — `published`, `since`, `findings`, `interval`.
+# Sourcing the second into this shell would silently overwrite the first's, and
+# the desk's standing finding would be clobbered by the build's on every pass.
+#
+# The subshell is entered ONCE and lives as long as this monitor does, so
+# `settled_shas` survives between passes. That is the memory the 30 s cadence
+# depends on: a sha whose run has concluded is never asked about again, and a
+# fresh shell per pass would re-ask the host every time.
+#
+# IT IS OPTIONAL, the same way each monitor was optional to `start_worker`. A
+# missing or non-executable build monitor means this loop watches the desk
+# alone and says so, rather than dying in a detached shell nobody is reading.
+build_monitor="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-build-monitor.sh"
+
+# HOW MANY BUILD WAKES PER DESK PASS. 300 / 30 = 10, derived from the two
+# defaults rather than written as a literal, so an operator who lowers
+# `PLOT_MONITOR_INTERVAL` for the desk does not silently get ten times the host
+# traffic on the build subject as well. A floor of 1 keeps a desk interval
+# faster than the build's from meaning *never*.
+build_interval="${PLOT_BUILD_MONITOR_INTERVAL:-30}"
+wakes_per_desk_pass=$(( interval / build_interval ))
+[ "$wakes_per_desk_pass" -lt 1 ] && wakes_per_desk_pass=1
+
+# THE LOOP WAKES ON THE FASTER SUBJECT. `plot_monitor_wait` is what ends this
+# monitor with its agent, so the wait must be the short one — a 300 s wait would
+# also delay the exit by up to 300 s, which is the same defect
+# `plot-monitor-subject.sh` was written to fix.
+# THE BUILD SUBJECT RUNS IN A LONG-LIVED SUBSHELL, driven one pass per line.
+#
+# `PLOT_MONITOR_NO_MAIN=1` gives its functions without its loop, so THIS loop
+# owns the cadence and the ending — one place decides when the monitor stops,
+# which is what `plot-monitor-subject.sh` exists to guarantee. Its findings file
+# and interval stay its own, so a subscriber reading
+# `.plot-worker.monitor.build.jsonl` sees exactly what it saw before.
+start_build_subject() {
+  [ -x "$build_monitor" ] || return 1
+  exec 3> >(
+    PLOT_MONITOR_NO_MAIN=1 \
+    PLOT_MONITOR_FILE="${PLOT_BUILD_MONITOR_FILE:-${worktree:+$worktree/.plot-worker.monitor.build.jsonl}}" \
+    PLOT_MONITOR_INTERVAL="$build_interval" \
+      . "$build_monitor" 2>/dev/null || exit 0
+    # One pass per line on stdin. The loop above writes a line per wake; when
+    # it closes the pipe this read fails and the subshell leaves, so the build
+    # subject ends with the monitor rather than outliving it.
+    while IFS= read -r _; do
+      monitor_pass
+    done
+  ) 2>/dev/null || return 1
+  return 0
+}
+
+build_attached=0
+if start_build_subject; then
+  build_attached=1
+else
+  echo "plot-agent-monitor: no build subject attached ($build_monitor is missing or not executable); watching the desk alone" >&2
+fi
+
+# One pass of the desk before the first wait, as before the merge.
 monitor_pass
+[ "$build_attached" = 1 ] && printf '\n' >&3 2>/dev/null
 [ "$once" = 1 ] && exit 0
 
 # IT ENDS WITH ITS AGENT, for the reason and by the mechanism the WorkerMonitor
@@ -524,9 +608,29 @@ monitor_pass
 # that exits having committed everything and opened nothing is precisely the
 # failure the plan was written for, and the last pass is where it is caught.
 # A monitor that died WITH its agent would miss it every time.
-while plot_monitor_wait "$interval" "$pid_file"; do
-  monitor_pass
+#
+# THE COUNTER IS WHAT KEEPS THE TWO CADENCES APART. Every wake drives the build
+# subject; every tenth drives the desk. Both budgets are exactly what they were
+# when these were two processes.
+wake=0
+while plot_monitor_wait "$build_interval" "$pid_file"; do
+  wake=$(( wake + 1 ))
+  [ "$build_attached" = 1 ] && printf '\n' >&3 2>/dev/null
+  if [ $(( wake % wakes_per_desk_pass )) = 0 ]; then
+    monitor_pass
+  fi
 done
 
+# THE LAST PASS OF EACH, with the agent already gone. The build subject gets one
+# too: an agent that pushes and exits leaves a run still going, and this is the
+# one chance to catch a build that concluded during the shutdown.
 monitor_pass
+if [ "$build_attached" = 1 ]; then
+  printf '\n' >&3 2>/dev/null
+  # CLOSING THE PIPE IS WHAT ENDS THE BUILD SUBJECT. Its `read` fails, its loop
+  # leaves, and the subshell exits — so no monitor of this worker remains once
+  # this process does, which is what `monitors-end.test.mjs` asserts.
+  exec 3>&- 2>/dev/null
+  wait 2>/dev/null
+fi
 exit 0
