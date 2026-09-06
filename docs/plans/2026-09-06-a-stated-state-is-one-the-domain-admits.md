@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -14,6 +14,7 @@
 - **Rounds:** 2
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-stated-state-parses`
 - **Started:** 2026-09-06, Jan Wloka, `bug/four-files-say-what-they-are`
+- **Delivered:** 2026-09-06
 
 ## Changelog
 

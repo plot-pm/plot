@@ -1,0 +1,1 @@
+../2026-09-06-a-stated-state-is-one-the-domain-admits.md
