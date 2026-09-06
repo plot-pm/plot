@@ -434,12 +434,23 @@ const STANDING_RANK: Readonly<Record<StoryStanding, number | null>> = {
   archived: 4,
 };
 
-/** What a story's plans prove about it, where its written status does not say so. */
-const BEHIND: Readonly<Partial<Record<StoryStanding, string>>> = {
+/**
+ * What a story's plans prove about it, keyed by the standing they prove.
+ *
+ * The three keys are every value {@link derivedStanding} produces beyond the
+ * declared status it hands back — and a declared status is caught by the
+ * equality test before this is read. So the map is TOTAL over what can reach
+ * it, and its lookup needs no fallback.
+ */
+const BEHIND: Readonly<Record<'active' | 'done' | 'archived', string>> = {
   active: 'Has approved plans',
   done: 'All plans delivered',
   archived: 'All plans released',
 };
+
+/** Whether a standing is one the plans can prove, and so one {@link BEHIND} answers. */
+const isProven = (s: StoryStanding): s is 'active' | 'done' | 'archived' =>
+  s === 'active' || s === 'done' || s === 'archived';
 
 /**
  * Why a story's written status disagrees with what its plans prove.
@@ -456,9 +467,13 @@ const BEHIND: Readonly<Partial<Record<StoryStanding, string>>> = {
  */
 export const statusDrift = (declared: string, derived: StoryStanding): string | null => {
   if (declared === derived) return null;
+  if (!isProven(derived)) return null;
+  // `declared` is a string off a file a person edits, so a status the domain
+  // does not admit reaches here and ranks nowhere. That is S2's finding, not
+  // this one's.
   const declaredRank = STANDING_RANK[declared as StoryStanding] ?? null;
-  const derivedRank = STANDING_RANK[derived] ?? null;
-  if (declaredRank === null || derivedRank === null) return null;
-  if (derivedRank <= declaredRank) return null;
-  return BEHIND[derived] ?? null;
+  if (declaredRank === null) return null;
+  // Every proven standing ranks, so the derived side needs no such test.
+  const derivedRank = STANDING_RANK[derived] as number;
+  return derivedRank > declaredRank ? BEHIND[derived] : null;
 };

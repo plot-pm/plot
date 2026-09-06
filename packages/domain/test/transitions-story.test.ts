@@ -343,6 +343,16 @@ describe('a status behind its plans is reported, and only that direction', () =>
     expect(statusDrift('ready', 'active')).toBe('Has approved plans');
   });
 
+  it('says nothing where the derived standing is not one the plans prove', () => {
+    // `derivedStanding` returns only active, done, archived or the declared
+    // status, and a declared one is caught by the equality test above. The
+    // signature admits the rest, so the gate is real even though the estate
+    // cannot reach it.
+    expect(statusDrift('draft', 'ready')).toBeNull();
+    expect(statusDrift('draft', 'paused')).toBeNull();
+    expect(statusDrift('draft', 'in-review')).toBeNull();
+  });
+
   it('says nothing about a status it cannot rank', () => {
     // An unreadable status is S2's finding, not this one's.
     expect(statusDrift('wat', 'archived')).toBeNull();
