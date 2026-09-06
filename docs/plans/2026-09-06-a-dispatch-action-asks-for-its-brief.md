@@ -4,12 +4,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 9
 
 ## Changelog
@@ -128,3 +129,9 @@ Setting it stopped the refusal immediately — verified against the live board, 
 **The mark must survive a restart, and that is a change from the estate's shape rather than a copy of it.** `auto-deliver.ts` holds the identical in-memory `Set`. A restart mid-ask forgets it and the next pulse asks again while the first session runs — **round 2's collision, arriving by a different route**. `.plot/state/` already holds `fleet-controls.json` and `last-pulse.json`, so durability has a home and a precedent.
 
 **Interrogation ends here.** Nine rounds; the remaining questions are about the estate rather than this plan.
+
+### The review channel was misdeclared — 2026-09-06
+
+The plan declared `Review: pr` and was never on a branch: all nine rounds landed as direct commits to `main`, and `plot-approve.sh` refused the approval because no plan PR existed.
+
+**`in-session` is what happened.** Nine interrogation rounds, with every decision recorded in the plan as the round that took it. Correcting the field is not a convenience — it makes the plan's own record of its approval true, and the alternative was opening a PR to carry a review that had already finished.
