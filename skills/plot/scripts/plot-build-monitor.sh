@@ -224,11 +224,29 @@ monitor_head_sha() { # → prints a sha, or nothing
 # An EMPTY result with a reachable host is a real and common answer: the run has
 # not been created yet. A monitor polling a fresh push sees exactly this until
 # CI wakes up, and it is not a finding.
+# THE HOST CALL IS BOUNDED, and it has to be since this subject shares a shell.
+#
+# It ran in its own process until 2026-09-06, where an unbounded call cost only
+# this monitor's own liveness. It now runs inside the slice monitor's loop —
+# the loop that must notice its agent's death — so a host that never answers
+# would hold the desk subject AND the death check behind it. Measured that day
+# in a sandbox with no remote: the call did not return for the whole of a 40 s
+# run, and the desk published nothing in a case where two separate processes
+# published immediately.
+#
+# UNASKABLE IS ALREADY A FIRST-CLASS ANSWER here (`rc 2`), so a timeout lands on
+# a path this monitor already handles: no finding, nothing published, asked
+# again next pass. `timeout` is not on every machine, so its absence falls back
+# to the unbounded call rather than refusing to ask at all.
 monitor_run_for_sha() { # $1 = sha → prints run JSON | rc 2 = unaskable
   [ -n "$branch" ] || return 2
   [ -x "$host_script" ] || return 2
   local out
-  out=$("$host_script" run-for-sha "$branch" "$1" 2>/dev/null) || return 2
+  if command -v timeout >/dev/null 2>&1; then
+    out=$(timeout "${PLOT_MONITOR_HOST_TIMEOUT:-20}" "$host_script" run-for-sha "$branch" "$1" 2>/dev/null) || return 2
+  else
+    out=$("$host_script" run-for-sha "$branch" "$1" 2>/dev/null) || return 2
+  fi
   printf '%s' "$out"
   return 0
 }

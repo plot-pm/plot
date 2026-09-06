@@ -563,6 +563,12 @@ desk_worktree="$worktree"
 desk_pid_file="$pid_file"
 desk_interval="$interval"
 desk_branch="$branch"
+# `once` TOO, and it is the one that bites hardest. `plot-build-monitor.sh:114`
+# assigns `once=0` at module level, so sourcing it resets this script's own
+# `--once` flag and the run falls through into the infinite loop. Measured
+# 2026-09-06: `--once` never returned, which reads exactly like a hang in the
+# desk pass and is not one.
+desk_once="$once"
 
 build_monitor_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plot-build-monitor.sh"
 build_attached=0
@@ -598,6 +604,7 @@ worktree="$desk_worktree"
 pid_file="$desk_pid_file"
 interval="$desk_interval"
 branch="$desk_branch"
+once="$desk_once"
 
 [ "$build_attached" = 1 ] || \
   echo "plot-agent-monitor: no build subject attached; watching the desk alone" >&2
@@ -608,8 +615,25 @@ branch="$desk_branch"
 # traffic on the build subject too. A floor of 1 keeps a desk interval faster
 # than the build's from meaning *never*.
 build_interval="${PLOT_BUILD_MONITOR_INTERVAL:-30}"
-wakes_per_desk_pass=$(( interval / build_interval ))
+
+# THE LOOP WAKES ON WHICHEVER SUBJECT IS FASTER, and that is the MINIMUM of the
+# two rather than the build's interval. Measured in CI 2026-09-06: a test
+# setting `PLOT_MONITOR_INTERVAL=1` to watch the desk react got a loop still
+# waiting the build subject's 30 s default, so the first desk pass landed on the
+# test's 30 s deadline and six e2e cases read the monitor as never having
+# sampled. A desk asked to sample faster than the build must actually do so.
+wake_interval="$build_interval"
+[ "$interval" -lt "$wake_interval" ] && wake_interval="$interval"
+[ "$wake_interval" -lt 1 ] && wake_interval=1
+
+# HOW MANY WAKES PER PASS, one ratio per subject, derived from the intervals
+# rather than written as literals. At the defaults that is every wake for the
+# build (30/30) and every tenth for the desk (300/30); when a caller lowers
+# either, both ratios follow it and neither budget is silently multiplied.
+wakes_per_desk_pass=$(( interval / wake_interval ))
 [ "$wakes_per_desk_pass" -lt 1 ] && wakes_per_desk_pass=1
+wakes_per_build_pass=$(( build_interval / wake_interval ))
+[ "$wakes_per_build_pass" -lt 1 ] && wakes_per_build_pass=1
 
 # EACH SUBJECT'S STATE IS SWAPPED IN AROUND ITS PASS, because both halves spell
 # it `published`, `since` and `findings`. Without this the desk's standing
@@ -633,6 +657,13 @@ run_build_pass() {
 }
 
 # One pass of each before the first wait, as two separate monitors each did.
+#
+# THE DESK GOES FIRST, AND THE ORDER IS LOAD-BEARING NOW THAT THEY SHARE A
+# SHELL. The build pass makes a HOST call, and a host that is slow or absent
+# blocks it for as long as its own timeout allows — measured 2026-09-06, a
+# sandbox with no remote hung there for the whole of a 25 s trace. As two
+# processes the desk was never behind that call; in one shell it is, so the
+# desk's finding is published before the build subject is allowed to block.
 run_desk_pass
 run_build_pass
 [ "$once" = 1 ] && exit 0
@@ -648,16 +679,20 @@ run_build_pass
 # plan was written for. On the build subject it is the one chance to catch a run
 # that concluded during the shutdown.
 #
-# THE COUNTER IS WHAT KEEPS THE TWO CADENCES APART. Every wake runs the build
-# pass; every tenth runs the desk's, so both budgets are exactly what they were
-# when these were two processes. The WAIT is the SHORT one — a 300 s wait would
-# also delay the exit by up to 300 s, which is the defect
-# `plot-monitor-subject.sh` was written to fix.
+# THE COUNTERS ARE WHAT KEEP THE TWO CADENCES APART. The loop wakes on the
+# faster of the two intervals and each subject runs on its own ratio, so both
+# budgets are exactly what they were when these were two processes. The WAIT is
+# the SHORT one for a second reason: a 300 s wait would also delay this
+# monitor's exit by up to 300 s, which is the defect `plot-monitor-subject.sh`
+# was written to fix.
 wake=0
-while plot_monitor_wait "$build_interval" "$pid_file"; do
+while plot_monitor_wait "$wake_interval" "$pid_file"; do
   wake=$(( wake + 1 ))
-  run_build_pass
+  # THE DESK BEFORE THE BUILD, for the reason the pre-loop passes give: the
+  # build pass can block on a host, and the desk's findings must not queue
+  # behind it.
   [ $(( wake % wakes_per_desk_pass )) = 0 ] && run_desk_pass
+  [ $(( wake % wakes_per_build_pass )) = 0 ] && run_build_pass
 done
 
 run_desk_pass
