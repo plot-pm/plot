@@ -297,6 +297,36 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
 >
 > Deferred to you: <anything the user must add by hand>.
 
+**Then name the two long-lived processes.** Plot runs a board and a supervisor,
+each started by its own command. Read which prerequisite is missing:
+
+```bash
+../plot/scripts/plot-board-probe.sh
+```
+
+`artifact_source` answers where `@plot-pm/board` lives — `plugin`, `npm`,
+`checkout`, or `none`. Print the block either way; the probe's answer changes
+the sentence after the dash, never whether there is a line:
+
+> Next, when you have work in flight:
+>
+> ```
+> /plot-board --start   — the local board; <prerequisite>
+> /plot-fleet --start   — supervises the agents you dispatch; <prerequisite>
+> ```
+>
+> `/plot-board-setup` adopts the board properly — it verifies that it serves.
+
+Fill `<prerequisite>` from `artifact_source`: on `none`, *needs
+`@plot-pm/board` — `pnpm build:board` in a checkout, or install the package*;
+otherwise *ready, from the <source> artifact*. Both commands read the same
+package, so both lines carry the same answer.
+
+**Name both commands whether or not the artifact is present.** `/plot-init`
+runs in repositories that have neither, and offering only what works there says
+nothing at all — which is how the supervisor came to be invisible. A missing
+prerequisite is a fact a reader can act on; silence is not.
+
 ## Guardrails
 
 - **Never move, rewrite, or delete existing files.** Adoption is additive.
@@ -308,6 +338,9 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
   add and where, then continue.
 - **Never invent a Definition of Done.** The probe finds candidates; only a
   human knows which gate a merge.
+- **Never drop `/plot-board --start` or `/plot-fleet --start` from the summary
+  because the artifact is absent.** The probe fills in what each command needs;
+  it does not decide whether the command is mentioned.
 - **Never claim a detected value is certain.** Everything from the probe is a
   proposal.
 - **Never overwrite `.plot/worker-prompt.sh`.** The installer refuses to; do
@@ -340,3 +373,4 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
 | Proposing `.worktrees` to a repo whose worktrees already live elsewhere | Adoption relocates a working arrangement nobody asked it to touch | Read `git worktree list` first; propose what is there |
 | Rewriting `.gitignore` rather than appending | Silently drops rules the team depends on | Append a block; create the file only when absent |
 | Writing an ignore line for an absolute worktree root | The line matches nothing — the desks are outside the repository | Say no rule is needed and write none |
+| Naming the board and the supervisor only where the artifact is present | The two processes a user must start stay invisible in exactly the fresh repository this command runs in | Print both lines always; the probe writes the prerequisite, not the line |
