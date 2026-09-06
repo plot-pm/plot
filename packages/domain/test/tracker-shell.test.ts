@@ -10,8 +10,10 @@ import { trackerNone } from '../src/adapters/tracker/tracker-none.js';
 import { trackerFor } from '../src/adapters/tracker/tracker-resolve.js';
 import { trackerFixture } from '../src/adapters/tracker/tracker-fixture.js';
 import type { ShellContext } from '../src/adapters/scripts.js';
-import type { StatusOutcome, Tracker } from '../src/ports/tracker.js';
+import { isAnswered, type PortResult } from '../src/port-result.js';
+import type { StatusOutcome, StatusWrite, Tracker } from '../src/ports/tracker.js';
 import type { Issue } from '../src/entities/issue.js';
+import type { LimitReading } from '../src/entities/limit.js';
 
 /**
  * A MOCKED TRACKER FAILS ON DEMAND.
@@ -46,10 +48,17 @@ afterAll(() => {
   for (const dir of roots) rmSync(dir, { recursive: true, force: true });
 });
 
-/** Reads an answered result, failing the test where the call did not answer. */
-const answer = <T>(result: { ok: boolean } & Record<string, unknown>): T => {
-  expect(result.ok).toBe(true);
-  return (result as { value: T }).value;
+/**
+ * Reads an answered result, failing the test where the call did not answer.
+ *
+ * Narrowed by `isAnswered` rather than cast: a cast would compile against a
+ * refusal, which is the one thing every test here is trying to tell apart from
+ * an answer.
+ */
+const answer = <T>(result: PortResult<T>): T => {
+  expect(isAnswered(result)).toBe(true);
+  if (!isAnswered(result)) throw new Error('unreachable: asserted above');
+  return result.value;
 };
 
 describe('a tracker is asked apart from the git host', () => {
@@ -181,10 +190,10 @@ describe('each connector owns its own budget', () => {
     // the other spends a budget it never measured — which is the whole reason
     // the port carries `limit` per connector rather than borrowing the git
     // host's.
-    const github = answer<readonly { connector: string }[]>(await trackerGithub(metering()).limit());
+    const github = answer<readonly LimitReading[]>(await trackerGithub(metering()).limit());
     expect(github.map((reading) => reading.connector)).toEqual(['github']);
 
-    const jira = answer<readonly { connector: string }[]>(await trackerJira(metering()).limit());
+    const jira = answer<readonly LimitReading[]>(await trackerJira(metering()).limit());
     expect(jira.map((reading) => reading.connector)).toEqual(['jira']);
   });
 
@@ -387,12 +396,12 @@ describe('the fixture stands in for a tracker that is there', () => {
     const tracker: Tracker = trackerFixture({ issues: [issue] });
     expect(answer<readonly Issue[]>(await tracker.issueList()).map((i) => i.id)).toEqual(['QF-1']);
     expect(answer<Issue>(await tracker.issueView('QF-1')).title).toBe('The forge has an issue');
-    expect(answer<readonly unknown[]>(await tracker.limit())).toEqual([]);
+    expect(answer<readonly LimitReading[]>(await tracker.limit())).toEqual([]);
   });
 
   it('records what was written, so a test can prove a write happened', async () => {
     // A FIXTURE THAT ONLY ANSWERED COULD NOT PROVE A WRITE REACHED THE TRACKER.
-    const written: { prUrl: string; status: string }[] = [];
+    const written: StatusWrite[] = [];
     const tracker = trackerFixture({ written });
     expect(answer<StatusOutcome>(await tracker.statusWrite({ prUrl: 'u', status: 'Done' }))).toBe(
       'written',
@@ -401,7 +410,7 @@ describe('the fixture stands in for a tracker that is there', () => {
   });
 
   it('records a write that broke, because it was still an attempt', async () => {
-    const written: { prUrl: string; status: string }[] = [];
+    const written: StatusWrite[] = [];
     const tracker = trackerFixture({ written, statusWriteFails: true });
     expect(await tracker.statusWrite({ prUrl: 'u', status: 'Done' })).toEqual({
       ok: false,
