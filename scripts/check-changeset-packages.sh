@@ -89,6 +89,12 @@ const explain = {
 let failed = 0;
 let linked = 0;
 let total = 0;
+// THE FILES, NOT JUST THE NUMBER. A bare `1 of 28` is not actionable, and a
+// finding must be actionable the day it fires — so the names collected here
+// are what a person opens, and what the ratchet reads once adoption is
+// non-zero. Same shape as the `fs.rmSync` ratchet in ci.yml: the count, then
+// the hits.
+const unlinked = [];
 for (const name of readdirSync(".changeset").filter((n) => !skip(n))) {
   const file = `.changeset/${name}`;
   const text = readFileSync(file, "utf8");
@@ -99,9 +105,16 @@ for (const name of readdirSync(".changeset").filter((n) => !skip(n))) {
   }
   // COUNTED, NEVER REFUSED. The link is optional: 0 of 19 changesets carried
   // one when it was introduced, so a gate demanding it would refuse every
-  // changeset in flight. Requiring it is slice 2's question, and this number
-  // is what that decision will be taken against.
+  // changeset in flight. Whether to require it is a later decision, and this
+  // number is what it will be taken against.
+  //
+  // ASKED OF THE RULE, NOT RE-DERIVED HERE. `parseChangeset` owns what a plan
+  // reference looks like, down to the leading `#` some authors write inside
+  // the comment block — a second reading in this script would be a third
+  // implementation of a question the domain already answers, and the two would
+  // drift the first time the form changed.
   if (parseChangeset(text).plan !== undefined) linked++;
+  else unlinked.push(file);
 }
 
 if (failed > 0) {
@@ -112,5 +125,20 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log("All changesets name workspace packages and say what changed.");
+
+// COUNT FIRST, GATE LATER. This number is REPORTED and never enforced: 0 of 14
+// named a plan when the convention was introduced, so a refusal would have
+// failed every changeset in flight. It is printed on every run so the figure
+// is visible in CI output and can be read back later — the ratchet's input,
+// not yet the ratchet.
+//
+// `::notice::` rather than `::error::`, deliberately. The other ratchets in
+// `ci.yml` bound a number that must not GROW; this one watches a number that
+// should grow, so there is no count at which this line becomes a failure. The
+// exit code below is unchanged whatever it says.
 console.log(`changesets naming a plan: ${linked} of ${total}`);
+if (unlinked.length > 0) {
+  console.log(`::notice::${unlinked.length} changeset(s) name no plan. Optional today; add a \`plan:\` line to the bumps comment to link one.`);
+  for (const file of unlinked) console.log(`  ${file}`);
+}
 NODE_EOF
