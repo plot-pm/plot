@@ -104,7 +104,7 @@ So the flag is emitted only with a value, inside the same `[ -n … ]` guard the
 
 **Done when** an agent handed a second slice starts a prompt on it, the prompt resumes when a transcript exists under the id and creates when none does, a prompt that cannot start writes an ending record and exits non-zero rather than waiting, the slice stays assigned across that failure, and `resumeId` is written by the hop and read by the prompt.
 
-### The prompt template Plot never shipped (Branch: bug/a-worker-prompt-has-a-template)
+### The prompt template Plot never shipped (Branch: bug/a-worker-prompt-has-a-template, PR: #719)
 
 `plot-init` writes `.plot/worker-prompt.sh` from a shipped template, and this repo's own copy learns the resume rule.
 
