@@ -10,6 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -78,13 +79,34 @@ A pre-commit gate refuses a commit whose `HEAD` has moved since the index was la
 
 **WHAT THE GATE MUST COMPARE IS THE REF, NOT THE FILE.** Record the `HEAD` sha a session last observed; before a commit, refuse when `HEAD` differs and the session did not move it. That is the one fact both incidents share and the only one that separates them from ordinary work.
 
-**THE DEFECT IS ONE SESSION'S OWN SEQUENCE**, which makes it reachable by anybody and fixable in one place: stage, then pull, then commit, and the commit carries what was staged against the older tree. Nothing concurrent is required.
+**THE THIRD EXPLANATION IS ALSO WRONG, AND ROUND 1 DISPROVED IT IN A SANDBOX.** *Stage, then pull, then commit* cannot happen: **git refuses to pull with a dirty index**, in both modes.
 
-**A `pre-commit` hook CAN see this**, because there is only one writer. Compare the index's recorded HEAD against the current one; refuse when they differ. No session-local state and no second party to identify.
+```
+git add mine.txt && git pull --ff-only   → error: Please commit or stash them.
+git add mine.txt && git pull --rebase    → error: cannot pull with rebase:
+                                            Your index contains uncommitted changes.
+```
+
+**AND THE MECHANISM THE SLICE RESTS ON DOES NOT EXIST.** *"Compare the index's recorded HEAD against the current one"* — the index records **blobs and paths, and no HEAD sha**. Checked directly: `strings .git/index` contains the HEAD sha zero times. There is nothing to compare.
+
+**WHAT THE BLOBS SAY, AND IT IS THE ONE THING THAT IS CERTAIN.** For `a-changeset-names-its-plan.md`:
+
+```
+f9c8e151  (my HEAD, 13:34)          7830688e
+ac26bf3e  (pull target, 13:43:07)   ac49812f
+a18414d5  (parent of my commit)     ac49812f
+03303dd0  (what I committed 13:53)  7830688e   ← my 13:34 blob, on a parent that had moved
+```
+
+**The file on disk at 13:53 was the 13:34 content**, because that is what `git add -A` staged. But a fast-forward pull **does** update the working tree — verified in the sandbox — so the 13:43 pull should have replaced it.
+
+**SO SOMETHING RESTORED THE OLDER CONTENT BETWEEN 13:43 AND 13:53, AND THIS PLAN CANNOT NAME IT.** The worker loop's `reset_desk` is scoped to `$wt` worktrees and never touches the main checkout. No Plot script writes plan files. Three explanations have now been proposed and disproved.
 
 **THE REPAIR IS ALSO ONE COMMAND** and the message must name it: `git reset && git add <paths>` re-stages against the current HEAD. A gate that reports a mismatch without the repair hands the reader a puzzle at the worst moment.
 
-**Done when** a commit whose index was staged against a superseded HEAD is refused with the repair named, an ordinary commit is unaffected, and the hook adds no measurable time.
+**SO THE SLICE IS AN OBSERVATION, NOT A GATE.** A gate needs a condition, and every condition proposed so far has been disproved. What can be built without knowing the cause is a **record**: a `post-commit` hook that writes the commit's sha, its parent, and whether any file it touched differs from `origin/<main>` at that moment. The next occurrence then arrives with its own evidence rather than with a reconstruction three explanations deep.
+
+**Done when** a commit that changes a file to content older than the parent's is recorded with its shas at the moment it happens, an ordinary commit records nothing, and the record is enough to name the cause the next time this occurs.
 
 ## Notes
 
@@ -123,3 +145,15 @@ Found while clearing #727, and recorded here rather than fixed in passing.
 **The refusal was correct behaviour against a stale list**, which is the right way for it to fail. #727 was repaired by the documented manual procedure instead: merge, take a side, `pnpm run build:board`, `pnpm run test:board` green, push.
 
 Its own comment says the constant is paired with a board-side one *"asserted by a test rather than trusted"*, so widening it is three changes and a test — its own slice, not a line edit.
+
+### Round 1 — 2026-09-06
+
+**The third explanation is wrong too, and a sandbox settled it in two commands.** *Stage, then pull, then commit* is impossible: git refuses to pull with a dirty index — `error: Please commit or stash them.` on `--ff-only`, `error: cannot pull with rebase: Your index contains uncommitted changes.` on `--rebase`.
+
+**And the slice's mechanism does not exist.** It said to *"compare the index's recorded HEAD against the current one"*. The index records blobs and paths; `strings .git/index` contains the HEAD sha **zero** times. There was nothing to compare, and no round had checked.
+
+**What the blobs establish is narrow and certain**: the commit at 13:53 wrote the blob its session's HEAD held at 13:34, onto a parent that already held a newer one. So the file on disk carried the older content — while a fast-forward pull, verified in the sandbox, **does** update the working tree.
+
+**Between 13:43 and 13:53 something restored it, and this plan cannot say what.** `reset_desk` is scoped to worktrees; no Plot script writes plan files.
+
+**Three explanations, three disprovals.** The pattern is the finding: each was reasoned from the same blob evidence and each felt sufficient. **The slice stops proposing a fourth** and builds the record that would let the next occurrence answer for itself.
