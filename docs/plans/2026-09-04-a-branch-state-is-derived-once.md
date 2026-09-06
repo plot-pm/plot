@@ -4,12 +4,13 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 3
+- **Approved:** 2026-09-06, Jan Wloka, plan-PR #702 merged
 
 ## Changelog
 
