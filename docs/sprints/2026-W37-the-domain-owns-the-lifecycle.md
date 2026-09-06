@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Planned
+- **Phase:** Active
 - **Start:** 2026-09-05
 - **End:** 2026-09-19
 - **Release:** 2.14.0
