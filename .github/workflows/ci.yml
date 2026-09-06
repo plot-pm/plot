@@ -341,6 +341,26 @@ jobs:
       - name: One answer to did-this-land
         run: ./scripts/check-ancestry-decisions.sh
 
+      # ONE PLACE TALKS TO THE HOST, and it is `plot-host.sh`. That sentence has
+      # been in CLAUDE.md since the adapter was written, and on 2026-09-05 four
+      # scripts held their own `gh` call anyway — a rule failing exactly as
+      # CLAUDE.md predicts a rule will, so it is a gate now.
+      #
+      # A second caller does not merely duplicate. Each of those four asked
+      # about GitHub and nothing else, so a Bitbucket checkout got a helper that
+      # was absent rather than wrong: `plot-pr-state.sh` answered
+      # `{"found": false}` about a plan whose PR was open. And the copies drift
+      # — the adapter learned Bitbucket's DECLINED-is-CLOSED normalisation and
+      # its rate-limit exit codes, and none of the four did.
+      #
+      # A path check with a named exception list, simpler than the ancestry gate
+      # above it: there the violation is a DECISION no line can show, here the
+      # line itself is the violation. Comments and advice text are excluded
+      # deliberately — two scripts mention `gh` in prose only, and a gate
+      # flagging them would be reverted on its first run.
+      - name: One place talks to the host
+        run: ./scripts/check-host-cli-callers.sh
+
       # A PLAN'S BRANCH SECTION IS `## Slices`. The parser reads all three
       # spellings and always will — a plan file may be a year old, and refusing
       # to read the old word would make Plot worse at its job. This gates what

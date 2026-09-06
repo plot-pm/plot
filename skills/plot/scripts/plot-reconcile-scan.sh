@@ -267,96 +267,128 @@ pr_head_branches() { # $1="<number> <head>" lines → head lines
   printf '%s\n' "$1" | sed -n 's/^[0-9][0-9]*  *//p'
 }
 
+# THE HOST IS ASKED THROUGH `plot-host.sh`, never `gh` or `bb` directly.
+#
+# Until 2026-09-05 this function held its own copy of the backend split: a
+# `case` on origin's URL, a `command -v` probe per CLI, two query shapes for
+# GitHub and three for Bitbucket (bb >=3.1 field form, the older full-object
+# fallback, and their two separate jq parses). Every one of those is a decision
+# the adapter already makes, and holding a second copy is how the two came to
+# disagree — `plot-host.sh` learned Bitbucket's `DECLINED`-is-`CLOSED`
+# normalisation and its rate-limit exit codes, and this copy did not.
+#
+# `pr-list` answers on both backends and emits ONE shape: JSON lines carrying
+# `number` and `head`, already normalised. So the parse below is backend-blind,
+# which is what the duplication cost us.
+#
+# EVERY STATE THIS FUNCTION REPORTED IS STILL REPORTED, and the mapping is the
+# only new thing here. The adapter has no `command -v` probe — it calls the CLI
+# and lets it fail — so an absent CLI arrives as a failed call whose stderr says
+# `command not found`, and that text is what separates `absent` from `failed`.
+# Both were exit-0-with-a-state before and both still are: the scan degrades,
+# it does not die.
+#
+# TWO CALLS, NOT ONE. `--state all` would fetch both lists in a single round
+# trip, but the two are consumed differently — open PRs gate section 3, merged
+# heads answer the single-PR-plan check, and only the merged one is truncation
+# -checked against `MERGED_PR_LIMIT`. A merged list capped at 500 and an open
+# list capped at nothing cannot share a limit, and a shared page would let
+# hundreds of merged PRs crowd out the open ones the scan actually gates on.
+#
+# THE ERROR TEXT IS THE CLI'S OWN, carried through the adapter's stderr. A
+# machine reads `PR_SOURCE`; a person reads `PR_ERROR`, and "HTTP 429" said by
+# the host is worth more than any word this scan could substitute.
 load_open_pr_branches() {
-  local url slug out err rc tmpstderr cli
+  local out err rc tmpstderr host_script backend
+
+  host_script="$script_dir/plot-host.sh"
+  if [ ! -r "$host_script" ]; then
+    PR_SOURCE="absent"; PR_ERROR="plot-host.sh not found beside this script"; return 0
+  fi
+
+  # ORIGIN NAMES THE HOST, AND THE ADAPTER TALKS TO IT. These are two different
+  # facts and this function now holds only the first.
+  #
+  # WHY ORIGIN AND NOT `plot-host.sh backend`. The adapter resolves its backend
+  # from the `Git host` config key, defaulting to github — a DECLARATION about
+  # the repo. This scan needs the host that origin actually points at, because
+  # it compares `origin/*` refs and a repo may carry extra remotes on other
+  # hosts: letting the CLI resolve "any" remote silently enumerates the wrong
+  # repo's PRs. That was this function's original reason for the URL `case` and
+  # it is untouched by routing. A Bitbucket checkout that never wrote the config
+  # key still reads `pr_source=bb` here, as it always has.
+  #
+  # `PLOT_HOST` IS HOW THE ANSWER IS CARRIED, and it is the adapter's own
+  # documented override — `plot-host.sh:1306`, "$PLOT_HOST (github|bitbucket)
+  # wins". So the scan states which host it means and the adapter obeys, rather
+  # than each reaching a private conclusion. Exported for the call only; a repo
+  # whose config disagrees with its origin is still asking about origin, which
+  # is the only remote whose refs this scan reads.
+  #
+  # `degraded` SURVIVES as the legacy state for an origin on neither host — the
+  # host is unknown rather than broken, and git merge-state alone still answers.
+  local url host_env slug repo_args
   url=$(git remote get-url origin 2>/dev/null) || return 0
-  tmpstderr=$(mktemp)
+  case "$url" in
+    *github.com*) backend="gh"; host_env="github" ;;
+    *bitbucket*)  backend="bb"; host_env="bitbucket" ;;
+    *) return 0 ;;
+  esac
+
+  # PIN THE LIST TO ORIGIN'S REPOSITORY, for the same reason the host is read
+  # from origin one comment up: this scan joins the PR list against `origin/*`
+  # refs, and a checkout with a second remote on the same host lets an unpinned
+  # list enumerate the other repository — every branch would read as having no
+  # open PR, and section 3 would call the whole estate orphaned.
+  #
+  # GitHub only. `bb` is already scoped to the repository it is run in and
+  # takes no `-R`, so passing one would fail the call rather than narrow it.
+  repo_args=""
+  if [ "$backend" = "gh" ]; then
+    slug=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/]+/[^/]+)$#\1#')
+    [ -n "$slug" ] && repo_args="--repo $slug"
+  fi
+
+  tmpstderr=$(mktemp) || { PR_SOURCE="failed"; PR_ERROR="could not create a temp file"; return 0; }
   # Clean up the temp file on return. Use /bin/rm to avoid PATH issues.
   trap "/bin/rm -f '$tmpstderr' 2>/dev/null" RETURN
 
-  case "$url" in
-    *github.com*)
-      cli="gh"
-      if ! command -v gh >/dev/null 2>&1; then
-        PR_SOURCE="absent"; PR_ERROR="gh not found on PATH"; return 0
-      fi
-      # Pin gh to origin's repo so a second GitHub remote can't win.
-      slug=$(printf '%s' "$url" | sed -E 's#\.git$##; s#^.*[:/]([^/]+/[^/]+)$#\1#')
-      # number AND head in one call: the head alone answers "is this branch the
-      # PR's head", the number is needed to name the PR a branch is contained
-      # in (section 3). Still ONE call — the extra field is free.
-      #
-      # SEPARATE call from parse: capture the CLI's own exit status, not jq's.
-      # A 429 makes gh exit non-zero; testing `$?` after a pipe loses that.
-      out=$(gh pr list -R "$slug" --state open --json number,headRefName \
-              --jq '.[] | "\(.number) \(.headRefName)"' 2>"$tmpstderr")
-      rc=$?
-      err=$(head -1 "$tmpstderr" 2>/dev/null)
-      if [ "$rc" -ne 0 ]; then
-        PR_SOURCE="failed"; PR_ERROR="${err:-gh exited $rc}"; return 0
-      fi
-      # SUCCESS — empty output is a VALUE (zero open PRs), not a failure.
-      PR_SOURCE="gh"; open_pr_heads="$out"; open_prs=$(pr_head_branches "$out")
-      # Merged counterpart, same call shape, same repo pin. Bundled: ONE
-      # call for all plans, so cost is constant in plan count.
-      if out=$(gh pr list -R "$slug" --state merged --limit "$MERGED_PR_LIMIT" \
-                 --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"' 2>/dev/null); then
-        merged_pr_heads="$out"
-      fi
-      ;;
+  # SEPARATE call from parse: capture the adapter's own exit status, not jq's.
+  # A 429 makes it exit 5; testing `$?` after a pipe loses that.
+  out=$(PLOT_HOST="$host_env" bash "$host_script" pr-list --state open $repo_args </dev/null 2>"$tmpstderr")
+  rc=$?
+  err=$(head -1 "$tmpstderr" 2>/dev/null)
+  if [ "$rc" -ne 0 ]; then
+    # An absent CLI is a CONFIGURATION, not a fault, and it was `absent` here
+    # long before the adapter existed. The adapter cannot tell them apart by
+    # exit code — `plot-host.sh` exits 3 for a missing binary and for a genuine
+    # transport failure alike — so the CLI's own words decide, the same reading
+    # `plot-fleet-scan.sh` makes of the same stderr.
+    case "$err" in
+      *"command not found"*|*"not found"*|*"No such file or directory"*)
+        PR_SOURCE="absent"; PR_ERROR="${backend} not found on PATH" ;;
+      *)
+        PR_SOURCE="failed"; PR_ERROR="${err:-plot-host.sh exited $rc}" ;;
+    esac
+    return 0
+  fi
+  # SUCCESS — empty output is a VALUE (zero open PRs), not a failure.
+  #
+  # `number` AND `head` from one call: the head alone answers "is this branch
+  # the PR's head", the number is needed to name the PR a branch is contained
+  # in (section 3). The adapter emits both on every line.
+  PR_SOURCE="$backend"
+  open_pr_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
+  open_prs=$(pr_head_branches "$open_pr_heads")
 
-    *bitbucket*)
-      cli="bb"
-      if ! command -v bb >/dev/null 2>&1; then
-        PR_SOURCE="absent"; PR_ERROR="bb not found on PATH"; return 0
-      fi
-      # bb >=3.1 (agent-skills#18) is gh-symmetric for this call; older bb
-      # rejects the field argument and falls back to the full-object form.
-      # Full-object form FIRST here, unlike gh: it is the only bb shape known
-      # to carry the PR id, and Bitbucket names it `.id`, not `.number` (see
-      # the merged list below).
-      #
-      # SEPARATE call from parse: under a pipeline `$?` is jq's, not bb's.
-      # A 429 makes bb fail; jq reads empty input and exits 0, so the only
-      # thing that noticed was `[ -n "$out" ]` — indistinguishable from a repo
-      # with zero open PRs. This is the measured bug.
-      #
-      # Use `set -o pipefail` locally or split the call. We split for clarity.
-      local bb_raw
-      bb_raw=$(bb pr list --state open --json 2>"$tmpstderr")
-      rc=$?
-      err=$(head -1 "$tmpstderr" 2>/dev/null)
-      if [ "$rc" -ne 0 ]; then
-        # Try the fallback form (older bb).
-        bb_raw=$(bb pr list --state open --json headRefName 2>"$tmpstderr")
-        rc=$?
-        err=$(head -1 "$tmpstderr" 2>/dev/null)
-        if [ "$rc" -ne 0 ]; then
-          PR_SOURCE="failed"; PR_ERROR="${err:-bb exited $rc}"; return 0
-        fi
-        # Fallback succeeded — parse with --jq '.[].headRefName'.
-        out=$(printf '%s' "$bb_raw" | jq -r '.[].headRefName' 2>/dev/null)
-        if [ $? -ne 0 ]; then
-          PR_SOURCE="failed"; PR_ERROR="jq parse failed on bb output"; return 0
-        fi
-        # SUCCESS — empty output is a VALUE (zero open PRs).
-        PR_SOURCE="bb"; open_prs="$out"
-        return 0
-      fi
-      # Full-object form succeeded — parse for id and branch.
-      out=$(printf '%s' "$bb_raw" | jq -r '.[] | "\(.id) \(.source.branch.name)"' 2>/dev/null)
-      if [ $? -ne 0 ]; then
-        PR_SOURCE="failed"; PR_ERROR="jq parse failed on bb output"; return 0
-      fi
-      # SUCCESS — empty output is a VALUE (zero open PRs).
-      PR_SOURCE="bb"; open_pr_heads="$out"; open_prs=$(pr_head_branches "$out")
-      # Merged counterpart, same call shape.
-      if out=$(bb pr list --state merged --json 2>/dev/null \
-                 | jq -r '.[] | "\(.id) \(.source.branch.name)"' 2>/dev/null); then
-        merged_pr_heads="$out"
-      fi
-      ;;
-  esac
+  # Merged counterpart, same call shape. Bundled: ONE call for all plans, so
+  # cost is constant in plan count. A failure here is TOLERATED and always was
+  # — the merged list feeds one advisory check, and section 8 says so in its
+  # own note when the heads are missing.
+  if out=$(PLOT_HOST="$host_env" bash "$host_script" pr-list --state merged --limit "$MERGED_PR_LIMIT" $repo_args </dev/null 2>/dev/null); then
+    merged_pr_heads=$(printf '%s' "$out" | jq -r 'select(.number != null) | "\(.number) \(.head)"' 2>/dev/null)
+  fi
+
   # Did the page fill exactly? Then older merged PRs exist that we did not see.
   if [ -n "$merged_pr_heads" ] \
      && [ "$(printf '%s\n' "$merged_pr_heads" | grep -c .)" -ge "$MERGED_PR_LIMIT" ]; then

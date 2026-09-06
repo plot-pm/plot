@@ -41,7 +41,7 @@ Scripts in `skills/plot/scripts/` that any model tier can use:
 
 | Script | Purpose |
 |--------|---------|
-| `plot-pr-state.sh` | Query plan PR state (draft/ready/merged/closed) |
+| `plot-pr-state.sh` | Query plan PR state (draft/ready/merged/closed), asked through `plot-host.sh` so it answers on Bitbucket too. Reports `mergeCommit` rather than `mergedAt` |
 | `plot-impl-status.sh` | Query all implementation PR states for a slug |
 | `plot-review-status.sh` | Check review freshness for sprint items |
 | `plot-update-board.sh` | Update GitHub Projects board status for a PR |
