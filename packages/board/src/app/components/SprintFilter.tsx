@@ -141,6 +141,24 @@ export function SprintFilter({ sprints, selected, onToggle, estateTotals }: Spri
                     target {sprint.release}
                   </span>
                 )}
+                {/* The timebox. The WORDING is the server's — `timeboxLabel`
+                    already says "3 days late" — so this chooses a colour and
+                    nothing else. A sprint past its end is amber against the
+                    plain slate of one still inside its box, which is what makes
+                    an elapsed timebox visible at a glance. */}
+                {sprint.timeboxLabel && (
+                  <span
+                    data-sprint-timebox={sprint.slug}
+                    data-timebox={sprint.timebox}
+                    className={
+                      sprint.timebox === 'late'
+                        ? 'font-medium text-amber-700 dark:text-amber-500'
+                        : 'text-slate-500 dark:text-slate-400'
+                    }
+                  >
+                    {sprint.timeboxLabel}
+                  </span>
+                )}
               </div>
               {/* Show estate totals when OFF, sprint counts when ON.
                   The prefix "Total —" vs "Sprint —" states the scope.

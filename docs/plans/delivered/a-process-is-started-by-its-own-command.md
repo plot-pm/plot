@@ -1,0 +1,1 @@
+../2026-09-05-a-process-is-started-by-its-own-command.md

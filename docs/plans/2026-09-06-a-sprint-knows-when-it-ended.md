@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -16,6 +16,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-sprint-phase-meets-its-index`
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-sprint-names-a-shipped-release`
 - **Started:** 2026-09-07, Jan Wloka, `feature/a-sprint-shows-its-dates`
+- **Delivered:** 2026-09-07
 
 ## Changelog
 
@@ -94,7 +95,7 @@ The scan reports a non-Closed sprint whose `Release:` has been tagged.
 
 **Done when** the scan reports a non-Closed sprint whose declared release has shipped, and closes none of them.
 
-### The timebox is read (Branch: feature/a-sprint-shows-its-dates)
+### The timebox is read (Branch: feature/a-sprint-shows-its-dates, PR: #752)
 
 `start` and `end` reach the board's sprint card.
 

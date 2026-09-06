@@ -170,7 +170,7 @@ which is measured rather than classified. The ratchet decides which of the
   absent rather than empty. **Asserted: the three existing consumers
   (`eligible.ts`, `waiting.ts`, `verdict.ts`) are unchanged** — they already take
   a `BranchState`, so a correct derivation needs no edit to any of them, and an
-  edit would mean the shape was wrong.
+  edit would mean the shape was wrong. — PR #750
 
 ### Asking it from the scan
 
