@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-04, Jan Wloka, plan-PR #701 merged
 - **Started:** 2026-09-05, Jan Wloka, `feature/a-plan-has-a-state`
 - **Started:** 2026-09-06, Jan Wloka, `feature/the-workflow-has-phases`
+- **Started:** 2026-09-06, Jan Wloka, `feature/a-phase-names-its-work`
 
 ## Changelog
 
