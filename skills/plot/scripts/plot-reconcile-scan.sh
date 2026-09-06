@@ -3,18 +3,18 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: fifteen-section text report on stdout (each finding carries its exact
+# Output: sixteen-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed). A
 #         `== blocking sections end ==` line separates the findings that stop a
 #         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
 #         it. The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits a fifteen-section report. This is the COMPUTATIONAL half of the
+# emits a sixteen-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -136,6 +136,27 @@
 #                                 from `sprint_drift=` (plans) and
 #                                 `sprint_index_drift=` (phase vs index) — and
 #                                 stays out of `attention`.
+#  16. Stated waits             — a LIVE slice (Draft or Approved) whose body
+#                                 CLAIMS a wait while its branch line carries
+#                                 no `waits:`. Two records of one fact, and
+#                                 only the annotation reaches the fleet:
+#                                 measured 2026-09-06, a slice whose body said
+#                                 *"IT WAITS FOR ... (#705)"* read as eligible
+#                                 and a person recognising the prose was the
+#                                 only thing that stopped it dispatching.
+#                                 MATCHES THE CLAIM, NOT THE REFERENCE — the
+#                                 drafted rule (a body linking a plan or naming
+#                                 a PR) fired on 391 of 477 slices, because
+#                                 plans cite each other as context constantly.
+#                                 ONE PHRASE, `waits for` / `waits on`, and the
+#                                 SUBJECT must be the slice: that anchor is
+#                                 what separates a claim from a `--stop` that
+#                                 waits for each worker to exit. Backticked
+#                                 spans quote the phrase and never claim it.
+#                                 REPORTS AND NEVER GATES — the annotation
+#                                 names a branch no shell can guess — so it
+#                                 carries `stated_waits=` and stays out of
+#                                 `attention`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -617,7 +638,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0; n_double=0
-n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0
+n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0; n_stated=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -1851,6 +1872,141 @@ fi
 if [ -n "$sprint_ship_out" ]; then printf '%b' "$sprint_ship_out"; else echo "  (none — no open sprint's release has shipped)"; fi
 echo
 
+# ---------------------------------------------------------------------------
+# 16. Stated waits with no annotation
+#
+# A LIVE slice whose body claims a wait its branch line does not carry. The
+# gap is between two records of one fact — what the plan SAYS a slice waits
+# for, and what the machine can READ — and only the second reaches the fleet.
+#
+# MEASURED 2026-09-06. `a-desk-is-adopted-and-swept` said in bold: *"**IT WAITS
+# FOR** `a-desk-is-finished-with-once` (#705)."* Its heading carried no
+# `waits:`, so `bug/the-reaper-reads-prunable` read as eligible, reached the
+# supervisor's queue as `no-brief`, and **a person recognising the prose was
+# the only thing that stopped it dispatching.**
+#
+# IT MATCHES THE CLAIM, NOT THE REFERENCE — the first drafted rule was measured
+# and discarded. *A slice body linking a plan file or naming a PR number
+# without `waits:`* fires on **391 of 477 slices**: plans cite each other as
+# context constantly, and a link is not a claim. A finding that fires on four
+# slices in five is one a reader learns to skip.
+#
+# ONE PHRASE, AND IT IS THE ESTATE'S OWN. `waits for` / `waits on`. The two
+# near misses were measured and rejected: `depends on` (16 hits) reads as design
+# rationale more often than ordering, and `after the …` / `after #…` (13) is
+# temporal prose. Neither is a dependency claim in this estate's usage, and
+# adding them buys 29 findings that are not the defect.
+#
+# THE SUBJECT MUST BE THE SLICE, and that is what separates a claim from a
+# description. `waits for` alone hits 12 slices; every genuine one names the
+# thing waiting — *this slice waits on*, *IT WAITS FOR* — while every false
+# positive describes something else doing the waiting: a `--stop` that "waits
+# for each worker to exit", a wave row that "links what it waits on", a loop
+# that "waits on its child". Anchoring on the subject takes 12 to 2, and those
+# 2 are exactly the two the plan's own author read as genuine by hand. The
+# sentence is what the reader judges, so the anchor must be in it.
+#
+# A CODE SPAN QUOTES THE PHRASE, IT DOES NOT MAKE THE CLAIM. Backticked spans
+# are stripped before matching — the same rule `plot-plan-meta.sh` applies to
+# keep a syntax example from becoming a declaration. Without it, this plan's
+# own slice reports itself: its body tabulates `` `waits for` / `waits on` ``
+# as the phrases it measured.
+#
+# DRAFT AND APPROVED ONLY. A Released or Delivered plan's wait was resolved by
+# shipping, and reporting it is noise about finished work. That single filter
+# is what takes the whole-estate count to **zero on today's estate** — which is
+# the state this section was written to hold, not an aspiration. A file with no
+# `Phase:` is not a plan and never reaches this test, the same rule sections 1,
+# 7, 8, 12 and 13 apply.
+#
+# IT REPORTS AND CORRECTS NOTHING. A plan may legitimately say a slice waits
+# while its author decides the sentence is context. The finding names the slice
+# and quotes the sentence so a person can add the annotation or dismiss it —
+# the posture every advisory section here already has.
+#
+# CONVENIENCE, NEVER A GATE. An unannotated wait is a legibility gap, not a
+# broken pointer, and an advisory finding that can stop a delivery is a gate
+# nobody agreed to. It carries its own footer counter (`stated_waits=`), stays
+# OUT of `attention=`, and sits below the `== blocking sections end ==` marker,
+# which is what keeps it out of /plot-deliver's gate.
+echo "== 16. Stated waits with no annotation (convenience — nothing depends on these) =="
+stated_out=""
+if [ -n "$plan_json" ]; then
+  # The LIVE plan files, from the parser rather than a second phase grep.
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ -f "$f" ] || continue
+    hits=$(awk -v PREFIXES="$PREFIX_RE" '
+      # A fenced block is illustration, never contract — the standing rule this
+      # scan and plot-plan-meta.sh both already apply.
+      /^[ \t]*(```|~~~)/ { in_fence = !in_fence; next }
+      in_fence { next }
+      # ONE slices section, first spelling wins — plot-plan-meta.sh:736.
+      /^## / {
+        emit()
+        if ($0 ~ /^## Branches/ || $0 ~ /^## Waves/ || $0 ~ /^## Slices/) {
+          section = seen ? "" : "slices"; seen = 1
+        } else section = ""
+        next
+      }
+      section != "slices" { next }
+      # The heading dialect: the branch and the annotation ride the `### `.
+      /^### / {
+        emit()
+        if (match($0, "Branch:[ \t]*(" PREFIXES ")/[^ \t,)]+")) {
+          cur = substr($0, RSTART, RLENGTH); sub(/^Branch:[ \t]*/, "", cur)
+          annotated = ($0 ~ "<!--[ \t]*waits:[ \t]*(" PREFIXES ")/") ? 1 : 0
+        } else cur = ""
+        next
+      }
+      {
+        # The list dialect: branch, annotation and body are ONE line, so the
+        # slice opens and closes on it.
+        if (match($0, "^[ \t]*[-*][ \t]+`(" PREFIXES ")/[^`]+`")) {
+          emit()
+          cur = substr($0, RSTART, RLENGTH); sub(/^[^`]*`/, "", cur); sub(/`$/, "", cur)
+          annotated = ($0 ~ "<!--[ \t]*waits:[ \t]*(" PREFIXES ")/") ? 1 : 0
+          claim($0); emit(); next
+        }
+        if (cur != "") claim($0)
+      }
+      # The first claiming sentence in the body is the one quoted: a reader
+      # needs the sentence that names the wait, not every line mentioning one.
+      function claim(l,   s) {
+        if (found != "") return
+        s = tolower(l)
+        gsub(/`[^`]*`/, " ", s)   # a code span quotes the phrase; it never claims
+        if (s ~ /(this slice|this branch|this wave|(^|[.!?][ \t]+|\*\*)it)[^.!?]*waits (for|on)/) found = l
+      }
+      function emit(   q) {
+        if (cur != "" && found != "" && !annotated) {
+          q = found
+          gsub(/^[ \t>*]+/, "", q); gsub(/[ \t]+$/, "", q)
+          if (length(q) > 120) q = substr(q, 1, 117) "..."
+          printf "%s\t%s\n", cur, q
+        }
+        cur = ""; found = ""; annotated = 0
+      }
+      END { emit() }
+    ' "$f")
+    [ -n "$hits" ] || continue
+    base=$(basename "$f")
+    while IFS="$(printf '\t')" read -r sbranch sentence; do
+      [ -n "$sbranch" ] || continue
+      stated_out+="  $base — slice \`$sbranch\` claims a wait its line does not carry:\n"
+      stated_out+="      \"$sentence\"\n"
+      # The repair is a person deciding whether the sentence IS a dependency,
+      # so the verb is `consider:`. A shell cannot read the author's intent —
+      # and the annotation names a branch this scan has no way to guess.
+      stated_out+="    consider: add \`<!-- waits: <branch> -->\` to the slice's line, or reword the sentence — it is prose today\n"
+      n_stated=$((n_stated + 1))
+    done <<< "$hits"
+  done < <(printf '%s\n' "$plan_json" \
+    | jq -r 'select(.phase == "draft" or .phase == "approved") | .file')
+fi
+if [ -n "$stated_out" ]; then printf '%b' "$stated_out"; else echo "  (none — every live slice claiming a wait carries the annotation)"; fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated pr_source=$PR_SOURCE main=$MAIN"
 exit 0

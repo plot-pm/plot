@@ -267,7 +267,7 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // its shipped-release case has its own fixture.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -2744,4 +2744,225 @@ test('scan: section 15 is distinct from both sprint counters beside it', () => {
   // one sprint is reported by 14 and not by 15.
   assert.match(srlSections['14'], /2026-W06-unshipped\.md/, 'section 14 sees it');
   assert.doesNotMatch(srlSections['15'], /2026-W06-unshipped\.md/, 'section 15 does not');
+});
+
+// ---------------------------------------------------------------------------
+// Section 16 — stated waits with no annotation.
+//
+// Its own fixture, because the discriminators are all about WORDING and the
+// shared fixture's plans are written to exercise phases and symlinks. Proves:
+//   1. A slice body claiming a wait with no `waits:` is reported, in both
+//      plan dialects (`### ` heading and `- \`branch\`` list item)
+//   2. The sentence is quoted, so a reader can judge the finding
+//   3. A slice carrying the annotation is silent — the fix is the annotation
+//   4. The subject must be the slice: a `--stop` that "waits for each worker
+//      to exit" is a description of behaviour, not a dependency claim
+//   5. A backticked span quotes the phrase and never claims it
+//   6. A plan link or a PR number alone is NOT a wait — the drafted rule that
+//      fired on 391 of 477 slices
+//   7. `depends on` and `after` are not matched
+//   8. Delivered and Released plans are not scanned
+//   9. It counts in the footer, gates nothing, and sits below the marker
+// ---------------------------------------------------------------------------
+
+let swTmp, swRepo, swReport, swSections;
+
+before(() => {
+  swTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-sw-'));
+  const origin = path.join(swTmp, 'origin.git');
+  swRepo = path.join(swTmp, 'repo');
+  git(swTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(swTmp, 'clone', '-q', origin, swRepo);
+  git(swRepo, 'config', 'user.email', 'test@example.invalid');
+  git(swRepo, 'config', 'user.name', 'Plot Test');
+  git(swRepo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(swRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+`);
+
+  const status = (phase) => `## Status
+
+- **Phase:** ${phase}
+- **Type:** bug
+`;
+
+  // THE MEASURED CASE, in the heading dialect. `a-desk-is-adopted-and-swept`
+  // said exactly this and carried no annotation, so the branch read as
+  // eligible and reached the supervisor's queue.
+  w('plans/2026-01-01-stated.md', `# Stated
+
+${status('Approved')}
+## Slices
+
+### A vanished desk is not a desk (Branch: bug/stated-heading)
+
+**IT WAITS FOR [\`another-plan\`](2026-01-02-other.md) (#705).** That plan unifies two implementations of one question.
+
+### Annotated already (Branch: bug/annotated-heading) <!-- waits: bug/stated-heading -->
+
+**This slice waits on the branch above**, and its line says so — the annotation is the fix, so this must be silent.
+`);
+
+  // The list dialect: branch, annotation and body are ONE line.
+  w('plans/2026-01-03-listed.md', `# Listed
+
+${status('Draft')}
+## Branches
+
+- \`bug/stated-list\` — the repair lands here. **This slice waits on the parser slice**, which has to land first.
+- \`bug/annotated-list\` <!-- waits: bug/stated-list --> — **it waits on the slice above**, and its line already says so.
+`);
+
+  // EVERY FALSE POSITIVE THE ESTATE MEASURED, in one live plan. None may
+  // report: each was read by hand and is not a dependency claim.
+  w('plans/2026-01-04-quiet.md', `# Quiet
+
+${status('Approved')}
+## Slices
+
+### The fleet changes hands (Branch: bug/describes-behaviour)
+
+**\`--stop\` IS AN ORCHESTRATION.** It calls \`plot-dispatch.sh --stop <branch>\` once per dispatched agent, waits for each worker to exit, and only then unloads the supervisor.
+
+### The phrase is tabulated (Branch: bug/quotes-the-phrase)
+
+Measured over the same 477 slices — the phrase this section matches is \`waits for\` / \`waits on\`, and quoting it must not report the slice that defines it.
+
+### A link is not a claim (Branch: bug/links-a-plan)
+
+Built on [\`the-other-plan\`](2026-01-02-other.md), and #705 lands the groundwork. The drafted rule fired on 391 of 477 slices exactly here.
+
+### Near misses stay out (Branch: bug/near-misses)
+
+This slice depends on the parser landing, and it goes after #705. Neither phrase is a dependency claim in this estate's usage.
+`);
+
+  // NOT SCANNED. A shipped plan's wait was resolved by shipping, and this is
+  // the filter that takes the whole-estate count to zero.
+  w('plans/2026-01-05-shipped.md', `# Shipped
+
+${status('Released')}
+## Slices
+
+### Long since done (Branch: bug/released-stated)
+
+**This slice waits on a branch that merged weeks ago**, and reporting it is noise about finished work.
+`);
+  w('plans/2026-01-06-delivered.md', `# Delivered
+
+${status('Delivered')}
+## Slices
+
+### Also done (Branch: bug/delivered-stated)
+
+**It waits on the slice before it**, and the plan is delivered.
+`);
+
+  git(swRepo, 'add', '-A');
+  git(swRepo, 'commit', '-q', '-m', 'stated-waits fixture');
+  git(swRepo, 'push', '-q', 'origin', 'main');
+
+  swReport = execFileSync('bash', [scan, '--offline'], { encoding: 'utf8', cwd: swRepo });
+  swSections = splitSections(swReport);
+});
+
+after(() => {
+  if (swTmp) fs.rmSync(swTmp, { recursive: true, force: true });
+});
+
+test('scan: section 16 reports a stated wait in the heading dialect', () => {
+  assert.match(swSections['16'], /bug\/stated-heading/,
+    `the measured case must be named:\n${swSections['16']}`);
+});
+
+test('scan: section 16 reports a stated wait in the list dialect', () => {
+  // Both plan shapes are live on this estate, and a section reading only one
+  // is silent on half the plans without saying so.
+  assert.match(swSections['16'], /bug\/stated-list/,
+    `the list dialect must be read too:\n${swSections['16']}`);
+});
+
+test('scan: section 16 quotes the sentence', () => {
+  // The finding is weaker than a verdict, so it must name its evidence: a
+  // reader decides whether the sentence IS a dependency claim.
+  assert.match(swSections['16'], /IT WAITS FOR/,
+    `the claiming sentence must be quoted:\n${swSections['16']}`);
+  assert.match(swSections['16'], /This slice waits on the parser slice/,
+    'and the list dialect quotes its own line');
+});
+
+test('scan: section 16 is silent on a slice that carries the annotation', () => {
+  // Adding `waits:` IS the repair, so the section must go quiet when it lands.
+  assert.doesNotMatch(swSections['16'], /bug\/annotated-heading/,
+    `an annotated heading is the fixed state:\n${swSections['16']}`);
+  assert.doesNotMatch(swSections['16'], /bug\/annotated-list/,
+    `and so is an annotated list item:\n${swSections['16']}`);
+});
+
+test('scan: section 16 does not match a wait whose subject is not the slice', () => {
+  // The measured false positive: `--stop` waits for each worker to exit. The
+  // sentence describes runtime behaviour; nothing about the slice waits.
+  assert.doesNotMatch(swSections['16'], /bug\/describes-behaviour/,
+    `a described wait is not a claimed one:\n${swSections['16']}`);
+});
+
+test('scan: section 16 does not match the phrase inside a code span', () => {
+  // A plan documenting this section tabulates the phrases it matches. Without
+  // the code-span strip, the slice that defines the check reports itself.
+  assert.doesNotMatch(swSections['16'], /bug\/quotes-the-phrase/,
+    `a backticked phrase quotes, it does not claim:\n${swSections['16']}`);
+});
+
+test('scan: section 16 does not match a plan link or a PR number', () => {
+  // The drafted rule, measured at 391 of 477 slices — 82% of the estate. A
+  // finding that fires on four slices in five is one a reader learns to skip.
+  assert.doesNotMatch(swSections['16'], /bug\/links-a-plan/,
+    `a citation is context, not a wait:\n${swSections['16']}`);
+});
+
+test('scan: section 16 does not match `depends on` or `after`', () => {
+  // 29 further hits, and neither reads as a dependency claim here: `depends
+  // on` is design rationale more often than ordering, `after` is temporal.
+  assert.doesNotMatch(swSections['16'], /bug\/near-misses/,
+    `the near misses stay out:\n${swSections['16']}`);
+});
+
+test('scan: section 16 scans only Draft and Approved plans', () => {
+  // The filter that makes the section silent on today's estate. A shipped
+  // plan's wait was resolved by shipping.
+  assert.doesNotMatch(swSections['16'], /bug\/released-stated/,
+    `a Released plan is not scanned:\n${swSections['16']}`);
+  assert.doesNotMatch(swSections['16'], /bug\/delivered-stated/,
+    `nor is a Delivered one:\n${swSections['16']}`);
+});
+
+test('scan: section 16 counts in the footer and gates nothing', () => {
+  const footer = swReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bstated_waits=2\b/,
+    `two stated waits, one counter:\n${footer}`);
+  // THE POINT OF THE PLACEMENT. An unannotated wait is a legibility gap, and
+  // an advisory finding that can stop a delivery is a gate nobody agreed to.
+  assert.match(footer, /\battention=0\b/,
+    `section 16 must not reach attention=:\n${footer}`);
+});
+
+test('scan: section 16 sits below the blocking marker', () => {
+  const marker = swReport.indexOf('== blocking sections end ==');
+  const section = swReport.indexOf('== 16. ');
+  assert.ok(marker > 0, 'the fixture report carries the marker');
+  assert.ok(section > marker,
+    'section 16 must sit below the marker, like every other advisory section');
 });
