@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 4
+- **Rounds:** 5
 
 ## Changelog
 
@@ -55,6 +55,12 @@
 
 **Not a fourth implementation.** The arm exists in the shell. The board should reach it, not re-derive it.
 
+**Not the board taking a new kind of action.** `row-identity.ts:152` records an Open Point — *whether the board should offer the brief-writing action* — and declined it because *"running `/plot-implement` is a real write, and the board's line is drawn at the acting endpoints it already has."*
+
+**That line is not crossed, because the brief is not a separate action.** It is an intermediate step inside dispatch, and `plot-dispatch.sh:429` already calls it *"that step"*. A dispatch that cannot start without a brief and cannot get one is a dispatch that fails; asking for the brief is part of dispatching, the way cutting a desk and pushing a claim already are. The acting endpoint is the one that exists — `/api/dispatch` — and nothing here adds a second.
+
+**So the badge stops being the whole answer.** It names the file and the command for a reader, which stays right; what changes is that a dispatch no longer stops at naming it.
+
 **Not a change to `Start work`.** Round 1 measured it: `isReadyToStart` tests `phase === 'Development' && started === false` and never consults the brief, so the button is already offered for an unbriefed slice, and `/api/dispatch` spawns `plot-dispatch.sh`, which already asks. The slice proposing to add that was deleted rather than kept as a no-op.
 
 ## Slices
@@ -97,13 +103,17 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 
 **SO THE MARK IS KEYED BY SLUG.** One ask per plan per pass, however many of its branches are unbriefed — which is also what the command actually does. A per-branch mark would be counting the wrong thing and paying for it twice.
 
+**THE BADGE GAINS A THIRD STATE, BECAUSE ITS SENTENCE STOPS BEING TRUE.** `rows.tsx:2056` renders `needs a brief` in amber — the `waitingOn: 'you'` colour — and says why: *"A missing brief is a person's errand and nothing in git will clear it."* Once a dispatch asks, something does clear it, and a reader must be able to tell **nobody is on this** from **a machine is on this**. Amber stays for the first; a quieter colour says asked, waiting. The amber does **not** clear on the ask — it clears on the brief, because the ask has failed 2 of 2 times and an optimistic colour would report work that is not there.
+
 **A SESSION IS BOUNDED, AND A PLAN THAT KEEPS FAILING IS HANDED TO A PERSON.** `startFreeAgent` bounds a start at 60 s; a brief session is spawned with `nohup` and waited on by nobody, so today nothing bounds it at all. It gains a bound — minutes, not the fleet's 8 h `Worker bound`, because a brief is not a slice — and **after a bounded number of failed asks the plan is marked as needing a person**, the shape the supervisor's `PLOT-BLOCKED` marker already has. Retiring the mark on expiry alone would ask forever against a command that cannot work, which is exactly the state this estate was in for four days.
 
 **TWO OFF SWITCHES, AND THEY STOP DIFFERENT THINGS.** The auto-dispatch switch stops the asking live, because the asking is part of that loop. `Brief command: none` stops it for the project permanently — the shell already reads `none` as *we write them by hand*, and the board must honour the same answer rather than inventing a second way to say it.
 
+**THE GATE ASKS FOR A NON-EMPTY BRIEF, NOT A PRESENT ONE.** `findMissingBriefs` asks whether the blob exists; `registryd-main.ts:341` already calls that *"the weaker half of that check"* and points at the shell's hand-over gate, which refuses a zero-byte brief. A session that dies mid-write can push a partial file, and existence alone would pass it to an agent. **The two halves ask the same question or the weaker one decides.**
+
 **IT REPORTS THE START, NEVER THE OUTCOME**, and names the log — the property `plot-dispatch.sh:500` had to learn by measurement: a `Brief command` that answered `Unknown command: /plot-implement` in 33 bytes still counted as asked.
 
-**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when the brief appears on `origin/main` and not before, a session that exceeds its bound is reported, a plan whose asks keep failing is marked for a person rather than asked forever, `Brief command: none` and the auto-dispatch switch each stop it, and the board names the log.
+**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when a **non-empty** brief appears on `origin/main` and not before, a session that exceeds its bound is reported, a plan whose asks keep failing is marked for a person rather than asked forever, the row shows *asked, waiting* distinctly from *needs a brief*, `Brief command: none` and the auto-dispatch switch each stop it, and the board names the log.
 
 ## Notes
 
@@ -164,3 +174,16 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 **Round 3 said the arm has never worked. Round 4 says that may have been luck.** Both failed invocations died at the unknown command — *before* reaching step 3. Fixing only the invocation, as round 3 scoped it, would have made the first successful run the first one to create branches nobody asked for.
 
 **The scope is now part of slice 1's Done-when**, as a measurement — no branch created, no `Started:` written — rather than a sentence in a prompt. A prompt asking an agent to skip a step is a rule, and this repo gates what matters.
+
+### Round 5 — 2026-09-06
+
+**A prior plan asked this exact question and declined to answer it.** `row-identity.ts:152` records the Open Point: *whether the board should offer the brief-writing action*, left unsettled because *"running `/plot-implement` is a real write, and the board's line is drawn at the acting endpoints it already has."* This plan proposed crossing that line for four rounds without noticing the line was there.
+
+**The reframing is that there is no line to cross.** The brief is not a separate action the board takes; it is an **intermediate step inside dispatch**, which `plot-dispatch.sh:429` already calls *"that step"*. A dispatch that cannot start without a brief and cannot obtain one is a dispatch that fails. Asking is part of dispatching, exactly as cutting a desk and pushing a claim are, and the acting endpoint stays the one that already exists.
+
+**That resolves the Open Point rather than reversing it.** The prior decision was about adding a second endpoint on a row; this adds none.
+
+**Two consequences the round settled:**
+
+- **The badge gains a third state.** Its comment — *"a person's errand and nothing in git will clear it"* — stops being true once a dispatch asks. Amber stays until a brief exists, because the ask has failed 2 of 2 times and an optimistic colour would report work that is not there; a quieter state says *asked, waiting*.
+- **The gate asks for a non-empty brief.** `findMissingBriefs` tests existence, which `registryd-main.ts:341` itself calls *"the weaker half"*. A session dying mid-write can push a partial file, and the two halves must ask one question or the weaker decides.
