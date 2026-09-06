@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 5
+- **Rounds:** 6
 
 ## Changelog
 
@@ -81,7 +81,13 @@
 
 **DONE MEANS ONE REAL BRIEF, NOT A GREEN TEST.** The evidence is a brief on `origin/main` that this command wrote, for a branch that had none — the thing neither prior attempt produced. A log of 33 bytes is what failure looks like here, and it exits 0.
 
-**Done when** the `Brief command` writes one real brief for one unbriefed branch and pushes it, its log shows the session doing work rather than an unknown-command line, **the run creates no branch and writes no `Started:` record**, and `plot-dispatch.sh` reports it.
+**THERE IS ALREADY A SECOND RUNNER FOR THIS SKILL, AND IT IS SHAPED CORRECTLY.** `/api/implement` is the board's **eighth state-changing route** (`implement.ts:10`), it runs `/plot-implement` on a slug through its own `Implement command` key, and it logs through `agentLogPath(repoRoot, 'implement', slug, 'log')`. Its prompt is `Run /plot-implement <slug> and follow it.` — a natural-language instruction to a `claude -p` agent, not a bare slash command typed at a shell.
+
+**The two invocations differ, and only one has ever run.** The shell's prompt opens with the literal `/plot-implement <slug> —`, which is what produced `Unknown command: /plot-implement` twice. `Implement command` is unset on this estate, so its route has never been exercised and no log disproves it. **The fix is to make one form work and use it in both places**, not to invent a third.
+
+**THE LOG MOVES ONTO `agentLogPath`, KEYED BY SLUG.** `.plot/brief-<branch>.log` is a bare path no board code knows, in a scheme nothing else uses — and round 2 already moved the ask's mark to the slug, so a branch-keyed log now disagrees with the mark that governs it. `agentLogPath(repoRoot, 'brief', slug, 'log')` puts it where the board's existing log reader can find it and where the dispatch log's sibling already lives.
+
+**Done when** the `Brief command` writes one real brief for one unbriefed branch and pushes it, its log shows the session doing work rather than an unknown-command line, **the run creates no branch and writes no `Started:` record**, the log lives under `agentLogPath` keyed by slug, and a sandbox e2e with a stub `Brief command` asserts the wiring — that the session is invoked, scoped, and leaves no ref behind.
 
 ### Auto-dispatch asks for the brief it is missing (Branch: feature/the-board-asks-for-a-brief)
 
@@ -105,7 +111,7 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 
 **THE BADGE GAINS A THIRD STATE, BECAUSE ITS SENTENCE STOPS BEING TRUE.** `rows.tsx:2056` renders `needs a brief` in amber — the `waitingOn: 'you'` colour — and says why: *"A missing brief is a person's errand and nothing in git will clear it."* Once a dispatch asks, something does clear it, and a reader must be able to tell **nobody is on this** from **a machine is on this**. Amber stays for the first; a quieter colour says asked, waiting. The amber does **not** clear on the ask — it clears on the brief, because the ask has failed 2 of 2 times and an optimistic colour would report work that is not there.
 
-**A SESSION IS BOUNDED, AND A PLAN THAT KEEPS FAILING IS HANDED TO A PERSON.** `startFreeAgent` bounds a start at 60 s; a brief session is spawned with `nohup` and waited on by nobody, so today nothing bounds it at all. It gains a bound — minutes, not the fleet's 8 h `Worker bound`, because a brief is not a slice — and **after a bounded number of failed asks the plan is marked as needing a person**, the shape the supervisor's `PLOT-BLOCKED` marker already has. Retiring the mark on expiry alone would ask forever against a command that cannot work, which is exactly the state this estate was in for four days.
+**A SESSION IS BOUNDED, AND A PLAN THAT KEEPS FAILING IS HANDED TO A PERSON.** `startFreeAgent` bounds a start at 60 s; a brief session is spawned with `nohup` and waited on by nobody, so today nothing bounds it at all. It gains a bound — minutes, not the fleet's 8 h `Worker bound`, because a brief is not a slice — and **after a bounded number of failed asks the plan is marked as needing a person — in the plan file itself**. `PLOT-BLOCKED` is a marker in an agent's DESK, and a plan with no brief has no desk, so that shape does not reach here. The plan file is the record git already carries and the board already renders, and `deferred:`/`moved:` are the precedent for annotating it. **A board-side counter was rejected**: it dies on restart, so a restart silently retries a command that cannot work — which is the four-day state this plan exists to end. Retiring the mark on expiry alone would ask forever against a command that cannot work, which is exactly the state this estate was in for four days.
 
 **TWO OFF SWITCHES, AND THEY STOP DIFFERENT THINGS.** The auto-dispatch switch stops the asking live, because the asking is part of that loop. `Brief command: none` stops it for the project permanently — the shell already reads `none` as *we write them by hand*, and the board must honour the same answer rather than inventing a second way to say it.
 
@@ -113,7 +119,7 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 
 **IT REPORTS THE START, NEVER THE OUTCOME**, and names the log — the property `plot-dispatch.sh:500` had to learn by measurement: a `Brief command` that answered `Unknown command: /plot-implement` in 33 bytes still counted as asked.
 
-**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when a **non-empty** brief appears on `origin/main` and not before, a session that exceeds its bound is reported, a plan whose asks keep failing is marked for a person rather than asked forever, the row shows *asked, waiting* distinctly from *needs a brief*, `Brief command: none` and the auto-dispatch switch each stop it, and the board names the log.
+**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when a **non-empty** brief appears on `origin/main` and not before, a session that exceeds its bound is reported, a plan whose asks keep failing is marked for a person rather than asked forever, the row shows *asked, waiting* distinctly from *needs a brief*, `Brief command: none` and the auto-dispatch switch each stop it, and the board serves the log it names.
 
 ## Notes
 
@@ -187,3 +193,17 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 
 - **The badge gains a third state.** Its comment — *"a person's errand and nothing in git will clear it"* — stops being true once a dispatch asks. Amber stays until a brief exists, because the ask has failed 2 of 2 times and an optimistic colour would report work that is not there; a quieter state says *asked, waiting*.
 - **The gate asks for a non-empty brief.** `findMissingBriefs` tests existence, which `registryd-main.ts:341` itself calls *"the weaker half"*. A session dying mid-write can push a partial file, and the two halves must ask one question or the weaker decides.
+
+### Round 6 — 2026-09-06
+
+**The board already runs this skill, through a route shaped the way slice 1 needs.** `/api/implement` is its **eighth state-changing route** (`implement.ts:10`): it runs `/plot-implement` on a slug, through its own `Implement command` key, logging to `agentLogPath(repoRoot, 'implement', slug, 'log')`.
+
+**Its prompt is the form that might work.** `composeImplementPrompt` produces *"Run /plot-implement <slug> and follow it."* — an instruction to a `claude -p` agent. The shell's prompt opens with a literal `/plot-implement <slug> —`, and that is what answered `Unknown command` twice. **`Implement command` is unset on this estate**, so its route has never run and no log disproves it either; the fix is to make one form work and use it in both places rather than invent a third.
+
+**Three consequences settled:**
+
+- **The log moves onto `agentLogPath`, keyed by slug.** `.plot/brief-<branch>.log` is a bare path no board code knows, and round 2 already moved the mark to the slug — so the log disagreed with the mark that governs it. The plan said *"the board names the log"* four times against a file the board cannot serve; it now says *serves*.
+- **The failed-ask state lives in the plan file.** `PLOT-BLOCKED` is a desk marker and a plan with no brief has no desk. A board-side counter was rejected: it dies on restart, so a restart silently retries a command that cannot work — the four-day state this plan exists to end.
+- **Slice 1 is verified by a sandbox e2e with a stub `Brief command`.** The stub asserts the wiring — invoked, scoped, no ref left behind — which is exactly what round 4 made a measurement rather than a prompt sentence.
+
+**The plan stays one plan.** Slice 2 cannot be verified until slice 1 works, and ordered slices in one plan is Plot's own model for exactly that.
