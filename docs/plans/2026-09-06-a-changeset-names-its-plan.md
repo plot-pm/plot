@@ -55,7 +55,7 @@
 
 ## Slices
 
-### A changeset can name its plan (Branch: feature/a-changeset-carries-a-plan)
+### A changeset can name its plan (Branch: feature/a-changeset-carries-a-plan, PR: #731)
 
 The changeset template and `/plot-idea`'s guidance carry a plan reference, and the cross-check reads it when present.
 
