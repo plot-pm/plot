@@ -8,7 +8,7 @@
 #         `== blocking sections end ==` line separates the findings that stop a
 #         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
 #         it. The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
@@ -102,6 +102,22 @@
 #                                 `attention`. Placed after the
 #                                 `== blocking sections end ==` marker, which
 #                                 is what /plot-deliver's gate reads to.
+#  14. Sprint phase vs index    — a sprint whose `Phase:` disagrees with
+#                                 `<sprint dir>/active/`: Active with no link,
+#                                 or linked while Planned or Closed. TWO
+#                                 RECORDS OF ONE FACT, and nothing read the
+#                                 pair — measured in both directions twice in
+#                                 four days, both found by a person reading the
+#                                 directory. Distinct from `sprint_drift=`,
+#                                 which counts PLANS whose `Sprint:` field
+#                                 disagrees; this counts SPRINTS. The phase is
+#                                 READ, never derived: a sprint ends when
+#                                 somebody says it ended. REPORTS AND NEVER
+#                                 GATES — section 10's precedent, since every
+#                                 consumer that decides anything reads the
+#                                 phase from the file — so it carries
+#                                 `sprint_index_drift=` and stays out of
+#                                 `attention`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -583,7 +599,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0; n_double=0
-n_rounds_drift=0
+n_rounds_drift=0; n_sprint_idx=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -1643,6 +1659,86 @@ fi
 if [ -n "$rounds_out" ]; then printf '%b' "$rounds_out"; else echo "  (none — no Draft plan has been amended since the round it records)"; fi
 echo
 
+# ---------------------------------------------------------------------------
+# 14. Sprint phase vs index
+#
+# A sprint whose `Phase:` disagrees with `docs/sprints/active/`. TWO RECORDS OF
+# ONE FACT — *is this sprint running* — and nothing read the pair until now.
+#
+# MEASURED, IN BOTH DIRECTIONS, TWICE IN FOUR DAYS. On 2026-09-06 the index
+# held exactly one symlink, `the-domain-owns-the-lifecycle`, whose file read
+# `Phase: Planned`. Earlier, `2026-W35-the-board-tells-the-truth-in-every-
+# section` carried `Phase: Active` and was not in the index at all. Neither was
+# caught by anything; a person reading the directory found both.
+#
+# NOT AN EXTENSION OF `sprint_drift`. That counter counts PLANS whose `Sprint:`
+# field disagrees with the sprint file. This is a fact about the SPRINT FILE,
+# which nothing else here reads. One number answering two questions is a number
+# a reader has to re-derive the split from, which is what a machine-countable
+# footer exists to avoid — so this carries its own key, `sprint_index_drift=`.
+#
+# THE PHASE IS READ, NEVER DERIVED. A sprint is a commitment: it ends when
+# somebody says it ended, not when its last plan merges or its release ships.
+# Deriving `Active` from open items would make this section disagree with the
+# only record of that decision, which is the file.
+#
+# CONVENIENCE, NEVER A GATE — section 10's precedent, and a sprint's index is
+# the same shape as a plan's. It stays OUT of `attention=` and sits below the
+# `== blocking sections end ==` marker, which is what keeps it out of
+# /plot-deliver's gate. A sprint indexed wrongly is wrong, not broken: every
+# consumer that DECIDES anything reads the phase from the file.
+#
+# BOTH DIRECTIONS ARE ONE FINDING with two repairs, so the line names which it
+# is. An Active sprint missing its link is a browsing gap; a linked sprint that
+# is Planned or Closed makes the index claim something the file denies.
+#
+# A sprint file with no `Phase:` line is SKIPPED. It is not a sprint this
+# section can ask about — the same rule sections 1, 7, 8, 12 and 13 apply to a
+# plan with no phase.
+echo "== 14. Sprint phase vs index (convenience — nothing depends on these) =="
+sprint_idx_out=""
+if [ -d "$SPRINT_DIR" ]; then
+  for sf in "$SPRINT_DIR"/[0-9]*.md; do
+    [ -f "$sf" ] || continue
+    sf_base=$(basename "$sf")
+    # `- **Phase:** Active` — the sprint template's own shape. First match
+    # only: the word appears again in prose further down several files here.
+    sphase=$(grep -m1 -E '^[[:space:]]*-[[:space:]]*\*\*Phase:\*\*' "$sf" 2>/dev/null \
+      | sed -E 's/.*\*\*Phase:\*\*[[:space:]]*//; s/[[:space:]]*$//')
+    [ -n "$sphase" ] || continue    # no phase → not a sprint this can ask about
+
+    # Is this file the target of a link in the index? Resolved by READING each
+    # link, never by matching filenames: the link is named for the slug and the
+    # file for the week, so `the-domain-owns-the-lifecycle.md` points at
+    # `2026-W37-the-domain-owns-the-lifecycle.md` and no name comparison sees it.
+    indexed=false
+    if [ -d "$SPRINT_DIR/active" ]; then
+      for sl in "$SPRINT_DIR"/active/*.md; do
+        [ -e "$sl" ] || continue
+        tgt=$(cd "$SPRINT_DIR/active" && readlink "$(basename "$sl")" 2>/dev/null) || tgt=""
+        [ -n "$tgt" ] || continue
+        [ "$(basename "$tgt")" = "$sf_base" ] && { indexed=true; break; }
+      done
+    fi
+
+    case "$sphase:$indexed" in
+      Active:false)
+        sprint_idx_out+="  $sf_base — Phase: Active, but no link in $SPRINT_DIR/active/\n"
+        sprint_idx_out+="    optional: ln -s ../$sf_base $SPRINT_DIR/active/\n"
+        n_sprint_idx=$((n_sprint_idx + 1))
+        ;;
+      Active:true) ;;   # agreed
+      *:true)
+        sprint_idx_out+="  $sf_base — Phase: $sphase, but still linked in $SPRINT_DIR/active/\n"
+        sprint_idx_out+="    optional: remove the link, or set the phase back to Active — the file is the record\n"
+        n_sprint_idx=$((n_sprint_idx + 1))
+        ;;
+    esac
+  done
+fi
+if [ -n "$sprint_idx_out" ]; then printf '%b' "$sprint_idx_out"; else echo "  (none — every sprint's phase matches the index)"; fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx pr_source=$PR_SOURCE main=$MAIN"
 exit 0

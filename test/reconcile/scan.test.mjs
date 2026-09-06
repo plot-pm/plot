@@ -261,9 +261,11 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // plan, so section 12 is silent; its collision case has its own fixture.
   // rounds_drift: 0 — no plan here is Draft and none records a Rounds: value,
   // so section 13 is silent; its stale-round case has its own fixture.
+  // sprint_index_drift: 0 — no sprint files, so section 14 is silent as well;
+  // both its directions have their own fixture.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -2315,4 +2317,184 @@ test('gate: the old positional marker would have been fooled by that same edit',
     .filter((l) => /^== \d+\. /.test(l)).length;
   assert.equal(newlyRead, 7, 'the marker follows the boundary the number lost');
   assert.ok(oldGate(renumbered) > 0, 'the fixture is non-trivial');
+});
+
+// ---------------------------------------------------------------------------
+// Section 14: sprint phase vs index. Two records of ONE fact — is this sprint
+// running — and until this section nothing read the pair.
+//
+// The estate had ZERO instances when this shipped: the `Planned` sprint sitting
+// in the index was corrected by hand the day the plan was written. So the
+// section is only provable against a fixture, and a fixture is the only thing
+// that will still prove it after the next hand correction.
+//
+// Properties under test:
+// 1. Active with no link in the index is reported
+// 2. Linked while Planned is reported — the OTHER direction, which is the half
+//    a filename comparison would miss and the half measured first
+// 3. Linked while Closed is reported too; the index claims what the file denies
+// 4. Active AND linked is silent — they agree
+// 5. Closed and unlinked is silent — they agree the other way
+// 6. A sprint file with no `Phase:` line is skipped, never guessed at
+// 7. The link is resolved by READING it: the link is named for the slug and the
+//    file for the week, so no name comparison relates the two
+// 8. The footer counter sprint_index_drift= matches the findings
+// 9. attention= is unchanged — this section does NOT gate
+// ---------------------------------------------------------------------------
+
+let spTmp, spRepo, spReport, spSections;
+
+before(() => {
+  spTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-sp-'));
+  const origin = path.join(spTmp, 'origin.git');
+  spRepo = path.join(spTmp, 'repo');
+  git(spTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(spTmp, 'clone', '-q', origin, spRepo);
+  git(spRepo, 'config', 'user.email', 'test@example.invalid');
+  git(spRepo, 'config', 'user.name', 'Plot Test');
+  git(spRepo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(spRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+- **Sprint directory:** sprints/
+`);
+
+  const sprint = (title, phase) => `# Sprint: ${title}
+
+## Status
+
+- **Phase:** ${phase}
+- **Start:** 2026-01-01
+- **End:** 2026-01-14
+`;
+
+  // The measured defect's second direction: Active, and the index does not
+  // know. `2026-W35-the-board-tells-the-truth-in-every-section` was this.
+  w('sprints/2026-W01-unlinked-active.md', sprint('Unlinked Active', 'Active'));
+
+  // The measured defect's first direction: in the index, and the file says it
+  // is not running. This was the whole of the 2026-09-06 reading.
+  w('sprints/2026-W02-linked-planned.md', sprint('Linked Planned', 'Planned'));
+
+  // The same disagreement from the far end of the lifecycle.
+  w('sprints/2026-W03-linked-closed.md', sprint('Linked Closed', 'Closed'));
+
+  // Agreement, both ways — neither may be reported.
+  w('sprints/2026-W04-linked-active.md', sprint('Linked Active', 'Active'));
+  w('sprints/2026-W05-unlinked-closed.md', sprint('Unlinked Closed', 'Closed'));
+
+  // No `Phase:` at all. Not a sprint this section can ask about, so it is
+  // skipped rather than guessed at — the rule sections 1, 7, 8, 12 and 13 all
+  // apply to a plan with no phase.
+  w('sprints/2026-W06-no-phase.md', `# Sprint: No Phase
+
+Prose only — this file never declares a phase.
+`);
+
+  // THE LINKS ARE NAMED FOR THE SLUG, THE FILES FOR THE WEEK. That is the real
+  // estate's shape — `the-domain-owns-the-lifecycle.md` points at
+  // `2026-W37-the-domain-owns-the-lifecycle.md` — so a section comparing
+  // filenames would see no link at all and report every Active sprint.
+  fs.mkdirSync(path.join(spRepo, 'sprints', 'active'), { recursive: true });
+  fs.symlinkSync('../2026-W02-linked-planned.md',
+    path.join(spRepo, 'sprints', 'active', 'linked-planned.md'));
+  fs.symlinkSync('../2026-W03-linked-closed.md',
+    path.join(spRepo, 'sprints', 'active', 'linked-closed.md'));
+  fs.symlinkSync('../2026-W04-linked-active.md',
+    path.join(spRepo, 'sprints', 'active', 'linked-active.md'));
+
+  git(spRepo, 'add', '-A');
+  git(spRepo, 'commit', '-q', '-m', 'sprint index fixture');
+  git(spRepo, 'push', '-q', 'origin', 'main');
+
+  spReport = execFileSync('bash', [scan], { encoding: 'utf8', cwd: spRepo });
+  spSections = splitSections(spReport);
+});
+
+after(() => {
+  if (spTmp) fs.rmSync(spTmp, { recursive: true, force: true });
+});
+
+test('scan: section 14 reports an Active sprint missing from the index', () => {
+  assert.match(spSections['14'], /2026-W01-unlinked-active\.md/,
+    `an Active sprint with no link must be named:\n${spSections['14']}`);
+  assert.match(spSections['14'], /Phase: Active, but no link/,
+    'and the line must say which way the disagreement runs');
+});
+
+test('scan: section 14 reports a linked sprint that is not Active', () => {
+  // The direction measured on 2026-09-06, and the one a filename comparison
+  // cannot see.
+  assert.match(spSections['14'], /2026-W02-linked-planned\.md/,
+    `a Planned sprint in the index must be named:\n${spSections['14']}`);
+  assert.match(spSections['14'], /Phase: Planned, but still linked/,
+    'and the line must say the index claims what the file denies');
+
+  assert.match(spSections['14'], /2026-W03-linked-closed\.md/,
+    'a Closed sprint in the index is the same finding');
+  assert.match(spSections['14'], /Phase: Closed, but still linked/,
+    'named by its own phase, not by a collapsed "not Active"');
+});
+
+test('scan: section 14 is silent when phase and index agree', () => {
+  assert.doesNotMatch(spSections['14'], /2026-W04-linked-active/,
+    `Active and linked agree:\n${spSections['14']}`);
+  assert.doesNotMatch(spSections['14'], /2026-W05-unlinked-closed/,
+    `Closed and unlinked agree:\n${spSections['14']}`);
+});
+
+test('scan: section 14 skips a sprint file with no phase', () => {
+  // Not a sprint this section can ask about. Reporting it would say the index
+  // is wrong when all that is known is that the file declares nothing.
+  assert.doesNotMatch(spSections['14'], /2026-W06-no-phase/,
+    `a file with no Phase: is skipped:\n${spSections['14']}`);
+});
+
+test('scan: section 14 resolves the link by reading it, not by its name', () => {
+  // `linked-active.md` -> `2026-W04-linked-active.md`. Nothing in the link's
+  // own name matches the file's, so a name comparison would find no link and
+  // report this sprint as an unlinked Active one. Its absence is the proof.
+  assert.doesNotMatch(spSections['14'], /2026-W04/,
+    `the slug-named link must resolve to the week-named file:\n${spSections['14']}`);
+});
+
+test('scan: section 14 counts in the footer and gates nothing', () => {
+  const footer = spReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bsprint_index_drift=3\b/,
+    `three disagreements, one counter:\n${footer}`);
+  // THE POINT OF THE SECTION'S PLACEMENT. `attention=` is what /plot-deliver
+  // gates on; a sprint indexed wrongly must never stop a delivery.
+  assert.match(footer, /\battention=0\b/,
+    `section 14 must not reach attention=:\n${footer}`);
+});
+
+test('scan: section 14 sits below the blocking marker', () => {
+  // The marker is what /plot-deliver's gate reads to. A convenience section
+  // above it would join the blocking set without any counter saying so.
+  const marker = spReport.indexOf('== blocking sections end ==');
+  const section = spReport.indexOf('== 14. ');
+  assert.ok(marker > 0, 'the fixture report carries the marker');
+  assert.ok(section > marker,
+    'section 14 must sit below the marker, like every other advisory section');
+});
+
+test('scan: section 14 is distinct from sprint drift', () => {
+  // `sprint_drift=` counts PLANS whose `Sprint:` field disagrees with the
+  // sprint file. This fixture has no plans at all, so that counter stays zero
+  // while section 14 reports three — one number could not have said both.
+  const footer = spReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bsprint_drift=0\b/,
+    `the plan-side counter is untouched:\n${footer}`);
 });
