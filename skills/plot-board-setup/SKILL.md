@@ -2,8 +2,9 @@
 name: plot-board-setup
 description: >-
   Set the Plot board up in a project that already has Plot: probe the
-  prerequisites, record the git-host and CI configuration, then start the
-  board and prove it serves. Use on /plot-board-setup.
+  prerequisites, record the git-host and CI configuration, and prove the board
+  serves. Adoption only — starting the board is /plot-board. Use on
+  /plot-board-setup.
 globs: []
 license: MIT
 metadata:
@@ -26,33 +27,34 @@ the configuration around it, and evidence that it works.
 **The guiding rule: prove, don't assert.** A board that boots and serves valid
 JSON can still show nothing — a plan in the wrong format parses as
 `format: none` and vanishes silently. Checking that the port responds would
-pass that case. So this command starts the board, fetches its data, and checks
-the cards.
+pass that case. So step 4b starts a board on an OS-assigned port, fetches its
+data, checks the cards, and reaps the server it started.
 
 **Input:** `$ARGUMENTS` is optional; `--dry-run` reports what would be written
-and changes nothing. `--start` skips setup entirely — it resolves the artifact,
-starts the board, proves it answers, and prints the URL. The same rule governs
-it: a board that did not come up must say so.
+and changes nothing.
 
-## Two ceremony levels
+**Starting the board is [`/plot-board`](../plot-board/).** This command had a
+`--start` flag until 2026-09-06; it was **removed, not aliased**, because a flag
+that still works teaches the wrong command. Setup is a once-per-repo ceremony
+and starting the board is a daily action, so they are two commands.
 
-Setup is a once-per-repo ceremony. Starting the board is a daily action, and
-re-running the probe, the config write, and the auth checks every time someone
-wants to look at their board is ceremony that does not scale with the weight of
-the action (Manifesto Principle 10).
+## Adoption only
+
+Setup is a once-per-repo ceremony: probe, propose, write config, verify,
+summarise. Re-running the probe, the config write and the auth checks every time
+someone wants to look at their board is ceremony that does not scale with the
+weight of the action (Manifesto Principle 10) — which is why the daily action is
+its own command.
 
 | Invocation | Does |
 |---|---|
 | `/plot-board-setup` | Steps 1–5 below: probe, propose, write config, verify, summarise |
-| `/plot-board-setup --start` | Step S below: probe for the artifact path, start the board, prove it answers, print the URL |
+| `/plot-board --start` | Start the board and leave it running — a different command |
 
-`--start` writes no config and runs no auth check. It refuses when
-`artifact_source` is `none` — there is nothing to start — and it reports that
-rather than repairing it: a repo that needs setup should be told to run setup.
-
-Unlike step 4b, `--start` leaves the board **running**; it is the thing the user
-asked for, not a probe. So it does not use `plot-board-verify.sh`, whose whole
-purpose is to reap the server it started.
+**Step 4b starts a board and this command still does that**, through
+`plot-board-verify.sh`, which reaps the server it started. That is a probe, not
+a start: it proves the board serves and leaves nothing running. `/plot-board
+--start` exists to leave one running, which is the opposite act.
 
 ## Model Guidance
 
@@ -63,7 +65,6 @@ purpose is to reap the server it started.
 | 3. Write config | Small | Append known keys to a known section |
 | 4. Verify | Small | Run commands, compare to documented output shapes |
 | 5. Diagnose an empty board | Mid | Mapping a parse failure to a human cause |
-| S. `--start` | Mid | Mechanical to start; judgment to tell *your* board from another on the port |
 
 > **User interaction:** Use `AskUserQuestion` (Claude Code) / `ask_question` (Cursor).
 >
@@ -276,6 +277,14 @@ alias plot-board='node <artifact path from the probe>'   # plugin or checkout
 alias plot-board='<artifact path from the probe>'
 ```
 
+**Say what the alias is not.** It shares its name with the `/plot-board`
+command and does a smaller thing: it starts the artifact in the foreground and
+records nothing. `/plot-board --stop` reads a pidfile that only `/plot-board
+--start` writes, so a board started through the alias is stopped the way any
+foreground process is — with `Ctrl-C` in its own terminal. Offer the alias to
+someone who wants a board in a terminal they are watching; offer `/plot-board`
+to someone who wants one running behind them.
+
 ### 4. Verify — the gate
 
 **4a. Auth.** For each installed CLI, report the probe's `auth` value:
@@ -343,92 +352,9 @@ unrequested edit to a plan is exactly the kind of write Plot does not do.
 
 ### 5. Summarise
 
-State what landed, the start command, and every remediation command still
-outstanding. If anything reads `unknown`, say which check could not be
+State what landed, how to start the board (`/plot-board --start`), and every
+remediation command still outstanding. If anything reads `unknown`, say which check could not be
 completed rather than presenting a clean bill of health.
-
-### S. `--start`
-
-The daily action, not the ceremony. Run **only** this step: no config write, no
-auth check, no proposal.
-
-**S1. Resolve the artifact.** Run the probe (step 1) and read `artifact` and
-`artifact_source` from its JSON. This is the sole reason `--start` probes at
-all — one command knows where the artifact lives, for the same reason
-`plot-host.sh` is the only thing that talks to `gh` and `bb`.
-
-**If `artifact_source` is `none`, refuse.** There is nothing to start. Point at
-`/plot-board-setup` and stop — report, do not repair.
-
-Warn when `cwd_is_root` is false: the board compares realpaths, so a board
-started from a subdirectory silently shows nothing.
-
-**S2. Start it, in the background, from the repo root.** How to invoke it
-follows `artifact_source`, which the probe already reported:
-
-| `artifact_source` | Start with |
-|---|---|
-| `plugin`, `checkout` | `node <artifact> &` — the path is a `board-server.mjs` |
-| `npm` | `<artifact> &` — the path came from `command -v plot-board`, so it is an executable shim and may be a wrapper script rather than the module itself |
-
-Run it from the repo root, not from a subdirectory: the board reads the CWD.
-
-The board binds **port 7777** and prints its URL. `--start` does not choose a
-port: several worktrees run boards side by side, and one shooting down
-another's is a worse failure than the collision.
-
-**S3. Read what it printed, and do not confuse the two messages.**
-
-| Printed | Means |
-|---|---|
-| `Plot board: http://localhost:7777` | Your board started. |
-| `Plot board already running at http://localhost:7777` | **A board holds that port, and it may not be yours.** |
-
-The second message **exits 0**. Treating that exit code as success is the whole
-trap: measured 2026-08-18, port 7777 was held by a different Plot installation,
-so the command reported "already running" and exited 0 while the operator's
-board was not running at all. Never report a board as started on the strength
-of an exit code.
-
-**S4. Prove it answers — and prove it is serving *this* repo.** Exit 0 is not
-evidence. Fetch the running board's own data:
-
-```bash
-curl -sf --max-time 30 http://localhost:7777/api/board
-```
-
-Assert the same shape step 4b asserts: JSON, a non-empty `columns` array, each
-entry carrying a `phase` and a `cards` array. Do not assert column names.
-
-Allow a generous timeout. Measured 2026-08-19 against a 59-plan repo, the first
-fetch after a cold start took 8.7–9.5 s; a 10 s margin sits close enough to that
-to turn a healthy board into a reported failure.
-
-This step is not optional, and it is what distinguishes the two messages above.
-When the port was already held, the payload comes from **that** board, serving
-**its** working directory — so compare its total card count against the probe's
-`plan_files`. Expect the same order of magnitude, not equality: the board also
-carries delivered plans from the index directories, so a repo with 59 plan
-files legitimately serves ~60 cards.
-
-A count that cannot be reconciled at all is the signal. Measured 2026-08-19:
-`--start` in a 59-plan checkout printed *already running* and the board on 7777
-served **3** cards, because the port was held by a different Plot installation
-running from `~/.claude/skills/`. Three cards is not 59 by any accounting, and
-that mismatch is the only thing that caught it — the exit code was 0 and the
-fetch returned HTTP 200. Say so, and name the choice: stop that board, or read
-it knowing whose it is. **Never stop a board you did not start without asking**
-— it may be another worktree's, and that is the failure the port policy exists
-to avoid.
-
-**S5. Report.** Print the URL, whether *this* invocation started the board or
-found one already there, and the verification result. If the fetch failed, say
-the board did not come up and show the response — a board that did not come up
-must say so.
-
-`--start` does not use `plot-board-verify.sh`. That script reaps the server it
-starts, which is the opposite of what `--start` is for; the `curl` in S4 is the
-verification, run against the board that stays up.
 
 ## Failure modes
 
@@ -448,5 +374,4 @@ verification, run against the board that stays up.
 | `/api/board` is not JSON | Report the raw response; do not retry silently |
 | Zero cards, zero plans | Not an error — an empty project |
 | Verify fails once, then passes | A cold start, not a broken board; report which run you are quoting |
-| `--start` on `artifact_source: none` | Refuse; point at full setup rather than repairing |
-| `--start` prints *already running* | A board holds the port and may not be yours; verify via S4 before claiming success |
+| Asked to start the board | That is `/plot-board --start`; this command adopts and verifies |

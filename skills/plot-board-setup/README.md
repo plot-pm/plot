@@ -5,6 +5,31 @@ agent-facing instruction; this file is why it looks the way it does.
 
 Design spec: `docs/superpowers/specs/2026-08-18-plot-board-setup-design.md`
 
+## Where `--start` went
+
+**`/plot-board-setup --start` was removed on 2026-09-06.** Starting the board is
+[`/plot-board --start`](../plot-board/), which also gained `--stop` and
+`--status` — the verbs a resident process needs and this command never had.
+
+**Removed, not aliased.** A flag that still works teaches the wrong command,
+which is the same argument slice 1 of
+`docs/plans/2026-09-05-a-process-is-started-by-its-own-command.md` settled when
+`/plot-fleet` took its name from the pulse. `DESIGN-process.md` §5 is the reason
+there is a command at all: a resident process must answer *who starts it and how
+does a person stop it*, and until then the board's answer was an adoption
+command's flag.
+
+**The behaviour moved whole** — the probe, the `artifact_source: none` refusal,
+the `cwd_is_root` warning, and the `/api/board` fetch that proves a board came
+up. What changed is which command owns it. The sections below that discuss
+`--start` describe why it worked the way it did, and every one of those reasons
+now applies to `/plot-board`; they are kept because the reasoning moved with the
+code.
+
+**Step 4b still starts a board**, through `plot-board-verify.sh`, which reaps
+the server it started. That is a probe rather than a start, and the distinction
+is the one the next section is about.
+
 ## Split: skill vs script
 
 Per Manifesto Principle 3 — *skills interpret and adapt; scripts collect and
@@ -54,6 +79,9 @@ Principle 12: a gate is satisfied by the artifact that proves it, never by the
 claim that it holds.
 
 ## Why `--start` verifies with `curl` rather than `plot-board-verify.sh`
+
+*(Kept as the reasoning behind `/plot-board --start`, which is where this
+behaviour now lives.)*
 
 The verify script's whole value is the `trap` that reaps the server it started.
 `--start` exists to leave a board **running**, so reusing the script would
@@ -174,11 +202,11 @@ the detection of this one is specific, and its absence degrades to
 
 ## Testing
 
-`--start` has no automated test, by design: it leaves a server running, which is
-the one thing the suite must never do. It is walked by hand instead — start it,
-confirm the board answers on the printed URL, stop it — and its refusal path
-(`artifact_source: none`) cannot be exercised from this checkout at all, because
-the checkout itself holds an artifact at
+Starting the board is tested with `/plot-board` now — see
+`test/reconcile/boardctl.test.mjs` and that skill's README.
+
+The refusal path (`artifact_source: none`) still cannot be exercised from this
+checkout, because the checkout itself holds an artifact at
 `skills/plot/scripts/board/board-server.mjs` and the third fallback always
 succeeds here. A scratch repo with `PLOT_PLUGIN_ROOT=/nonexistent
 PLOT_NPM_BIN=/nonexistent` is what reproduces it.
@@ -198,7 +226,10 @@ PLOT_NPM_BIN=/nonexistent` is what reproduces it.
   `npm view @plot-pm/board version` against the plugin's bundled artifact rather
   than trusting a version written here — a number in this file describes the day
   it was written, and the lag recurs on every release.
-- **`--start`'s ownership check is a heuristic.** Comparing served cards against
-  `plan_files` catches the measured case — another checkout's board on 7777 —
-  but two worktrees of the *same* repo serve near-identical payloads and are not
-  distinguishable this way.
+- **The ownership check was a heuristic here, and is not one in `/plot-board`.**
+  Comparing served cards against `plan_files` catches the measured case —
+  another checkout's board on 7777 — but two worktrees of the *same* repo serve
+  near-identical payloads and are not distinguishable that way. `/plot-board`
+  reads `server.repo` from `/api/board` instead, which names the checkout
+  outright. Step 4b does not need either: it starts its own board on an
+  OS-assigned port, so no other board can answer it.
