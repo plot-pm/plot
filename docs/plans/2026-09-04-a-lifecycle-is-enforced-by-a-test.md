@@ -358,7 +358,7 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
   claimed, waiting, merged, deferred — and the `waits:` prerequisite
   `a-slice-can-wait-on-another-plan` introduced. **Asserted: a prerequisite that
   merged and was then reaped still clears**, the deadlock that plan was
-  corrected to avoid, now enforced rather than remembered.
+  corrected to avoid, now enforced rather than remembered. — PR #723
 
 ### The six the ratchet found
 
