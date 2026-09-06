@@ -289,7 +289,11 @@ them together is what makes the type earn its existence.
   a plan under review**, so its phase and rounds are read rather than omitted.
   **Asserted: a ref no plan names is recognised as unplanned and said to be so**
   — never silently absent, which is today's behaviour and the reason nobody
-  notices it.
+  notices it. — PR #737
+
+  **The recognition rule is NOT in #737.** That PR delivers the rename and the
+  one-rule-two-callers assertion, which is what its brief scoped; the
+  recognition rule above still has no owner and needs a slice of its own.
 
 ### Repairing an unresolvable symref
 
