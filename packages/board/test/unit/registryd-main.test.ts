@@ -426,6 +426,55 @@ describe('starting agents is the one write this daemon performs', () => {
     return { performer, asked };
   };
 
+  /** A tick that decided one hand-over and one start. */
+  const withAssign = (): TickReport => ({
+    ...withStarts(0),
+    handOver: {
+      outcome: 'decided',
+      workflow: 'assign',
+      writes: [
+        { kind: 'agent-assign', session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan' },
+        { kind: 'worker-start', branch: '', worktree: '/estate/free' },
+      ],
+      detail: {
+        assignments: [{ session: 'sess-1', worktree: '/estate/a', branch: 'feature/a', slug: 'a-plan' }],
+        held: [],
+        idle: [],
+        scaling: null,
+      },
+    },
+  });
+
+  it('performs the hand-over the tick decided, not only the start', async () => {
+    // THE MEASURED DEFECT — 2026-09-06. A tick reported `handed=8` while all
+    // eight agents stayed `branch: ""`, because this applier filtered to
+    // `worker-start`. Six were written by hand, twice in one day.
+    const assigned: string[] = [];
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async (session, branch) => {
+        assigned.push(`${session}:${branch}`);
+        return answered(true);
+      },
+    };
+
+    await startAgents(withAssign(), performer, () => {}, () => {});
+    expect(assigned).toEqual(['sess-1:feature/a']);
+  });
+
+  it('reports a hand-over the agent had since outgrown, and does not count it', async () => {
+    // AN AGENT MAY HAVE TAKEN WORK BETWEEN THE READING AND THE WRITE. Silence
+    // here would report a hand-over that never happened.
+    const out: string[] = [];
+    const performer: Performer = {
+      startFreeAgent: async () => answered(1),
+      assignSlice: async () => answered(false),
+    };
+
+    await startAgents(withAssign(), performer, (s) => out.push(s), (s) => out.push(s));
+    expect(out.join('')).toContain('feature/a');
+  });
+
   it('starts one agent per `worker-start` write and reports the count', async () => {
     const { performer, asked } = spy(async () => answered(1));
     const out: string[] = [];

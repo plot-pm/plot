@@ -365,7 +365,8 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
 
 - `feature/six-lifecycles-declare-their-rules` — `transitions/` for the six
   entities `check-state-declarations.sh` names, in the order a wrong answer
-  costs most.
+  costs most. **`LIFECYCLE_DEBT` goes 6 → 0**, so a lifecycle declared from here
+  needs its rule in the same change. — PR #736
 
 **THE GATE FOUND THEM THE DAY IT SHIPPED.** #720 merged 2026-09-06 and its first run reported:
 

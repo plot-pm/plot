@@ -1,3 +1,6 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { answered, failed, unaskable, type PortResult } from '../../port-result.js';
 import type { Performer } from '../../ports/performer.js';
 import { runProcess } from '../run-script.js';
@@ -5,6 +8,9 @@ import { scriptPath, type ShellContext } from '../scripts.js';
 
 /** The script that owns desk creation, the manifest and the monitors. */
 const DISPATCH = 'plot-dispatch.sh';
+
+/** Where the agent manifests live, relative to the repository root. */
+const MANIFEST_DIR = '.plot/agents';
 
 /**
  * How long one start may take before it is abandoned, in milliseconds.
@@ -41,6 +47,37 @@ const START_TIMEOUT_MS = 60_000;
  * @returns a performer that starts free agents.
  */
 export const performerShell = (context: ShellContext): Performer => ({
+  assignSlice: async (session, branch, slug): Promise<PortResult<boolean>> => {
+    // A FILE WRITE, NOT A SPAWN, AND THEREFORE NOT A SCRIPT. Every other
+    // member of this port shells out because the process table is the script's
+    // to touch; a manifest is a JSON file this package already reads, and
+    // inventing a script to write one field would add a second definition of
+    // the manifest's shape in a language that cannot share the first.
+    //
+    // THE AGENT'S LOOP IS THE READER AND IT POLLS. `wait_for_work` re-reads
+    // this file, so recording the branch IS the hand-over — nothing is
+    // signalled and no process is touched.
+    const file = join(context.repoRoot, MANIFEST_DIR, `${session}.json`);
+    if (!existsSync(file)) return failed();
+    try {
+      const manifest = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+      // THE REFUSAL IS A READING TAKEN NOW, not the one the tick took. Between
+      // `matchQueue` and this write an agent may have been given work by another
+      // tick, a dispatch or an operator, and overwriting would strand that slice
+      // with no record it was ever assigned.
+      if (typeof manifest.branch === 'string' && manifest.branch !== '') return answered(false);
+      manifest.branch = branch;
+      manifest.slug = slug;
+      writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+      return answered(true);
+    } catch {
+      // THE REASON IS THE CALLER'S TO NAME. `failed()` carries no message by
+      // design, and the applier already knows which branch and which session
+      // it was applying.
+      return failed();
+    }
+  },
+
   startFreeAgent: async (worktree): Promise<PortResult<number>> => {
     // ONE AGENT PER CALL, AND THE COUNT IS ALREADY DECIDED. `PLOT_START_ONE`
     // says exactly that to the script: start this one, do not re-derive a
