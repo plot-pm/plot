@@ -10,7 +10,9 @@ import {
   MonitorNameSchema,
   AgentStateSchema as DomainAgentStateSchema,
   BOARD_PHASES,
+  SprintStateSchema,
   type Phase,
+  type SprintState,
 } from '@plot-pm/domain';
 
 /**
@@ -185,9 +187,21 @@ export { BOARD_PHASES };
 export type { Phase };
 export type { PhaseLeadership } from '@plot-pm/domain';
 
-/** Sprint lifecycle phases (parsed from sprint files, not plan files). */
-export const SPRINT_PHASES = ['Planning', 'Committed', 'Active', 'Closed'] as const;
-export type SprintPhase = (typeof SPRINT_PHASES)[number];
+/**
+ * Sprint lifecycle phases (parsed from sprint files, not plan files).
+ *
+ * Derived from the domain's `SprintStateSchema` rather than declared. This line
+ * held the same four by hand from 2026-07 until 2026-09-06, the last hand-copy
+ * of a state list left in this file after `BOARD_PHASES` and `STORY_LIFECYCLE`
+ * went the same way.
+ *
+ * `SprintPhase` keeps the board's name for the domain's `SprintState`: the two
+ * spell one list, and the alias stays because the board's payload field is
+ * `phase`.
+ */
+export const SPRINT_PHASES = SprintStateSchema.options;
+export type SprintPhase = SprintState;
+export { SprintStateSchema, StoryStatusSchema } from '@plot-pm/domain';
 
 /**
  * Story lifecycle statuses (from story-tracking front matter).

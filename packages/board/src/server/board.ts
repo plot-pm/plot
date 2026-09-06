@@ -4,7 +4,9 @@ import path from 'node:path';
 import { marked } from 'marked';
 import {
   PlanMetaSchema,
+  SprintStateSchema,
   StoryCardSchema,
+  StoryStatusSchema,
   toBoardPhase,
   BOARD_PHASES,
   STORY_LIFECYCLE,
@@ -1079,6 +1081,43 @@ function parseSprintMembers(content: string): SprintMember[] {
 }
 
 /**
+ * What the parsers report for a state their schema does not admit.
+ *
+ * A READING, NOT AN ERROR — `plot-plan-meta.sh:338` is the contract: the plan
+ * parser matches an explicit list, maps two legacy spellings, and falls through
+ * to `UNKNOWN`. Nothing downstream is refused; the consumer decides what an
+ * unparseable state means for it, the same direction `unaskable` takes for a
+ * host.
+ *
+ * A file claiming a state nobody admits is what this makes visible. Measured
+ * 2026-09-06: three stories wrote `status: archived` — a value `#707` made
+ * unrepresentable in TypeScript — and one sprint wrote `Phase: Planned`, and a
+ * person reading files found all four because nothing else asked.
+ */
+export const UNADMITTED_STATE = 'UNKNOWN';
+
+/**
+ * A sprint's stated phase, or `UNKNOWN` where the domain does not admit it.
+ *
+ * @param stated - the `- **Phase:**` value, trimmed, as the file spells it.
+ * @returns the phase, or {@link UNADMITTED_STATE}.
+ */
+const readSprintPhase = (stated: string): string =>
+  SprintStateSchema.safeParse(stated).success ? stated : UNADMITTED_STATE;
+
+/**
+ * A story's stated status, or `UNKNOWN` where the domain does not admit it.
+ *
+ * @param stated - the frontmatter `status:` value, trimmed. `''` where the file
+ *   names none, which is an ABSENCE rather than a wrong value and stays `''`.
+ * @returns the status, or {@link UNADMITTED_STATE}.
+ */
+const readStoryStatus = (stated: string): string => {
+  if (!stated) return '';
+  return StoryStatusSchema.safeParse(stated).success ? stated : UNADMITTED_STATE;
+};
+
+/**
  * Sprint files are not plan files, so they are read here rather than via
  * plot-plan-meta.sh (which owns the plan format only). Minimal, faithful port
  * of the previous walker's parseSprint, plus the member list.
@@ -1110,8 +1149,13 @@ export function parseSprintContent(content: string, name: string): SprintCard | 
   const statusSection = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/);
   const statusBody = statusSection ? statusSection[1] : '';
   const phaseMatch = statusBody.match(/^- \*\*Phase:\*\* (.+)$/m);
-  const phase = phaseMatch ? phaseMatch[1].trim() : '';
-  if (!phase) return null;
+  const stated = phaseMatch ? phaseMatch[1].trim() : '';
+  // NO PHASE AT ALL IS NOT A SPRINT FILE, and that answer is unchanged: the
+  // walk reads every markdown file under `active/`, so `null` is how a README
+  // is skipped. A phase the domain does not admit is a different answer — the
+  // file IS a sprint and says something no schema spells.
+  if (!stated) return null;
+  const phase = readSprintPhase(stated);
   // The sprint's target release, read from the same `## Status` block as the
   // phase and the same `- **Field:** value` shape. "" where the file names none:
   // the control renders nothing rather than a placeholder, so absence must reach
@@ -1323,7 +1367,7 @@ function parseStoryFile(absPath: string, slug: string, relPath: string, storyDir
  * @param storyDir - the story's own directory, or `''` when it came from a ref.
  * @returns the parsed story, or null when the content is not one.
  */
-function parseStoryContent(
+export function parseStoryContent(
   content: string,
   slug: string,
   relPath: string,
@@ -1343,7 +1387,10 @@ function parseStoryContent(
     const titleMatch = frontmatter.match(/^title:\s*(.+)$/m);
     if (titleMatch) title = titleMatch[1].trim();
     const statusMatch = frontmatter.match(/^status:\s*(.+)$/m);
-    if (statusMatch) status = statusMatch[1].trim();
+    // The DECLARED status, refused where the domain does not admit it. A story
+    // with no `status:` line keeps `''` — an absence the drift check already
+    // reads as "nothing declared", which is not the same as a wrong word.
+    if (statusMatch) status = readStoryStatus(statusMatch[1].trim());
     const authorMatch = frontmatter.match(/^author:\s*(.+)$/m);
     if (authorMatch) author = authorMatch[1].trim();
     const createdMatch = frontmatter.match(/^created:\s*(.+)$/m);
