@@ -24,6 +24,7 @@ import { readFleetSettings } from '../fleet-settings.js';
 import { fileOrNull, worldFrom, type SupervisorWorld } from '../supervisor.js';
 import type { QueueWorld } from '../queue-reading.js';
 import { tick, tickLine, TICK_INTERVAL_MS, type TickReport } from './registryd.js';
+import { QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
 
 /**
  * `plot-registryd` — the supervisor, one per repository.
@@ -712,6 +713,23 @@ export const reportTick = (
   // way a quiet estate prints `left=3` and nothing else.
   for (const assignment of report.handOver?.detail?.assignments ?? []) {
     write(`  ${assignment.branch}: hand over to ${assignment.session}\n`);
+  }
+  // THE HELD SLICES ARE NAMED HERE AND NOWHERE ELSE. `--once` is the
+  // operator's inspection path; the looping daemon prints the counts on its
+  // summary line and stops there, because a tick every 60 s must not write 480
+  // branch names to a log nobody is reading at the time.
+  //
+  // GROUPED BY HOLD RATHER THAN LISTED PER SLICE, so a reader sees the shape
+  // of the refusal before its extent — 480 slices under one hold is a
+  // different problem from 480 spread over five.
+  if (report.handOver !== null) {
+    const held = report.handOver.detail.held;
+    for (const hold of QUEUE_HOLDS) {
+      const branches = held.filter((slice) => slice.hold === hold);
+      if (branches.length === 0) continue;
+      write(`  held on ${hold} (${branches.length}):\n`);
+      for (const slice of branches) write(`    ${slice.branch}\n`);
+    }
   }
   return 0;
 };

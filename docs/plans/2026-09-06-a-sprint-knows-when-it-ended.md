@@ -68,7 +68,7 @@ This repeats a defect fixed the day before: `2026-W35-the-board-tells-the-truth-
 
 **Done when** the gate selects the blocking sections without depending on their number, `/plot-deliver` refuses and permits exactly what it does today, and CLAUDE.md's count matches the scan.
 
-### The index and the phase agree (Branch: bug/a-sprint-phase-meets-its-index)
+### The index and the phase agree (Branch: bug/a-sprint-phase-meets-its-index, PR: #735)
 
 `plot-reconcile-scan.sh` reports a sprint whose `Phase:` disagrees with `docs/sprints/active/`.
 

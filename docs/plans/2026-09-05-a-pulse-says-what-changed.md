@@ -114,7 +114,7 @@ A function from two pulses to what moved between them, in `packages/domain/src/r
 
 **Those three were chosen by the story rather than by the data**, which is the point: they are what a returning operator acts on. A fourth gets added when someone names the one they wanted and could not see, not because the field exists.
 
-**Done when** two pulses yield a delta, an expired or absent previous pulse says *cannot say* rather than *nothing changed*, and the rule performs no I/O.
+**Done when** two pulses yield a delta, an expired or absent previous pulse says *cannot say* rather than *nothing changed*, and the rule performs no I/O. — PR #733
 
 ### The pulse reports it (Branch: feature/the-pulse-line-carries-the-delta)
 

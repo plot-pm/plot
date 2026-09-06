@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 3
+- **Started:** 2026-09-06, Jan Wloka, `bug/a-story-status-meets-its-plans`
 
 ## Changelog
 

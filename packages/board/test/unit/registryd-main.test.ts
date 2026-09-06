@@ -284,6 +284,53 @@ describe('where a tick’s report goes', () => {
     },
   });
 
+  /** A tick whose queue refused everything, as `matchQueue` reports one. */
+  const refused = (): TickReport => ({
+    ...completed(),
+    handOver: {
+      outcome: 'decided',
+      workflow: 'assign',
+      writes: [],
+      detail: {
+        assignments: [],
+        held: [
+          { branch: 'feature/a', hold: 'no-brief' },
+          { branch: 'feature/b', hold: 'no-brief' },
+          { branch: 'feature/c', hold: 'already-merged' },
+        ],
+        idle: ['sess-1'],
+        scaling: null,
+      },
+    },
+  });
+
+  it('names the held slices under their hold, so `--once` says what to fix', () => {
+    // THE OPERATOR'S INSPECTION PATH. The summary line carries the counts a
+    // daemon logs every 60 s; the names belong here, where somebody asked.
+    const out: string[] = [];
+    reportTick(refused(), (s) => out.push(s), () => {});
+    const text = out.join('');
+    expect(text).toContain('held on no-brief (2):');
+    expect(text).toContain('feature/a');
+    expect(text).toContain('feature/b');
+    expect(text).toContain('held on already-merged (1):');
+    expect(text).toContain('feature/c');
+  });
+
+  it('omits a hold that refused nothing, where the summary line prints its zero', () => {
+    // THE TWO PATHS DIFFER ON PURPOSE. A zero is a measurement on the counted
+    // line and noise in a list of names — there are no slices to name.
+    const out: string[] = [];
+    reportTick(refused(), (s) => out.push(s), () => {});
+    expect(out.join('')).not.toContain('held on not-claimable');
+  });
+
+  it('names nothing on a tick that never read a queue', () => {
+    const out: string[] = [];
+    reportTick(completed(), (s) => out.push(s), () => {});
+    expect(out.join('')).not.toContain('held on ');
+  });
+
   it('sends a completed tick to stdout', () => {
     const out: string[] = [];
     const err: string[] = [];

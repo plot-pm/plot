@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   assign,
   isHandOverReady,
+  holdCounts,
   matchQueue,
+  QUEUE_HOLDS,
   whyNotReady,
+  type QueueHold,
   type FleetCap,
   type QueueAgent,
   type QueuedSlice,
@@ -430,5 +433,68 @@ describe('assign — the tick starts agents when queued > running', () => {
     const readings = { slices: [slice()], agents: [] };
     const input = { fleet: cap() };
     expect(assign(readings, input)).toEqual(assign(readings, input));
+  });
+});
+
+describe('a refusal is counted so a zero can be read', () => {
+  /**
+   * THE POINT OF COUNTING EVERY HOLD IS THE ZERO. A tick reporting `handed=0`
+   * cannot say whether nothing was ready or something is wrong, and that
+   * ambiguity cost an afternoon on 2026-09-06: five holds were eliminated by
+   * hand, the cause was never found, and every slice that day was assigned
+   * manually. A key per hold makes `no-brief=0` a measurement.
+   */
+  it('gives every hold a key, including the ones that did not fire', () => {
+    const counts = holdCounts([{ branch: 'feature/a', hold: 'no-brief' }]);
+    expect(Object.keys(counts).sort()).toEqual([...QUEUE_HOLDS].sort());
+    expect(counts['no-brief']).toBe(1);
+    expect(counts['not-claimable']).toBe(0);
+  });
+
+  it('counts an empty pass as zeros rather than as an empty object', () => {
+    const counts = holdCounts([]);
+    expect(Object.values(counts).every((n) => n === 0)).toBe(true);
+    expect(Object.keys(counts)).toHaveLength(QUEUE_HOLDS.length);
+  });
+
+  it('sums the holds it was given, and the total is the slices held', () => {
+    const held = [
+      { branch: 'feature/a', hold: 'no-brief' as const },
+      { branch: 'feature/b', hold: 'no-brief' as const },
+      { branch: 'feature/c', hold: 'already-merged' as const },
+    ];
+    const counts = holdCounts(held);
+    expect(counts['no-brief']).toBe(2);
+    expect(counts['already-merged']).toBe(1);
+    expect(Object.values(counts).reduce((a, b) => a + b, 0)).toBe(held.length);
+  });
+
+  it('names every hold `whyNotReady` can answer, so no reason goes uncounted', () => {
+    // THE LIST AND THE RULE MUST NOT DRIFT. A hold `whyNotReady` returns and
+    // `QUEUE_HOLDS` omits would be counted nowhere and reported as nothing —
+    // exactly the silence this plan exists to remove.
+    const answered = [
+      whyNotReady({ branch: 'b', slug: 's', claimable: true, briefPresent: true, landed: 'landed' }),
+      whyNotReady({ branch: 'b', slug: 's', claimable: true, briefPresent: true, landed: 'unknown' }),
+      whyNotReady({
+        branch: 'b',
+        slug: 's',
+        claimable: true,
+        briefPresent: false,
+        landed: 'not-landed',
+      }),
+      whyNotReady({
+        branch: 'b',
+        slug: 's',
+        claimable: false,
+        briefPresent: true,
+        landed: 'not-landed',
+      }),
+    ].filter((hold): hold is QueueHold => hold !== null);
+
+    for (const hold of answered) expect(QUEUE_HOLDS).toContain(hold);
+    // `no-free-agent` is `matchQueue`'s and not `whyNotReady`'s, so it is
+    // asserted separately rather than folded into the loop above.
+    expect(QUEUE_HOLDS).toContain('no-free-agent');
   });
 });

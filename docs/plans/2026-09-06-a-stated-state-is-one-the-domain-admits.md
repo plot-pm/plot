@@ -62,7 +62,7 @@ docs/sprints/2026-W36-a-half-landed-workflow…    Phase: Planned
 
 ## Slices
 
-### The parse refuses an unadmitted state (Branch: bug/a-stated-state-parses)
+### The parse refuses an unadmitted state (Branch: bug/a-stated-state-parses, PR: #726)
 
 `parseSprintFile` and `parseStoryContent` refuse a value their schema does not admit, as `plot-plan-meta.sh` already does for a plan phase.
 
@@ -90,7 +90,7 @@ docs/sprints/2026-W36-a-half-landed-workflow…    Phase: Planned
 
 **Done when** a story status or sprint phase outside its schema parses as `UNKNOWN`, the plan path is unchanged, and a test asserts each shell list against the domain's.
 
-### The four files are corrected (Branch: bug/four-files-say-what-they-are)
+### The four files are corrected (Branch: bug/four-files-say-what-they-are, PR: #734)
 
 The three stories go `done` with the archive date `archiveStory` writes; the sprint goes `Planning`.
 

@@ -123,6 +123,26 @@ export type QueueHold =
    */
   | 'merge-unknown';
 
+/**
+ * Every hold, in the order a reader should scan them.
+ *
+ * **IT EXISTS SO A COUNT CAN REPORT A ZERO.** Counting the holds that fired
+ * names only what happened; a reader then cannot tell `no-brief: 0` from a
+ * hold this build does not have. Reporting all six every pass makes the line's
+ * shape constant, so a missing key is a version difference rather than a
+ * silence.
+ *
+ * The order is the order {@link whyNotReady} tests them, which is the order the
+ * answers were decided in.
+ */
+export const QUEUE_HOLDS: readonly QueueHold[] = [
+  'already-merged',
+  'merge-unknown',
+  'no-brief',
+  'not-claimable',
+  'no-free-agent',
+];
+
 /** One slice that stayed in the queue, and what held it there. */
 export interface HeldSlice {
   /** The branch. */
@@ -262,4 +282,27 @@ export const matchQueue = (readings: QueueReadings): QueueMatch => {
     held,
     idle: free.slice(next).map((agent) => agent.session),
   };
+};
+
+/**
+ * How many slices each hold refused this pass.
+ *
+ * **EVERY HOLD GETS A KEY, INCLUDING THE ONES THAT DID NOT FIRE.** A caller
+ * rendering this gets a line of constant shape, so `no-brief=0` is a
+ * measurement rather than an absence — which is the whole difference between
+ * *nothing was ready* and *something is wrong*, and the distinction a tick
+ * reporting `handed=0` could not make.
+ *
+ * @param held - the slices one pass refused, from {@link matchQueue}.
+ * @returns a count per hold, zero where the hold did not fire.
+ */
+export const holdCounts = (
+  held: readonly HeldSlice[],
+): Readonly<Record<QueueHold, number>> => {
+  const counts = Object.fromEntries(QUEUE_HOLDS.map((hold) => [hold, 0])) as Record<
+    QueueHold,
+    number
+  >;
+  for (const slice of held) counts[slice.hold] += 1;
+  return counts;
 };
