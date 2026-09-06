@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -31,7 +31,13 @@
 | board auto-dispatch | filters the branch out (`auto-dispatch.ts:449`, `:494`), logs a skip |
 | board *Start work* | **asks** — it posts to `/api/dispatch`, which spawns that same script |
 
-**The asking arm is built, configured and proven.** `plot-dispatch.sh:492` spawns it detached with `PLOT_PLAN_SLUG` and `PLOT_BRIEF_BRANCH`; `Brief command` is set in this repo's `## Plot Config`. The board reaches none of it.
+**THE ASKING ARM IS BUILT AND CONFIGURED, AND IT HAS NEVER ONCE WORKED.** Both real invocations are on disk and both are failures — `.plot/brief-a-thinking-agent-has-a-quiet-stretch.log` (2026-09-02) and `.plot/brief-an-agent-knows-what-it-spent.log` (2026-09-04), **33 bytes each**, both reading `Unknown command: /plot-implement`. A person wrote both briefs afterwards.
+
+`plot-implement` is a **skill**, not a slash command: `skills/plot-implement/SKILL.md` declares `name: plot-implement`, and `~/.claude/commands/` holds nothing by that name. The bare `/plot-implement` in the prompt resolves to nothing.
+
+**The other three agent-runner keys carry the same shape** — `Idea command`, `Story command` and `Approve command` all name a bare `/plot-<name>` — and none has ever run on this estate, so no log disproves the same defect there. This plan fixes the one it can measure.
+
+**The arm is built and configured.** `plot-dispatch.sh:492` spawns it detached with `PLOT_PLAN_SLUG` and `PLOT_BRIEF_BRANCH`; `Brief command` is set in this repo's `## Plot Config`. The board reaches none of it.
 
 **MEASURED 2026-09-06, AND IT COST AN AFTERNOON.** Nine eligible slices had no brief. Auto-dispatch was **on**. It skipped all nine every pulse for hours, and eight agents sat idle while the board rendered the slices as startable. A person eventually wrote the briefs by hand.
 
@@ -40,6 +46,8 @@
 ## What this is not
 
 **Not a weakening of the brief gate.** No slice starts without a brief. The change is what happens instead of stopping.
+
+**Not a second budget.** A brief session pushes to `main` where an agent pushes to its own branch, which argues for its own smaller cap. Rejected: `parallelAgents` is the fleet's budget and a brief session costs what an agent costs, so one budget governs both and a reader has one number to reason about. The blast radius is bounded by the cap and by the two off switches, not by a second limit nobody would remember to set.
 
 **Not automatic brief acceptance.** The `Brief command` writes a brief; a person still reads it. The dispatch happens on a later pulse, once the brief is on `origin/main` — which is exactly `plot-dispatch.sh`'s existing shape: *"dispatch again once it lands; the gate reads <ref>."*
 
@@ -50,6 +58,18 @@
 **Not a change to `Start work`.** Round 1 measured it: `isReadyToStart` tests `phase === 'Development' && started === false` and never consults the brief, so the button is already offered for an unbriefed slice, and `/api/dispatch` spawns `plot-dispatch.sh`, which already asks. The slice proposing to add that was deleted rather than kept as a no-op.
 
 ## Slices
+
+### The brief command actually writes a brief (Branch: bug/the-brief-command-invokes-a-skill)
+
+`plot-dispatch.sh`'s brief prompt invokes `plot-implement` in a form that resolves, and one real brief is written end to end.
+
+**IT LEADS BECAUSE EVERYTHING BEHIND IT IS UNVERIFIABLE.** The arm has a measured 0% success rate over two attempts. Auto-dispatch calling it would fail the same way, on a 5 s pulse, and the first working test would be in production.
+
+**THE FIX IS THE INVOCATION, NOT A SECOND WRITER.** `/plot-implement` step 4 owns brief authorship and must keep owning it — `plot-dispatch.sh:429` states why a script here would be a second writer that drifts. What changes is how the session is asked to reach that skill.
+
+**DONE MEANS ONE REAL BRIEF, NOT A GREEN TEST.** The evidence is a brief on `origin/main` that this command wrote, for a branch that had none — the thing neither prior attempt produced. A log of 33 bytes is what failure looks like here, and it exits 0.
+
+**Done when** the `Brief command` writes one real brief for one unbriefed branch and pushes it, its log shows the session doing work rather than an unknown-command line, and `plot-dispatch.sh` reports it.
 
 ### Auto-dispatch asks for the brief it is missing (Branch: feature/the-board-asks-for-a-brief)
 
@@ -71,9 +91,13 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 
 **SO THE MARK IS KEYED BY SLUG.** One ask per plan per pass, however many of its branches are unbriefed — which is also what the command actually does. A per-branch mark would be counting the wrong thing and paying for it twice.
 
+**A SESSION IS BOUNDED, AND A PLAN THAT KEEPS FAILING IS HANDED TO A PERSON.** `startFreeAgent` bounds a start at 60 s; a brief session is spawned with `nohup` and waited on by nobody, so today nothing bounds it at all. It gains a bound — minutes, not the fleet's 8 h `Worker bound`, because a brief is not a slice — and **after a bounded number of failed asks the plan is marked as needing a person**, the shape the supervisor's `PLOT-BLOCKED` marker already has. Retiring the mark on expiry alone would ask forever against a command that cannot work, which is exactly the state this estate was in for four days.
+
+**TWO OFF SWITCHES, AND THEY STOP DIFFERENT THINGS.** The auto-dispatch switch stops the asking live, because the asking is part of that loop. `Brief command: none` stops it for the project permanently — the shell already reads `none` as *we write them by hand*, and the board must honour the same answer rather than inventing a second way to say it.
+
 **IT REPORTS THE START, NEVER THE OUTCOME**, and names the log — the property `plot-dispatch.sh:500` had to learn by measurement: a `Brief command` that answered `Unknown command: /plot-implement` in 33 bytes still counted as asked.
 
-**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when the brief appears on `origin/main` and not before, the board names the log, and a plan whose brief never arrives is not asked again on the next pulse.
+**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when the brief appears on `origin/main` and not before, a session that exceeds its bound is reported, a plan whose asks keep failing is marked for a person rather than asked forever, `Brief command: none` and the auto-dispatch switch each stop it, and the board names the log.
 
 ## Notes
 
@@ -106,3 +130,19 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 **The mark moves to the slug.** That is what the command's own granularity was all along, and it makes the ask cheaper as a side effect rather than as a compromise.
 
 **What round 2 did not find:** any reason to doubt the retirement condition round 1 settled. `findMissingBriefs` reads per branch, and a slug-keyed mark retires when *every* branch of that plan is briefed — which is exactly when the command has finished its job.
+
+### Round 3 — 2026-09-06
+
+**The arm this plan builds on has never worked, and the logs were on disk the whole time.** `.plot/brief-*.log` holds exactly two files, 33 bytes each, both `Unknown command: /plot-implement` — 2026-09-02 and 2026-09-04. A person wrote both briefs afterwards, and this session wrote nine more by hand today without checking why the arm was silent.
+
+`plot-implement` is a skill (`SKILL.md` declares `name: plot-implement`); `~/.claude/commands/` holds no such command. The prompt's bare `/plot-implement` resolves to nothing.
+
+**So a slice was added ahead of everything else**, and its Done-when is one real brief on `origin/main` rather than a passing test. Building auto-dispatch on a 0%-success arm would have put the first working test in production, on a 5 s pulse.
+
+**The other three agent-runner keys carry the same shape and no evidence either way.** `Idea command`, `Story command` and `Approve command` all name a bare `/plot-<name>`, and none has ever run here — `.plot/` holds no log for any of them. That is a suspicion, not a measurement, and it stays out of this plan.
+
+**Three decisions the code could not settle, taken by a person:**
+
+- **Bounded, and a plan that keeps failing goes to a person.** Retiring the mark on expiry alone asks forever against a command that cannot work — the state this estate was actually in for four days.
+- **One budget, not two.** A separate cap for brief sessions is a second number to reason about; the two off switches bound the blast radius instead.
+- **Both off switches.** The auto-dispatch toggle stops it live; `Brief command: none` stops it for the project, and the shell already reads `none` that way.
