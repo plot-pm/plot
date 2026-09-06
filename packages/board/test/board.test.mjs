@@ -192,6 +192,12 @@ describe('board: contract fields + frontmatter visibility', () => {
       goal: '',
       start: '',
       end: '',
+      // A sprint file naming no dates has no timebox to show. `none` and ''
+      // rather than a placeholder: hand-written sprint files predate the
+      // fields, and absence must render as absence rather than as an error or
+      // a guessed range.
+      timebox: 'none',
+      timeboxLabel: '',
       members: [
         // `sprint-support` is a plan the board found; `ghost-plan` is not, and is
         // flagged rather than dropped. A `- [x]` item is still a member.
