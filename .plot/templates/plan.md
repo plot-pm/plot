@@ -83,8 +83,19 @@
      `### Wave 3`, `### Wave 4`, … for anything that must follow.
      No subheadings at all = one wave = every branch eligible at once (the
      pre-wave behaviour). Check state with /plot-fleet.
-     Annotations (deferred:/claimed:/moved:) must sit on the SAME line as
-     the backticked branch name — a wrapped continuation line is not read. -->
+     Annotations (deferred:/claimed:/moved:/waits:/builds:) must sit on the
+     SAME line as the backticked branch name — a wrapped continuation line is
+     not read. -->
+
+<!-- Builds: name what a slice creates, so the next plan can find it before
+     proposing it again. Write it as a `builds:` annotation on the branch line,
+     beside deferred:/claimed:/waits: — for example a slice building a shared
+     version helper annotates `builds: normalizeVersion, a shared helper`.
+     Optional: a docs plan, a rejection or a measurement builds nothing
+     nameable, and nothing nags. One deliverable per slice, because a plan
+     builds several things and each slice builds one.
+     Five plans in one week proposed something the estate already had; every
+     one was found by a grep and none by an interrogation round. -->
 
 - `feature/<slug>` — <description>
 

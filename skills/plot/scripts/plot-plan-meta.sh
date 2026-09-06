@@ -128,6 +128,19 @@
 #                  says: a prerequisite no plan declares still parses, and the
 #                  scan is what turns that into a verdict. `waits:` and
 #                  `deferred:` are independent — a branch may carry both.
+#                  `<!-- builds: normalizeVersion, a shared helper -->` names
+#                  what this slice BUILDS, reported as
+#                  `waves[].branches[].builds`. OPTIONAL, like `Sprint:` and
+#                  `Story:` — a docs plan, a rejection or a measurement builds
+#                  nothing nameable, and nothing warns about its absence. The
+#                  key is ABSENT where none was written, never "". The value
+#                  runs to the closing marker rather than stopping at the first
+#                  space the way `waits:` does: a prerequisite is a branch NAME
+#                  and a deliverable is a name plus enough words to search for.
+#                  An annotation rather than a `Builds:` field line precisely
+#                  BECAUSE annotations already work in both slice dialects from
+#                  one block of code — a field line would need two spellings,
+#                  and the template writes the list dialect.
 #   prs            PR numbers, sorted and unique, read from EITHER spelling:
 #                  `→ #NNN` / `→ owner/repo#NNN` links in the `## Branches`
 #                  section, OR `PR: #NNN` in a `## Waves` `### ` heading. The
@@ -401,6 +414,7 @@ function reset_state() {
   delete wave_names; delete wave_of; delete wave_seq; delete wave_count
   delete deferred_of; delete deferred_why; delete claimed_of; delete ordered_b; n_waves = 0
   delete waits_of; delete waits_set
+  delete builds_of; delete builds_set
   delete started; n_started = 0
   fm_changelog = ""
   delete changelog; n_changelog = 0; changelog_seen = 0; cl_open = 0
@@ -551,6 +565,10 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
       # reading `waits_on` gets a branch name or nothing — never a blank string
       # that reads as a prerequisite with no name.
       if (waits_set[i] == 1) out = out ",\"waits_on\":\"" jesc(waits_of[i]) "\""
+      # ABSENT, NOT EMPTY, for the same reason `waits_on` is: a slice that
+      # names no deliverable emits no key, so a consumer reads a name or
+      # nothing. An empty string would read as a deliverable called "".
+      if (builds_set[i] == 1) out = out ",\"builds\":\"" jesc(builds_of[i]) "\""
       out = out "}"
       first = 0
     }
@@ -925,6 +943,39 @@ section == "slices" && slice_shape != "heading" {
   # `has_waits` carries presence separately from the value, because ABSENT and
   # EMPTY are different answers — a branch declaring no prerequisite emits no
   # `waits_on` key at all.
+  # WHAT THIS SLICE BUILDS: `<!-- builds: normalizeVersion, a shared helper -->`.
+  #
+  # AN ANNOTATION, NOT A FIELD LINE, and that is what makes it work in BOTH
+  # slice dialects with no dialect-specific code. Annotations bind to the line
+  # carrying the branch name — the list item in one spelling, the `### `
+  # heading in the other — and both dialects already read `deferred:`,
+  # `claimed:` and `waits:` with the identical block. A `Builds:` field line
+  # would have had two spellings to parse, and the template writes the LIST
+  # dialect, so the heading-only version would be absent from every plan
+  # created from it.
+  #
+  # IT BELONGS TO THE SLICE, NEVER TO THE PLAN. A plan builds several things
+  # and each slice builds one; a plan-level list is searched as a whole and
+  # reported against the wrong slice.
+  #
+  # The value runs to the closing marker, the way `deferred:` does and unlike
+  # `waits:`. A prerequisite is a branch NAME and stops at whitespace; a
+  # deliverable is a name plus enough words to search for — `normalizeVersion,
+  # a shared helper` — and cutting it at the first space would leave the half
+  # that identifies it.
+  #
+  # `has_builds` carries presence separately from the value, exactly as
+  # `waits:` does: a slice declaring nothing emits no key, so a consumer reads
+  # a deliverable or nothing and never a blank string that looks like one.
+  builds_note = ""
+  has_builds = 0
+  if ($0 ~ /<!--[ \t]*builds:[ \t]*/) {
+    _bl = $0
+    sub(/^.*<!--[ \t]*builds:[ \t]*/, "", _bl)
+    sub(/[ \t]*-->.*$/, "", _bl)
+    builds_note = trim(_bl)
+    if (builds_note != "") has_builds = 1
+  }
   waits_note = ""
   has_waits = 0
   if ($0 ~ /<!--[ \t]*waits:[ \t]*/) {
@@ -982,6 +1033,8 @@ section == "slices" && slice_shape != "heading" {
     # so a branch that declares none emits no key.
     waits_of[n_branches] = waits_note
     waits_set[n_branches] = has_waits
+    builds_of[n_branches] = builds_note
+    builds_set[n_branches] = has_builds
     ordered_b[n_branches] = b
   }
   line = $0
@@ -1066,6 +1119,39 @@ section == "slices" && slice_shape == "heading" {
   # The prerequisite, read exactly as the list-item spelling reads it. Both
   # dialects emit the same waves[], so a field added to one only would break
   # that contract the first time a plan migrated.
+  # WHAT THIS SLICE BUILDS: `<!-- builds: normalizeVersion, a shared helper -->`.
+  #
+  # AN ANNOTATION, NOT A FIELD LINE, and that is what makes it work in BOTH
+  # slice dialects with no dialect-specific code. Annotations bind to the line
+  # carrying the branch name — the list item in one spelling, the `### `
+  # heading in the other — and both dialects already read `deferred:`,
+  # `claimed:` and `waits:` with the identical block. A `Builds:` field line
+  # would have had two spellings to parse, and the template writes the LIST
+  # dialect, so the heading-only version would be absent from every plan
+  # created from it.
+  #
+  # IT BELONGS TO THE SLICE, NEVER TO THE PLAN. A plan builds several things
+  # and each slice builds one; a plan-level list is searched as a whole and
+  # reported against the wrong slice.
+  #
+  # The value runs to the closing marker, the way `deferred:` does and unlike
+  # `waits:`. A prerequisite is a branch NAME and stops at whitespace; a
+  # deliverable is a name plus enough words to search for — `normalizeVersion,
+  # a shared helper` — and cutting it at the first space would leave the half
+  # that identifies it.
+  #
+  # `has_builds` carries presence separately from the value, exactly as
+  # `waits:` does: a slice declaring nothing emits no key, so a consumer reads
+  # a deliverable or nothing and never a blank string that looks like one.
+  builds_note = ""
+  has_builds = 0
+  if ($0 ~ /<!--[ \t]*builds:[ \t]*/) {
+    _bl = $0
+    sub(/^.*<!--[ \t]*builds:[ \t]*/, "", _bl)
+    sub(/[ \t]*-->.*$/, "", _bl)
+    builds_note = trim(_bl)
+    if (builds_note != "") has_builds = 1
+  }
   waits_note = ""
   has_waits = 0
   if ($0 ~ /<!--[ \t]*waits:[ \t]*/) {
@@ -1107,6 +1193,8 @@ section == "slices" && slice_shape == "heading" {
     claimed_of[n_branches] = claim_note
     waits_of[n_branches] = waits_note
     waits_set[n_branches] = has_waits
+    builds_of[n_branches] = builds_note
+    builds_set[n_branches] = has_builds
     ordered_b[n_branches] = b
   }
 

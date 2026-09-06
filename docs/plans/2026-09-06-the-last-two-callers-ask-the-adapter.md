@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 3
 - **Started:** 2026-09-06, Jan Wloka, `infra/the-project-api-is-named`
+- **Delivered:** 2026-09-07
 
 ## Changelog
 
@@ -74,7 +75,7 @@ plot-reconcile-scan.sh  3 → 1   the remaining line is advice TEXT, not a call
 
 **Done when** `plot-pr-merged.sh` names `gh` zero times, its lookups go through `plot-host.sh`, no caller gains a process per branch, the three readings reaching `rules/landed.ts` are unchanged, and `mayRemove`'s nine assertions still pass.
 
-### The board updater is routed or exempted (Branch: infra/the-project-api-is-named)
+### The board updater is routed or exempted (Branch: infra/the-project-api-is-named, PR: #745)
 
 `plot-update-board.sh` asks the adapter, or is exempted by name with its reason recorded.
 

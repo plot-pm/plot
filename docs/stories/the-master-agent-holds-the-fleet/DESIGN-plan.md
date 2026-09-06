@@ -166,11 +166,43 @@ reason.
 
 ### Fields
 
-**Validated field by field against the parser's output over all 158 plans,
-2026-08-28.** The `have` column is how many plans carry a non-empty value —
-which is the difference between a field that exists and one that is used.
+**Validated field by field against the parser's output.** The `have` column is
+how many plans carried a non-empty value — the difference between a field that
+exists and one that is used.
 
-| field | type | have | note |
+**THE FIGURES ARE A DATED SAMPLE, NOT A STANDING FACT.** They were taken over
+158 plans on 2026-08-28; the estate held **219** on 2026-09-07, 39% more in ten
+weeks, and every `have` below is stated against the smaller number. What the
+column is for is the *shape* of each field — always present, usually present,
+never seen — and those readings have held across both samples.
+
+**Regenerate it rather than trusting it.** `plot-plan-meta.sh` is the
+plan-format contract, and one pass answers the whole column:
+
+```
+skills/plot/scripts/plot-plan-meta.sh docs/plans/*.md \
+  | jq -s 'map(select(.phase != "NONE")) as $p
+           | ($p | map(keys) | add | unique) as $fields
+           | { plans: ($p | length) }
+             + (reduce $fields[] as $f ({};
+                 .[$f] = ([$p[] | .[$f]]
+                          | map(select(. != null and . != "" and . != "NONE"
+                                       and . != []))
+                          | length)))'
+```
+
+**The keys are unioned across every plan, not read off the first one.** That is
+the correction the 2026-08-28 validation had to make in its own method — see
+below — and it is why the query above collects `map(keys) | add | unique`
+rather than `.[0] | keys`: `rounds` is absent from most plans, so one sample row
+hides it entirely.
+
+**Two sentinels a re-run must respect**, both of which cost a wrong answer when
+missed: a file with no `Phase:` is not a plan (`phase == "NONE"`, dropped
+above), and an unset `phase_alt` is the literal string `"NONE"` rather than
+empty — testing it for `""` reports every plan as carrying one.
+
+| field | type | have (2026-08-28, n=158) | note |
 |---|---|---|---|
 | `file` | path | 158 | always present |
 | `format` | `list` \| `frontmatter` | 158 | which spelling this file uses |
@@ -198,9 +230,11 @@ which is the difference between a field that exists and one that is used.
 
 | `rounds` | number | 68 | **an optional KEY, not just an optional value** |
 
-**`rounds` is the format's one optional key.** 27 fields appear in every plan's
-output; `rounds` appears in 68 of 158 and is simply absent from the rest. Every
-other field is always emitted, empty when unset.
+**`rounds` is the format's one optional key.** Every other field is always
+emitted, empty when unset; `rounds` is simply absent from the plans that do not
+carry it. In the 2026-08-28 sample it appeared in 68 of 158 plans, and on
+2026-09-07 in **101 of 219** — the proportion moved, the shape did not, and the
+shape is the claim.
 
 That distinction matters to a consumer: `"rounds" in meta` and
 `meta.rounds !== ""` are different tests, and only one of them works here.
@@ -224,8 +258,15 @@ said, so a value the parser could not normalize is reportable rather than lost.
 *`slug` is not emitted*, which §13 argues it should be.
 
 **Two fields are modelled and unused**, and they are different cases.
-`phase_alt` at 0/158 is a *conflict* nobody has hit — good. `design_raw` at
-0/158 is a *state* nobody has entered, though `/plot-implement` gates on it.
+`phase_alt` is a *conflict* nobody has hit — good. `design_raw` is a *state*
+nobody has entered, though `/plot-implement` gates on it. Both read zero in the
+2026-08-28 sample of 158 plans and **both still read zero over 219 on
+2026-09-07**, which is what makes them modelled rather than merely rare.
+
+**The table above spells the first pair `state_alt` / `state_alt_raw`; the
+parser emits `phase_alt` / `phase_alt_raw`.** A re-run keyed on the table's
+spelling finds nothing and reports zero — the right answer for the wrong
+reason, which is worse than a wrong one because it agrees with the claim.
 
 ### Is there a Person, to model "approved by"?
 

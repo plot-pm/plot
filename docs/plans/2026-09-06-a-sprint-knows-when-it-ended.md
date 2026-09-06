@@ -83,7 +83,7 @@ This repeats a defect fixed the day before: `2026-W35-the-board-tells-the-truth-
 
 **Done when** the scan reports a sprint whose phase and index membership disagree, reports a phase the domain does not admit, names both, and gates nothing.
 
-### A shipped release closes nothing by itself (Branch: bug/a-sprint-names-a-shipped-release)
+### A shipped release closes nothing by itself (Branch: bug/a-sprint-names-a-shipped-release, PR: #743)
 
 The scan reports a non-Closed sprint whose `Release:` has been tagged.
 

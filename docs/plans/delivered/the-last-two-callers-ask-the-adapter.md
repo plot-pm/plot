@@ -1,0 +1,1 @@
+../2026-09-06-the-last-two-callers-ask-the-adapter.md
