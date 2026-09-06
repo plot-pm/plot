@@ -86,8 +86,17 @@ repair_origin_head() {
 # The default branch, repairing an unresolvable `origin/HEAD` on the way.
 #
 # The fallbacks are the ones the callers already carried, in the same order: the
-# symref, then the checkout's own HEAD, then `main`. What is new is that the
-# symref is TESTED before it is believed.
+# symref, then `main`. What is new is that the symref is TESTED before it is
+# believed.
+#
+# IT NEVER FALLS BACK TO THE CHECKOUT'S OWN BRANCH, and that is a refusal rather
+# than an omission. `refs-git.ts:138` does exactly that, correctly — it answers
+# a question about THIS checkout. A shell caller is asking which branch everyone
+# shares, and answering with whatever branch this tree happens to sit on is the
+# defect `dispatch.test.mjs` is named for: *"a shared approval is not hidden by
+# a parked checkout"*, measured when a concurrent agent's `git checkout` blocked
+# two correctly-approved plans in one session. `main` is a guess about the
+# repository; the current branch is a guess about the operator's last command.
 #
 # Usage: default_branch [<repo-dir>]
 # Output: the branch name on stdout, without the `origin/` prefix.
@@ -95,7 +104,6 @@ default_branch() {
   local dir="${1:-.}" name
   repair_origin_head "$dir"
   name=$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-  [ -n "$name" ] || name=$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null)
-  [ -n "$name" ] && [ "$name" != "HEAD" ] || name="main"
+  [ -n "$name" ] || name="main"
   printf '%s\n' "$name"
 }

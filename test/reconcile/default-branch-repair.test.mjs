@@ -107,15 +107,36 @@ test('default branch: a RESOLVABLE origin/HEAD is left alone', () => {
 });
 
 test('default branch: an ABSENT origin/HEAD is a fresh clone, not a corruption', () => {
-  // Nothing to repair and nothing to report: the fallbacks answer, exactly as
-  // every caller's own fallback chain did before.
+  // Nothing to repair and nothing to report: the `main` fallback answers,
+  // exactly as every caller's own fallback chain did before.
   const { root, work } = sandbox('absent');
   git(work, 'symbolic-ref', '--delete', 'refs/remotes/origin/HEAD');
 
   const got = call(work, 'default_branch');
   assert.equal(got.status, 0);
-  assert.equal(got.stdout.trim(), 'main', 'the checkout’s own HEAD answers');
+  assert.equal(got.stdout.trim(), 'main');
   assert.equal(got.stderr.trim(), '', `and nothing is reported:\n${got.stderr}`);
+
+  rmTree(root);
+});
+
+test('default branch: a PARKED checkout does not become the default branch', () => {
+  // THE DEFECT `dispatch.test.mjs` IS NAMED FOR — *"a shared approval is not
+  // hidden by a parked checkout"* — measured when a concurrent agent's
+  // `git checkout` blocked two correctly-approved plans in one session.
+  //
+  // `refs-git.ts:138` falls back to `rev-parse --abbrev-ref HEAD` and is right
+  // to: it answers a question about THIS checkout. A shell caller is asking
+  // which branch everyone SHARES, so the current branch is not an answer to it
+  // — `main` is a guess about the repository, the current branch is a guess
+  // about the operator's last command.
+  const { root, work } = sandbox('parked');
+  git(work, 'symbolic-ref', '--delete', 'refs/remotes/origin/HEAD');
+  git(work, 'checkout', '-q', '-b', 'other-agent-branch');
+
+  const got = call(work, 'default_branch');
+  assert.equal(got.stdout.trim(), 'main',
+    'the parked branch is not offered as the branch everyone shares');
 
   rmTree(root);
 });
