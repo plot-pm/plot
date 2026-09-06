@@ -158,6 +158,14 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=plot-pr-merged.sh
 . "$script_dir/plot-pr-merged.sh"
 
+# The ONE answer to "what is the default branch?" — `default_branch`, which
+# repairs an unresolvable `origin/HEAD` before it answers. This script is where
+# that corruption was MEASURED: twice on 2026-09-04 the symref pointed at
+# `origin/plot-corpus-pin`, and the refusal below fired on every dispatch. The
+# refusal stays; it now has less to refuse over.
+# shellcheck source=plot-default-branch.sh
+. "$script_dir/plot-default-branch.sh"
+
 # ---------------------------------------------------------------------------
 # WHERE THE WORKTREES LIVE, and by what name
 # ---------------------------------------------------------------------------
@@ -1147,7 +1155,7 @@ if [ "$mode" = "start" ]; then
   # config key, then origin's own HEAD, then `main`. Resolved here because the
   # fan-out's `MAIN` is set past the phase gate this path exits before.
   start_main=$(bash "$script_dir/plot-config.sh" get "Main branch")
-  [ -n "$start_main" ] || start_main=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
+  [ -n "$start_main" ] || start_main=$(default_branch)
   [ -n "$start_main" ] || start_main="main"
 
   # HOW MANY WORKERS ARE ALREADY UP, counted from the desks on this disk rather
@@ -1611,8 +1619,7 @@ fi
 # exactly where nothing can catch it. --allow-local is the explicit escape, and
 # it is named in the refusal so an operator learns it exists when they need it.
 MAIN=$(bash "$script_dir/plot-config.sh" get "Main branch")
-[ -n "$MAIN" ] || MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-[ -n "$MAIN" ] || MAIN="main"
+[ -n "$MAIN" ] || MAIN=$(default_branch)
 [ -n "$offline" ] || git fetch -q origin "$MAIN" 2>/dev/null
 
 PLAN_DIR_CFG=$("$script_dir/plot-config.sh" get "Plan directory" "docs/plans/")

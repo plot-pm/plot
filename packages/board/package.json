@@ -28,6 +28,7 @@
     "plot-approve.sh",
     "plot-budget.sh",
     "plot-config.sh",
+    "plot-default-branch.sh",
     "plot-deliver.sh",
     "plot-dispatch.sh",
     "plot-fleet-scan.sh",

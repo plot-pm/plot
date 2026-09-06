@@ -291,11 +291,13 @@ PREFIX_RE=$(cfg "Branch prefixes" "idea/, feature/, bug/, docs/, infra/" \
   | tr -d ' ' | tr ',' '\n' | sed 's#/$##' | grep -v '^$' | paste -sd'|' -)
 [ -n "$PREFIX_RE" ] || PREFIX_RE="idea|feature|bug|docs|infra"
 
+# `default_branch` repairs an unresolvable origin/HEAD before answering. The
+# scan derives every branch's state from `origin/<main>`, so a symref naming a
+# branch that does not exist makes every one of them unreadable at once.
+# shellcheck source=plot-default-branch.sh
+. "$script_dir/plot-default-branch.sh"
 MAIN=$(cfg "Main branch")
-if [ -z "$MAIN" ]; then
-  MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##')
-fi
-[ -n "$MAIN" ] || MAIN="main"
+[ -n "$MAIN" ] || MAIN=$(default_branch)
 
 # A FAILED FETCH IS A FACT, not a shrug. The old line was
 # `git fetch ... 2>/dev/null` with its status discarded: a GitHub 503, a
