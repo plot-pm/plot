@@ -51,7 +51,7 @@
 
 ## Slices
 
-### A plan says what it builds (Branch: feature/a-plan-names-its-deliverable)
+### A plan says what it builds (Branch: feature/a-plan-names-its-deliverable, PR: #744)
 
 The plan template carries a `Builds:` field naming the artifact each slice creates, and `plot-plan-meta.sh` parses it.
 
