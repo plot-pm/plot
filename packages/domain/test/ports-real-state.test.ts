@@ -370,6 +370,7 @@ describe('the package exposes the ports and hides the adapters', () => {
       import('../src/index.js').PlanStore,
       import('../src/index.js').Refs,
       import('../src/index.js').Host,
+      import('../src/index.js').Tracker,
       import('../src/index.js').Processes,
       import('../src/index.js').Trees,
       import('../src/index.js').Clock,
