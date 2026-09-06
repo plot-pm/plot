@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -15,6 +15,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-pulse-writes-its-own-record`
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-pulse-says-what-changed`
 - **Started:** 2026-09-06, Jan Wloka, `feature/the-pulse-line-carries-the-delta`
+- **Delivered:** 2026-09-06
 
 ## Changelog
 
