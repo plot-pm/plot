@@ -57,7 +57,7 @@ plot-reconcile-scan.sh  3 → 1   the remaining line is advice TEXT, not a call
 
 ## Slices
 
-### The merge gate asks the adapter (Branch: infra/the-merge-gate-asks-the-adapter)
+### The merge gate asks the adapter (Branch: infra/the-merge-gate-asks-the-adapter, PR: #725)
 
 `plot-pr-merged.sh` calls `plot-host.sh pr-merged` instead of `gh`.
 
