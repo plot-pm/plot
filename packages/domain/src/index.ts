@@ -266,6 +266,125 @@ export type {
 } from './transitions/slice.js';
 
 /**
+ * The six the state-declaration gate found the day it shipped, each now
+ * carrying the rule its declaration promised.
+ *
+ * The four shared shapes are aliased per entity for the reason the five above
+ * give: `Precondition`, `RefusalReason`, `Decision` and `Refusal` are declared
+ * in every transitions file and collide in the one module where all are in
+ * scope. The VERBS are not aliased — `observeBranchState`, `setSprintState` and
+ * the rest collide with nothing, and an alias on an uncollided name is the
+ * residue `scripts/count-domain-aliases.sh` holds at zero.
+ *
+ * `transitions/worker.ts` exports no move graph. `entities/fleet.ts:122`
+ * already states that the scan's eight are the Agent's eight and that the rule
+ * they want is `transitions/agent.ts`; `workerStateSource` reads that file's
+ * `STATE_SOURCE` rather than restating it.
+ */
+export {
+  observeBranchState,
+  branchStateObservable,
+  refProblems,
+  refReleasable,
+  BRANCH_LIFECYCLE,
+  isDecision as isBranchDecision,
+  isRefusal as isBranchRefusal,
+} from './transitions/branch.js';
+export type {
+  ObserveBranchInput,
+  RefReadings,
+  RefRefusal,
+  Precondition as BranchPrecondition,
+  RefusalReason as BranchRefusalReason,
+  TransitionResult as BranchTransitionResult,
+  Decision as BranchDecision,
+  Refusal as BranchRefusal,
+} from './transitions/branch.js';
+
+export {
+  readWorkerState,
+  workerStateReadable,
+  workerStateSource,
+  WORKER_LIFECYCLE,
+  isDecision as isWorkerDecision,
+  isRefusal as isWorkerRefusal,
+} from './transitions/worker.js';
+export type {
+  WorkerReading,
+  Precondition as WorkerPrecondition,
+  RefusalReason as WorkerRefusalReason,
+  TransitionResult as WorkerTransitionResult,
+  Decision as WorkerDecision,
+  Refusal as WorkerRefusal,
+} from './transitions/worker.js';
+
+export {
+  setSprintState,
+  sprintStateSettable,
+  openPromises,
+  SPRINT_LIFECYCLE,
+  isDecision as isSprintDecision,
+  isRefusal as isSprintRefusal,
+} from './transitions/sprint.js';
+export type {
+  SetSprintStateInput,
+  Precondition as SprintPrecondition,
+  RefusalReason as SprintRefusalReason,
+  TransitionResult as SprintTransitionResult,
+  Decision as SprintDecision,
+  Refusal as SprintRefusal,
+} from './transitions/sprint.js';
+
+export {
+  observeReleaseState,
+  releaseStateObservable,
+  RELEASE_LIFECYCLE,
+  isDecision as isReleaseDecision,
+  isRefusal as isReleaseRefusal,
+} from './transitions/release.js';
+export type {
+  ObserveReleaseInput,
+  Precondition as ReleasePrecondition,
+  RefusalReason as ReleaseRefusalReason,
+  TransitionResult as ReleaseTransitionResult,
+  Decision as ReleaseDecision,
+  Refusal as ReleaseRefusal,
+} from './transitions/release.js';
+
+export {
+  observePrState,
+  prStateObservable,
+  prId,
+  PR_LIFECYCLE,
+  isDecision as isPrDecision,
+  isRefusal as isPrRefusal,
+} from './transitions/pr.js';
+export type {
+  ObservePrInput,
+  Precondition as PrPrecondition,
+  RefusalReason as PrRefusalReason,
+  TransitionResult as PrTransitionResult,
+  Decision as PrDecision,
+  Refusal as PrRefusal,
+} from './transitions/pr.js';
+
+export {
+  observeBuildState,
+  buildStateObservable,
+  BUILD_LIFECYCLE,
+  isDecision as isBuildDecision,
+  isRefusal as isBuildRefusal,
+} from './transitions/build.js';
+export type {
+  ObserveBuildInput,
+  Precondition as BuildPrecondition,
+  RefusalReason as BuildRefusalReason,
+  TransitionResult as BuildTransitionResult,
+  Decision as BuildDecision,
+  Refusal as BuildRefusal,
+} from './transitions/build.js';
+
+/**
  * The lifecycle workflows — `readings -> Decision | Refusal`, deciding and
  * performing nothing. Exported from the pure barrel because they are pure:
  * every rule is reachable from a plain call with no adapter in scope.
