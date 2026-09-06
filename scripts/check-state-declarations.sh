@@ -86,7 +86,13 @@ cd "${1:-$(dirname "${BASH_SOURCE[0]}")/..}" || exit 2
 
 # How many `lifecycle` declarations may still lack their rule. The target is
 # zero; this is the debt, not a budget.
-LIFECYCLE_DEBT=6
+#
+# IT IS ZERO, AS OF 2026-09-06. It shipped at 6 — the six the gate found on the
+# day it merged — and each is now a `transitions/*.ts`. A floor of zero is what
+# turns the ratchet into the gate it was written to become: a lifecycle
+# declared from here needs its rule in the same change, which is the property
+# the debt was carried to reach rather than to keep.
+LIFECYCLE_DEBT=0
 
 # Where the domain's state lives. Only this package: the board holds hand-copied
 # duplicates of some of these, which is a known defect with its own plan, and a
