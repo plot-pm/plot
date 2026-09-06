@@ -63,7 +63,7 @@ active plans         0   of either shape
 
 ## Slices
 
-### An empty slice is not complete (Branch: bug/an-empty-slice-is-not-finished)
+### An empty slice is not complete (Branch: bug/an-empty-slice-is-not-finished, PR: #727)
 
 `eligible.ts` and `deliverable.ts` agree about a slice with no branches, and the agreement is a test.
 
