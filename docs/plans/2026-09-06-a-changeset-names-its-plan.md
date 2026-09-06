@@ -66,7 +66,7 @@ The changeset template and `/plot-idea`'s guidance carry a plan reference, and t
 
 **Done when** a changeset can name a plan, the cross-check uses it when present, and a changeset without one is still valid.
 
-### The convention is measured before it is enforced (Branch: infra/a-changeset-link-is-counted)
+### The convention is measured before it is enforced (Branch: infra/a-changeset-link-is-counted, PR: #732)
 
 `check-changeset-packages.sh` reports how many changesets name a plan, and refuses none.
 
