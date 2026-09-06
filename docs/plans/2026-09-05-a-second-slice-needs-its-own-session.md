@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -14,6 +14,7 @@
 - **Rounds:** 5
 - **Started:** 2026-09-05, Jan Wloka, `bug/a-second-slice-needs-its-own-session`
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-worker-prompt-has-a-template`
+- **Delivered:** 2026-09-06
 
 ## Changelog
 
