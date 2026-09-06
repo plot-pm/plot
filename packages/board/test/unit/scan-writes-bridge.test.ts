@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
+import { rmTree } from '../helpers.mjs';
 import { readBridge, BRIDGE_MAX_AGE_MS } from '../../src/server/pulse-bridge.js';
 import { FleetReadingSchema } from '../../src/contract/schema.js';
 
@@ -96,7 +97,11 @@ describe('the scan writes its own bridge', () => {
   let repo: string;
 
   beforeAll(() => { ({ tmp, repo } = makeRepo()); });
-  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  // `rmTree`, not a raw `fs.rmSync`: this file SIGKILLs a scan mid-run, and a
+  // killed scan's `git` children can still be writing into the tree when the
+  // teardown starts. That throws ENOTEMPTY, which `node --test` reports as the
+  // LAST TEST failing rather than as a teardown.
+  afterAll(() => rmTree(tmp));
 
   it('records nothing when it was not asked to', () => {
     // The scan is stateless and read-only by design, and this keeps it that way
@@ -231,7 +236,7 @@ describe('the scan writes its own bridge', () => {
 
       fs.chmodSync(state, 0o700);
     } finally {
-      fs.rmSync(ro.tmp, { recursive: true, force: true });
+      rmTree(ro.tmp);
     }
   });
 });
