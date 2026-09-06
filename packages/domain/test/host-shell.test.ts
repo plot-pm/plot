@@ -63,22 +63,22 @@ describe('a host that refuses', () => {
   });
 
   it('reads exit 3 as failed — asked, and the question broke', async () => {
-    // `die3`: a Jira with no base URL configured, or a 404 from a tracker that
-    // moved. Retryable once somebody fixes the config.
-    const answer = await hostShell(hostThat('exit 3')).issueList();
+    // `die3`: the question failed and is retryable once somebody fixes what
+    // broke it.
+    const answer = await hostShell(hostThat('exit 3')).prList('open');
     expect(answer).toEqual({ ok: false, why: 'failed' });
   });
 
   it('reads exit 4 as unaskable — this backend has no answer at all', async () => {
-    // The tracker-DISABLED case. Distinct from exit 3 on purpose: a caller told
-    // to retry an unaskable source retries forever.
-    const answer = await hostShell(hostThat('exit 4')).issueList();
+    // A capability this backend structurally lacks. Distinct from exit 3 on
+    // purpose: a caller told to retry an unaskable source retries forever.
+    const answer = await hostShell(hostThat('exit 4')).runs('some/branch');
     expect(answer).toEqual({ ok: false, why: 'unaskable' });
   });
 
   it('keeps a broken host apart from a host with no answer', async () => {
-    const broke = await hostShell(hostThat('exit 3')).issueView('7');
-    const cannot = await hostShell(hostThat('exit 4')).issueView('7');
+    const broke = await hostShell(hostThat('exit 3')).runs('some/branch');
+    const cannot = await hostShell(hostThat('exit 4')).runs('some/branch');
     expect(broke).not.toEqual(cannot);
   });
 
@@ -219,9 +219,9 @@ describe('a healthy host that holds nothing', () => {
 
   it('tells an empty list apart from both refusals', async () => {
     const script = hostThat('exit 0');
-    const empty = await hostShell(script).issueList();
-    const broke = await hostShell(hostThat('exit 3')).issueList();
-    const cannot = await hostShell(hostThat('exit 4')).issueList();
+    const empty = await hostShell(script).prList('open');
+    const broke = await hostShell(hostThat('exit 3')).prList('open');
+    const cannot = await hostShell(hostThat('exit 4')).prList('open');
     expect(empty).not.toEqual(broke);
     expect(empty).not.toEqual(cannot);
   });
@@ -260,14 +260,14 @@ describe('a host that answers', () => {
     // to reach the script is how a truncated page reads as a complete one.
     const echoArgs = hostThat('printf "%s\\n" "$*" >&2; exit 0');
     await hostShell(echoArgs).prList('open', 25);
-    await hostShell(echoArgs).issueList(10);
+    await hostShell(echoArgs).runs('some/branch', 10);
     const withLimit = await hostShell(
       hostThat('[ "$*" = "pr-list --state open --limit 25" ] || exit 1; exit 0'),
     ).prList('open', 25);
     expect(withLimit).toEqual({ ok: true, value: [] });
     const withoutLimit = await hostShell(
-      hostThat('[ "$*" = "issue-list" ] || exit 1; exit 0'),
-    ).issueList();
+      hostThat('[ "$*" = "runs some/branch" ] || exit 1; exit 0'),
+    ).runs('some/branch');
     expect(withoutLimit).toEqual({ ok: true, value: [] });
   });
 });
@@ -363,43 +363,6 @@ describe('the host’s words are read against what the entity allows', () => {
   it('reads a null mergedAt as null and keeps it apart from absent', async () => {
     const answer = await hostShell(hostThat('echo \'{"number":3,"mergedAt":null}\'')).prState('3');
     expect(answer).toMatchObject({ ok: true, value: { number: 3, mergedAt: null } });
-  });
-});
-
-describe('an issue keeps its identifier as a string', () => {
-  it('reads a numeric id and a Jira key the same way', async () => {
-    // GitHub yields a number and Jira a key, and only one of them is a number
-    // by accident of the host — so neither arrives in the domain as one.
-    const github = await hostShell(
-      hostThat('echo \'{"number":12,"title":"A bug","url":"u","createdAt":"2026-08-30","body":"B"}\''),
-    ).issueView('12');
-    expect(github).toEqual({
-      ok: true,
-      value: { id: '12', title: 'A bug', url: 'u', createdAt: '2026-08-30', body: 'B' },
-    });
-
-    const jira = await hostShell(hostThat('echo \'{"number":"PLOT-7","title":"A story"}\'')).issueView(
-      'PLOT-7',
-    );
-    expect(jira).toMatchObject({ ok: true, value: { id: 'PLOT-7', title: 'A story' } });
-  });
-
-  it('fills an issue’s unstated fields, and a missing body stays null', async () => {
-    // `issue-list` omits the body deliberately — it is asked on a timer for
-    // every open issue. So null here means NOT FETCHED, and a caller deciding
-    // *is this worth a plan?* must not read it as an empty problem statement.
-    const answer = await hostShell(hostThat("echo '{}'")).issueList();
-    expect(answer).toEqual({
-      ok: true,
-      value: [{ id: '', title: '', url: '', createdAt: null, body: null }],
-    });
-  });
-
-  it('reads an empty createdAt as absent rather than as a timestamp', async () => {
-    const answer = await hostShell(
-      hostThat('echo \'{"number":4,"createdAt":"","body":""}\''),
-    ).issueList();
-    expect(answer).toMatchObject({ ok: true, value: [{ createdAt: null, body: '' }] });
   });
 });
 
