@@ -262,6 +262,33 @@ await esbuild.build({
 fs.copyFileSync(landedArtifact, shippedLanded);
 fs.chmodSync(shippedLanded, 0o755);
 
+// THE DELTA, RENDERED WHERE THE RULE IS NOT. `pulseDelta` is a domain rule with
+// its own tests; this artifact parses two readings, calls it, and composes
+// sentences. Bundled for the same reason the ones above are: `plot-ask.mjs`
+// answers by RUNNING plot-fleet-scan.sh, so the scan asking it for its own
+// delta would be an artifact calling the script that called it.
+//
+// It needs the reading's schema — a previous pulse is a file another build may
+// have written — so it is larger than the rule-only bundles beside it and still
+// far short of the barrel, which re-exports every entity's validator.
+const deltaArtifact = path.join(here, 'dist/plot-delta.mjs');
+const shippedDelta = path.join(here, '../../skills/plot/scripts/board/plot-delta.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/delta.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: deltaArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(deltaArtifact, shippedDelta);
+fs.chmodSync(shippedDelta, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -279,6 +306,22 @@ fs.chmodSync(shippedLanded, 0o755);
 // derives this from the server sources and fails on any difference.
 const vendoredScripts = [
   'plot-agent-monitor.sh',
+  // Sourced BY plot-agent-monitor.sh as a `$script_dir` sibling since the two
+  // slice monitors merged on 2026-09-06 — the desk and the run are watched by
+  // one loop now, and the run's half lives here. Missing, the merged monitor
+  // does not crash: it reports that no build subject is attached and watches the
+  // desk alone, which is the silent half-blindness the vendoring exists to
+  // prevent. A gate derived from the server's own spawns cannot see a SOURCED
+  // file, so it is listed by hand, exactly as `plot-budget.sh` below is.
+  'plot-build-monitor.sh',
+  // Sourced BY all three monitors as a `$script_dir` sibling — it is "the ONE
+  // answer to is this monitor's subject still there?", and it is what ends a
+  // monitor with its agent. It was on NO list, measured 2026-09-06, so the npm
+  // layout has shipped without it: `plot_monitor_wait` is then undefined and the
+  // `while` driving every monitor's loop fails on the first call, so a monitor
+  // starts, takes one pass and exits — leaving a worker that reads as monitored
+  // and is watched by nothing after its first second.
+  'plot-monitor-subject.sh',
   'plot-approve.sh',
   // Sourced BY plot-host.sh as a `$here` sibling — the same shape as
   // `plot-transcript-quiet.sh` below, and the same failure. Missing, the source
@@ -339,6 +382,7 @@ const promptKb = (fs.statSync(shippedPrompt).size / 1024).toFixed(1);
 const taskKb = (fs.statSync(shippedTask).size / 1024).toFixed(1);
 const registrydKb = (fs.statSync(shippedRegistryd).size / 1024).toFixed(1);
 const landedKb = (fs.statSync(shippedLanded).size / 1024).toFixed(1);
+const deltaKb = (fs.statSync(shippedDelta).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -348,4 +392,5 @@ console.log(`Built plot-prompt.mjs (${promptKb} KB) → skills/plot/scripts/boar
 console.log(`Built plot-task.mjs (${taskKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-registryd.mjs (${registrydKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-landed.mjs (${landedKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-delta.mjs (${deltaKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);

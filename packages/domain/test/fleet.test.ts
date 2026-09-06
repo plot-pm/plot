@@ -4,7 +4,7 @@ import {
   SliceVerdictSchema,
   WorkerStateSchema,
   WorkerActivitySchema,
-  SourceBranchSchema,
+  BranchSchema,
   PlanSliceSchema,
   PlanSchema,
   FleetReadingSchema,
@@ -97,11 +97,11 @@ describe('the scan vocabularies are closed sets', () => {
 
 describe('a branch from an older scan still validates', () => {
   it('accepts a branch carrying only its four required fields', () => {
-    expect(SourceBranchSchema.safeParse(bareBranch).success).toBe(true);
+    expect(BranchSchema.safeParse(bareBranch).success).toBe(true);
   });
 
   it('defaults every field a pre-field scan could not have reported', () => {
-    const b = SourceBranchSchema.parse(bareBranch);
+    const b = BranchSchema.parse(bareBranch);
     // Absent is the same answer these fields gave before they existed.
     expect(b.deferred_reason).toBe('');
     expect(b.local_dirty).toBe(false);
@@ -123,31 +123,31 @@ describe('a branch from an older scan still validates', () => {
     // branch cannot answer the question, which is not the same as answering
     // `none`. Being wrong in the reassuring direction is the worst way to be
     // wrong.
-    expect(SourceBranchSchema.parse(bareBranch).worker).toBe('elsewhere');
-    expect(SourceBranchSchema.parse(bareBranch).worker_activity).toBe('');
+    expect(BranchSchema.parse(bareBranch).worker).toBe('elsewhere');
+    expect(BranchSchema.parse(bareBranch).worker_activity).toBe('');
   });
 
   it('defaults the two timing fields to null rather than to zero', () => {
     // `null` means the scan did not say. `0` would mean "just now", and a
     // freshly-changed branch is precisely what the board acts on.
-    const b = SourceBranchSchema.parse(bareBranch);
+    const b = BranchSchema.parse(bareBranch);
     expect(b.changed_ago_seconds).toBeNull();
     expect(b.changed_at).toBeNull();
   });
 
   it('carries the timing fields through when the scan does report them', () => {
-    const b = SourceBranchSchema.parse({ ...bareBranch, changed_ago_seconds: 42, changed_at: 1700000000 });
+    const b = BranchSchema.parse({ ...bareBranch, changed_ago_seconds: 42, changed_at: 1700000000 });
     expect(b.changed_ago_seconds).toBe(42);
     expect(b.changed_at).toBe(1700000000);
   });
 
   it('refuses a branch whose state is not one of the five', () => {
-    expect(SourceBranchSchema.safeParse({ ...bareBranch, state: 'nearly' }).success).toBe(false);
+    expect(BranchSchema.safeParse({ ...bareBranch, state: 'nearly' }).success).toBe(false);
   });
 
   it('requires the fields that have no honest default', () => {
     // `branch` names the thing; there is no value that could stand in for it.
-    expect(SourceBranchSchema.safeParse({ state: 'open', deferred: false, claimed: '' }).success).toBe(false);
+    expect(BranchSchema.safeParse({ state: 'open', deferred: false, claimed: '' }).success).toBe(false);
   });
 });
 

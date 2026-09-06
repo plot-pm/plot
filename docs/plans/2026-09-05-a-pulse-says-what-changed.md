@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -15,6 +15,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-pulse-writes-its-own-record`
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-pulse-says-what-changed`
 - **Started:** 2026-09-06, Jan Wloka, `feature/the-pulse-line-carries-the-delta`
+- **Delivered:** 2026-09-06
 
 ## Changelog
 
@@ -123,7 +124,7 @@ A function from two pulses to what moved between them, in `packages/domain/src/r
 
 **THE FULL PICTURE STAYS.** A first read needs it, and a delta with nothing to compare against is the `cannot say` case. The delta leads because it is what a returning reader wants; the picture follows because it is what a new one does.
 
-**Done when** `/plot-pulse` leads with what changed, a first run says so plainly, and the full report is unchanged below it.
+**Done when** `/plot-pulse` leads with what changed, a first run says so plainly, and the full report is unchanged below it. — PR #740
 
 ## Notes
 

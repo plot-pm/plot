@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-domain-knows-what-plot-knows
@@ -14,6 +14,7 @@
 - **Impl:** own branches
 - **Rounds:** 2
 - **Approved:** 2026-09-04, Jan Wloka, plan-PR #698 merged
+- **Delivered:** 2026-09-06
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <branch>
 - **Started:** 2026-09-05, Jan Wloka, `feature/a-story-lifecycle-refuses`
@@ -365,8 +366,7 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
 
 - `feature/six-lifecycles-declare-their-rules` — `transitions/` for the six
   entities `check-state-declarations.sh` names, in the order a wrong answer
-  costs most. **`LIFECYCLE_DEBT` goes 6 → 0**, so a lifecycle declared from here
-  needs its rule in the same change. — PR #736
+  costs most.
 
 **THE GATE FOUND THEM THE DAY IT SHIPPED.** #720 merged 2026-09-06 and its first run reported:
 

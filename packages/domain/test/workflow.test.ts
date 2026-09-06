@@ -5,8 +5,11 @@ import {
   BOARD_PHASES,
   DevelopmentWorkflow,
   PHASE_LEADERSHIP,
+  PHASE_WORKFLOWS,
+  phaseOf,
   phaseOrder,
   type Phase,
+  type WorkflowName,
 } from '../src/entities/workflow.js';
 import { storyPhase, toBoardPhase } from '../src/rules/phase.js';
 import {
@@ -154,5 +157,86 @@ describe('the phase order agrees with the state transitions', () => {
     // `active -> paused -> active` is the one round trip in either lifecycle.
     // Pausing stops work; it does not undo it, so the phase does not move.
     expect(storyPhase('paused')).toBe(storyPhase('active'));
+  });
+});
+
+/**
+ * Each phase names the work that belongs to it, and the fleet's work belongs to
+ * none.
+ *
+ * The partition is the deliverable, so the tests that matter are the two that
+ * say so: every phase workflow is placed exactly once, and every fleet workflow
+ * is placed nowhere. A test asserting only the happy mapping would pass over a
+ * `Fleet` phase quietly added later, which is the one outcome the assertion
+ * rules out.
+ */
+describe('the work a phase names', () => {
+  /** The workflows that act on agents and desks rather than on a plan. */
+  const FLEET: readonly WorkflowName[] = ['assign', 'reap', 'supervise'];
+
+  /** Every name the union carries, from the placements plus the fleet's. */
+  const ALL: readonly WorkflowName[] = [
+    'approve', 'assign', 'deliver', 'dispatch', 'reap', 'implement', 'release', 'supervise',
+  ];
+
+  it('places every phase workflow in exactly one phase', () => {
+    // A PARTITION, not an annotation. A workflow appearing twice would make
+    // `phaseOf` answer whichever phase came first and hide the other.
+    const placed = BOARD_PHASES.flatMap((phase) => [...PHASE_WORKFLOWS[phase]]);
+    expect(placed.length).toBe(new Set(placed).size);
+  });
+
+  it('places none of the fleet workflows in any phase', () => {
+    // THE ASSERTION THE SLICE EXISTS FOR. `assign`, `reap` and `supervise` act
+    // on agents and desks; the rest act on a plan moving through its lifecycle.
+    // The two sets share no successor relation, so a list mixing them cannot
+    // answer what comes next.
+    const placed = BOARD_PHASES.flatMap((phase) => [...PHASE_WORKFLOWS[phase]]);
+    for (const workflow of FLEET) {
+      expect(placed).not.toContain(workflow);
+      expect(phaseOf(workflow)).toBeNull();
+    }
+  });
+
+  it('accounts for every workflow as either phased or fleet', () => {
+    // No name may go unclassified. Adding a ninth workflow fails here until
+    // somebody says which of the two it is — which is the review this
+    // structure exists to force.
+    const placed = BOARD_PHASES.flatMap((phase) => [...PHASE_WORKFLOWS[phase]]);
+    expect([...placed, ...FLEET].sort()).toEqual([...ALL].sort());
+  });
+
+  it('answers the phase a placed workflow belongs to', () => {
+    // Placement follows each workflow's own writes: `approve` writes
+    // `Phase: Approved`, `deliver` writes `Delivered`, `release` writes
+    // `Released`. `dispatch` and `implement` write no phase and act on an
+    // already-Approved plan, so they sit inside Development.
+    expect(phaseOf('approve')).toBe('Design');
+    expect(phaseOf('dispatch')).toBe('Development');
+    expect(phaseOf('implement')).toBe('Development');
+    expect(phaseOf('deliver')).toBe('Development');
+    expect(phaseOf('release')).toBe('Testing');
+  });
+
+  it('gives a phase that performs none of these workflows an empty list', () => {
+    // A statement, not a gap: Discovery produces an approved story and no
+    // workflow here acts on a story; Released is where work has arrived.
+    expect(PHASE_WORKFLOWS.Discovery).toEqual([]);
+    expect(PHASE_WORKFLOWS.Released).toEqual([]);
+  });
+
+  it('never runs a phase backwards through the workflows it names', () => {
+    // The placements must agree with the phase order rather than restate it:
+    // a workflow that writes a later phase cannot sit in an earlier one than a
+    // workflow that writes an earlier phase.
+    expect(phaseOrder(phaseOf('approve') as Phase))
+      .toBeLessThan(phaseOrder(phaseOf('deliver') as Phase));
+    expect(phaseOrder(phaseOf('deliver') as Phase))
+      .toBeLessThan(phaseOrder(phaseOf('release') as Phase));
+  });
+
+  it('carries the placements on the workflow value', () => {
+    expect(DevelopmentWorkflow.workflows).toBe(PHASE_WORKFLOWS);
+    expect(DevelopmentWorkflow.phaseOf).toBe(phaseOf);
   });
 });

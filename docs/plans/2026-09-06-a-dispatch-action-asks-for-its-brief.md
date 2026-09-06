@@ -1,108 +1,138 @@
-# A dispatch action asks for its brief
+# Auto-dispatch asks for the brief it is missing
 
-> `plot-dispatch.sh` asks the `Brief command` to write a missing brief. The board's auto-dispatch and its *Start work* button do not — they filter the branch out and go quiet. Three doors onto one act, and only one of them offers the step the other two need.
+> Nine eligible slices sat unbriefed for hours while eight agents idled. Seven interrogation rounds found that the remedy already shipped — a *Write brief* button, a refusal that names the fix, a route that runs the skill — and that one unset config key made all of it inert. What is still missing is one thing: the unattended loop skips a slice with no brief and asks nobody.
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
-- **Rounds:** 2
+- **Approved:** 2026-09-06, Jan Wloka, in-session
+- **Rounds:** 9
+- **Delivered:** 2026-09-06
 
 ## Changelog
 
-- Every path that starts work offers to write the brief it requires, instead of silently declining to start.
+- The unattended dispatch loop asks for a missing brief instead of skipping in silence.
 
-<!-- Board impact: the Start work button and the auto-dispatch switch both gain
-     a step. The board renders the asking and its outcome. -->
+<!-- Board impact: auto-dispatch gains a step and the row gains a state. The
+     button, the route and the refusal already exist and are unchanged. -->
 
 ## Motivation
 
-**A slice with no brief is not started.** `auto-dispatch.ts:911` states it and `findMissingBriefs` enforces it, reading `origin/main` rather than the filesystem so a lagging checkout cannot be wrong about main. That rule is right and this plan does not touch it.
+**A slice with no brief is not started.** `auto-dispatch.ts:911` states it, and `findMissingBriefs` enforces it against `origin/main` rather than the filesystem, so a lagging checkout cannot be wrong about main. That rule is right and this plan does not touch it.
 
-**WHAT DIFFERS IS WHAT EACH DOOR DOES ABOUT IT.**
+**THE HUMAN PATH IS COMPLETE, AND SEVEN ROUNDS WERE NEEDED TO SEE IT.**
 
-| door | brief missing → |
+| what a person meets | what it does |
 |---|---|
-| `plot-dispatch.sh` | **asks the `Brief command`**, names the log, says to dispatch again once it lands |
-| board auto-dispatch | filters the branch out (`auto-dispatch.ts:449`, `:494`), logs a skip |
-| board *Start work* | **asks** — it posts to `/api/dispatch`, which spawns that same script |
+| `WriteBriefButton` | *"the way out of the refusal, offered where the refusal is read"* — delegates to `/api/implement` |
+| `/api/dispatch` | refuses `no-implement-command` and names the fix |
+| `/api/implement` | the board's eighth state-changing route, runs `/plot-implement <slug>` |
+| `plot-dispatch.sh` | asks the `Brief command` for a branch it cannot start |
 
-**The asking arm is built, configured and proven.** `plot-dispatch.sh:492` spawns it detached with `PLOT_PLAN_SLUG` and `PLOT_BRIEF_BRANCH`; `Brief command` is set in this repo's `## Plot Config`. The board reaches none of it.
+**One key made all of it inert.** `Implement command` was unset here until 2026-09-06. So the button rendered and could not act, and every dispatch refused with `no-implement-command` — **which is why nine slices sat unbriefed while the fix was one click away on the row that showed the problem.** Setting the key stopped the refusal immediately, measured against the live board.
 
-**MEASURED 2026-09-06, AND IT COST AN AFTERNOON.** Nine eligible slices had no brief. Auto-dispatch was **on**. It skipped all nine every pulse for hours, and eight agents sat idle while the board rendered the slices as startable. A person eventually wrote the briefs by hand.
+**WHAT REMAINS MISSING IS ONE PATH.** `auto-dispatch.ts:449` filters an unbriefed branch out of the startable set and logs a skip. Nobody is asked, and the log is written where nobody is reading. **It is the only door onto dispatch that meets a missing brief and does nothing about it.**
 
-**The board's log said so** — *"skipping branch(es) with no brief on origin/main (run /plot-implement first)"* — which is a good sentence in a place nobody was reading. **A skip nobody sees is the defect `a-refused-dispatch-asks-for-a-brief` already fixed once, for the shell.**
+**That is a smaller claim than this plan opened with**, and it is the one the estate supports.
 
 ## What this is not
 
 **Not a weakening of the brief gate.** No slice starts without a brief. The change is what happens instead of stopping.
 
-**Not automatic brief acceptance.** The `Brief command` writes a brief; a person still reads it. The dispatch happens on a later pulse, once the brief is on `origin/main` — which is exactly `plot-dispatch.sh`'s existing shape: *"dispatch again once it lands; the gate reads <ref>."*
+**Not the board taking a new kind of action.** `row-identity.ts:152` records an Open Point — *whether the board should offer the brief-writing action* — declined because *"running `/plot-implement` is a real write, and the board's line is drawn at the acting endpoints it already has."* That line is not crossed: the brief is an intermediate step inside dispatch, which `plot-dispatch.sh:429` already calls *"that step"*, and the acting endpoint stays `/api/dispatch`.
 
-**Not a promise that a brief appears.** `plot-dispatch.sh:500` is explicit that the count measures the START and not the result — measured 2026-09-02, a `Brief command` that answered `Unknown command: /plot-implement` in 33 bytes still counted. The board must inherit that honesty, not paper over it.
+**Not a new button, a new route, or a new runner.** All three exist. This plan reaches them from the loop that does not.
 
-**Not a fourth implementation.** The arm exists in the shell. The board should reach it, not re-derive it.
-
-**Not a change to `Start work`.** Round 1 measured it: `isReadyToStart` tests `phase === 'Development' && started === false` and never consults the brief, so the button is already offered for an unbriefed slice, and `/api/dispatch` spawns `plot-dispatch.sh`, which already asks. The slice proposing to add that was deleted rather than kept as a no-op.
+**Not a fix for the shell's `Brief command` prompt.** Its two real invocations both died with `Unknown command: /plot-implement` — 33 bytes each, 2026-09-02 and 2026-09-04 — because `plot-implement` is a skill and the prompt opens with a bare slash command. `composeImplementPrompt` uses the other form, *"Run /plot-implement <slug> and follow it."* **Both keys stay**: `plot-dispatch.sh` runs in repositories with no board and cannot read the board's key. Making the shell's form work is [`the-brief-command-invokes-a-skill`](2026-09-06-the-brief-command-invokes-a-skill.md).
 
 ## Slices
 
 ### Auto-dispatch asks for the brief it is missing (Branch: feature/the-board-asks-for-a-brief)
 
-Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, and reports what it started.
+Auto-dispatch reaches `/api/implement` for a branch it would otherwise skip, and reports what it started.
 
-**IT IS THE ONE PATH THAT GOES QUIET.** Round 1 checked all three, and two of them were already right: `plot-dispatch.sh` asks, and `/api/dispatch` — which *Start work* posts to — spawns that same script, so the button already asks too. Only `auto-dispatch.ts:449` filters the branch out and logs a skip.
+**IT REACHES THE ROUTE, IT DOES NOT REIMPLEMENT IT.** `WriteBriefButton` is a label over `ImplementButton` for exactly this reason — *"two implementations of one click is the duplication `one-place-for-what-a-row-can-do` exists to prevent"*. A loop with its own spawner would be the third copy.
 
-**IT ASKS AT MOST ONCE PER BRANCH, NOT ONCE PER PULSE.** The board pulses every 5 s and the command is a `claude -p` session of unknown length. An unguarded ask spawns a session every pulse for every unbriefed branch — with nine branches that is a fork bomb with a friendly name.
+**ONE ASK PER PLAN, NOT PER BRANCH.** The route takes a **slug** and `/plot-implement` prepares a plan, not a branch. Measured 2026-09-06: `the-workflow-owns-the-word-phase` carried 2 unbriefed branches and `every-element-is-a-domain-concept` 1, so a per-branch ask would run one command twice against one plan, in two sessions, with no lock between them. `PLOT_BRIEF_BRANCH` looks like it scopes a session and does not — `/plot-implement` names it zero times.
 
-**THE IN-FLIGHT MARK CANNOT BE REUSED, AND ROUND 1 KILLED THAT PLAN.** `pruneInFlight` retires a mark when the pulse shows the branch claimed, merged, gone from every plan, or held by a live registry entry. **A brief lands as a file on `origin/main` and produces none of those** — `isStartable(b.state)` still answers true, so `stillPending` keeps the mark and the branch is charged against `parallelAgents` forever. Reusing it would leak the budget one slot per brief.
+**THE MARK IS ITS OWN, AND THE IN-FLIGHT MARK CANNOT BE REUSED.** `pruneInFlight` retires when the pulse shows a branch claimed, merged, gone, or held by a live registry entry. **A brief produces none of those**: `isStartable` still answers true, the mark never drops, and every ask would cost a permanent slot against `parallelAgents`. The ask's mark retires on the reading that matches it — a **non-empty** brief on `origin/main`, which `findMissingBriefs` already takes every pulse.
 
-**SO THE ASK NEEDS ITS OWN MARK, RETIRED ON ITS OWN EVIDENCE:** the brief appearing on `origin/main`, which `findMissingBriefs` already reads every pulse. That reading is the retirement condition, and it is the only one that matches what the ask actually produces.
+**NON-EMPTY, NOT PRESENT.** `registryd-main.ts:341` calls the existence check *"the weaker half"* beside the shell's hand-over gate, which refuses a zero-byte brief. A session dying mid-write can push a partial file. The two halves ask one question or the weaker one decides.
 
-**IT IS BOUNDED BY THE SAME CAP AS A DISPATCH.** A brief-writing session costs what an agent costs. `parallelAgents` is the fleet's budget and asking must draw on it, or the cap stops meaning anything.
+**BOUNDED, AND A PLAN THAT KEEPS FAILING GOES TO A PERSON.** `startFreeAgent` bounds a start at 60 s; a brief session is spawned detached and waited on by nobody. It gains a bound, and after a bounded number of failed asks **the plan file records that it needs a person** — `PLOT-BLOCKED` is a desk marker and a plan with no brief has no desk. A board-side counter was rejected: it dies on restart, so a restart silently retries a command that cannot work, which is the state this estate was in for four days.
 
-**THE ASK IS PER PLAN, NOT PER BRANCH, AND ROUND 2 FOUND THE MISMATCH.** The prompt is `/plot-implement <slug>` — one command about a whole plan — while the ask, the mark and the log are all keyed by branch (`plot-dispatch.sh:486` writes `.plot/brief-<branch>.log`). Measured 2026-09-06: `the-workflow-owns-the-word-phase` had **2** unbriefed branches and `every-element-is-a-domain-concept` had 1, so a per-branch ask would fire the same command twice against one plan, in two sessions, writing two logs.
+**ONE BUDGET, AND A FULL FLEET CORRECTLY BLOCKS THE ASK.** A brief session draws on `parallelAgents`. Measured 2026-09-06: 6 agents against a cap of 5, so no ask could fire at all — which is the designed answer rather than a bug. **A brief is only worth writing if an agent can then take the slice**; asking while the fleet is full prepares work nobody can act on for hours, and the brief would be stale by the time anyone did. A second cap for writes-to-main was rejected: one number to reason about, with the blast radius bounded by the off switches.
 
-**`PLOT_BRIEF_BRANCH` LOOKS LIKE THE ANSWER AND IS NOT.** `plot-dispatch.sh:493` exports it, and `/plot-implement` **names it zero times** — the branch reaches the session only as prose inside the prompt. So nothing mechanically scopes the session to one branch, and two sessions on one slug are two agents writing into the same plan's brief directory with no lock between them.
+**IT SHIPS OFF, AND A PROJECT TURNS IT ON KNOWINGLY.** This is the first time the loop writes without a click — an unattended session that commits to `main` — and `plot-registryd`'s `--start-agents` already has this shape for the same reason: *"it is opt-in: a tick with a queue nothing can take starts free agents"*, and *"a run without the flag changes nothing on the machine"*. A project that has never seen this loop write should not discover it by having it write.
 
-**SO THE MARK IS KEYED BY SLUG.** One ask per plan per pass, however many of its branches are unbriefed — which is also what the command actually does. A per-branch mark would be counting the wrong thing and paying for it twice.
+**The cost is stated: an estate that never opts in keeps today's silence.** That is the outage this plan opened with, and it is the price of not surprising a repository that did not ask. The refusal already names the fix, and the button already works once `Implement command` is set — a project reading either has what it needs to opt in.
 
-**IT REPORTS THE START, NEVER THE OUTCOME**, and names the log — the property `plot-dispatch.sh:500` had to learn by measurement: a `Brief command` that answered `Unknown command: /plot-implement` in 33 bytes still counted as asked.
+**TWO OFF SWITCHES, STOPPING DIFFERENT THINGS.** The auto-dispatch toggle stops the asking live, because the asking is part of that loop. `Implement command: none` stops it for the project — the config already reads `none` as *we do this by hand*, and the board must honour that answer rather than invent a second way to say it.
 
-**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when the brief appears on `origin/main` and not before, the board names the log, and a plan whose brief never arrives is not asked again on the next pulse.
+**THE ROW MOVES BETWEEN TWO STATES THAT ALREADY EXIST.** `rows.tsx:2056` renders `needs a brief` in the `waitingOn: 'you'` amber and says why: *"A missing brief is a person's errand and nothing in git will clear it."* Once the loop asks, something else is. **`WaitingOnSchema` already admits `'time'`** — waiting on the machine, rendered slate by `waitingTone` — so the row moves `you → time` while a session is writing, and no value is invented. **A reader scanning for their own errands must not see a row a machine is already handling.**
+
+**IT ANNOUNCES, BECAUSE IT CHANGES WITH NO CLICK.** The badge is a `role="gridcell"` of static text; a state that moves on its own would move silently for a screen-reader user, and this is the first row state on the board that changes without anybody acting. `StatusPanel:192` already uses `aria-live="polite"` and that is the pattern — announced when the reader is idle, because it is the reader's own errand that moved.
+
+**AND THE MARK SURVIVES A RESTART.** It is an in-memory `Set` today, the same shape `auto-deliver.ts` carries. A restart mid-ask forgets it, the next pulse asks again while the first session is still running, and that is round 2's collision arriving by a different route. `.plot/state/` already holds `fleet-controls.json` and `last-pulse.json`, so a durable mark has a home and a precedent.
+
+**Done when** the asking is off by default and a project can turn it on, auto-dispatch asks at most once per plan per pass, the ask reaches `/api/implement` rather than spawning its own, it draws on the agent cap, its mark retires only on a non-empty brief on `origin/main`, a session past its bound is reported, a plan whose asks keep failing is recorded in its plan file, the row moves from `waitingOn: 'you'` to `'time'` while a session is writing and announces the change politely, the mark survives a board restart so a restart does not re-ask mid-session, and either off switch stops it.
 
 ## Notes
 
-### Why the shell already does this — 2026-09-06
+### What seven rounds cost and bought — 2026-09-06
 
-`a-refused-dispatch-asks-for-a-brief` is Released and it is this plan one door earlier: a dispatch that refused for a missing brief was a dead end, and the fix was to offer the step rather than report the wall. The board grew its own dispatch path afterwards and did not inherit the offer.
+The plan opened claiming three dispatch doors go quiet on a missing brief. **One does.** Each round removed something:
 
-**That is the shape to expect wherever a second door appears** — and the argument for reaching the shell's arm rather than writing a third one.
+| round | finding |
+|---|---|
+| 1 | `Start work` already asks — its slice deleted |
+| 2 | the ask was keyed by branch, the command by plan — two sessions on one plan |
+| 3 | the shell's `Brief command` has never once worked, 2 of 2 runs |
+| 4 | `/plot-implement` creates branches and writes `Started:`; a ref **is** a claim |
+| 5 | a prior plan's Open Point was being crossed unknowingly — reframed, not reversed |
+| 6 | the log the plan promised to name is one the board cannot serve |
+| 7 | `WriteBriefButton`, `/api/implement` and the refusal all already ship |
 
-### Round 1 — 2026-09-06
+**Round 7 is the one that mattered most**, and it is the cheapest outcome available: finding a feature already built prevents the whole build. What it left is one loop and a config key.
 
-**Two of the three doors were already right, and the plan claimed all three were wrong.** Checking each against the code cut the plan in half and corrected the half that survived.
+### The config key was the outage — 2026-09-06
 
-**`Start work` already asks.** `isReadyToStart` (`PlanCard.tsx:38`) tests `phase === 'Development' && started === false` and never reads the brief, so the button is offered for an unbriefed slice; `/api/dispatch` spawns `plot-dispatch.sh`, which asks the `Brief command` at `:492`. The slice proposing to add this was **deleted** — a slice whose Done-when the estate already satisfies is the seventh duplicate deliverable this week, and `a-plan-greps-for-its-own-deliverable` exists because of the first six.
+`Implement command` was unset. `WriteBriefButton` rendered and could not act; `/api/dispatch` refused every slice with `no-implement-command`. **Nine slices sat unbriefed for hours with the remedy one click away, disabled by a key nobody had set.**
 
-**The surviving slice had a defect that would have leaked the budget.** It said to reuse the in-flight mark and *"retire it on the same evidence"*. `pruneInFlight` retires on claimed, merged, gone, or a live registry entry — **a brief on `origin/main` is none of those**, `isStartable` keeps answering true, and the mark would never drop. Every brief asked for would have cost a permanent slot against `parallelAgents`, silently shrinking the fleet.
+Setting it stopped the refusal immediately — verified against the live board, `no-implement-command` gone from the payload.
 
-**The retirement condition the ask actually needs is a reading the board already takes**: `findMissingBriefs` runs every pulse and answers exactly *did the brief appear*.
+**A feature that ships without its config key ships disabled**, and nothing on this estate said so — no lint, no scan section, no board warning. `plot-detect-repo.sh` proposes config at adoption and nothing re-checks it when a later feature adds a key. That gap is real and unrecorded; it is not this plan's, and it should not be lost.
 
-**What the round did not change:** the gate itself. No slice starts without a brief, and that was never in question.
+### Round 8 — 2026-09-06
 
-### Round 2 — 2026-09-06
+**The claim reproduces on a live tick.** With auto-dispatch **on**, `Implement command` **set**, and 6 agents running: `no-brief=3`, and all three sat there while nothing asked. The plan's one remaining claim is not theoretical.
 
-**The ask is keyed by branch and the command is keyed by plan.** `plot-dispatch.sh` asks with the prompt `/plot-implement <slug>` and logs to `.plot/brief-<branch>.log` — a per-plan command behind a per-branch key.
+**And the tick surfaced a defect outside this plan.** `bug/the-reaper-reads-prunable` was among the three — but its plan says in bold prose *"IT WAITS FOR `a-desk-is-finished-with-once` (#705)"*, and #705 is an **unmerged idea branch**, so its plan is not on main and reads `phase: NONE`.
 
-**Measured on today's own estate:** `the-workflow-owns-the-word-phase` carries 2 unbriefed branches, `every-element-is-a-domain-concept` 1. Under a per-branch ask the first would spawn **two `claude -p` sessions running the identical command**, against one plan, with no lock between them.
+**The wait existed only as prose.** `waits:` is a parsed annotation carrying `waits_on`, used by 6 plans, and that slice's heading carried none — so the machine read it as eligible and a person withheld the brief by hand. **A wait a reader can see and a machine cannot is a rule**, and this repo's own test says a rule that matters gets a gate. The annotation is added; a sweep found this was the only plan with the gap.
 
-**`PLOT_BRIEF_BRANCH` is exported and never read.** `/plot-implement` names it zero times; the branch reaches the session only as prose in the prompt. So nothing scopes a session to one branch, and the duplicate is a genuine collision rather than a harmless repeat.
+**Two decisions settled:**
 
-**The mark moves to the slug.** That is what the command's own granularity was all along, and it makes the ask cheaper as a side effect rather than as a compromise.
+- **Off by default.** The first unattended write to `main` should not arrive unannounced, and `--start-agents` is the precedent — opt-in, and a run without it changes nothing on the machine. The cost is that an estate which never opts in keeps today's silence.
+- **A full fleet correctly blocks the ask.** 6 agents against a cap of 5 means no ask could fire, which is the design: a brief is worth writing only if an agent can then take the slice.
 
-**What round 2 did not find:** any reason to doubt the retirement condition round 1 settled. `findMissingBriefs` reads per branch, and a slug-keyed mark retires when *every* branch of that plan is briefed — which is exactly when the command has finished its job.
+### Round 9 — 2026-09-06
+
+**Both row states this plan needs already exist.** `WaitingOnSchema` admits `'you' | 'click' | 'time'`, and `waitingTone` renders `'time'` in slate — *waiting on the machine*. So *asked, waiting* is `you → time`, not a fourth value. **A reader scanning for their own errands must not see a row a machine is already handling**, which settles the colour question against keeping amber: the ask can fail, but a failure is what the bound and the plan-file record are for, not what a colour should carry for hours.
+
+**The badge does not announce, and this is the first row state that changes with no click.** It is a `role="gridcell"` of static text. Every other change on this board follows something a person did or an agent pushed; this one moves while nobody is looking. `StatusPanel:192` already uses `aria-live="polite"`, and that is the pattern — the reader's own errand moved, and one sentence when they are idle is the right cost.
+
+**The mark must survive a restart, and that is a change from the estate's shape rather than a copy of it.** `auto-deliver.ts` holds the identical in-memory `Set`. A restart mid-ask forgets it and the next pulse asks again while the first session runs — **round 2's collision, arriving by a different route**. `.plot/state/` already holds `fleet-controls.json` and `last-pulse.json`, so durability has a home and a precedent.
+
+**Interrogation ends here.** Nine rounds; the remaining questions are about the estate rather than this plan.
+
+### The review channel was misdeclared — 2026-09-06
+
+The plan declared `Review: pr` and was never on a branch: all nine rounds landed as direct commits to `main`, and `plot-approve.sh` refused the approval because no plan PR existed.
+
+**`in-session` is what happened.** Nine interrogation rounds, with every decision recorded in the plan as the round that took it. Correcting the field is not a convenience — it makes the plan's own record of its approval true, and the alternative was opening a PR to carry a review that had already finished.

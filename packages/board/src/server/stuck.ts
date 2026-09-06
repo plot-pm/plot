@@ -43,7 +43,7 @@ export interface StuckInput {
   state: BranchState;
   /**
    * The files that would collide merging into the default branch — see
-   * `SourceBranchSchema.conflicts`. Meaningless without `conflictsKnown`.
+   * `BranchSchema.conflicts`. Meaningless without `conflictsKnown`.
    */
   conflicts: readonly string[];
   /**

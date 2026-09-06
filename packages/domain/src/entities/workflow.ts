@@ -1,10 +1,13 @@
 /**
- * The development workflow: the phases work passes through, in order, and who
- * leads each.
+ * The development workflow: the phases work passes through, in order, who leads
+ * each, and the work each one names.
  *
  * A phase belongs to the WORKFLOW. A plan has a state and a story has a state;
  * both map onto these phases and neither carries one. `rules/phase.ts` holds
  * the two mappings.
+ *
+ * The fleet's workflows belong to no phase here, by assertion rather than by
+ * omission — see {@link PHASE_WORKFLOWS}.
  */
 
 /**
@@ -77,7 +80,89 @@ export const PHASE_LEADERSHIP: Record<Phase, PhaseLeadership> = {
 export const phaseOrder = (phase: Phase): number => BOARD_PHASES.indexOf(phase);
 
 /**
- * The development workflow as one value: its phases, their order, their leaders.
+ * The workflows this package expresses.
+ *
+ * Lives here rather than in `workflows/decision.ts` because the phases below
+ * must name their workflows, and `entities/` may not import `workflows/` — the
+ * dependency runs the other way. A workflow's NAME is vocabulary; its decision
+ * machinery is not, and that stays where it was. `decision.ts` re-exports this,
+ * so every existing import path is unchanged.
+ */
+export type WorkflowName =
+  | 'approve'
+  | 'assign'
+  | 'deliver'
+  | 'dispatch'
+  | 'reap'
+  | 'implement'
+  | 'release'
+  | 'supervise';
+
+/**
+ * The workflows belonging to each phase, in the order a phase performs them.
+ *
+ * WHAT THIS ADDS: `WorkflowName` is a flat union of eight names, and the phases
+ * are an ordered list of five. Nothing connected them, so *which work does this
+ * phase name* had no answer in the domain.
+ *
+ * **THE FLEET'S WORKFLOWS BELONG TO NO PHASE, AND THAT IS THE ASSERTION.**
+ * `assign`, `reap` and `supervise` act on **agents and desks**; the five below
+ * act on **a plan moving through its lifecycle**. The two sets share no
+ * successor relation — reaping a desk does not come after delivering a plan in
+ * any sense a workflow could compute — so a list mixing them cannot answer
+ * *what comes next*. They are absent here deliberately, not pending.
+ *
+ * So this is a PARTITION rather than an annotation: {@link phaseOf} answers
+ * `null` for those three, and `null` is a stated answer.
+ *
+ * **NO PHASE IS INVENTED FOR THEM.** A `Fleet` phase would put them back into
+ * an ordering they have no place in, and the board would gain a column for work
+ * that no plan passes through.
+ *
+ * Placement follows each workflow's own writes, never a reading of its name:
+ *
+ * - `Discovery` performs none of these. It produces an approved story, and no
+ *   workflow in this package acts on a story.
+ * - `Design` ends at `approve`, which writes `Phase: Approved`.
+ * - `Development` holds `dispatch` and `implement` — both act on an already
+ *   Approved plan and write no phase — and ends at `deliver`, which writes
+ *   `Phase: Delivered`. That matches the phase's own note that development
+ *   ends at the merge.
+ * - `Testing` ends at `release`, which writes `Phase: Released`.
+ * - `Released` performs none: it is where work has arrived.
+ *
+ * A phase performing no workflow gets an empty list, which is a statement that
+ * this package expresses none of its work — not that the phase is idle.
+ */
+export const PHASE_WORKFLOWS: Record<Phase, readonly WorkflowName[]> = {
+  Discovery: [],
+  Design: ['approve'],
+  Development: ['dispatch', 'implement', 'deliver'],
+  Testing: ['release'],
+  Released: [],
+};
+
+/**
+ * The phase a workflow belongs to, or `null` where it belongs to none.
+ *
+ * `null` IS AN ANSWER. The fleet's three workflows act on agents and desks
+ * rather than on a plan's lifecycle, so they sit outside the phases by
+ * assertion — a caller reading `null` has learned that, not failed to find
+ * something.
+ *
+ * Data rather than a gate, exactly as {@link phaseOrder} is: nothing refuses on
+ * this answer. The state transitions decide what may happen next, and a second
+ * enforcer here could only disagree with them.
+ *
+ * @param workflow - the workflow to place.
+ * @returns its phase, or `null` when it belongs to no phase.
+ */
+export const phaseOf = (workflow: WorkflowName): Phase | null =>
+  BOARD_PHASES.find((phase) => PHASE_WORKFLOWS[phase].includes(workflow)) ?? null;
+
+/**
+ * The development workflow as one value: its phases, their order, their leaders,
+ * and the work each phase names.
  *
  * A frozen record rather than a class — the workflow holds no state and
  * performs no I/O, so there is nothing to construct.
@@ -89,4 +174,8 @@ export const DevelopmentWorkflow = {
   leadership: PHASE_LEADERSHIP,
   /** A phase's position, counting from zero. */
   order: phaseOrder,
+  /** The workflows each phase performs, in the order it performs them. */
+  workflows: PHASE_WORKFLOWS,
+  /** The phase a workflow belongs to, or `null` for the fleet's. */
+  phaseOf,
 } as const;

@@ -156,7 +156,23 @@ export type WorkerState = z.infer<typeof WorkerStateSchema>;
 export const WorkerActivitySchema = z.enum(['working', 'idle', '']);
 export type WorkerActivity = z.infer<typeof WorkerActivitySchema>;
 
-export const SourceBranchSchema = z.object({
+/**
+ * A branch a plan names, and everything a scan measured about it.
+ *
+ * Identity: a natural key — the branch name, which git enforces as unique
+ * within a repository. State: derived, so it goes stale and is re-run rather
+ * than stored.
+ *
+ * A Branch is not a Slice. They are 1:1, and what keeps them apart is who
+ * writes them: a plan writes the Slice and git writes the Branch. A deferred
+ * Slice whose Branch does not exist is the case that proves neither derives
+ * from the other.
+ *
+ * Named `SourceBranch` until 2026-09-06, when the rules that judge a branch
+ * moved onto it — see {@link ../rules/reapable.js}.
+ */
+export const BranchSchema = z.object({
+  /** The branch's name — the identity. */
   branch: z.string(),
   state: BranchStateSchema,
   deferred: z.boolean(),
@@ -561,7 +577,7 @@ export const SourceBranchSchema = z.object({
    */
   changed_paths: z.array(z.string()).default([]),
 });
-export type SourceBranch = z.infer<typeof SourceBranchSchema>;
+export type Branch = z.infer<typeof BranchSchema>;
 
 /**
  * One branch's worth of a plan, plus its place in an order.
@@ -576,7 +592,7 @@ export type SourceBranch = z.infer<typeof SourceBranchSchema>;
 export const PlanSliceSchema = z.object({
   name: z.string(),
   verdict: SliceVerdictSchema,
-  branches: z.array(SourceBranchSchema),
+  branches: z.array(BranchSchema),
 });
 export type PlanSlice = z.infer<typeof PlanSliceSchema>;
 

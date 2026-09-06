@@ -391,16 +391,17 @@ export interface Refusal<Reason extends string = string> {
   readonly detail: string;
 }
 
-/** The workflows this package expresses. */
-export type WorkflowName =
-  | 'approve'
-  | 'assign'
-  | 'deliver'
-  | 'dispatch'
-  | 'reap'
-  | 'implement'
-  | 'release'
-  | 'supervise';
+/**
+ * The workflows this package expresses.
+ *
+ * Declared in `entities/workflow.ts` and re-exported here, which is where every
+ * caller has always imported it from. It moved because the phases must name
+ * their workflows and `entities/` may not import `workflows/` — the dependency
+ * runs the other way, and a workflow's NAME is vocabulary rather than decision
+ * machinery.
+ */
+import type { WorkflowName } from '../entities/workflow.js';
+export type { WorkflowName };
 
 /** What a workflow answers: the writes it decided on, or the rule that stopped it. */
 export type Outcome<Detail = unknown, Reason extends string = string> =
