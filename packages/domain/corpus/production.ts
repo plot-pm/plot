@@ -135,6 +135,48 @@ export interface PrRow {
 }
 
 /**
+ * How far the host got — `HOST_VERDICT`'s words, derived the way the scan
+ * derives them.
+ *
+ * `unasked` IS NOT A FAILURE, and collapsing it into one is what broke this
+ * tier's first CI run. `plot-fleet-scan.sh:700` reads the CLI's stderr because
+ * *"an unauthenticated CLI and a genuine mid-answer failure arrive with the
+ * SAME status"* — exit 3 for both, since `plot-host.sh` treats a missing token
+ * as *the op cannot proceed*. A repository with no remote lands there too.
+ *
+ * The direction matters and is the whole point: `failed` makes every branch
+ * `unknown`, so a checkout with no credentials reports an estate on which
+ * nothing can be started. Measured 2026-09-06 — CI's corpus job sets no
+ * `GH_TOKEN`, so this oracle read `failed` and derived `unknown` for all 48
+ * unstarted branches while the scan beside it read `unasked` and derived `open`.
+ */
+export type HostVerdict = 'ok' | 'unasked' | 'throttled' | 'secondary' | 'failed';
+
+/**
+ * The wordings a CLI uses when it has no identity, as the scan matches them.
+ *
+ * MEASURED, NOT GUESSED — the scan's own comment records that an earlier list
+ * matched `auth`, `login` and `credential` and MISSED what GitHub Actions
+ * actually emits, which contains none of those words. Reproduced here from that
+ * list rather than re-derived, because a second guess would fail the same way.
+ */
+const UNASKED_PATTERNS: readonly RegExp[] = [
+  /token/i,
+  /auth/i,
+  /login/i,
+  /credential/i,
+  /not logged/i,
+  /no git remotes?/i,
+];
+
+const classifyHostFailure = (status: number | undefined, stderr: string): HostVerdict => {
+  if (status === 5) return 'throttled';
+  if (status === 6) return 'secondary';
+  if (status === 4) return 'unasked';
+  return UNASKED_PATTERNS.some((pattern) => pattern.test(stderr)) ? 'unasked' : 'failed';
+};
+
+/**
  * Runs `plot-host.sh pr-list --state all --rich`, the ONE host call the scan
  * makes per run, and returns its rows.
  *
@@ -144,18 +186,18 @@ export interface PrRow {
  * re-learn what one call already said, and would measure the host's mood rather
  * than the rule.
  *
- * A non-zero exit yields an empty list, which the caller must read as *the host
- * could not answer* rather than as *this repository has no pull requests* — the
- * two are what `HostReach` exists to keep apart.
+ * A failure is CLASSIFIED rather than collapsed — see {@link HostVerdict}. The
+ * caller needs *the question was never put* apart from *the question went
+ * unanswered*, because the rule under test produces different states for them.
  *
  * @param estate - the repository to read.
  * @param limit - the row cap, matching the scan's `PR_LIST_LIMIT`.
- * @returns the rows, and whether the list arrived at all.
+ * @returns the rows, how far the host got, and whether the list was whole.
  */
 export const readPrList = (
   estate: Estate,
   limit = 1000,
-): { arrived: boolean; complete: boolean; rows: PrRow[] } => {
+): { verdict: HostVerdict; complete: boolean; rows: PrRow[] } => {
   let out: string;
   try {
     out = execFileSync(
@@ -166,11 +208,13 @@ export const readPrList = (
         encoding: 'utf8',
         maxBuffer: MAX_BUFFER,
         timeout: TIMEOUT_MS,
-        stdio: ['ignore', 'pipe', 'ignore'],
+        stdio: ['ignore', 'pipe', 'pipe'],
       },
     );
-  } catch {
-    return { arrived: false, complete: false, rows: [] };
+  } catch (error) {
+    const failure = error as { status?: number; stderr?: Buffer | string };
+    const stderr = failure.stderr === undefined ? '' : String(failure.stderr);
+    return { verdict: classifyHostFailure(failure.status, stderr), complete: false, rows: [] };
   }
   const rows: PrRow[] = [];
   for (const line of out.split('\n')) {
@@ -184,7 +228,7 @@ export const readPrList = (
   // had no more to give. An EMPTY list is not a complete one — a host exiting 0
   // while printing nothing parses to zero rows, and reading that as *no pull
   // requests* derives absence for every branch on the estate.
-  return { arrived: true, complete: rows.length > 0 && rows.length < limit, rows };
+  return { verdict: 'ok', complete: rows.length > 0 && rows.length < limit, rows };
 };
 
 /**

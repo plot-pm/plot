@@ -94,9 +94,24 @@ const estate: Estate = { root: ROOT };
 let mainBranch: string;
 
 let pulse: FleetReading;
+/**
+ * The scan's host word AS EMITTED, not as the schema narrowed it.
+ *
+ * `FleetReadingSchema` declares five host words and the scan emits six:
+ * `unasked` is not among the schema's options, so `.catch('unknown')` rewrites
+ * it on parse. That is right for the board — an unrecognised word must not take
+ * the whole pulse down — and wrong here, because this file compares the scan's
+ * reach against its own and `unknown` is a different reading from `unasked`.
+ *
+ * Measured 2026-09-06 against an unauthenticated checkout: the scan's `--json`
+ * carries `"host":"unasked"` and the parsed pulse reads `unknown`. Reported in
+ * the pull request rather than fixed here — widening the enum is a change to
+ * the wire contract every consumer reads, and this slice does not touch it.
+ */
+let rawHost: string;
 let refs: Map<string, string>;
 let mergeSubjects: string[];
-let prList: { arrived: boolean; complete: boolean; rows: PrRow[] };
+let prList: { verdict: HostReach; complete: boolean; rows: PrRow[] };
 
 /**
  * The one PR state per branch, ranked the way `prefill_pr_states` ranks it.
@@ -124,16 +139,18 @@ const bestPrPerBranch = (rows: readonly PrRow[]): Map<string, string> => {
 let prByBranch: Map<string, string>;
 
 /**
- * How far the host got, as `HOST_VERDICT` records it.
+ * How far the host got — `HOST_VERDICT`'s own word, classified in
+ * `production.ts` from the same exit code and stderr text the scan reads.
  *
- * Three of the five values are unreachable from here without breaking the host
- * on purpose: this run either got the list or did not. `unasked` is the honest
- * word for a list that never arrived in a checkout with credentials — the
- * failures are named separately in the shell from stderr text this oracle does
- * not read — so a failed list makes the whole comparison refuse rather than
- * quietly compare against a guess. See the vacuity guard below.
+ * NOT A BOOLEAN, and that was the first version's defect. CI's corpus job sets
+ * no `GH_TOKEN`, so `pr-list` fails to authenticate — which the scan classifies
+ * `unasked` (*a question that was not put is not a question that went
+ * unanswered*) and derives `open` from, while a boolean oracle read `failed`
+ * and derived `unknown`. Measured 2026-09-06: 48 disagreements on the first CI
+ * run of this file, every one of them `adapter=unknown production=open`, and
+ * the rule was not involved.
  */
-const hostReach = (): HostReach => (prList.arrived ? 'ok' : 'failed');
+const hostReach = (): HostReach => prList.verdict;
 
 /**
  * What the host said about ONE branch's pull request.
@@ -257,7 +274,9 @@ const comparePass = (reading: FleetReading): Pass => {
 };
 
 beforeAll(() => {
-  pulse = FleetReadingSchema.parse(readFleetScan(estate));
+  const raw = readFleetScan(estate);
+  rawHost = String((raw.summary as { host?: unknown } | undefined)?.host ?? '');
+  pulse = FleetReadingSchema.parse(raw);
   mainBranch = readMainBranch(estate);
   refs = readRemoteRefs(estate);
   mergeSubjects = readMergeSubjects(estate, mainBranch);
@@ -284,17 +303,19 @@ describe('the estate is really being read', () => {
     expect(refs.has(mainBranch)).toBe(true);
   });
 
-  it('got an answer from the host', () => {
-    // NOT AN ASSERTION ABOUT THE HOST'S MOOD — it is what makes the comparison
-    // below mean anything. With no list, every branch reads `unreadable` on BOTH
-    // sides and the states agree by shared ignorance: the run would pass having
-    // proven that two things which cannot see agree about what they cannot see.
+  it('reached the host exactly as far as the scan did', () => {
+    // THE TWO SIDES AGREE ABOUT THE HOST, WHICH IS NOT THE SAME AS REACHING IT.
+    // An unauthenticated checkout is a legitimate estate to compare over — the
+    // scan reads `unasked` and derives `open`, and the rule must reproduce that
+    // — so demanding `ok` would refuse to run in exactly the environment CI
+    // provides.
     //
-    // The scan's own reading is compared against this oracle's, so a host that
-    // failed for one and answered for the other is caught here rather than
-    // reported as ~48 disagreements about branches.
-    expect(prList.arrived).toBe(true);
-    expect(pulse.summary.host).toBe('ok');
+    // What must hold is that both sides got the SAME far, because the reach is
+    // an input to the derivation. Measured 2026-09-06: this file's first CI run
+    // read `failed` where the scan read `unasked`, and reported all 48 unstarted
+    // branches as `adapter=unknown production=open`. One assertion here names
+    // that as what it is; forty-eight lines about branches do not.
+    expect(prList.verdict).toBe(rawHost);
   });
 });
 
