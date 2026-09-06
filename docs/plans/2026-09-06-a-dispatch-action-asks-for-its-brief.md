@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -65,9 +65,15 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 
 **IT IS BOUNDED BY THE SAME CAP AS A DISPATCH.** A brief-writing session costs what an agent costs. `parallelAgents` is the fleet's budget and asking must draw on it, or the cap stops meaning anything.
 
+**THE ASK IS PER PLAN, NOT PER BRANCH, AND ROUND 2 FOUND THE MISMATCH.** The prompt is `/plot-implement <slug>` — one command about a whole plan — while the ask, the mark and the log are all keyed by branch (`plot-dispatch.sh:486` writes `.plot/brief-<branch>.log`). Measured 2026-09-06: `the-workflow-owns-the-word-phase` had **2** unbriefed branches and `every-element-is-a-domain-concept` had 1, so a per-branch ask would fire the same command twice against one plan, in two sessions, writing two logs.
+
+**`PLOT_BRIEF_BRANCH` LOOKS LIKE THE ANSWER AND IS NOT.** `plot-dispatch.sh:493` exports it, and `/plot-implement` **names it zero times** — the branch reaches the session only as prose inside the prompt. So nothing mechanically scopes the session to one branch, and two sessions on one slug are two agents writing into the same plan's brief directory with no lock between them.
+
+**SO THE MARK IS KEYED BY SLUG.** One ask per plan per pass, however many of its branches are unbriefed — which is also what the command actually does. A per-branch mark would be counting the wrong thing and paying for it twice.
+
 **IT REPORTS THE START, NEVER THE OUTCOME**, and names the log — the property `plot-dispatch.sh:500` had to learn by measurement: a `Brief command` that answered `Unknown command: /plot-implement` in 33 bytes still counted as asked.
 
-**Done when** auto-dispatch asks for a missing brief at most once per branch, the ask draws on the agent cap, its mark retires when the brief appears on `origin/main` and not before, the board names the log, and a branch whose brief never arrives is not asked again on the next pulse.
+**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when the brief appears on `origin/main` and not before, the board names the log, and a plan whose brief never arrives is not asked again on the next pulse.
 
 ## Notes
 
@@ -88,3 +94,15 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 **The retirement condition the ask actually needs is a reading the board already takes**: `findMissingBriefs` runs every pulse and answers exactly *did the brief appear*.
 
 **What the round did not change:** the gate itself. No slice starts without a brief, and that was never in question.
+
+### Round 2 — 2026-09-06
+
+**The ask is keyed by branch and the command is keyed by plan.** `plot-dispatch.sh` asks with the prompt `/plot-implement <slug>` and logs to `.plot/brief-<branch>.log` — a per-plan command behind a per-branch key.
+
+**Measured on today's own estate:** `the-workflow-owns-the-word-phase` carries 2 unbriefed branches, `every-element-is-a-domain-concept` 1. Under a per-branch ask the first would spawn **two `claude -p` sessions running the identical command**, against one plan, with no lock between them.
+
+**`PLOT_BRIEF_BRANCH` is exported and never read.** `/plot-implement` names it zero times; the branch reaches the session only as prose in the prompt. So nothing scopes a session to one branch, and the duplicate is a genuine collision rather than a harmless repeat.
+
+**The mark moves to the slug.** That is what the command's own granularity was all along, and it makes the ask cheaper as a side effect rather than as a compromise.
+
+**What round 2 did not find:** any reason to doubt the retirement condition round 1 settled. `findMissingBriefs` reads per branch, and a slug-keyed mark retires when *every* branch of that plan is briefed — which is exactly when the command has finished its job.
