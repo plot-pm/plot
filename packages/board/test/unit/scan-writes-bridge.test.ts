@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
 import { readBridge, BRIDGE_MAX_AGE_MS } from '../../src/server/pulse-bridge.js';
+import { FleetReadingSchema } from '../../src/contract/schema.js';
 
 /**
  * The PULSE writes `last-pulse.json`, and the board reads what the scan it
@@ -121,7 +122,14 @@ describe('the scan writes its own bridge', () => {
     // Not merely parseable — the SAME document. One composition, two
     // destinations: a scan whose printed answer and recorded answer differ has
     // two implementations of the reading, and they drift.
-    expect(read!.pulse).toEqual(JSON.parse(printed));
+    //
+    // BOTH SIDES GO THROUGH THE SCHEMA, because `readBridge` parses and the
+    // parse is not identity: `FleetReadingSchema` renames `waves` to `slices`,
+    // drops fields it does not carry and defaults `host`. Comparing a parsed
+    // pulse against raw stdout would fail on the schema doing its job. What is
+    // asserted here is that the recorded document and the printed one mean the
+    // same thing to the board, which is the property that can actually break.
+    expect(read!.pulse).toEqual(FleetReadingSchema.parse(JSON.parse(printed)));
 
     // A pulse about the repository rather than an empty document that happens
     // to validate.
