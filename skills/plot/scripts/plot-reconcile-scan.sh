@@ -3,7 +3,7 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: thirteen-section text report on stdout (each finding carries its exact
+# Output: fifteen-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed). A
 #         `== blocking sections end ==` line separates the findings that stop a
 #         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
@@ -14,7 +14,7 @@
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits a thirteen-section report. This is the COMPUTATIONAL half of the
+# emits a fifteen-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -118,6 +118,24 @@
 #                                 phase from the file — so it carries
 #                                 `sprint_index_drift=` and stays out of
 #                                 `attention`.
+#  15. Sprint outlived release  — a sprint that is NOT Closed whose declared
+#                                 `Release:` has been tagged. Measured:
+#                                 `a-half-landed-workflow-says-so` targets
+#                                 2.13.0, which shipped as `v2.13.0`, while the
+#                                 file reads `Phase: Planning` and none of its
+#                                 eight items ever became a plan. The facts come
+#                                 from `plot-sprint-release.sh`, which already
+#                                 reads a sprint's release and decides nothing —
+#                                 a second reader would drift from it. The first
+#                                 `N.N.N` in the field is the target, because a
+#                                 `Release:` may carry prose after the version.
+#                                 REPORTS AND NEVER CLOSES: a shipped release
+#                                 says the window passed, not that the work is
+#                                 done, so a person closes it. It carries
+#                                 `sprint_shipped=` — a third question, distinct
+#                                 from `sprint_drift=` (plans) and
+#                                 `sprint_index_drift=` (phase vs index) — and
+#                                 stays out of `attention`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -599,7 +617,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0; n_double=0
-n_rounds_drift=0; n_sprint_idx=0
+n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -1739,6 +1757,100 @@ fi
 if [ -n "$sprint_idx_out" ]; then printf '%b' "$sprint_idx_out"; else echo "  (none — every sprint's phase matches the index)"; fi
 echo
 
+# ---------------------------------------------------------------------------
+# 15. Sprint outlived its release
+#
+# A sprint that is not Closed whose declared `Release:` has been tagged. The
+# train has left; the sprint file has not caught up.
+#
+# MEASURED: `2026-W36-a-half-landed-workflow-says-so` targets 2.13.0, which
+# shipped as `v2.13.0`. The file reads `Phase: Planning` and has not moved since
+# 2026-08-29, and none of its eight items ever became a plan. That is a sprint
+# the estate should be able to say something about without a person opening the
+# file — and nothing said it.
+#
+# IT REPORTS, AND CLOSING IS THE TEAM'S WORD. A sprint ends when somebody says
+# it ended — the same rule section 14 states about its phase — so this names the
+# fact and stops. It offers no `/plot-sprint close`, because a shipped release
+# is evidence that the sprint's window passed and not evidence that its work is
+# done: the measured sprint's eight items are all still open, and a section that
+# suggested closing would be suggesting the team abandon them.
+#
+# THE FACTS ARE NOT RE-DERIVED. `plot-sprint-release.sh` already reads a
+# sprint's `Release:` and its items, and its own contract is that it decides
+# nothing. This calls it once per sprint file and applies one comparison. A
+# second reader of sprint releases would be the drift this repo keeps measuring
+# — and it would read the `Release:` line differently the first time one of them
+# was taught something the other was not.
+#
+# THE VERSION IS EXTRACTED, NOT ASSUMED TO BE THE WHOLE FIELD. Measured on this
+# estate: `2026-W36-the-domain-is-one-implementation` declares
+# `Release: 2.13.0 — **released 2026-09-05**, ...` — a version followed by
+# prose. The facts script reports the field verbatim, which is right for a
+# collector; the FIRST `N.N.N` in it is the target, and the rest is a note to a
+# human.
+#
+# THE TAG IS MATCHED THE WAY SECTION 6 MATCHES ONE, `v` prefix and all: sprints
+# declare `2.13.0` and the estate tags `v2.13.0`. Both spellings are tried, so a
+# project that tags without the prefix is not silently reported as unshipped.
+#
+# NOT `sprint_drift=`, which counts PLANS whose `Sprint:` field disagrees with
+# the sprint file, and not `sprint_index_drift=`, which counts sprints whose
+# phase disagrees with the index. This is a third question — has this sprint's
+# train left? — and it carries `sprint_shipped=`. One number answering several
+# questions is one a reader must re-derive the split from, which is what section
+# 14 argued and this follows.
+#
+# REPORTS AND NEVER GATES. It sits below the `== blocking sections end ==`
+# marker and stays OUT of `attention=`: a sprint whose release shipped is a
+# bookkeeping fact, and a delivery stopped by it would be stopped by somebody
+# else's paperwork.
+#
+# A sprint with no `Release:`, or one whose release has not shipped, is silent.
+# So is a Closed one — that is the state this section is about reaching, not a
+# finding.
+echo "== 15. Sprint outlived its release (the train shipped — a person closes it) =="
+sprint_ship_out=""
+if [ -d "$SPRINT_DIR" ]; then
+  for sf in "$SPRINT_DIR"/[0-9]*.md; do
+    [ -f "$sf" ] || continue
+    sf_base=$(basename "$sf")
+    # THE SLUG THE FACTS SCRIPT ANSWERS TO — its own derivation, so the two
+    # agree by construction rather than by two regexes staying in step.
+    sf_slug=$(printf '%s' "${sf_base%.md}" | sed -E 's/^[0-9]{4}-W?[0-9]{2}(-[0-9]{2})?-//')
+    facts=$(bash "$script_dir/plot-sprint-release.sh" "$sf_slug" 2>/dev/null) || continue
+    [ -n "$facts" ] || continue
+
+    sphase=$(printf '%s' "$facts" | jq -r '.phase // ""' 2>/dev/null) || continue
+    srelease=$(printf '%s' "$facts" | jq -r '.release // ""' 2>/dev/null) || continue
+    # NOT CLOSED is the population, and it is written as a negation on purpose.
+    # The measured sprint reads `Planning` where the template says `Planned`, so
+    # a list of open phases would have missed the one case this section exists
+    # for. A phase nobody has coined yet is reported too, which is the right
+    # direction for an advisory line.
+    [ -n "$sphase" ] || continue
+    [ "$sphase" = "Closed" ] && continue
+    [ -n "$srelease" ] || continue
+
+    # The first N.N.N in the field; the rest is a note to a human.
+    sver=$(printf '%s' "$srelease" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    [ -n "$sver" ] || continue
+
+    # Both spellings, so a project that tags without `v` is not read as unshipped.
+    stag=""
+    for cand in "v$sver" "$sver"; do
+      if git rev-parse -q --verify "refs/tags/$cand" >/dev/null 2>&1; then stag="$cand"; break; fi
+    done
+    [ -n "$stag" ] || continue
+
+    sprint_ship_out+="  $sf_base — Phase: $sphase, but its release $sver shipped as $stag\n"
+    sprint_ship_out+="    a person closes it: the tag says the train left, not that the work is done\n"
+    n_sprint_ship=$((n_sprint_ship + 1))
+  done
+fi
+if [ -n "$sprint_ship_out" ]; then printf '%b' "$sprint_ship_out"; else echo "  (none — no open sprint's release has shipped)"; fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship pr_source=$PR_SOURCE main=$MAIN"
 exit 0
