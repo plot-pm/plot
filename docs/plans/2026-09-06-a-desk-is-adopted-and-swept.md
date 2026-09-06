@@ -11,7 +11,7 @@
 - **Review:** in-session
 - **Impl:** own branches
 - **Approved:** 2026-09-06, Jan Wloka, in-session
-- **Rounds:** 2
+- **Rounds:** 3
 - **Started:** 2026-09-06, Jan Wloka, `feature/adoption-proposes-a-worktree-root`
 
 ## Changelog
@@ -70,6 +70,10 @@
 **GIT ALREADY KNOWS, AND ONE COMPONENT ALREADY ASKS.** `plot-fleet-scan.sh:1366` parses the porcelain output and skips prunable entries for a reason it states: a directory can be deleted without git knowing. The reaper asks five questions about a tree and each assumes the tree exists.
 
 **IT IS A REPORT, NOT A SIXTH REFUSAL.** The other five say *do not remove this*; `prunable` says *there is nothing to remove and the entry is stale*. Those are different sentences and the output must not blur them.
+
+**IT WAITS FOR [`a-desk-is-finished-with-once`](2026-09-05-a-desk-is-finished-with-once.md) (#705).** That plan unifies the reaper's five refusals with the ref-deleter's five guards, which are two implementations of one question — and measured 2026-09-06, each is blind to a guard the other applies: `plot-release-refs.sh` never asks about a live pid, `plot-reap.sh` never asks `pr_open`.
+
+**Adding a sixth reading to one script while the other holds a divergent copy means writing it twice, or writing it once and widening the gap.** So the unification lands first and `prunable` joins one rule rather than one of two.
 
 **AND THE READING TRAVELS THROUGH THE PORT IT ALREADY HAS.** `trees-git.ts` parses `prunable` today and no port carries it; the field joins `ports/trees.ts` so `rules/reapable.ts` can be handed it, rather than the reaper growing a sixth `git` call of its own.
 
