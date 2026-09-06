@@ -61,7 +61,7 @@ valid=$(
 # the `${...}` template literals before node ever sees them.
 VALID_PACKAGES="$valid" node --input-type=module - <<'NODE_EOF'
 import { readFileSync, readdirSync } from "node:fs";
-import { checkChangeset } from "./packages/domain/src/rules/changeset.ts";
+import { checkChangeset, parseChangeset } from "./packages/domain/src/rules/changeset.ts";
 
 const valid = process.env.VALID_PACKAGES.split("\n").filter(Boolean);
 
@@ -87,12 +87,21 @@ const explain = {
 };
 
 let failed = 0;
+let linked = 0;
+let total = 0;
 for (const name of readdirSync(".changeset").filter((n) => !skip(n))) {
   const file = `.changeset/${name}`;
-  for (const { refusal, detail } of checkChangeset(readFileSync(file, "utf8"), valid)) {
+  const text = readFileSync(file, "utf8");
+  total++;
+  for (const { refusal, detail } of checkChangeset(text, valid)) {
     console.log(`::error file=${file}::${explain[refusal](detail)}`);
     failed++;
   }
+  // COUNTED, NEVER REFUSED. The link is optional: 0 of 19 changesets carried
+  // one when it was introduced, so a gate demanding it would refuse every
+  // changeset in flight. Requiring it is slice 2's question, and this number
+  // is what that decision will be taken against.
+  if (parseChangeset(text).plan !== undefined) linked++;
 }
 
 if (failed > 0) {
@@ -103,4 +112,5 @@ if (failed > 0) {
   process.exit(1);
 }
 console.log("All changesets name workspace packages and say what changed.");
+console.log(`changesets naming a plan: ${linked} of ${total}`);
 NODE_EOF

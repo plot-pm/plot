@@ -529,6 +529,32 @@ release note and the description behind it never ships. Measured 2026-08-30:
 their whole description. `./scripts/check-changeset-packages.sh` now refuses
 that, and a description shorter than 20 characters.
 
+**A changeset may name the plan it implements**, on a `plan:` line in the same
+block:
+
+```markdown
+The description, which is what the changelog publishes.
+
+<!--
+plan: docs/plans/2026-09-06-a-changeset-names-its-plan.md
+bumps:
+  skills:
+    plot: patch
+-->
+```
+
+**It is optional.** A changeset written by hand, or by a contributor with no
+plan, is valid without one — 0 of 19 carried one when the field was added, so a
+gate demanding it would refuse every changeset in flight. What it buys is
+mechanisability: `/plot-release` step 3 cross-checks changesets against plans by
+semantic match over descriptions, at Frontier tier, re-derived per changeset per
+release. A link makes that a lookup; without one the match runs as before.
+
+**The `plan:` line obeys the same order rule, and for the same reason.** Written
+first it IS the published description — and `plan: docs/plans/x.md` is 21
+characters, one over the floor, so length alone does not catch it. The gate
+refuses it explicitly.
+
 Choose the level the way semver asks:
 
 - **Patch** (`x.y.Z`): bug fixes, wording improvements, minor clarifications
