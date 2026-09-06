@@ -54,7 +54,7 @@ Your first plan:
 /plot-deliver   check it landed →  every branch merged, plan delivered
 ```
 
-Optional, and worth it once several branches are in flight: `/plot-board-setup` gives you a local board (`pnpm board`) that shows what is waiting on you.
+Optional, and worth it once several branches are in flight: `/plot-board-setup` adopts a local board that shows what is waiting on you, and `/plot-board --start` runs it.
 
 **New to Plot?** [Intro to Using Plot](skills/plot/intro-to-using-plot.md) walks the whole lifecycle with real commands and output.
 
@@ -161,7 +161,8 @@ The keys cover plan and sprint directories, branch prefixes, git host and CI, th
 |-------|-------------|
 | [plot](skills/plot/) | Hub & dispatcher — reads git state, suggests next action |
 | [plot-init](skills/plot-init/) | Adopt Plot in a repo — probes your setup and proposes the config |
-| [plot-board-setup](skills/plot-board-setup/) | Set up the local board — checks prerequisites, records config, proves it serves |
+| [plot-board-setup](skills/plot-board-setup/) | Adopt the local board — checks prerequisites, records config, proves it serves |
+| [plot-board](skills/plot-board/) | Board control — start, stop and report on the local board that runs on this machine |
 | [plot-idea](skills/plot-idea/) | Create a plan: idea branch, plan file, draft PR |
 | [plot-approve](skills/plot-approve/) | Record the plan's approval through its declared review channel |
 | [plot-implement](skills/plot-implement/) | Start/resume implementation: preflight, branch setup, hand-off brief |

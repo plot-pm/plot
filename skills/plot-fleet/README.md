@@ -91,7 +91,7 @@ is the same reading `plot-quiet-stretch.sh` takes for a different consumer.
 
 ## What this command is not
 
-- **Not the board's door.** That is `/plot-board`. The two systems share a
+- **Not the board's door.** That is [`/plot-board`](../plot-board/). The two systems share a
   machine and no process-tree edge, so neither may become a dependency of the
   other.
 - **Not a reaper.** `--stop` ends processes and removes nothing. Desks, claims

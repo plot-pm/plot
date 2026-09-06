@@ -47,8 +47,8 @@ give the old behaviour to somebody asking for fleet control.
 
 `DESIGN-process.md` settles this: **fleet control and the board are independent
 systems that share a machine.** Either runs without the other, neither is a
-component of the other, and the two process trees share no edge. `/plot-board`
-is the board's door; this is fleet control's. Neither may become a dependency
+component of the other, and the two process trees share no edge.
+[`/plot-board`](../plot-board/) is the board's door; this is fleet control's. Neither may become a dependency
 of the other.
 
 Fleet control is **`1 + 2N`**: one supervisor, and per agent one worker and one
