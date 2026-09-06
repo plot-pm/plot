@@ -62,11 +62,18 @@ describe('the scan vocabularies are closed sets', () => {
     );
   });
 
-  it('names the four slice verdicts, `unapproved` among them', () => {
-    expect(SliceVerdictSchema.options).toEqual(['complete', 'eligible', 'blocked', 'unapproved']);
+  it('names the five slice verdicts, `unapproved` and `empty` among them', () => {
+    expect(SliceVerdictSchema.options).toEqual([
+      'complete', 'eligible', 'blocked', 'unapproved', 'empty',
+    ]);
     // `unapproved` is kept apart from `blocked` deliberately: blocked resolves
     // by merging work, this resolves by a person approving the plan.
     expect(SliceVerdictSchema.safeParse('unapproved').success).toBe(true);
+    // `empty` is kept apart from BOTH, and by the same test: it resolves by
+    // editing the plan — giving the heading a branch, or deleting it — which is
+    // neither merging nor approving. It was `complete` until 2026-09-06, which
+    // asserted finished work over a heading nobody had worked.
+    expect(SliceVerdictSchema.safeParse('empty').success).toBe(true);
     expect(SliceVerdictSchema.safeParse('startable').success).toBe(false);
   });
 

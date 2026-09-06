@@ -131,6 +131,7 @@ describe('every slice the board renders follows from the readings it is shown', 
         plan.slices.map((slice) => ({
           outstanding: outstandingIn(slice),
           phase: plan.phase,
+          branches: slice.branches.length,
         })),
       );
       plan.slices.forEach((slice, i) => {

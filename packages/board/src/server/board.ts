@@ -761,6 +761,13 @@ const collectBranchPlans = async (
   defaultBranch: string,
 ): Promise<BranchPlan[]> => {
   const branches = await prefixedBranches(refs, repoRoot, prefixes, defaultBranch);
+  // A THIRD `branches.length === 0`, AND IT ASKS A DIFFERENT QUESTION. The
+  // other two are about ONE SLICE — `rules/eligible.ts` calls a branchless
+  // slice `empty` and `rules/deliverable.ts` refuses to deliver over one. This
+  // one is about the WHOLE ESTATE: the repository has no plan branch at all, so
+  // there is nothing to read and nothing to cache. Named here because a reader
+  // searching for *what does empty mean* finds three sites and only two of them
+  // are the same fact.
   if (branches.length === 0) {
     branchPlanCache.delete(repoRoot);
     return [];

@@ -54,10 +54,10 @@ export type Landed = 'merged' | 'not-merged' | 'unknown';
  *   pulse, not inside it.
  * @returns `'unknown'` when nothing was measured — no pulse, or an unfinished
  *   scan whose `plans` array holds only what arrived before the timeout.
- *   `'not-merged'` when a finished scan does not name the plan, when any
- *   non-deferred slice is not `complete`, or when the plan has no non-deferred
- *   branch at all. `'merged'` when every non-deferred slice is complete over at
- *   least one branch.
+ *   `'not-merged'` when a finished scan does not name the plan, when any slice
+ *   names no branch at all, when any non-deferred slice is not `complete`, or
+ *   when the plan has no non-deferred branch at all. `'merged'` when every
+ *   non-deferred slice is complete over at least one branch.
  */
 export const allSlicesMerged = (
   meta: PlanFile,
@@ -72,6 +72,17 @@ export const allSlicesMerged = (
   let merged = 0;
   for (const slice of plan.slices) {
     const branches = slice.branches.filter((b) => b.state !== 'deferred');
+    // A SLICE NAMING NO BRANCH IS NOT LANDED WORK, and it is refused here
+    // rather than skipped. `continue` and `eligible`'s `complete` were the two
+    // answers this shape had, and they disagreed: one plan could not be
+    // delivered on a prose heading while the other reported the heading
+    // finished. `sliceVerdict` now says `empty` for it, and the same word is
+    // what this rule tests — so the two read one fact and reach one answer.
+    //
+    // Deferred branches are still exempt. A slice holding only deferred
+    // branches names work somebody gave up, which is a decision; a slice
+    // holding none names no work at all, which is a malformed plan.
+    if (slice.branches.length === 0) return 'not-merged';
     if (branches.length === 0) continue;
     if (slice.verdict !== 'complete') return 'not-merged';
     merged += branches.length;

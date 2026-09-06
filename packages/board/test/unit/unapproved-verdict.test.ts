@@ -55,10 +55,16 @@ describe('the fleet payload accepts the unapproved verdict', () => {
 
   // Done-when 5, on the CONTRACT: the new state has its own word and did not
   // reuse `blocked`, which already means *an earlier wave has not landed*.
+  //
+  // FIVE SINCE 2026-09-06, and the count is still asserted rather than dropped:
+  // it is what would notice a word being added by folding it into an existing
+  // one. `empty` is the fifth, and it arrived for the same reason `unapproved`
+  // did — a slice naming no branch read `complete`, which asserted finished
+  // work over a heading nobody had worked.
   it('is a fourth word, not a reuse of blocked', () => {
     expect(SliceVerdictSchema.options).toContain('unapproved');
     expect(SliceVerdictSchema.options).toContain('blocked');
-    expect(SliceVerdictSchema.options).toHaveLength(4);
+    expect(SliceVerdictSchema.options).toHaveLength(5);
   });
 });
 

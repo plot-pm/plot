@@ -26,9 +26,9 @@ const waits = (waitsOn: string, answer: PrereqAnswer) =>
   prerequisiteCleared(SLICE, { waitsOn, answer });
 
 describe('the states are consumed, never redeclared', () => {
-  it('names the four the entity owns, in the diagram’s order', () => {
+  it('names the verdicts the entity owns, in the diagram’s order', () => {
     expect([...SLICE_LIFECYCLE].sort()).toEqual([...SliceVerdictSchema.options].sort());
-    expect(SLICE_LIFECYCLE).toEqual(['unapproved', 'blocked', 'eligible', 'complete']);
+    expect(SLICE_LIFECYCLE).toEqual(['unapproved', 'blocked', 'eligible', 'complete', 'empty']);
   });
 
   it('admits every verdict `sliceVerdict` can produce', () => {
@@ -36,11 +36,15 @@ describe('the states are consumed, never redeclared', () => {
     // and this file refuses as unrecognised would be a lifecycle over a
     // different set of states than the estate actually derives.
     const produced = new Set<SliceVerdict>([
-      sliceVerdict({ outstanding: 0, phase: 'approved' }, true),
-      sliceVerdict({ outstanding: 1, phase: 'delivered' }, true),
-      sliceVerdict({ outstanding: 1, phase: 'draft' }, true),
-      sliceVerdict({ outstanding: 1, phase: 'approved' }, true),
-      sliceVerdict({ outstanding: 1, phase: 'approved' }, false),
+      sliceVerdict({ outstanding: 0, phase: 'approved', branches: 1 }, true),
+      sliceVerdict({ outstanding: 1, phase: 'delivered', branches: 1 }, true),
+      sliceVerdict({ outstanding: 1, phase: 'draft', branches: 1 }, true),
+      sliceVerdict({ outstanding: 1, phase: 'approved', branches: 1 }, true),
+      sliceVerdict({ outstanding: 1, phase: 'approved', branches: 1 }, false),
+      // `empty` is produced by a slice naming no branch — the fifth verdict,
+      // added 2026-09-06 because zero outstanding could not tell *all merged*
+      // from *none named*.
+      sliceVerdict({ outstanding: 0, phase: 'approved', branches: 0 }, true),
     ]);
     expect([...produced].sort()).toEqual([...SliceVerdictSchema.options].sort());
   });
@@ -274,12 +278,22 @@ describe('A PREREQUISITE THAT MERGED AND WAS THEN REAPED STILL CLEARS', () => {
 
 describe('the rule does not depend on `outstanding === 0` meaning finished', () => {
   it('judges a move between two verdicts without reading a branch count', () => {
-    // `rules/eligible.ts:80` answers `complete` for a slice with NO BRANCHES,
-    // which `the-slice-contract-says-what-it-reads` is an open Draft about.
-    // That correction changes which verdict a scan derives; it must not change
-    // which move this file allows.
-    const vacuous = sliceVerdict({ outstanding: 0, phase: 'draft' }, false);
-    expect(vacuous).toBe('complete');
+    // THE CORRECTION THIS TEST ANTICIPATED HAS LANDED. It read
+    // `expect(vacuous).toBe('complete')` while `rules/eligible.ts` answered
+    // `complete` for a slice with no branches, and noted that
+    // `the-slice-contract-says-what-it-reads` — then an open Draft — would
+    // change which verdict a scan derives.
+    //
+    // It did, and the guard is `branches > 0 && outstanding === 0`: a slice
+    // naming NO branch no longer borrows `complete` from a zero count, and
+    // reads `empty` instead. A slice naming one whose branch merged still
+    // reads `complete`, which is what the count was always meant to say.
+    //
+    // **The test's point is unchanged** — the move out of a verdict is judged
+    // the same way whatever the derivation answers — so the fixture names the
+    // corrected case and the assertions below do not move.
+    const vacuous = sliceVerdict({ outstanding: 0, phase: 'draft', branches: 0 }, false);
+    expect(vacuous).toBe('empty');
     // Whatever that answer becomes, the move out of it is judged the same way.
     expect(isRefusal(move('complete', 'eligible'))).toBe(true);
     expect(isDecision(move('eligible', 'complete'))).toBe(true);
@@ -287,8 +301,8 @@ describe('the rule does not depend on `outstanding === 0` meaning finished', () 
 
   it('takes the verdict as a reading, so a corrected derivation moves no refusal', () => {
     const asDerived = sliceVerdicts([
-      { outstanding: 1, phase: 'approved' },
-      { outstanding: 1, phase: 'approved' },
+      { outstanding: 1, phase: 'approved', branches: 1 },
+      { outstanding: 1, phase: 'approved', branches: 1 },
     ]);
     expect(asDerived).toEqual(['eligible', 'blocked']);
     // The second slice is blocked by the first, and this rule refuses its

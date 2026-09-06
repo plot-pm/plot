@@ -17,16 +17,26 @@ import {
 const owed = (over: Partial<SliceReadings> = {}): SliceReadings => ({
   outstanding: 1,
   phase: 'approved',
+  // The base case NAMES A BRANCH, because a slice that names none is a
+  // different fact with its own word — see `empty-slice.test.ts`, which holds
+  // it and `deliverable` to one answer.
+  branches: 1,
   ...over,
 });
 
-describe('sliceVerdict — the four words', () => {
+describe('sliceVerdict — the five words', () => {
   it('is eligible when work is owed, the plan is approved, and nothing precedes it', () => {
     expect(sliceVerdict(owed(), true)).toBe('eligible');
   });
 
-  it('is complete when nothing is outstanding', () => {
+  it('is complete when a branch it names has landed and none is outstanding', () => {
     expect(sliceVerdict(owed({ outstanding: 0 }), true)).toBe('complete');
+  });
+
+  it('is empty when it names no branch at all', () => {
+    // NOT complete: zero outstanding over zero branches asserts finished work
+    // that never existed. Held against `deliverable` in `empty-slice.test.ts`.
+    expect(sliceVerdict(owed({ outstanding: 0, branches: 0 }), true)).toBe('empty');
   });
 
   it('is blocked when an earlier slice has not landed', () => {
@@ -75,11 +85,11 @@ describe('sliceVerdict — complete outranks everything', () => {
   // that is a statement about work that already landed, not an invitation to
   // start any. Only the word a reader ACTS on is withheld.
   it('calls a landed slice complete even under a draft plan', () => {
-    expect(sliceVerdict({ outstanding: 0, phase: 'draft' }, true)).toBe('complete');
+    expect(sliceVerdict({ outstanding: 0, phase: 'draft', branches: 1 }, true)).toBe('complete');
   });
 
   it('calls a landed slice complete even behind an unlanded one', () => {
-    expect(sliceVerdict({ outstanding: 0, phase: 'approved' }, false)).toBe('complete');
+    expect(sliceVerdict({ outstanding: 0, phase: 'approved', branches: 1 }, false)).toBe('complete');
   });
 });
 
@@ -123,9 +133,9 @@ describe('sliceVerdict — unapproved is not blocked', () => {
 describe('sliceVerdicts — the fold', () => {
   it('holds the ordering: only a complete slice lets the next one be eligible', () => {
     expect(sliceVerdicts([
-      { outstanding: 0, phase: 'approved' },
-      { outstanding: 2, phase: 'approved' },
-      { outstanding: 1, phase: 'approved' },
+      { outstanding: 0, phase: 'approved', branches: 1 },
+      { outstanding: 2, phase: 'approved', branches: 1 },
+      { outstanding: 1, phase: 'approved', branches: 1 },
     ])).toEqual(['complete', 'eligible', 'blocked']);
   });
 
@@ -134,21 +144,21 @@ describe('sliceVerdicts — the fold', () => {
     // the slice behind it — this is exactly what `prior_ok=0` could not undo,
     // and the property a per-slice call would leak back to the caller.
     expect(sliceVerdicts([
-      { outstanding: 1, phase: 'approved' },
-      { outstanding: 0, phase: 'approved' },
-      { outstanding: 1, phase: 'approved' },
+      { outstanding: 1, phase: 'approved', branches: 1 },
+      { outstanding: 0, phase: 'approved', branches: 1 },
+      { outstanding: 1, phase: 'approved', branches: 1 },
     ])).toEqual(['eligible', 'complete', 'blocked']);
   });
 
   it('stops the chain on unapproved too — a plan nobody approved has landed nothing', () => {
     expect(sliceVerdicts([
-      { outstanding: 1, phase: 'draft' },
-      { outstanding: 1, phase: 'draft' },
+      { outstanding: 1, phase: 'draft', branches: 1 },
+      { outstanding: 1, phase: 'draft', branches: 1 },
     ])).toEqual(['unapproved', 'unapproved']);
   });
 
   it('makes the first slice eligible with nothing before it', () => {
-    expect(sliceVerdicts([{ outstanding: 3, phase: 'approved' }])).toEqual(['eligible']);
+    expect(sliceVerdicts([{ outstanding: 3, phase: 'approved', branches: 1 }])).toEqual(['eligible']);
   });
 
   it('answers nothing for no slices', () => {
@@ -157,7 +167,7 @@ describe('sliceVerdicts — the fold', () => {
 
   it('answers once per slice, in order', () => {
     const slices = Array.from({ length: 7 }, (_, i) => ({
-      outstanding: i % 2, phase: 'approved',
+      outstanding: i % 2, phase: 'approved', branches: 1,
     }));
     expect(sliceVerdicts(slices)).toHaveLength(7);
   });
