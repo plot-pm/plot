@@ -49,6 +49,9 @@ export const ENDING_FILENAME = '.plot-worker.ending.json';
  * what stopped it — collapsing them claims a measurement was made and came back
  * empty, when Plot never had the reading at all.
  */
+// plot-state: classification — WHY one worker ended, recorded once at the end.
+//                              An ending is terminal by construction, so no
+//                              reason follows another.
 export const EndingReasonSchema = z.enum(['bound', 'quiet', 'unreadable', 'spent', 'unstarted']);
 export type EndingReason = z.infer<typeof EndingReasonSchema>;
 
@@ -86,6 +89,10 @@ export type EndingReason = z.infer<typeof EndingReasonSchema>;
  * `ENDING_ACTORS` in `transitions/agent.ts` is the list a reader off disk is
  * checked against, and it carries all three again for the same reason.
  */
+// plot-state: classification — WHICH PARTY ended the worker, recorded once
+//                              beside the reason and not determined by it.
+//                              transitions/agent.ts holds ENDING_ACTORS and the
+//                              attribution rule.
 export const EndingActorSchema = z.enum(['bound', 'monitor', 'agent']);
 export type EndingActor = z.infer<typeof EndingActorSchema>;
 

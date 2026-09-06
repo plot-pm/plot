@@ -8,6 +8,10 @@ import { isAgentFree } from '../rules/free.js';
  * Six about the process, plus `waiting` and `stalled` about the task: every
  * worker exits 0, so the exit code cannot say whether the work is done.
  */
+// plot-state: lifecycle agent — six process observations plus two the desk
+//                               refines. transitions/agent.ts holds the legal
+//                               moves, which party may end one, and why an
+//                               agent never ends itself.
 export const AgentStateSchema = z.enum([
   'running',
   'waiting',
@@ -26,6 +30,10 @@ export type AgentState = z.infer<typeof AgentStateSchema>;
  * `synthesized` is an Agent whose identity was never written — an entry built
  * from a worktree that has no manifest.
  */
+// plot-state: classification — whether the identity was DECLARED or inferred
+//                              from a desk. An entry built without a manifest
+//                              does not later acquire one; the registry writes
+//                              a new entry.
 export const AgentIdentitySchema = z.enum(['manifest', 'synthesized']);
 export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
 
@@ -35,6 +43,9 @@ export type AgentIdentity = z.infer<typeof AgentIdentitySchema>;
  * Read from the child's CPU rather than the shell's: the loop shell waits on
  * its child and burns near-zero CPU in every case.
  */
+// plot-state: reading — two CPU samples of the descendant tree, compared.
+//                       A cue on a running agent, deliberately not a ninth
+//                       state — see the state enum above.
 export const AgentActivitySchema = z.enum(['working', 'idle', '']);
 export type AgentActivity = z.infer<typeof AgentActivitySchema>;
 

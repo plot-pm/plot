@@ -15,6 +15,9 @@ export const DECLARATION_FILENAME = '.plot-worker.envelope.json';
  * it cannot proceed, which is information and is not silence. A third value for
  * *failed* would duplicate what the gates decide from what was left behind.
  */
+// plot-state: reading — what the agent SAID about the branch it left, written
+//                       once into a file. A later declaration is a later file;
+//                       this value is not revised.
 export const DeclarationStatusSchema = z.enum(['ok', 'blocked']);
 export type DeclarationStatus = z.infer<typeof DeclarationStatusSchema>;
 

@@ -7,6 +7,10 @@ import { z } from 'zod';
  * conclusion, and a field that must hold `in_progress` is not describing an
  * outcome. The host's own word is kept verbatim; normalizing it is lossy.
  */
+// plot-state: lifecycle build — queued, then running, then one of four ends,
+//                               and the host's word is kept verbatim. NO RULE
+//                               YET: counted as debt by
+//                               scripts/check-state-declarations.sh.
 export const BuildStateSchema = z.enum([
   'queued',
   'in_progress',

@@ -6,6 +6,9 @@ import { z } from 'zod';
  * Carried once per fetch beside the collection, never on an individual Issue —
  * which, by existing, has already been answered for.
  */
+// plot-state: reading — the outcome of ONE fetch, carried beside the
+//                       collection. A later fetch produces a second answer; this
+//                       one never changes.
 export const IssueAnswerSchema = z.enum(['answered', 'unsupported', 'failed']);
 export type IssueAnswer = z.infer<typeof IssueAnswerSchema>;
 

@@ -361,6 +361,34 @@ jobs:
       - name: One place talks to the host
         run: ./scripts/check-host-cli-callers.sh
 
+      # A SET OF STATES SAYS WHETHER IT IS A LIFECYCLE. `WorktreeState` read
+      # `created -> occupied -> finished -> reapable -> gone` and nothing refused
+      # `gone -> occupied`. Measured 2026-09-04: 37 `z.enum` occurrences in the
+      # domain against ONE transitions rule.
+      #
+      # NOT EVERY STATE ENUM IS A LIFECYCLE, which is why this cannot be a count.
+      # `MoscowTier` is a priority and a Could becoming a Must is a
+      # re-prioritisation; `Mergeability` is a reading of a moment. A gate that
+      # guessed would refuse a priority for lacking a transition it cannot have.
+      #
+      # AND A HEURISTIC READS IT WRONG — measured on the plan that asked for this
+      # gate, whose argument for the declaration named `SprintState` and
+      # `PrState` as examples of enums that do not transition. Both are
+      # lifecycles. `entities/pr.ts` is why: four enums, one of which transitions
+      # and three of which do not, so reaching for the file and taking the first
+      # finds the exception.
+      #
+      # So the author declares, beside the enum — `check-ancestry-decisions.sh`'s
+      # act, for the same reason. Where the marker says `lifecycle` the rule is
+      # required too: a marker alone would let one be declared and never written,
+      # and a file check alone cannot see which enum it covers.
+      #
+      # Six lifecycles are still owed a rule and the script holds that at a
+      # literal `LIFECYCLE_DEBT`, failing when it grows and never when it falls.
+      # An UNDECLARED enum is refused outright — adding one line needs no slice.
+      - name: A state declares its lifecycle
+        run: ./scripts/check-state-declarations.sh
+
       # A PLAN'S BRANCH SECTION IS `## Slices`. The parser reads all three
       # spellings and always will — a plan file may be a year old, and refusing
       # to read the old word would make Plot worse at its job. This gates what

@@ -26,6 +26,10 @@ import type { CharterBounds } from '../entities/charter.js';
  * `plot-worker-state.sh` applies to an unreadable worktree, and the one
  * `hasRoomToDispatch` applies to `unmeasured`.
  */
+// plot-state: classification — a ceiling applied to one reading, so no
+//                              consumer owns the threshold. 'spent' does not
+//                              follow 'ample': a fresh session reads 'ample'
+//                              again, and it is the agent that moved.
 export const ContextVerdictSchema = z.enum(['ample', 'spent', 'unknown']);
 export type ContextVerdict = z.infer<typeof ContextVerdictSchema>;
 

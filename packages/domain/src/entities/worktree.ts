@@ -10,6 +10,11 @@ import { reapProblems } from '../rules/reapable.js';
  * `reapable`  every refusal passes.
  * `gone`      removed — the branch and its refs survive.
  */
+// plot-state: lifecycle worktree — created, occupied, finished, reapable,
+//                                  gone. transitions/worktree.ts holds the
+//                                  legal moves and the asymmetry that licenses
+//                                  removal: a checkout is re-creatable and a
+//                                  ref is not.
 export const WorktreeStateSchema = z.enum(['created', 'occupied', 'finished', 'reapable', 'gone']);
 export type WorktreeState = z.infer<typeof WorktreeStateSchema>;
 
@@ -19,6 +24,9 @@ export type WorktreeState = z.infer<typeof WorktreeStateSchema>;
  * Each is a measurement rather than a judgement, and each asks about the agent
  * or what it left behind — never about the tree itself.
  */
+// plot-state: classification — WHY a removal was refused. Several hold at
+//                              once and each is an independent measurement, so
+//                              they are reasons rather than stages.
 export const ReapRefusalSchema = z.enum([
   'live-worker',
   'uncommitted-changes',

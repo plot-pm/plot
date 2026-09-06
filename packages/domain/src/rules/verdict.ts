@@ -10,6 +10,11 @@ import { type BranchState, SliceVerdictSchema, type SliceVerdict } from '../enti
  * start this branch, now?* — `needs-brief` and `someone-is-on-it` are branch
  * facts no slice verdict carries.
  */
+// plot-state: classification — what a reader may DO about a branch, recomputed
+//                              from four readings on every call. Nothing holds
+//                              a verdict, so nothing moves between these: the
+//                              branch transitions and the verdict is derived
+//                              again.
 export const StartabilityVerdictSchema = z.enum([
   'start-work', 'needs-brief', 'waiting-on-approval', 'someone-is-on-it',
 ]);
@@ -22,6 +27,9 @@ export type StartabilityVerdict = z.infer<typeof StartabilityVerdictSchema>;
  * did not look has said nothing, and reporting that as an absent brief would
  * claim a gap nobody measured.
  */
+// plot-state: reading — whether a brief was found when somebody looked. The
+//                       file appears and disappears; this records one look, and
+//                       'unknown' is the look nobody took.
 export const BriefStateSchema = z.enum(['present', 'missing', 'unknown']);
 export type BriefState = z.infer<typeof BriefStateSchema>;
 

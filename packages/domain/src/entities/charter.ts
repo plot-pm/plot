@@ -78,6 +78,9 @@ export const RUN_FACTS: readonly string[] = [
 export const CharterBoundsSchema = z.object({
   contextCeiling: z.number().gt(0).lte(1).default(1),
   contextWindow: z.number().int().gte(0).default(0),
+  // plot-state: classification — what an agent at its ceiling should be TOLD to
+  //                              do. A person writes it in the charter and it is
+  //                              read; it does not change while the agent runs.
   atCeiling: z.enum(['finish', 'end']).default('finish'),
 });
 

@@ -19,6 +19,10 @@ import { z } from 'zod';
  * one level down. `actual` decays the moment it is read; `predicted` is wrong
  * until something proves it; `unknown` cannot be wrong and cannot be used.
  */
+// plot-state: classification — HOW a limit was come by, fixed by whoever
+//                              produced the reading. A predicted limit is not
+//                              promoted to actual; a fresh reading is taken and
+//                              carries its own basis.
 export const LimitBasisSchema = z.enum(['actual', 'predicted', 'unknown']);
 export type LimitBasis = z.infer<typeof LimitBasisSchema>;
 
