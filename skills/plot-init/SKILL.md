@@ -38,7 +38,7 @@ and changes nothing.
 |-------|-----------|-------|
 | 1. Probe | Small | One script call, JSON out |
 | 2. Propose and confirm | Mid | Turning signals into a proposal is judgment |
-| 3. Write config and skeleton | Small | File and directory creation; the worker prompt is one script call |
+| 3. Write config and skeleton | Small | File and directory creation; the worker prompt is one script call. Appending the `.gitignore` line is mechanical — WHICH line was decided in step 2 |
 | 4. Offer extensions | Mid | Deciding what the repo actually needs |
 | 5. Verify and summarise | Small | Read back what landed |
 
@@ -74,7 +74,8 @@ the user corrects rather than composes:
 >
 > Proposed Plot Config: plan directory `docs/plans/`, branch prefixes
 > `idea/ feature/ bug/ docs/ infra/`, Definition of Done = those three gates,
-> tracker `plot`, git host `github`.
+> tracker `plot`, git host `github`, worktree root `.worktrees` (with the
+> matching `.gitignore` line).
 
 Then ask only what the probe **could not** answer:
 
@@ -85,6 +86,35 @@ Then ask only what the probe **could not** answer:
   like it might have one elsewhere (e.g. a Jira URL in the hub doc).
 - **What is canonical** — only when `existing_systems` shows other planning
   systems. Ask which stays authoritative; **never propose moving files.**
+- **The worktree root** — where `/plot-dispatch` puts a dispatched agent's
+  desk. Propose `.worktrees` and say that the `.gitignore` line comes with it.
+  Confirm both together: they are one decision, and the config key without the
+  ignore rule is the defect this proposal exists to prevent.
+
+  **A repository with its own convention keeps it.** Read what is already
+  there before proposing:
+
+  ```bash
+  git worktree list
+  ```
+
+  Where worktrees already sit somewhere — beside the checkout as `plot-wt-*`
+  siblings, or under a directory of their own — say how many were found and
+  where, and propose **that** location rather than `.worktrees`. The ignore
+  line then follows whatever the repo chose. Moving existing worktrees is
+  `/plot-dispatch --migrate`'s job on a person's say, never adoption's.
+
+  **The absent-key default is not `.worktrees`.** With no key, dispatch uses
+  the repository's PARENT with a `plot-wt-` prefix — so this proposal changes
+  where desks go, and that is the reason to make it rather than leave the
+  default implicit. A relative value resolves inside the repo and the prefix is
+  dropped.
+
+  **This question declares no unattended shape of its own.** Step 2 already
+  stops and writes nothing when `PLOT_UNATTENDED=1` is set, and its existing
+  `PLOT-UNASKED` line covers the whole proposal — this key is named in what is
+  printed, and no file is touched, the `.gitignore` write least of all. A
+  second declaration here would be a second disclosure for one stop.
 
 Do not ask about anything the probe answered confidently. A user who is asked
 to confirm their own git host learns that the tool is not paying attention.
@@ -112,11 +142,47 @@ exists, create `CLAUDE.md` with just this section.
 - **Delivered index:** docs/plans/delivered/
 - **Git host:** <github|bitbucket>
 - **Tracker:** plot
+- **Worktree root:** .worktrees
 ```
 
 Add the posture keys (`Plan PRs`, `Implementation home`, `Hosts plans`) only
 where the answers are not the default — an adopting repo should not start
 with a wall of settings it never chose.
+
+**The `.gitignore` line**, matching the `Worktree root` just written — the
+half of that decision that cannot be skipped. Append it; never rewrite the
+file:
+
+```
+# The dispatch worktrees, gathered here by the `Worktree root` key rather than
+# scattered beside the checkout. They are CHECKOUTS — every one is re-creatable
+# with `git worktree add`, and none of them is content this repo carries.
+.worktrees/
+```
+
+**Write the path that was confirmed**, not the literal `.worktrees` — a repo
+that kept its own convention gets its own line. An absolute root lies outside
+the repository and needs no ignore rule at all; say so rather than writing a
+line that matches nothing.
+
+**THIS IS A FILE ADOPTION HAS NEVER TOUCHED**, and it is worth pausing on.
+Everything else in this step lands in Plot's own territory — a config section,
+`docs/plans/`, `.plot/`. `.gitignore` is read by every tool the team uses, so
+it is written only on the confirmation step 2 already took, and only appended
+to. Where no `.gitignore` exists, create one holding just this block.
+
+**Do not print it for the user to paste.** A configured root with no ignore
+rule turns every dispatched desk into untracked files in `git status`, and the
+operator's next `git add -A` stages a whole checkout. That outcome is the
+defect this slice exists to remove, and leaving the line to a human is the
+most likely way to arrive at it. A directory and a plan skeleton are larger
+commitments, and adoption writes both.
+
+**The desk's own exclusion is separate and is not written here.**
+`plot-dispatch.sh` adds its marker to `.git/info/exclude` inside each desk,
+because a rule living in branch content is invisible to a worktree cut from an
+older branch. That one is per-clone and belongs to dispatch; this line is the
+repository's.
 
 **Skeleton**, each empty index anchored with `.gitkeep` (git does not track
 empty directories, so they vanish on clone otherwise):
@@ -247,6 +313,16 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
 - **Never overwrite `.plot/worker-prompt.sh`.** The installer refuses to; do
   not work around it by hand. A project's prompt wording is the project's, and
   an out-of-date invocation is one line inside it.
+- **Never write `.gitignore` without the confirmation from step 2**, and never
+  rewrite it — append. Every tool the team uses reads that file.
+- **Never write the `Worktree root` key without the matching ignore line**, or
+  the other way round. They are one decision, and a key on its own is what
+  turns a desk into untracked work in the repository root.
+- **Never move existing worktrees.** A repo with its own convention keeps it
+  and the ignore line follows it; relocating is `/plot-dispatch --migrate`'s
+  job, on a person's say.
+- **Never touch a desk's `.git/info/exclude`.** That rule is per-clone and
+  belongs to `plot-dispatch.sh`; adoption writes the repository's line only.
 
 ## Common Mistakes
 
@@ -260,3 +336,7 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
 | Adding every posture key to the config | A new adopter faces settings they never chose | Defaults stay implicit |
 | Rewriting an existing `.plot/worker-prompt.sh` to match the template | Destroys instructions the project wrote for its own agents | Report what the script said and offer the one line |
 | Treating `stale` or `present` as a failed adoption | An adoption stops over a file that runs correctly today | Both are reports; step 3 continues |
+| Writing `Worktree root` and printing the ignore line to paste | Every dispatched desk becomes untracked work; the next `git add -A` stages a whole checkout | Adoption writes both, on one confirmation |
+| Proposing `.worktrees` to a repo whose worktrees already live elsewhere | Adoption relocates a working arrangement nobody asked it to touch | Read `git worktree list` first; propose what is there |
+| Rewriting `.gitignore` rather than appending | Silently drops rules the team depends on | Append a block; create the file only when absent |
+| Writing an ignore line for an absolute worktree root | The line matches nothing — the desks are outside the repository | Say no rule is needed and write none |
