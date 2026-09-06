@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 4
 - **Started:** 2026-09-06, Jan Wloka, `infra/a-delivery-gate-stops-by-name`
+- **Started:** 2026-09-06, Jan Wloka, `bug/a-sprint-phase-meets-its-index`
 
 ## Changelog
 
