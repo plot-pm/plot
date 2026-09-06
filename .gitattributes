@@ -1,8 +1,9 @@
-# The board bundle is generated output: `pnpm build:board` reproduces it from
-# `packages/board/`. It is 177 lines of ~4,500 characters, so git's line-based
-# merge lands every board change in the same handful of enormous lines — two
-# branches touching entirely disjoint sources still collide there, and the
-# resulting diff cannot be read, let alone resolved.
+# The board bundles are generated output: `pnpm build:board` reproduces every
+# one of them from `packages/board/`. They are minified — a few lines of many
+# thousands of characters each — so git's line-based merge lands every board
+# change in the same handful of enormous lines. Two branches touching entirely
+# disjoint sources still collide there, and the resulting diff cannot be read,
+# let alone resolved.
 #
 # `-merge` tells git not to blend the two versions. It keeps one side whole and
 # reports the conflict, WITHOUT writing conflict markers into the file. The
@@ -27,4 +28,27 @@
 #
 # The CI no-diff gate is what keeps this honest: resolve by keeping a stale
 # artifact and forget to rebuild, and the build fails.
+#
+# THE LIST IS THE BUILD'S OUTPUT, not one file. It named `board-server.mjs`
+# alone until 2026-09-06, while `build.mjs` grew eight more outputs and none of
+# them arrived here. Measured on one rebase, 2026-09-05: the marked file took
+# zero conflict markers, `plot-ask.mjs` took five and `plot-registryd.mjs` took
+# three — spliced into generated output that is committable, pushable, and not
+# JavaScript. `scripts/check-bundle-attributes.sh` now derives this set from
+# `build.mjs` and fails when one is missing, because a list nothing checks is a
+# list the next author does not know exists.
+#
+# `plot-monitor.mjs` IS ABSENT DELIBERATELY. It is tracked and documented at
+# `entry/monitor.ts:14`, and it appears in no `outfile` — nothing rebuilds it.
+# The licence for `-merge` is the deterministic rebuild, since "keep either
+# side, then rebuild" is safe only where the rebuild overwrites what was kept.
+# Marking it would assert a rebuild that does not exist.
 skills/plot/scripts/board/board-server.mjs -merge
+skills/plot/scripts/board/plot-ask.mjs -merge
+skills/plot/scripts/board/plot-landed.mjs -merge
+skills/plot/scripts/board/plot-movable.mjs -merge
+skills/plot/scripts/board/plot-prompt.mjs -merge
+skills/plot/scripts/board/plot-registryd.mjs -merge
+skills/plot/scripts/board/plot-task.mjs -merge
+skills/plot/scripts/board/plot-transition.mjs -merge
+skills/plot/scripts/board/plot-verdicts.mjs -merge

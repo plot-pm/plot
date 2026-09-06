@@ -26,12 +26,13 @@ an experiment. A change is not done if it breaks the board.
 
 ### Resolving a board artifact conflict
 
-`skills/plot/scripts/board/board-server.mjs` is generated output — 177 lines of
-roughly 4,500 characters. Git merges line by line, so **every** board change
-lands in the same handful of enormous lines: two branches touching entirely
-disjoint sources still collide there, and the diff cannot be read.
+`pnpm build:board` emits nine bundles into `skills/plot/scripts/board/`, and
+every one of them is generated output — minified, a few lines of many thousands
+of characters each. Git merges line by line, so **every** board change lands in
+the same handful of enormous lines: two branches touching entirely disjoint
+sources still collide there, and the diff cannot be read.
 
-`.gitattributes` marks the file `-merge`, so git keeps one version whole and
+`.gitattributes` marks all nine `-merge`, so git keeps one version whole and
 reports the conflict **without writing conflict markers into it**. The file
 stays valid JavaScript through the conflict, and the resolution is to rebuild:
 
@@ -54,6 +55,21 @@ side-neutral on purpose: **take either version, then rebuild.**
 The freshness gate above is what keeps this honest. Resolve by keeping a stale
 artifact and forget to rebuild, and CI's no-diff check fails — the strategy
 removes the *conflict*, the gate still enforces *correctness*.
+
+**The marked set is derived, never remembered.** `.gitattributes` named
+`board-server.mjs` alone until 2026-09-06 while `build.mjs` grew eight more
+outputs, and not one of them arrived here. Measured on one rebase, 2026-09-05:
+the marked file took zero conflict markers, `plot-ask.mjs` took five and
+`plot-registryd.mjs` took three, spliced into generated output that is
+committable, pushable, and not JavaScript.
+`scripts/check-bundle-attributes.sh` now reads the build's own
+`shippedX = path.join(…)` declarations and fails when one is unmarked, so
+adding an output marks it or fails CI.
+
+**`plot-monitor.mjs` is tracked and is not marked.** It appears in no `outfile`,
+so nothing rebuilds it — and the deterministic rebuild is the entire licence for
+`-merge`, since *take either side, then rebuild* is safe only where the rebuild
+overwrites what was kept.
 
 **`plot-merge-queue` still flags board pairs, and that is expected.** `-merge`
 changes how git *resolves* the file, not whether it *reports* a conflict, so

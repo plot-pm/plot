@@ -389,6 +389,26 @@ jobs:
       - name: A state declares its lifecycle
         run: ./scripts/check-state-declarations.sh
 
+      # EVERY GENERATED BUNDLE IS MARKED `-merge`. Measured 2026-09-05 on one
+      # rebase: `board-server.mjs` was marked and took 0 conflict markers,
+      # `plot-ask.mjs` took 5 and `plot-registryd.mjs` took 3. A spliced marker
+      # makes a bundle invalid JavaScript that is still committable and
+      # pushable, and the file is one nobody is meant to read a diff of.
+      #
+      # THE DEFECT WAS BORN THE WAY A PROSE REMINDER FAILS: `.gitattributes`
+      # named one file while `build.mjs` grew eight more outputs, and none of
+      # them touched it. So the gate DERIVES the set from the build's own
+      # `shippedX = path.join(…)` declarations rather than carrying a list,
+      # which would be a second place to forget.
+      #
+      # It found a ninth the plan had not — `plot-landed.mjs`, one day old.
+      #
+      # A tracked file the build does not emit is not demanded. `plot-monitor.mjs`
+      # appears in no `outfile`, so it has no deterministic rebuild, and that
+      # rebuild is the whole licence for `-merge`.
+      - name: Every generated bundle is marked
+        run: ./scripts/check-bundle-attributes.sh
+
       # A PLAN'S BRANCH SECTION IS `## Slices`. The parser reads all three
       # spellings and always will — a plan file may be a year old, and refusing
       # to read the old word would make Plot worse at its job. This gates what
