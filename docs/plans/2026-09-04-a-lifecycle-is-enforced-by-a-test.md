@@ -349,7 +349,7 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
   count ends near 33 and the target stays debt. That is the point: every enum
   added after it must declare its kind, which is the failure this story exists to
   prevent — and the 37 declarations are themselves the review that finds the next
-  lifecycle nobody had noticed.
+  lifecycle nobody had noticed. — PR #720
 
 ### The slice's lifecycle
 
