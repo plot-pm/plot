@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -32,6 +32,16 @@
 **A `plan:` line turns a judgement into a lookup.** Not a more accurate answer — the semantic match gets it right — but one a script can make, where today only a Frontier-tier model can.
 
 **AND ONE OF THE TWO OPEN POINTS BESIDE IT IS ALREADY ANSWERED.** `DESIGN-release.md` asks whether `version` should be normalized at the parser, citing `70 lines say v2.5.0 and 40 say 2.9.0`. `entities/version.ts:25` exports `normalizeVersion` with **10 production callers**, and its own docstring carries that measurement. That point is closed; this plan records it rather than re-planning it.
+
+## The rule exists; the gate does not use it
+
+**Checked against the domain 2026-09-06.** `rules/changeset.ts` already exports `parseChangeset`, `publishedDescription`, `checkChangeset` and `MIN_DESCRIPTION` — the whole validation this plan builds on.
+
+**But `scripts/check-changeset-packages.sh` does not call it.** It runs inline JavaScript from a quoted heredoc (`:62`) and re-implements the same checks in the shell. Two implementations of *is this changeset valid*, one in the domain and one in CI, and the CI one is what actually gates.
+
+**So this plan inherits a duplication it did not create**, and adding a third check to the shell copy would widen it. The link check goes in the **rule**, and the gate reads the rule — which is the layering this repo settled and the shape `plot-approve.sh` already uses through `plot-transition.mjs`.
+
+**`ChangesetParts` is where the field lands.** It holds `packages` and `body` today and nothing else; the `bumps:` block CLAUDE.md documents is not parsed either. A `plan:` reference and `bumps:` are the same kind of thing — a structured comment in the body — and the parser should learn both or neither.
 
 ## What this is not
 
@@ -61,7 +71,9 @@ The changeset template and `/plot-idea`'s guidance carry a plan reference, and t
 
 **AND A COUNT IS ONLY WORTH PRINTING IF IT LEADS SOMEWHERE.** A finding must be actionable the day it fires; a bare `0 of 14` is not. So the check reports the count **and names the changesets missing a link**, which is what a person acts on — and the number is the ratchet's input once adoption is non-zero.
 
-**Done when** the check reports the count, names the changesets without a link, exits 0 whatever it is, and the number is visible in CI output.
+**AND THE CHECK READS THE RULE RATHER THAN RE-IMPLEMENTING IT.** The shell script's inline heredoc is a second implementation of `checkChangeset`; this slice does not add a third. Where the gate needs the count, it asks the domain.
+
+**Done when** the check reports the count through `rules/changeset.ts`, names the changesets without a link, exits 0 whatever it is, and the number is visible in CI output.
 
 ## Notes
 

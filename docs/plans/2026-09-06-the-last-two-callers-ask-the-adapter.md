@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -60,17 +60,17 @@ plot-reconcile-scan.sh  3 → 1   the remaining line is advice TEXT, not a call
 
 `plot-pr-merged.sh` calls `plot-host.sh pr-merged` instead of `gh`.
 
-**THE GATE MOVES INTO THE ADAPTER; IT DOES NOT CALL IT FROM OUTSIDE.** One route to the host, and the gate is part of it — not a shell wrapper spawning `plot-host.sh` per branch on top of the `gh` call it already makes.
+**THE DECISION HAS ALREADY MOVED. ONLY THE LOOKUP HAS NOT.** Checked against the estate 2026-09-06, and it corrects two earlier rounds of this plan: `plot-pr-merged.sh` **is already an adapter**. #706 made it one — `:69` resolves `board/plot-landed.mjs`, `:78` pipes two readings into it, and `rules/landed.ts` holds `landed`, `openPr` and `mayRemove`.
 
-**THAT IS WHAT MAKES THE ROUTING FREE RATHER THAN COSTLY.** `plot-pr-merged.sh` is **sourced, not run**: four scripts define `pr_merged` in their own shell and call it per branch. A version that shelled out to `plot-host.sh` would add one process per call on a path the fleet scan walks across 48 branches — and `DESIGN-machine.md` measures spawn cost as the headroom signal. Moving the logic in means the caller reaches the host once, as it does today.
+**The coupling is already asserted rather than commented.** The file says so: *"That was a comment in this file and could not be checked. It is now `mayRemove` in the rule, asserted over all nine combinations of the two readings, and exactly one of them permits a removal."*
 
-**THE FAILURE DIRECTION IS THE WHOLE RISK, AND IT IS A MAPPING RATHER THAN A CHOICE.** `pr_merged` returns *not merged* when the host cannot be asked, so every caller keeps what it was about to remove — *"silence is never permission"*. The adapter answers `unknown` as a payload rather than a failure, deliberately, because *"a host that cannot be asked must not answer `not-merged`"*.
+**So there is no gate left to move, and the earlier rounds argued about one.** What remains is narrower and unchanged by any of it: **two `gh` calls** at `:90` and `:99` that ask the host directly instead of through `plot-host.sh`. The functions turn each lookup into `found`, `none` or `unaskable` — three readings the adapter's `pr-merged` already produces.
 
-**Those two are opposite by design and both survive.** The adapter keeps reporting three answers to anyone who asks it directly; the gate keeps converting *unknown* into *keep*. What changes is that the conversion lives beside the question instead of in a second implementation of it — `pr-merged` gains the gate's reading as a named answer, and the three-to-two mapping is asserted where it is performed.
+**THE COST ARGUMENT STILL DECIDES THE SHAPE.** `plot-pr-merged.sh` is **sourced, not run**: four scripts define these functions in their own shell and call them per branch. A version shelling out to `plot-host.sh` adds one process per call on a path the fleet scan walks across 48 branches, and `DESIGN-machine.md` measures spawn cost as the headroom signal. So the lookup routes without gaining a spawn, or it does not route.
 
-**`pr_open` TRAVELS WITH IT.** It vetoes a deletion, so it can only ever keep a ref — safe **only because `pr_merged` already refused on the same silence**. Both move or neither does.
+**THE FAILURE DIRECTIONS ARE ALREADY RECONCILED IN THE RULE.** `landed` receives `unaskable` as a reading and `mayRemove` refuses on it — the three-to-two mapping this plan's round 1 said needed asserting is asserted, over nine combinations. Routing the lookup must not disturb it: the adapter's answers arrive as the same three readings.
 
-**Done when** the merge gate lives in `plot-host.sh`, `plot-pr-merged.sh` names `gh` zero times, the four sourcing callers keep their signatures, no caller gains a process per branch, `pr_merged` still answers *not merged* on an unreachable host, `pr_open` still only keeps, and all of it is asserted by a test.
+**Done when** `plot-pr-merged.sh` names `gh` zero times, its lookups go through `plot-host.sh`, no caller gains a process per branch, the three readings reaching `rules/landed.ts` are unchanged, and `mayRemove`'s nine assertions still pass.
 
 ### The board updater is routed or exempted (Branch: infra/the-project-api-is-named)
 
@@ -89,3 +89,9 @@ plot-reconcile-scan.sh  3 → 1   the remaining line is advice TEXT, not a call
 This plan was drafted with a slice building `scripts/check-gh-callers.sh`, on a measurement that no such gate existed. **It does**: `check-host-cli-callers.sh` shipped 2026-09-05, tests its own refusal, and already carries a dated exemption naming slice 1 as the work it waits for.
 
 The measurement was taken with `ls scripts/check-*gh*`, and the gate is named for the *host CLI* rather than for `gh`. **A grep that spells the thing one way finds nothing when the estate spells it another** — which is the same failure this plan's own slice 3 was written to prevent, arriving one level up.
+
+### Two rounds argued about work already done — 2026-09-06
+
+Rounds 1 and 2 debated where the merge gate should live and how its three answers map to two. **Both had already been settled by #706**, in the file the plan is about, with the reasoning written in its header.
+
+Neither round checked. The plan was read, the adapter was not — and the correction came from grepping for the deliverable rather than from another round of reasoning about it. **That is the fifth time this week** the estate already held what a plan proposed.

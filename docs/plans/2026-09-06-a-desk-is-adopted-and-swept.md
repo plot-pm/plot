@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -26,6 +26,10 @@
 **ADOPTION NEVER MENTIONS WHERE DESKS GO.** Measured 2026-09-06: `skills/plot-init/SKILL.md` names `Worktree root` **zero times**. The key defaults to `.worktrees`, which is the intended layout — and an adopting repository gets it without being told, without the `.gitignore` line, and without a chance to choose otherwise.
 
 **THIS REPO'S OWN `.gitignore` CARRIES THE LINE AND A COMMENT EXPLAINING IT**, at `:20-23` — *"The dispatch worktrees, gathered here by the `Worktree root` key"*. Every adopter needs the same line and nothing writes it. A dispatched agent's desk is untracked work in the repository root until somebody notices.
+
+**THE DOMAIN ALREADY PARSES `prunable` AND THROWS IT AWAY.** Checked 2026-09-06: `adapters/trees/trees-git.ts` reads it from `git worktree list --porcelain` at `:23`, `:33` and `:41` — and **no port and no rule receives it**. `ports/trees.ts` does not carry the field; `rules/reapable.ts` never sees it.
+
+**So the reading exists twice and reaches nothing.** The adapter parses it and drops it on the floor; the shell scan parses it again for itself. Whatever this slice does, it does not add a reading — it connects one that is already taken.
 
 **THE REAPER DOES NOT READ `prunable`, AND THE SCAN DOES.** `plot-fleet-scan.sh:1312` skips prunable entries with a stated reason: *"A worktree directory can be deleted without git knowing"*. `plot-reap.sh` and `plot-reconcile-scan.sh` mention it **zero times** between them.
 
@@ -65,7 +69,9 @@
 
 **IT IS A REPORT, NOT A SIXTH REFUSAL.** The other five say *do not remove this*; `prunable` says *there is nothing to remove and the entry is stale*. Those are different sentences and the output must not blur them.
 
-**Done when** the reaper names a prunable entry, prunes nothing, and its five refusals are unchanged.
+**AND THE READING TRAVELS THROUGH THE PORT IT ALREADY HAS.** `trees-git.ts` parses `prunable` today and no port carries it; the field joins `ports/trees.ts` so `rules/reapable.ts` can be handed it, rather than the reaper growing a sixth `git` call of its own.
+
+**Done when** the reaper names a prunable entry, `ports/trees.ts` carries the field the adapter already parses, nothing is pruned, and the five refusals are unchanged.
 
 ## Notes
 

@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -28,6 +28,18 @@
 This repeats a defect fixed the day before: `2026-W35-the-board-tells-the-truth-in-every-section` carried `Phase: Active` while not being in the index at all. **Same field, opposite direction, four days apart.**
 
 **A SPRINT WHOSE RELEASE SHIPPED IS CLOSED IN EVERY SENSE BUT THE FIELD.** The doc's own open point says so. Measured: `2026-W36-a-half-landed-workflow-says-so` reads `Phase: Planned`, `Release: 2.13.0` — and **2.13.0 shipped 2026-09-05**. The sprint has not been touched since 2026-08-29 and none of its eight items ever became a plan.
+
+**AND ONE SPRINT'S PHASE IS A VALUE NO SCHEMA ADMITS.** Checked against the domain 2026-09-06: `SprintStateSchema` (`entities/sprint.ts:4`) admits `Planning | Committed | Active | Closed`. The estate writes:
+
+```
+7 × Closed      admitted
+1 × Active      admitted
+1 × Planned     ADMITTED BY NEITHER
+```
+
+`2026-W36-a-half-landed-workflow-says-so` says `Planned`, and the schema says `Planning`. **This is the same defect as the three stories writing `archived`** — a file holding a value the domain rejects, in an estate where nothing checks written states against their schema.
+
+**`SPRINT_PHASES` IS ALSO DECLARED TWICE.** `contract/schema.ts:221` holds the same four values as `entities/sprint.ts:4`. That is `BOARD_PHASES`'s duplication with a different name — and `the-workflow-has-phases`, in flight right now, is closing exactly that one. **This slice must not close it a second way**; whichever lands first takes both.
 
 **THE TIMEBOX IS PARSED NOWHERE.** `start` and `end` are in every sprint file and read by nothing — grep finds no consumer. A sprint's own axis is time, and it is the one thing its card cannot show.
 
@@ -63,7 +75,9 @@ This repeats a defect fixed the day before: `2026-W35-the-board-tells-the-truth-
 
 **IT HAS HAPPENED TWICE IN FOUR DAYS, IN BOTH DIRECTIONS.** `Active` without a link, and a link without `Active`. Neither was caught by anything; both were found by a person reading the directory.
 
-**Done when** the scan reports a sprint whose phase and index membership disagree, names both, and gates nothing.
+**AND A PHASE OUTSIDE THE SCHEMA IS THE SAME FINDING.** `Planned` versus `Planning` is a disagreement between a file and the domain, which is what this section reports; it needs no second section and no second script.
+
+**Done when** the scan reports a sprint whose phase and index membership disagree, reports a phase the domain does not admit, names both, and gates nothing.
 
 ### A shipped release closes nothing by itself (Branch: bug/a-sprint-names-a-shipped-release)
 
