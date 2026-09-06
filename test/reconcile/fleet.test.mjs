@@ -370,9 +370,16 @@ test('fleet: --next stays silent when nothing is claimable', () => {
 
 test('fleet: --log-pulse appends one line to the plan, clean pulses included', () => {
   // Lloyd's lesson applied: a pulse that finds nothing wrong must still say so,
-  // or an idle fleet and a dead fleet look identical. This is the ONLY thing
-  // the pulse ever writes, and it is a log, not state — deleting the whole log
-  // changes no behaviour, because the next pulse re-derives everything.
+  // or an idle fleet and a dead fleet look identical. It is a log, not state —
+  // deleting the whole log changes no behaviour, because the next pulse
+  // re-derives everything.
+  //
+  // `--log-pulse` writes a SECOND thing since 2026-09-06:
+  // `.plot/state/last-pulse.json`, the bridge, so a repository with no board
+  // accumulates the history a delta needs. That is also not state — it is a
+  // cache the board discards after fifteen minutes — and it is gitignored in
+  // any real checkout. This fixture has no `.gitignore`, so the restore below
+  // removes it explicitly.
   const plan = path.join(repo, 'plans', '2026-01-01-fleet.md');
   const before = fs.readFileSync(plan, 'utf8');
   assert.ok(!before.includes('<!-- pulse:'), 'precondition: no pulse lines yet');
@@ -393,8 +400,11 @@ test('fleet: --log-pulse appends one line to the plan, clean pulses included', (
     .filter((l) => l.includes('<!-- pulse:'));
   assert.equal(twice.length, 2);
 
-  // Restore: every other test in this file asserts on an unmodified repo.
+  // Restore: every other test in this file asserts on an unmodified repo —
+  // including `scan is read-only` directly below, which reads `git status` and
+  // would see an untracked `.plot/` this fixture does not ignore.
   fs.writeFileSync(plan, before);
+  fs.rmSync(path.join(repo, '.plot'), { recursive: true, force: true });
 });
 
 test('fleet: scan is read-only — working tree and refs unchanged', () => {

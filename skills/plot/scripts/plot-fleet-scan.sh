@@ -177,12 +177,29 @@
 # crashed pulse costs nothing — the next pulse re-derives the truth. Nothing
 # here creates a branch, pushes a ref, or starts a worker.
 #
-# ONE exception to "writes nothing": --log-pulse appends a pulse line to each
-# reported plan (see below). That is a LOG, not state — deleting the whole log
-# changes no behaviour, because the next run re-derives everything. The flag
-# defaults OFF precisely so internal callers (plot-implement, plot-dispatch,
-# which invoke --next) can never amend a plan as a side effect of asking what
-# to work on; /plot-fleet, the human-facing command, passes it every run.
+# TWO exceptions to "writes nothing", and NEITHER IS STATE. The test both pass
+# is the same one: delete what they wrote and no behaviour changes, because the
+# next run re-derives everything.
+#
+# 1. --log-pulse appends a pulse line to each reported plan (see below). That is
+#    a LOG. The flag defaults OFF precisely so internal callers (plot-implement,
+#    plot-dispatch, which invoke --next) can never amend a plan as a side effect
+#    of asking what to work on; /plot-fleet, the human-facing command, passes it
+#    every run.
+#
+# 2. `.plot/state/last-pulse.json` — the bridge, written by `write_bridge` on
+#    the success path of `--stream` (what the board spawns) and `--log-pulse`
+#    (what /plot-pulse passes). Those are the two callers that produce a pulse
+#    for somebody to READ; plain `--json` is a query and records nothing. That
+#    is a CACHE WITH AN EXPIRY: `pulse-bridge.ts` discards it after 15 minutes
+#    and on a version mismatch, so it can only ever be a shortcut to an answer
+#    this script re-derives anyway. It is machine-local and gitignored.
+#
+#    Added 2026-09-06. The board wrote this file and the scan did not, so a
+#    repository with no board had nothing to diff against and every pulse read
+#    as the first one — while `DESIGN-process.md` §1 requires the fleet to work
+#    with no board at all. The component that PRODUCES a pulse is the one that
+#    records it.
 #
 # Wave eligibility (the one rule this script encodes):
 #   A wave is ELIGIBLE when every non-deferred branch in every PRIOR wave is
@@ -217,13 +234,30 @@ why_nothing=0
 loose=0
 log_pulse=0
 as_json=0
+# Whether the JSON document is ASSEMBLED, which is not the same question as
+# whether it is PRINTED. `--json`/`--stream` need it to print; `--log-pulse`
+# needs it to write the bridge and prints prose. Measured 2026-09-06 on this
+# estate: assembling it costs 14.7 s against 5.9 s for prose alone, because the
+# branch objects carry `merge-tree` conflict sets. So the two meanings are
+# separated rather than folded, and a plain `/plot-fleet-scan.sh` pays neither.
+build_doc=0
+# Whether this run RECORDS the pulse it produced — `.plot/state/last-pulse.json`.
+# A third question again: `--json` assembles a document and records nothing,
+# because it is a query. Only the two callers that produce a pulse for somebody
+# to read set this — `--stream` (the board) and `--log-pulse` (/plot-pulse).
+record=0
 stream=0
 slug=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-fetch|--offline) do_fetch=0 ;;
     --loose) loose=1 ;;
-    --log-pulse) log_pulse=1 ;;
+    # `--log-pulse` ALSO ASSEMBLES THE DOCUMENT, because this is the flag that
+    # means *this pulse records itself*. It already appends a line to each plan;
+    # it now also writes `.plot/state/last-pulse.json`, so `/plot-pulse` in a
+    # repository with no board accumulates the history a delta needs. Without
+    # that, every pulse on a boardless repo is a first one forever.
+    --log-pulse) log_pulse=1; build_doc=1; record=1 ;;
     --next) next_only=1 ;;
     --list-eligible) next_only=1; list_all=1 ;;
     # THE SECOND QUESTION, and it borrows `--next`'s population deliberately.
@@ -231,8 +265,17 @@ while [ $# -gt 0 ]; do
     # about the SAME plans `--next` was silent over — a terminal plan admitted
     # here would answer `not-yet` about work somebody decided was not needed.
     --why-nothing) next_only=1; why_nothing=1 ;;
-    --json) as_json=1 ;;
-    --stream) as_json=1; stream=1 ;;
+    # `--json` ASSEMBLES BUT DOES NOT RECORD, and the two flags differ here for
+    # a reason. `--stream` is what the BOARD spawns (`fleet.ts:2694`) and
+    # `--log-pulse` is what `/plot-pulse` passes: both produce a pulse somebody
+    # is reading, so both record one. Plain `--json` is a machine-readable
+    # QUERY — `--next`'s neighbours ask it to find out what to work on — and a
+    # query that left a file behind would make the scan write on a path no
+    # caller asked to record. Two reconcile tests assert exactly that and
+    # caught this: `conflicts: the scan writes NOTHING` and `fleet: scan is
+    # read-only`, both of which drive `--json`.
+    --json) as_json=1; build_doc=1 ;;
+    --stream) as_json=1; stream=1; build_doc=1; record=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) slug="$1" ;;
   esac
@@ -3573,7 +3616,7 @@ for plan in "${plans[@]}"; do
         claimable+=("$br")
       fi
       [ "$quiet" = 1 ] || echo "      $br — $note"
-      if [ "$as_json" = 1 ]; then
+      if [ "$build_doc" = 1 ]; then
         # The INTERNAL state ($st), never the prose label ($note): the board
         # must not parse a string that exists for humans to read.
         json_branches+="${json_branches:+,}{\"branch\":\"$(json_str "$br")\""
@@ -3771,7 +3814,7 @@ for plan in "${plans[@]}"; do
       fi
     done <<< "$states"
 
-    if [ "$as_json" = 1 ]; then
+    if [ "$build_doc" = 1 ]; then
       json_waves+="${json_waves:+,}{\"name\":\"$(json_str "$wname")\""
       json_waves+=",\"verdict\":\"$verdict\",\"branches\":[$json_branches]}"
     fi
@@ -3785,7 +3828,7 @@ for plan in "${plans[@]}"; do
     # what the wave before it decided.
     [ "$verdict" = "blocked" ] && n_blocked=$((n_blocked + 1))
   done
-  if [ "$as_json" = 1 ]; then
+  if [ "$build_doc" = 1 ]; then
     # ONE composition, two destinations — the property that makes --stream and
     # --json say the same thing rather than agreeing by inspection. A second
     # `printf` shaped like this one would be a second implementation of the
@@ -3883,28 +3926,95 @@ if [ "$log_pulse" = 1 ]; then
   done
 fi
 
-# --json: the same derivation as the prose above, rendered for machines. It is
-# an OUTPUT MODE and nothing more — it composes with --offline/--no-fetch/
-# --loose rather than implying any of them, so the board's data depends on what
-# it asked for, not on how it asked. --next wins over it (handled above): that
-# is a different question with a one-line answer.
-if [ "$as_json" = 1 ]; then
-  # --stream wraps the SAME document in one tagged line rather than emitting a
-  # second, smaller one. The terminal object is what proves the scan finished:
-  # a consumer that has seen `plan` lines and no `reading` line has a PARTIAL
-  # answer and must say so — which is the whole distinction this mode adds, and
-  # the reason the end is marked rather than inferred from the pipe closing.
-  # A killed scan closes the pipe too.
-  [ "$stream" = 1 ] && printf '{"kind":"reading","reading":'
+# THE PULSE RECORDS ITSELF — `.plot/state/last-pulse.json`, the bridge.
+#
+# WHY THE SCAN AND NOT THE BOARD. `fleet.ts:2804` was the ONLY writer until
+# 2026-09-06, and this script named the file zero times — so `/plot-pulse` in a
+# repository with no board had nothing to diff against, and every pulse was a
+# first one forever. `DESIGN-process.md` §1 requires the fleet to work with no
+# board at all. The scan produces the pulse; the component that produces one
+# records it. The board's write is not removed and becomes redundant: the board
+# spawns THIS script, so a scan that writes the bridge writes it on the board's
+# path too, from inside the same run.
+#
+# INSIDE THE SUCCESS PATH, WHICH IS THE PROPERTY THAT HAD TO SURVIVE THE MOVE.
+# `fleet.ts:2800`: *"A scan that failed must not overwrite the last good answer
+# — the only thing standing between a `--watch` restart and an empty board."*
+# So this is called where the scan has finished deriving and is about to say so,
+# never from a trap and never at exit. A killed scan leaves the previous file
+# whole.
+#
+# THE FORMAT IS `pulse-bridge.ts`'s AND EVERY FIELD HERE IS ITS REQUIREMENT.
+# `version` must equal `BRIDGE_VERSION` or `:193` returns null and the board
+# renders an empty page with no error — a silent failure, which is why the
+# board's own test reads a file this script wrote rather than one a fixture
+# invented. `at` is epoch MILLISECONDS and is checked against
+# `BRIDGE_MAX_AGE_MS` (15 min), and a file from the future is rejected outright
+# rather than clamped, so the clock must be the same one the board reads.
+#
+# THE FOUR MAPS ARE EMPTY AND THAT IS HONEST. `ages`, `approvedAt` and
+# `ideaPlans` are computed by the board on its own timers, and `branchUrlBase`
+# comes from its settings; the scan knows none of them. `readBridge` rebuilds
+# each with `toMap`, which yields an empty Map for anything it cannot use, and
+# `branchUrlBase` falls back to `''`. So a scan-written bridge serves the rows,
+# the verdicts and the counts, with unknown ages and no branch links — degraded
+# in the direction the board already handles, and overwritten by the board's own
+# richer write seconds later on the refresh it always issues.
+#
+# TEMP FILE PLUS RENAME, carrying the pid, exactly as `writeBridge` does and for
+# the same reason: `rename` is atomic within a filesystem, so a board reading
+# while this writes sees the old file whole or the new file whole. The pid is in
+# the temp name because two scans on one repo — routine here — must not collide
+# on one temp file and hand the reader the torn payload the rename exists to
+# prevent.
+#
+# EVERY FAILURE IS SWALLOWED, the rule `writeBridge` states: a read-only
+# checkout, a full disk, a `.plot` nobody may write to. None of that is a reason
+# for a pulse to fail, and the cost of the miss is exactly the behaviour before
+# this existed.
+#
+# IT IS A CACHE WITH AN EXPIRY, NEVER A RECORD. Deleting it changes no
+# behaviour, because the next pulse re-derives everything — which is what keeps
+# this inside the script's stateless design rather than beside it.
+write_bridge() {
+  [ "$record" = 1 ] || return 0
+  [ -n "$reading_doc" ] || return 0
+  # The bridge belongs to the REPOSITORY, not to the directory the scan was run
+  # from. Every other path here is relative to the cwd because the board spawns
+  # this from the root; the board reads the bridge at `repoRoot`, so this asks
+  # git rather than assuming the two agree.
+  local root file tmp
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ -n "$root" ] || return 0
+  file="$root/.plot/state/last-pulse.json"
+  mkdir -p "$root/.plot/state" 2>/dev/null || return 0
+  tmp="$file.$$.tmp"
+  # `at` is when the scan COMPLETED, which is what `pulse-bridge.ts:81` asks for
+  # — "NOT when it was written" — and the two are the same instant here.
+  printf '{"version":1,"at":%s,"pulse":%s,"ages":[],"branchUrlBase":"","approvedAt":[],"ideaPlans":[]}' \
+    "$(( $(date +%s) * 1000 ))" "$reading_doc" > "$tmp" 2>/dev/null || {
+      rm -f "$tmp" 2>/dev/null
+      return 0
+    }
+  mv -f "$tmp" "$file" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
+}
+
+# THE READING, COMPOSED ONCE. Two consumers read it — `--json`/`--stream` print
+# it, and `write_bridge` records it — and composing it twice is how the printed
+# document and the recorded one start to disagree. Assembled only when
+# `build_doc` is on, because the branch objects inside `$json_plans` cost
+# `merge-tree` per unlanded branch.
+if [ "$build_doc" = 1 ]; then
   # `read_ref` is the ref this document was derived from; `local_head` is the
   # checkout it was derived ON. A consumer needs both to tell "the board is
   # current" from "the board is current about an old world".
   #
   # `head` repeats `local_head` as an alias for one release. The board reads it
   # today; it goes away once the board reads the pair.
-  printf '{"main":"%s","read_ref":"%s","local_head":"%s","head":"%s",' \
+  reading_doc=$(printf '{"main":"%s","read_ref":"%s","local_head":"%s","head":"%s",' \
     "$(json_str "$MAIN")" "$(json_str "$READ_REF")" "$(json_str "$LOCAL_HEAD")" \
-    "$(json_str "$HEAD_SHORT")"
+    "$(json_str "$HEAD_SHORT")")
   # Three more facts about the EVIDENCE, not about the fleet — a consumer that
   # renders the numbers below should be able to say how much to trust them.
   # They answer the question `read_ref` raises: that field names the ref, and
@@ -3913,11 +4023,11 @@ if [ "$as_json" = 1 ]; then
   # `fetch_failed` used to be discarded by `2>/dev/null`, so refs an hour old
   # were reported with the confidence of refs a second old. `plan_source` says
   # whether the plan list came from the ref or fell back to this checkout.
-  printf '"fetch_failed":%s,"fetch_error":"%s","plan_source":"%s","plans":[%s],' \
+  reading_doc+=$(printf '"fetch_failed":%s,"fetch_error":"%s","plan_source":"%s","plans":[%s],' \
     "$([ "$FETCH_FAILED" = 1 ] && echo true || echo false)" \
-    "$(json_str "$FETCH_ERROR")" "$(json_str "$PLAN_SOURCE")" "$json_plans"
-  printf '"summary":{"plans":%d,"waves":%d,"branches":%d,"claimed":%d,' \
-    "$n_plans" "$n_waves" "$n_branches" "$n_claimed"
+    "$(json_str "$FETCH_ERROR")" "$(json_str "$PLAN_SOURCE")" "$json_plans")
+  reading_doc+=$(printf '"summary":{"plans":%d,"waves":%d,"branches":%d,"claimed":%d,' \
+    "$n_plans" "$n_waves" "$n_branches" "$n_claimed")
   # `host` is the EVIDENCE field beside merge_detect, and it is the one that
   # says whether merge_detect can be believed. Rendered for the machine here
   # and in the footer for a human; the board reads this rather than parsing
@@ -3926,9 +4036,29 @@ if [ "$as_json" = 1 ]; then
   # WAVES. Two vocabularies share the word `blocked` and the footer must not:
   # a consumer adding the three would double-count nothing, because no branch
   # is in both and no wave is in either.
-  printf '"eligible":%d,"blocked":%d,"deferred":%d,"waiting":%d,"prereq_missing":%d,"merge_detect":"%s","host":"%s"}}' \
+  reading_doc+=$(printf '"eligible":%d,"blocked":%d,"deferred":%d,"waiting":%d,"prereq_missing":%d,"merge_detect":"%s","host":"%s"}}' \
     "$n_eligible" "$n_blocked" "$n_deferred" "$n_waiting" "$n_prereq_missing" \
-    "$MERGE_DETECT" "$HOST_VERDICT"
+    "$MERGE_DETECT" "$HOST_VERDICT")
+fi
+
+# --json: the same derivation as the prose above, rendered for machines. It is
+# an OUTPUT MODE and nothing more — it composes with --offline/--no-fetch/
+# --loose rather than implying any of them, so the board's data depends on what
+# it asked for, not on how it asked. --next wins over it (handled above): that
+# is a different question with a one-line answer.
+if [ "$as_json" = 1 ]; then
+  # THE SCAN COMPLETED, so the bridge may be replaced. Before the document is
+  # printed rather than after: a consumer that reads the terminal line and then
+  # kills us must still find the file written.
+  write_bridge
+  # --stream wraps the SAME document in one tagged line rather than emitting a
+  # second, smaller one. The terminal object is what proves the scan finished:
+  # a consumer that has seen `plan` lines and no `reading` line has a PARTIAL
+  # answer and must say so — which is the whole distinction this mode adds, and
+  # the reason the end is marked rather than inferred from the pipe closing.
+  # A killed scan closes the pipe too.
+  [ "$stream" = 1 ] && printf '{"kind":"reading","reading":'
+  printf '%s' "$reading_doc"
   [ "$stream" = 1 ] && printf '}'
   printf '\n'
   exit 0
@@ -4004,5 +4134,14 @@ if [ "$PLAN_SOURCE" != "ref" ]; then
   echo "  note: origin/$MAIN could not be read — plans were listed from this"
   echo "        checkout instead, so the list is only as current as your last pull."
 fi
+# THE PROSE PATH'S TERMINAL POINT, and the counterpart to the `--json` write
+# above. `/plot-pulse` runs this path — it passes `--log-pulse` and no `--json`
+# — so without a write here the boardless repository the plan names would still
+# accumulate no history. A no-op unless `--log-pulse` turned assembly on.
+#
+# Below every `note:` the report emits and above the sentence that says the scan
+# finished: a scan killed while printing its notes has not completed, and must
+# not replace the last good answer.
+write_bridge
 echo "Pulse complete. This report is derived — nothing was changed."
 echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing merge_detect=$MERGE_DETECT host=$HOST_VERDICT main=$MAIN"
