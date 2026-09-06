@@ -476,12 +476,154 @@ brief_prompt() { # $1 = branch, $2 = slug
     "$2" "$1" "$(brief_path "$1")" "$MAIN" "$MAIN"
 }
 
+# WHETHER THE AGENT THIS COMMAND SPAWNS CAN REACH `plot-implement` AT ALL.
+#
+# `Brief command` runs an agent headless and asks it for `/plot-implement
+# <slug>`. `plot-implement` is a SKILL, and a skill the running agent does not
+# have resolves to nothing. Measured 2026-09-06: Plot is installed as a plugin
+# at 1.2.0 against this repository's 2.13.0, and the installed `skills/` holds
+# eight — `plot-implement` is not among them, nor are `plot-dispatch`,
+# `plot-fleet`, `plot-pulse`, `plot-reconcile`, `plot-board`, `plot-init`,
+# `plot-merge-queue` or `plot-reslice`. Twelve are missing.
+#
+# So `Unknown command: /plot-implement` was LITERALLY TRUE in both 33-byte logs
+# (2026-09-02, 2026-09-04), and the board's *"Run /plot-implement `<slug>` and
+# follow it."* would have failed identically. The prompt's wording was never the
+# defect, and rewriting it fixes nothing.
+#
+# THE INSTALL BEING SCOPED TO ANOTHER PROJECT IS WHY FOUR MONTHS PASSED
+# UNNOTICED. The registry entry carries `scope: project` and `projectPath:
+# /Users/jwloka/Quatico/CDS/cpq-cds-develop` — a DIFFERENT repository, installed
+# 2026-05-08. A plugin installed elsewhere is not absent, it is somewhere else,
+# and nothing on this estate named that.
+#
+# IT ASKS WHETHER THE SKILL DIRECTORY EXISTS, NOT WHETHER THE VERSION MATCHES.
+# A lagging install that still carries the skill works, and a version comparison
+# would refuse it and demand an update nobody needs. One missing directory is
+# what breaks a brief session, so that is what is read.
+#
+# IT FAILS TOWARD ALLOWING. An unreadable or absent `installed_plugins.json`
+# means CANNOT VERIFY, not broken: a project running Plot from a checkout with
+# no plugin install at all is a supported shape, and refusing it would break
+# dispatch for everyone who never installed the plugin. It says the check could
+# not be made, and proceeds.
+#
+# `PLOT_PLUGIN_ROOT` is the override, the same one `plot-board-probe.sh` uses so
+# tests need not depend on `$HOME`.
+plugin_registry() { printf '%s/installed_plugins.json' "${PLOT_PLUGIN_ROOT:-${HOME:-}/.claude/plugins}"; }
+
+# Every `installPath` recorded for a plugin whose key starts `plot@`, one per
+# line. The marketplace half of the key is not fixed — `plot@plot-marketplace`
+# here, but a repository may serve Plot from a marketplace under any name — so
+# the prefix is what is matched rather than the whole key.
+#
+# `awk` rather than `node` or `jq`: this script shells to neither anywhere else,
+# and a check that fails toward allowing must not acquire a dependency whose
+# absence it would then have to read as "cannot verify" on every machine that
+# lacks it. The registry is machine-written with one field per line, which is
+# what makes a line-oriented read honest here; a file that does not match that
+# shape yields no paths and the caller reads that as cannot-verify.
+plugin_install_paths() { # → one installPath per line, for keys matching plot@*
+  awk '
+    /^[[:space:]]*"[^"]*"[[:space:]]*:[[:space:]]*\[/ {
+      key = $0
+      sub(/^[[:space:]]*"/, "", key); sub(/".*$/, "", key)
+      inplot = (key ~ /^plot@/)
+      next
+    }
+    inplot && /"installPath"[[:space:]]*:/ {
+      v = $0
+      sub(/^.*"installPath"[[:space:]]*:[[:space:]]*"/, "", v); sub(/".*$/, "", v)
+      if (v != "") print v
+    }
+  ' "$1" 2>/dev/null
+}
+
+# Can a spawned agent reach `plot-implement`?
+#
+#   0 — yes: some recorded install carries `skills/plot-implement/`
+#   1 — no: the registry was read, Plot is installed, and none of its installs
+#           carry the skill. This is the refusal.
+#   2 — cannot verify: no registry, unreadable, or no `plot@*` entry at all.
+#           Allowed, and said.
+#
+# The three-way answer is the whole point. Collapsing "cannot verify" into
+# either of the others is how this check would break a repository running Plot
+# from a checkout, or wave through the exact install that produced two empty
+# logs.
+implement_skill_reach() { # → 0 reachable, 1 unreachable, 2 unverifiable
+  local reg paths p
+  reg=$(plugin_registry)
+  [ -n "$reg" ] && [ -r "$reg" ] || return 2
+  paths=$(plugin_install_paths "$reg")
+  [ -n "$paths" ] || return 2
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    case "$p" in "~/"*) p="${HOME:-}/${p#\~/}" ;; esac
+    [ -d "$p/skills/plot-implement" ] && return 0
+  done <<< "$paths"
+  return 1
+}
+
+# What the refusal SAYS, and it is the shape `plot-fleetctl.sh:306` uses for a
+# wrong `node` major — the reading first, then the repair.
+#
+# IT NAMES A REPAIR AN OPERATOR CAN PERFORM. Plot cannot install its own plugin;
+# updating an install is an action on a machine. So the message reports what was
+# read — which installs, and that none carries the skill — and names the command
+# that fixes it. Nothing here installs or updates anything.
+implement_unreachable_report() { # prints the reading and the repair, indented
+  local reg p
+  reg=$(plugin_registry)
+  echo "      no-implement-skill — the agent this would spawn cannot reach \`/plot-implement\`"
+  echo "      read: $reg"
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    echo "        install: $p (no skills/plot-implement/)"
+  done <<< "$(plugin_install_paths "$reg")"
+  echo "      A prompt naming a skill the agent does not have resolves to nothing,"
+  echo "      whatever its wording — measured twice as a 33-byte log reading"
+  echo "      \`Unknown command: /plot-implement\`. Refusing before spawning is what"
+  echo "      puts that in front of you instead of in a log nobody reads."
+  echo "      Fix it: update the Plot plugin so its skills/ carries plot-implement"
+  echo "      (/plugin, or reinstall from the marketplace), then dispatch again."
+  echo "      Or write the brief yourself: /plot-implement $1"
+}
+
+# THE THIRD ANSWER, and it allows. A registry that cannot be read says nothing
+# about whether the skill is there — a project running Plot from a checkout with
+# no plugin install at all is a supported shape, and refusing it would break
+# dispatch for everyone who never installed the plugin. So the run says the
+# check could not be made and proceeds, which is what keeps a silent skip from
+# reading as a verified pass.
+implement_unverifiable_note() {
+  echo "      could not verify that the agent can reach the implement skill —"
+  echo "      no readable plugin registry at $(plugin_registry); proceeding"
+}
+
 request_brief() { # $1 = branch, $2 = slug → 0 if a command was started
-  local branch="$1" bslug="$2" cmd log
+  local branch="$1" bslug="$2" cmd log reach
   cmd=$(brief_command)
   if [ -z "$cmd" ]; then
     echo "      no-brief-command — no \`Brief command\` in Plot Config, so nothing was asked to write it"
     return 1
+  fi
+  # REFUSES BEFORE SPAWNING, NEVER AFTER. Failing late cost two logs nobody
+  # read and a session writing nine briefs by hand without asking why the arm
+  # was silent. The refusal is read by whoever ran the dispatch.
+  #
+  # A DIFFERENT REFUSAL FROM `no-brief-command`, and it gets its own word rather
+  # than overloading that one: there the key is absent and nothing was asked to
+  # write the brief; here the key is SET and the skill it names is unreachable.
+  # One word for two states is a word an operator cannot act on.
+  implement_skill_reach
+  reach=$?
+  if [ "$reach" = 1 ]; then
+    implement_unreachable_report "$bslug"
+    return 1
+  fi
+  if [ "$reach" = 2 ]; then
+    implement_unverifiable_note
   fi
   log="$repo_root/.plot/brief-$(printf '%s' "${branch##*/}").log"
   mkdir -p "$(dirname "$log")" 2>/dev/null || true

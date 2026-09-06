@@ -191,8 +191,49 @@ test('dispatch: the script never invokes a skill', () => {
 // meaning exactly — it hands over without a brief and says so, in the tradition
 // of `--allow-local`.
 
+/**
+ * A plugin registry under `dir`, in the layout `~/.claude/plugins` uses.
+ *
+ * `reach` decides whether the recorded install carries `skills/plot-implement/`
+ * — the ONE directory `request_brief` reads before it spawns anything. The
+ * version string is deliberately the same in both arms: the check asks whether
+ * the skill is there, never whether the version matches, and a lagging install
+ * that still carries the skill must pass.
+ *
+ * The key is `plot@some-marketplace` rather than `plot@plot-marketplace`,
+ * because the marketplace half of the key is not fixed and the script matches
+ * the `plot@` prefix. A registry written with a different marketplace name must
+ * still be read.
+ */
+function pluginRegistry(dir, { reach, version = '1.2.0' } = {}) {
+  const root = path.join(dir, 'plugins');
+  const install = path.join(root, 'cache', 'some-marketplace', 'plot', version);
+  fs.mkdirSync(path.join(install, 'skills', 'plot-approve'), { recursive: true });
+  if (reach) fs.mkdirSync(path.join(install, 'skills', 'plot-implement'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'installed_plugins.json'), JSON.stringify({
+    version: 2,
+    plugins: {
+      // A second plugin that is NOT plot, so a parser matching every
+      // `installPath` in the file would read this one's and pass wrongly.
+      'essentials@other-marketplace': [{
+        scope: 'user',
+        installPath: path.join(root, 'cache', 'other-marketplace', 'essentials', '1.0.0'),
+        version: '1.0.0',
+      }],
+      'plot@some-marketplace': [{
+        scope: 'project',
+        projectPath: '/somewhere/else/entirely',
+        installPath: install,
+        version,
+        installedAt: '2026-05-08T08:10:16.467Z',
+      }],
+    },
+  }, null, 2) + '\n');
+  return { root, install };
+}
+
 /** A repo whose plan has a real `Worker command`, with control over the brief. */
-function repoForBrief(label, { brief, briefCommand } = {}) {
+function repoForBrief(label, { brief, briefCommand, pluginReach = true } = {}) {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), `plot-brief-${label}-`));
   const o = path.join(t, 'origin.git');
   const r = path.join(t, 'repo');
@@ -232,8 +273,21 @@ function repoForBrief(label, { brief, briefCommand } = {}) {
   // 0o000 file cannot be `git add`ed. The dispatcher reads the checked-out copy.
   if (typeof brief === 'object' && brief.mode !== undefined) fs.chmodSync(briefFile, brief.mode);
   const wt = path.join(path.dirname(r), 'plot-wt-feature-needs');
+  // A plugin registry OF THIS TEST'S OWN, never the machine's. `request_brief`
+  // now refuses to spawn a brief session when the agent it would spawn cannot
+  // reach `plot-implement`, and the running machine's real registry answers
+  // that question for the machine rather than for the fixture. Reading it here
+  // would make every brief test's result depend on which plugins the operator
+  // happens to have installed — the `PLOT_PLUGIN_ROOT` override exists for
+  // exactly that, and `plot-board-probe.sh` already uses it the same way.
+  const plugins = pluginRegistry(t, { reach: pluginReach });
   return {
-    tmp: t, repo: r, sentinel, worktree: wt, briefRan,
+    tmp: t, repo: r, sentinel, worktree: wt, briefRan, plugins,
+    // Run dispatch against this fixture's registry rather than the machine's.
+    dispatch: (args, opts = {}) => execFileSync('bash', [dispatch, ...args], {
+      encoding: 'utf8', cwd: r, timeout: 30_000, ...opts,
+      env: { ...process.env, PLOT_PLUGIN_ROOT: plugins.root, ...(opts.env ?? {}) },
+    }),
     // The brief command is detached, so a test must wait for it exactly as it
     // waits for a worker.
     briefCommandRan: () => {
@@ -260,8 +314,7 @@ test('dispatch: a branch with no brief is not handed over, and nothing is prepar
   // left a worktree nobody sat at. Refused at the hand-over it leaves nothing:
   // no desk, no ref, and a slice still sitting in the queue.
   const f = repoForBrief('none');
-  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
 
   assert.match(out, /not handed over/, `the refusal must say what did not happen:\n${out}`);
   assert.doesNotMatch(out, /handed over feature\/needs/, `it must not claim the hand-over:\n${out}`);
@@ -284,8 +337,7 @@ test('dispatch: a branch with no brief is not handed over, and nothing is prepar
 
 test('dispatch: a branch WITH a brief is handed to the registry', () => {
   const f = repoForBrief('present', { brief: 'Real specification.\n' });
-  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
   assert.match(out, /handed over feature\/needs → the registry/,
     `a brief present must hand the slice over:\n${out}`);
   assert.match(out, /summary: .*dispatched=1/, `the hand-over must be counted:\n${out}`);
@@ -303,8 +355,7 @@ test('dispatch: --no-brief hands over a briefless branch and says so', () => {
   // this reason. --no-brief hands it over AND says so in the log, so the
   // override is on the record rather than silent.
   const f = repoForBrief('escape');
-  const out = execFileSync('bash', [dispatch, '--offline', '--no-brief', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  const out = f.dispatch(['--offline', '--no-brief', 'b'], { timeout: 30_000 });
   assert.match(out, /handed over feature\/needs/, `--no-brief must hand over despite no brief:\n${out}`);
   assert.match(out, /--no-brief/, `the override must be stated in the log:\n${out}`);
   assert.match(out, /summary: .*dispatched=1/, `the hand-over must be counted:\n${out}`);
@@ -398,8 +449,7 @@ test('dispatch: a refused dispatch calls the configured Brief command', () => {
   const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-briefcmd-'));
   const ran = path.join(t, 'brief-ran');
   const f = repoForBrief('ask', { briefCommand: `sh -c 'touch ${ran}' plot-brief` });
-  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
 
   // The refusal's RULE is unchanged; only its position moved, from the launch
   // to the hand-over — so a refused slice is not handed over rather than
@@ -429,8 +479,7 @@ test('dispatch: with no Brief command it refuses by name and calls nothing', () 
   // log says WHY nothing was called, instead of leaving the operator to notice
   // that nothing happened.
   const f = repoForBrief('unconfigured');
-  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
 
   assert.match(out, /no-brief-command/,
     `the refusal must name itself, the way commission.ts names no-idea-command:\n${out}`);
@@ -446,8 +495,7 @@ test('dispatch: `Brief command: none` is an answer, not a missing key', () => {
   // write them by hand". Running it would spawn `none: command not found` once
   // per briefless branch — a deliberate answer turned into N crashed processes.
   const f = repoForBrief('declined', { briefCommand: 'none' });
-  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
   assert.match(out, /no-brief-command/, `none must refuse, never run:\n${out}`);
   const footer = out.split('\n').find((l) => l.startsWith('summary: ')) ?? '';
   assert.match(footer, /brief_asked=0/, `none asks nothing:\n${footer}`);
@@ -491,8 +539,7 @@ git push -q origin main || exit 1
   const f = repoForBrief('lands', { briefCommand: `sh ${writer}` });
 
   // Pass one: refused, and the callback asked.
-  const out1 = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+  const out1 = f.dispatch(['--offline', 'b'], { timeout: 60_000 });
   assert.equal(f.workerStarted(), false, 'the refusal stands — asking does not start a worker');
   assert.match(out1, /summary: .*dispatched=0/, `nothing may be handed over on the first pass:\n${out1}`);
 
@@ -514,8 +561,7 @@ git push -q origin main || exit 1
   // reach the second pass at all. A refused slice now leaves nothing behind, so
   // the branch is still exactly where the queue had it, and the ONE difference
   // between the passes is the one this test is about: a brief on the ref.
-  const out2 = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 60_000 });
+  const out2 = f.dispatch(['--offline', 'b'], { timeout: 60_000 });
   assert.match(out2, /handed over feature\/needs/,
     `dispatching again after the callback wrote the brief must hand the slice over:\n${out2}`);
   assert.match(out2, /summary: .*dispatched=1/, `the second pass must count it:\n${out2}`);
@@ -549,8 +595,7 @@ test('dispatch: a brief older than its plan is reported, never refused', () => {
   git(f.repo, 'push', '-q', 'origin', 'main');
   const planSha = git(f.repo, 'rev-parse', 'HEAD').trim();
 
-  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
 
   // NEVER REFUSES. The slice is handed over, exactly as with a fresh brief.
   assert.match(out, /handed over feature\/needs/,
@@ -579,8 +624,7 @@ test('dispatch: a brief NEWER than its plan says nothing', () => {
     'commit', '-qm', 'brief');
   git(f.repo, 'push', '-q', 'origin', 'main');
 
-  const out = execFileSync('bash', [dispatch, '--offline', 'b'],
-    { encoding: 'utf8', cwd: f.repo, timeout: 30_000 });
+  const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
   assert.doesNotMatch(out, /older than the plan/i,
     `a brief newer than its plan must draw no note:\n${out}`);
   assert.match(out, /handed over feature\/needs/, 'a fresh brief is handed over as before');
