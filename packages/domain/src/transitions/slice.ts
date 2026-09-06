@@ -316,10 +316,10 @@ export const observeSliceVerdict = (
  * for *does the ref exist*, so a caller holding only refs has nothing to pass
  * and a rule reading refs cannot be written against this type.
  *
- * `waitsOn` is carried verbatim as `plot-plan-meta.sh` reported it —
- * `waves[].branches[].waits_on`, parsed in nine places there and **never
- * re-parsed here**. The parser is the contract; a second reading of the
- * annotation is a second answer.
+ * `waitsOn` is carried verbatim as `plot-plan-meta.sh` reported it — the
+ * `waits_on` field it emits per branch, parsed in nine places there and
+ * **never re-parsed here**. The parser is the contract; a second reading of
+ * the annotation is a second answer.
  */
 export interface PrerequisiteReading {
   /** The branch this slice's branch waits on — `''` where it declares none. */
