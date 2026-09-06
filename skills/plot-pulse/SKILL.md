@@ -3,7 +3,8 @@ name: plot-pulse
 description: >-
   Fleet pulse — report which branch waves of a plan are complete, eligible,
   blocked or unapproved, and which branches are claimed. Stateless — every fact is
-  re-derived from git; the only thing written is a pulse line. Use on
+  re-derived from git; it writes a pulse line and records the pulse it just
+  produced. Use on
   /plot-pulse.
 globs: []
 license: MIT
@@ -58,6 +59,15 @@ git refs and plan files on each run. That is the design, not an optimization
 - Any model tier, any machine, any session sees the same state.
 - There is nothing to keep in sync, so there is nothing to drift.
 
+**The delta does not change that, and the reason is worth stating.** The scan
+records each pulse it produces in `.plot/state/last-pulse.json`, and the next
+one compares against it — but that file is a **cache with an expiry**, not a
+database. It is machine-local and gitignored, it is discarded after fifteen
+minutes and on a version mismatch, and deleting it changes no behaviour: the
+scan re-derives every fact either way, and the only thing lost is the answer to
+*what moved since last time*. A delta is a comparison of two derivations, never
+a memory of one.
+
 **Log clean pulses too.** A pulse that finds nothing wrong must still say so.
 Without that, an idle fleet and a dead fleet look identical — so `--log-pulse`
 is part of the normal invocation, not an extra (step 5 explains why the script
@@ -68,7 +78,8 @@ still defaults to writing nothing).
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
 | 1. Run the scan | Small | One script call; output is machine-countable |
-| 2. Report state | Small | Read the footer counts, print the body |
+| 2. Lead with the delta | Small | Lift the scan's own lines; the rule already decided |
+| 2b. Report state | Small | Read the footer counts, print the body |
 | 3. Advise next action | Mid | Which eligible branch to start is judgment |
 | 4. Flag stalls | Mid–Frontier | Distinguishing "slow" from "stuck" needs context |
 
@@ -191,7 +202,39 @@ offline pulse keeps whatever stale refs the checkout holds and may report
 `wip` for merged work, holding a wave blocked; the footer says so. Re-run
 without `--offline` before concluding a wave is genuinely unfinished.
 
-### 2. Report State
+### 2. Lead With What Changed
+
+**The delta goes first, then the full picture.** The scan prints both — the
+delta just above its `Pulse complete.` line — so this step is a reordering, not
+a second question. Lift those lines to the top of your report and print the
+scan body below them, unchanged.
+
+**Why this order:** the delta is what a returning reader wants and the picture
+is what a new one does. A reader on their tenth pulse of the day is comparing
+47 slices by eye to find the two that moved; a reader on their first needs the
+whole estate. Both are served, and neither is made to scroll past the other's
+answer.
+
+The scan says one of four things, and **they are four rather than three on
+purpose**:
+
+| what it prints | what it means |
+|---|---|
+| `Since your last pulse (N minutes ago):` + named lines | branches merged, workers died, plans became deliverable, or a plan left the reading |
+| `Nothing changed since your last pulse` | the estate is quiet, and that is a measurement |
+| `No previous pulse on this machine` | nobody has pulsed here yet — where every new adopter starts, and **not a failure** |
+| `Cannot say what changed` | there WAS history and it could not be used: older than fifteen minutes, or written by another version |
+
+**Never restate the last two as "nothing changed".** A quiet estate and an
+unreadable history look identical to a reader and mean opposite things — that
+is the whole reason the answer has four shapes. If the scan says it cannot say,
+say that.
+
+**Do not recompute the delta.** It is decided by a domain rule the scan already
+called; re-deriving it by eye from the body below is how the two start to
+disagree.
+
+### 2b. Report State
 
 Print the scan body as-is — it is already shaped for reading. Then give the
 one-line orientation the counts support, e.g.:
