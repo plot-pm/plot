@@ -70,7 +70,7 @@ the-board-is-blank-where-it-matters     status: archived
 
 **Done when** the lint reports a status outside the six, the three files carry `done` **and** an `archived:` date written by `archiveStory`, and `plot-story-lint.sh` exits 0 on this estate.
 
-### A story that disagrees with its plans says so (Branch: bug/a-story-status-meets-its-plans)
+### A story that disagrees with its plans says so (Branch: bug/a-story-status-meets-its-plans, PR: #746)
 
 The lint reports a story whose written status and derived standing disagree.
 

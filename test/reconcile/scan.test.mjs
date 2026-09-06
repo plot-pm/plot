@@ -263,9 +263,11 @@ test('scan: summary footer carries machine-countable finding counts', () => {
   // so section 13 is silent; its stale-round case has its own fixture.
   // sprint_index_drift: 0 — no sprint files, so section 14 is silent as well;
   // both its directions have their own fixture.
+  // sprint_shipped: 0 — no sprint files and no tags, so section 15 is silent;
+  // its shipped-release case has its own fixture.
   const last = report.trim().split('\n').at(-1);
   assert.equal(last,
-    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 pr_source=degraded main=main');
+    'summary: drift=2 merged_not_delivered=1 stale=2 claims=0 attention=1 concurrent=2 unreleased_delivered=1 uncut_slices=0 prose_slice_names=0 sprint_drift=0 stale_tally=0 index_drift=3 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 pr_source=degraded main=main');
 });
 
 test('scan: --offline skips git-host PR enumeration and reports pr_source=off', () => {
@@ -2497,4 +2499,249 @@ test('scan: section 14 is distinct from sprint drift', () => {
   const footer = spReport.trim().split('\n').at(-1);
   assert.match(footer, /\bsprint_drift=0\b/,
     `the plan-side counter is untouched:\n${footer}`);
+});
+
+// ---------------------------------------------------------------------------
+// Sprint outlived its release (section 15).
+//
+// A sprint that is NOT Closed whose declared `Release:` has been tagged. The
+// train has left; the file has not caught up.
+//
+// A SEPARATE FIXTURE, because this section's subject is the pair
+// (sprint file, git tag) and no other fixture here cuts a tag. Same minimal
+// shape as the sprint-index one beside it: sprint files, no plans, no branches.
+//
+// The properties under test are the ones the plan's `## Done when` names:
+//
+// 1. A non-Closed sprint whose release shipped is reported
+// 2. It names the sprint, its release and the tag
+// 3. A Closed sprint is silent — that is the state this section is about
+//    reaching, not a finding
+// 4. A sprint whose release has NOT shipped is silent
+// 5. A sprint with no `Release:` is silent
+// 6. `Planning` is reported, not only `Planned` — the measured file's own word
+// 7. A `Release:` carrying prose after the version still resolves
+// 8. A tag without the `v` prefix is found
+// 9. The footer counter sprint_shipped= matches the findings
+// 10. attention= is unchanged, and the finding sits below the marker — this
+//     section does NOT gate
+// 11. It closes nothing and offers no close
+// ---------------------------------------------------------------------------
+
+let srlTmp, srlRepo, srlReport, srlSections;
+
+before(() => {
+  srlTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-scan-srl-'));
+  const origin = path.join(srlTmp, 'origin.git');
+  srlRepo = path.join(srlTmp, 'repo');
+  git(srlTmp, 'init', '--bare', '-q', '-b', 'main', origin);
+  git(srlTmp, 'clone', '-q', origin, srlRepo);
+  git(srlRepo, 'config', 'user.email', 'test@example.invalid');
+  git(srlRepo, 'config', 'user.name', 'Plot Test');
+  git(srlRepo, 'config', 'commit.gpgsign', 'false');
+
+  const w = (rel, content) => {
+    const p = path.join(srlRepo, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, content);
+  };
+
+  w('CLAUDE.md', `# Fixture project
+
+## Plot Config
+
+- **Branch prefixes:** idea/, feature/, bug/, docs/, infra/
+- **Plan directory:** plans/
+- **Active index:** plans/active/
+- **Delivered index:** plans/delivered/
+- **Sprint directory:** sprints/
+`);
+
+  const sprint = (title, phase, release) => `# Sprint: ${title}
+
+## Status
+
+- **Phase:** ${phase}
+${release === null ? '' : `- **Release:** ${release}\n`}- **Start:** 2026-01-01
+- **End:** 2026-01-14
+`;
+
+  // THE MEASURED CASE, and its own word for the phase. The real file reads
+  // `Planning`, not the template's `Planned` — a section matching a list of
+  // open phases would have missed the one sprint it exists for.
+  w('sprints/2026-W01-shipped-planning.md', sprint('Shipped Planning', 'Planning', '1.1.0'));
+
+  // Active and shipped: the same finding from the other live phase.
+  w('sprints/2026-W02-shipped-active.md', sprint('Shipped Active', 'Active', '1.2.0'));
+
+  // A `Release:` that carries prose after the version — measured on this
+  // estate, where one sprint reads `2.13.0 — **released 2026-09-05**, ...`.
+  // The FIRST N.N.N is the target and the rest is a note to a human.
+  w('sprints/2026-W03-shipped-prose.md',
+    sprint('Shipped Prose', 'Active', '1.3.0 — **released 2026-01-09**, see the notes below'));
+
+  // A project that tags WITHOUT the `v` prefix. Both spellings are tried, so
+  // this is not silently reported as unshipped.
+  w('sprints/2026-W04-shipped-bare-tag.md', sprint('Shipped Bare Tag', 'Active', '1.4.0'));
+
+  // CLOSED AND SHIPPED — silent. This is the state the section is about
+  // reaching, so reporting it would report every finished sprint forever.
+  w('sprints/2026-W05-closed-shipped.md', sprint('Closed Shipped', 'Closed', '1.1.0'));
+
+  // Open, but its release has not shipped. Nothing has happened yet.
+  w('sprints/2026-W06-unshipped.md', sprint('Unshipped', 'Active', '9.9.9'));
+
+  // Open with no `Release:` at all — this sprint says nothing about a release.
+  w('sprints/2026-W07-no-release.md', sprint('No Release', 'Active', null));
+
+  git(srlRepo, 'add', '-A');
+  git(srlRepo, 'commit', '-q', '-m', 'sprint release fixture');
+  git(srlRepo, 'push', '-q', 'origin', 'main');
+
+  // The tags the sprints above claim. `v`-prefixed for three, bare for one.
+  for (const t of ['v1.1.0', 'v1.2.0', 'v1.3.0', '1.4.0']) {
+    git(srlRepo, 'tag', t);
+  }
+
+  srlReport = execFileSync('bash', [scan], { encoding: 'utf8', cwd: srlRepo });
+  srlSections = splitSections(srlReport);
+});
+
+after(() => {
+  if (srlTmp) fs.rmSync(srlTmp, { recursive: true, force: true });
+});
+
+test('scan: section 15 reports a non-Closed sprint whose release shipped', () => {
+  assert.match(srlSections['15'], /2026-W01-shipped-planning\.md/,
+    `the measured case must be named:\n${srlSections['15']}`);
+  assert.match(srlSections['15'], /2026-W02-shipped-active\.md/,
+    `an Active sprint whose release shipped must be named too:\n${srlSections['15']}`);
+});
+
+test('scan: section 15 names the sprint, its release and the tag', () => {
+  // NAMED, NEVER COUNTED. A reader who has to open the file to find out which
+  // release shipped has been told nothing they could act on.
+  const line = srlSections['15'].split('\n')
+    .find((l) => l.includes('2026-W01-shipped-planning.md'));
+  assert.ok(line, `the finding must be one line:\n${srlSections['15']}`);
+  assert.match(line, /Phase: Planning/, 'the phase it is still in');
+  assert.match(line, /\b1\.1\.0\b/, 'the release it declared');
+  assert.match(line, /\bv1\.1\.0\b/, 'and the tag that shipped it');
+});
+
+test('scan: section 15 reads Planning, not only the template word Planned', () => {
+  // THE MEASURED FILE'S OWN WORD. `a-half-landed-workflow-says-so` reads
+  // `Phase: Planning` while the template says `Planned`, so the population is
+  // written as "not Closed" rather than as a list of open phases — a list
+  // would have missed the single sprint this section was built for.
+  assert.match(srlSections['15'], /2026-W01-shipped-planning\.md — Phase: Planning/,
+    `a Planning sprint must be reported:\n${srlSections['15']}`);
+});
+
+test('scan: section 15 resolves a release that carries prose after the version', () => {
+  // Measured on this estate: `Release: 2.13.0 — **released 2026-09-05**, ...`.
+  // `plot-sprint-release.sh` reports the field verbatim, which is right for a
+  // facts collector; the first N.N.N in it is the target.
+  assert.match(srlSections['15'], /2026-W03-shipped-prose\.md/,
+    `a release with a trailing note must still resolve:\n${srlSections['15']}`);
+  assert.match(srlSections['15'], /\bv1\.3\.0\b/, 'and find its tag');
+});
+
+test('scan: section 15 finds a tag with no v prefix', () => {
+  // Sprints declare `1.4.0` and a project may tag either `v1.4.0` or `1.4.0`.
+  // Trying one spelling only would report a shipped release as unshipped.
+  const line = srlSections['15'].split('\n')
+    .find((l) => l.includes('2026-W04-shipped-bare-tag.md'));
+  assert.ok(line, `a bare tag must be found:\n${srlSections['15']}`);
+  assert.match(line, /shipped as 1\.4\.0/, 'and named as the estate spells it');
+});
+
+test('scan: section 15 is silent about a Closed sprint', () => {
+  // THE STATE THIS SECTION IS ABOUT REACHING. A Closed sprint whose release
+  // shipped is a sprint that finished correctly; reporting it would report
+  // every finished sprint forever, and the section would be noise by its
+  // second week.
+  assert.doesNotMatch(srlSections['15'], /2026-W05-closed-shipped\.md/,
+    `a Closed sprint must not be reported:\n${srlSections['15']}`);
+});
+
+test('scan: section 15 is silent when the release has not shipped', () => {
+  assert.doesNotMatch(srlSections['15'], /2026-W06-unshipped\.md/,
+    `an open sprint whose release is untagged must be silent:\n${srlSections['15']}`);
+});
+
+test('scan: section 15 is silent when the sprint declares no release', () => {
+  // A sprint with no `Release:` says nothing about a release, so there is no
+  // pair to compare — the same rule `plot-sprint-release.sh` states.
+  assert.doesNotMatch(srlSections['15'], /2026-W07-no-release\.md/,
+    `a sprint with no release target must be silent:\n${srlSections['15']}`);
+});
+
+test('scan: section 15 counts in the footer and gates nothing', () => {
+  const footer = srlReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bsprint_shipped=4\b/,
+    `four sprints shipped their release:\n${footer}`);
+  // AND attention= IS UNTOUCHED. /plot-deliver's gate and the /plot hygiene
+  // line both read that counter; a sprint whose release shipped is somebody
+  // else's paperwork and must not stop a delivery.
+  assert.match(footer, /\battention=0\b/,
+    `this section must not reach the gating counter:\n${footer}`);
+});
+
+test('scan: section 15 sits below the blocking-sections marker', () => {
+  // The placement is what keeps it out of /plot-deliver's gate, which reads to
+  // the marker rather than to a section number.
+  const marker = srlReport.indexOf('== blocking sections end ==');
+  const section = srlReport.indexOf('== 15. Sprint outlived its release');
+  assert.ok(marker > 0 && section > marker,
+    'section 15 must sit below the marker, like every other advisory section');
+});
+
+test('scan: the delivery gate cannot see a shipped-release finding', () => {
+  // THE PROPERTY, MEASURED THE WAY /plot-deliver MEASURES IT rather than
+  // asserted about line numbers: everything the gate reads is above the marker,
+  // and no sprint of this fixture appears there.
+  const gated = srlReport.split('== blocking sections end ==')[0];
+  for (const sprint of ['2026-W01-shipped-planning', '2026-W02-shipped-active']) {
+    assert.ok(!gated.includes(sprint),
+      `${sprint} must be invisible to the delivery gate`);
+  }
+});
+
+test('scan: section 15 closes nothing and offers no close', () => {
+  // CLOSING IS THE TEAM'S WORD. A shipped release says the sprint's window
+  // passed, not that its work is done — the measured sprint's eight items are
+  // all still open — so the section names the fact and stops.
+  assert.doesNotMatch(srlSections['15'], /\/plot-sprint close/,
+    `the section must not offer to close:\n${srlSections['15']}`);
+  // And it wrote nothing: the fixture's sprint files are untouched.
+  const status = git(srlRepo, 'status', '--porcelain');
+  assert.equal(status.trim(), '', 'the scan must not modify the working tree');
+});
+
+test('scan: section 15 is distinct from both sprint counters beside it', () => {
+  // THREE QUESTIONS, THREE NUMBERS, and this fixture answers all three at once
+  // — which is the argument for keeping them apart rather than a coincidence.
+  //
+  // `sprint_drift=` counts PLANS whose `Sprint:` field disagrees with the
+  // sprint file; this fixture has no plans, so it is 0.
+  //
+  // `sprint_index_drift=` counts SPRINTS whose phase disagrees with the index.
+  // It reads 5, not 0: five of these sprints are Active or Planning with no
+  // link, which is section 14's finding and correct. The five are not the four
+  // — `2026-W06-unshipped` and `2026-W07-no-release` are index findings and not
+  // release ones, while `2026-W05-closed-shipped` is neither.
+  //
+  // A single counter answering both would report 9, or 5, or 4, and a reader
+  // would have to open the report to re-derive which sprints were which. That
+  // is exactly what section 14's slice argued against.
+  const footer = srlReport.trim().split('\n').at(-1);
+  assert.match(footer, /\bsprint_drift=0\b/, `the plan-side counter is untouched:\n${footer}`);
+  assert.match(footer, /\bsprint_index_drift=5\b/,
+    `the index counter reports its own finding, on its own population:\n${footer}`);
+  assert.match(footer, /\bsprint_shipped=4\b/, `and this one carries a different four:\n${footer}`);
+  // The populations genuinely differ, which is the point rather than the count:
+  // one sprint is reported by 14 and not by 15.
+  assert.match(srlSections['14'], /2026-W06-unshipped\.md/, 'section 14 sees it');
+  assert.doesNotMatch(srlSections['15'], /2026-W06-unshipped\.md/, 'section 15 does not');
 });
