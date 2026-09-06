@@ -74,7 +74,7 @@ plot-reconcile-scan.sh  3 → 1   the remaining line is advice TEXT, not a call
 
 **Done when** `plot-pr-merged.sh` names `gh` zero times, its lookups go through `plot-host.sh`, no caller gains a process per branch, the three readings reaching `rules/landed.ts` are unchanged, and `mayRemove`'s nine assertions still pass.
 
-### The board updater is routed or exempted (Branch: infra/the-project-api-is-named)
+### The board updater is routed or exempted (Branch: infra/the-project-api-is-named, PR: #745)
 
 `plot-update-board.sh` asks the adapter, or is exempted by name with its reason recorded.
 
