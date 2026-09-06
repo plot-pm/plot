@@ -73,7 +73,7 @@ main@{13:53:40}  commit: plot: brief the three slices the tick named no-brief
 
 ## Slices
 
-### A commit refuses a checkout that moved under it (Branch: bug/a-stale-plan-file-does-not-travel)
+### A commit refuses a checkout that moved under it (Branch: bug/a-stale-plan-file-does-not-travel, PR #747)
 
 A pre-commit gate refuses a commit whose `HEAD` has moved since the index was last refreshed against it.
 
