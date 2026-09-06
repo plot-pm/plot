@@ -159,7 +159,7 @@ which is measured rather than classified. The ratchet decides which of the
       the plan's strongest argument — see *A reading is present, absent, or
       failed* above.
 
-## Branches
+## Slices
 
 ### Deciding in one place
 
