@@ -2755,6 +2755,64 @@ test('host: a GraphQL-only op spends no budget read to be routed', () => {
   );
 });
 
+// WHY `plot-pr-merged.sh` STILL ASKS `gh` ITSELF — the measurement, pinned.
+//
+// `plot-host.sh pr-merged` answers `merged`/`not-merged`/`unknown`, which reads
+// like the three readings `rules/landed.ts` takes. It is not: the ABSENT-CLI
+// case, which the shell helper answers `unaskable`, arrives here as
+// `not-merged`.
+//
+// The cause is `is_lookup_miss`, and it is not a typo. A missing CLI makes the
+// shell say `bash: gh: command not found`, and that text matches the same
+// `not found` the adapter uses to recognise a genuine "no pull requests found".
+// One phrase, two conditions, and the adapter cannot tell them apart.
+//
+// THE DIRECTION IS WHAT MAKES IT A BLOCKER. `not-merged` reads to
+// `rules/landed.ts` as `none` — the host SPOKE and said nothing merged — so
+// `mayRemove` is free to permit a removal. The shell helper's `unaskable`
+// refuses. Routing the lookup as it stands would therefore convert a KEEP into
+// a REMOVE on `plot-release-refs.sh`, whose deletions are not re-creatable.
+//
+// AN ABSENT CLI IS NOT A LOOKUP MISS, AND THIS TEST WAS INVERTED THE DAY IT
+// STOPPED BEING TRUE.
+//
+// It read `not-merged` and pinned CURRENT behaviour, with its own note saying
+// it *"fails the day `pr-merged` learns to tell an absent CLI from an empty
+// result — which is exactly when the exemption should be deleted and the
+// lookups routed."* That landed on 2026-09-06: `is_lookup_miss` now excludes
+// the shell's own `command not found`, which it had been matching on its bare
+// `not found` alternative.
+//
+// Measured before and after, with `gh` off PATH:
+//
+//   before   plot-host.sh pr-merged → not-merged   _plot_merged_lookup → unaskable
+//   after    plot-host.sh pr-merged → unknown      _plot_merged_lookup → unaskable
+//
+// The direction was why it mattered: `not-merged` reads to `rules/landed.ts` as
+// `none` — the host spoke and said nothing merged — so `mayRemove` may permit a
+// removal where `unaskable` refuses, and `plot-release-refs.sh` deletes remote
+// refs on that answer.
+test('host: an absent CLI answers unknown, never not-merged', () => {
+  // `command not found` is what a shell says about a missing binary, and it is
+  // the stderr a real absent `gh` produces.
+  const stubs = makeStubs({ ghFail: 'bash: gh: command not found' });
+  const out = run(['pr-merged', 'some-branch'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(
+    out.trim(),
+    'unknown',
+    'a host that cannot be asked must not answer not-merged',
+  );
+});
+
+// The half that DOES work, pinned beside it so the gap above is not read as
+// "pr-merged cannot report unknown at all". A failure the adapter does not
+// recognise as a miss is `unknown` on exit 0, exactly as its header promises.
+test('host: pr-merged reports an unrecognised failure as unknown', () => {
+  const stubs = makeStubs({ ghFail: 'dial tcp: connection refused' });
+  const out = run(['pr-merged', 'some-branch'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(out.trim(), 'unknown', 'silence from the host is never permission');
+});
+
 test('host: bitbucket never reaches the router', () => {
   // ONE ROUTER PER CONNECTOR. REST-versus-GraphQL is a GitHub distinction, and
   // a Bitbucket run must not read a GitHub budget to be told there is no fork.

@@ -52,20 +52,43 @@
 #   a sprint runner refusing to start without credentials is checking the tool,
 #   not asking about a PR.
 #
-# `plot-pr-merged.sh` — EXEMPT FOR NOW, AND THE ONLY ONE THAT IS A GAP RATHER
-#   THAN A DIFFERENT QUESTION. It asks exactly what this gate is about, and its
-#   two `gh pr list` lookups should route. They were left in place deliberately:
-#   the slice that touched this file moved the DECISION into the domain, behind
-#   `_plot_landed`, and stopped there. The two lookups keep a failure direction
-#   nothing else here keeps — a missing CLI, an unauthed one and a network
-#   failure all answer `unaskable`, so every caller KEEPS what it was about to
-#   delete — and `plot-host.sh pr-merged` reports `unknown` on exit 0 for the
-#   same case. The mapping is one line and it is somebody's decision to make,
-#   not a routing change to smuggle in beside four others.
+# `plot-pr-merged.sh` — EXEMPT ON A MEASUREMENT, AND NO LONGER MERELY DATED.
+#   It asks exactly what this gate is about, and its two `gh pr list` lookups
+#   should route. The routing was attempted 2026-09-06 and it does not hold
+#   yet, for a reason that was not visible until the two were compared
+#   side by side.
 #
-#   The exemption is dated, unlike the three above it: those describe questions
-#   the adapter does not answer, this one describes work not yet done. Delete
-#   this entry when the lookups route.
+#   THE FIRST HALF WAS FIXED ON 2026-09-06 AND THE ENTRY SHRANK RATHER THAN
+#   DISAPPEARING. `plot-host.sh pr-merged` read an ABSENT CLI as `not-merged`
+#   where this file answers `unaskable`, because `is_lookup_miss` matched the
+#   shell's own `bash: gh: command not found` on its bare `not found`
+#   alternative — one phrase, two conditions. It now excludes that phrasing:
+#
+#     before   pr-merged → not-merged    _plot_merged_lookup → unaskable
+#     after    pr-merged → unknown       _plot_merged_lookup → unaskable
+#
+#   The direction was why it blocked: `not-merged` reads to `rules/landed.ts`
+#   as `none` — the host spoke and said nothing merged — so `mayRemove` may
+#   permit a removal where `unaskable` refuses, and `plot-release-refs.sh`
+#   deletes remote refs on that answer.
+#
+#   WHAT REMAINS IS THE OPEN LOOKUP, AND IT IS THE WHOLE EXEMPTION NOW.
+#   `pr_open` needs `found`/`none`/`unaskable` about ANY open PR. `pr-state`
+#   answers about ONE PR — the newest — and collapses a failed lookup into the
+#   same `state:"NONE"` payload as a real absence, so it can express neither
+#   "any" nor "unaskable". Routing that half needs a new op, which is capability
+#   rather than routing.
+#
+#   AND THE PAIR MOVES TOGETHER OR NOT AT ALL. `pr_open` vetoes a deletion, so
+#   it can only ever KEEP a ref — safe only because `pr_merged` already refused
+#   on the same silence. Routing one and not the other would separate two
+#   answers whose safety is a property of the pair.
+#
+#   Pinned by two tests in test/reconcile/host.test.mjs, so this entry rests on
+#   something that fails when it stops being true — and one of them has already
+#   fired once, which is what shrank this entry. Delete it when an open-PR
+#   lookup exists, not merely when someone reads the three words and assumes
+#   they match.
 #
 # There is deliberately no exception for "just this one PR lookup". A site that
 # would want one is a site that should be calling `plot-host.sh`.
