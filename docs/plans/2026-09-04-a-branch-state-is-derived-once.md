@@ -9,7 +9,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -260,3 +260,31 @@ found a confident wrong claim produced by a grep — *zero host calls*, and
 rule's tests take their cases from `branch_state`'s own branches rather than
 from a summary of it, because a reimplementation checked against someone's
 understanding inherits the misunderstanding.
+
+### Round 3 — the corpus comes before the move — 2026-09-06
+
+**This is the largest change either open plan proposes**, and its blast radius
+is the whole fleet: `branch_state()` is 183 lines with **10 call sites** in a
+**4,008-line** script (re-measured 2026-09-06, matching the plan exactly), the
+board groups every section by its output, and every dispatch and reap consults
+it.
+
+**So the move is verified rather than reviewed.** `packages/domain/corpus/`
+already holds this exact pattern — `eligible.corpus.test.ts` asks *"do `--next`
+and the board agree about every slice in `docs/plans/`?"* over the real estate
+rather than a fixture, and `compare.ts` is the harness.
+
+**Required before the derivation moves:** record what the shell answers for
+every branch on the estate, and assert the domain rule reproduces it **exactly**.
+A disagreement is either a bug in the new rule or a defect in the old one, and
+the corpus is what makes the difference visible instead of arguable.
+
+**It is cheap and it is already paid for.** The estate holds ~48 branches with
+known states; the tier exists; the harness exists. What it buys is that a
+183-line rewrite of the fleet's most-read function stops being something a
+reviewer has to hold in their head.
+
+**One asymmetry the corpus must respect.** `deferred` is a statement by the
+plan, applied at the call site (`:3411`) rather than inside `branch_state()`.
+The corpus records what the CALLER answers, not what the function returns —
+otherwise it certifies a derivation that is correct and still wrong in place.
