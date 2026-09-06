@@ -232,6 +232,40 @@ export type {
 } from './transitions/worktree.js';
 
 /**
+ * The slice's transitions, disambiguated the way the other four are — the same
+ * four type names collide, for the fifth time.
+ *
+ * A slice's verdict is DERIVED, like an agent's state and a desk's, so this
+ * `Decision` carries a verdict rather than a write. `DESIGN-slice.md` §9:
+ * *"no writer, no cache, no record."* Its one added field is `dispatchable`,
+ * naming what the destination permits — `eligible` is the only verdict that
+ * promises a dispatch would agree.
+ *
+ * The VERBS are not aliased, for the reason the other four give:
+ * `observeSliceVerdict`, `prerequisiteCleared` and `sliceId` collide with
+ * nothing, and an alias on an uncollided name is the residue
+ * `scripts/count-domain-aliases.sh` holds at zero.
+ */
+export {
+  observeSliceVerdict,
+  sliceVerdictObservable,
+  prerequisiteCleared,
+  sliceId,
+  SLICE_LIFECYCLE,
+  isDecision as isSliceDecision,
+  isRefusal as isSliceRefusal,
+} from './transitions/slice.js';
+export type {
+  PrerequisiteReading,
+  ObserveVerdictInput,
+  Precondition as SlicePrecondition,
+  RefusalReason as SliceRefusalReason,
+  TransitionResult as SliceTransitionResult,
+  Decision as SliceDecision,
+  Refusal as SliceRefusal,
+} from './transitions/slice.js';
+
+/**
  * The lifecycle workflows — `readings -> Decision | Refusal`, deciding and
  * performing nothing. Exported from the pure barrel because they are pure:
  * every rule is reachable from a plain call with no adapter in scope.

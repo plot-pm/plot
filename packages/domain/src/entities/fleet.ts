@@ -47,10 +47,10 @@ import { z } from "zod";
  * travel in different fields and are counted separately.
  */
 // plot-state: lifecycle branch — open, claimed, wip, merged, plus the two the
-//                                host answers for. The ordering stated in prose
-//                                above — 'merged' and 'deferred' replace only
-//                                'open' or 'unknown' — is what a rule would
-//                                refuse. NO RULE YET: counted as debt.
+//                                host answers for. 'merged' and 'deferred'
+//                                replace only 'open' or 'unknown', which is
+//                                what a rule would refuse. The BRANCH's alone;
+//                                the slice declares its own. NO RULE YET — debt.
 export const BranchStateSchema = z.enum([
   'open',
   'wip',
@@ -75,10 +75,19 @@ export type BranchState = z.infer<typeof BranchStateSchema>;
  * directly. `blocked` and `unapproved` are kept apart because they resolve
  * differently: the first by merging work, the second by a person approving the
  * plan.
+ *
+ * DECLARED `classification` UNTIL 2026-09-06, on the reasoning that *"the
+ * slice's own lifecycle is its branch's"*. `DESIGN-slice.md` §4 corrects
+ * exactly that: an earlier draft of the spec called the verdict a reading and
+ * was overruled — *"the verdict is what the board tracks a slice's progress
+ * by … functionally it is the slice's state."* Derived every pulse and stored
+ * nowhere is a statement about WHO writes it, not about whether it moves.
  */
-// plot-state: classification — what the SCAN says about a slice, re-derived
-//                              from git refs every run and stored nowhere. The
-//                              slice's own lifecycle is its branch's, above.
+// plot-state: lifecycle slice — unapproved -> blocked -> eligible -> complete,
+//                               per `diagrams/slice-lifecycle.mmd`.
+//                               `transitions/slice.ts` refuses a backward move,
+//                               a skipped ordering gate, and a prerequisite
+//                               nobody asked the host about.
 export const SliceVerdictSchema = z.enum(['complete', 'eligible', 'blocked', 'unapproved']);
 export type SliceVerdict = z.infer<typeof SliceVerdictSchema>;
 
