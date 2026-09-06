@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 7
+- **Rounds:** 8
 
 ## Changelog
 
@@ -64,13 +64,17 @@ Auto-dispatch reaches `/api/implement` for a branch it would otherwise skip, and
 
 **BOUNDED, AND A PLAN THAT KEEPS FAILING GOES TO A PERSON.** `startFreeAgent` bounds a start at 60 s; a brief session is spawned detached and waited on by nobody. It gains a bound, and after a bounded number of failed asks **the plan file records that it needs a person** — `PLOT-BLOCKED` is a desk marker and a plan with no brief has no desk. A board-side counter was rejected: it dies on restart, so a restart silently retries a command that cannot work, which is the state this estate was in for four days.
 
-**ONE BUDGET.** A brief session costs what an agent costs, so it draws on `parallelAgents`. A second cap for writes-to-main was rejected: one number to reason about, with the blast radius bounded by the two off switches below.
+**ONE BUDGET, AND A FULL FLEET CORRECTLY BLOCKS THE ASK.** A brief session draws on `parallelAgents`. Measured 2026-09-06: 6 agents against a cap of 5, so no ask could fire at all — which is the designed answer rather than a bug. **A brief is only worth writing if an agent can then take the slice**; asking while the fleet is full prepares work nobody can act on for hours, and the brief would be stale by the time anyone did. A second cap for writes-to-main was rejected: one number to reason about, with the blast radius bounded by the off switches.
+
+**IT SHIPS OFF, AND A PROJECT TURNS IT ON KNOWINGLY.** This is the first time the loop writes without a click — an unattended session that commits to `main` — and `plot-registryd`'s `--start-agents` already has this shape for the same reason: *"it is opt-in: a tick with a queue nothing can take starts free agents"*, and *"a run without the flag changes nothing on the machine"*. A project that has never seen this loop write should not discover it by having it write.
+
+**The cost is stated: an estate that never opts in keeps today's silence.** That is the outage this plan opened with, and it is the price of not surprising a repository that did not ask. The refusal already names the fix, and the button already works once `Implement command` is set — a project reading either has what it needs to opt in.
 
 **TWO OFF SWITCHES, STOPPING DIFFERENT THINGS.** The auto-dispatch toggle stops the asking live, because the asking is part of that loop. `Implement command: none` stops it for the project — the config already reads `none` as *we do this by hand*, and the board must honour that answer rather than invent a second way to say it.
 
 **THE ROW GAINS A THIRD STATE.** `rows.tsx:2056` renders `needs a brief` in the `waitingOn: 'you'` amber and says why: *"A missing brief is a person's errand and nothing in git will clear it."* Once the loop asks, something does. Amber stays until a brief **exists** — the ask can fail and has — and a quieter state says *asked, waiting*.
 
-**Done when** auto-dispatch asks at most once per plan per pass, the ask reaches `/api/implement` rather than spawning its own, it draws on the agent cap, its mark retires only on a non-empty brief on `origin/main`, a session past its bound is reported, a plan whose asks keep failing is recorded in its plan file, the row distinguishes *asked, waiting* from *needs a brief*, and either off switch stops it.
+**Done when** the asking is off by default and a project can turn it on, auto-dispatch asks at most once per plan per pass, the ask reaches `/api/implement` rather than spawning its own, it draws on the agent cap, its mark retires only on a non-empty brief on `origin/main`, a session past its bound is reported, a plan whose asks keep failing is recorded in its plan file, the row distinguishes *asked, waiting* from *needs a brief*, and either off switch stops it.
 
 ## Notes
 
@@ -97,3 +101,16 @@ The plan opened claiming three dispatch doors go quiet on a missing brief. **One
 Setting it stopped the refusal immediately — verified against the live board, `no-implement-command` gone from the payload.
 
 **A feature that ships without its config key ships disabled**, and nothing on this estate said so — no lint, no scan section, no board warning. `plot-detect-repo.sh` proposes config at adoption and nothing re-checks it when a later feature adds a key. That gap is real and unrecorded; it is not this plan's, and it should not be lost.
+
+### Round 8 — 2026-09-06
+
+**The claim reproduces on a live tick.** With auto-dispatch **on**, `Implement command` **set**, and 6 agents running: `no-brief=3`, and all three sat there while nothing asked. The plan's one remaining claim is not theoretical.
+
+**And the tick surfaced a defect outside this plan.** `bug/the-reaper-reads-prunable` was among the three — but its plan says in bold prose *"IT WAITS FOR `a-desk-is-finished-with-once` (#705)"*, and #705 is an **unmerged idea branch**, so its plan is not on main and reads `phase: NONE`.
+
+**The wait existed only as prose.** `waits:` is a parsed annotation carrying `waits_on`, used by 6 plans, and that slice's heading carried none — so the machine read it as eligible and a person withheld the brief by hand. **A wait a reader can see and a machine cannot is a rule**, and this repo's own test says a rule that matters gets a gate. The annotation is added; a sweep found this was the only plan with the gap.
+
+**Two decisions settled:**
+
+- **Off by default.** The first unattended write to `main` should not arrive unannounced, and `--start-agents` is the precedent — opt-in, and a run without it changes nothing on the machine. The cost is that an estate which never opts in keeps today's silence.
+- **A full fleet correctly blocks the ask.** 6 agents against a cap of 5 means no ask could fire, which is the design: a brief is worth writing only if an agent can then take the slice.
