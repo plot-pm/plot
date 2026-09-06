@@ -27,6 +27,18 @@ export interface QueueWorld {
   /** Whether the branch this agent holds has landed. */
   sliceHasMerged(branch: string): Promise<boolean>;
   /**
+   * Every branch the host has merged a PR for, in ONE call.
+   *
+   * **THE BUNDLE IS THE POINT.** It answers *did this land* for a branch with
+   * no ref — the only way to tell finished work from unstarted work once
+   * merging has deleted the ref. Asked per branch it cost 426 calls and took a
+   * tick from 25 s to 357 s (measured 2026-09-06); asked once it costs one.
+   *
+   * An unreachable host answers with an empty set, so nothing is promoted on
+   * silence.
+   */
+  mergedBranches(): Promise<ReadonlySet<string>>;
+  /**
    * Whether the host merged any PR for a QUEUED branch.
    *
    * **A DIFFERENT SUBJECT FROM {@link QueueWorld.sliceHasMerged}, WHICH IS WHY
@@ -81,15 +93,27 @@ export const slugOf = (file: string): string => {
 export const queueOfPlan = (
   plan: PlanRecord,
   claimed: ReadonlySet<string>,
+  merged: ReadonlySet<string> = new Set<string>(),
 ): readonly Omit<QueuedSlice, 'briefPresent' | 'landed'>[] => {
   const slug = slugOf(plan.file);
-  // OUTSTANDING IS COUNTED FROM THE REFS, the same reading `--offline` takes.
-  // A branch with a ref has been started by somebody; one without has not.
+  // OUTSTANDING IS WHAT NOBODY HAS FINISHED, AND A REF ALONE CANNOT SAY IT.
+  //
+  // A ref means somebody took the slice. Its ABSENCE meant *unstarted* until
+  // 2026-09-06, and that is only true of a branch nobody has begun: merging
+  // deletes the ref, and `plot-release-refs.sh` deletes the rest deliberately
+  // — measured 218.5 s -> 111.5 s on the scan over nine branches. So a
+  // finished branch read as unstarted, its slice never reached `complete`, and
+  // `priorComplete &&= verdict === 'complete'` blocked every slice behind it.
+  //
+  // Measured that day: eight briefed slices held `not-claimable` against five
+  // free agents, while the board rendered all eight as eligible because it
+  // asks the host. The states are three — unstarted, in flight, landed — and
+  // the ref separates only the first two.
+  const settled = (line: { branch: string }): boolean =>
+    claimed.has(line.branch) || merged.has(line.branch);
   const verdicts = sliceVerdicts(
     plan.slices.map((slice: PlanRecordSlice) => ({
-      outstanding: slice.branches.filter(
-        (line) => !line.deferred && !claimed.has(line.branch),
-      ).length,
+      outstanding: slice.branches.filter((line) => !line.deferred && !settled(line)).length,
       phase: plan.phase,
       // EVERY branch the slice names, deferred ones included — the count that
       // separates *all settled* from *none named*. Unfiltered on purpose: a
@@ -107,7 +131,12 @@ export const queueOfPlan = (
       // A CLAIMED BRANCH IS OUT OF THE QUEUE, and that is the derivation
       // rather than a filter over it: the ref is what says somebody took the
       // slice, and it is the same fact `isClaimable` reads as `state === 'open'`.
-      if (claimed.has(line.branch)) continue;
+      //
+      // A MERGED BRANCH LEAVES BY THE SAME DOOR FOR A DIFFERENT REASON — it is
+      // finished, not held — and neither may be offered to anybody. `landed`
+      // still exists for the branch that IS offered and turns out to have
+      // merged between two readings.
+      if (settled(line)) continue;
       queued.push({ branch: line.branch, slug, claimable });
     }
   });
@@ -151,9 +180,29 @@ export const readQueue = async (
 ): Promise<QueueReadings> => {
   const [plans, claimed] = await Promise.all([world.plans(), world.claimedBranches()]);
 
+  // WHICH REFLESS BRANCHES ALREADY MERGED, ASKED IN ONE CALL FOR THE WHOLE PASS.
+  //
+  // The host is the only thing that can separate *unstarted* from *landed*,
+  // since merging deletes the ref and both end up refless.
+  //
+  // **IT IS ONE BUNDLED CALL, NEVER ONE PER BRANCH**, and that was measured
+  // rather than assumed. A first version asked `prMerged` per branch: correct,
+  // and it took the tick from 25 s to **357 s** across 426 branches on 136
+  // multi-slice plans — a 14x bill on the one reading with an account and a
+  // rate limit behind it, paid every 60 s. `mergedBranches` asks the host for
+  // its merged PRs once and joins by head branch, which is what
+  // `plot-fleet-scan.sh` has always done for the same question.
+  //
+  // SILENCE LEAVES THE SLICE BLOCKED. A failed reading yields an empty set, so
+  // every branch stays outstanding and the slices behind it stay held.
+  // Promoting on silence would hand an agent a slice whose predecessor may
+  // still be running — the opposite of the reaper's direction, and stated here
+  // because the two are easy to confuse.
+  const merged = await world.mergedBranches();
+
   const slices: QueuedSlice[] = [];
   for (const plan of plans) {
-    for (const entry of queueOfPlan(plan, claimed)) {
+    for (const entry of queueOfPlan(plan, claimed, merged)) {
       const briefPresent = entry.claimable ? await world.briefPresent(entry.branch) : false;
       slices.push({
         ...entry,

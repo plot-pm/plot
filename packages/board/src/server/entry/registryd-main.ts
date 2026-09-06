@@ -345,6 +345,27 @@ export const queueWorldForRepo = (repoRoot: string, scriptsDir: string): QueueWo
       const answer = refs.fileExistsSync(`origin/${base.value}`, `.plot/briefs/${suffix}.md`);
       return answer.ok && answer.value;
     },
+    mergedBranches: async () => {
+      // ONE CALL, JOINED BY HEAD BRANCH. `prList` bundles what `prMerged`
+      // answers per branch, and the queue needs the whole set rather than one
+      // answer — asked per branch it took a tick from 25 s to 357 s.
+      // THE LIMIT IS EXPLICIT AND LARGE, because the join is against the WHOLE
+      // history rather than the recent page. `pr-list` defaults to 30 and warns
+      // that "a join against this page may read older branches as 'no PR'" —
+      // measured 2026-09-06, #707 and #710 are hundreds of merges back and a
+      // default page missed both, leaving their plans blocked exactly as
+      // before.
+      const answer = await host.prList('merged', 500);
+      if (!answer.ok) return new Set<string>();
+      // `state`, NOT `mergedAt`, AND ONLY BECAUSE THE HOST ALREADY FILTERED.
+      // The repo's rule is that `mergedAt` decides *did this land* — a merged
+      // PR reports CLOSED when asked about one PR. Here `--state merged` made
+      // that distinction host-side, and `pr-list` does not carry `mergedAt` at
+      // all (`host-shell.ts:94` fills it from a field the shell never emits),
+      // so filtering on it would reject every row. Ask `prMerged` for a single
+      // branch; this is the bundle.
+      return new Set(answer.value.filter((pr) => pr.state === 'MERGED').map((pr) => pr.head));
+    },
     sliceHasMerged: async (branch) => {
       const answer = await host.prMerged(branch);
       // SILENCE IS NOT LANDED. An unreachable host answers *not merged*, so an
