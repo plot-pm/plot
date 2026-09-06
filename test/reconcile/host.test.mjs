@@ -2755,6 +2755,54 @@ test('host: a GraphQL-only op spends no budget read to be routed', () => {
   );
 });
 
+// WHY `plot-pr-merged.sh` STILL ASKS `gh` ITSELF — the measurement, pinned.
+//
+// `plot-host.sh pr-merged` answers `merged`/`not-merged`/`unknown`, which reads
+// like the three readings `rules/landed.ts` takes. It is not: the ABSENT-CLI
+// case, which the shell helper answers `unaskable`, arrives here as
+// `not-merged`.
+//
+// The cause is `is_lookup_miss`, and it is not a typo. A missing CLI makes the
+// shell say `bash: gh: command not found`, and that text matches the same
+// `not found` the adapter uses to recognise a genuine "no pull requests found".
+// One phrase, two conditions, and the adapter cannot tell them apart.
+//
+// THE DIRECTION IS WHAT MAKES IT A BLOCKER. `not-merged` reads to
+// `rules/landed.ts` as `none` — the host SPOKE and said nothing merged — so
+// `mayRemove` is free to permit a removal. The shell helper's `unaskable`
+// refuses. Routing the lookup as it stands would therefore convert a KEEP into
+// a REMOVE on `plot-release-refs.sh`, whose deletions are not re-creatable.
+//
+// Measured 2026-09-06, on this repo, with `gh` off PATH:
+//   plot-host.sh pr-merged <branch>   → not-merged   (exit 0)
+//   _plot_merged_lookup <branch>      → unaskable
+//
+// So this test pins CURRENT behaviour rather than desired behaviour, and it is
+// the evidence behind the exemption `check-host-cli-callers.sh` still carries
+// for `plot-pr-merged.sh`. It fails the day `pr-merged` learns to tell an
+// absent CLI from an empty result — which is exactly when the exemption should
+// be deleted and the lookups routed.
+test('host: pr-merged reports an ABSENT cli as not-merged, not unknown', () => {
+  // `command not found` is what a shell says about a missing binary, and it is
+  // the stderr a real absent `gh` produces.
+  const stubs = makeStubs({ ghFail: 'bash: gh: command not found' });
+  const out = run(['pr-merged', 'some-branch'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(
+    out.trim(),
+    'not-merged',
+    'pinning the known gap: an absent CLI is indistinguishable from an empty result here',
+  );
+});
+
+// The half that DOES work, pinned beside it so the gap above is not read as
+// "pr-merged cannot report unknown at all". A failure the adapter does not
+// recognise as a miss is `unknown` on exit 0, exactly as its header promises.
+test('host: pr-merged reports an unrecognised failure as unknown', () => {
+  const stubs = makeStubs({ ghFail: 'dial tcp: connection refused' });
+  const out = run(['pr-merged', 'some-branch'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(out.trim(), 'unknown', 'silence from the host is never permission');
+});
+
 test('host: bitbucket never reaches the router', () => {
   // ONE ROUTER PER CONNECTOR. REST-versus-GraphQL is a GitHub distinction, and
   // a Bitbucket run must not read a GitHub budget to be told there is no fork.
