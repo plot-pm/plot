@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 4
+- **Rounds:** 6
 
 ## Changelog
 
@@ -55,6 +55,12 @@
 
 **Not a fourth implementation.** The arm exists in the shell. The board should reach it, not re-derive it.
 
+**Not the board taking a new kind of action.** `row-identity.ts:152` records an Open Point — *whether the board should offer the brief-writing action* — and declined it because *"running `/plot-implement` is a real write, and the board's line is drawn at the acting endpoints it already has."*
+
+**That line is not crossed, because the brief is not a separate action.** It is an intermediate step inside dispatch, and `plot-dispatch.sh:429` already calls it *"that step"*. A dispatch that cannot start without a brief and cannot get one is a dispatch that fails; asking for the brief is part of dispatching, the way cutting a desk and pushing a claim already are. The acting endpoint is the one that exists — `/api/dispatch` — and nothing here adds a second.
+
+**So the badge stops being the whole answer.** It names the file and the command for a reader, which stays right; what changes is that a dispatch no longer stops at naming it.
+
 **Not a change to `Start work`.** Round 1 measured it: `isReadyToStart` tests `phase === 'Development' && started === false` and never consults the brief, so the button is already offered for an unbriefed slice, and `/api/dispatch` spawns `plot-dispatch.sh`, which already asks. The slice proposing to add that was deleted rather than kept as a no-op.
 
 ## Slices
@@ -75,7 +81,13 @@
 
 **DONE MEANS ONE REAL BRIEF, NOT A GREEN TEST.** The evidence is a brief on `origin/main` that this command wrote, for a branch that had none — the thing neither prior attempt produced. A log of 33 bytes is what failure looks like here, and it exits 0.
 
-**Done when** the `Brief command` writes one real brief for one unbriefed branch and pushes it, its log shows the session doing work rather than an unknown-command line, **the run creates no branch and writes no `Started:` record**, and `plot-dispatch.sh` reports it.
+**THERE IS ALREADY A SECOND RUNNER FOR THIS SKILL, AND IT IS SHAPED CORRECTLY.** `/api/implement` is the board's **eighth state-changing route** (`implement.ts:10`), it runs `/plot-implement` on a slug through its own `Implement command` key, and it logs through `agentLogPath(repoRoot, 'implement', slug, 'log')`. Its prompt is `Run /plot-implement <slug> and follow it.` — a natural-language instruction to a `claude -p` agent, not a bare slash command typed at a shell.
+
+**The two invocations differ, and only one has ever run.** The shell's prompt opens with the literal `/plot-implement <slug> —`, which is what produced `Unknown command: /plot-implement` twice. `Implement command` is unset on this estate, so its route has never been exercised and no log disproves it. **The fix is to make one form work and use it in both places**, not to invent a third.
+
+**THE LOG MOVES ONTO `agentLogPath`, KEYED BY SLUG.** `.plot/brief-<branch>.log` is a bare path no board code knows, in a scheme nothing else uses — and round 2 already moved the ask's mark to the slug, so a branch-keyed log now disagrees with the mark that governs it. `agentLogPath(repoRoot, 'brief', slug, 'log')` puts it where the board's existing log reader can find it and where the dispatch log's sibling already lives.
+
+**Done when** the `Brief command` writes one real brief for one unbriefed branch and pushes it, its log shows the session doing work rather than an unknown-command line, **the run creates no branch and writes no `Started:` record**, the log lives under `agentLogPath` keyed by slug, and a sandbox e2e with a stub `Brief command` asserts the wiring — that the session is invoked, scoped, and leaves no ref behind.
 
 ### Auto-dispatch asks for the brief it is missing (Branch: feature/the-board-asks-for-a-brief)
 
@@ -97,13 +109,17 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 
 **SO THE MARK IS KEYED BY SLUG.** One ask per plan per pass, however many of its branches are unbriefed — which is also what the command actually does. A per-branch mark would be counting the wrong thing and paying for it twice.
 
-**A SESSION IS BOUNDED, AND A PLAN THAT KEEPS FAILING IS HANDED TO A PERSON.** `startFreeAgent` bounds a start at 60 s; a brief session is spawned with `nohup` and waited on by nobody, so today nothing bounds it at all. It gains a bound — minutes, not the fleet's 8 h `Worker bound`, because a brief is not a slice — and **after a bounded number of failed asks the plan is marked as needing a person**, the shape the supervisor's `PLOT-BLOCKED` marker already has. Retiring the mark on expiry alone would ask forever against a command that cannot work, which is exactly the state this estate was in for four days.
+**THE BADGE GAINS A THIRD STATE, BECAUSE ITS SENTENCE STOPS BEING TRUE.** `rows.tsx:2056` renders `needs a brief` in amber — the `waitingOn: 'you'` colour — and says why: *"A missing brief is a person's errand and nothing in git will clear it."* Once a dispatch asks, something does clear it, and a reader must be able to tell **nobody is on this** from **a machine is on this**. Amber stays for the first; a quieter colour says asked, waiting. The amber does **not** clear on the ask — it clears on the brief, because the ask has failed 2 of 2 times and an optimistic colour would report work that is not there.
+
+**A SESSION IS BOUNDED, AND A PLAN THAT KEEPS FAILING IS HANDED TO A PERSON.** `startFreeAgent` bounds a start at 60 s; a brief session is spawned with `nohup` and waited on by nobody, so today nothing bounds it at all. It gains a bound — minutes, not the fleet's 8 h `Worker bound`, because a brief is not a slice — and **after a bounded number of failed asks the plan is marked as needing a person — in the plan file itself**. `PLOT-BLOCKED` is a marker in an agent's DESK, and a plan with no brief has no desk, so that shape does not reach here. The plan file is the record git already carries and the board already renders, and `deferred:`/`moved:` are the precedent for annotating it. **A board-side counter was rejected**: it dies on restart, so a restart silently retries a command that cannot work — which is the four-day state this plan exists to end. Retiring the mark on expiry alone would ask forever against a command that cannot work, which is exactly the state this estate was in for four days.
 
 **TWO OFF SWITCHES, AND THEY STOP DIFFERENT THINGS.** The auto-dispatch switch stops the asking live, because the asking is part of that loop. `Brief command: none` stops it for the project permanently — the shell already reads `none` as *we write them by hand*, and the board must honour the same answer rather than inventing a second way to say it.
 
+**THE GATE ASKS FOR A NON-EMPTY BRIEF, NOT A PRESENT ONE.** `findMissingBriefs` asks whether the blob exists; `registryd-main.ts:341` already calls that *"the weaker half of that check"* and points at the shell's hand-over gate, which refuses a zero-byte brief. A session that dies mid-write can push a partial file, and existence alone would pass it to an agent. **The two halves ask the same question or the weaker one decides.**
+
 **IT REPORTS THE START, NEVER THE OUTCOME**, and names the log — the property `plot-dispatch.sh:500` had to learn by measurement: a `Brief command` that answered `Unknown command: /plot-implement` in 33 bytes still counted as asked.
 
-**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when the brief appears on `origin/main` and not before, a session that exceeds its bound is reported, a plan whose asks keep failing is marked for a person rather than asked forever, `Brief command: none` and the auto-dispatch switch each stop it, and the board names the log.
+**Done when** auto-dispatch asks for a missing brief at most once per PLAN per pass, the ask draws on the agent cap, its mark retires when a **non-empty** brief appears on `origin/main` and not before, a session that exceeds its bound is reported, a plan whose asks keep failing is marked for a person rather than asked forever, the row shows *asked, waiting* distinctly from *needs a brief*, `Brief command: none` and the auto-dispatch switch each stop it, and the board serves the log it names.
 
 ## Notes
 
@@ -164,3 +180,30 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 **Round 3 said the arm has never worked. Round 4 says that may have been luck.** Both failed invocations died at the unknown command — *before* reaching step 3. Fixing only the invocation, as round 3 scoped it, would have made the first successful run the first one to create branches nobody asked for.
 
 **The scope is now part of slice 1's Done-when**, as a measurement — no branch created, no `Started:` written — rather than a sentence in a prompt. A prompt asking an agent to skip a step is a rule, and this repo gates what matters.
+
+### Round 5 — 2026-09-06
+
+**A prior plan asked this exact question and declined to answer it.** `row-identity.ts:152` records the Open Point: *whether the board should offer the brief-writing action*, left unsettled because *"running `/plot-implement` is a real write, and the board's line is drawn at the acting endpoints it already has."* This plan proposed crossing that line for four rounds without noticing the line was there.
+
+**The reframing is that there is no line to cross.** The brief is not a separate action the board takes; it is an **intermediate step inside dispatch**, which `plot-dispatch.sh:429` already calls *"that step"*. A dispatch that cannot start without a brief and cannot obtain one is a dispatch that fails. Asking is part of dispatching, exactly as cutting a desk and pushing a claim are, and the acting endpoint stays the one that already exists.
+
+**That resolves the Open Point rather than reversing it.** The prior decision was about adding a second endpoint on a row; this adds none.
+
+**Two consequences the round settled:**
+
+- **The badge gains a third state.** Its comment — *"a person's errand and nothing in git will clear it"* — stops being true once a dispatch asks. Amber stays until a brief exists, because the ask has failed 2 of 2 times and an optimistic colour would report work that is not there; a quieter state says *asked, waiting*.
+- **The gate asks for a non-empty brief.** `findMissingBriefs` tests existence, which `registryd-main.ts:341` itself calls *"the weaker half"*. A session dying mid-write can push a partial file, and the two halves must ask one question or the weaker decides.
+
+### Round 6 — 2026-09-06
+
+**The board already runs this skill, through a route shaped the way slice 1 needs.** `/api/implement` is its **eighth state-changing route** (`implement.ts:10`): it runs `/plot-implement` on a slug, through its own `Implement command` key, logging to `agentLogPath(repoRoot, 'implement', slug, 'log')`.
+
+**Its prompt is the form that might work.** `composeImplementPrompt` produces *"Run /plot-implement <slug> and follow it."* — an instruction to a `claude -p` agent. The shell's prompt opens with a literal `/plot-implement <slug> —`, and that is what answered `Unknown command` twice. **`Implement command` is unset on this estate**, so its route has never run and no log disproves it either; the fix is to make one form work and use it in both places rather than invent a third.
+
+**Three consequences settled:**
+
+- **The log moves onto `agentLogPath`, keyed by slug.** `.plot/brief-<branch>.log` is a bare path no board code knows, and round 2 already moved the mark to the slug — so the log disagreed with the mark that governs it. The plan said *"the board names the log"* four times against a file the board cannot serve; it now says *serves*.
+- **The failed-ask state lives in the plan file.** `PLOT-BLOCKED` is a desk marker and a plan with no brief has no desk. A board-side counter was rejected: it dies on restart, so a restart silently retries a command that cannot work — the four-day state this plan exists to end.
+- **Slice 1 is verified by a sandbox e2e with a stub `Brief command`.** The stub asserts the wiring — invoked, scoped, no ref left behind — which is exactly what round 4 made a measurement rather than a prompt sentence.
+
+**The plan stays one plan.** Slice 2 cannot be verified until slice 1 works, and ordered slices in one plan is Plot's own model for exactly that.
