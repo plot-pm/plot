@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Planned
+- **Phase:** Planning
 - **Start:** 2026-08-28
 - **End:** 2026-09-11
 - **Release:** 2.13.0
