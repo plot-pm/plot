@@ -309,7 +309,7 @@ the plans.
 
 **Done when** `/plot-board --start` starts what `--start` started, `--status` reports the port and whether it answers, `--stop` stops the tree only when pidfile and port agree and names the disagreement otherwise, `plot-board-setup` no longer documents a `--start` step, and its README says where the flag went.
 
-### The fleet runs lean (Branch: feature/one-monitor-watches-the-slice)
+### The fleet runs lean (Branch: feature/one-monitor-watches-the-slice, PR: #741)
 
 Three per-agent monitors become one, taking fleet control from `1 + 4N` to the
 `1 + 2N` the design sets.
