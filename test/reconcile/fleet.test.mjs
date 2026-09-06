@@ -407,6 +407,177 @@ test('fleet: --log-pulse appends one line to the plan, clean pulses included', (
   fs.rmSync(path.join(repo, '.plot'), { recursive: true, force: true });
 });
 
+// ---------------------------------------------------------------------------
+// The pulse line carries the delta.
+//
+// `pulseDelta` is a domain rule with its own tests; what these assert is the
+// REPORTING — that the scan reaches it, that all four outcomes reach a reader,
+// and that the two which must never collapse do not.
+//
+// Each test restores the fixture the way the one above does: `--log-pulse`
+// amends the plan and writes `.plot/state/`, and `scan is read-only` reads
+// `git status` over a fixture with no `.gitignore`.
+// ---------------------------------------------------------------------------
+
+/** Runs one recording pulse and returns its whole report. */
+const pulseOnce = () =>
+  execFileSync('bash', [scan, '--offline', '--log-pulse', 'fleet'],
+    { encoding: 'utf8', cwd: repo });
+
+/** Puts the fixture back exactly as the `--log-pulse` test does. */
+const restoreFixture = (plan, before) => {
+  fs.writeFileSync(plan, before);
+  fs.rmSync(path.join(repo, '.plot'), { recursive: true, force: true });
+};
+
+test('fleet: a first pulse says so, and never that nothing changed', () => {
+  // A FIRST RUN IS NOT A FAILURE. No file means nobody has pulsed here yet,
+  // which is the state every new adopter starts in — and reporting it as
+  // `nothing changed` would claim a comparison that never happened.
+  const plan = path.join(repo, 'plans', '2026-01-01-fleet.md');
+  const before = fs.readFileSync(plan, 'utf8');
+  try {
+    const out = pulseOnce();
+    assert.match(out, /No previous pulse on this machine/);
+    assert.doesNotMatch(out, /Nothing changed since your last pulse/);
+    // And the delta sits ABOVE the line that says the scan finished, so a
+    // reader meets it before the report's terminal sentence.
+    assert.ok(
+      out.indexOf('No previous pulse') < out.indexOf('Pulse complete.'),
+      'the delta leads the terminal line',
+    );
+  } finally {
+    restoreFixture(plan, before);
+  }
+});
+
+test('fleet: a quiet estate says nothing changed', () => {
+  const plan = path.join(repo, 'plans', '2026-01-01-fleet.md');
+  const before = fs.readFileSync(plan, 'utf8');
+  try {
+    pulseOnce();
+    const out = pulseOnce();
+    assert.match(out, /Nothing changed since your last pulse/);
+    assert.doesNotMatch(out, /No previous pulse/);
+    assert.doesNotMatch(out, /Cannot say what changed/);
+  } finally {
+    restoreFixture(plan, before);
+  }
+});
+
+test('fleet: an expired pulse says it cannot say, never that nothing changed', () => {
+  // THE PAIR THAT MUST NEVER COLLAPSE. A quiet estate and a history nobody can
+  // read look identical to a reader and mean opposite things — which is the
+  // whole reason the rule has four outcomes rather than three. The bridge
+  // expires at fifteen minutes, so this ages the file an hour.
+  const plan = path.join(repo, 'plans', '2026-01-01-fleet.md');
+  const before = fs.readFileSync(plan, 'utf8');
+  try {
+    pulseOnce();
+    const bridge = path.join(repo, '.plot', 'state', 'last-pulse.json');
+    const doc = JSON.parse(fs.readFileSync(bridge, 'utf8'));
+    doc.at = Date.now() - 60 * 60_000;
+    fs.writeFileSync(bridge, JSON.stringify(doc));
+
+    const out = pulseOnce();
+    assert.match(out, /Cannot say what changed/);
+    assert.doesNotMatch(out, /Nothing changed since your last pulse/);
+    assert.doesNotMatch(out, /No previous pulse/);
+  } finally {
+    restoreFixture(plan, before);
+  }
+});
+
+test('fleet: a version the build does not know says it cannot say', () => {
+  // The other half of `unusable`, and it degrades the same way: a format that
+  // moved under the reader is not a quiet estate.
+  const plan = path.join(repo, 'plans', '2026-01-01-fleet.md');
+  const before = fs.readFileSync(plan, 'utf8');
+  try {
+    pulseOnce();
+    const bridge = path.join(repo, '.plot', 'state', 'last-pulse.json');
+    fs.writeFileSync(bridge, JSON.stringify({ version: 99, at: Date.now(), pulse: { nope: true } }));
+
+    const out = pulseOnce();
+    assert.match(out, /Cannot say what changed/);
+    assert.doesNotMatch(out, /Nothing changed since your last pulse/);
+  } finally {
+    restoreFixture(plan, before);
+  }
+});
+
+test('fleet: a plan that left the reading is named, not counted', () => {
+  // NAMED RATHER THAN COUNTED, the rule `readingLoss` states: "3 plans became 2
+  // makes the reader open a terminal to find out which".
+  //
+  // ITS OWN REPOSITORY, because the loss has to be COMMITTED to be seen: the
+  // scan lists plans from `origin/main`, so an untracked file is invisible to
+  // it and a plan removed from the working tree alone never leaves the reading.
+  // Committing into the shared fixture would dirty it for the nineteen tests
+  // that assert over an unmodified repo.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-delta-loss-'));
+  const o = path.join(t, 'origin.git');
+  const r = path.join(t, 'repo');
+  git(t, 'init', '--bare', '-q', '-b', 'main', o);
+  git(t, 'clone', '-q', o, r);
+  git(r, 'config', 'user.email', 'test@example.invalid');
+  git(r, 'config', 'user.name', 'Plot Test');
+  git(r, 'config', 'commit.gpgsign', 'false');
+  fs.mkdirSync(path.join(r, 'plans'), { recursive: true });
+  fs.writeFileSync(path.join(r, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Plan directory:** plans/\n- **Branch prefixes:** feature/\n');
+  const planOf = (title, branch) => [
+    `# ${title}`, '', '## Status', '', '- **Phase:** Approved',
+    '- **Type:** feature', '', '## Branches', '',
+    `### Only (Branch: ${branch})`, '',
+  ].join('\n');
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-01-keeper.md'), planOf('Keeper', 'feature/keeper'));
+  fs.writeFileSync(path.join(r, 'plans', '2026-01-02-spare.md'), planOf('Spare', 'feature/spare-one'));
+  git(r, 'add', '-A');
+  git(r, 'commit', '-qm', 'two plans');
+  git(r, 'push', '-q', 'origin', 'main');
+
+  const shim = shimScripts(fs.mkdtempSync(path.join(os.tmpdir(), 'plot-delta-shim-')));
+  const scanIn = path.join(shim, 'plot-fleet-scan.sh');
+  const pulse = () =>
+    execFileSync('bash', [scanIn, '--offline', '--log-pulse'], { encoding: 'utf8', cwd: r });
+
+  try {
+    pulse();
+    fs.rmSync(path.join(r, 'plans', '2026-01-02-spare.md'));
+    git(r, 'add', '-A');
+    git(r, 'commit', '-qm', 'drop one');
+    git(r, 'push', '-q', 'origin', 'main');
+
+    const out = pulse();
+    assert.match(out, /Since your last pulse/);
+    assert.match(out, /2026-01-02-spare\.md/, 'the plan is named');
+    assert.match(out, /feature\/spare-one/, 'and so is its branch');
+    // The plan that stayed is NOT reported — a delta names what moved.
+    assert.doesNotMatch(out.split('Pulse complete.')[0], /gone {8}2026-01-01-keeper/);
+  } finally {
+    fs.rmSync(t, { recursive: true, force: true });
+    fs.rmSync(path.dirname(shim), { recursive: true, force: true });
+  }
+});
+
+test('fleet: a query records nothing and reports no delta', () => {
+  // `--next` and plain `--json` are QUERIES — /plot-implement and
+  // /plot-dispatch ask them to find out what to work on. A query that printed a
+  // delta would be telling a caller something it did not ask for, and one that
+  // recorded a pulse would make the next real pulse compare against a reading
+  // nobody read.
+  const plan = path.join(repo, 'plans', '2026-01-01-fleet.md');
+  const before = fs.readFileSync(plan, 'utf8');
+  try {
+    const out = execFileSync('bash', [scan, '--offline', 'fleet'], { encoding: 'utf8', cwd: repo });
+    assert.doesNotMatch(out, /No previous pulse|Nothing changed|Cannot say|Since your last pulse/);
+    assert.ok(!fs.existsSync(path.join(repo, '.plot', 'state', 'last-pulse.json')));
+  } finally {
+    restoreFixture(plan, before);
+  }
+});
+
 test('fleet: scan is read-only — working tree and refs unchanged', () => {
   const status = git(repo, 'status', '--porcelain');
   assert.equal(status.trim(), '', 'scan must not modify the working tree');
