@@ -26,9 +26,9 @@ const waits = (waitsOn: string, answer: PrereqAnswer) =>
   prerequisiteCleared(SLICE, { waitsOn, answer });
 
 describe('the states are consumed, never redeclared', () => {
-  it('names the four the entity owns, in the diagram’s order', () => {
+  it('names the verdicts the entity owns, in the diagram’s order', () => {
     expect([...SLICE_LIFECYCLE].sort()).toEqual([...SliceVerdictSchema.options].sort());
-    expect(SLICE_LIFECYCLE).toEqual(['unapproved', 'blocked', 'eligible', 'complete']);
+    expect(SLICE_LIFECYCLE).toEqual(['unapproved', 'blocked', 'eligible', 'complete', 'empty']);
   });
 
   it('admits every verdict `sliceVerdict` can produce', () => {
@@ -41,6 +41,10 @@ describe('the states are consumed, never redeclared', () => {
       sliceVerdict({ outstanding: 1, phase: 'draft' }, true),
       sliceVerdict({ outstanding: 1, phase: 'approved' }, true),
       sliceVerdict({ outstanding: 1, phase: 'approved' }, false),
+      // `empty` is produced by a slice naming no branch — the fifth verdict,
+      // added 2026-09-06 because zero outstanding could not tell *all merged*
+      // from *none named*.
+      sliceVerdict({ outstanding: 0, phase: 'approved', branches: 0 }, true),
     ]);
     expect([...produced].sort()).toEqual([...SliceVerdictSchema.options].sort());
   });
@@ -274,12 +278,19 @@ describe('A PREREQUISITE THAT MERGED AND WAS THEN REAPED STILL CLEARS', () => {
 
 describe('the rule does not depend on `outstanding === 0` meaning finished', () => {
   it('judges a move between two verdicts without reading a branch count', () => {
-    // `rules/eligible.ts:80` answers `complete` for a slice with NO BRANCHES,
-    // which `the-slice-contract-says-what-it-reads` is an open Draft about.
-    // That correction changes which verdict a scan derives; it must not change
-    // which move this file allows.
+    // THE CORRECTION THIS TEST ANTICIPATED HAS LANDED. It read
+    // `expect(vacuous).toBe('complete')` while `rules/eligible.ts` answered
+    // `complete` for a slice with no branches, and noted that
+    // `the-slice-contract-says-what-it-reads` — then an open Draft — would
+    // change which verdict a scan derives.
+    //
+    // It did: an unapproved plan's slice now reads `unapproved` rather than
+    // borrowing `complete` from a zero count. **The test's point is unchanged**
+    // — the move out of a verdict is judged the same way whatever the
+    // derivation answers — so the fixture moves and the assertions below do
+    // not.
     const vacuous = sliceVerdict({ outstanding: 0, phase: 'draft' }, false);
-    expect(vacuous).toBe('complete');
+    expect(vacuous).toBe('unapproved');
     // Whatever that answer becomes, the move out of it is judged the same way.
     expect(isRefusal(move('complete', 'eligible'))).toBe(true);
     expect(isDecision(move('eligible', 'complete'))).toBe(true);

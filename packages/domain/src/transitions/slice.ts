@@ -27,18 +27,24 @@ import { waitVerdict } from '../rules/eligible.js';
  */
 
 /**
- * The four verdicts, in the order `DESIGN-slice.md` §4 draws them.
+ * The verdicts, in the order `DESIGN-slice.md` §4 draws them.
  *
  * Re-exported as a value because a renderer groups by verdict and needs the
- * order; `SliceVerdictSchema.options` carries the same four and is the source.
+ * order; `SliceVerdictSchema.options` carries the same set and is the source.
  * **The states are not redeclared** — `entities/fleet.ts:82` owns them, and
  * `rules/eligible.ts` and `rules/waiting.ts` already read them from there.
+ *
+ * `empty` COMES LAST BECAUSE IT IS NOT ON THE PATH. The first four are the
+ * order work passes through; `empty` is a malformed slice reachable from none
+ * of them and leading to none. A renderer grouping by this order therefore
+ * shows it after the work, which is where a heading naming no branch belongs.
  */
 export const SLICE_LIFECYCLE: readonly SliceVerdict[] = [
   'unapproved',
   'blocked',
   'eligible',
   'complete',
+  'empty',
 ];
 
 /**
@@ -61,12 +67,20 @@ export const SLICE_LIFECYCLE: readonly SliceVerdict[] = [
  *
  * `complete` leads nowhere. Every non-deferred branch merged is a statement
  * about work that already landed, and merged work does not un-merge.
+ *
+ * `empty` LEADS NOWHERE EITHER, AND FOR THE OPPOSITE REASON. It is a malformed
+ * slice — a heading naming no branch — not a stage anything passes through.
+ * Nothing the fleet does resolves it: only an edit to the plan, giving the
+ * heading a branch or deleting it, and that produces a different slice rather
+ * than moving this one. So it is unreachable from every other verdict and
+ * reaches none.
  */
 const NEXT: Readonly<Record<SliceVerdict, readonly SliceVerdict[]>> = {
   unapproved: ['blocked', 'eligible'],
   blocked: ['eligible'],
   eligible: ['complete'],
   complete: [],
+  empty: [],
 };
 
 /**
