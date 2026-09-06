@@ -3976,6 +3976,30 @@ fi
 # IT IS A CACHE WITH AN EXPIRY, NEVER A RECORD. Deleting it changes no
 # behaviour, because the next pulse re-derives everything — which is what keeps
 # this inside the script's stateless design rather than beside it.
+# The previous pulse's document, read BEFORE `write_bridge` replaces it.
+#
+# EMPTY MEANS NO FILE, and that is a fact about the FILE rather than about its
+# contents — it is what separates a first run from a history that exists and
+# cannot be used. A file that is present but truncated, or written in a shape
+# this build does not know, arrives here as its own bytes and the renderer
+# decides; a file that was never there arrives as "".
+#
+# READ ONCE, EARLY, because `write_bridge` overwrites it on the success path and
+# the delta compares against what was there when this scan started.
+PREVIOUS_PULSE=""
+read_previous_pulse() {
+  local root file
+  root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ -n "$root" ] || return 0
+  file="$root/.plot/state/last-pulse.json"
+  [ -f "$file" ] || return 0
+  # A HUGE OR UNREADABLE FILE COSTS THE DELTA, NEVER THE PULSE. Every failure
+  # here leaves PREVIOUS_PULSE empty, which reads as a first run — the same
+  # answer the scan gave before this existed.
+  PREVIOUS_PULSE=$(cat "$file" 2>/dev/null | tr -d '\n') || PREVIOUS_PULSE=""
+  return 0
+}
+
 write_bridge() {
   [ "$record" = 1 ] || return 0
   [ -n "$reading_doc" ] || return 0
@@ -4006,6 +4030,10 @@ write_bridge() {
 # `build_doc` is on, because the branch objects inside `$json_plans` cost
 # `merge-tree` per unlanded branch.
 if [ "$build_doc" = 1 ]; then
+  # BEFORE THE DOCUMENT IS COMPOSED AND LONG BEFORE IT IS WRITTEN. The delta
+  # compares against the pulse that was on disk when this scan started, and
+  # `write_bridge` replaces that file on the success path below.
+  read_previous_pulse
   # `read_ref` is the ref this document was derived from; `local_head` is the
   # checkout it was derived ON. A consumer needs both to tell "the board is
   # current" from "the board is current about an old world".
@@ -4142,6 +4170,25 @@ fi
 # Below every `note:` the report emits and above the sentence that says the scan
 # finished: a scan killed while printing its notes has not completed, and must
 # not replace the last good answer.
+# WHAT CHANGED SINCE THE LAST PULSE, above the line that says this one
+# finished. The rule is `pulseDelta` in the domain and this prints what it
+# decided — no comparison happens here, and one written here would be the
+# second implementation of a rule that already has tests.
+#
+# ONLY WHERE A PULSE WAS PRODUCED FOR SOMEBODY TO READ. `build_doc` is what says
+# the reading was assembled at all, and `record` is what says this run is one of
+# the two that produce a pulse rather than answer a query. A `--next` caller
+# asking what to work on is told nothing new.
+#
+# EVERY FAILURE IS SILENT AND COSTS ONLY THE DELTA. A missing artifact, an
+# unreadable previous pulse, a node that will not start — the full report below
+# is exactly what it was before this existed, which is the degradation this
+# whole line is optional against.
+if [ "$build_doc" = 1 ] && [ "$record" = 1 ] && [ -n "$reading_doc" ]; then
+  delta_out=$(printf '%s\n%s\n' "$PREVIOUS_PULSE" "$reading_doc" \
+    | node "$script_dir/board/plot-delta.mjs" 2>/dev/null) || delta_out=""
+  [ -n "$delta_out" ] && { printf '%s\n' "$delta_out"; echo; }
+fi
 write_bridge
 echo "Pulse complete. This report is derived — nothing was changed."
 echo "summary: plans=$n_plans waves=$n_waves branches=$n_branches claimed=$n_claimed eligible=$n_eligible blocked=$n_blocked deferred=$n_deferred waiting=$n_waiting prereq_missing=$n_prereq_missing merge_detect=$MERGE_DETECT host=$HOST_VERDICT main=$MAIN"
