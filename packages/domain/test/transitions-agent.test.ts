@@ -255,18 +255,45 @@ describe('agentStateObservable answers the same question without the verdict', (
 
 describe('endingIsAttributable refuses an agent that recorded itself as the actor', () => {
   // THE NARROW ASSERTION. Verified 2026-09-05 against plot-worker-loop.sh:
-  // four self-exits exist, and only `:1296` writes an ending. It attributes
-  // itself to `bound` or `monitor`, never to the agent.
+  // four self-exits exist, and only the watcher path writes an ending naming a
+  // watcher. It attributes itself to `bound` or `monitor`, never to the agent.
+  //
+  // THE PAIR IS WHAT DECIDES, NOT THE ACTOR. `a-second-slice-needs-its-own-session`
+  // added a fifth reason, `unstarted`, for a prompt whose command exited
+  // non-zero without running — an ending no watcher produced, so `agent` is the
+  // only honest actor for it. Every other reason still refuses `agent`, which
+  // is why the rule reads both fields.
 
-  it('refuses actor agent, which no writer produces and the design gives no party for', () => {
+  it('refuses actor agent on a reason a watcher produced', () => {
+    for (const reason of ['bound', 'quiet', 'unreadable', 'spent']) {
+      const result = endingIsAttributable(SESSION, { actor: 'agent', reason });
+      expect(isRefusal(result)).toBe(true);
+      if (!isRefusal(result)) continue;
+      expect(result.reason).toBe('ending-self-attributed');
+      expect(result.detail).toContain('the bound or the monitor');
+    }
+  });
+
+  it('refuses actor agent with no reason, because absent is not unstarted', () => {
+    // An older caller, or a record that named no reason. It reads as *not
+    // unstarted*, which keeps the refusal that held before the field existed.
     const result = endingIsAttributable(SESSION, { actor: 'agent' });
     expect(isRefusal(result)).toBe(true);
     if (!isRefusal(result)) return;
     expect(result.reason).toBe('ending-self-attributed');
-    expect(result.detail).toContain('the bound or the monitor');
   });
 
-  it('accepts the two actors the loop actually writes at :1274, :1287 and :1291', () => {
+  it('accepts actor agent on unstarted, the one ending no watcher produces', () => {
+    // The floor did not expire and the monitor published nothing: the agent's
+    // own process launched the command and received the refusal. Naming `bound`
+    // or `monitor` here would claim a measurement neither made.
+    expect(isDecision(endingIsAttributable(SESSION, {
+      actor: 'agent',
+      reason: 'unstarted',
+    }))).toBe(true);
+  });
+
+  it('accepts the two actors the watcher paths write', () => {
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'bound' }))).toBe(true);
     expect(isDecision(endingIsAttributable(SESSION, { actor: 'monitor' }))).toBe(true);
   });
@@ -295,18 +322,19 @@ describe('endingIsAttributable refuses an agent that recorded itself as the acto
     expect(result.reason).toBe('precondition-unmet');
   });
 
-  it('holds the enum to the two actors, so an admitted value cannot go unwritten again', () => {
-    // The enum admitted `agent` and documented it while no caller wrote it.
-    // These two assertions are what would fail if it came back.
-    expect(EndingActorSchema.options).toEqual(['bound', 'monitor']);
-    expect(ENDING_ACTORS).toEqual(['bound', 'monitor']);
+  it('holds the enum to the actors that have writers', () => {
+    // `agent` was removed on 2026-09-04 because nothing wrote it, and returned
+    // on 2026-09-05 with the `unstarted` writer. The list is what has a writer,
+    // never what has been imagined — a sixth actor still needs one.
+    expect(EndingActorSchema.options).toEqual(['bound', 'monitor', 'agent']);
+    expect(ENDING_ACTORS).toEqual(['bound', 'monitor', 'agent']);
   });
 
   it('reads a string rather than the type, because an ending file is bytes first', () => {
-    // A worker of an older vintage wrote `agent` into a file that still sits on
-    // a desk. The type no longer admits it; the parse of that file must still
-    // have an answer, and this is it.
-    const fromDisk: string = 'agent';
+    // A worker of an older vintage wrote a value into a file that still sits on
+    // a desk. The type may not admit it; the parse of that file must still have
+    // an answer, and this is it.
+    const fromDisk: string = 'registry';
     expect(isRefusal(endingIsAttributable(SESSION, { actor: fromDisk }))).toBe(true);
   });
 });

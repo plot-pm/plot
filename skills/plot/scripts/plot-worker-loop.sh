@@ -2,7 +2,8 @@
 # Plot helper: worker loop — implements then asks for the next wave.
 # Usage: plot-worker-loop.sh
 # Environment: PLOT_BRANCH, PLOT_WORKTREE, PLOT_SLUG, PLOT_MANIFEST_FILE,
-#              PLOT_SESSION_ID (from dispatcher)
+#              PLOT_SESSION_ID (from dispatcher; re-exported per prompt as the
+#              manifest's resume handle), PLOT_SESSION_FLAG (this loop's)
 #
 # This is the looping shell the Worker command calls. After each branch
 # completes, it asks `--next` for another claimable branch OF THE SAME PLAN,
@@ -22,19 +23,29 @@
 # parser stripping `$(...)` constructs, and lets the prompt be as long as
 # needed without making CLAUDE.md unreadable.
 #
-# THAT FILE BELONGS TO THE ADOPTING PROJECT, and Plot's contract with it is one
-# environment variable. The dispatcher mints a session id and exports it as
-# `PLOT_SESSION_ID`; the prompt file decides whether to pass it on:
+# THAT FILE BELONGS TO THE ADOPTING PROJECT, and Plot's contract with it is two
+# environment variables. The dispatcher mints a session id; this loop decides
+# which FLAG that id must carry and exports the pair:
 #
-#     claude -p "..." --session-id "$PLOT_SESSION_ID" --permission-mode ...
+#     claude -p "..." "$PLOT_SESSION_FLAG" "$PLOT_SESSION_ID" --permission-mode ...
 #
-# Pass it and the runtime writes its transcript under the id the manifest
+# Pass them and the runtime writes its transcript under the id the manifest
 # records, which is what lets the board join an agent's row to its transcript
-# and lets a correction be resumed into the SAME conversation. Omit it — or run
-# a harness that writes no transcript — and resume reports itself UNAVAILABLE
-# and a fresh worker is started instead. Nothing here requires the flag: Plot
-# does not own this file, and the transcript's presence is the gate rather than
-# any promise made about the invocation.
+# and lets a correction be resumed into the SAME conversation. Omit them — or
+# run a harness that writes no transcript — and resume reports itself
+# UNAVAILABLE and a fresh worker is started instead. Nothing here requires the
+# flags: Plot does not own this file, and the transcript's presence is the gate
+# rather than any promise made about the invocation.
+#
+# THE FLAG IS THE LOOP'S DECISION AND NOT THE PROMPT'S, since 2026-09-05. The
+# prompt file passed `--session-id` on every invocation and `PLOT_SESSION_ID`
+# never changes across a hop, so an agent handed a SECOND slice asked the
+# runtime to create a session it already held: `Session ID … is already in use`,
+# measured on three agents at once, each exiting in under a second and returning
+# to its wait. The rule lived in the one file every project rewrites for itself,
+# which is the file that got it wrong — so the loop probes the transcript, emits
+# `--session-id` or `--resume`, and the prompt interpolates a finished flag
+# without knowing the rule. See `session_flag` below.
 #
 # THE CLAIM is the same ref push dispatch uses: an empty commit titled
 # `plot: claim <branch>`, which diverges from any other claim attempt so only
@@ -222,19 +233,28 @@ case "$WAIT_BUDGET_SECONDS" in (*[!0-9]*|'') WAIT_BUDGET_SECONDS="$WORKER_BOUND_
 # Update the manifest when the worker hops to a new branch.
 #
 # The manifest already carries `session`, `pid`, `startedAt` — these stay fixed.
-# This function updates `branch`, `worktree`, and increments `wavesCount`.
+# This function updates `branch`, `worktree` and `resumeId`, and increments
+# `wavesCount`.
 #
-# `resumeId` AND `attempts` STAY FIXED TOO, and they do so by being untouched
-# rather than by being preserved: the node one-liner round-trips the whole
-# object, so every field this function does not name survives verbatim. That is
-# a PROPERTY WORTH STATING, because it is the answer to a question the plan
-# deliberately left open — *should the resume handle follow a hop?* Today it
-# does: a correction about branch C would be delivered into a conversation that
-# has since moved to D. The two ids are separate FIELDS so the question can be
-# asked and answered later without a migration; nothing here decides it.
+# `resumeId` IS WRITTEN HERE, AND THE QUESTION IT ANSWERS WAS LEFT OPEN UNTIL
+# 2026-09-05. The field was written once at dispatch, equal to `session`, and
+# read by nothing — a field with one writer, no readers and a twin. This
+# function left it alone and stated the consequence: *should the resume handle
+# follow a hop?*
 #
-# `attempts` is likewise carried across a hop and not reset. A hop is the same
-# agent continuing, so a supervisor's budget for it is the same budget.
+# IT DOES, AND THE VALUE IS THE ONE THE NEXT PROMPT CONTINUES. An agent keeps a
+# single conversation for its whole life, because `transcript.ts:100` opens
+# `${sessionId}.jsonl` literally and a forked chain is a linked list the board
+# cannot follow. So the handle carried across a hop is the handle the hop
+# arrives with, and writing it is what makes `session_handle` read a field the
+# loop maintains rather than a launch fact nobody updates. The two fields still
+# diverge exactly where the docstring predicted — a later `--fork-session`
+# becomes a change to this one line's value rather than a new concept.
+#
+# `attempts` STAYS FIXED, and it does so by being untouched rather than by being
+# preserved: the node one-liner round-trips the whole object, so every field
+# this function does not name survives verbatim. A hop is the same agent
+# continuing, so its automatic-retry budget is the same budget.
 #
 # WHY THE MANIFEST UPDATE IS NECESSARY. The registry synthesizes from manifests.
 # A worker that moved branches without updating the manifest would still appear
@@ -246,19 +266,24 @@ case "$WAIT_BUDGET_SECONDS" in (*[!0-9]*|'') WAIT_BUDGET_SECONDS="$WORKER_BOUND_
 # interprets escape sequences differently, awk quoting varies), and node is
 # guaranteed present — the Worker command itself requires it. The one-liner
 # reads, updates, and writes atomically through a temp file.
-update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree
-  local manifest="$1" new_branch="$2" new_worktree="$3"
+update_manifest_on_hop() { # $1=manifest $2=new_branch $3=new_worktree $4=resume_id
+  local manifest="$1" new_branch="$2" new_worktree="$3" resume_id="${4:-}"
   [ -f "$manifest" ] || return 0
 
   local tmp="$manifest.plot-hop-tmp"
+  # AN EMPTY HANDLE LEAVES THE FIELD ALONE rather than blanking it. A loop with
+  # no session id has nothing to write, and an empty `resumeId` is the value
+  # `resumeAvailability` reads as *no conversation to continue* — writing one
+  # over a handle that was correct would be a claim the hop cannot make.
   node -e '
     const fs = require("fs");
     const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
     manifest.branch = process.argv[2];
     manifest.worktree = process.argv[3];
+    if (process.argv[5] !== "") manifest.resumeId = process.argv[5];
     manifest.wavesCount = (manifest.wavesCount || 1) + 1;
     fs.writeFileSync(process.argv[4], JSON.stringify(manifest, null, 2) + "\n");
-  ' "$manifest" "$new_branch" "$new_worktree" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  ' "$manifest" "$new_branch" "$new_worktree" "$tmp" "$resume_id" 2>/dev/null || { rm -f "$tmp"; return 1; }
 
   mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
 }
@@ -303,6 +328,104 @@ clear_manifest_branch() { # $1=manifest
   ' "$manifest" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
 
   mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
+# ---------------------------------------------------------------------------
+# THE RETRY BUDGET — `attempts`, and why the loop writes it
+# ---------------------------------------------------------------------------
+#
+# A PROMPT THAT NEVER RAN KEEPS ITS SLICE, so without a bound the agent spins:
+# the manifest still names a branch, the prompt fails in under a second, and
+# that repeats for the whole of `Worker bound: 28800`. The budget is what turns
+# an infinite retry into a bounded one and then into a person's problem.
+#
+# `attempts` IS THE FIELD, AND USING IT WIDENS IT DELIBERATELY. `registry.ts`
+# documented it as a SUPERVISOR's counter and said nothing in Plot raised it.
+# The loop is not a supervisor — but the line the field draws is AUTOMATIC
+# versus A PERSON'S, `relaunches` being the human record, and a loop retry is
+# automatic by every property that distinction was made for: it spends no
+# human patience, and counting it against `relaunches` would let a self-retry
+# exhaust an operator's record. The docstring is updated in the same change
+# rather than left saying supervisor-only while this writes it.
+#
+# THE DEFAULT IS THREE, and it is a count of INVOCATIONS rather than of
+# seconds. A refusal costs a sub-second exit, so a wall-clock bound would allow
+# thousands; three is enough for a transient runtime failure to clear and small
+# enough that a permanent one reaches a person in under a minute.
+#
+# THE ENV OVERRIDE IS A TEST SEAM, the same one `PLOT_WAIT_BUDGET_SECONDS` is
+# and for the same reason: a test proving the budget ENDS the worker would
+# otherwise have to spend three real prompt runs to observe one `if`. Not a
+# Plot Config key — a project has no separate opinion about how many times a
+# broken invocation should be retried before a person is asked.
+START_ATTEMPT_BUDGET="${PLOT_START_ATTEMPT_BUDGET:-3}"
+case "$START_ATTEMPT_BUDGET" in (*[!0-9]*|'') START_ATTEMPT_BUDGET=3 ;; esac
+
+# How many times this agent has already been retried automatically.
+#
+# ABSENT, UNREADABLE AND NON-NUMERIC ALL READ ZERO, which is the permissive
+# direction on purpose: the budget's job is to stop a spin, and a manifest that
+# cannot be read is not evidence that one is under way. The worker still ends
+# after `START_ATTEMPT_BUDGET` failures, because the counter it cannot read it
+# also cannot raise.
+manifest_attempts() { # $1=manifest → prints a count
+  local manifest="$1" n
+  [ -n "$manifest" ] && [ -f "$manifest" ] || { printf '0'; return 0; }
+  n=$(node -e '
+    const fs = require("fs");
+    try {
+      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const n = manifest.attempts;
+      process.stdout.write(Number.isInteger(n) && n >= 0 ? String(n) : "0");
+    } catch { process.stdout.write("0"); }
+  ' "$manifest" 2>/dev/null) || n=0
+  case "$n" in (*[!0-9]*|'') n=0 ;; esac
+  printf '%s' "$n"
+}
+
+# Record one more automatic retry of this agent.
+#
+# IT RAISES `attempts` AND TOUCHES NOTHING ELSE — in particular not `branch`,
+# because the slice must stay claimed across a failed start: nothing else should
+# take a slice this agent still holds a desk for. `clear_manifest_branch` is the
+# opposite write and it is deliberately not reached on this path.
+#
+# ABSENT IS NOT A FAILURE, the shape `clear_manifest_branch` already takes: a
+# hand-started loop has no manifest, so there is nothing to raise and nothing to
+# report.
+raise_manifest_attempts() { # $1=manifest
+  local manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+
+  local tmp="$manifest.plot-attempt-tmp"
+  node -e '
+    const fs = require("fs");
+    const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const n = manifest.attempts;
+    manifest.attempts = (Number.isInteger(n) && n >= 0 ? n : 0) + 1;
+    fs.writeFileSync(process.argv[2], JSON.stringify(manifest, null, 2) + "\n");
+  ' "$manifest" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+
+  mv -f "$tmp" "$manifest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+}
+
+# THE MARKER A SPENT BUDGET LEAVES, so the desk is distinguishable from a
+# finished one by the reading every other component already makes.
+#
+# A FILE, NOT A LOG LINE. `plot-worker-state.sh:309` settles that the marker is
+# a `PLOT-BLOCKED*` FILE and never a token inside one, and `plot-reap.sh` and
+# `plot-fleet-scan.sh` both read it that way — so a worker that only printed its
+# question would be reaped as if it had none.
+#
+# IT IS NOT OVERWRITTEN. A marker already in the tree is an agent's own question
+# to a person, and replacing it with Plot's would answer a question nobody
+# asked.
+write_blocked_marker() { # $1=worktree $2=text
+  local wt="$1" text="$2" file
+  [ -n "$wt" ] && [ -d "$wt" ] || return 0
+  file="$wt/PLOT-BLOCKED.md"
+  [ -e "$file" ] && return 0
+  printf '%s\n' "$text" > "$file" 2>/dev/null || return 0
 }
 
 # Read the slice the registry handed this agent, or nothing while it holds none.
@@ -350,6 +473,127 @@ assigned_branch() { # $1=manifest → prints the branch, or nothing
   ' "$manifest" 2>/dev/null) || return 1
   [ -n "$branch" ] || return 1
   printf '%s' "$branch"
+}
+
+# The resume handle the manifest carries, or nothing while it carries none.
+#
+# A SECOND FIELD, NOT AN ALIAS FOR `session`. A dispatch writes the same value
+# into both, and `registry.ts:126` states why they are still two: `session` is
+# the transcript join key and stays fixed across a hop by design, while the
+# resume handle is a different identity with a different lifetime. Reading this
+# field rather than `$PLOT_SESSION_ID` is what makes the hop's write below mean
+# anything — the loop asks for the handle, and gets the one the hop last wrote.
+#
+# A PARSE FAILURE AND AN ABSENT MANIFEST ARE ONE ANSWER, the shape
+# `assigned_branch` already takes: no handle. A hand-started loop has no
+# manifest, and a manifest nobody can read is not a handle.
+manifest_resume_id() { # $1=manifest → prints the handle, or nothing
+  local manifest="$1"
+  [ -n "$manifest" ] && [ -f "$manifest" ] || return 1
+  local id
+  id=$(node -e '
+    const fs = require("fs");
+    try {
+      const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(typeof manifest.resumeId === "string" ? manifest.resumeId : "");
+    } catch { process.stdout.write(""); }
+  ' "$manifest" 2>/dev/null) || return 1
+  [ -n "$id" ] || return 1
+  printf '%s' "$id"
+}
+
+# ---------------------------------------------------------------------------
+# WHICH SESSION FLAG THIS PROMPT CARRIES — `--session-id` or `--resume`
+# ---------------------------------------------------------------------------
+#
+# THE DECISION IS THE LOOP'S, NOT THE PROMPT'S. `.plot/worker-prompt.sh` passed
+# `--session-id "$PLOT_SESSION_ID"` on every invocation, and `PLOT_SESSION_ID`
+# never changes across a hop — so an agent handed a SECOND slice asserted an id
+# the runtime had already taken. Measured 2026-09-05 on three agents at once:
+# `Error: Session ID … is already in use`, the prompt exiting in under a second,
+# and the loop returning to its wait having done nothing.
+#
+# A RULE IN THE PROMPT FILE WOULD NOT HOLD. That file belongs to the adopting
+# project — `plot-worker-loop.sh:19` settles it — so every project rewrites it,
+# and it is the file that got this wrong. The loop exports a finished flag and
+# the prompt interpolates it, which is what keeps a project's own wording from
+# reintroducing the bug.
+#
+# THE TRANSCRIPT IS PROBED, NEVER COUNTED. The loop cannot otherwise tell a
+# first slice from a hop: it exports `PLOT_BRANCH` and `PLOT_WORKTREE` and
+# nothing else, and `PLOT_SESSION_ID` is the same on both. `wavesCount` looks
+# like the answer and is not — it is right only while every earlier prompt
+# actually RAN, and the three agents above were left holding `wavesCount: 2`
+# with no transcript at all, so a counter would have resumed a conversation that
+# does not exist. The probe self-corrects there: no transcript, so create.
+#
+# IT IS `resumeAvailability`'s OWN TEST, in shell. `resume.ts:42` documents why
+# a probe rather than an assertion — Plot *"can require neither — that file and
+# the harness it invokes belong to the project — so the one honest test is
+# whether a transcript exists under the id Plot asserted."*
+#
+# THE PROBE IS PER DESK, and that is a known limitation rather than a choice
+# made here. `plot_transcript_dir` keys on the worktree path, so a CREATED desk
+# gets a fresh directory while a RESET desk keeps its own; an agent that cut a
+# new desk therefore reads *no transcript* and creates a session under an id the
+# runtime already holds. The plan records the per-desk split as a defect for a
+# later change in the board and puts it out of scope here.
+session_transcript_exists() { # $1=worktree $2=id → 0 found | 1 not
+  local wt="$1" id="$2" dir
+  [ -n "$wt" ] && [ -n "$id" ] || return 1
+  command -v plot_transcript_dir >/dev/null 2>&1 || return 1
+  dir=$(plot_transcript_dir "$wt" 2>/dev/null) || return 1
+  [ -n "$dir" ] || return 1
+  [ -f "$dir/$id.jsonl" ]
+}
+
+# THE HANDLE THE PROMPT CARRIES — the manifest's `resumeId`, or the launch id.
+#
+# `resumeId` IS ASKED FIRST BECAUSE IT IS THE FIELD THE HOP WRITES. A dispatch
+# writes the launch id into both `session` and `resumeId`, so on a first slice
+# the two answers are the same string and this reads as a no-op. It stops being
+# one the moment the handle diverges from the join key — which is what the two
+# fields exist to allow, and what a later `--fork-session` would do — and this
+# is the only reader, so nothing else has to learn about it.
+#
+# `$PLOT_SESSION_ID` IS THE FALLBACK, NOT THE SOURCE. A hand-started loop has no
+# manifest and a pre-`resumeId` manifest carries no handle; both are the launch
+# id, which is what the prompt passed before this function existed. An absent
+# manifest is not an absent session.
+session_handle() { # → the handle, or nothing
+  local id
+  if id=$(manifest_resume_id "${PLOT_MANIFEST_FILE:-}"); then
+    printf '%s' "$id"
+    return 0
+  fi
+  [ -n "${PLOT_SESSION_ID:-}" ] || return 1
+  printf '%s' "$PLOT_SESSION_ID"
+}
+
+# The flag the prompt must carry for this invocation.
+#
+# `--session-id` ASSERTS AN ID THE RUNTIME MUST NOT ALREADY HOLD; `--resume`
+# continues one it does. So the answer is the probe's: a transcript under this
+# handle means the conversation exists and is resumed, and its absence means
+# this is the first prompt to run under it.
+#
+# IT PRINTS A FLAG AND NEVER A VALUE. The value travels as `PLOT_SESSION_ID`,
+# which the prompt already has and already guards; pairing them here would give
+# that guard a second place to be wrong, and a blank value reaching `--resume`
+# is the one failure this whole path must not produce — the flag is
+# optional-valued, so a blank opens an interactive picker inside a `-p` run with
+# no terminal and hangs, where `--session-id ""` at least fails loudly.
+#
+# AN UNANSWERABLE PROBE READS AS CREATE. No handle, no transcript reader, no
+# runtime home: none of those is evidence that a conversation exists, and
+# asserting an id that turns out to be taken fails loudly in one second, where
+# resuming one that does not exist is the failure this slice is about.
+session_flag() { # → --session-id | --resume
+  if session_transcript_exists "${PLOT_WORKTREE:-$PWD}" "$(session_handle)"; then
+    printf -- '--resume'
+  else
+    printf -- '--session-id'
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -711,14 +955,17 @@ if [ ! -f "$prompt_file" ]; then
   [ "$prompt_verb" = "declared" ] && \
     echo "  Named by the charter for agent '$prompt_why' ($repo_root/.plot/charters/$prompt_why.json)." >&2
   echo "  Create it with the inner claude -p invocation, e.g.:" >&2
-  echo "    claude -p \"You are implementing the branch \$PLOT_BRANCH...\" --session-id \"\$PLOT_SESSION_ID\" --permission-mode bypassPermissions" >&2
-  # `--session-id` is shown because this is the one place a person writes the
-  # invocation, and it is the only half of the contract Plot cannot fulfil
-  # itself. It stays OPTIONAL: without it the worker runs exactly as before and
-  # resume reports itself unavailable, which is the honest answer rather than a
-  # failure.
-  echo "  Passing --session-id lets a correction resume the same conversation;" >&2
-  echo "  without it resume is reported unavailable and a fresh worker is started." >&2
+  echo "    claude -p \"You are implementing the branch \$PLOT_BRANCH...\" \"\$PLOT_SESSION_FLAG\" \"\$PLOT_SESSION_ID\" --permission-mode bypassPermissions" >&2
+  # THE PAIR IS SHOWN, NOT `--session-id` ALONE. This is the one place a person
+  # writes the invocation, and it is the only half of the contract Plot cannot
+  # fulfil itself. The flag is the LOOP's decision — `--session-id` on a first
+  # slice, `--resume` on every one after — so a prompt file that hardcodes
+  # `--session-id` works once and fails on the agent's second slice. Both stay
+  # OPTIONAL: without them the worker runs exactly as before and resume reports
+  # itself unavailable, which is the honest answer rather than a failure.
+  echo "  Interpolating both lets a correction resume the same conversation, and" >&2
+  echo "  lets a second slice start at all; hardcoding --session-id fails on it." >&2
+  echo "  Without them resume is reported unavailable and a fresh worker is started." >&2
   exit 1
 fi
 
@@ -774,6 +1021,11 @@ _monitor_watcher_pid=""
 # prompt does, and a sleep that outlived the worker would be the same leak.
 _wait_sleep_pid=""
 _timed_out=0
+# THE PROMPT'S OWN EXIT CODE, set by `run_bounded` after its `wait` and read by
+# the loop below. It joins the file-scope run state rather than being a local,
+# for the reason `_ended_by` and `_ended_detail` are here: the caller reads it
+# after the function has returned.
+_prompt_status=0
 
 # WHICH READING ENDED THE WORKER. Both the floor and the monitor watcher end the
 # prompt the same way — a signal into the loop's `wait` — so the flag alone
@@ -991,10 +1243,41 @@ trap _cleanup_on_exit EXIT
 # THE MONITOR WATCHER IS ARMED EVEN WHEN THE FLOOR IS NOT. `Worker bound: 0`
 # disables the wall-clock kill, which is what a project asked for when it set
 # it; it never asked for an unwatchable worker, and a finding is not a clock.
+#
+# THE PROMPT CHILD'S OWN EXIT CODE IS NOW KEPT, in `_prompt_status`. It was
+# discarded until 2026-09-05: `wait` collected it and the function returned a
+# bare 0, so this returned 0 or 124 and nothing else. A `claude` that refused
+# outright — *"Session ID … is already in use"*, measured on three agents that
+# day — exited non-zero in under a second and read as a completed slice, so the
+# loop sealed a declaration for work nobody did and hopped. The caller reads the
+# status to tell a prompt that FAILED from one that FINISHED; the return value
+# still says only whether a watcher ended it, because the two questions are
+# different and a caller that conflated them would report a bound expiry for a
+# refused command.
 run_bounded() {
   _timed_out=0
   _ended_by=""
   _ended_detail=""
+  _prompt_status=0
+
+  # THE SESSION DECISION IS MADE HERE, ONCE PER PROMPT, and travels to the
+  # prompt file as two exported variables it interpolates without knowing the
+  # rule. `PLOT_SESSION_FLAG` is `--session-id` or `--resume`;
+  # `PLOT_SESSION_ID` carries the handle the flag applies to.
+  #
+  # `PLOT_SESSION_ID` IS REWRITTEN RATHER THAN JOINED BY A THIRD NAME. The
+  # prompt already guards this one variable — `[ -n … ]`, with a paragraph about
+  # why an empty value must never become an argument — and a second name would
+  # need a second guard in the one file every project rewrites for itself. On a
+  # first slice the value it receives is the launch id it received before, so
+  # nothing about an unhopped agent changes.
+  #
+  # IT IS EXPORTED ON EVERY PASS because the answer changes between them: the
+  # first prompt writes the transcript that makes the second read `--resume`.
+  export PLOT_SESSION_FLAG
+  PLOT_SESSION_FLAG=$(session_flag)
+  export PLOT_SESSION_ID
+  PLOT_SESSION_ID=$(session_handle) || PLOT_SESSION_ID=""
 
   # shellcheck source=/dev/null
   bash -c '. "$1"' _ "$prompt_file" &
@@ -1041,6 +1324,7 @@ run_bounded() {
   # returns normally and both watchers are still going. Either way, read the flag
   # — set only by a trap — to tell which happened.
   wait "$_prompt_child" 2>/dev/null
+  _prompt_status=$?
 
   # Stop both watchers (a no-op for one that already fired) and reap their sleeps.
   #
@@ -1296,6 +1580,54 @@ while true; do
     exit 124
   fi
 
+  # ---------------------------------------------------------------------------
+  # THE PROMPT RAN AND FAILED — a fourth ending, and the only one no watcher saw
+  # ---------------------------------------------------------------------------
+  #
+  # `run_bounded` RETURNED 0, WHICH USED TO MEAN THE SLICE FINISHED. The prompt
+  # child's own exit code was collected by `wait` and discarded, so a `claude`
+  # that refused outright reached this line indistinguishable from one that
+  # worked for six hours. Measured 2026-09-05 on three agents at once:
+  # `Error: Session ID … is already in use`, an exit in under a second, and a
+  # loop that sealed a declaration, cleared its branch and reported itself free.
+  # Every exit code involved was zero, so the board rendered `running · idle`
+  # and what found it was a person reading a log.
+  #
+  # THE SLICE STAYS CLAIMED. `clear_manifest_branch` below is what returns a
+  # slice to the queue, and it is not reached on this path: the agent still
+  # holds the desk, the claim ref and the branch, so nothing else may be handed
+  # them. A `continue` re-enters the loop with `$PLOT_BRANCH` unchanged and runs
+  # the prompt again, which is the retry.
+  #
+  # THE RETRY IS BOUNDED ON `attempts`, or the agent spins for the full
+  # `Worker bound`. Past the budget the worker ENDS: an ending record naming
+  # what the runtime said, a `PLOT-BLOCKED` marker so the desk reads as owing a
+  # person an answer rather than as reapable, and a non-zero exit.
+  #
+  # THE ACTOR IS `agent`. The agent's own process ran the command and received
+  # the refusal; `bound` and `monitor` name watchers that did not fire here.
+  # This is `EndingActorSchema`'s only unwritten value getting its first writer,
+  # and no actor is invented for the runtime — `detail` is where the text that
+  # separates one ending from another already goes.
+  #
+  # THE EXIT IS 1 AND DELIBERATELY NOT 124. `plot-worker-state.sh` answers
+  # `failed` on any non-zero code, which is all this path needs; 124 is the
+  # bound's own number and reading it here would tell an operator a clock fired.
+  if [ "$_prompt_status" -ne 0 ]; then
+    _start_attempts=$(manifest_attempts "${PLOT_MANIFEST_FILE:-}")
+    if [ "$_start_attempts" -lt "$START_ATTEMPT_BUDGET" ]; then
+      raise_manifest_attempts "${PLOT_MANIFEST_FILE:-}"
+      echo "plot-worker-loop: the prompt failed to run on ${PLOT_BRANCH:-?} — the command exited $_prompt_status without the agent doing any work. The slice stays claimed and the desk is untouched; retrying ($(( _start_attempts + 1 )) of $START_ATTEMPT_BUDGET)." >&2
+      continue
+    fi
+    echo "plot-worker-loop: the prompt never started on ${PLOT_BRANCH:-?} — the command exited $_prompt_status on each of $START_ATTEMPT_BUDGET attempts and no slice was ever worked. The slice stays claimed and a person is asked; ending worker." >&2
+    write_ending "${PLOT_WORKTREE:-$PWD}" unstarted agent "${PLOT_BRANCH:-}" \
+      "the worker prompt exited $_prompt_status without running, on $START_ATTEMPT_BUDGET attempts"
+    write_blocked_marker "${PLOT_WORKTREE:-$PWD}" \
+      "PLOT-BLOCKED: the worker prompt for \`${PLOT_BRANCH:-?}\` exited $_prompt_status without running, $START_ATTEMPT_BUDGET times. Nothing was implemented and the slice is still claimed by this agent. Read \`.plot-worker.log\` for what the runtime said, fix the invocation in the prompt file, then restart this agent with \`plot-dispatch.sh --restart ${PLOT_BRANCH:-<branch>}\`."
+    exit 1
+  fi
+
   # THE BRANCH FINISHED, so declare it — before `--next` is asked and before any
   # hop moves `$PLOT_BRANCH`. Both orderings matter: a declaration written after
   # the hop would name the branch the worker moved TO, and one written after the
@@ -1488,7 +1820,7 @@ while true; do
   # and `branch` and `wavesCount` still change, which is what
   # `packages/board/src/server/registry.ts:114` reads.
   if [ -n "${PLOT_MANIFEST_FILE:-}" ] && [ -f "$PLOT_MANIFEST_FILE" ]; then
-    update_manifest_on_hop "$PLOT_MANIFEST_FILE" "$next_branch" "$hop_wt"
+    update_manifest_on_hop "$PLOT_MANIFEST_FILE" "$next_branch" "$hop_wt" "$(session_handle)"
   fi
 
   # Move to the desk and update environment for the next iteration. On a reset

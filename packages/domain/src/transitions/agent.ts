@@ -77,23 +77,35 @@ const NEXT: Readonly<Record<AgentState, readonly AgentState[]>> = {
 /**
  * Who may end a worker.
  *
- * **THE `actor: 'agent'` QUESTION, DECIDED.** `entities/ending.ts` admitted
- * three actors and documented the third as *"the agent stopped itself"*. No
- * caller has ever written it: `plot-worker-loop.sh` makes three `write_ending`
- * calls (`:1274`, `:1287`, `:1291`) and passes `monitor` and `bound` only.
+ * **THE `actor: 'agent'` QUESTION, DECIDED — AND THEN RE-OPENED BY A WRITER.**
+ * `entities/ending.ts` admitted three actors and documented the third as *"the
+ * agent stopped itself"*, and no caller had ever written it: `write_ending` was
+ * called three times in `plot-worker-loop.sh` and passed `monitor` and `bound`
+ * only. So `agent` was removed here on 2026-09-04, on the reading the loop's
+ * own comment states — *"The actor is the bound either way"*. An agent does not
+ * decide to stop; something measures it and stops it, and the ending records
+ * that party.
  *
- * The reading this file takes is the one the loop's own comment already states
- * at `:1284` — *"The actor is the bound either way"*. The agent's PROCESS runs
- * `exit 124`, but the party that ACTED is the watchdog that fired or the
- * monitor that found it idle. An agent does not decide to stop; something
- * measures it and stops it, and the ending records that party.
+ * **THAT READING HOLDS FOR EVERY ENDING A WATCHER PRODUCED, AND THE FOURTH
+ * WRITER IS NOT ONE.** `a-second-slice-needs-its-own-session` added an ending
+ * for a prompt whose command exited non-zero WITHOUT RUNNING — measured
+ * 2026-09-05, three agents refused `Session ID … is already in use`, each
+ * sub-second exit read as a completed slice. No watcher fired: the floor did
+ * not expire and the monitor published nothing. The party that acted is the
+ * agent's own process, which launched the command and received the refusal, and
+ * naming `bound` or `monitor` would claim a measurement neither made.
  *
- * So `agent` is removed from `EndingActorSchema` in the same change. This list
- * is what remains, and {@link endingIsAttributable} refuses anything else — a
- * refusal that stays meaningful after the enum narrows, because a manifest or
+ * So the premise this removal rested on — *nothing writes it* — is what the
+ * fourth `write_ending` call changed, and `agent` is back in
+ * `EndingReasonSchema`'s company for that one reason. The narrowing argument
+ * survives intact for the other four, which is why this list is three rather
+ * than open: {@link endingIsAttributable} still refuses anything else, and a
+ * fifth actor still needs a writer before it is admitted.
+ *
+ * The refusal stays meaningful whatever the enum holds, because a manifest or
  * an ending file read off disk carries a string before it carries a type.
  */
-export const ENDING_ACTORS: readonly EndingActor[] = ['bound', 'monitor'];
+export const ENDING_ACTORS: readonly EndingActor[] = ['bound', 'monitor', 'agent'];
 
 /**
  * A fact a transition needs but cannot measure — supplied by a caller.
@@ -320,6 +332,18 @@ export const observeAgentState = (
 export interface EndingAttributionInput {
   /** The actor the ending record names, as read — a string, because a file supplies it. */
   actor: string;
+  /**
+   * The reason the ending record names, as read — a string, for the same reason
+   * {@link actor} is one.
+   *
+   * **THE ACTOR ALONE CANNOT DECIDE THIS.** `agent` is attributable for exactly
+   * one reason and self-attributed for every other, so a rule reading only the
+   * actor either refuses a legitimate ending or admits an agent claiming it
+   * decided its own stop. Absent — an older caller, or a record that named no
+   * reason — reads as *not `unstarted`*, which keeps the refusal that was there
+   * before this field existed.
+   */
+  reason?: string;
   /** Readings a caller measured, such as whether the ending file parsed. */
   preconditions?: readonly Precondition[];
 }
@@ -337,15 +361,24 @@ export interface EndingAttributionInput {
  *
  * The exit at `:1296` is legal, and this rule says why: the ending it writes
  * attributes itself to the `bound` or the `monitor`, never to the agent. An
- * ending naming `agent` would be an agent claiming it decided its own stop,
- * which no component in Plot produces and the design gives no party for.
+ * ending naming `agent` there would be an agent claiming it decided its own
+ * stop, and neither watcher's finding is the agent's to claim.
  *
- * The check survives the enum narrowing because it reads a STRING: an ending
- * file on a desk is bytes until something validates them, and a worker of an
- * older vintage may have written a third value.
+ * **`unstarted` IS THE ONE READING WHERE `agent` IS THE HONEST ANSWER, AND THE
+ * REASON IS WHAT SEPARATES THEM.** A prompt whose command exited non-zero
+ * without running was ended by no watcher: the floor did not expire and the
+ * monitor published nothing. The agent's own process launched the command and
+ * received the refusal, so `bound` would claim a clock expired and `monitor`
+ * that a finding was published, and both would be false. This is still not an
+ * agent DECIDING to stop — it is an agent reporting what its command did — and
+ * that is why the pair is checked rather than the actor alone.
+ *
+ * The check survives every enum change because it reads STRINGS: an ending file
+ * on a desk is bytes until something validates them, and a worker of an older
+ * vintage may have written a value no type admits.
  *
  * @param session - the agent's session id.
- * @param input - the actor the ending names, plus any readings.
+ * @param input - the actor and reason the ending names, plus any readings.
  * @returns a decision that the ending is attributable, or a refusal naming the
  *   gate: `ending-self-attributed`, `ending-actor-unrecognised` or
  *   `precondition-unmet`.
@@ -354,11 +387,11 @@ export const endingIsAttributable = (
   session: string,
   input: EndingAttributionInput,
 ): TransitionResult => {
-  if (input.actor === 'agent') {
+  if (input.actor === 'agent' && input.reason !== 'unstarted') {
     return refuse(
       session,
       'ending-self-attributed',
-      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit.`,
+      `agent '${session}' recorded itself as the actor that ended it — the party that acts is the bound or the monitor, and the agent's process only runs the exit. Only an 'unstarted' ending names the agent, because no watcher produces that one.`,
     );
   }
 
@@ -366,7 +399,7 @@ export const endingIsAttributable = (
     return refuse(
       session,
       'ending-actor-unrecognised',
-      `'${input.actor}' is not an ending actor — the two are ${ENDING_ACTORS.join(' and ')}.`,
+      `'${input.actor}' is not an ending actor — the three are ${ENDING_ACTORS.join(', ')}.`,
     );
   }
 

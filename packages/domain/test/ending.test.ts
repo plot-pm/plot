@@ -41,8 +41,8 @@ describe('the ending sits beside the exit code', () => {
 });
 
 describe('a bound expiry and a context exhaustion are different endings', () => {
-  it('reads the four reasons apart', () => {
-    expect(EndingReasonSchema.options).toEqual(['bound', 'quiet', 'unreadable', 'spent']);
+  it('reads the five reasons apart', () => {
+    expect(EndingReasonSchema.options).toEqual(['bound', 'quiet', 'unreadable', 'spent', 'unstarted']);
   });
 
   it('does not collapse spent into bound', () => {
@@ -74,6 +74,32 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
     expect(endedOnAReading(readEnding(ended({ reason: 'spent', actor: 'monitor' })))).toBe(true);
     expect(endedOnAReading(readEnding(ended({ reason: 'bound' })))).toBe(false);
     expect(endedOnAReading(readEnding(ended({ reason: 'unreadable' })))).toBe(false);
+    // An exit code is a fact about a command, not a measurement of an agent —
+    // and no slice ran for anything to be read about.
+    expect(endedOnAReading(readEnding(ended({ reason: 'unstarted', actor: 'agent' })))).toBe(false);
+  });
+
+  it('keeps a prompt that never ran apart from every ending a watcher produced', () => {
+    // The other four are the floor firing or the monitor publishing. This one
+    // is the agent's own process reporting its command's exit code, which is
+    // why its actor is `agent` — `EndingActorSchema`'s only unwritten value
+    // until 2026-09-05, when three agents were refused
+    // `Session ID … is already in use` and each sub-second exit read as a
+    // completed slice.
+    const unstarted = readEnding(ended({
+      reason: 'unstarted',
+      actor: 'agent',
+      detail: 'the worker prompt exited 1 without running, on 3 attempts',
+    }));
+
+    expect(unstarted.read).toBe('ended');
+    expect(unstarted).not.toEqual(readEnding(ended({ reason: 'bound' })));
+    expect(unstarted).not.toEqual(readEnding(ended({ reason: 'quiet', actor: 'monitor' })));
+    expect(unstarted).not.toEqual(readEnding(ended({ reason: 'unreadable' })));
+    expect(endedSpent(unstarted)).toBe(false);
+    // `detail` carries the whole diagnosis, which is why no actor names the
+    // runtime.
+    expect(unstarted.read === 'ended' && unstarted.ending.detail).toContain('without running');
   });
 
   it('refuses a reason nobody defined', () => {
@@ -82,16 +108,24 @@ describe('a bound expiry and a context exhaustion are different endings', () => 
 });
 
 describe('the actor is carried with the reason, and does not follow from it', () => {
-  it('reads the two actors', () => {
-    expect(EndingActorSchema.options).toEqual(['bound', 'monitor']);
+  it('reads the three actors', () => {
+    expect(EndingActorSchema.options).toEqual(['bound', 'monitor', 'agent']);
   });
 
-  it('refuses an ending that attributes itself to the agent', () => {
-    // A third value `agent` was admitted here and written by nobody. The
-    // agent's process runs `exit 124` at `plot-worker-loop.sh:1296`; the party
-    // that acted is the bound or the monitor. `transitions/agent.ts` carries
-    // the rule, and this is the parse refusing the record.
-    expect(readEnding(ended({ reason: 'bound', actor: 'agent' })).read).toBe('unreadable');
+  it('parses an ending that attributes itself to the agent, and judges it elsewhere', () => {
+    // `agent` was admitted here from the start, written by nobody, and removed
+    // on 2026-09-04 on that measurement. The `unstarted` writer arrived the
+    // next day and it is back — for that reason ONLY, which is the pair
+    // `endingIsAttributable` reads.
+    //
+    // THE PARSE DECIDES SHAPE AND THE TRANSITION DECIDES ATTRIBUTION, which is
+    // the division this file already draws for `reason` and `actor` not
+    // determining each other. `{ reason: 'bound', actor: 'agent' }` is a
+    // well-formed record making a claim nothing may act on, and reporting it
+    // `unreadable` would say the bytes were bad when what is wrong is what they
+    // assert.
+    expect(readEnding(ended({ reason: 'bound', actor: 'agent' })).read).toBe('ended');
+    expect(readEnding(ended({ reason: 'unstarted', actor: 'agent' })).read).toBe('ended');
   });
 
   it('lets one actor end a worker for more than one reason', () => {
