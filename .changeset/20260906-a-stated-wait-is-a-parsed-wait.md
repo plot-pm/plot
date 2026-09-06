@@ -2,7 +2,7 @@
 'plot': minor
 ---
 
-The reconciliation sweep reports a live slice whose body claims a wait its branch line does not carry. Section 15 names the slice and quotes the sentence, and the footer carries `stated_waits=`.
+The reconciliation sweep reports a live slice whose body claims a wait its branch line does not carry. Section 16 names the slice and quotes the sentence, and the footer carries `stated_waits=`.
 
 Two records of one fact, and only one of them reaches the fleet. Measured 2026-09-06: `a-desk-is-adopted-and-swept` said in bold *"**IT WAITS FOR** `a-desk-is-finished-with-once` (#705)"*, its heading carried no `waits:`, so `bug/the-reaper-reads-prunable` read as eligible and reached the supervisor's queue as `no-brief`. A person recognising the prose was the only thing that stopped it dispatching.
 
@@ -12,7 +12,7 @@ The subject must be the slice, and that is what separates a claim from a descrip
 
 Draft and Approved only. A shipped plan's wait was resolved by shipping, and reporting it is noise about finished work; that single filter is what takes the whole-estate count to **zero findings on today's estate**. The section stays out of `attention=` and sits below `== blocking sections end ==`, so an unannotated wait never stops a delivery: the repair names a branch no shell can guess, and a plan may legitimately say a slice waits while its author decides the sentence is context.
 
-The section count in `CLAUDE.md` and `AGENTS.md` catches up with the scan — fifteen, where they said fourteen and thirteen.
+The section count in `CLAUDE.md` and `AGENTS.md` catches up with the scan — sixteen, where `AGENTS.md` said thirteen.
 
 <!--
 plan: docs/plans/2026-09-06-a-stated-wait-is-a-parsed-wait.md
