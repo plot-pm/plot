@@ -6,6 +6,9 @@ import { z } from 'zod';
  * `unmeasured` is not `clear`: it means the question was not asked, or the
  * measurement failed.
  */
+// plot-state: reading — a spawn cost taken now and bucketed. Load moves both
+//                       ways within a second; a machine does not pass through
+//                       'tight' on its way anywhere.
 export const HeadroomSchema = z.enum(['clear', 'tight', 'starved', 'unmeasured']);
 export type Headroom = z.infer<typeof HeadroomSchema>;
 

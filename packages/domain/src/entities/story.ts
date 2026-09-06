@@ -7,6 +7,11 @@ import { z } from 'zod';
  * knowledge is still being added to, so a story whose plans have all delivered
  * may still be `active`.
  */
+// plot-state: lifecycle story — written by a person and never derived.
+//                               transitions/story.ts holds the legal moves and
+//                               the archival invariant, against a board that
+//                               had returned a seventh value neither list
+//                               admitted.
 export const StoryStatusSchema = z.enum(['draft', 'ready', 'active', 'in-review', 'paused', 'done']);
 export type StoryStatus = z.infer<typeof StoryStatusSchema>;
 

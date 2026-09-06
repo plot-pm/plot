@@ -21,6 +21,10 @@ export type Phase = (typeof BOARD_PHASES)[number];
  * `approved` covers a plan nobody has started, one in flight, and one whose
  * every branch has landed.
  */
+// plot-state: lifecycle plan — the phase a plan is written through, refined by
+//                              what its slices did. transitions/plan.ts holds
+//                              the approve, deliver and release decisions and
+//                              the refusals that order them.
 export const PlanStatusSchema = z.enum([
   'draft', 'open', 'approved', 'in-progress', 'deliverable', 'delivered', 'released',
 ]);

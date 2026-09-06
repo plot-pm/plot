@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
 /** What the host says a PR's state is. Not trustworthy alone. */
+// plot-state: lifecycle pr — opens, then merges or closes, and neither end
+//                            reopens on the host's word alone: a merged PR
+//                            reports CLOSED, which is why plot-pr-merged.sh
+//                            reads mergedAt. NO RULE YET — counted as debt by
+//                            scripts/check-state-declarations.sh.
 export const PrStateSchema = z.enum(['OPEN', 'MERGED', 'CLOSED']);
 export type PrState = z.infer<typeof PrStateSchema>;
 
@@ -10,6 +15,9 @@ export type PrState = z.infer<typeof PrStateSchema>;
  * `unknown` is not `clean`: Bitbucket cannot answer it at all, and every
  * payload written before the field existed reports the same.
  */
+// plot-state: reading — whether the host could merge it AT THE MOMENT ASKED.
+//                       A commit on either side moves it, so it is re-read
+//                       rather than advanced.
 export const MergeabilitySchema = z.enum(['mergeable', 'conflicting', 'unknown']);
 export type Mergeability = z.infer<typeof MergeabilitySchema>;
 
@@ -18,10 +26,15 @@ export type Mergeability = z.infer<typeof MergeabilitySchema>;
  *
  * `none` and `unknown` are different: no run exists against nobody could ask.
  */
+// plot-state: reading — the Build's states summarized onto the PR at one
+//                       moment. The lifecycle belongs to BuildState; this is
+//                       what a reader saw of it.
 export const ChecksSchema = z.enum(['green', 'pending', 'failing', 'none', 'unknown']);
 export type Checks = z.infer<typeof ChecksSchema>;
 
 /** The review verdict; informational only, and `''` when there is none. */
+// plot-state: reading — the newest verdict the host reports. A reviewer may
+//                       replace it with any other at any time, in any order.
 export const ReviewVerdictSchema = z.enum(['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED', '']);
 export type ReviewVerdict = z.infer<typeof ReviewVerdictSchema>;
 

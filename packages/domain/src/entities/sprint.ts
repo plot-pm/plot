@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
 /** Where a sprint sits in its life. No gate stands on any of these. */
+// plot-state: lifecycle sprint — a timebox is opened, committed to, run and
+//                                closed, in that order and once each. NO RULE
+//                                YET: it is counted as debt by
+//                                scripts/check-state-declarations.sh, which is
+//                                what keeps the number from growing.
 export const SprintStateSchema = z.enum(['Planning', 'Committed', 'Active', 'Closed']);
 export type SprintState = z.infer<typeof SprintStateSchema>;
 
@@ -11,6 +16,10 @@ export type SprintState = z.infer<typeof SprintStateSchema>;
  * on an open Should, and reports a Could without blocking. A timebox with one
  * priority level is a queue with a date on it.
  */
+// plot-state: classification — a priority. A Could becoming a Must is a
+//                              re-prioritisation a person makes, not a
+//                              transition, and every tier is reachable from
+//                              every other at any moment.
 export const MoscowTierSchema = z.enum(['must', 'should', 'could', 'deferred']);
 export type MoscowTier = z.infer<typeof MoscowTierSchema>;
 
@@ -21,6 +30,10 @@ export type MoscowTier = z.infer<typeof MoscowTierSchema>;
  * `open`      it has not.
  * `disputed`  the checkbox says it did and the plan estate says it did not.
  */
+// plot-state: classification — how a checkbox and a plan COMPARE, recomputed
+//                              on every read. 'disputed' is a disagreement
+//                              between two sources rather than a stage the item
+//                              reached.
 export const ItemStatusSchema = z.enum(['done', 'open', 'disputed']);
 export type ItemStatus = z.infer<typeof ItemStatusSchema>;
 

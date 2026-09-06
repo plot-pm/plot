@@ -29,6 +29,9 @@ export interface Wave {
  * How a wave's size may be bounded — `agents` by what can run at once,
  * `landable` by what can merge without colliding. Which wins is open.
  */
+// plot-state: classification — which of two limits set a wave's size, named so
+//                              a reader knows what to change. Which wins is
+//                              open; neither follows the other.
 export const WaveBoundSchema = z.enum(['agents', 'landable']);
 export type WaveBound = z.infer<typeof WaveBoundSchema>;
 

@@ -6,10 +6,17 @@ import { normalizeVersion } from './version.js';
  *
  * Derived, never stored: a release has a life before its tag exists.
  */
+// plot-state: lifecycle release — planned before a tag exists, then candidate,
+//                                 then shipped, and never backwards: a shipped
+//                                 tag is immutable. NO RULE YET: counted as
+//                                 debt by scripts/check-state-declarations.sh.
 export const ReleaseStateSchema = z.enum(['planned', 'candidate', 'shipped']);
 export type ReleaseState = z.infer<typeof ReleaseStateSchema>;
 
 /** Whether the tag is a release or a candidate for one. */
+// plot-state: classification — which kind of tag this is, decided when it is
+//                              cut. An rc does not become a release; a release
+//                              tag is cut alongside it.
 export const ReleaseChannelSchema = z.enum(['release', 'rc']);
 export type ReleaseChannel = z.infer<typeof ReleaseChannelSchema>;
 

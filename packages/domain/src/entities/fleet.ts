@@ -46,6 +46,11 @@ import { z } from "zod";
  * {@link SliceVerdictSchema}'s `blocked`, which is about wave ordering. The two
  * travel in different fields and are counted separately.
  */
+// plot-state: lifecycle branch — open, claimed, wip, merged, plus the two the
+//                                host answers for. The ordering stated in prose
+//                                above — 'merged' and 'deferred' replace only
+//                                'open' or 'unknown' — is what a rule would
+//                                refuse. NO RULE YET: counted as debt.
 export const BranchStateSchema = z.enum([
   'open',
   'wip',
@@ -71,6 +76,9 @@ export type BranchState = z.infer<typeof BranchStateSchema>;
  * differently: the first by merging work, the second by a person approving the
  * plan.
  */
+// plot-state: classification — what the SCAN says about a slice, re-derived
+//                              from git refs every run and stored nowhere. The
+//                              slice's own lifecycle is its branch's, above.
 export const SliceVerdictSchema = z.enum(['complete', 'eligible', 'blocked', 'unapproved']);
 export type SliceVerdict = z.infer<typeof SliceVerdictSchema>;
 
@@ -86,6 +94,11 @@ export type SliceVerdict = z.infer<typeof SliceVerdictSchema>;
  * opposite actions, restart versus review. `elsewhere` is the sixth: no worktree
  * here, so the question cannot be answered rather than answered "no".
  */
+// plot-state: lifecycle worker — the scan's vocabulary for the same eight the
+//                                Agent carries, read per branch. The rule it
+//                                wants is transitions/agent.ts: the duplication
+//                                is the known Wave/Slice-shaped defect, not a
+//                                second lifecycle. NO RULE YET — counted as debt.
 export const WorkerStateSchema = z.enum([
   'running', 'finished', 'failed', 'ended', 'none', 'elsewhere',
   // Two TASK states beside the six PROCESS states above, added 2026-08-18.
@@ -118,6 +131,8 @@ export type WorkerState = z.infer<typeof WorkerStateSchema>;
  * samples the whole descendant tree twice and compares — the growth is the
  * signal. Measured on the process table with no new bookkeeping.
  */
+// plot-state: reading — two CPU samples of the descendant tree, compared. A
+//                       cue on 'running' and deliberately not a ninth state.
 export const WorkerActivitySchema = z.enum(['working', 'idle', '']);
 export type WorkerActivity = z.infer<typeof WorkerActivitySchema>;
 
@@ -699,6 +714,10 @@ export const FleetReadingSchema = z.object({
      * mid-stream, `EMPTY_SUMMARY` on a cold cache) are not made to assert a
      * health they have no evidence for.
      */
+    // plot-state: reading — how the host answered during ONE scan. It recovers
+    //                       and degrades between pulses in any order, and an
+    //                       unrecognised word reads as 'unknown' rather than
+    //                       throwing.
     host: z.enum(['ok', 'throttled', 'secondary', 'failed', 'unknown']).catch('unknown').default('unknown'),
   }),
 });
