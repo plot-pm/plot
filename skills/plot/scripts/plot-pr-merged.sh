@@ -34,6 +34,42 @@
 # `mayRemove` in the rule, asserted over all nine combinations of the two
 # readings, and exactly one of them permits a removal.
 #
+# WHY THIS STILL ASKS `gh` AND NOT `plot-host.sh`. Measured 2026-09-06, and it
+# is the answer to a question this file's exemption in
+# `scripts/check-host-cli-callers.sh` was left open for.
+#
+# `plot-host.sh pr-merged` prints `merged`/`not-merged`/`unknown`, three words
+# that read like the three readings below. THEY DO NOT MATCH. An ABSENT CLI
+# arrives from the adapter as `not-merged`, where `_plot_merged_lookup` answers
+# `unaskable`:
+#
+#   plot-host.sh pr-merged <branch>   → not-merged (exit 0)
+#   _plot_merged_lookup <branch>      → unaskable
+#
+# The cause is the adapter's `is_lookup_miss`. A missing binary makes the shell
+# say `bash: gh: command not found`, and that matches the same `not found` it
+# uses to recognise a genuine "no pull requests found" — one phrase covering two
+# conditions the rule below exists to keep apart.
+#
+# THE DIRECTION IS WHY IT BLOCKS RATHER THAN ANNOYS. `not-merged` reads as
+# `none` — the host spoke and said nothing merged — so `mayRemove` may permit a
+# removal where `unaskable` refuses. `plot-release-refs.sh` deletes remote refs
+# on this answer and a deleted ref is not re-creatable.
+#
+# AND `pr_open` HAS NO OP TO CALL AT ALL. It needs found/none/unaskable about
+# ANY open PR; `pr-state` answers about ONE — the newest — and reports a failed
+# lookup with the same `state:"NONE"` payload as a real absence. It can express
+# neither "any" nor "unaskable".
+#
+# THE COST WAS MEASURED TOO, and it is the smaller objection. Ten sequential
+# calls on this machine: 4.75 s direct, 9.25 s through the adapter — +450 ms per
+# branch, from the connector's slot and budget accounting rather than from the
+# spawn. Across the 48 branches the fleet scan walks that is ~21 s. Real, but it
+# is the correctness gap above that decides this, not the clock.
+#
+# Both halves are pinned in `test/reconcile/host.test.mjs`, so the exemption
+# rests on tests that fail when it stops being true.
+#
 # `mergedAt` IS READ, NEVER `state`. A merged PR reports state CLOSED, and
 # trusting `state` would refuse every squash-merged branch — which is the whole
 # population these scripts exist for. Squash-merge rewrites the commits, so the

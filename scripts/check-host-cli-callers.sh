@@ -52,20 +52,41 @@
 #   a sprint runner refusing to start without credentials is checking the tool,
 #   not asking about a PR.
 #
-# `plot-pr-merged.sh` — EXEMPT FOR NOW, AND THE ONLY ONE THAT IS A GAP RATHER
-#   THAN A DIFFERENT QUESTION. It asks exactly what this gate is about, and its
-#   two `gh pr list` lookups should route. They were left in place deliberately:
-#   the slice that touched this file moved the DECISION into the domain, behind
-#   `_plot_landed`, and stopped there. The two lookups keep a failure direction
-#   nothing else here keeps — a missing CLI, an unauthed one and a network
-#   failure all answer `unaskable`, so every caller KEEPS what it was about to
-#   delete — and `plot-host.sh pr-merged` reports `unknown` on exit 0 for the
-#   same case. The mapping is one line and it is somebody's decision to make,
-#   not a routing change to smuggle in beside four others.
+# `plot-pr-merged.sh` — EXEMPT ON A MEASUREMENT, AND NO LONGER MERELY DATED.
+#   It asks exactly what this gate is about, and its two `gh pr list` lookups
+#   should route. The routing was attempted 2026-09-06 and it does not hold
+#   yet, for a reason that was not visible until the two were compared
+#   side by side.
 #
-#   The exemption is dated, unlike the three above it: those describe questions
-#   the adapter does not answer, this one describes work not yet done. Delete
-#   this entry when the lookups route.
+#   `plot-host.sh pr-merged` prints `merged`/`not-merged`/`unknown`, which reads
+#   like the three readings `rules/landed.ts` takes. IT IS NOT. An ABSENT CLI
+#   arrives as `not-merged`, where this file answers `unaskable`:
+#
+#     plot-host.sh pr-merged <branch>   → not-merged (exit 0)
+#     _plot_merged_lookup <branch>      → unaskable
+#
+#   The cause is `is_lookup_miss`. A missing binary makes the shell say
+#   `bash: gh: command not found`, and that matches the same `not found` the
+#   adapter uses to recognise a genuine "no pull requests found". One phrase,
+#   two conditions, and the adapter cannot separate them.
+#
+#   THE DIRECTION IS WHY THIS BLOCKS. `not-merged` reads as `none` — the host
+#   spoke and said nothing merged — so `mayRemove` may permit a removal, where
+#   `unaskable` refuses. Routing as it stands converts a KEEP into a REMOVE in
+#   `plot-release-refs.sh`, whose ref deletions are not re-creatable. That is
+#   the one direction this estate has repeatedly said it will not fail in.
+#
+#   AND THE OPEN LOOKUP HAS NO OP AT ALL. `pr_open` needs `found`/`none`/
+#   `unaskable` about ANY open PR. `pr-state` answers about ONE PR — the newest
+#   — and collapses a failed lookup into the same `state:"NONE"` payload as a
+#   real absence, so it can express neither "any" nor "unaskable". Routing that
+#   half needs a new op, which is capability rather than routing.
+#
+#   Pinned by two tests in test/reconcile/host.test.mjs, so this entry rests on
+#   something that fails when it stops being true. Delete this entry when
+#   `pr-merged` tells an absent CLI from an empty result AND an open-PR lookup
+#   exists — not merely when someone reads the three words and assumes they
+#   match.
 #
 # There is deliberately no exception for "just this one PR lookup". A site that
 # would want one is a site that should be calling `plot-host.sh`.
