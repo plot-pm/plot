@@ -21,6 +21,7 @@
 - **Started:** 2026-09-05, Jan Wloka, `feature/a-worktree-lifecycle-refuses`
 - **Started:** 2026-09-06, Jan Wloka, `infra/a-state-declares-its-lifecycle`
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-slice-lifecycle-refuses`
+- **Started:** 2026-09-06, Jan Wloka, `feature/six-lifecycles-declare-their-rules`
 -->
 
 ## Changelog
