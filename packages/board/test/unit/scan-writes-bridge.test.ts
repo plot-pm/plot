@@ -108,13 +108,30 @@ describe('the scan writes its own bridge', () => {
     expect(fs.existsSync(bridgeFile(repo))).toBe(false);
   });
 
-  it('writes a bridge the BOARD reads back, on the --json path', () => {
-    // The board's path: it spawns the scan with `--stream`, which assembles the
-    // document. The assertion that matters is `readBridge` returning non-null —
-    // a version mismatch or a shape it cannot parse returns null SILENTLY and
-    // renders an empty board with no error to trace.
+  it('records nothing on plain --json, which is a QUERY', () => {
+    // `--json` assembles the document and records nothing. Only the two callers
+    // that produce a pulse for somebody to read record one — `--stream` (the
+    // board) and `--log-pulse` (/plot-pulse). Two reconcile tests drive `--json`
+    // and assert the repository is untouched afterwards; a write here would
+    // make the scan record on a path no caller asked to.
     fs.rmSync(bridgeFile(repo), { force: true });
-    const printed = scan(repo, '--json');
+    scan(repo, '--json');
+    expect(fs.existsSync(bridgeFile(repo))).toBe(false);
+  });
+
+  it('writes a bridge the BOARD reads back, on the --stream path', () => {
+    // The board's own path: `fleet.ts:2694` spawns the scan with `--stream`.
+    // The assertion that matters is `readBridge` returning non-null — a version
+    // mismatch or a shape it cannot parse returns null SILENTLY and renders an
+    // empty board with no error to trace.
+    fs.rmSync(bridgeFile(repo), { force: true });
+    const streamed = scan(repo, '--stream');
+    // `--stream` tags each line; the terminal one carries the whole document.
+    const terminal = streamed.trim().split('\n')
+      .map((l) => JSON.parse(l) as { kind: string; reading?: unknown })
+      .find((m) => m.kind === 'reading');
+    expect(terminal).toBeDefined();
+    const printed = JSON.stringify(terminal!.reading);
 
     const read = readBridge(repo);
     expect(read).not.toBeNull();
@@ -159,7 +176,7 @@ describe('the scan writes its own bridge', () => {
     // silently, so the clock is asserted rather than assumed.
     fs.rmSync(bridgeFile(repo), { force: true });
     const before = Date.now();
-    scan(repo, '--json');
+    scan(repo, '--stream');
     const after = Date.now();
 
     const raw = JSON.parse(fs.readFileSync(bridgeFile(repo), 'utf8')) as { version: number; at: number };
@@ -179,10 +196,10 @@ describe('the scan writes its own bridge', () => {
     // reaches one changes nothing. Asserted by killing a REAL scan mid-run
     // rather than by reading where the call sits.
     fs.rmSync(bridgeFile(repo), { force: true });
-    scan(repo, '--json');
+    scan(repo, '--stream');
     const good = fs.readFileSync(bridgeFile(repo), 'utf8');
 
-    const child = spawn('bash', [SCAN, '--offline', '--json'], {
+    const child = spawn('bash', [SCAN, '--offline', '--stream'], {
       cwd: repo, stdio: ['ignore', 'pipe', 'pipe'],
     });
     // Killed while it is still deriving: the scan spawns git per branch, so a

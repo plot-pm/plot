@@ -188,10 +188,12 @@
 #    every run.
 #
 # 2. `.plot/state/last-pulse.json` — the bridge, written by `write_bridge` on
-#    the success path of a scan that assembled its document. That is a CACHE
-#    WITH AN EXPIRY: `pulse-bridge.ts` discards it after 15 minutes and on a
-#    version mismatch, so it can only ever be a shortcut to an answer this
-#    script re-derives anyway. It is machine-local and gitignored.
+#    the success path of `--stream` (what the board spawns) and `--log-pulse`
+#    (what /plot-pulse passes). Those are the two callers that produce a pulse
+#    for somebody to READ; plain `--json` is a query and records nothing. That
+#    is a CACHE WITH AN EXPIRY: `pulse-bridge.ts` discards it after 15 minutes
+#    and on a version mismatch, so it can only ever be a shortcut to an answer
+#    this script re-derives anyway. It is machine-local and gitignored.
 #
 #    Added 2026-09-06. The board wrote this file and the scan did not, so a
 #    repository with no board had nothing to diff against and every pulse read
@@ -239,6 +241,11 @@ as_json=0
 # branch objects carry `merge-tree` conflict sets. So the two meanings are
 # separated rather than folded, and a plain `/plot-fleet-scan.sh` pays neither.
 build_doc=0
+# Whether this run RECORDS the pulse it produced — `.plot/state/last-pulse.json`.
+# A third question again: `--json` assembles a document and records nothing,
+# because it is a query. Only the two callers that produce a pulse for somebody
+# to read set this — `--stream` (the board) and `--log-pulse` (/plot-pulse).
+record=0
 stream=0
 slug=""
 while [ $# -gt 0 ]; do
@@ -250,7 +257,7 @@ while [ $# -gt 0 ]; do
     # it now also writes `.plot/state/last-pulse.json`, so `/plot-pulse` in a
     # repository with no board accumulates the history a delta needs. Without
     # that, every pulse on a boardless repo is a first one forever.
-    --log-pulse) log_pulse=1; build_doc=1 ;;
+    --log-pulse) log_pulse=1; build_doc=1; record=1 ;;
     --next) next_only=1 ;;
     --list-eligible) next_only=1; list_all=1 ;;
     # THE SECOND QUESTION, and it borrows `--next`'s population deliberately.
@@ -258,8 +265,17 @@ while [ $# -gt 0 ]; do
     # about the SAME plans `--next` was silent over — a terminal plan admitted
     # here would answer `not-yet` about work somebody decided was not needed.
     --why-nothing) next_only=1; why_nothing=1 ;;
+    # `--json` ASSEMBLES BUT DOES NOT RECORD, and the two flags differ here for
+    # a reason. `--stream` is what the BOARD spawns (`fleet.ts:2694`) and
+    # `--log-pulse` is what `/plot-pulse` passes: both produce a pulse somebody
+    # is reading, so both record one. Plain `--json` is a machine-readable
+    # QUERY — `--next`'s neighbours ask it to find out what to work on — and a
+    # query that left a file behind would make the scan write on a path no
+    # caller asked to record. Two reconcile tests assert exactly that and
+    # caught this: `conflicts: the scan writes NOTHING` and `fleet: scan is
+    # read-only`, both of which drive `--json`.
     --json) as_json=1; build_doc=1 ;;
-    --stream) as_json=1; stream=1; build_doc=1 ;;
+    --stream) as_json=1; stream=1; build_doc=1; record=1 ;;
     -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) slug="$1" ;;
   esac
@@ -3961,7 +3977,7 @@ fi
 # behaviour, because the next pulse re-derives everything — which is what keeps
 # this inside the script's stateless design rather than beside it.
 write_bridge() {
-  [ "$build_doc" = 1 ] || return 0
+  [ "$record" = 1 ] || return 0
   [ -n "$reading_doc" ] || return 0
   # The bridge belongs to the REPOSITORY, not to the directory the scan was run
   # from. Every other path here is relative to the cwd because the board spawns
