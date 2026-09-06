@@ -59,6 +59,21 @@ import {
  * ONE set of readings, and reports the host's reach as a fact rather than
  * assuming it.
  *
+ * ## The two readings are minutes apart, so a disagreement is re-run
+ *
+ * The scan takes its `pr-list` at the start of the run and this file takes its
+ * own after; a pull request merging in between makes BOTH sides correct about
+ * different moments. Measured 2026-09-06 within twenty minutes: PR #748 merged
+ * 64 seconds into one run and PR #738 seventy seconds into the next, each
+ * producing exactly one `adapter=merged production=wip` line on a rule that was
+ * not wrong.
+ *
+ * So a first pass that disagrees is repeated with BOTH sides read again, and
+ * only a disagreement that survives both passes is reported. A race settles,
+ * because the second pass reads a settled estate on both sides; a rule that is
+ * genuinely wrong disagrees identically every time. The extra scan is paid only
+ * when the first pass found something.
+ *
  * ## On a disagreement: stop, do not adjust
  *
  * Which side is wrong is judgement. Every failure prints the branch, the field
@@ -191,6 +206,56 @@ const readingsFor = (
   };
 };
 
+/**
+ * Re-takes every reading this file owns.
+ *
+ * Called between the two passes so the second compares a settled estate on both
+ * sides. The scan is re-run by the caller; these are its counterpart.
+ */
+const refreshReadings = (): void => {
+  refs = readRemoteRefs(estate);
+  mergeSubjects = readMergeSubjects(estate, mainBranch);
+  prList = readPrList(estate);
+  prByBranch = bestPrPerBranch(prList.rows);
+};
+
+/** What one comparison pass found. */
+interface Pass {
+  /** How many branches were walked. */
+  compared: number;
+  /** Where the rule and the scan differed. */
+  disagreements: Disagreement[];
+}
+
+/**
+ * Derives every branch of every plan and compares it to what the scan reported.
+ *
+ * @param reading - the pulse to compare against.
+ * @returns the count walked and every disagreement found.
+ */
+const comparePass = (reading: FleetReading): Pass => {
+  const disagreements: Disagreement[] = [];
+  let compared = 0;
+  for (const plan of reading.plans) {
+    for (const slice of plan.slices) {
+      for (const branch of slice.branches) {
+        compared += 1;
+        const derived = branchState(
+          readingsFor(branch.branch, branch.deferred, branch.waits_on),
+        );
+        if (derived === branch.state) continue;
+        disagreements.push({
+          subject: `${plan.file} :: ${branch.branch}`,
+          field: 'state',
+          adapter: derived,
+          production: branch.state,
+        });
+      }
+    }
+  }
+  return { compared, disagreements };
+};
+
 beforeAll(() => {
   pulse = FleetReadingSchema.parse(readFleetScan(estate));
   mainBranch = readMainBranch(estate);
@@ -235,35 +300,66 @@ describe('the estate is really being read', () => {
 
 describe('the rule reproduces the shell for every branch on the estate', () => {
   it('derives the same state the scan reports', () => {
-    const found: Disagreement[] = [];
-    let compared = 0;
+    // TWO PASSES, AND THE SECOND IS THE ARBITER — because the two sides read
+    // the host at DIFFERENT MOMENTS and this estate merges pull requests while
+    // the test runs. Measured 2026-09-06 within twenty minutes: PR #748 merged
+    // 64 seconds into one run and PR #738 seventy seconds into the next, each
+    // producing one `adapter=merged production=wip` line on a rule that was not
+    // wrong. The scan had read `pr-list` before the merge; this file read it
+    // after.
+    //
+    // A SINGLE RE-READ OF THE PULL REQUEST CANNOT ARBITRATE THAT, and trying it
+    // was the wrong shape: both of this file's readings land on the same side
+    // of the merge, so they agree with each other and the movement is invisible
+    // from here. What differs is the SCAN's reading, which this file does not
+    // hold — only the state derived from it.
+    //
+    // So the whole comparison is repeated instead. A disagreement is reported
+    // only when it survives a second pass in which BOTH sides are read again:
+    // a race resolves, because the second pass reads a settled estate on both
+    // sides, while a rule that is genuinely wrong disagrees identically every
+    // time. The cost is one extra scan, paid ONLY when the first pass found
+    // something — a quiet run pays nothing.
+    //
+    // This is the plan's own refusal applied to its own gate: a differential
+    // over live output *"fails in the direction that wastes a day, by looking
+    // like a regression"*, and a red CI run on a merge that happened to land
+    // mid-test is exactly that failure.
+    const first = comparePass(pulse);
+    // COUNTED, NOT ASSUMED, AND COUNTED ON THE PASS THAT OWNS THE PULSE. The
+    // two numbers come from different places — one from walking the plans, one
+    // from the scan's own footer — so a walk that silently visited fewer
+    // branches than the scan reported fails here rather than passing over a
+    // shorter list. Asserted against the FIRST pulse, because the second pass
+    // re-runs the scan and its footer belongs to that later reading.
+    expect(first.compared).toBe(pulse.summary.branches);
+    expect(first.compared).toBeGreaterThan(0);
+    if (first.disagreements.length === 0) return;
 
-    for (const plan of pulse.plans) {
-      for (const slice of plan.slices) {
-        for (const branch of slice.branches) {
-          compared += 1;
-          const derived = branchState(
-            readingsFor(branch.branch, branch.deferred, branch.waits_on),
-          );
-          if (derived !== branch.state) {
-            found.push({
-              subject: `${plan.file} :: ${branch.branch}`,
-              field: 'state',
-              adapter: derived,
-              production: branch.state,
-            });
-          }
-        }
-      }
+    // eslint-disable-next-line no-console
+    console.log(
+      `pass 1 disagreed on ${first.disagreements.length}; re-reading both sides`,
+    );
+    refreshReadings();
+    const second = comparePass(FleetReadingSchema.parse(readFleetScan(estate)));
+
+    // ONLY WHAT SURVIVED BOTH PASSES. Keyed by subject and field, so a branch
+    // that disagreed differently in each pass — the shape a race takes — is not
+    // reported either.
+    const firstKeys = new Set(
+      first.disagreements.map((d) => `${d.subject}|${d.adapter}|${d.production}`),
+    );
+    const persisted = second.disagreements.filter((d) =>
+      firstKeys.has(`${d.subject}|${d.adapter}|${d.production}`),
+    );
+    const settled = first.disagreements.length - persisted.length;
+    if (settled > 0) {
+      // eslint-disable-next-line no-console
+      console.log(`${settled} disagreement(s) settled on the second pass — the estate moved mid-run`);
     }
 
-    // COUNTED, NOT ASSUMED. The two numbers come from different places — one
-    // from walking the plans, one from the scan's own footer — so a walk that
-    // silently visited fewer branches than the scan reported fails here rather
-    // than passing over a shorter list.
-    expect(compared).toBe(pulse.summary.branches);
-    expect(compared).toBeGreaterThan(0);
-    expect(found.map(describeDisagreement)).toEqual([]);
+    expect(second.compared).toBeGreaterThan(0);
+    expect(persisted.map(describeDisagreement)).toEqual([]);
   });
 
   it('names which states the estate actually exercised', () => {
