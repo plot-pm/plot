@@ -54,7 +54,7 @@ Your first plan:
 /plot-deliver   check it landed →  every branch merged, plan delivered
 ```
 
-Optional, and worth it once several branches are in flight: `/plot-board-setup` adopts a local board that shows what is waiting on you, and `/plot-board --start` runs it.
+Optional, and worth it once several branches are in flight: `/plot-board-setup` adopts a local board that shows what is waiting on you, and `/plot-board --start` runs it. `/plot-fleet --start` brings up the supervisor and the agents it hands work to — a separate process from the board, with its own command.
 
 **New to Plot?** [Intro to Using Plot](skills/plot/intro-to-using-plot.md) walks the whole lifecycle with real commands and output.
 
@@ -162,7 +162,7 @@ The keys cover plan and sprint directories, branch prefixes, git host and CI, th
 | [plot](skills/plot/) | Hub & dispatcher — reads git state, suggests next action |
 | [plot-init](skills/plot-init/) | Adopt Plot in a repo — probes your setup and proposes the config |
 | [plot-board-setup](skills/plot-board-setup/) | Adopt the local board — checks prerequisites, records config, proves it serves |
-| [plot-board](skills/plot-board/) | Board control — start, stop and report on the local board that runs on this machine |
+| [plot-board](skills/plot-board/) | Board control — `--start`, `--stop`, `--status` over the local board that runs on this machine |
 | [plot-idea](skills/plot-idea/) | Create a plan: idea branch, plan file, draft PR |
 | [plot-approve](skills/plot-approve/) | Record the plan's approval through its declared review channel |
 | [plot-implement](skills/plot-implement/) | Start/resume implementation: preflight, branch setup, hand-off brief |
@@ -173,7 +173,7 @@ The keys cover plan and sprint directories, branch prefixes, git host and CI, th
 | [plot-sprint](skills/plot-sprint/) | Time-boxed sprint coordination with MoSCoW prioritization |
 | [plot-dispatch](skills/plot-dispatch/) | Fan out a plan — one worktree and one worker per eligible branch |
 | [plot-pulse](skills/plot-pulse/) | Fleet pulse — which waves are eligible, which branches are claimed |
-| [plot-fleet](skills/plot-fleet/) | Fleet control — start, stop and report on the supervisor and its agents |
+| [plot-fleet](skills/plot-fleet/) | Fleet control — `--start`, `--stop`, `--status` over the supervisor and the agents it runs |
 | [plot-merge-queue](skills/plot-merge-queue/) | Safe merge order with collision prediction |
 | [plot-reslice](skills/plot-reslice/) | Slice a multi-branch wave into one wave per branch |
 | [ralph-plot-sprint](skills/ralph-plot-sprint/) | Automated sprint runner (extension) |
