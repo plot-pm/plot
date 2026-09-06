@@ -94,7 +94,7 @@ The scan reports a non-Closed sprint whose `Release:` has been tagged.
 
 **Done when** the scan reports a non-Closed sprint whose declared release has shipped, and closes none of them.
 
-### The timebox is read (Branch: feature/a-sprint-shows-its-dates)
+### The timebox is read (Branch: feature/a-sprint-shows-its-dates, PR: #752)
 
 `start` and `end` reach the board's sprint card.
 
