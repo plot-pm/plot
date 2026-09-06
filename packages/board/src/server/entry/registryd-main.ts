@@ -568,14 +568,24 @@ const workspacePackagesIn = async (repoRoot: string): Promise<readonly string[]>
 };
 
 /**
- * Applies the tick's `worker-start` writes — the one thing this daemon performs.
+ * Applies the tick's `agent-assign` and `worker-start` writes — what this
+ * daemon performs.
  *
- * **IT APPLIES ONE KIND AND SKIPS EVERY OTHER.** The tick names reaps, blocked
- * markers, corrections and assignments too, and none of them is performed here:
- * this slice owns starting an agent and nothing else, so a write it does not
- * own is left for whoever does. Naming the kind rather than falling through a
- * default is `perform-fs.ts`'s discipline — *skipped on purpose* and *a kind
- * the author forgot* look identical from inside a loop.
+ * **IT APPLIES TWO KINDS AND SKIPS EVERY OTHER.** The tick names reaps, blocked
+ * markers and corrections too, and none of them is performed here, so a write
+ * it does not own is left for whoever does. Naming the kind rather than falling
+ * through a default is `perform-fs.ts`'s discipline — *skipped on purpose* and
+ * *a kind the author forgot* look identical from inside a loop.
+ *
+ * **`agent-assign` WAS THE SECOND KIND AND IT WAS MISSING.** Measured
+ * 2026-09-06: a tick reported `handed=8` while all eight agents stayed
+ * `branch: ""`, because this loop filtered to `worker-start` alone. Six were
+ * written into their manifests by hand, twice in one day. A summary naming a
+ * write nobody makes is worse than no summary.
+ *
+ * **THE ASSIGNMENT GOES FIRST**, so an agent started by this same pass is not
+ * handed a slice in the pass that created it. `matchQueue` read the fleet as it
+ * was; a new desk was not in that reading and must wait for the next one.
  *
  * **A START THAT FAILS COSTS ONE TICK.** The next tick re-derives the queue and
  * the fleet from disk and reaches the same decision if the shortage is still
@@ -595,6 +605,27 @@ export const startAgents = async (
   warn: (s: string) => void,
 ): Promise<number> => {
   let started = 0;
+
+  for (const item of report.handOver?.writes ?? []) {
+    if (item.kind !== 'agent-assign') continue;
+    const answer = await performer.assignSlice(item.session, item.branch, item.slug);
+    if (!answer.ok) {
+      warn(
+        `plot-registryd: ${item.branch} could not be handed over; the next tick re-derives the queue\n`,
+      );
+      continue;
+    }
+    // A REFUSAL IS REPORTED, NOT SWALLOWED. `false` means the agent had taken
+    // other work between the tick's reading and this write — nothing is wrong,
+    // but a hand-over the summary counted did not happen, and a reader
+    // comparing `handed=` against the fleet must be able to see why.
+    write(
+      answer.value
+        ? `  ${item.branch}: handed to ${item.session}\n`
+        : `  ${item.branch}: not handed — ${item.session} had already taken work\n`,
+    );
+  }
+
   for (const item of report.handOver?.writes ?? []) {
     if (item.kind !== 'worker-start') continue;
     const answer = await performer.startFreeAgent(item.worktree);
