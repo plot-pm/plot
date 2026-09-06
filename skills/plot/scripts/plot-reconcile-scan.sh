@@ -3,7 +3,7 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: thirteen-section text report on stdout (each finding carries its exact
+# Output: fifteen-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed). A
 #         `== blocking sections end ==` line separates the findings that stop a
 #         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
@@ -14,7 +14,7 @@
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits a thirteen-section report. This is the COMPUTATIONAL half of the
+# emits a fifteen-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -118,6 +118,24 @@
 #                                 phase from the file — so it carries
 #                                 `sprint_index_drift=` and stays out of
 #                                 `attention`.
+#  15. Sprint outlived release  — a sprint that is NOT Closed whose declared
+#                                 `Release:` has been tagged. Measured:
+#                                 `a-half-landed-workflow-says-so` targets
+#                                 2.13.0, which shipped as `v2.13.0`, while the
+#                                 file reads `Phase: Planning` and none of its
+#                                 eight items ever became a plan. The facts come
+#                                 from `plot-sprint-release.sh`, which already
+#                                 reads a sprint's release and decides nothing —
+#                                 a second reader would drift from it. The first
+#                                 `N.N.N` in the field is the target, because a
+#                                 `Release:` may carry prose after the version.
+#                                 REPORTS AND NEVER CLOSES: a shipped release
+#                                 says the window passed, not that the work is
+#                                 done, so a person closes it. It carries
+#                                 `sprint_shipped=` — a third question, distinct
+#                                 from `sprint_drift=` (plans) and
+#                                 `sprint_index_drift=` (phase vs index) — and
+#                                 stays out of `attention`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
