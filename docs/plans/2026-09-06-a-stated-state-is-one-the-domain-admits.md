@@ -4,12 +4,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-06, Jan Wloka, in-session
+- **Rounds:** 1
 
 ## Changelog
 
@@ -56,6 +58,14 @@ docs/sprints/2026-W36-a-half-landed-workflow…    Phase: Planned
 **`UNKNOWN` IS A READING, NOT AN ERROR.** The parser reports what it read and refuses nothing — `plot-plan-meta.sh` is the contract, and a consumer decides what an unparseable state means for it. That is the same direction `unaskable` takes for a host.
 
 **THE LISTS COME FROM ONE PLACE.** `SprintStateSchema` and `StoryStatusSchema` are the domain's; a shell script cannot import them, so the values are duplicated by construction and the duplication must be **asserted** rather than hoped for. `test/reconcile/` already holds the plan-format contract tests, and this is one more.
+
+**AND THAT IS A FIFTH HAND-COPY IN A SESSION SPENT REMOVING FOUR** — `BOARD_PHASES`, `SPRINT_PHASES`, `STORY_STATUSES` and `statusOrder` — so it needs the distinction stated rather than assumed.
+
+**The four removed were SILENT copies nobody checked.** They agreed by maintenance, drifted when one was edited, and `statusOrder` had already drifted — omitting three of the six values.
+
+**This one is declared and tested against the domain's export.** It fails CI when the two diverge, which is the property the other four lacked. A checked copy is the honest form of a constraint the shell genuinely has: `plot-plan-meta.sh` is `awk` over markdown and cannot import TypeScript.
+
+**A bundle was considered and rejected for this caller.** `plot-approve.sh` reads `plot-transition.mjs` and `plot-pr-merged.sh` reads `plot-landed.mjs`, so the pattern exists — but both call `node` once per invocation, while `plot-plan-meta.sh` is called per file by every scan on the estate. A `node` spawn per plan is the cost `DESIGN-machine.md` measures as the headroom signal, paid on the hottest path Plot has.
 
 **Done when** a story status or sprint phase outside its schema parses as `UNKNOWN`, the plan path is unchanged, and a test asserts each shell list against the domain's.
 

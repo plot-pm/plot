@@ -4,12 +4,14 @@
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Approved
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
+- **Approved:** 2026-09-06, Jan Wloka, in-session
+- **Rounds:** 1
 
 ## Changelog
 
@@ -56,6 +58,10 @@ The plan template carries a `Builds:` field naming the artifact each slice creat
 
 **OPTIONAL, LIKE `Sprint:` AND `Story:`.** A plan that builds nothing nameable — a docs plan, a rejection, a measurement — writes nothing and is not nagged. The check runs on what is declared.
 
+**A 28TH FIELD IS A REAL COST AND IT IS PAID BY ONE CONSUMER.** `plot-plan-meta.sh` reports 27 fields today, and each is a thing a reader must handle and a thing that can go stale. `Builds:` is read by `/plot-idea` alone, written by the plans that have something to declare, and absent everywhere else — which is exactly `Sprint:`'s and `Story:`'s shape, and neither of those has cost the estate anything.
+
+**The alternative was parsing the Done-when**, which every slice already has. Rejected: a Done-when is prose written for a reader, and a check that parses it either misses deliverables phrased unusually or matches words that are not deliverables. A declared field says what the author meant.
+
 **THE PARSER IS THE CONTRACT AND GAINS ONE FIELD.** `plot-plan-meta.sh` already reports `sprint`, `story`, `review`, `impl` and the transition records; `builds` joins them. `test/reconcile/` holds the format tests and gains one.
 
 **Done when** a slice can name what it builds, the parser reports it, and a plan without one parses exactly as it does today.
@@ -67,6 +73,12 @@ The plan template carries a `Builds:` field naming the artifact each slice creat
 **IT EXTENDS THE STEP THAT EXISTS.** *Duplicate detection* already runs there for plan slugs, with a stated reason for searching the directory rather than the index. A deliverable search is the same act against a different corpus.
 
 **WHAT IT SEARCHES IS NAMED, NOT GUESSED.** `packages/*/src`, `skills/plot/scripts`, `scripts/` and the reconcile scan's section headings — the four places the five misses were hiding. A search over the whole tree would match documentation and comments, and a check that fires on prose is one an author learns to skip.
+
+**AND IT SEARCHES THE CONCEPT, NOT ONLY THE NAME.** Measured 2026-09-06: all five duplications are found by a plain grep **once the name is known** — `normalizeVersion` in 4 files, `readingLoss` in 2, `computeStatusDrift` in 1. That is not the hard case.
+
+**The hard case is the one that beat a careful searcher.** `check-host-cli-callers.sh` was missed by a search for `check-*gh*`, because the plan said *gh* and the estate says *host CLI*. **A name-based search only works when the author already guesses the estate's vocabulary** — and an author proposing a thing is precisely the person who does not know what it is called.
+
+**So a slice declares its deliverable and the check expands it.** `gh` also searches `host` and `host-cli`; a rule name also searches its bare noun. The output is candidates a person dismisses, not a verdict — which is the same posture as *Duplicate detection*'s title-similarity check one level up, and the reason this reports rather than refuses.
 
 **IT REPORTS AND NEVER REFUSES.** The output names the file and line so the author can say *"yes, I am replacing that"* — which two of the five plans legitimately were.
 
