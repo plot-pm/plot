@@ -2557,8 +2557,12 @@ test('dispatch: the launch writes an agent manifest keyed on a session id', () =
   // handle's lifetime is the open question, and `attempts` is the supervisor's
   // counter rather than a share of `relaunches`, so a person's manual restarts
   // cannot exhaust an automatic budget.
+  // NO `buildMonitorPid`. The BuildMonitor merged into the slice monitor's loop
+  // on 2026-09-06, so the dispatcher starts four processes rather than five and
+  // the manifest names four. A field naming a process nothing starts is one
+  // `/plot-fleet --stop` would look for and never find.
   assert.deepEqual(Object.keys(m).sort(),
-    ['agentMonitorPid', 'attempts', 'branch', 'buildMonitorPid', 'command', 'pid',
+    ['agentMonitorPid', 'attempts', 'branch', 'command', 'pid',
       'resumeId', 'session', 'startedAt', 'workerMonitorPid', 'worktree', 'wrapperPid'],
     'launch-time facts plus every process the dispatcher started: no model, no context it could only guess');
 });
@@ -2691,20 +2695,18 @@ test('dispatch: the manifest names the wrapper and all three monitors, at spawn'
   assert.match(m.workerMonitorPid, /^\d+$/,
     `the manifest must name the WorkerMonitor, got: ${m.workerMonitorPid}`);
   assert.match(m.agentMonitorPid, /^\d+$/,
-    `the manifest must name the AgentMonitor, got: ${m.agentMonitorPid}`);
-  // THE THIRD MONITOR IS NOT AN AFTERTHOUGHT. `plot-dispatch.sh` calls the
-  // BuildMonitor "born the same way and for the same reason" as its two
-  // siblings; it was captured into `bmon` and then never written, so the
-  // manifest named three of four spawned processes while the changeset claimed
-  // every one.
-  assert.match(m.buildMonitorPid, /^\d+$/,
-    `the manifest must name the BuildMonitor, got: ${m.buildMonitorPid}`);
+    `the manifest must name the slice monitor, got: ${m.agentMonitorPid}`);
+  // AND NOTHING NAMES A BUILD MONITOR, because none is started. The BuildMonitor
+  // merged into the slice monitor's loop on 2026-09-06; a manifest still naming
+  // one would send `/plot-fleet --stop` after a process that does not exist.
+  assert.equal(m.buildMonitorPid, undefined,
+    `no BuildMonitor is started any more, got: ${m.buildMonitorPid}`);
 
-  // FIVE DISTINCT PROCESSES. A group whose members collapsed onto one pid would
-  // pass every numeric check above and name nothing useful.
-  const group = [m.pid, m.wrapperPid, m.workerMonitorPid, m.agentMonitorPid,
-    m.buildMonitorPid];
-  assert.equal(new Set(group).size, 5, `five distinct processes, got: ${group.join(' ')}`);
+  // FOUR DISTINCT PROCESSES — agent, wrapper, worker monitor, slice monitor. A
+  // group whose members collapsed onto one pid would pass every numeric check
+  // above and name nothing useful.
+  const group = [m.pid, m.wrapperPid, m.workerMonitorPid, m.agentMonitorPid];
+  assert.equal(new Set(group).size, 4, `four distinct processes, got: ${group.join(' ')}`);
 
   fs.rmSync(t, { recursive: true, force: true });
   fs.rmSync(wt, { recursive: true, force: true });

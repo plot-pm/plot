@@ -752,12 +752,16 @@ start_worker() {
   #
   # EVERY WORKER IS BORN MONITORED, AND THAT IS ENFORCED HERE OR NOWHERE.
   #
-  # Three monitors start INSIDE the wrapper, as its children, immediately before
+  # TWO monitors start INSIDE the wrapper, as its children, immediately before
   # the agent: one watches the process (`plot-worker-monitor.sh`), one watches
-  # the desk (`plot-agent-monitor.sh`), one watches the run
-  # (`plot-build-monitor.sh`). Each has a subject the others do not and a
-  # cadence it cannot share — seconds on the process table, minutes on the host,
-  # seconds again on a run but only while one is live.
+  # the SLICE (`plot-agent-monitor.sh`) — its desk and its CI, in one loop.
+  #
+  # It was three until 2026-09-06. `DESIGN-process.md` §8 sets fleet control at
+  # `1 + 2N`, and the desk and the run are both the SLICE's, so the BuildMonitor
+  # merged into the AgentMonitor's loop rather than running beside it. It is
+  # still a distinct subject on a distinct cadence — 30 s against the desk's
+  # 300 s — and the merged loop keeps both by waking on the faster one. Nothing
+  # here starts it; `plot-agent-monitor.sh` does, and owns its ending too.
   #
   # WHY INSIDE THE WRAPPER RATHER THAN BESIDE IT. The wrapper already outlives
   # its agent by construction — it must, or there would be no exit code to
@@ -796,15 +800,13 @@ start_worker() {
   # A HAND-MADE WORKTREE GETS NEITHER, and that falls out rather than being
   # enforced: this is the only code that starts a wrapper, and a worktree with
   # no wrapper has nothing for a monitor to be a child of.
-  local worker_monitor='' agent_monitor='' build_monitor=''
+  local worker_monitor='' agent_monitor=''
   [ -x "$script_dir/plot-worker-monitor.sh" ] && worker_monitor="$script_dir/plot-worker-monitor.sh"
+  # THE SLICE MONITOR, which watches the desk AND the run. The build subject is
+  # loaded by that script from `plot-build-monitor.sh`, so this path is the only
+  # one the wrapper needs; a missing build script leaves the loop watching the
+  # desk alone and saying so, rather than costing a process here.
   [ -x "$script_dir/plot-agent-monitor.sh" ] && agent_monitor="$script_dir/plot-agent-monitor.sh"
-  # THE THIRD MONITOR, born the same way and for the same reason. It watches the
-  # RUN — a Build is its own entity in the spec, so a monitor per entity is the
-  # pattern rather than an exception to it. Its cadence is the WorkerMonitor's
-  # 30 s rather than the AgentMonitor's 300 s, and it can afford that against a
-  # HOST because it asks nothing while no run is live.
-  [ -x "$script_dir/plot-build-monitor.sh" ] && build_monitor="$script_dir/plot-build-monitor.sh"
   local stamp_now
   stamp_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   ( cd "$wt" && PLOT_BRANCH="$branch" PLOT_WORKTREE="$wt" \
@@ -814,10 +816,9 @@ start_worker() {
       PLOT_STAMP_STARTED="$stamp_now" \
       PLOT_WORKER_MONITOR="$worker_monitor" \
       PLOT_AGENT_MONITOR="$agent_monitor" \
-      PLOT_BUILD_MONITOR="$build_monitor" \
       PLOT_EXIT_FILE="$wt/.plot-worker.exit" PLOT_PID_FILE="$wt/.plot-worker.pid" \
       PLOT_WRAPPER_PID_FILE="$wt/.plot-worker.wrapper.pid" \
-      nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; bmon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; if [ -n "$PLOT_BUILD_MONITOR" ]; then "$PLOT_BUILD_MONITOR" & bmon=$!; fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" '"'"'
+      nohup sh -c 'printf "%s" "$$" > "$PLOT_WRAPPER_PID_FILE"; wmon=""; amon=""; if [ -n "$PLOT_WORKER_MONITOR" ]; then "$PLOT_WORKER_MONITOR" & wmon=$!; fi; if [ -n "$PLOT_AGENT_MONITOR" ]; then "$PLOT_AGENT_MONITOR" & amon=$!; fi; ( '"$cmd"' ) & agent=$!; printf "%s" "$agent" > "$PLOT_PID_FILE"; if [ -f "$PLOT_MANIFEST_FILE" ]; then awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" -v wrapper="$$" -v wmon="$wmon" -v amon="$amon" '"'"'
         BEGIN { relaunch = 0; count = 1; stamped = 0 }
         FNR == NR {
           if ($0 ~ /^  "pid": "[^"]*",$/) {
@@ -835,7 +836,6 @@ start_worker() {
           print "  \"wrapperPid\": \"" wrapper "\","
           print "  \"workerMonitorPid\": \"" wmon "\","
           print "  \"agentMonitorPid\": \"" amon "\","
-          print "  \"buildMonitorPid\": \"" bmon "\","
           if (relaunch) {
             print "  \"previousPid\": \"" displaced "\","
             print "  \"relaunches\": " count ","
@@ -845,7 +845,6 @@ start_worker() {
         $0 ~ /^  "wrapperPid": "[^"]*",$/ { next }
         $0 ~ /^  "workerMonitorPid": "[^"]*",$/ { next }
         $0 ~ /^  "agentMonitorPid": "[^"]*",$/ { next }
-        $0 ~ /^  "buildMonitorPid": "[^"]*",$/ { next }
         relaunch && $0 ~ /^  "previousPid": "[^"]*",$/ { next }
         relaunch && $0 ~ /^  "relaunches": [0-9]+,$/ { next }
         relaunch && $0 ~ /^  "startedAt": "[^"]*"$/ { print "  \"startedAt\": \"" started "\""; next }

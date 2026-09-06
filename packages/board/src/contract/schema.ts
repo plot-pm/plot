@@ -3035,6 +3035,11 @@ export const ProcessGroupSchema = z.object({
   wrapperPid: z.string().default(''),
   workerMonitorPid: z.string().default(''),
   agentMonitorPid: z.string().default(''),
+  /**
+   * Never written since 2026-09-06, still parsed. The BuildMonitor merged into
+   * the slice monitor's loop, so new manifests carry `''` — but one written
+   * before that date names a live pid, and the group is what a stop walks.
+   */
   buildMonitorPid: z.string().default(''),
 });
 

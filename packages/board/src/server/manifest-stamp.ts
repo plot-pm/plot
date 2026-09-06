@@ -50,9 +50,16 @@ export interface Stamp {
   wrapperPid?: string;
   /** The WorkerMonitor's pid, or `''` when none was attached. */
   workerMonitorPid?: string;
-  /** The AgentMonitor's pid, or `''` when none was attached. */
+  /**
+   * The slice monitor's pid, or `''` when none was attached.
+   *
+   * ONE MONITOR, watching the desk AND the slice's CI. It was two processes
+   * until 2026-09-06, when the BuildMonitor merged into this loop to reach the
+   * `1 + 2N` `DESIGN-process.md` §8 sets. There is no `buildMonitorPid` any
+   * more, and there must not be: a manifest field naming a process nothing
+   * starts is one `plot-fleet --stop` would look for and never find.
+   */
   agentMonitorPid?: string;
-  buildMonitorPid?: string;
 }
 
 /** The `"pid": "…",` line, capturing whatever pid it already held. */
@@ -62,13 +69,20 @@ const STARTED_LINE = /^ {2}"startedAt": "[^"]*"$/;
 /** An existing `"relaunches": N,` line, captured so a relaunch increments it. */
 const RELAUNCHES_LINE = /^ {2}"relaunches": (\d+),$/;
 /**
- * The three process-group lines, dropped wherever they already sit so a fresh
- * set can be emitted after `pid`.
+ * The process-group lines, dropped wherever they already sit so a fresh set can
+ * be emitted after `pid`.
  *
  * UNCONDITIONAL, unlike `previousPid`/`relaunches`: the group is re-emitted on
  * EVERY stamp, including a first dispatch, so a stale copy must go whether or
  * not this is a relaunch. Gating them on relaunch would duplicate the lines when
  * `/api/continue` stamps a manifest a first dispatch had already grouped.
+ *
+ * `buildMonitorPid` IS STILL MATCHED AND NEVER WRITTEN, and the asymmetry is
+ * the point. The field stopped being emitted on 2026-09-06 when the BuildMonitor
+ * merged into the slice monitor, but manifests written before that date still
+ * carry the line — and a stamp that did not match it would leave a pid naming a
+ * process nothing will ever start again. Matching it here is what retires those
+ * copies on the next stamp; the emit list below is what stops new ones.
  */
 const GROUP_LINE = /^ {2}"(wrapperPid|workerMonitorPid|agentMonitorPid|buildMonitorPid)": "[^"]*",$/;
 
@@ -116,7 +130,6 @@ export function stampManifest(text: string, stamp: Stamp): string {
     `  "wrapperPid": "${stamp.wrapperPid ?? ''}",`,
     `  "workerMonitorPid": "${stamp.workerMonitorPid ?? ''}",`,
     `  "agentMonitorPid": "${stamp.agentMonitorPid ?? ''}",`,
-    `  "buildMonitorPid": "${stamp.buildMonitorPid ?? ''}",`,
   ];
 
   // A FIRST dispatch: the placeholder was empty. Fill the pid and write the
