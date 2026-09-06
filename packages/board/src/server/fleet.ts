@@ -50,6 +50,8 @@ import {
   refreshIntervalMs,
   refusalKind,
   slotVerdict,
+  timeboxLabel,
+  timeboxStanding,
   waitExhausted,
   type LimitBasis,
   type LimitReading,
@@ -6663,6 +6665,7 @@ export async function activeSprints(
   const active = workingTreeSprints(opts.repoRoot, sprintDir).filter((s) => s.phase === 'Active');
   if (active.length === 0) return [];
   const statusBySlug = await planStatusBySlug(opts, pulse, complete);
+  const today = new Date().toISOString().slice(0, 10);
   return active.map((sprint) => {
     const counts = { total: 0, open: 0, wip: 0, done: 0 };
     for (const member of sprint.members) {
@@ -6695,7 +6698,19 @@ export async function activeSprints(
     }
     // Invariant: total === open + wip + done. The plan requires this, and
     // keeping it true by construction is simpler than asserting it.
-    return { slug: sprint.slug, title: sprint.title, release: sprint.release, counts, members: sprint.members };
+    // Stamped against ONE day for every sprint in this payload, the same way
+    // `collectSprints` does it: a row deciding its own timebox in the browser
+    // would compare each sprint against whenever it rendered.
+    const readings = { start: sprint.start, end: sprint.end, today };
+    return {
+      slug: sprint.slug,
+      title: sprint.title,
+      release: sprint.release,
+      counts,
+      timebox: timeboxStanding(readings),
+      timeboxLabel: timeboxLabel(readings),
+      members: sprint.members,
+    };
   });
 }
 

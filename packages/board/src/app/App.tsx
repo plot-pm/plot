@@ -843,6 +843,10 @@ export function App() {
             goal: '',
             start: '',
             end: '',
+            // No file, so no dates, so no timebox — the same honesty the dates
+            // above take.
+            timebox: 'none' as const,
+            timeboxLabel: '',
             members: matchingCards.map((c) => ({
               slug: c.slug,
               tier: 'could' as const,

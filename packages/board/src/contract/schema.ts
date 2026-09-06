@@ -629,6 +629,29 @@ export const SprintCardSchema = z.object({
    */
   end: z.string().default(''),
   /**
+   * Where the sprint sits against its own dates — `rules/timebox.ts`'s answer,
+   * computed on the server against the day the board was generated.
+   *
+   * A DERIVED VIEW STATE, decided in the domain rather than in the card.
+   * CLAUDE.md: *"a view state that cannot be asserted without a browser is a
+   * domain property that has not been extracted yet."* The card chooses a
+   * colour from this word and renders {@link SprintCardSchema.shape.timeboxLabel};
+   * it compares no dates.
+   *
+   * `none` where the file named no usable date, which is the default so a
+   * sprint file predating the fields — or a hand-built SprintCard — still
+   * validates.
+   */
+  timebox: z.enum(['none', 'upcoming', 'running', 'late']).default('none'),
+  /**
+   * The timebox as the card prints it — `''` where there is nothing to print.
+   *
+   * Carried rather than formatted in the card for the same reason as
+   * {@link SprintCardSchema.shape.timebox}: the wording of *"3 days late"* is a
+   * fact about the sprint, and asserting it should not need a browser.
+   */
+  timeboxLabel: z.string().default(''),
+  /**
    * The plans the sprint names, one per distinct slug. A slug sliced across
    * several slices lists once here (first, highest tier wins). Defaults to `[]`
    * so a sprint file with no member list — or a hand-built SprintCard — is valid.
@@ -3233,6 +3256,18 @@ export const FleetSprintSchema = z.object({
   /** The sprint's `- **Release:** x.y.z`, or "" — see {@link SprintCardSchema}. */
   release: z.string().default(''),
   counts: SprintCountsSchema,
+  /**
+   * Where the sprint sits against its dates, and the label the row prints —
+   * `rules/timebox.ts`'s answers, stamped server-side against one day.
+   *
+   * Carried here as well as on {@link SprintCardSchema} because the Agents-tab
+   * control reads the FLEET payload, not the board's, and a timebox nobody can
+   * see has passed is the fact this slice exists to show. Both default to the
+   * absent answer, so a sprint file naming no dates still validates.
+   */
+  timebox: z.enum(['none', 'upcoming', 'running', 'late']).default('none'),
+  /** The timebox as the row prints it — see {@link FleetSprintSchema.shape.timebox}. */
+  timeboxLabel: z.string().default(''),
   /**
    * The sprint's plan array — the same structure `board.sprints` already carries
    * and `parseSprintMembers` produces. `AgentList.tsx` reads the fleet payload,

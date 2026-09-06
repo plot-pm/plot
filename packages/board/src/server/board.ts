@@ -28,6 +28,8 @@ import {
 import {
   allSlicesMerged,
   derivedStanding,
+  timeboxLabel,
+  timeboxStanding,
   planStatus as decidePlanStatus,
   type Host,
   type PlanStore,
@@ -1180,7 +1182,15 @@ export function parseSprintContent(content: string, name: string): SprintCard | 
   const goalBody = goalSection ? goalSection[1].trim() : '';
   const goalMatch = goalBody.match(/^\*\*(.+?)\*\*/m);
   const goal = goalMatch ? goalMatch[1].trim() : '';
-  return { slug, title, phase, release, goal, start, end, members: parseSprintMembers(content) };
+  // The timebox is NOT decided here: this parse has no clock, and reading one
+  // would make the answer untestable. `collectSprints` stamps it against one
+  // day for every sprint it returns; a caller parsing a file directly gets the
+  // dates and the honest `none`.
+  return {
+    slug, title, phase, release, goal, start, end,
+    timebox: 'none', timeboxLabel: '',
+    members: parseSprintMembers(content),
+  };
 }
 
 /**
@@ -1198,6 +1208,7 @@ export async function collectSprints(
   knownSlugs?: ReadonlySet<string>,
   ref?: string,
   refs?: Refs,
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<SprintCard[]> {
   // SPRINTS COME FROM THE REF TOO, by the same rule and for a sharper reason
   // than the plans: a sprint feeds the release gate and the tally, so reading a
@@ -1224,7 +1235,20 @@ export async function collectSprints(
   for (const sprint of workingTreeSprints(repoRoot, sprintDir)) {
     addSprint(sprints, takenSlugs, sprint, knownSlugs);
   }
-  return sprints;
+  // The timebox is stamped HERE, once, against one day. Deciding it per card in
+  // the browser would compare each sprint against whenever that card rendered,
+  // so a board left open overnight would show sprints crossing their end at
+  // different moments. `today` is a parameter for the reason every rule in the
+  // domain takes its readings as values: a clock read inside the answer cannot
+  // be tested against a date that matters.
+  return sprints.map((sprint) => {
+    const readings = { start: sprint.start, end: sprint.end, today };
+    return {
+      ...sprint,
+      timebox: timeboxStanding(readings),
+      timeboxLabel: timeboxLabel(readings),
+    };
+  });
 }
 
 /**
