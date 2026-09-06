@@ -1,5 +1,6 @@
-import { derivedStanding, statusDrift, STORY_LIFECYCLE, type StoryStatus }
+import { derivedStanding, statusDrift, STORY_LIFECYCLE }
   from '@plot-pm/domain/transitions/story';
+import type { StoryStatus } from '@plot-pm/domain/entities/story';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 

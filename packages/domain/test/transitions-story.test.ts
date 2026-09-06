@@ -3,6 +3,7 @@ import type { Story } from '../src/entities/story.js';
 import {
   archiveStory,
   derivedStanding,
+  statusDrift,
   isDecision,
   isRefusal,
   setStoryStatus,
@@ -299,6 +300,53 @@ describe('archived is derived from plan phases, in one place', () => {
 
   it('counts an unrecognised phase as not released, which can only hold a story back', () => {
     expect(derivedStanding('active', [{ phase: 'released' }, { phase: 'wat' }])).toBe('active');
+  });
+});
+
+describe('a status behind its plans is reported, and only that direction', () => {
+  it('reports a draft story whose plans are approved', () => {
+    // The measured case: the-domain-knows-what-plot-knows, four of four Approved.
+    expect(statusDrift('draft', 'active')).toBe('Has approved plans');
+  });
+
+  it('reports a story whose plans have all delivered', () => {
+    expect(statusDrift('active', 'done')).toBe('All plans delivered');
+  });
+
+  it('reports a story whose plans have all released', () => {
+    expect(statusDrift('done', 'archived')).toBe('All plans released');
+  });
+
+  it('says nothing where the two agree', () => {
+    expect(statusDrift('active', 'active')).toBeNull();
+  });
+
+  it('says nothing about a story ahead of its plans', () => {
+    // Finished early — a person's word about knowledge no mechanism observes.
+    expect(statusDrift('done', 'active')).toBeNull();
+  });
+
+  it('ranks paused nowhere, so a paused story is never behind', () => {
+    // Pausing is a decision to stop, not a place in the work.
+    expect(statusDrift('paused', 'active')).toBeNull();
+    expect(statusDrift('paused', 'archived')).toBeNull();
+  });
+
+  it('ranks in-review nowhere, so a story in review is never behind', () => {
+    expect(statusDrift('in-review', 'done')).toBeNull();
+    expect(statusDrift('in-review', 'archived')).toBeNull();
+  });
+
+  it('reports a ready story whose plans are approved', () => {
+    // `ready` ranks between draft and active, where the old four-value list
+    // omitted it and `indexOf` answered -1.
+    expect(statusDrift('ready', 'active')).toBe('Has approved plans');
+  });
+
+  it('says nothing about a status it cannot rank', () => {
+    // An unreadable status is S2's finding, not this one's.
+    expect(statusDrift('wat', 'archived')).toBeNull();
+    expect(statusDrift('', 'active')).toBeNull();
   });
 });
 
