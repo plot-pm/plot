@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -67,9 +67,15 @@
 
 **THE FIX IS THE INVOCATION, NOT A SECOND WRITER.** `/plot-implement` step 4 owns brief authorship and must keep owning it — `plot-dispatch.sh:429` states why a script here would be a second writer that drifts. What changes is how the session is asked to reach that skill.
 
+**AND THE SESSION MUST WRITE ONLY THE BRIEF, WHICH THE PROMPT ASKS FOR IN PROSE AND NOTHING ENFORCES.** `/plot-implement` is a six-step ceremony, not a brief writer: **step 3 creates the branches** the plan names and **step 5 records `Started:`**. Round 4 measured what gates them — `PLOT_UNATTENDED` appears three times in the skill and every one gates a QUESTION, not a write. So an unattended session asked for a brief may also push refs and amend the plan.
+
+**A REF IS A CLAIM, AND THAT IS THE HARM.** `queue-reading.ts:23` says it in those words: a branch with a ref is out of the queue. A brief session creating the plan's branches would remove every one of them from the queue while no agent holds any — a plan that reads fully claimed and is being worked by nobody. That is worse than the silence this plan set out to fix, because the silence at least left the work visible.
+
+**SO THE SCOPE IS PART OF THE FIX, NOT A NOTE ON IT.** Whether the invocation names a narrower entry point, or the skill learns a brief-only mode, or the prompt's request becomes something the skill can enforce, is this slice's design question. What it may not be is a longer sentence in a prompt: prose asking an agent not to do step 3 is a rule, and this repo's own test says a rule that matters gets a gate.
+
 **DONE MEANS ONE REAL BRIEF, NOT A GREEN TEST.** The evidence is a brief on `origin/main` that this command wrote, for a branch that had none — the thing neither prior attempt produced. A log of 33 bytes is what failure looks like here, and it exits 0.
 
-**Done when** the `Brief command` writes one real brief for one unbriefed branch and pushes it, its log shows the session doing work rather than an unknown-command line, and `plot-dispatch.sh` reports it.
+**Done when** the `Brief command` writes one real brief for one unbriefed branch and pushes it, its log shows the session doing work rather than an unknown-command line, **the run creates no branch and writes no `Started:` record**, and `plot-dispatch.sh` reports it.
 
 ### Auto-dispatch asks for the brief it is missing (Branch: feature/the-board-asks-for-a-brief)
 
@@ -146,3 +152,15 @@ Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, 
 - **Bounded, and a plan that keeps failing goes to a person.** Retiring the mark on expiry alone asks forever against a command that cannot work — the state this estate was actually in for four days.
 - **One budget, not two.** A separate cap for brief sessions is a second number to reason about; the two off switches bound the blast radius instead.
 - **Both off switches.** The auto-dispatch toggle stops it live; `Brief command: none` stops it for the project, and the shell already reads `none` that way.
+
+### Round 4 — 2026-09-06
+
+**`/plot-implement` is not a brief writer.** It is six steps, and two of them write to the estate: step 3 creates the branches the plan names, step 5 records `Started:`. The prompt asks only for the brief, in prose, and nothing enforces it.
+
+**`PLOT_UNATTENDED` does not help.** It appears three times in the skill and every one gates a *question* — which plan, what to do on drift — never a write. An unattended session runs steps 3 and 5 as written.
+
+**A ref is a claim** (`queue-reading.ts:23`, in those words). A brief session creating a plan's branches takes every one of them out of the queue while no agent holds any: the plan reads fully claimed and nobody is working it. **Worse than the silence this plan exists to fix**, because silence left the work visible.
+
+**Round 3 said the arm has never worked. Round 4 says that may have been luck.** Both failed invocations died at the unknown command — *before* reaching step 3. Fixing only the invocation, as round 3 scoped it, would have made the first successful run the first one to create branches nobody asked for.
+
+**The scope is now part of slice 1's Done-when**, as a measurement — no branch created, no `Started:` written — rather than a sentence in a prompt. A prompt asking an agent to skip a step is a rule, and this repo gates what matters.
