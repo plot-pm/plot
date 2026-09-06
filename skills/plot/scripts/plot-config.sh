@@ -26,7 +26,7 @@
 # Known keys (see the plot skill's Setup section):
 #   Project board | Branch prefixes | Plan directory | Active index |
 #   Delivered index | Sprint directory | Story directory | Story index |
-#   Plan template | Main branch | Board command
+#   Plan template | Worker prompt template | Main branch | Board command
 #   Worktree root       where /plot-dispatch puts its worktrees. Read by
 #                       plot-dispatch.sh; default is the repo's PARENT, which
 #                       scatters `plot-wt-*` beside the checkout. An absolute
@@ -106,6 +106,13 @@
 #
 # `Plan template` is a repo-root-relative path to the plan template /plot-idea
 # instantiates; when absent, /plot-idea falls back to the shipped template.
+#
+# `Worker prompt template` is the same shape for the worker prompt
+# plot-install-prompt.sh writes into `.plot/worker-prompt.sh` at adoption: a
+# repo-root-relative path (an absolute one is taken as given), falling back to
+# the shipped `skills/plot/templates/worker-prompt.sh`. It names a STARTING
+# POINT, never the file the loop runs — the loop always sources
+# `.plot/worker-prompt.sh`, and nothing re-reads the template after adoption.
 
 set -uo pipefail
 

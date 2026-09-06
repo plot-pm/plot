@@ -42,6 +42,8 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
     - **Story index:** README.md
     <!-- Optional: override the shipped plan template with a project's own -->
     <!-- - **Plan template:** .plot/templates/plan.md -->
+    <!-- Optional: override the shipped worker prompt template -->
+    <!-- - **Worker prompt template:** .plot/templates/worker-prompt.sh -->
     <!-- Optional: only when origin/HEAD detection picks the wrong branch -->
     <!-- - **Main branch:** develop -->
 
@@ -67,6 +69,14 @@ repo-root-relative path) to replace the shipped plan template with a project's o
 skills/plot/templates/plan.md`, so the configured file wins and the shipped
 template is the fallback. It is a complete template, not a fragment — keep its
 structural fields in sync with the shipped one.
+
+**Optional — override the worker prompt template.** `Worker prompt template`
+does the same for `.plot/worker-prompt.sh`, the file `plot-worker-loop.sh`
+sources on every prompt of every agent. `/plot-init` writes it once through
+`scripts/plot-install-prompt.sh`, which never overwrites an existing file, and
+nothing reads the template again after adoption — the loop always sources
+`.plot/worker-prompt.sh` itself. Set the key when a project wants different
+starting wording for the prompts it generates.
 
 ## Model Guidance
 
@@ -455,7 +465,8 @@ Also run the bash helpers if a specific slug is in context:
 
 Shared helpers (use these instead of hand-parsing):
 - `./scripts/plot-plan-meta.sh <plan-file>...` — plan metadata as JSON (phase, type, branches, PRs); the plan-format contract
-- `./scripts/plot-config.sh get <key> [default]` — `## Plot Config` reader (incl. the optional `Plan template` override key)
+- `./scripts/plot-config.sh get <key> [default]` — `## Plot Config` reader (incl. the optional `Plan template` and `Worker prompt template` override keys)
+- `./scripts/plot-install-prompt.sh [--check]` — write `.plot/worker-prompt.sh` from the shipped template where absent; report `stale`/`present` where one exists and never overwrite it
 
 **Hygiene summary** (drift made ambient): run the reconcile scan and read only its final summary line —
 

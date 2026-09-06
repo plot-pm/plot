@@ -38,7 +38,7 @@ and changes nothing.
 |-------|-----------|-------|
 | 1. Probe | Small | One script call, JSON out |
 | 2. Propose and confirm | Mid | Turning signals into a proposal is judgment |
-| 3. Write config and skeleton | Small | File and directory creation |
+| 3. Write config and skeleton | Small | File and directory creation; the worker prompt is one script call |
 | 4. Offer extensions | Mid | Deciding what the repo actually needs |
 | 5. Verify and summarise | Small | Read back what landed |
 
@@ -130,6 +130,42 @@ touch docs/plans/active/.gitkeep docs/plans/delivered/.gitkeep
 `skills/plot/templates/plan.md` and adapted: the Definition of Done from step
 2, and the repo's own content language if `language_hint` says so.
 
+**Worker prompt** at `.plot/worker-prompt.sh`, written by the script rather
+than by hand:
+
+```bash
+../plot/scripts/plot-install-prompt.sh
+```
+
+It writes the shipped template where no file exists and **never overwrites
+one**. The file is what `plot-worker-loop.sh` sources on every prompt of every
+agent, and until 2026-09-05 Plot shipped no template for it at all — every
+adopting project wrote it from a comment inside the loop, and this repo's own
+copy hardcoded `--session-id` until three agents failed their second slices
+simultaneously.
+
+**Say what landed, and that the wording is theirs.** The template's
+instructions are short on purpose: only the session handling is Plot's, and
+what an agent is *told* belongs to the project. Point at the file and say it is
+meant to be rewritten.
+
+**An existing file is OFFERED the update, never given it.** The script reports
+`stale` when the file hardcodes a session flag and `present` when it passes
+none — both exit 3, and both are answers rather than faults. Show what it said,
+show the template, and let the operator decide; a project's prompt wording is
+the project's, and a rewritten one is not out of date.
+
+> `.plot/worker-prompt.sh` already exists and hardcodes `--session-id`. The
+> loop decides that flag now — `--session-id` on an agent's first prompt,
+> `--resume` on every one after — so an agent handed a second slice cannot
+> start. The one line to change is the `session_args=(...)` assignment; the
+> shipped template at `skills/plot/templates/worker-prompt.sh` shows it, and
+> your wording stays yours.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** the write is mechanical and needs no
+> answer, so it happens. An existing file is reported and not touched.
+> `PLOT-UNASKED: Update the existing .plot/worker-prompt.sh from the template? — refused — the wording is the project's to keep; reported as <stale|present> and the file is untouched`
+
 Sprints and stories are **not** created by default. They are optional lenses;
 create them when asked.
 
@@ -208,6 +244,9 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
   human knows which gate a merge.
 - **Never claim a detected value is certain.** Everything from the probe is a
   proposal.
+- **Never overwrite `.plot/worker-prompt.sh`.** The installer refuses to; do
+  not work around it by hand. A project's prompt wording is the project's, and
+  an out-of-date invocation is one line inside it.
 
 ## Common Mistakes
 
@@ -219,3 +258,5 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
 | Overwriting `.claude/settings.json` | Silently drops the user's hooks and permissions | Merge, or ask and continue |
 | Aborting when the settings file is unwritable | The whole adoption fails over the least important step | Print the block, continue |
 | Adding every posture key to the config | A new adopter faces settings they never chose | Defaults stay implicit |
+| Rewriting an existing `.plot/worker-prompt.sh` to match the template | Destroys instructions the project wrote for its own agents | Report what the script said and offer the one line |
+| Treating `stale` or `present` as a failed adoption | An adoption stops over a file that runs correctly today | Both are reports; step 3 continues |
