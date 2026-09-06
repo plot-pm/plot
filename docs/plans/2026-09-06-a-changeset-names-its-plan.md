@@ -10,6 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -24,7 +25,11 @@
 
 **Measured 2026-09-06: 0 of 14.** The doc recorded `1 of 42` when it was written; the estate's current changesets name a plan **zero** times. The convention did not take, and nothing asked it to.
 
-**THE COST IS PAID EVERY RELEASE.** Reconciling which changeset belongs to which plan is a semantic match over descriptions — the exact judgement the release skill runs at Frontier tier — and it is re-derived from scratch each time. A `plan:` line would make it a lookup.
+**THE COST IS PAID EVERY RELEASE, AND THE PROSE IS WHY.** Reconciling which changeset belongs to which plan is a semantic match over descriptions — the exact judgement the release skill runs at Frontier tier — re-derived from scratch each time.
+
+**The descriptions are substantial, and that is the cost rather than the mitigation.** #706's changeset is two paragraphs naming `pr_merged`, `rules/landed.ts`, `plot-landed.mjs` and `mayRemove`. The match succeeds *because* the prose is rich; it is expensive for the same reason. Fourteen of those, read end to end, every release.
+
+**A `plan:` line turns a judgement into a lookup.** Not a more accurate answer — the semantic match gets it right — but one a script can make, where today only a Frontier-tier model can.
 
 **AND ONE OF THE TWO OPEN POINTS BESIDE IT IS ALREADY ANSWERED.** `DESIGN-release.md` asks whether `version` should be normalized at the parser, citing `70 lines say v2.5.0 and 40 say 2.9.0`. `entities/version.ts:25` exports `normalizeVersion` with **10 production callers**, and its own docstring carries that measurement. That point is closed; this plan records it rather than re-planning it.
 
@@ -54,7 +59,9 @@ The changeset template and `/plot-idea`'s guidance carry a plan reference, and t
 
 **COUNT FIRST, GATE LATER, AND THIS REPO HAS THE PRECEDENT.** `the-sprint-proves-its-own-goal` added a CI ratchet that counts and fails when a number *grows*; the same shape here counts the changesets missing a link. Enforcing a convention with 0 of 14 adoption would refuse every changeset in flight.
 
-**Done when** the check reports the count, exits 0 whatever it is, and the number is visible in CI output.
+**AND A COUNT IS ONLY WORTH PRINTING IF IT LEADS SOMEWHERE.** A finding must be actionable the day it fires; a bare `0 of 14` is not. So the check reports the count **and names the changesets missing a link**, which is what a person acts on — and the number is the ratchet's input once adoption is non-zero.
+
+**Done when** the check reports the count, names the changesets without a link, exits 0 whatever it is, and the number is visible in CI output.
 
 ## Notes
 

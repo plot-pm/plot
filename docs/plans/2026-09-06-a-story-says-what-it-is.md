@@ -10,6 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -53,11 +54,17 @@ the-board-is-blank-where-it-matters     status: archived
 
 `plot-story-lint.sh` reports a `status:` value outside the six, and the three files are corrected.
 
-**THE THREE ARE ARCHIVED IN FACT AND THAT IS THE POINT.** They sit under `docs/stories/` with every plan released, so the derivation would answer `archived` for all three. Writing it by hand was never needed — the file should say `done`, and the archival is what the plans and the directory already prove.
+**THE THREE ARE ARCHIVED IN FACT.** Verified 2026-09-06 — every plan of all three is Released: `plot-gates` 6 of 6, `the-board-is-blank-where-it-matters` 15 of 15, `setup-asks-what-the-repo-already-knows` 1 of 1. `deriveStoryStatus` (`transitions/story.ts:402`) answers `archived` when every plan is released, so the derivation agrees with what the files assert by hand.
+
+**BUT `done` ALONE WOULD TRIP THE LINT, AND THIS IS THE ROUND'S FINDING.** None of the three carries an `archived:` date. S3 refuses `done` without one — it is *"the shell half of `archivalIsConsistent` … done and an `archived:` date are two writes that must agree, so either alone is a half-archived story."* Changing the status by hand would swap one invalid state for three lint findings.
+
+**SO THE TRANSITION MAKES THE CHANGE, NOT AN EDITOR.** `archiveStory` (`transitions/story.ts:324`) writes the status and the date together and refuses `archive-date-missing`. Running it against the three is what makes the two writes that must agree be made by the thing that knows they must — and it is the transition's first real use, which is its own reason to prefer it over three hand edits.
 
 **S5, AND THE FOOTER COUNTS IT.** The lint has four findings and a machine-countable footer; this is the fifth, and it gates like the others — an unparseable status is not a browsing gap.
 
-**Done when** the lint reports a status outside the six, the three files carry one of the six, and `plot-story-lint.sh` exits 0 on this estate.
+**IT FIRES THREE TIMES ON DAY ONE AND EACH HAS AN OBVIOUS FIX.** That is the bar a new finding must clear: actionable the day it fires. A check that reports a state with no clear repair is the one that teaches a reader to skip the output.
+
+**Done when** the lint reports a status outside the six, the three files carry `done` **and** an `archived:` date written by `archiveStory`, and `plot-story-lint.sh` exits 0 on this estate.
 
 ### A story that disagrees with its plans says so (Branch: bug/a-story-status-meets-its-plans)
 
