@@ -128,10 +128,12 @@
 #   issue-list [--limit N]        open tracker issues as JSON lines:
 #                                 {"number":N,"title":"…","url":"…",
 #                                  "createdAt":"…"}
-#                                 READ-ONLY, and the only issue op here: Plot
-#                                 never writes to the tracker (no labels, no
-#                                 assignees, no close-on-merge), because a copy
-#                                 of tracker state ages into a lie.
+#                                 READ-ONLY. Plot writes no label, no assignee
+#                                 and no close-on-merge, because a copy of
+#                                 tracker state ages into a lie. The one write
+#                                 that exists is `issue-status`, and it records
+#                                 a status Plot itself just caused rather than
+#                                 mirroring one the tracker holds.
 #                                 `url` is "" when the host omits it, and a
 #                                 consumer renders the number as plain text
 #                                 rather than inventing an address — the rule
@@ -163,8 +165,8 @@
 #                                 tickets*, the failure this story is named for.
 #   issue-view <number>           ONE open issue as a single JSON object:
 #                                 {"number":N,"title":"…","body":"…","url":"…"}
-#                                 STILL READ-ONLY — the second issue op, and it
-#                                 reads. The board's *Create plan* action needs
+#                                 READ-ONLY — the second of the two issue reads.
+#                                 The board's *Create plan* action needs
 #                                 the issue's BODY as the problem statement, and
 #                                 issue-list deliberately omits it: the list is
 #                                 asked on a timer for every open issue, and a
@@ -189,6 +191,28 @@
 #                                 as issue-list. Jira answers 404 for a missing
 #                                 key, which is exit 3 here (the tracker moved),
 #                                 never an empty body.
+#   issue-status <key> <status>   THE ONE WRITE TO A TRACKER: record one status
+#                                 against one issue, and nothing else. No
+#                                 create, no close, no comment, no label — a
+#                                 plan referencing an issue is Plot's record,
+#                                 and the status is the single fact the tracker
+#                                 owns a copy of.
+#                                 JIRA ONLY. Exit 4 where `Tracker` is not jira:
+#                                 this adapter cannot be asked, which is neither
+#                                 a failure nor a silent success. The other
+#                                 vendor's projects surface is written by
+#                                 `plot-update-board.sh`, under its own
+#                                 credentials and through a different API — the
+#                                 reason the tracker port has two connectors.
+#                                 Prints `written` where the transition was
+#                                 performed and `no-target` where the workflow
+#                                 offers no such transition from the issue's
+#                                 current state — which is also what a repeated
+#                                 write reports, because the same status twice
+#                                 is the same status.
+#                                 The transition id is LOOKED UP, never guessed:
+#                                 ids are per workflow and per issue, so a
+#                                 hardcoded one writes to the wrong column.
 #   pr-body <number> --body B     replace the PR description
 #   rate-limit                    both GitHub budgets from `gh api rate_limit`.
 #                                 SUPERSEDED BY `limit`, and kept only because
@@ -2704,6 +2728,55 @@ case "$op" in
     fi
     ;;
 
+  issue-status)
+    # THE ONE WRITE TO A TRACKER, and the amendment this op records: Plot writes
+    # a STATUS to the tracker it was told about, and writes nothing else. No
+    # ticket is created, none is closed, no comment, label or assignee is
+    # touched. A plan referencing an issue stays Plot's record; the status is
+    # the one fact the tracker owns a copy of, because it is the one a person
+    # reads in the tracker rather than in Plot.
+    #
+    # JIRA ONLY, and deliberately so rather than by omission. This vendor's
+    # projects surface has a script of its own (`plot-update-board.sh`) reached
+    # by its own connector, and the two write through different APIs under
+    # different credentials — which is why the tracker port has two connectors
+    # rather than one arm with a branch. A repo whose `Tracker` is not jira gets
+    # exit 4 here: this adapter cannot be asked, which is not a failure and not
+    # a silent success.
+    #
+    # IDEMPOTENT BY NATURE. The same status written twice is the same status,
+    # and Jira answers a transition to the state an issue already holds by
+    # naming no such transition — which this reports as `no-target` rather than
+    # as a failure.
+    key="${1:?issue-status needs an issue key}"; shift
+    want="${1:?issue-status needs a status}"; shift
+    [ "$(tracker_scheme)" = "jira" ] || exit 4
+    jira_require_config
+    # THE TRANSITION IS LOOKED UP, NEVER GUESSED. Jira transitions are per
+    # workflow and per issue: the id for "In Progress" differs between projects
+    # and the transition may not be available from the issue's current state at
+    # all. A hardcoded id writes a status to the wrong column silently.
+    raw="$(jira_curl "/rest/api/2/issue/$key/transitions")"; curl_rc=$?
+    body_json="$(jira_check "$raw" "$curl_rc")" || exit $?
+    tid="$(printf '%s' "$body_json" | jq -r --arg want "$want" \
+      '[.transitions[]? | select((.name // "" | ascii_downcase) == ($want | ascii_downcase)
+                                 or ((.to.name // "" | ascii_downcase) == ($want | ascii_downcase)))]
+       | .[0].id // ""')"
+    if [ -z "$tid" ]; then
+      # NO SUCH TRANSITION IS AN ANSWER, not a failure. The tracker was reached
+      # and holds nowhere to put this status — either the workflow has no such
+      # state or the issue is already in it. Reporting it as a failure would
+      # make a repeated write look like an outage.
+      printf '%s\n' 'no-target'
+      exit 0
+    fi
+    raw="$(jira_curl "/rest/api/2/issue/$key/transitions" \
+             -X POST -H 'Content-Type: application/json' \
+             --data "$(jq -cn --arg id "$tid" '{transition:{id:$id}}')")"; curl_rc=$?
+    jira_check "$raw" "$curl_rc" >/dev/null || exit $?
+    printf '%s\n' 'written'
+    ;;
+
   pr-body)
     num="${1:?pr-body needs a PR number}"; shift
     body=""
@@ -2969,6 +3042,6 @@ case "$op" in
     ;;
 
   *)
-    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|pr-body|rate-limit|limit|ci-limit|spend-rate)"
+    die "unknown op '$op' (backend|default-branch|pr-state|pr-create|pr-merge|pr-list|issue-list|issue-view|issue-status|pr-body|rate-limit|limit|ci-limit|spend-rate)"
     ;;
 esac

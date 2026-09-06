@@ -3137,3 +3137,150 @@ test('host: an unreadable call does not erase the reading before it', () => {
   assert.equal(rate.basis, 'actual');
   assert.equal(rate.spent, 2, 'and the unreadable call still counts as a spend');
 });
+
+// --- issue-status: THE ONE WRITE TO A TRACKER -------------------------------
+//
+// The amendment this op records. CLAUDE.md said *"The two issue ops READ and
+// never write"* until the tracker got its own port; the sentence is amended
+// rather than quietly broken, and what it now says is narrow: Plot writes a
+// STATUS to the tracker it was told about, and writes nothing else. No ticket
+// is created, none is closed, no comment, label or assignee is touched.
+//
+// JIRA ONLY, and exit 4 elsewhere — this adapter cannot be asked, which is
+// neither a failure nor a silent success. The other vendor's projects surface
+// is written by `plot-update-board.sh` under its own credentials, which is why
+// the tracker port has two connectors rather than one arm with a branch.
+//
+// The stub here APPENDS rather than overwrites, because the op makes two calls:
+// it looks the transition up before performing it, and both are worth asserting.
+
+/**
+ * A `curl` stub that answers a different body per call and appends its argv.
+ *
+ * @param bodies - one `{body, status}` per call, in order; the last repeats.
+ */
+function makeJiraSequenceStub(bodies) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-host-jira-seq-'));
+  const argvFile = path.join(dir, 'curl.argv');
+  const countFile = path.join(dir, 'curl.count');
+  const encoded = bodies
+    .map((b) => `${Buffer.from(b.body ?? '{}', 'utf8').toString('base64')}:${b.status ?? 200}`)
+    .join(' ');
+  writeFileSync(
+    path.join(dir, 'curl'),
+    `#!/usr/bin/env bash
+printf -- '--- call\\n' >> "${argvFile}"
+printf '%s\\n' "$@" >> "${argvFile}"
+n=0; [ -f "${countFile}" ] && n=$(cat "${countFile}")
+printf '%s' "$((n + 1))" > "${countFile}"
+set -- ${encoded}
+shift "$n" 2>/dev/null || { while [ $# -gt 1 ]; do shift; done; }
+[ $# -gt 0 ] || set -- "$(printf '%s' '{}' | base64):200"
+printf '%s' "$(printf '%s' "\${1%%:*}" | base64 -d)"
+printf '\\n%s' "\${1##*:}"
+`,
+  );
+  chmodSync(path.join(dir, 'curl'), 0o755);
+  return { dir, argvFile };
+}
+
+/** The transitions payload Jira answers a lookup with. */
+const JIRA_TRANSITIONS = JSON.stringify({
+  transitions: [
+    { id: '11', name: 'To Do', to: { name: 'To Do' } },
+    { id: '21', name: 'Start Progress', to: { name: 'In Progress' } },
+    { id: '31', name: 'Done', to: { name: 'Done' } },
+  ],
+});
+
+test('host: issue-status transitions the issue and says it wrote', () => {
+  const stub = makeJiraSequenceStub([
+    { body: JIRA_TRANSITIONS },
+    { body: '', status: 204 },
+  ]);
+  const res = runJira(['issue-status', 'PROJ-123', 'Done'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'written');
+
+  const calls = readFileSync(stub.argvFile, 'utf8').split('--- call').filter(Boolean);
+  assert.equal(calls.length, 2, 'the transition is looked up, then performed');
+  // THE LOOKUP IS A READ. It must not carry a method or a body.
+  for (const write of ['-X', '--request', '-d', '--data']) {
+    assert.ok(!calls[0].split('\n').includes(write), `the lookup must not send ${write}`);
+  }
+  // The write names the id the lookup returned, not a guessed one.
+  assert.match(calls[1], /^-X$/m);
+  assert.match(calls[1], /^POST$/m);
+  assert.match(calls[1], /"transition":\{"id":"31"\}/);
+});
+
+test('host: issue-status looks the transition id up rather than guessing it', () => {
+  // IDS ARE PER WORKFLOW AND PER ISSUE. A hardcoded id writes a status to the
+  // wrong column silently, and the same status name carries a different id in
+  // the next project.
+  const stub = makeJiraSequenceStub([
+    { body: JSON.stringify({ transitions: [{ id: '907', name: 'Ship it', to: { name: 'Done' } }] }) },
+    { body: '', status: 204 },
+  ]);
+  const res = runJira(['issue-status', 'PROJ-1', 'Done'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  // Matched on the DESTINATION state, not only the transition's own name.
+  const calls = readFileSync(stub.argvFile, 'utf8').split('--- call').filter(Boolean);
+  assert.match(calls[1], /"id":"907"/);
+});
+
+test('host: issue-status answers no-target where the workflow offers no such move', () => {
+  // A REPEATED WRITE IS THE ORDINARY CASE, and Jira answers it by naming no
+  // such transition — an issue already in the state has no transition to it.
+  // Reporting that as a failure would make idempotence look like an outage.
+  const stub = makeJiraSequenceStub([{ body: JIRA_TRANSITIONS }]);
+  const res = runJira(['issue-status', 'PROJ-123', 'Cancelled'], stub);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout.trim(), 'no-target');
+  const calls = readFileSync(stub.argvFile, 'utf8').split('--- call').filter(Boolean);
+  assert.equal(calls.length, 1, 'nothing is written when there is nowhere to write it');
+});
+
+test('host: issue-status exits 4 where the declared tracker is not this one', () => {
+  // NOT A FAILURE AND NOT A SILENT SUCCESS. This adapter cannot be asked, which
+  // is the answer a repository tracking elsewhere is entitled to.
+  const stub = makeJiraSequenceStub([{ body: JIRA_TRANSITIONS }]);
+  const res = runJira(['issue-status', 'PROJ-1', 'Done'], stub, { PLOT_TRACKER: 'github-issues' });
+  assert.equal(res.status, 4);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-status writes a status and nothing else', () => {
+  // THE WRITE IS ONE FACT AND STAYS ONE. No comment endpoint, no assignee, no
+  // label, no delete — a plan referencing an issue is Plot's record.
+  const stub = makeJiraSequenceStub([{ body: JIRA_TRANSITIONS }, { body: '', status: 204 }]);
+  runJira(['issue-status', 'PROJ-123', 'Done'], stub);
+  const argv = readFileSync(stub.argvFile, 'utf8');
+  for (const path_ of ['/comment', '/assignee', '/label', '/worklog', '/attachments']) {
+    assert.ok(!argv.includes(path_), `issue-status must not reach ${path_}`);
+  }
+  for (const verb of ['PUT', 'DELETE', 'PATCH']) {
+    assert.ok(!argv.split('\n').includes(verb), `issue-status must not send ${verb}`);
+  }
+});
+
+test('host: issue-status reports a refused write as a failure, never as written', () => {
+  // An auth gap, a permission the account lacks, a 5xx — all exit 3 with empty
+  // stdout. A write that did not happen must never report that it did.
+  const stub = makeJiraSequenceStub([
+    { body: JIRA_TRANSITIONS },
+    { body: '{"errorMessages":["You do not have permission"]}', status: 403 },
+  ]);
+  const res = runJira(['issue-status', 'PROJ-123', 'Done'], stub);
+  assert.notEqual(res.status, 0);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: issue-status reports a failed lookup as a failure, never as no-target', () => {
+  // The lookup breaking and the workflow offering no such move are different
+  // facts. Collapsing them would report an outage as a status already set.
+  const stub = makeJiraSequenceStub([{ body: '{}', status: 500 }]);
+  const res = runJira(['issue-status', 'PROJ-123', 'Done'], stub);
+  assert.notEqual(res.status, 0);
+  assert.equal(res.stdout.trim(), '');
+});

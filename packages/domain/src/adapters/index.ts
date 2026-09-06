@@ -28,6 +28,16 @@ export {
 export { hostShell } from './host/host-shell.js';
 export { hostFixture, type HostFixture } from './host/host-fixture.js';
 
+// THE TRACKER'S TWO CONNECTORS, and they are two rather than one with a branch:
+// each holds its own account, its own token and its own window, and neither
+// ever sees the other's. `trackerNone` beside them is not a fixture — it is the
+// default configuration, a repository whose plans ARE the tracker.
+export { trackerGithub } from './tracker/tracker-github.js';
+export { trackerJira } from './tracker/tracker-jira.js';
+export { trackerNone } from './tracker/tracker-none.js';
+export { trackerFor, trackerShell } from './tracker/tracker-resolve.js';
+export { trackerFixture, type TrackerFixture } from './tracker/tracker-fixture.js';
+
 export { budgetFile, BUDGET_HOME_ENV, type BudgetFileOptions } from './budget/budget-file.js';
 export { budgetFixture, type BudgetFixture } from './budget/budget-fixture.js';
 

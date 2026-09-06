@@ -5,7 +5,6 @@ import {
   isAnswered,
   predictedLimit,
   type BuildRun,
-  type Issue,
   type LimitReading,
   type MergedAnswer,
   type PortResult,
@@ -263,15 +262,6 @@ describe('hostFixture: a connector the domain has never heard of', () => {
           url: 'https://quokka.invalid/pr/7',
         },
       ],
-      issues: [
-        {
-          id: 'QF-1',
-          title: 'The forge has an issue',
-          url: 'https://quokka.invalid/issue/QF-1',
-          createdAt: '2026-09-01T00:00:00Z',
-          body: null,
-        },
-      ],
       runs: {
         'feature/open': [
           {
@@ -299,8 +289,6 @@ describe('hostFixture: a connector the domain has never heard of', () => {
     expect(answer<MergedAnswer>(await host.prMerged('feature/open'))).toBe('not-merged');
     expect(answer<readonly Pr[]>(await host.prList('open')).map((pr) => pr.number)).toEqual([7]);
     expect(answer<readonly BuildRun[]>(await host.runs('feature/open'))).toHaveLength(1);
-    expect(answer<readonly Issue[]>(await host.issueList()).map((i) => i.id)).toEqual(['QF-1']);
-    expect(answer<Issue>(await host.issueView('QF-1')).title).toBe('The forge has an issue');
   });
 
   it('opens a PR, which is the one write the port allows', async () => {

@@ -1,5 +1,4 @@
 import type { BuildRun } from '../../entities/build.js';
-import type { Issue } from '../../entities/issue.js';
 import { correctForRefusal, type LimitReading } from '../../entities/limit.js';
 import type { Pr } from '../../entities/pr.js';
 import type {
@@ -21,8 +20,6 @@ export interface HostFixture {
   merged?: readonly string[];
   /** The PRs `prList` reports, and `prState` looks up by number. */
   prs?: readonly Pr[];
-  /** The issues `issueList` reports, and `issueView` looks up by id. */
-  issues?: readonly Issue[];
   /**
    * The run history `runs` reports, by branch.
    *
@@ -78,7 +75,6 @@ export interface HostFixture {
 export const hostFixture = (fixture: HostFixture = {}): Host => {
   const merged = new Set(fixture.merged ?? []);
   const prs = fixture.prs ?? [];
-  const issues = fixture.issues ?? [];
   const runs = fixture.runs ?? {};
   const opened = fixture.opened ?? [];
   // Mutable, because the correction rule is behaviour rather than a value and
@@ -118,16 +114,6 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     runs: async (branch, limit): Promise<PortResult<readonly BuildRun[]>> => {
       const history = runs[branch] ?? [];
       return answered(limit === undefined ? history : history.slice(0, limit));
-    },
-
-    issueList: async (limit): Promise<PortResult<readonly Issue[]>> =>
-      answered(limit === undefined ? issues : issues.slice(0, limit)),
-
-    issueView: async (id): Promise<PortResult<Issue>> => {
-      const found = issues.find((issue) => String(issue.id) === String(id));
-      return found
-        ? answered(found)
-        : answered({ ...(issues[0] ?? ({} as Issue)), id: String(id) });
     },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => answered(limits),
