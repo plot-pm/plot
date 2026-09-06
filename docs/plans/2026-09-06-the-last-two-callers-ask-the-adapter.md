@@ -38,7 +38,15 @@ plot-reconcile-scan.sh  3 → 1   the remaining line is advice TEXT, not a call
 
 **`plot-update-board.sh` IS A DIFFERENT QUESTION AND #717's BRIEF SAID SO.** Its four calls are `gh project view`, `item-add`, `field-list`, `item-edit` — the Projects API. `plot-host.sh` answers no project operation. That is capability, not routing, and it needs a decision rather than a move.
 
-**THE GATE DID NOT SHIP.** #717's brief asserted *"no script outside `plot-host.sh` names `gh` — a grep gate, so the next one cannot arrive unnoticed."* Measured 2026-09-06: no such script exists under `scripts/`. The rule is prose again, which CLAUDE.md says is a rule that will eventually be violated — and this plan exists because it already was.
+**THE GATE DID SHIP, AND IT ALREADY NAMES THIS WORK.** `scripts/check-host-cli-callers.sh` landed 2026-09-05 and answers `Host CLI callers: clean` on the estate today, over **27 call sites in exempted scripts**.
+
+**It exempts by name, with a reason, and one of those exemptions is dated on purpose.** Its own header, on `plot-pr-merged.sh`:
+
+> *"The exemption is dated, unlike the three above it: those describe questions the adapter does not answer, this one describes work not yet done. Delete this entry when the lookups route."*
+
+**So this plan is the work that entry is waiting for**, not a plan to build a gate that exists. The gate's other exemptions describe capability the adapter genuinely lacks; this one describes a routing that has not happened. Landing slice 1 deletes it.
+
+**And the gate tests its own refusal** — `test/reconcile/host-cli-gate.test.mjs`, because *"a gate nothing tests is a gate that passes because nobody looked."*
 
 ## What this is not
 
@@ -74,18 +82,10 @@ plot-reconcile-scan.sh  3 → 1   the remaining line is advice TEXT, not a call
 
 **Done when** `plot-update-board.sh` either asks the adapter or carries a named exemption the gate reads, and the reason is in the file.
 
-### The gate refuses the next one (Branch: infra/a-gh-call-declares-itself)
-
-`scripts/check-gh-callers.sh` fails CI when a script outside `plot-host.sh` gains a live `gh` call.
-
-**IT MUST NOT MATCH COMMENTS.** Measured: `plot-budget.sh` and `plot-worker-monitor.sh` mention `gh` in comments only, and `plot-reconcile-scan.sh:1059` prints `inspect: gh pr view …` as advice in its output. A gate flagging those is a gate that gets disabled on its first run.
-
-**THIS IS THE THIRD TIME THE RULE HAS BEEN WRITTEN AS PROSE.** CLAUDE.md states it, `plot-host.sh`'s header states it, #717's brief asserted it. Four scripts violated it anyway.
-
-**Done when** the gate fails on a deliberately added `gh` call, passes on the estate, and ignores comments and output text.
-
 ## Notes
 
-### Why the gate is last rather than first — 2026-09-06
+### The third slice was withdrawn before approval — 2026-09-06
 
-It would fail on the two files above the moment it landed. A gate that arrives red teaches the reader to skip it, which is the failure mode this repo has already measured for the scan's own footer.
+This plan was drafted with a slice building `scripts/check-gh-callers.sh`, on a measurement that no such gate existed. **It does**: `check-host-cli-callers.sh` shipped 2026-09-05, tests its own refusal, and already carries a dated exemption naming slice 1 as the work it waits for.
+
+The measurement was taken with `ls scripts/check-*gh*`, and the gate is named for the *host CLI* rather than for `gh`. **A grep that spells the thing one way finds nothing when the estate spells it another** — which is the same failure this plan's own slice 3 was written to prevent, arriving one level up.
