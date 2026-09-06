@@ -1,0 +1,1 @@
+../2026-09-06-a-stale-plan-file-does-not-travel.md

@@ -356,6 +356,26 @@ State what landed, how to start the board (`/plot-board --start`), and every
 remediation command still outstanding. If anything reads `unknown`, say which check could not be
 completed rather than presenting a clean bill of health.
 
+**Name the supervisor too.** The board shows what the fleet is doing; the
+supervisor is what keeps it doing it, and it is a separate process with a
+separate command. Adoption is where a user hears about it — measured
+2026-09-06, this skill named it zero times, so an adopter learned the board and
+never learned that nothing was supervising the agents they dispatch:
+
+> ```
+> /plot-board --start   — the board you just verified
+> /plot-fleet --start   — supervises the agents you dispatch; same package
+> ```
+>
+> `/plot-fleet --start` also needs launchd or systemd, and reports what it
+> cannot find rather than starting half a fleet.
+
+**Print the line whether or not the supervisor can run here.** Step 1's probe
+resolved the artifact both processes read; say which prerequisite is missing
+and let the user go and get it. The two are independent systems that share a
+machine — neither is a component of the other, and a board that serves says
+nothing about whether a supervisor is loaded.
+
 ## Failure modes
 
 | Condition | Response |
@@ -375,3 +395,4 @@ completed rather than presenting a clean bill of health.
 | Zero cards, zero plans | Not an error — an empty project |
 | Verify fails once, then passes | A cold start, not a broken board; report which run you are quoting |
 | Asked to start the board | That is `/plot-board --start`; this command adopts and verifies |
+| No init system for the supervisor | Name `/plot-fleet --start` anyway and say what it needs; the board is unaffected |

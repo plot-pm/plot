@@ -28,7 +28,7 @@ slices.
 | 5 | [Direction](#5-direction) | none, and it is the only entity with none |
 | 6 | [Relations](#6-relations) | Plan · Branch · Worker |
 | 7 | [Actions](#7-actions) | dispatch · reslice · ask |
-| 8 | [Scope](#8-scope) | one slice, one branch — and the 32 that disagree |
+| 8 | [Scope](#8-scope) | one slice, one branch — and how to count the ones that disagree |
 | 9 | [The collaborators](#9-the-collaborators) | the scan derives; nothing stores |
 | 10 | [Fleet control](#10-fleet-control) | the entity the fleet is built around |
 | 11 | [Views](#11-views) | the slice row, and the two arms |
@@ -60,13 +60,14 @@ naming three branches is **not a slice holding three** — it is a plan that has
 not been sliced yet, and `/plot-reslice` is the act of slicing it.
 
 **This entity was called a Wave until 2026-08-28, and the rename fixed a word
-doing two jobs.** Measured across 158 plans and 303 sections: **271 held one
-branch, 21 held several, 11 held none** (9 of those being prose headings the
-parser reads as sections — a parser defect, unchanged by the rename). The 21
-were counted as violations of a rule the estate kept trying to enforce:
-`/plot-reslice` exists solely to repair them, and `plot-reconcile-scan.sh`
-carries a counter named `unsliced_waves=` whose message reads *"a wave holds
-one"*.
+doing two jobs.** Measured then, most sections held one branch, a minority held
+several, and a few held none — most of those last being prose headings the
+parser reads as sections, a parser defect the rename does not touch. **§ 8 says
+how to take that measurement today**; what matters here is that the
+several-branch sections were counted as violations of a rule the estate kept
+trying to enforce. `/plot-reslice` exists solely to repair them, and
+`plot-reconcile-scan.sh` carries a counter — now `uncut_slices=` — whose message
+reads *"a slice holds one"*.
 
 **The estate had already reached for this word and could not get to it.** This
 spec's own opening read *"a Wave is one **slice** of a plan's work"* — a
@@ -228,7 +229,7 @@ attribute needs it once, over a string the domain object already produced.
 #### The empty-name case is where the pair strains
 
 A slice with no branches has `branch: ''`, and `rowKey` is
-`repo/branch/plan` — **it carries no slice component at all**. So the 11 empty
+`repo/branch/plan` — **it carries no slice component at all**. So the empty
 slices (§8) collapse to `repo//plan`, and two of them in one plan would share a
 row key entirely.
 
@@ -244,7 +245,7 @@ slice that cannot be told from its sibling is a row that flashes.
 |---|---|---|
 | `name` | string | `''` for the default slice — 5 of 303; unique **within its plan** |
 | `plan` | Plan | the owner; the name means nothing without it |
-| `branches[]` | Branch[] | **the slice OWNS these** — 1 in 271 of 303, see §8 |
+| `branches[]` | Branch[] | **the slice OWNS these** — one, in all but the uncut ones; see §8 |
 | `index` | number | position among its plan's slices — **the ordering** |
 | `nameIsLabel` | derived | replaces the plan's `long_wave_names[]` — see above |
 
@@ -536,29 +537,46 @@ for the new slices, and naming is judgement."*
 ## 8. Scope
 
 
-### One slice, one branch — and the 32 that disagree
+### One slice, one branch — and the ones that disagree
 
 The model settled 2026-08-21: **plan → \* slice → 1 branch**.
 
-Measured across 303 slices:
+**How many disagree is a question you run, not a number this spec carries.**
+`plot-reconcile-scan.sh` counts the multi-branch ones on every run and names
+them:
 
-| branches | slices |
-|---|---|
-| **1** | **271** |
-| 0 | **11** |
-| 2 | 13 |
-| 3 | 5 |
-| 4 | 2 |
-| 5 | 1 |
+```
+skills/plot/scripts/plot-reconcile-scan.sh
+  → uncut_slices=   a slice holding more than one branch (§ 7 names each one)
+```
 
-**271 of 303 conform.** 21 hold several branches (`unsliced-slice`, reported by
-the scan), and **11 hold none at all** — a heading with no branch under it.
+Slices holding *no* branch have no counter of their own; the parser answers
+directly:
 
-#### The 11 empty ones are mostly not slices at all
+```
+skills/plot/scripts/plot-plan-meta.sh docs/plans/*.md \
+  | jq -s 'map(select(.phase != "NONE") | .waves[]?
+               | select((.branches|length) == 0)) | length'
+```
+
+**Why a command and not a figure.** This section stated *271 of 303 conform, 21
+hold several, 11 hold none*, measured across 158 plans. Re-run 2026-09-07 the
+estate held **219 plans and 500 slices** — 39% more plans in ten weeks — with
+24 multi-branch and 22 empty. The *shapes* held; the population did not, and
+every count written here was stated against a number that had already moved.
+
+**And two readers counting the same property by different means differ by 4x.**
+A hand-rolled markdown scan over the same files answered 106 multi-branch and
+181 empty against the parser's 24 and 22, because prose subheadings under
+`## Slices` read as slices to a regex and not to the parser.
+`plot-plan-meta.sh` is the plan-format contract; a count taken any other way is
+a different question wearing the same words.
+
+#### Most empty ones are not slices at all
 
 **Investigated 2026-08-28, and the first reading was wrong.** They are not
-*"slices that dispatch nothing"* — 9 of the 11 are **prose headings the parser
-reads as slices**, across four plans:
+*"slices that dispatch nothing"* — most are **prose headings the parser reads
+as slices**, across four plans:
 
 ```
 'What an agent IS — settled 2026-08-20'
@@ -572,21 +590,28 @@ of work. And they are already flagged by a different name: `long_wave_names`
 reports exactly this shape — sentence-length headings that are *"a
 plan-authoring mistake the board can only render badly."*
 
-**Only 2 look like real slices with no branches** — `Sized` and `Marked`, one
-plan, both short labels. Those are plausibly slices whose branches were dropped
-during reslicing.
+**A minority look like real slices with no branches** — `Sized` and `Marked`
+were the two found in 2026-08-28's sample, one plan, both short labels. Those
+are plausibly slices whose branches were dropped during reslicing.
 
-So the finding splits:
+So the finding splits, and the split rather than its sizes is what matters:
 
-| | count | what it is |
+| | what it is | the counter |
 |---|---|---|
-| prose headings parsed as slices | **9** | the `long_wave_names` problem, seen through a different field |
-| labelled slices with no branch | **2** | plausibly a reslice that lost its branches |
+| prose headings parsed as slices | the `long_wave_names` problem, seen through a different field | `prose_slice_names=` (§ 8 of the scan) |
+| labelled slices with no branch | plausibly a reslice that lost its branches | none — the parser query above, minus the row above |
+
+**The two counters are not interchangeable and neither answers this alone.**
+`prose_slice_names=` counts over-long *names*, which is a different population
+from slices with no *branch*: measured 2026-09-07, 22 empty slices and 26 long
+names, **14 in both**. A reader wanting either half runs the query and
+subtracts; a reader told one number has been given the other question's answer.
 
 **A slice with no branches is still `complete` vacuously** — *every non-deferred
 branch has merged* is trivially true of none — so it blocks nothing and
-dispatches nothing either way. But the fix differs: the 9 want a parser rule or
-an authoring convention, and only the 2 want a slice-shape check.
+dispatches nothing either way. But the fix differs: the prose headings want a
+parser rule or an authoring convention, and only the labelled ones want a
+slice-shape check.
 
 ---
 
@@ -651,7 +676,7 @@ slice-shaped behaviour to configure.
 
 **The one thing adoption should know is the model** — *one slice, one branch* —
 and that is documentation rather than configuration. A repo cannot opt out of
-it; 21 slices here disagree with it and the scan reports them (§8).
+it; the slices here that disagree are reported by `uncut_slices=` (§8).
 
 ---
 
@@ -662,12 +687,12 @@ it; 21 slices here disagree with it and the scan reports them (§8).
 |---|---|---|
 | 1 | **9 prose headings parse as slices** — design sections under `## Branches`, vacuously `complete` | **now, measured** |
 | 1b | **2 labelled slices lost their branches** — plausibly a reslice | now, measured |
-| 2 | **21 slices hold several** — against the 1:1 model | now, reported |
+| 2 | **Some slices hold several branches** — against the 1:1 model; `uncut_slices=` counts them (§8) | now, reported |
 | 3 | **Ordering is positional** — no `after:`, so reordering headings reorders the gate | now |
 | 4 | Slice names are scoped to a plan but rendered bare | cosmetic |
 | 5 | **Nothing enforces `plan#name` uniqueness** — 303/303 distinct today, by authorship rather than by a check | now |
 | 6 | **The anchor is two attributes, not one** — a blocked-slice jump breaks wherever the outer `data-wave-list` is missing, as measured | now |
-| 7 | **`rowKey` has no slice component** — the 11 empty slices collapse to `repo//plan` | now |
+| 7 | **`rowKey` has no slice component** — empty slices collapse to `repo//plan` | now |
 
 **Gap 1 is half-reported.** `long_wave_names` already flags the sentence-length
 headings — it just flags them as *names too long to render*, not as *not a slice
@@ -714,5 +739,5 @@ nothing catches none.
   the gate when headings move.
 - **Should the composite id reach the payload?** The DOM already needs it and
   builds it from two attributes; `rowKey` needs it and has none.
-- **Is the 1:1 model enforced or relaxed?** 21 slices disagree and most already
-  shipped.
+- **Is the 1:1 model enforced or relaxed?** The slices that disagree are
+  counted by `uncut_slices=` (§8), and most already shipped.

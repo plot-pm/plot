@@ -31,14 +31,29 @@
 # THE EXCEPTIONS, each a different question rather than a tolerated violation
 # ---------------------------------------------------------------------------
 #
-# `plot-update-board.sh` — THE GITHUB PROJECTS API, NOT THE PR API. Its four
-#   calls are `gh project view`, `item-add`, `field-list` and `item-edit`.
-#   `plot-host.sh` answers `pr-state`, `pr-list`, `pr-merge`, `pr-create`,
-#   `pr-body`, `issue-list` and `issue-view`, and nothing at all about
-#   projects. Routing it is therefore not routing — it is widening the adapter
-#   with a host surface it does not have, which is capability, and belongs in
-#   its own plan rather than smuggled into this one. Exempt until someone
-#   decides to add project ops, and then this line is what they delete.
+# `plot-update-board.sh` — THE TRACKER PORT'S WRITE ARM, NOT THE HOST PORT'S,
+#   and the decision now rests on that rather than on a plan not yet written.
+#   Its four calls are `gh project view`, `item-add`, `field-list` and
+#   `item-edit` — the GitHub Projects v2 API. `plot-host.sh` answers
+#   `pr-state`, `pr-list`, `pr-merge`, `pr-create`, `pr-body`, `issue-list`,
+#   `issue-view` and `issue-status`, and nothing at all about projects.
+#
+#   THE PORT SPLIT DECIDED IT. `Tracker` is a `## Plot Config` key declared
+#   independently of `Git host`, so a repository's code and its tickets may
+#   live with different vendors. `adapters/tracker/tracker-github.ts:62`
+#   resolves this script and `:72` is its only caller — it is already behind a
+#   port, and that port is `tracker`. `plot-host.sh issue-status` is the SAME
+#   port's Jira connector and exits 4 for any other scheme on purpose, because
+#   *"the two write through different APIs under different credentials"*
+#   (`plot-host.sh:2754`). Routing this under the Jira arm would put both
+#   vendors' tokens in one place, which is what the split refuses.
+#
+#   THE REASON IS IN THE FILE, and it says what would change it: a SECOND
+#   vendor's project board needing the same four operations. The abstraction
+#   would then belong on the `tracker` port beside `statusWrite` — never on
+#   `plot-host.sh` — and this line is what gets deleted. More `gh project`
+#   calls in that script, or a second Plot caller inside this repository,
+#   change nothing: neither adds a vendor.
 #
 # `plot-board-probe.sh` — ASKS WHICH CLI EXISTS, not what a PR's state is. It
 #   reports `installed` and `auth` for `gh`, `bb` AND `jen` side by side, so it

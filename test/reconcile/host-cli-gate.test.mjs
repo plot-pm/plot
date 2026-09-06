@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -145,4 +145,57 @@ test('host CLI gate: the repo\'s own tree is clean', () => {
   const got = run(repoRoot);
   assert.equal(got.status, 0, `this repo must pass its own gate:\n${got.stdout}`);
   assert.match(got.stdout, /Host CLI callers: clean/, got.stdout);
+});
+
+// ---------------------------------------------------------------------------
+// THE EXEMPTIONS ARE PINNED, because an unexplained one is the hole the list
+// exists to close.
+// ---------------------------------------------------------------------------
+//
+// `plot-pr-merged.sh`'s entry rests on two tests in host.test.mjs, and one of
+// them has already fired and shrunk it. `plot-update-board.sh`'s rested on
+// nothing: its reason lived only in the gate's header, where deleting the
+// script's `gh` calls or moving them to another port would leave the entry
+// standing and true-sounding. These two tests assert the two facts the
+// exemption is made of, so it fails when it stops being true.
+
+test('host CLI gate: the board updater carries its own reason', () => {
+  // THE REASON MUST BE IN THE FILE, not only in the gate. A reader arrives at
+  // the `gh project` call, not at the exemption list — and the file is where
+  // the decision has to survive being read out of context.
+  const src = readFileSync(
+    path.join(repoRoot, 'skills', 'plot', 'scripts', 'plot-update-board.sh'),
+    'utf8',
+  );
+
+  assert.match(src, /check-host-cli-callers\.sh/,
+    'the script must name the gate that exempts it');
+  assert.match(src, /tracker/i,
+    'and say which port owns it');
+  // AND SAY WHAT WOULD CHANGE IT. An exemption with no exit condition is a
+  // hole with a paragraph in front of it.
+  assert.match(src, /WHAT WOULD CHANGE THIS/,
+    'and state what would change the decision');
+});
+
+test('host CLI gate: the board updater asks the projects API only', () => {
+  // THE EXEMPTION IS ABOUT WHICH API IS ASKED. It covers `gh project` — the
+  // Projects v2 surface `plot-host.sh` answers nothing about. A `gh pr` or
+  // `gh issue` call appearing here asks a question the adapter DOES answer,
+  // and the exemption would then be covering a real violation by accident.
+  const src = readFileSync(
+    path.join(repoRoot, 'skills', 'plot', 'scripts', 'plot-update-board.sh'),
+    'utf8',
+  );
+
+  const calls = src
+    .split('\n')
+    .filter((line) => !/^\s*#/.test(line))
+    .filter((line) => /(^|[|;&({]|\$\(|`)\s*gh\s+[a-z]/.test(line));
+
+  assert.ok(calls.length > 0, 'the script must still be the thing this exempts');
+  for (const line of calls) {
+    assert.match(line, /gh\s+project\s/,
+      `only \`gh project\` is exempted here; ask plot-host.sh for anything else:\n${line}`);
+  }
 });

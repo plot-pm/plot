@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -16,6 +16,8 @@
 - **Started:** 2026-09-05, Jan Wloka, `feature/an-agent-is-started-by-a-command`
 - **Started:** 2026-09-05, Jan Wloka, `feature/the-board-has-a-door`
 - **Started:** 2026-09-06, Jan Wloka, `feature/one-monitor-watches-the-slice`
+- **Started:** 2026-09-07, Jan Wloka, `docs/adoption-names-the-processes`
+- **Delivered:** 2026-09-07
 
 ## Design
 
@@ -355,7 +357,7 @@ supervisor reports `gone` and `idle` for every agent it supervises,
 `monitors-end.test.mjs` still passes — a monitor must still end with its subject
 — and a wedged agent is still reported, one tick later at worst.
 
-### Saying so where a user looks (Branch: docs/adoption-names-the-processes)
+### Saying so where a user looks (Branch: docs/adoption-names-the-processes, PR: #749)
 
 `/plot-init` and `/plot-board-setup` name both runtime commands in their closing summary, and the root README's skills table carries all three.
 

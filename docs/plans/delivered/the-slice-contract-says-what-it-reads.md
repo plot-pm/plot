@@ -1,0 +1,1 @@
+../2026-09-05-the-slice-contract-says-what-it-reads.md

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 1
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-stale-plan-file-does-not-travel`
+- **Delivered:** 2026-09-07
 
 ## Changelog
 
@@ -73,7 +74,7 @@ main@{13:53:40}  commit: plot: brief the three slices the tick named no-brief
 
 ## Slices
 
-### A commit refuses a checkout that moved under it (Branch: bug/a-stale-plan-file-does-not-travel)
+### A commit refuses a checkout that moved under it (Branch: bug/a-stale-plan-file-does-not-travel, PR #747)
 
 A pre-commit gate refuses a commit whose `HEAD` has moved since the index was last refreshed against it.
 
