@@ -1,5 +1,5 @@
 import {
-  BOARD_ARTIFACT_PATH,
+  isBoardArtifact,
   type BranchState,
   type Stuck,
   type StuckRun,
@@ -119,27 +119,38 @@ function noCiEvidence(): Pick<
 /**
  * Is this conflict set the one case whose resolution is provable?
  *
- * **EXACTLY the artifact — one file, that file, and nothing else.** Not "the
- * artifact among the conflicts", and the difference is the whole point: an
- * implementation asking *is the artifact in this set* passes every
- * artifact-only case and silently misclassifies every mixed one. A merge that
- * conflicts in the artifact AND anything else needs judgement as a whole, even
- * though one of its files does not.
+ * **EVERY conflicted path is a bundle, and the set is not empty.** Not "a
+ * bundle among the conflicts", and the difference is the whole point: an
+ * implementation asking *is a bundle in this set* passes every bundle-only case
+ * and silently misclassifies every mixed one. A merge that conflicts in a
+ * bundle AND anything else needs judgement as a whole, even though one of its
+ * files does not.
  *
- * The artifact case is provable rather than merely conventional, which is what
- * earns it a separate name: `.gitattributes` marks the file `-merge` so git
+ * **The claim stayed exact when the list grew from one file to nine.** It was
+ * `length === 1 && [0] === artifact` until 2026-09-06 — a set equality against
+ * a set of one. A conflict set is now an arbitrary subset of nine, so there is
+ * no single value to compare against; the direction is what preserves the
+ * rigour. Every observed path must be licensed, so an unlicensed one can only
+ * ever refuse.
+ *
+ * **Empty is refused explicitly.** `every` on an empty array is `true`, and a
+ * branch with no conflicts is not a branch whose conflicts resolve mechanically
+ * — that is the shape `plot-resolve-artifact.sh` names `not-observed`.
+ *
+ * The bundle case is provable rather than merely conventional, which is what
+ * earns it a separate name: `.gitattributes` marks each file `-merge` so git
  * keeps one side whole and writes no markers, `build.mjs` embeds no timestamp
  * and no randomness so a rebuild does not depend on which side was kept, and
- * CI's no-diff gate fails the build if the committed artifact and a fresh
- * rebuild disagree. Take either side, rebuild, commit — a resolution nobody has
- * to read a diff to check.
+ * CI's no-diff gate fails the build if a committed artifact and a fresh rebuild
+ * disagree. Take either side, rebuild, commit — a resolution nobody has to read
+ * a diff to check.
  *
  * Exported because the pairing is the assertion that matters, and a test that
  * could only reach this through the whole detector would be testing two things
  * at once.
  */
 export function isArtifactOnly(conflicts: readonly string[]): boolean {
-  return conflicts.length === 1 && conflicts[0] === BOARD_ARTIFACT_PATH;
+  return conflicts.length > 0 && conflicts.every(isBoardArtifact);
 }
 
 /**

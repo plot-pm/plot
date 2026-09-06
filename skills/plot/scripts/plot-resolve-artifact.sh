@@ -9,10 +9,11 @@
 # THE ONLY AUTOMATIC WRITE THIS SYSTEM GRANTS, and it is granted for three
 # verified reasons rather than for convenience:
 #
-#   1. `-merge` KEEPS THE FILE VALID. `.gitattributes` marks the artifact
+#   1. `-merge` KEEPS THE FILE VALID. `.gitattributes` marks every bundle
 #      `-merge`, so git keeps one side whole and writes NO conflict markers.
 #      The artifact stays buildable JavaScript *through* a conflict — which is
-#      why a script may touch it at all.
+#      why a script may touch it at all. `scripts/check-bundle-attributes.sh`
+#      is the gate that keeps that true of every bundle rather than of one.
 #   2. THE REBUILD IS DETERMINISTIC. Measured: `build.mjs` embeds no timestamp
 #      and no randomness, so the output does not depend on which side was kept.
 #   3. CI PROVES IT. The no-diff gate fails the build if the committed artifact
@@ -52,7 +53,7 @@
 # AN EMPTY CONFLICT SET IS NOT A REFUSAL ABOUT FILES. Three cases, named apart,
 # because two of them were once one:
 #
-#   exactly the artifact  → the licensed case                    → repair
+#   bundles only          → the licensed case                    → repair
 #   other files present   → needs judgement                      → not-artifact-only
 #   empty, no merge ran   → nothing was observed                 → not-observed
 #
@@ -70,10 +71,45 @@ set -uo pipefail
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-# The one file this script may resolve. Named here as well as in the board's
-# contract because the two run in different languages and neither can import
-# the other's constant; the pairing is asserted by a test rather than trusted.
-ARTIFACT_PATH="skills/plot/scripts/board/board-server.mjs"
+# THE FILES THIS SCRIPT MAY RESOLVE — a SET, and derived rather than listed.
+#
+# It was one hardcoded filename until 2026-09-06, and that cost a repair the
+# same day: PR #727 conflicted in `plot-registryd.mjs` — a `-merge` bundle with
+# a deterministic rebuild, exactly the licensed case — and this script refused
+# `not-artifact-only` against a list naming only `board-server.mjs`. The refusal
+# was correct behaviour against a stale list. Hours later the same branch
+# conflicted in `board-server.mjs` and was repaired automatically: same class of
+# conflict, opposite outcome, one filename apart.
+#
+# DERIVED FROM `build.mjs`'S OWN DECLARATIONS, by the same pipeline
+# `scripts/check-bundle-attributes.sh` uses, because a hand-written list here
+# would be a fourth place to drift — and drift is the defect this replaces. The
+# build declares each output as `const shippedX = path.join(here, '…')`, which
+# is what an author writes when adding a bundle; nothing else has to be
+# remembered. Nine bundles today; `plot-landed.mjs` arrived while the plan that
+# asked for this was still in draft, and the derivation found it.
+#
+# `plot-monitor.mjs` IS DELIBERATELY ABSENT. It is committed and documented, and
+# no `outfile` names it — nothing rebuilds it. Property 2 above is the whole
+# licence, so a file with no deterministic rebuild cannot be on this list. The
+# derivation reads the build, so it cannot ask for it.
+#
+# Still named in the board's contract as well, because the two run in different
+# languages and neither can import the other's constant. The pairing is asserted
+# by a test rather than trusted — and that test now asserts SET EQUALITY, since
+# a set that agrees on one member and differs on another is exactly the drift
+# this replaces.
+#
+# READ FROM THE REPOSITORY BEING REPAIRED, not from this script's own checkout.
+# The script is vendored into the published package, where `packages/` does not
+# exist — and it rebuilds with `pnpm build:board` inside the target repo, so the
+# build that defines the set is the one that will run. Resolved below, once
+# `repo_root` is known.
+bundle_set() { # $1=repo root → one path per line, sorted
+  grep -aoE "shipped[A-Za-z]* = path\.join\([^)]*'[^']*'\)" "$1/packages/board/build.mjs" 2>/dev/null \
+    | sed -E "s|.*'\.\./\.\./([^']*)'.*|\1|" \
+    | sort -u
+}
 
 dry_run=0
 branch=""
@@ -108,6 +144,19 @@ MAIN=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^o
 [ -n "$MAIN" ] || MAIN="main"
 
 repo_root=$(git rev-parse --show-toplevel)
+
+# THE SET, resolved against the repository this run will rebuild.
+ARTIFACT_PATHS=$(bundle_set "$repo_root")
+
+# AN EMPTY DERIVATION REFUSES, and it must: the guard below asks whether every
+# unmerged path is in this set, and against an empty set that question has no
+# true answer to give — but a guard written the other way round would have said
+# yes to everything. The build changing shape, or a checkout with no
+# `packages/`, is a reason to stop rather than a reason to repair blind.
+if [ -z "$ARTIFACT_PATHS" ]; then
+  echo "step: no bundles derived from packages/board/build.mjs — refusing"
+  finish refused no-bundle-set
+fi
 
 # WHICH WORKTREE HOLDS THIS BRANCH — ASK GIT, do not reconstruct the path from
 # the branch name.
@@ -151,7 +200,10 @@ fi
 
 if [ "$dry_run" = 1 ]; then
   echo "step: would use worktree $wt"
-  echo "step: would merge origin/$MAIN, take a side of $ARTIFACT_PATH, rebuild, test"
+  echo "step: would merge origin/$MAIN, take a side of each conflicted bundle, rebuild, test"
+  printf 'step: bundle set (%s): %s\n' \
+    "$(printf '%s\n' "$ARTIFACT_PATHS" | grep -c .)" \
+    "$(printf '%s' "$ARTIFACT_PATHS" | tr '\n' ' ')"
   echo "step: would push only if pnpm run test:board passes"
   finish refused dry-run
 fi
@@ -274,23 +326,53 @@ if [ "$n_unmerged" = "0" ]; then
   finish refused not-observed
 fi
 
-# EXACTLY the artifact: one path, that path, nothing else. Not "the artifact
-# among the conflicts" — an implementation asking that passes every
-# artifact-only case and silently repairs merges that need judgement as a whole.
-if [ "$n_unmerged" != "1" ] || [ "$unmerged" != "$ARTIFACT_PATH" ]; then
+# EVERY unmerged path is a bundle: the conflict set is a SUBSET of the bundle
+# set, and nothing else is in it. NOT "a bundle is among the conflicts" — an
+# implementation asking that passes every bundle-only case and silently repairs
+# merges that need judgement as a whole. The claim stayed exact when the list
+# grew from one file to nine; only the thing each path is checked against
+# changed. A merge conflicting in a bundle AND anything else still needs a
+# person, even though one of its files does not.
+#
+# WALKED PER PATH rather than compared as a whole, because the conflict set is
+# an arbitrary subset of nine and there is no single string to compare it to.
+# The direction is what keeps it exact: every element of the observed set must
+# appear in the licensed set, so an unlicensed path can only ever refuse.
+outside=""
+while IFS= read -r conflict; do
+  [ -n "$conflict" ] || continue
+  if ! printf '%s\n' "$ARTIFACT_PATHS" | grep -qxF -- "$conflict"; then
+    outside="${outside}${outside:+ }$conflict"
+  fi
+done <<EOF
+$unmerged
+EOF
+
+if [ -n "$outside" ]; then
   git -C "$wt" merge --abort >/dev/null 2>&1 || true
-  echo "step: conflict set is not exactly the artifact — refusing"
+  echo "step: conflict set is not bundles only — refusing"
   printf 'step: unmerged: %s\n' "$(printf '%s' "$unmerged" | tr '\n' ' ')"
+  printf 'step: outside the bundle set: %s\n' "$outside"
   finish refused not-artifact-only
 fi
 
-# 3. Take a side. WHICH SIDE CANNOT MATTER — the rebuild overwrites it — and the
-#    diff is never read. `--theirs` because the command needs a word.
-git -C "$wt" checkout --theirs -- "$ARTIFACT_PATH" 2>/dev/null \
-  || git -C "$wt" checkout --ours -- "$ARTIFACT_PATH" 2>/dev/null \
-  || true
-git -C "$wt" add -- "$ARTIFACT_PATH" 2>/dev/null || true
-echo "step: took a side of $ARTIFACT_PATH (either — the rebuild decides)"
+# 3. Take a side of EACH conflicted bundle. WHICH SIDE CANNOT MATTER — the
+#    rebuild overwrites it — and the diff is never read. `--theirs` because the
+#    command needs a word.
+#
+#    Only the paths that actually conflicted, never the whole set: a bundle git
+#    merged cleanly has no side to take, and `checkout --theirs` on an unmerged-
+#    stage-free path errors rather than doing nothing useful.
+while IFS= read -r conflict; do
+  [ -n "$conflict" ] || continue
+  git -C "$wt" checkout --theirs -- "$conflict" 2>/dev/null \
+    || git -C "$wt" checkout --ours -- "$conflict" 2>/dev/null \
+    || true
+  git -C "$wt" add -- "$conflict" 2>/dev/null || true
+  echo "step: took a side of $conflict (either — the rebuild decides)"
+done <<EOF
+$unmerged
+EOF
 
 # 4. Rebuild, in the branch's OWN worktree. This is what makes the kept side
 #    irrelevant, and it is the property CI's no-diff gate then re-checks.
@@ -299,8 +381,19 @@ if ! (cd "$wt" && pnpm build:board >/dev/null 2>&1); then
   echo "step: rebuild failed — pushing nothing"
   finish abandoned build-failed
 fi
-git -C "$wt" add -- "$ARTIFACT_PATH" 2>/dev/null || true
-echo "step: rebuilt $ARTIFACT_PATH"
+# EVERY bundle is staged after the rebuild, not just the ones that conflicted.
+# `pnpm build:board` regenerates all nine, and a rebuild triggered by one
+# conflict can legitimately move another — the merge brought in source changes
+# for the whole package. Staging only the conflicted paths would leave those
+# modifications unstaged, and CI's no-diff gate would then fail the push for a
+# file this run had already rebuilt correctly.
+while IFS= read -r bundle; do
+  [ -n "$bundle" ] || continue
+  git -C "$wt" add -- "$bundle" 2>/dev/null || true
+done <<EOF
+$ARTIFACT_PATHS
+EOF
+printf 'step: rebuilt and staged %s bundle(s)\n' "$(printf '%s\n' "$ARTIFACT_PATHS" | grep -c .)"
 
 # The merge commit exists only once the rebuild has produced the artifact it
 # will carry. Committing before the build would leave a commit holding a stale

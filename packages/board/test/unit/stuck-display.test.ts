@@ -5,9 +5,12 @@ import {
 import { offersChangedFiles, stuckEvidence, stuckWord, hasExceptions, exceptionSummary, EXCEPTION_STATES } from '../../src/app/lib/agent-rows/stuck.js';
 import { changedFilesLabel, offersAction } from '../../src/app/lib/agent-rows/actions.js';
 import {
-  StuckStateSchema, BOARD_ARTIFACT_PATH,
+  StuckStateSchema, BOARD_ARTIFACT_PATHS,
   type Card, type DispatchInfo, type Stuck, type StuckState,
 } from '../../src/contract/schema.js';
+
+/** One bundle, standing for any of the nine — the set is asserted separately. */
+const ARTIFACT = BOARD_ARTIFACT_PATHS[0]!;
 
 /**
  * WHAT A STUCK ROW SAYS — the decision half, asserted without a page.
@@ -88,9 +91,9 @@ describe('stuckEvidence — the evidence travels WITH the state', () => {
     // The set travels with the answer so a reader can COUNT it rather than
     // trust the classification — *exactly the artifact* is a claim about a set.
     const lines = stuckEvidence(stuck({
-      state: 'artifact-conflict', conflicts: [BOARD_ARTIFACT_PATH],
+      state: 'artifact-conflict', conflicts: [ARTIFACT],
     }));
-    expect(lines.join(' ')).toContain(BOARD_ARTIFACT_PATH);
+    expect(lines.join(' ')).toContain(ARTIFACT);
   });
 
   it('says the host reported no file list when the conflict set is empty', () => {
