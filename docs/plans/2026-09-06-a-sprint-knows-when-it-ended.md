@@ -55,7 +55,7 @@ This repeats a defect fixed the day before: `2026-W35-the-board-tells-the-truth-
 
 ## Slices
 
-### The gate names what it gates on (Branch: infra/a-delivery-gate-stops-by-name)
+### The gate names what it gates on (Branch: infra/a-delivery-gate-stops-by-name, PR: #728)
 
 `/plot-deliver`'s gate stops at the blocking sections by name rather than at the literal `== 7.`.
 
