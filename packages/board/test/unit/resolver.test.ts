@@ -7,7 +7,7 @@ import {
   REPAIR_ECHO_MS,
 } from '../../src/server/resolver.js';
 import { stuckState } from '../../src/server/stuck.js';
-import { BOARD_ARTIFACT_PATH, type Stuck } from '../../src/contract/schema.js';
+import { BOARD_ARTIFACT_PATHS, type Stuck } from '../../src/contract/schema.js';
 
 // THE ENTRY CONDITION IS THE PERMISSION, so these tests are mostly refusals.
 //
@@ -21,10 +21,13 @@ import { BOARD_ARTIFACT_PATH, type Stuck } from '../../src/contract/schema.js';
 
 const OTHER = 'packages/board/src/server/fleet.ts';
 
+/** One bundle, standing for any of the nine — the set is asserted separately. */
+const ARTIFACT = BOARD_ARTIFACT_PATHS[0]!;
+
 function stuck(over: Partial<Stuck>): Stuck {
   return {
     state: 'artifact-conflict',
-    conflicts: [BOARD_ARTIFACT_PATH],
+    conflicts: [ARTIFACT],
     localAhead: 0,
     changedPaths: [],
     failingChecks: [],
@@ -46,7 +49,7 @@ describe('mayResolve — exactly one state, and only on an observed set', () => 
   it('refuses a mixed conflict set — the artifact plus one other file', () => {
     const mixed = stuckState({
       state: 'wip',
-      conflicts: [BOARD_ARTIFACT_PATH, OTHER],
+      conflicts: [ARTIFACT, OTHER],
       conflictsKnown: true,
       localAhead: 0,
     });
@@ -55,7 +58,48 @@ describe('mayResolve — exactly one state, and only on an observed set', () => 
 
     // And directly, in case a future detector ever mislabels one: the guard
     // does not take the state's word for the set it names.
-    expect(mayResolve(stuck({ conflicts: [BOARD_ARTIFACT_PATH, OTHER] }))).toBe(false);
+    expect(mayResolve(stuck({ conflicts: [ARTIFACT, OTHER] }))).toBe(false);
+  });
+
+  // THE WIDENING, 2026-09-06 — and the property it must not cost.
+  //
+  // `mayResolve` compared against ONE filename, so a conflict in any of the
+  // other eight bundles was refused and repaired by hand. PR #727 paid for it:
+  // refused on `plot-registryd.mjs`, then repaired automatically hours later on
+  // `board-server.mjs` — same class of conflict, one filename apart.
+  it('may resolve a conflict in ANY bundle the build emits', () => {
+    for (const bundle of BOARD_ARTIFACT_PATHS) {
+      expect(mayResolve(stuck({ conflicts: [bundle] }))).toBe(true);
+    }
+    // The bundle the defect was reported against, named so a regression says why.
+    expect(mayResolve(stuck({
+      conflicts: ['skills/plot/scripts/board/plot-registryd.mjs'],
+    }))).toBe(true);
+  });
+
+  it('may resolve several bundles conflicting together', () => {
+    // One `pnpm build:board` regenerates all of them, so a set of bundles is no
+    // less mechanical than a set of one.
+    expect(mayResolve(stuck({ conflicts: [...BOARD_ARTIFACT_PATHS] }))).toBe(true);
+  });
+
+  it('still refuses a non-bundle path beside ANY bundle', () => {
+    // The guard asks whether EVERY conflicted path is a bundle, never whether a
+    // bundle is among them. The second question passes every bundle-only case
+    // above and silently repairs merges that need judgement as a whole.
+    for (const bundle of BOARD_ARTIFACT_PATHS) {
+      expect(mayResolve(stuck({ conflicts: [bundle, OTHER] }))).toBe(false);
+      expect(mayResolve(stuck({ conflicts: [OTHER, bundle] }))).toBe(false);
+    }
+    expect(mayResolve(stuck({ conflicts: [...BOARD_ARTIFACT_PATHS, OTHER] }))).toBe(false);
+  });
+
+  it('refuses `plot-monitor.mjs`, which no build emits', () => {
+    // Nothing rebuilds it, so it has no deterministic rebuild — and the
+    // deterministic rebuild is the whole licence for touching a file at all.
+    expect(mayResolve(stuck({
+      conflicts: ['skills/plot/scripts/board/plot-monitor.mjs'],
+    }))).toBe(false);
   });
 
   // A HOST VERDICT WITH NO OBSERVED SET. `merge-tree` predicts from the refs
@@ -92,7 +136,7 @@ describe('mayResolve — exactly one state, and only on an observed set', () => 
     // inherited: exactly one of the four is repairable.
     const states = ['artifact-conflict', 'conflict', 'ci-failing', 'unpushed'] as const;
     const allowed = states.filter((s) =>
-      mayResolve(stuck({ state: s, conflicts: [BOARD_ARTIFACT_PATH] })));
+      mayResolve(stuck({ state: s, conflicts: [ARTIFACT] })));
     expect(allowed).toEqual(['artifact-conflict']);
   });
 
@@ -382,12 +426,12 @@ describe('PLOT_BOARD_REPAIR — the repair is refusable, and only ever downward'
   it('still detects and reports the conflict it will not repair', () => {
     const seen = stuckState({
       state: 'wip',
-      conflicts: [BOARD_ARTIFACT_PATH],
+      conflicts: [ARTIFACT],
       conflictsKnown: true,
       localAhead: 0,
     });
     expect(seen?.state).toBe('artifact-conflict');
-    expect(seen?.conflicts).toEqual([BOARD_ARTIFACT_PATH]);
+    expect(seen?.conflicts).toEqual([ARTIFACT]);
 
     startRepair('feature/a', seen, { ...opts, repairEnabled: false });
     expect(started).toEqual([]);
@@ -433,7 +477,7 @@ describe('PLOT_BOARD_REPAIR — the repair is refusable, and only ever downward'
   it('refuses a conflict touching source even when explicitly switched ON', () => {
     const mixed = stuckState({
       state: 'wip',
-      conflicts: [BOARD_ARTIFACT_PATH, OTHER],
+      conflicts: [ARTIFACT, OTHER],
       conflictsKnown: true,
       localAhead: 0,
     });

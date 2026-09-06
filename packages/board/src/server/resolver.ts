@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { agentLogPath } from './agent-log.js';
-import { BOARD_ARTIFACT_PATH, type Repair, type Stuck } from '../contract/schema.js';
+import { isBoardArtifact, type Repair, type Stuck } from '../contract/schema.js';
 import { scriptsFor, type BuildBoardOptions } from './board.js';
 
 /**
@@ -12,9 +12,9 @@ import { scriptsFor, type BuildBoardOptions } from './board.js';
  * Three properties, each verified rather than assumed:
  *
  *   1. **`-merge` keeps the file valid.** `.gitattributes` marks
- *      {@link BOARD_ARTIFACT_PATH} so git keeps one side whole and writes NO
- *      conflict markers. The artifact stays buildable JavaScript *through* a
- *      conflict.
+ *      every path in {@link BOARD_ARTIFACT_PATHS} so git keeps one side whole
+ *      and writes NO conflict markers. Each artifact stays buildable JavaScript
+ *      *through* a conflict.
  *   2. **The rebuild is deterministic.** Measured: `build.mjs` embeds no
  *      timestamp and no randomness, so the output does not depend on which side
  *      was kept.
@@ -45,10 +45,10 @@ import { scriptsFor, type BuildBoardOptions } from './board.js';
  *
  * It consumes `stuck.state === 'artifact-conflict'` as slice 1 classified it and
  * never re-derives it. Re-deriving would be a second implementation of the
- * `length === 1` fence, and the two would drift the first time one of them was
- * edited. The script re-checks the set once more against the REAL merge, which
- * is a different question from this one: the board's set is a `merge-tree`
- * prediction, and the script's is the merge itself.
+ * every-path-is-a-bundle fence, and the two would drift the first time one of
+ * them was edited. The script re-checks the set once more against the REAL
+ * merge, which is a different question from this one: the board's set is a
+ * `merge-tree` prediction, and the script's is the merge itself.
  */
 
 /**
@@ -70,7 +70,8 @@ import { scriptsFor, type BuildBoardOptions } from './board.js';
  * REASSURING direction, since `merge-tree` predicts from the refs this machine
  * holds while the host computed against the branch as it stands. This re-asserts
  * the emptiness check locally rather than trusting the caller: the field this
- * decision rests on is the set, and a set of zero is not a set of one.
+ * decision rests on is the set, and a set of zero is not a set of bundles —
+ * `every` would hold over it vacuously, which is why the length is tested too.
  *
  * Exported and pure because the refusals ARE the design. A predicate reachable
  * only through a spawn could only be tested by watching for the absence of a
@@ -79,11 +80,20 @@ import { scriptsFor, type BuildBoardOptions } from './board.js';
 export function mayResolve(stuck: Stuck | null | undefined): stuck is Stuck {
   if (!stuck) return false;
   if (stuck.state !== 'artifact-conflict') return false;
-  // The set travels with the state, so it can be COUNTED rather than trusted —
-  // and this is the count. `length === 1 && [0] === artifact` is slice 1's fence
-  // restated at the point of action, not a re-derivation of the state: if the
-  // two ever disagree, nothing is written.
-  return stuck.conflicts.length === 1 && stuck.conflicts[0] === BOARD_ARTIFACT_PATH;
+  // The set travels with the state, so it can be CHECKED rather than trusted —
+  // and this is the check. It restates the detector's fence at the point of
+  // action rather than re-deriving the state: if the two ever disagree, nothing
+  // is written.
+  //
+  // EVERY conflicted path must be a bundle, never "a bundle is among them".
+  // Asking the second question passes every bundle-only case and silently
+  // repairs merges that need judgement as a whole — and it is the one way to
+  // get this wrong, so it is stated at both sites rather than at one.
+  //
+  // The empty set is refused explicitly: `every` holds vacuously over it, and a
+  // branch with no observed conflicts is not a branch whose conflicts resolve
+  // mechanically.
+  return stuck.conflicts.length > 0 && stuck.conflicts.every(isBoardArtifact);
 }
 
 /**

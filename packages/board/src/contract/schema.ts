@@ -1845,21 +1845,69 @@ export const StuckStateSchema = z.enum([
 export type StuckState = z.infer<typeof StuckStateSchema>;
 
 /**
- * The build artifact whose conflicts resolve mechanically — the ONE path for
+ * The build artifacts whose conflicts resolve mechanically — the paths for
  * which `artifact-conflict` may be reported.
  *
  * Named in the contract rather than in the detector because both sides of this
  * plan read it, and a second copy would let the two drift into disagreeing about
- * which file is special.
+ * which files are special.
  *
- * Its resolution is provable rather than conventional, which is what earns it a
- * name at all: `.gitattributes` marks it `-merge`, so git keeps one side whole
- * and writes no conflict markers; `build.mjs` embeds no timestamp and no
- * randomness, so a rebuild's output does not depend on which side was kept; and
- * CI's no-diff gate fails the build if the committed artifact does not match a
+ * Their resolution is provable rather than conventional, which is what earns
+ * them a name at all: `.gitattributes` marks each `-merge`, so git keeps one
+ * side whole and writes no conflict markers; `build.mjs` embeds no timestamp and
+ * no randomness, so a rebuild's output does not depend on which side was kept;
+ * and CI's no-diff gate fails the build if a committed artifact does not match a
  * fresh rebuild.
+ *
+ * A SET SINCE 2026-09-06, and the widening cost a repair to find. PR #727
+ * conflicted in `plot-registryd.mjs` — a `-merge` bundle with a deterministic
+ * rebuild, exactly the licensed case — and the resolver refused
+ * `not-artifact-only` against a list naming only `board-server.mjs`. Hours later
+ * the same branch conflicted in `board-server.mjs` and was repaired
+ * automatically: same class of conflict, opposite outcome, one filename apart.
+ *
+ * THE SOURCE IS `build.mjs`'S OWN `shippedX = path.join(…)` DECLARATIONS, which
+ * `scripts/check-bundle-attributes.sh` and `plot-resolve-artifact.sh` both
+ * derive from directly. This list cannot derive at import time — the board is a
+ * bundle that must not read the repository to be loaded — so it is checked
+ * against that derivation by `test/reconcile/resolveartifact.test.mjs` rather
+ * than trusted. The test asserts SET EQUALITY across all three, so a bundle
+ * added to the build and nowhere else fails rather than silently going
+ * unrepairable.
+ *
+ * `plot-monitor.mjs` IS DELIBERATELY ABSENT. It is committed and documented, and
+ * no `outfile` names it — nothing rebuilds it. The deterministic rebuild is the
+ * whole licence, so a file that has none cannot be here.
  */
-export const BOARD_ARTIFACT_PATH = 'skills/plot/scripts/board/board-server.mjs';
+export const BOARD_ARTIFACT_PATHS: readonly string[] = [
+  'skills/plot/scripts/board/board-server.mjs',
+  'skills/plot/scripts/board/plot-ask.mjs',
+  'skills/plot/scripts/board/plot-delta.mjs',
+  'skills/plot/scripts/board/plot-landed.mjs',
+  'skills/plot/scripts/board/plot-movable.mjs',
+  'skills/plot/scripts/board/plot-prompt.mjs',
+  'skills/plot/scripts/board/plot-registryd.mjs',
+  'skills/plot/scripts/board/plot-task.mjs',
+  'skills/plot/scripts/board/plot-transition.mjs',
+  'skills/plot/scripts/board/plot-verdicts.mjs',
+];
+
+/**
+ * Is this path one of the build artifacts whose conflicts resolve mechanically?
+ *
+ * A HELPER RATHER THAN A BARE `.includes` AT EACH SITE, so the two callers that
+ * decide whether to write cannot drift into asking it differently.
+ *
+ * **It answers about ONE path and decides nothing.** Whether a conflict SET is
+ * repairable is `isArtifactOnly`'s question, and the difference is the whole
+ * design: asking *is a bundle among the conflicts* passes every bundle-only
+ * case and silently repairs merges that need judgement as a whole.
+ *
+ * @param path A repo-relative path, as `git diff --name-only` spells it.
+ * @returns Whether the path is in {@link BOARD_ARTIFACT_PATHS}.
+ */
+export const isBoardArtifact = (path: string): boolean =>
+  BOARD_ARTIFACT_PATHS.includes(path);
 
 /**
  * What is stuck about a branch, and the evidence that produced it.
