@@ -274,7 +274,7 @@ before unloading the supervisor, `pnpm test` passes, and `grep -rn 'plot-fleet'
 skills/ packages/*/src CLAUDE.md README.md` returns only `plot-fleet-scan`
 matches and the new command's own files.
 
-### Starting the board (Branch: feature/the-board-has-a-door)
+### Starting the board (Branch: feature/the-board-has-a-door, PR: #722)
 
 `/plot-board` takes `--start`, `--stop`, `--status`, and `plot-board-setup` keeps only adoption.
 
