@@ -51,7 +51,9 @@ the-board-is-blank-where-it-matters     status: archived
 
 ## Slices
 
-### A written status is one the domain admits (Branch: bug/a-story-status-parses)
+### A written status is one the domain admits (Branch: bug/a-story-status-parses) <!-- moved: 2026-09-06 to a-stated-state-is-one-the-domain-admits — one defect found from two ends; the refusal belongs at the parse, where every consumer inherits it -->
+
+**MOVED — see [`a-stated-state-is-one-the-domain-admits`](2026-09-06-a-stated-state-is-one-the-domain-admits.md).** The text below is kept as the record of what this plan found; the work is that plan's.
 
 `plot-story-lint.sh` reports a `status:` value outside the six, and the three files are corrected.
 
