@@ -8,13 +8,13 @@ import {
   workerStateReadable,
   workerStateSource,
   WORKER_LIFECYCLE,
-  type WorkerReading,
+  type WorkerStateReading,
 } from '../src/transitions/worker.js';
 
 const BRANCH = 'feature/six-lifecycles-declare-their-rules';
 
 /** A reading whose source is the one that owns the state, with a desk here. */
-const read = (state: WorkerState, over: Partial<WorkerReading> = {}) =>
+const read = (state: WorkerState, over: Partial<WorkerStateReading> = {}) =>
   readWorkerState({
     branch: BRANCH,
     state,

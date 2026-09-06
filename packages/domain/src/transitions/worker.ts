@@ -10,10 +10,10 @@ import { STATE_SOURCE, type StateSource } from './agent.js';
  * workerStateSource} reads `STATE_SOURCE` rather than restating it.
  *
  * WHAT THIS FILE ADDS is the half only a process can answer, and CLAUDE.md draws
- * the line: four of the eight are Worker facts read from the process (`running`,
- * `failed`, `ended`, `none`), two are AGENT facts read from the desk (`waiting`,
- * `stalled`), `finished` is a Worker fact the desk refines, and `elsewhere` is a
- * Machine answer. `plot-worker-state.sh:46` decides the two workflow states from
+ * the line: four of the eight are process facts read from the process table
+ * (`running`, `failed`, `ended`, `none`), two are AGENT facts read from the desk
+ * (`waiting`, `stalled`), `finished` is a process fact the desk refines, and
+ * `elsewhere` is a Machine answer. `plot-worker-state.sh:46` decides the two workflow states from
  * the TREE, never from the process — an exited process is a precondition for
  * reading them, not the reason they hold.
  *
@@ -167,7 +167,7 @@ export const workerStateSource = (state: WorkerState): StateSource => STATE_SOUR
 const TASK_STATES: readonly WorkerState[] = ['waiting', 'stalled'];
 
 /** What was read of one worker, and by which component. */
-export interface WorkerReading {
+export interface WorkerStateReading {
   /** The branch whose desk was looked at. */
   branch: string;
   /** The state read. */
@@ -189,7 +189,7 @@ export interface WorkerReading {
  * @param reading - the state read, and which component read it.
  * @returns true when the gates would pass.
  */
-export const workerStateReadable = (reading: WorkerReading): boolean =>
+export const workerStateReadable = (reading: WorkerStateReading): boolean =>
   !isRefusal(readWorkerState(reading));
 
 /**
@@ -213,7 +213,7 @@ export const workerStateReadable = (reading: WorkerReading): boolean =>
  *   `exit-code-cannot-decide`, `no-worktree-here` or `precondition-unmet`.
  */
 export const readWorkerState = (
-  reading: WorkerReading,
+  reading: WorkerStateReading,
   preconditions: readonly Precondition[] = [],
 ): TransitionResult => {
   if (!known(reading.state)) {

@@ -306,16 +306,16 @@ export {
   workerStateReadable,
   workerStateSource,
   WORKER_LIFECYCLE,
-  isDecision as isWorkerDecision,
-  isRefusal as isWorkerRefusal,
+  isDecision as isWorkerStateDecision,
+  isRefusal as isWorkerStateRefusal,
 } from './transitions/worker.js';
 export type {
-  WorkerReading,
-  Precondition as WorkerPrecondition,
-  RefusalReason as WorkerRefusalReason,
-  TransitionResult as WorkerTransitionResult,
-  Decision as WorkerDecision,
-  Refusal as WorkerRefusal,
+  WorkerStateReading,
+  Precondition as WorkerStatePrecondition,
+  RefusalReason as WorkerStateRefusalReason,
+  TransitionResult as WorkerStateTransitionResult,
+  Decision as WorkerStateDecision,
+  Refusal as WorkerStateRefusal,
 } from './transitions/worker.js';
 
 export {
