@@ -102,7 +102,30 @@ recorded_pid() {
   printf '%s' "$p"
 }
 
-alive() { [ -n "${1:-}" ] && kill -0 "$1" 2>/dev/null; }
+# IS THIS PID A LIVE PROCESS? `kill -0` alone is not the answer, and the
+# difference is a ZOMBIE: a process that has exited and whose parent has not
+# reaped it stays in the table, and `kill -0` succeeds on it forever. Measured
+# 2026-09-06 — a `--stop` signalled its tree, every process exited, and the
+# wait loop then spun the full bound and reported "still running after KILL"
+# against a pid that was already dead. The launching shell was blocked and
+# could not reap, which is the ordinary case whenever a board is started by a
+# script that then waits on something else.
+#
+# So the state comes from `ps`, and a `Z` state reads as gone. `kill -0` stays
+# as the first question because it is cheap and answers the common case (no
+# such pid) without a fork.
+alive() {
+  [ -n "${1:-}" ] || return 1
+  kill -0 "$1" 2>/dev/null || return 1
+  local st
+  st=$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ')
+  # No state at all means the pid went between the two questions — gone.
+  [ -n "$st" ] || return 1
+  case "$st" in
+    Z*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
 
 # FACT TWO — who is listening on the port, or empty. `lsof` is the one question
 # that has an authoritative answer: the OS knows which process holds the socket.

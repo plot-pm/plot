@@ -98,6 +98,27 @@ error.
 happens over a table that cannot move under it; asking per pid would let a child
 spawned between two readings read as absent.
 
+## Liveness is read from `ps`, not from `kill -0`
+
+**`kill -0` succeeds on a zombie.** A process that has exited and whose parent
+has not reaped it stays in the process table, and every liveness check built on
+the signal alone reads it as running — forever.
+
+**Measured 2026-09-06, and it was `--stop` that found it.** The stop signalled
+its tree, every process exited, and the wait loop then spun the full bound and
+reported *"still running after KILL"* against a pid that was already dead. The
+launching shell was blocked in a call and could not reap, which is the ordinary
+case whenever a board is started by a script that then waits on something else.
+
+So `alive()` asks `kill -0` first — cheap, and it answers *no such pid* without
+a fork — and then reads `ps -o stat=`, where a `Z` state means gone. An empty
+state means the pid went between the two questions, which is also gone.
+
+**This is the same failure direction the estate documents elsewhere**: being
+wrong in the reassuring direction. A liveness check that says *running* about a
+dead process makes `--stop` report a failure it did not have, and would make a
+future `--status` show a board nobody can reach.
+
 ## Killing only the port-holder: what actually happens
 
 The plan says a port-only kill lets `node --watch` restart the child. **Measured
