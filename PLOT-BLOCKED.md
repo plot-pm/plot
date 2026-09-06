@@ -1,59 +1,81 @@
-PLOT-BLOCKED: Moving `idle` to the supervisor requires giving the daemon persistent state. Should it, or should the WorkerMonitor stay for `idle` alone?
+PLOT-BLOCKED: The three monitors cannot be merged in the shell as written, and moving `idle` to the supervisor needs a design decision. How should this slice proceed?
 
-## What is done
+## What ships on this branch
 
-The slice's first half is implemented, tested and pushed: the AgentMonitor and
-BuildMonitor are one loop over two subjects (`plot-agent-monitor.sh`), the
-wrapper starts one monitor instead of two, `buildMonitorPid` is no longer
-written, and the vendor list gained the two sourced siblings it was missing.
+One real fix, independent of the merge: **two sourced helper scripts now travel
+with the npm package.** `plot-monitor-subject.sh` was vendored by nothing, and
+all three monitors source it — without it `plot_monitor_wait` is undefined, the
+`while` driving every monitor's loop fails on its first call, and a monitor
+takes one pass and exits. A worker then reads as monitored and is watched by
+nothing after its first second. `plot-transcript-quiet.sh` was vendored but
+listed in neither `.gitignore` nor `files`, so it was committed as source.
 
-**A dispatched agent now runs four processes where it ran five** — wrapper,
-agent, WorkerMonitor, slice monitor — so fleet control is `1 + 3N` against the
-`1 + 4N` it was. The design's `1 + 2N` needs the WorkerMonitor gone, which is
-the question below.
+**The monitor merge itself is reverted.** The reasons are below, and both were
+found by measurement rather than argued.
 
-Measured after the merge: the monitor is alive while its subject lives, gone
-4 s after it dies, and leaves no children. 72 of 72 monitor tests pass, 89 of
-89 dispatch tests pass, and the shell/TS manifest byte-parity holds.
+## Blocker 1 — merging AgentMonitor and BuildMonitor in one shell does not work
 
-## The conflict
+Both scripts define `monitor_pass`, `sample_finding`, `publish` and
+`json_escape`, and both assign `published`, `since`, `findings`, `interval`,
+`monitor`, `worktree`, `pid_file` and `once` at module level.
 
-The brief says *"`WorkerMonitor`'s findings are reported by the supervisor's
-tick"* — its findings being `gone` and `idle`.
+Sourcing the second into the first was tried, saving and restoring the collided
+variables around the source. It got close — `--once` worked, the monitor ended
+with its subject in 3 s leaving no children, and 72 of 72 monitor tests and 89
+of 89 dispatch tests passed — but **CI's e2e suite failed six cases**, and the
+trace shows why:
 
-**`gone` moves cleanly.** It is a one-sample finding, and the supervisor
-already reads it: `SupervisionReadings.workerAlive` is exactly that question.
+```
++ run_desk_pass
++++ monitor_run_for_sha 4606e3a…      ← the BUILD monitor's host call
+```
 
-**`idle` does not.** `rules/sample.ts` requires `sample(previous, current)` —
-the two-sample rule, with a tree fingerprint that must be unchanged BETWEEN
-passes. The WorkerMonitor holds `prev_verdict` and `prev_tree` in process
-memory, which its own comment calls *"one piece of state, derived rather than
-recorded"*.
+`desk_pass` was copied with `declare -f` before the source, but **a function
+body binds its callees at CALL time**. The copied desk pass still calls
+`sample_finding`, which after the source is the build monitor's. Copying the
+outer function does not copy the three callees under it, so the desk subject
+silently ran the build subject's sampler and published nothing — *"no monitor
+was attached"*, six times.
 
-The supervisor cannot hold that. `registryd.ts:151` records the opposite as a
-MEASURED property: *"It holds nothing between calls, and that was measured
-rather than argued… a looping daemon was `kill -9`ed two seconds into a 3.4 s
-tick and the next whole tick reached the identical decision. No state file was
-written, because none is needed."* It also states *"no journal, no lock file
-and no resume path"*, and the tick never writes a manifest today.
+Fixing that properly means copying every shared callee under a prefix and
+rewriting the copied bodies to call the copies. That is a source transformation
+over two 500-line scripts, and it is not a change I will improvise.
 
-So reporting `idle` from the tick needs one of:
+**Two smaller options exist and both are decisions rather than mechanics:**
 
-1. **A state file or manifest field per agent per tick.** This gives the daemon
-   its first persistent state and ends the property above — recovery and normal
-   operation stop being one code path.
-2. **The WorkerMonitor stays, for `idle` alone.** Fleet control lands at
-   `1 + 3N` rather than the `1 + 2N` the design sets.
-3. **`idle` is dropped as a finding.** Cheapest, and it removes observation —
-   which `DESIGN-process.md` §0 rules out: *"the cheapest topology is no
-   monitors at all, and it is worthless."*
+1. **Rename the collided functions in one script** so the two can coexist —
+   a real refactor of a tested file, but a readable one.
+2. **Leave them as two processes.** Fleet control stays `1 + 4N`, and the
+   slice's number is not met.
 
-The brief settles the granularity trade (60 s versus seconds) but not this one,
-and each option changes something the design states explicitly. Which?
+Also measured on the way: the build subject's host call is UNBOUNDED, which
+cost only its own process when it had one. In a shared shell it holds the desk
+subject and the death check behind it.
 
-## Why I did not choose
+## Blocker 2 — `idle` cannot move to the supervisor as the brief describes
 
-Option 1 rewrites a measured invariant the brief does not mention. Option 2
-misses the slice's stated number. Option 3 deletes a finding the design
-protects. Improvising here would decide a design question during
-implementation, which is what this file exists to prevent.
+The brief asks that *"`WorkerMonitor`'s findings are reported by the
+supervisor's tick"* — its findings being `gone` and `idle`.
+
+**`gone` is already the supervisor's**, and in better words: `workerAlive` is
+that question, and a dead worker yields `reap`/`correct`/`needs-a-person`/
+`defer`, each more actionable than `gone`.
+
+**`idle` does not move.** `rules/sample.ts` requires `sample(previous, current)`
+— a two-sample rule with a tree fingerprint unchanged *between* passes. The
+WorkerMonitor holds that in process memory. `registryd.ts:151` records the
+opposite as a **measured** property: *"It holds nothing between calls… No state
+file was written, because none is needed"*, and *"no journal, no lock file and
+no resume path"*.
+
+So it needs a state file (ending a measured invariant), or the WorkerMonitor
+stays, or `idle` is dropped — which `DESIGN-process.md` §0 rules out.
+
+## What the plan did not anticipate
+
+**The monitors are not attached on this estate at all.** Measured 2026-09-06:
+18 worker loops running, zero monitors, and no manifest carrying `wrapperPid`
+or any `*MonitorPid`. Those agents were started through the registry/supervisor
+path, which attaches none. The `1 + 4N` the plan describes is not what is
+running here, so the saving is real only for `start_worker()`-dispatched
+agents.

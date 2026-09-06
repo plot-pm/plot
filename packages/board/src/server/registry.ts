@@ -96,22 +96,9 @@ export interface ProcessGroup {
   wrapperPid: string;
   /** The WorkerMonitor, which watches the process. */
   workerMonitorPid: string;
-  /** The slice monitor, which watches the desk AND the slice's CI. */
+  /** The AgentMonitor, which watches the desk. */
   agentMonitorPid: string;
-  /**
-   * The BuildMonitor, which watched the run — **never written since 2026-09-06**.
-   *
-   * READ, AND DELIBERATELY NOT REMOVED. The BuildMonitor merged into the slice
-   * monitor's loop to reach the `1 + 2N` `DESIGN-process.md` §8 sets, so nothing
-   * starts one any more and every manifest written since carries `''`. But
-   * manifests written BEFORE that date name a live pid here, and this group is
-   * what `/plot-fleet --stop` walks to find every process an agent started — a
-   * reader that dropped the field would strand exactly those processes, on the
-   * machines most likely to still be running them.
-   *
-   * It retires itself: `manifest-stamp.ts` matches the line and stops emitting
-   * it, so a manifest loses the field on its next stamp.
-   */
+  /** The BuildMonitor, which watches the run. */
   buildMonitorPid: string;
 }
 
