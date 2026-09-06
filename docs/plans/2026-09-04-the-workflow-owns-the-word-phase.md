@@ -189,6 +189,31 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
   **Asserted: a story status maps to exactly one phase**, the same property
   already asserted for plan states, and asserted the same way. → #721
 
+  **AMENDED AGAIN 2026-09-06: THE SLICE TAKES ALL THREE HAND-COPIED LISTS.**
+  Reading the eight open drafts against the domain found `BOARD_PHASES`'s
+  duplication three more times, under three names:
+
+  | list | domain | hand-copied |
+  |---|---|---|
+  | `BOARD_PHASES` | `rules/phase.ts:12` | `contract/schema.ts:202` |
+  | `SPRINT_PHASES` | `entities/sprint.ts:4` | `contract/schema.ts:221` |
+  | `STORY_STATUSES` | `entities/story.ts:10` | fixed by #707 |
+  | `statusOrder` | — | `board.ts:1421`, a **fourth** story-status list |
+
+  **`statusOrder` is the worst of them and is not a copy but a variant.**
+  `['draft','active','done','archived']` omits `ready`, `in-review` and
+  `paused`, so whether a paused story counts as *behind* its plans is answered
+  there by accident.
+
+  **One import line each, and the slice is already writing the first.** Doing
+  the other two in three separate plans would repeat a fix three times while
+  the gate that would prevent a fifth goes unwritten.
+
+  **Asserted: no value list the domain exports is declared a second time in
+  `packages/board/src`** — a check, so the fifth cannot arrive unnoticed. Prose
+  has said *"declared once"* since the domain package existed, and four
+  survived it.
+
 ### Naming the work in a phase
 
 - `feature/a-phase-names-its-work` — each phase declares which workflows belong to it, giving `WorkflowName`'s flat eight-value union its missing structure. **Asserted: the fleet's workflows are not phases of this one** — `assign`, `reap` and `supervise` act on agents and desks, and a list that mixes them with `approve`/`deliver`/`release` cannot answer *what comes next*.

@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -89,3 +89,11 @@ The lint reports a story whose written status and derived standing disagree.
 ### Why this is not `a-story-lifecycle-refuses` — 2026-09-06
 
 That plan made the seventh value unrepresentable in the domain, and it did. This one is about the files, which the type system never touched: three of them still hold a value that no longer parses, and they were written before the rule existed. A rule that ships without a sweep of what it now forbids leaves exactly this.
+
+### Slice 1 handed over — 2026-09-06
+
+`bug/a-story-status-parses` moved to [`a-stated-state-is-one-the-domain-admits`](2026-09-06-a-stated-state-is-one-the-domain-admits.md).
+
+**One defect, found twice.** This plan found three stories writing `archived`; `a-sprint-knows-when-it-ended` found one sprint writing `Planned`. Each proposed a check in its own lint — and two lints would have left the third entity uncovered, and the fourth after it.
+
+**The refusal belongs at the parse.** `plot-plan-meta.sh:338` already answers `UNKNOWN` for an unadmitted plan phase, and it parses all three file kinds. This plan keeps its second slice, the status-versus-plans drift, which is a different question: not *does this value parse* but *does it agree with the plans*.

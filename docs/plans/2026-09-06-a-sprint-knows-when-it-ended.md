@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -108,3 +108,11 @@ It is one word in one file, and the plan that reports the class of defect should
 ### Read with the other seven drafts — 2026-09-06
 
 The scan sections were the finding of an interrogation across all eight open plans rather than of this plan's own round. **Four drafts touch `plot-reconcile-scan.sh`**, and no per-plan round could see that two of them proposed new sections while a fifth had already been added without its documentation.
+
+### The unadmitted-phase finding handed over — 2026-09-06
+
+`Planned` against a schema saying `Planning` moved to [`a-stated-state-is-one-the-domain-admits`](2026-09-06-a-stated-state-is-one-the-domain-admits.md), with the three stories writing `archived` that `a-story-says-what-it-is` found.
+
+**Two plans found one defect from opposite ends**, and each was about to add a check to a different script. The parser refuses once and every consumer inherits it.
+
+**This plan keeps its other three slices** — the positional gate marker, the phase-versus-index disagreement, and the timebox. None of them is about whether a value parses.
