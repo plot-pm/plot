@@ -187,7 +187,7 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
   the phases belong to neither.
 
   **Asserted: a story status maps to exactly one phase**, the same property
-  already asserted for plan states, and asserted the same way.
+  already asserted for plan states, and asserted the same way. → #721
 
 ### Naming the work in a phase
 
