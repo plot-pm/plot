@@ -43,7 +43,7 @@
 
 ## Slices
 
-### The scan reports a wait that only prose declares (Branch: bug/a-stated-wait-is-a-parsed-wait)
+### The scan reports a wait that only prose declares (Branch: bug/a-stated-wait-is-a-parsed-wait, PR: #751)
 
 `plot-reconcile-scan.sh` reports a slice whose body names a dependency that its heading does not.
 
