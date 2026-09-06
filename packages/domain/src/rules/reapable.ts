@@ -120,3 +120,130 @@ export const isReapableTree = (readings: TreeReadings): boolean =>
  */
 export const firstReapRefusal = (readings: TreeReadings): ReapProblem | null =>
   reapProblems(readings)[0] ?? null;
+
+/**
+ * Why a branch's remote ref may not be deleted.
+ *
+ * A different question from {@link ReapRefusal}, which is about a checkout.
+ * The two overlap in what they measure and never in what they cost — see
+ * {@link refDeletionProblems}.
+ */
+export type RefRefusal =
+  | 'given-up'
+  | 'no-merged-pr'
+  | 'open-pr'
+  | 'checked-out'
+  | 'on-default-branch'
+  | 'live-worker'
+  | 'uncommitted-changes'
+  | 'blocked-marker';
+
+/**
+ * What was measured of ONE branch before deleting its ref.
+ *
+ * Extends {@link TreeReadings} rather than restating it: every reading the
+ * reaper takes is a reading this question can use, and the fields below are
+ * the ones only this question needs. A caller with no checkout to measure
+ * passes the tree readings empty — see {@link refDeletionProblems}.
+ */
+export interface RefReadings extends TreeReadings {
+  /**
+   * Whether the plan recorded the branch as `deferred:` or `moved:`.
+   *
+   * Given up, not finished. `/plot-reconcile` reads that annotation to tell
+   * deliberate abandonment from a dead worker, and it needs the ref to be
+   * there to read it against.
+   */
+  givenUp: boolean;
+  /**
+   * Whether the host reports an OPEN PR on the branch, whatever else merged.
+   *
+   * Not the negation of {@link TreeReadings.merge}: a branch can carry both.
+   * `changeset-release/main` is merged repeatedly and Changesets recreates and
+   * reuses it, so its ref holds a live release PR while an older PR of its own
+   * has merged.
+   */
+  openPr: boolean;
+  /** Whether any worktree on this machine has the branch checked out. */
+  checkedOut: boolean;
+}
+
+/**
+ * One refusal to delete a ref, and the reading it was taken from.
+ */
+export interface RefProblem {
+  /** Which measurement refused. */
+  refusal: RefRefusal;
+  /** The pid, the dirty path, or `''` where the refusal names no value. */
+  detail: string;
+}
+
+/**
+ * Every reason this branch's remote ref may not be deleted.
+ *
+ * ONE RULE, TWO CALLERS, AND THE SECOND CALLER IS WHY IT EXISTS. The reaper's
+ * five refusals and the ref-deleter's five guards are the same question asked
+ * about the same thing in two places, and on 2026-09-06 they already disagreed:
+ * the ref-deleter never asked whether a worker was alive, and the reaper never
+ * asked whether a PR was open. Each was blind to a guard the other applied.
+ * Deleting a ref out from under a running worker is the failure that cannot be
+ * repaired, so the readings compose rather than each script keeping its own.
+ *
+ * THE ASYMMETRY IS PRESERVED AND IS NOT THIS RULE'S TO FLATTEN. A reaped
+ * checkout comes back with `git worktree add`; a deleted ref does not. That is
+ * why the reaper is slug-blind and the ref-deleter is scoped to one plan — a
+ * sweep over every merged ref on the estate would satisfy *"a delivered plan's
+ * merged branches lose their refs"* and destroy unlanded work belonging to
+ * plans nobody delivered. **The shared rule answers the question; each caller
+ * keeps its own scope.** Nothing here reads a plan or enumerates a branch.
+ *
+ * The order is the order the tests run, and it is the argument. `given-up` is
+ * first because it is a decision a person already recorded and no merge state
+ * overturns it — checked before the host is even asked. The merge gate follows,
+ * because unlanded work keeps its ref always. The rest describe someone acting
+ * now: an open PR, a checkout somebody is reading, a live worker.
+ *
+ * @param readings What was measured of the branch and of any tree holding it.
+ * @returns The refusals that apply, most urgent first; empty means deletable.
+ */
+export const refDeletionProblems = (readings: RefReadings): RefProblem[] => {
+  const problems: RefProblem[] = [];
+  if (readings.givenUp) {
+    problems.push({ refusal: 'given-up', detail: '' });
+  }
+  if (readings.merge !== 'merged') {
+    problems.push({ refusal: 'no-merged-pr', detail: '' });
+  }
+  if (readings.openPr) {
+    problems.push({ refusal: 'open-pr', detail: '' });
+  }
+  if (readings.checkedOut) {
+    problems.push({ refusal: 'checked-out', detail: '' });
+  }
+  if (readings.branch === readings.defaultBranch) {
+    problems.push({ refusal: 'on-default-branch', detail: readings.defaultBranch });
+  }
+  // THE THREE THE REF-DELETER NEVER ASKED. Each describes somebody acting in a
+  // checkout right now, and a ref deleted under them is not recoverable. They
+  // are last because a caller with no tree to measure passes them empty, and a
+  // refusal that never fires must not displace one that does.
+  if (readings.workerPid !== null && readings.workerPid !== '') {
+    problems.push({ refusal: 'live-worker', detail: readings.workerPid });
+  }
+  if (readings.dirtyPath !== '') {
+    problems.push({ refusal: 'uncommitted-changes', detail: readings.dirtyPath });
+  }
+  if (readings.blockedMarker) {
+    problems.push({ refusal: 'blocked-marker', detail: '' });
+  }
+  return problems;
+};
+
+/**
+ * The one refusal a caller reporting a single reason per branch should show.
+ *
+ * @param readings What was measured of the branch.
+ * @returns The most urgent refusal, or `null` when the ref may be deleted.
+ */
+export const firstRefRefusal = (readings: RefReadings): RefProblem | null =>
+  refDeletionProblems(readings)[0] ?? null;

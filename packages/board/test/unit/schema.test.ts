@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   FLEET_CONTROLS_DEFAULT,
-  PlanMetaSchema, CardSchema, SourceBranchSchema, AgentRowSchema, AgentEntrySchema,
+  PlanMetaSchema, CardSchema, BranchSchema, AgentRowSchema, AgentEntrySchema,
   FleetSchema, ServerInfoSchema,
   AgentStateSchema, WorkerActivitySchema, isLiveState, isBrokenState,
 } from '../../src/contract/schema';
@@ -228,7 +228,7 @@ describe('CardSchema — pull requests', () => {
   });
 });
 
-describe('SourceBranchSchema — the worker', () => {
+describe('BranchSchema — the worker', () => {
   const base = { branch: 'feature/x', state: 'claimed', deferred: false, claimed: '' };
 
   it('defaults an absent worker to `elsewhere` — could not look, not "nobody"', () => {
@@ -237,7 +237,7 @@ describe('SourceBranchSchema — the worker', () => {
     // way. `elsewhere` says *this machine has nowhere to look*, which is exactly
     // what a scan that reports nothing means. Defaulting to `none` would assert
     // a local absence the scan never observed.
-    const b = SourceBranchSchema.parse(base);
+    const b = BranchSchema.parse(base);
     expect(b.worker).toBe('elsewhere');
     expect(b.worker_pid).toBe('');
     expect(b.worker_exit).toBe('');
@@ -254,7 +254,7 @@ describe('SourceBranchSchema — the worker', () => {
     // running — a child mid-work versus one whose clock is frozen — and the
     // schema carries both plus the "" that means *not measured*.
     for (const a of ['working', 'idle', ''] as const) {
-      expect(SourceBranchSchema.parse({ ...base, worker_activity: a }).worker_activity).toBe(a);
+      expect(BranchSchema.parse({ ...base, worker_activity: a }).worker_activity).toBe(a);
     }
   });
 
@@ -278,7 +278,7 @@ describe('SourceBranchSchema — the worker', () => {
     // out which — the thing this enum exists to prevent.
     for (const w of ['running', 'finished', 'waiting', 'stalled',
                      'failed', 'ended', 'none', 'elsewhere']) {
-      expect(SourceBranchSchema.parse({ ...base, worker: w }).worker).toBe(w);
+      expect(BranchSchema.parse({ ...base, worker: w }).worker).toBe(w);
     }
   });
 
@@ -287,7 +287,7 @@ describe('SourceBranchSchema — the worker', () => {
     // resume the branch, and "3 uncommitted files" does not support that
     // decision: three scratch notes and three half-finished modules read
     // identically.
-    const b = SourceBranchSchema.parse({
+    const b = BranchSchema.parse({
       ...base, worker: 'stalled',
       worker_dirty_paths: ['src/feature.ts', 'test/feature.test.ts'],
     });
@@ -297,7 +297,7 @@ describe('SourceBranchSchema — the worker', () => {
   it('carries the pid as a STRING — an identifier to show, never arithmetic', () => {
     // And "" is the honest rendering of "no pid was recorded", which a number
     // has no room for: 0 is a real-looking pid, and `kill -0 0` succeeds.
-    expect(SourceBranchSchema.parse({ ...base, worker_pid: '4242' }).worker_pid).toBe('4242');
+    expect(BranchSchema.parse({ ...base, worker_pid: '4242' }).worker_pid).toBe('4242');
   });
 });
 

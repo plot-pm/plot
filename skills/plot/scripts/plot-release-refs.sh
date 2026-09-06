@@ -43,6 +43,22 @@
 #   3. a branch with an OPEN PR                     (changeset-release/main)
 #   4. a branch checked out in ANY worktree         (somebody is reading it)
 #   5. the default branch itself                    (never ours to delete)
+#   6. a branch whose worktree has a live worker    (somebody is working NOW)
+#   7. a branch whose worktree holds uncommitted work
+#   8. a branch whose worktree holds a PLOT-BLOCKED marker
+#
+# THE LAST THREE ARRIVED 2026-09-06 AND THE SCRIPT DOES NOT OWN ANY OF THE
+# EIGHT. They are `packages/domain/src/rules/reapable.ts`'s
+# `refDeletionProblems`, and 1-5 moved there with them. This script and
+# `plot-reap.sh` were asking the same question about the same thing in two
+# places, and they had already drifted: this one never asked whether a worker
+# was alive, and the reaper never asked `pr_open`. Each was blind to a guard
+# the other applied, and deleting a ref out from under a running worker is the
+# failure that cannot be repaired.
+#
+# The SCOPE is still this script's and is not shared. The rule answers about
+# one branch and enumerates nothing; which branches to ask about stays bounded
+# by the plan file, for the reason the paragraph above gives.
 #
 # THE RULE THIS MUST NOT BREAK. `/plot-implement` says plainly: *"leave the ref
 # in place — never delete a remote ref another session may be reading."* Read in
@@ -115,7 +131,17 @@ prefix_re=$(bash "$script_dir/plot-config.sh" get "Branch prefixes" "idea/, feat
 meta=$(bash "$script_dir/plot-plan-meta.sh" --prefixes "$prefix_re" "$plan_file" 2>/dev/null) || meta=""
 [ -n "$meta" ] || die "cannot parse '$plan_file' — refusing rather than guessing"
 
-# The default branch, via the host adapter when it can answer. Guard 5 compares
+# The shared rule, resolved from THIS SCRIPT's location rather than the cwd, and
+# as a `file://` URL because `import()` needs one for an absolute path. Missing
+# or unreadable, the decision below reports "could not be asked" and keeps every
+# ref — the same fail-safe `plot-reap.sh` applies to the same module.
+#
+# THIS SCRIPT NOW NEEDS NODE. The alternative is a second implementation of the
+# guards living in shell where nothing can test it, which is what this branch
+# exists to end: the two copies had already drifted apart by three readings.
+RULE_PATH="file://$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd)/packages/domain/src/rules/reapable.ts"
+
+# The default branch, via the host adapter when it can answer. The rule compares
 # against it, and a wrong answer here can only ever protect MORE.
 HOST="$script_dir/plot-host.sh"
 DEFAULT=main
@@ -123,18 +149,31 @@ if [ -x "$HOST" ]; then
   d=$("$HOST" default-branch 2>/dev/null) && [ -n "$d" ] && DEFAULT="$d"
 fi
 
-# Every branch currently checked out ANYWHERE, for guard 4.
+# Every branch currently checked out ANYWHERE, WITH THE TREE THAT HOLDS IT.
 #
 # Collected once, before the loop, rather than asked per branch: `git worktree
 # list` walks the whole estate and this script runs on the delivery path where
 # that estate may hold dozens of trees. The answer cannot change underneath a
 # single run in a way that matters — a worktree created mid-run holds a branch
 # whose ref this run has not yet reached, and the next run sees it.
+#
+# THE PATH IS COLLECTED TOO, and that is what the shared rule needed. Until
+# 2026-09-06 this script asked only *is it checked out* and never *what is
+# happening in there* — so it could not see a live worker, an uncommitted file
+# or a `PLOT-BLOCKED` marker, all three of which the reaper refuses on. A
+# checked-out branch is kept either way; the readings are what let the refusal
+# say WHICH thing is going on, and they cost one field in a walk already done.
 checked_out=$(git worktree list --porcelain 2>/dev/null \
-                | sed -n 's|^branch refs/heads/||p')
+                | awk '/^worktree /{wt=substr($0,10)}
+                       /^branch refs\/heads\//{print substr($0,19) "\t" wt}')
 
 is_checked_out() {
-  printf '%s\n' "$checked_out" | grep -qxF "$1"
+  printf '%s\n' "$checked_out" | cut -f1 | grep -qxF "$1"
+}
+
+# The worktree holding a branch, or empty when none does.
+worktree_of() {
+  printf '%s\n' "$checked_out" | awk -F'\t' -v b="$1" '$1 == b {print $2; exit}'
 }
 
 released=0; kept=0; deleted=0
@@ -149,51 +188,99 @@ printf '%-8s %-52s %s\n' "verdict" "branch" "why"
 while IFS=$'\t' read -r br deferred; do
   [ -n "$br" ] || continue
 
-  # 5. The default branch is never ours to delete, whatever a plan says. A plan
-  #    that names it is malformed, and acting on that is unrecoverable.
-  if [ "$br" = "$DEFAULT" ]; then
-    printf '%-8s %-52s %s\n' "keep" "$br" "the default branch — never deleted"
-    kept=$((kept+1)); continue
+  # THE READINGS, each taken once and none judged here. The script holds no
+  # `if` about whether a ref may go — only about what to do with the answer.
+  #
+  # `pr_merged` reads `mergedAt` on ANY PR (never `state`, never ancestry) and
+  # answers false when the host cannot be asked, so silence keeps the ref.
+  # `pr_open` is asked separately rather than derived from it: a branch carries
+  # both, and `changeset-release/main` is the measured case.
+  merge=not-merged
+  pr_merged "$br" && merge=merged
+
+  open_pr=false
+  pr_open "$br" && open_pr=true
+
+  # THE TREE HOLDING THE BRANCH, when one does. Empty readings where none
+  # does — a branch nobody has checked out has no worker, no dirty file and no
+  # marker, and saying so is different from not looking.
+  wt=$(worktree_of "$br")
+  pid=""; dirty=""; marker=false
+  if [ -n "$wt" ] && [ -d "$wt" ]; then
+    if [ -f "$wt/.plot-worker.pid" ]; then
+      p=$(cat "$wt/.plot-worker.pid" 2>/dev/null)
+      if [ -n "$p" ] && ps -p "$p" >/dev/null 2>&1; then pid="$p"; fi
+    fi
+    ls "$wt"/PLOT-BLOCKED* >/dev/null 2>&1 && marker=true
+    # The tiny-garden pulse is excused for the reason `plot-reap.sh` excuses
+    # it: every board suite rewrites that fixture, so a worker that did nothing
+    # but run the tests would otherwise never clear. Any OTHER path still
+    # counts.
+    dirty=$(git -C "$wt" status --porcelain 2>/dev/null \
+              | grep -v 'tiny-garden/\.plot/state' | head -1)
   fi
 
-  # 1. Given up, not finished. A `deferred:`/`moved:` annotation is what
-  #    `/plot-reconcile` reads to tell deliberate abandonment from a dead
-  #    worker, and it needs the REF to be there to read it against. Checked
-  #    before the host is even asked: this is a decision a person already
-  #    recorded, and no merge state overturns it.
-  if [ "$deferred" = "true" ]; then
-    printf '%-8s %-52s %s\n' "keep" "$br" "deferred — a given-up branch keeps its ref"
-    kept=$((kept+1)); continue
-  fi
+  # THE DECISION. `packages/domain/src/rules/reapable.ts`, imported directly —
+  # the same shape and the same reason as `plot-reap.sh`: node 24 strips the
+  # types, so there is no build step between this script and the rule, and the
+  # JS arrives on STDIN from a QUOTED heredoc so the shell expands none of it.
+  #
+  # ONE RULE, TWO CALLERS. These five guards and the reaper's five refusals
+  # were the same question asked twice, and they disagreed: this script never
+  # asked about a live pid, and the reaper never asked `pr_open`. A copy that
+  # drifted toward permissive would delete a ref that is not re-creatable.
+  #
+  # A rule that cannot be asked REFUSES: node missing, the import failing, the
+  # module throwing all leave `verdict` empty, and an empty verdict keeps the
+  # ref and says why. Silence is never permission on this path either.
+  verdict=$(PLOT_BRANCH="$br" PLOT_DEFAULT="$DEFAULT" PLOT_PID="$pid" \
+            PLOT_DIRTY="$dirty" PLOT_MARKER="$marker" PLOT_MERGE="$merge" \
+            PLOT_GIVEN_UP="$deferred" PLOT_OPEN_PR="$open_pr" \
+            PLOT_CHECKED_OUT="$([ -n "$wt" ] && echo true || echo false)" \
+            PLOT_RULE="$RULE_PATH" \
+            node --input-type=module - <<'NODE_EOF' 2>/dev/null
+// An ABSOLUTE path derived from this script, never from the cwd: this runs
+// wherever the operator invoked it, and the reconcile suite runs it against
+// sandbox repos in the temp directory.
+const { firstRefRefusal } = await import(process.env.PLOT_RULE);
 
-  # 2. THE GATE. Unlanded work keeps its ref, always — `Done when` item 12, and
-  #    the assertion a naive implementation passes without, since a sweep that
-  #    deletes every ref of a delivered plan satisfies item 11 and destroys
-  #    work that exists nowhere else. `pr_merged` also returns false when the
-  #    host cannot be asked, so silence keeps the ref.
-  if ! pr_merged "$br"; then
-    printf '%-8s %-52s %s\n' "keep" "$br" "unlanded work — no merged PR"
-    kept=$((kept+1)); continue
-  fi
+const problem = firstRefRefusal({
+  branch: process.env.PLOT_BRANCH,
+  defaultBranch: process.env.PLOT_DEFAULT,
+  // This script never looks at the main checkout as a tree; the branch test
+  // the rule makes is what catches the default branch.
+  isMain: false,
+  workerPid: process.env.PLOT_PID === "" ? null : process.env.PLOT_PID,
+  dirtyPath: process.env.PLOT_DIRTY,
+  blockedMarker: process.env.PLOT_MARKER === "true",
+  merge: process.env.PLOT_MERGE,
+  givenUp: process.env.PLOT_GIVEN_UP === "true",
+  openPr: process.env.PLOT_OPEN_PR === "true",
+  checkedOut: process.env.PLOT_CHECKED_OUT === "true",
+});
 
-  # 3. An OPEN PR vetoes, even where an older PR merged. Measured by hand on
-  #    2026-08-28: `changeset-release/main` is merged repeatedly, and Changesets
-  #    RECREATES and reuses that same branch for the next release — so its ref
-  #    carries a live release PR while an older PR of its own has merged.
-  #    Deleting it disturbs the release in flight.
-  if pr_open "$br"; then
-    printf '%-8s %-52s %s\n' "keep" "$br" "an open PR is using this branch"
-    kept=$((kept+1)); continue
-  fi
+process.stdout.write(problem === null ? "delete\t" : `${problem.refusal}\t${problem.detail}`);
+NODE_EOF
+  )
 
-  # 4. A ref another checkout is sitting on is one somebody is reading, and
-  #    deleting it pulls the branch out from under them. Measured 2026-08-28:
-  #    `bug/a-head-counts-its-own-waves` was merged AND checked out. This runs
-  #    after the reap, so a worktree still here is one the reaper's own five
-  #    measurements declined to remove — its verdict is inherited, not
-  #    second-guessed.
-  if is_checked_out "$br"; then
-    printf '%-8s %-52s %s\n' "keep" "$br" "checked out in a worktree — somebody is reading it"
+  refusal=${verdict%%$'\t'*}
+  detail=${verdict#*$'\t'}
+
+  if [ "$refusal" != "delete" ]; then
+    # The rule named the refusal; this renders it. A verdict the rule could not
+    # produce is empty, and an empty refusal keeps the ref and says so.
+    case "$refusal" in
+      given-up)            why="deferred — a given-up branch keeps its ref" ;;
+      no-merged-pr)        why="unlanded work — no merged PR" ;;
+      open-pr)             why="an open PR is using this branch" ;;
+      checked-out)         why="checked out in a worktree — somebody is reading it" ;;
+      on-default-branch)   why="the default branch — never deleted" ;;
+      live-worker)         why="a worker is alive in its worktree (pid $detail)" ;;
+      uncommitted-changes) why="uncommitted work in its worktree ($detail)" ;;
+      blocked-marker)      why="a PLOT-BLOCKED marker holds a question for a person" ;;
+      *)                   why="the rule could not be asked — keeping the ref" ;;
+    esac
+    printf '%-8s %-52s %s\n' "keep" "$br" "$why"
     kept=$((kept+1)); continue
   fi
 

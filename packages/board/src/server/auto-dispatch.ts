@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { scriptsFor, type BuildBoardOptions } from './board.js';
 import type { FleetSettings } from './fleet-settings.js';
-import { LIVE_STATES, type SourceBranch, type FleetReading } from '../contract/schema.js';
+import { LIVE_STATES, type Branch, type FleetReading } from '../contract/schema.js';
 import { refsGit, shellContext } from '@plot-pm/domain/adapters';
 import {
   isAnswered,
@@ -258,7 +258,7 @@ function isStartable(state: string): boolean {
  * one-directional: it can only ADD refusals, never remove one `ref_held` would
  * have made.
  */
-function refBlocksClaim(branch: SourceBranch): boolean {
+function refBlocksClaim(branch: Branch): boolean {
   // Primary: ref_held is the direct answer from the scan.
   // Fallback: state === 'wip' implies a ref (derived from walking it).
   return branch.ref_held || branch.state === 'wip';
@@ -269,7 +269,7 @@ function refBlocksClaim(branch: SourceBranch): boolean {
  * not already blocked by its own ref. This, not {@link isStartable}, is the
  * question auto-dispatch spends budget against — see {@link refBlocksClaim}.
  */
-function dispatchable(branch: SourceBranch): boolean {
+function dispatchable(branch: Branch): boolean {
   return isStartable(branch.state) && !refBlocksClaim(branch);
 }
 
