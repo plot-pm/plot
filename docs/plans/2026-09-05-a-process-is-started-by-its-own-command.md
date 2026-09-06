@@ -15,6 +15,7 @@
 - **Started:** 2026-09-05, Jan Wloka, `feature/the-fleet-changes-hands`
 - **Started:** 2026-09-05, Jan Wloka, `feature/an-agent-is-started-by-a-command`
 - **Started:** 2026-09-05, Jan Wloka, `feature/the-board-has-a-door`
+- **Started:** 2026-09-06, Jan Wloka, `feature/one-monitor-watches-the-slice`
 
 ## Design
 
