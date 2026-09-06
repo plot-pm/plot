@@ -69,6 +69,15 @@ Plot dog-foods its own config mechanism. Helpers read these via `skills/plot/scr
 
 - **Story command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
 - **Brief command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
+- **Implement command:** PLOT_UNATTENDED=1 claude -p --permission-mode bypassPermissions
+
+<!-- `Implement command` runs `/plot-implement <slug>` for the board's
+     `Implement` control and for `WriteBriefButton`, which is the same route
+     under the word a refused row is asking. Unset until 2026-09-06, and that
+     was measured rather than noticed: nine eligible slices sat unbriefed for
+     hours while eight agents idled, `/api/dispatch` refused every one with
+     `no-implement-command`, and the button that fixes it could not act either.
+     The remedy shipped; the key naming how to run it did not. -->
 
 <!-- `Story command` runs `/story-tracking` on a tracker ticket for the board's
      `Create story` action — the twin of `Idea command`, and the same shape down
