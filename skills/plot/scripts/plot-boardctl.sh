@@ -42,9 +42,16 @@
 #    27674  9518  node skills/plot/scripts/board/board-server.mjs
 #
 # `node --watch` (9518) supervises the child that binds the port (27674), so the
-# port answers with the CHILD and killing only the child lets the watcher
-# restart it. The pidfile holds the root; the port's listener must be that pid
-# or a descendant of it, and that relation IS the agreement.
+# port answers with the CHILD. The pidfile holds the ROOT; the port's listener
+# must be that pid or a descendant of it, and that relation IS the agreement —
+# equality alone would refuse every healthy two-process board.
+#
+# KILLING ONLY THE CHILD LEAVES THE TREE HALF-ALIVE. Measured 2026-09-06 on a
+# board started as `node --watch`: a SIGTERM to the port-holder killed it and
+# the watcher went on running, reparented to init, with NOTHING serving the
+# port. `--watch` respawns on a file change rather than on its child's death, so
+# the survivor is a process holding no port and doing no work — which reads to
+# `ps` exactly like a running board.
 #
 # AND NEVER BY PATTERN MATCH. On 2026-09-04 a `pkill -f 'board-server.mjs'`
 # killed an operator's board along with the stale jobs it was aimed at. A
@@ -473,8 +480,9 @@ if [ "$mode" = "stop" ]; then
     exit 1
   fi
 
-  # THE TREE, DEEPEST FIRST. Killing only the port-holder lets `node --watch`
-  # restart it, which reads as a stop that did not work.
+  # THE TREE, DEEPEST FIRST. Killing only the port-holder leaves the watcher
+  # running with nothing serving — measured above — which reads to `ps` like a
+  # board that is still up.
   pids=$(tree_pids "$rec")
   echo "stopping the board on port $port"
   echo "  tree: $(printf '%s' "$pids" | tr -s ' ')"

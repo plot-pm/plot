@@ -67,6 +67,15 @@ node_modules/
 .plot-worker.envelope.json
 .plot-worker.ending.json
 
+# The board's own console log, written by `/plot-board --start`. Machine-local
+# for the same reason as the worker traces above — and untracked-but-unignored
+# is the worst of both: it shows up in `git status`, and a `git add -A` in a
+# worktree carries a console log into the repo.
+#
+# The board's pidfile needs no entry: it goes to `.plot/state/`, which is
+# already ignored above.
+.plot/logs/
+
 # ralph-plot-sprint runner scratch (iteration logs, heartbeat, handover)
 .ralph-state/
 packages/domain/coverage/
