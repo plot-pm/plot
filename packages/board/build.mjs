@@ -262,6 +262,33 @@ await esbuild.build({
 fs.copyFileSync(landedArtifact, shippedLanded);
 fs.chmodSync(shippedLanded, 0o755);
 
+// THE DELTA, RENDERED WHERE THE RULE IS NOT. `pulseDelta` is a domain rule with
+// its own tests; this artifact parses two readings, calls it, and composes
+// sentences. Bundled for the same reason the ones above are: `plot-ask.mjs`
+// answers by RUNNING plot-fleet-scan.sh, so the scan asking it for its own
+// delta would be an artifact calling the script that called it.
+//
+// It needs the reading's schema — a previous pulse is a file another build may
+// have written — so it is larger than the rule-only bundles beside it and still
+// far short of the barrel, which re-exports every entity's validator.
+const deltaArtifact = path.join(here, 'dist/plot-delta.mjs');
+const shippedDelta = path.join(here, '../../skills/plot/scripts/board/plot-delta.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/delta.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: deltaArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(deltaArtifact, shippedDelta);
+fs.chmodSync(shippedDelta, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -339,6 +366,7 @@ const promptKb = (fs.statSync(shippedPrompt).size / 1024).toFixed(1);
 const taskKb = (fs.statSync(shippedTask).size / 1024).toFixed(1);
 const registrydKb = (fs.statSync(shippedRegistryd).size / 1024).toFixed(1);
 const landedKb = (fs.statSync(shippedLanded).size / 1024).toFixed(1);
+const deltaKb = (fs.statSync(shippedDelta).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -348,4 +376,5 @@ console.log(`Built plot-prompt.mjs (${promptKb} KB) → skills/plot/scripts/boar
 console.log(`Built plot-task.mjs (${taskKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-registryd.mjs (${registrydKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-landed.mjs (${landedKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-delta.mjs (${deltaKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
