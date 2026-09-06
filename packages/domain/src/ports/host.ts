@@ -1,7 +1,6 @@
 import type { PortResult } from '../port-result.js';
 import type { BuildRun } from '../entities/build.js';
 import type { Pr } from '../entities/pr.js';
-import type { Issue } from '../entities/issue.js';
 import type { LimitReading } from '../entities/limit.js';
 
 /**
@@ -101,21 +100,27 @@ export interface PrCreateRequest {
 }
 
 /**
- * Reads the git host — the FOREIGN source of truth about PRs, builds, issues.
+ * Reads the git host — the FOREIGN source of truth about PRs and builds.
  *
  * Foreign state carries its askability apart from its answer, which is why
- * every operation returns a `PortResult`: a Bitbucket repo with a disabled
- * tracker is permanently `unaskable`, while an expired token is a `failed`
- * call that will succeed once somebody logs in.
+ * every operation returns a `PortResult`: a host with no run listing is
+ * permanently `unaskable`, while an expired token is a `failed` call that will
+ * succeed once somebody logs in.
  *
- * The issue operations read and never write. Plot's record of an issue is the
- * plan that references it; a copy of tracker state ages into a lie.
+ * IT IS NOT A TRACKER, and the two issue operations that used to sit here have
+ * their own port. Which tracker a repository uses is declared independently of
+ * its git host, so a repository whose code lives with one vendor and whose
+ * tickets live with another was asking two foreign services through one
+ * interface — visible in this port's own text, which reported `unaskable`
+ * *where the host has no tracker at all*: one interface saying *not my
+ * department* about a capability belonging to a different service.
  *
- * THIS PORT IS THE ONE CONNECTOR. Of nine adapters exactly one reaches a remote
- * service with an account, credentials and a rate limit behind it; the rest
- * read git, the process table and the filesystem, where none of those exist. So
- * the limit question below belongs here and must not be lifted onto every
- * adapter — a filesystem port has no budget to report.
+ * THIS PORT IS A CONNECTOR. It reaches a remote service with an account,
+ * credentials and a rate limit behind it, where most adapters read git, the
+ * process table and the filesystem and have none of those. So the limit
+ * question below belongs here and must not be lifted onto every adapter — a
+ * filesystem port has no budget to report. The tracker port carries its own,
+ * because a tracker's account, window and refusals are not this host's.
  *
  * AND IT STILL NAMES NO TRANSPORT, NO ACCOUNT AND NO BUCKET. Every operation is
  * a question; which API answers it, under whose credentials, against which
@@ -197,30 +202,6 @@ export interface Host {
    *   listing at all.
    */
   runs(branch: string, limit?: number): Promise<PortResult<readonly BuildRun[]>>;
-
-  /**
-   * Lists the tracker's open issues, without their bodies.
-   *
-   * The body is omitted because this runs on a timer for every open issue, and
-   * a body per issue per refresh buys nothing a caller needs to decide whether
-   * an issue is worth a plan.
-   *
-   * @param limit - how many to ask for.
-   * @returns the issues; `unaskable` where the host has no tracker at all.
-   */
-  issueList(limit?: number): Promise<PortResult<readonly Issue[]>>;
-
-  /**
-   * Reads one issue, with its body.
-   *
-   * Fetched per click rather than per refresh: the body is what a person reads
-   * to decide, so its cadence is a human's.
-   *
-   * @param id - the issue's identifier, opaque: GitHub yields `226` and Jira
-   *   yields `PROJ-123`, and only one is a number by accident of the host.
-   * @returns the issue; `unaskable` where the host has no tracker at all.
-   */
-  issueView(id: string): Promise<PortResult<Issue>>;
 
   /**
    * What is this connector's limit, and how well does it know it?

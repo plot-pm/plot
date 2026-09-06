@@ -1,5 +1,4 @@
 import type { BuildRun } from '../../entities/build.js';
-import type { Issue } from '../../entities/issue.js';
 import {
   correctForRefusal,
   LimitBasisSchema,
@@ -57,15 +56,6 @@ interface RawLimit {
   basis?: string;
 }
 
-/** One issue as `plot-host.sh` reports it. */
-interface RawIssue {
-  number?: number | string;
-  title?: string;
-  url?: string;
-  createdAt?: string;
-  body?: string;
-}
-
 /** One run as `plot-host.sh runs` reports it. */
 interface RawRun {
   workflow?: string;
@@ -109,23 +99,6 @@ const prOf = (raw: RawPr): Pr => ({
   checks: oneOf<Checks>(raw.checks, CHECKS, 'unknown'),
   failingChecks: raw.failing_checks ?? [],
   url: raw.url ?? '',
-});
-
-/**
- * Reads one host issue as the domain's entity.
- *
- * The identifier stays a string: GitHub yields a number and Jira a key, and
- * only one of them is a number by accident of the host.
- *
- * @param raw - the host adapter's JSON object.
- * @returns the issue; a null `body` means it was not fetched.
- */
-const issueOf = (raw: RawIssue): Issue => ({
-  id: raw.number === undefined ? '' : String(raw.number),
-  title: raw.title ?? '',
-  url: raw.url ?? '',
-  createdAt: raw.createdAt !== undefined && raw.createdAt !== '' ? raw.createdAt : null,
-  body: raw.body ?? null,
 });
 
 /**
@@ -387,17 +360,6 @@ export const hostShell = (context: ShellContext): Host => {
         ['runs', branch, ...(limit === undefined ? [] : ['--limit', String(limit)])],
         (stdout) => asJsonLines<RawRun>(stdout).map(runOf),
       ),
-
-    issueList: (limit) =>
-      ask(
-        ['issue-list', ...(limit === undefined ? [] : ['--limit', String(limit)])],
-        (stdout) => asJsonLines<RawIssue>(stdout).map(issueOf),
-      ),
-
-    issueView: async (id) => {
-      const run = await runProcess('bash', [host, 'issue-view', id], inRepo);
-      return record(run, (stdout) => issueOf(asJson<RawIssue>(stdout)));
-    },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
       // TWO CONNECTORS, ASKED SEPARATELY, because they are separate axes. The
