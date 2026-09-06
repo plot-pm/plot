@@ -91,14 +91,14 @@ export type BranchState = z.infer<typeof BranchStateSchema>;
  * heading a branch, or deleting it. Neither merging nor approving does it, so
  * it may not share a word with `blocked` or `unapproved`.
  */
+//
+// `empty` sits outside that order: a malformed slice, not a stage anything
+// passes through, and only an edit to the plan leaves it.
 // plot-state: lifecycle slice — unapproved -> blocked -> eligible -> complete,
 //                               per `diagrams/slice-lifecycle.mmd`.
 //                               `transitions/slice.ts` refuses a backward move,
 //                               a skipped ordering gate, and a prerequisite
 //                               nobody asked the host about.
-//                               `empty` sits outside that order: it is a
-//                               malformed slice, not a stage one passes
-//                               through, and only a plan edit leaves it.
 export const SliceVerdictSchema = z.enum(['complete', 'eligible', 'blocked', 'unapproved', 'empty']);
 export type SliceVerdict = z.infer<typeof SliceVerdictSchema>;
 
