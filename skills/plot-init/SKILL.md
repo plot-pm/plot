@@ -249,6 +249,31 @@ justify**, and say what triggered the offer:
 | Repo has `docs/stories/` | Note that `story-tracking` pairs with it | It is a companion, not a spoke — it works standalone |
 | Repo has `docs/sessionlogs/` (or a session-wrap tool is in use) | A `## Session Wrap Up` section in the hub | Session-scoped tools write the log; Plot only supplies the plot-shaped facts |
 | Repo has a plan directory with plans in it | `/plot-board-setup` — a local Kanban view of those plans | The board is first-class and gated in the Definition of Done, but nothing else in adoption mentions it |
+| Repo dispatches agents (a `Worktree root` key, or `.plot/agents/`) | The `post-commit` commit record | Several writers to one plan estate is where a commit silently reverts a file it never edited; the record is what makes the next one diagnosable |
+
+**The commit record**, when offered, is installed by the script and never by
+hand:
+
+```bash
+../plot/scripts/plot-install-commit-record.sh
+```
+
+**It is a `post-commit` hook, so it can never block or slow a commit**, and it
+is silent on ordinary work: it writes only when a commit sets a file to content
+that path already held. That is the signature of a defect measured three times
+on this estate — a commit reverting a plan annotation its author never looked
+at — whose cause is still unknown after three explanations were proposed and
+disproved. The record exists so the next occurrence arrives with evidence
+rather than a reconstruction.
+
+**Ask before installing, and say why it is a question.** A git hook is a change
+to every contributor's machine, and git deliberately ships none on clone. An
+existing `post-commit` is reported and never touched — show the one line to add
+and let the operator decide.
+
+> **Unattended (`PLOT_UNATTENDED=1`):** a git hook changes the operator's
+> machine, so it is NOT installed without an answer.
+> `PLOT-UNASKED: Install the post-commit commit record? — refused — a git hook is a change to every contributor's machine; run skills/plot/scripts/plot-install-commit-record.sh to add it`
 
 **The `## Session Wrap Up` section**, when offered, tells whatever writes
 session logs which Plot facts belong in one:
@@ -310,6 +335,9 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
   human knows which gate a merge.
 - **Never claim a detected value is certain.** Everything from the probe is a
   proposal.
+- **Never install a git hook without an answer.** `post-commit` runs on every
+  commit on the operator's machine, and git ships no hooks on clone for that
+  reason. The record is offered; it is never a side effect of adoption.
 - **Never overwrite `.plot/worker-prompt.sh`.** The installer refuses to; do
   not work around it by hand. A project's prompt wording is the project's, and
   an out-of-date invocation is one line inside it.
@@ -335,6 +363,7 @@ Then orient (Principle 11): what exists now, what falls out next, and why.
 | Aborting when the settings file is unwritable | The whole adoption fails over the least important step | Print the block, continue |
 | Adding every posture key to the config | A new adopter faces settings they never chose | Defaults stay implicit |
 | Rewriting an existing `.plot/worker-prompt.sh` to match the template | Destroys instructions the project wrote for its own agents | Report what the script said and offer the one line |
+| Installing the `post-commit` record because adoption ran | A git hook changes every contributor's machine, and nothing in the probe asked for it | Offer it on the dispatch signal, and let the operator answer |
 | Treating `stale` or `present` as a failed adoption | An adoption stops over a file that runs correctly today | Both are reports; step 3 continues |
 | Writing `Worktree root` and printing the ignore line to paste | Every dispatched desk becomes untracked work; the next `git add -A` stages a whole checkout | Adoption writes both, on one confirmation |
 | Proposing `.worktrees` to a repo whose worktrees already live elsewhere | Adoption relocates a working arrangement nobody asked it to touch | Read `git worktree list` first; propose what is there |
