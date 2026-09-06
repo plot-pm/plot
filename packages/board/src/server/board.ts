@@ -28,6 +28,7 @@ import {
 import {
   allSlicesMerged,
   derivedStanding,
+  statusDrift,
   planStatus as decidePlanStatus,
   type Host,
   type PlanStore,
@@ -1464,31 +1465,6 @@ function deriveStoryStatus(
 }
 
 /**
- * Compute status drift: when a story's manual `status:` field conflicts with
- * the derived status from plan phases. Returns a warning message, or null if no drift.
- */
-function computeStatusDrift(declaredStatus: string, derivedStatus: StoryStanding): string | null {
-  if (!declaredStatus) return null;
-  if (declaredStatus === derivedStatus) return null;
-
-  // Only warn when the declared status is behind the derived status
-  const statusOrder = ['draft', 'active', 'done', 'archived'];
-  const declaredIdx = statusOrder.indexOf(declaredStatus);
-  const derivedIdx = statusOrder.indexOf(derivedStatus);
-
-  if (derivedIdx > declaredIdx) {
-    const messages: Record<string, string> = {
-      archived: 'All plans released',
-      done: 'All plans delivered',
-      active: 'Has approved plans',
-    };
-    return messages[derivedStatus] || null;
-  }
-
-  return null;
-}
-
-/**
  * Discover stories under docs/stories/<slug>/STORY-<slug>.md. The glob depth
  * (one directory down) naturally excludes docs/stories/archived/<slug>/…, so
  * archived stories never populate the filter list.
@@ -1601,7 +1577,7 @@ export async function collectStories(
 
     // Derive status from plans and compute drift from declared status
     const derivedStatus = deriveStoryStatus(input.status, storyPlans);
-    const statusDrift = computeStatusDrift(input.status, derivedStatus);
+    const drift = statusDrift(input.status, derivedStatus);
 
     // Merge computed fields into input, using derived status
     const fullInput: StoryCardInput = {
@@ -1611,7 +1587,7 @@ export async function collectStories(
       deliveredCount,
       plans,
       sprints,
-      statusDrift,
+      statusDrift: drift,
     };
 
     // Parse through Zod to apply defaults and validate

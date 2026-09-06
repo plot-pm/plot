@@ -289,6 +289,35 @@ await esbuild.build({
 fs.copyFileSync(deltaArtifact, shippedDelta);
 fs.chmodSync(shippedDelta, 0o755);
 
+// What a story's plans say its standing is, reachable from the lint that reports it.
+//
+// A TENTH artifact, for the reason the third through ninth ones give:
+// plot-ask.mjs answers by RUNNING plot-fleet-scan.sh, so a lint asking it would
+// start a whole fleet scan per story to learn one story's standing.
+//
+// Vendored beside plot-story-lint.sh, which resolves it from its own
+// $script_dir. That script is shipped in the published npm package, where
+// `packages/` does not exist, so an inline import of the domain source would
+// resolve only in the plot checkout — and the lint would go silent about drift
+// everywhere else without saying it had.
+const standingArtifact = path.join(here, 'dist/plot-standing.mjs');
+const shippedStanding = path.join(here, '../../skills/plot/scripts/board/plot-standing.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/standing.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: standingArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(standingArtifact, shippedStanding);
+fs.chmodSync(shippedStanding, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -383,6 +412,7 @@ const taskKb = (fs.statSync(shippedTask).size / 1024).toFixed(1);
 const registrydKb = (fs.statSync(shippedRegistryd).size / 1024).toFixed(1);
 const landedKb = (fs.statSync(shippedLanded).size / 1024).toFixed(1);
 const deltaKb = (fs.statSync(shippedDelta).size / 1024).toFixed(1);
+const standingKb = (fs.statSync(shippedStanding).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -393,4 +423,5 @@ console.log(`Built plot-task.mjs (${taskKb} KB) → skills/plot/scripts/board/`)
 console.log(`Built plot-registryd.mjs (${registrydKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-landed.mjs (${landedKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-delta.mjs (${deltaKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-standing.mjs (${standingKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
