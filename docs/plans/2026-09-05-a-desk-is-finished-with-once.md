@@ -10,7 +10,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -114,10 +114,25 @@ and its blast radius is bounded by the plan file.
 
 ### Open Questions
 
-- [ ] **Does the rule answer for a ref that has no worktree?** The common case
-      after a reap. The reaper's readings assume a tree; the ref-deleter's do
-      not, and a rule serving both has to say what a missing tree means rather
-      than treating it as a refusal.
+- [x] **Does the rule answer for a ref that has no worktree?** **Settled in round 2: `unknown` is a reading, and the caller decides what it means.**
+
+      It is not the common case after a reap — it is the MAJORITY case. Measured
+      2026-09-06: **22 of 32 remote branches have no worktree, 69%.** And **four
+      of the reaper's five guards need a tree** — a live pid, uncommitted
+      changes, a `PLOT-BLOCKED` marker, and what is checked out — leaving only
+      `no merged PR`, which the host answers.
+
+      So on 69% of the estate a shared rule is asked four questions it cannot
+      answer, for the operation that cannot be undone. **Averaging them into a
+      boolean would invent an answer**, and refusing on silence — the estate's
+      rule for an unreachable host — would refuse deletion on 69% of branches
+      and make the ref-deleter useless exactly where it is most needed.
+
+      **So the rule returns a reading per condition, and `unknown` is one of
+      them.** The reaper reads unaskable-because-no-tree as *nothing to reap*;
+      the ref-deleter reads it as *no evidence against deletion*, which is what
+      it already does today. The asymmetry stays visible rather than being
+      averaged away.
 
 ## Slices
 
@@ -129,6 +144,18 @@ and its blast radius is bounded by the plan file.
   not keep a checkout**, and **asserted: a live worker pid keeps a checkout and
   says nothing about a ref** — the two differences that are currently only
   visible by reading both scripts.
+
+  **NEITHER SCRIPT GAINS THE OTHER'S GUARDS.** The rule states every condition;
+  each caller declares which it asks and why. Round 2 settled this: the defect
+  is that the difference is invisible, not that it is wrong.
+  `plot-release-refs.sh:30` warns that folding them *"would silently widen a
+  licence that was written narrow on purpose"*, and a rule that changed either
+  script's behaviour would be doing exactly that under a refactor's name.
+
+  **`unknown` IS A RETURN VALUE, NOT AN ERROR.** Four of the reaper's five
+  conditions need a tree and 69% of branches have none. A condition that cannot
+  be asked says so, and the caller decides — which is the only shape that keeps
+  one rule honest across two scopes.
 
 ### Asking it from the ref-deleter
 
@@ -162,3 +189,19 @@ widening the gap. **Unify first; the new reading then lands in one place.**
 they are blind spots, measured above. That changes what the rule must do — one
 question, one set of readings — rather than preserving two half-answers behind a
 shared interface.
+
+### Round 2 — 2026-09-07
+
+**The Open Question was the whole risk, and it is bigger than it reads.** *"Does the rule answer for a ref that has no worktree?"* — measured, **22 of 32 remote branches have no worktree**. Not the common case after a reap: the **majority case**, 69%.
+
+**And four of the reaper's five guards need that tree** — live pid, uncommitted changes, `PLOT-BLOCKED`, what is checked out. Only `no merged PR` survives without one.
+
+So a shared rule is asked four unanswerable questions on two branches in three, for the one operation no `git worktree add` can undo. **Three shapes were possible and two are wrong:** a boolean invents an answer; refusing on silence — the estate's rule for an unreachable host — would block deletion on 69% of branches and make the ref-deleter useless where it matters most.
+
+**`unknown` per condition, with the caller deciding**, is what keeps the asymmetry visible. The reaper reads no-tree as *nothing to reap*; the ref-deleter reads it as *no evidence against deletion*, which is its behaviour today.
+
+**Neither script gains the other's guards.** The reaper has no `pr_open` and no `deferred:`/`moved:`; the ref-deleter has no live-pid and no `PLOT-BLOCKED` — verified by reading both. **The defect is that this difference is invisible, not that it is wrong**, and `plot-release-refs.sh:30` says a fold *"would silently widen a licence that was written narrow on purpose."*
+
+**Slice 2's assertion stays one-directional on purpose.** *Every ref kept before is kept after* is trivially satisfied by a rule that refuses everything — and that is the acceptable failure. A rule keeping too many refs costs scan time; one deleting too many destroys work. The asymmetric assertion matches the asymmetric cost.
+
+**And the wait `a-desk-is-adopted-and-swept` records is correct.** `bug/the-reaper-reads-prunable` adds `prunable` as a sixth reading to the reaper's decision path; adding it while the ref-deleter holds a divergent copy means writing it twice or widening the gap.
