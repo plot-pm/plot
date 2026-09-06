@@ -224,3 +224,271 @@ describe('publishedDescription — what Changesets prints, whatever it is', () =
     expect(publishedDescription(['', '   ', ''])).toBe('');
   });
 });
+
+describe('parseChangeset — the plan a changeset names', () => {
+  /** The shape CLAUDE.md documents, with a plan link added inside the block. */
+  const withPlan = [
+    '---',
+    "'plot': patch",
+    '---',
+    '',
+    'A description that is comfortably long enough to pass the floor.',
+    '',
+    OPEN,
+    'plan: docs/plans/2026-09-06-a-changeset-names-its-plan.md',
+    'bumps:',
+    '  skills:',
+    '    plot: patch',
+    CLOSE,
+    '',
+  ].join('\n');
+
+  it('reads the plan the body names', () => {
+    expect(parseChangeset(withPlan).plan).toBe(
+      'docs/plans/2026-09-06-a-changeset-names-its-plan.md',
+    );
+  });
+
+  it('leaves the plan undefined when the changeset names none', () => {
+    // THE LINK IS OPTIONAL, and this is the assertion that says so. 0 of 19
+    // changesets carried one when this was written; absence is the normal case
+    // and it is not a defect.
+    expect(parseChangeset(wellFormed).plan).toBeUndefined();
+  });
+
+  it('still publishes the description, never the plan line', () => {
+    // The 11% failure, asserted for the new line. `bumps:` written first
+    // published a bare marker in 19 of 169 entries; a `plan:` line placed
+    // first would reintroduce exactly that, so the changeset must carry both
+    // its link and its prose without the link ever becoming the note.
+    const parts = parseChangeset(withPlan);
+    expect(publishedDescription(parts.body)).toBe(
+      'A description that is comfortably long enough to pass the floor.',
+    );
+    expect(checkChangeset(withPlan, WORKSPACE)).toEqual([]);
+  });
+
+  it('refuses a plan line written before the description', () => {
+    // Not a new measurement — the existing one. A `plan:` line first IS the
+    // published description, so `no-description` refuses it by the floor,
+    // without the rule needing to know what kind of line it was.
+    const planFirst = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      'plan: docs/plans/x.md',
+      '',
+      'The real description, which nobody would ever read.',
+      '',
+    ].join('\n');
+
+    expect(parseChangeset(planFirst).plan).toBe('docs/plans/x.md');
+    expect(refusals(checkChangeset(planFirst, WORKSPACE))).toEqual(['no-description']);
+  });
+
+  it('reads a plan line outside the comment block', () => {
+    // The block is not required to exist, and a `plan:` line without one is
+    // the same statement. Reading only inside it would silently ignore a link
+    // a contributor did write.
+    const bare = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+      'plan: docs/plans/2026-09-06-a-changeset-names-its-plan.md',
+      '',
+    ].join('\n');
+    expect(parseChangeset(bare).plan).toBe(
+      'docs/plans/2026-09-06-a-changeset-names-its-plan.md',
+    );
+  });
+
+  it('takes the first plan line when a body names more than one', () => {
+    const twice = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+      'plan: docs/plans/first.md',
+      'plan: docs/plans/second.md',
+      '',
+    ].join('\n');
+    expect(parseChangeset(twice).plan).toBe('docs/plans/first.md');
+  });
+
+  it('ignores a plan key with nothing after it', () => {
+    // An empty value is not a link. Returning `''` would make the fast path
+    // look present and resolve to no plan at all.
+    const empty = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+      'plan:',
+      '',
+    ].join('\n');
+    expect(parseChangeset(empty).plan).toBeUndefined();
+  });
+
+  it('reads a plan from a file with no frontmatter', () => {
+    // Both return paths carry the same reading; a parse that learned it on one
+    // would answer differently for a malformed file than for a valid one.
+    expect(parseChangeset('plan: docs/plans/x.md\n').plan).toBe('docs/plans/x.md');
+  });
+});
+
+describe('parseChangeset — the bumps block, learned with the plan link', () => {
+  it('reads the skill bumps the block declares', () => {
+    // A `plan:` reference and `bumps:` are the same kind of thing: a structured
+    // comment in the body. CLAUDE.md has documented `bumps:` throughout and
+    // nothing parsed it, so the parser learns both or neither.
+    const parts = parseChangeset(wellFormed);
+    expect(parts.bumps).toEqual({ plot: 'patch' });
+  });
+
+  it('reads every skill the block names', () => {
+    const many = [
+      '---',
+      "'plot': minor",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+      OPEN,
+      'bumps:',
+      '  skills:',
+      '    plot-dispatch: minor',
+      '    plot-deliver: patch',
+      CLOSE,
+      '',
+    ].join('\n');
+    expect(parseChangeset(many).bumps).toEqual({
+      'plot-dispatch': 'minor',
+      'plot-deliver': 'patch',
+    });
+  });
+
+  it('yields no bumps when the block is absent', () => {
+    const none = [
+      '---',
+      "'@plot-pm/board': patch",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+    ].join('\n');
+    expect(parseChangeset(none).bumps).toEqual({});
+  });
+
+  it('does not read prose after the block as a skill', () => {
+    // The block ends at the comment close. Without that stop, a following
+    // paragraph containing a colon would be read as a skill and a bump level.
+    const trailing = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+      OPEN,
+      'bumps:',
+      '  skills:',
+      '    plot: patch',
+      CLOSE,
+      '',
+      'Note: this trailing paragraph is prose.',
+      '',
+    ].join('\n');
+    expect(parseChangeset(trailing).bumps).toEqual({ plot: 'patch' });
+  });
+
+  it('yields no bumps when the block names no skills mapping', () => {
+    const headerOnly = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+      OPEN,
+      'bumps:',
+      CLOSE,
+      '',
+    ].join('\n');
+    expect(parseChangeset(headerOnly).bumps).toEqual({});
+  });
+
+  it('stops at a line that leaves the mapping', () => {
+    // A dedented line has left the block. Reading on would attach whatever
+    // followed to the skills mapping.
+    const dedented = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+      'bumps:',
+      '  skills:',
+      '    plot: patch',
+      'unrelated: text',
+      '',
+    ].join('\n');
+    expect(parseChangeset(dedented).bumps).toEqual({ plot: 'patch' });
+  });
+});
+
+describe('parseChangeset — the shapes a bumps block can take', () => {
+  it('ignores a key inside the block that is not the skills mapping', () => {
+    // `bumps:` may carry keys other than `skills:`. Reading their values as
+    // skill names would invent bumps for a mapping nobody wrote.
+    const other = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+      OPEN,
+      'bumps:',
+      '  plugin: minor',
+      '  skills:',
+      '    plot: patch',
+      CLOSE,
+      '',
+    ].join('\n');
+    expect(parseChangeset(other).bumps).toEqual({ plot: 'patch' });
+  });
+
+  it('reads through a blank line inside the mapping', () => {
+    // A blank line is spacing, not the end of the block — stopping there would
+    // silently drop every skill written after it.
+    const spaced = [
+      '---',
+      "'plot': patch",
+      '---',
+      '',
+      'A description that is comfortably long enough to pass the floor.',
+      '',
+      OPEN,
+      'bumps:',
+      '  skills:',
+      '    plot: patch',
+      '',
+      '    plot-deliver: minor',
+      CLOSE,
+      '',
+    ].join('\n');
+    expect(parseChangeset(spaced).bumps).toEqual({
+      plot: 'patch',
+      'plot-deliver': 'minor',
+    });
+  });
+});
