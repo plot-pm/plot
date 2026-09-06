@@ -1,6 +1,6 @@
 # A stale plan file does not travel
 
-> Two commits this session reverted a plan annotation written minutes earlier. Neither edited the file: a second Claude session ran `git pull` and `git commit` in the same checkout, and the branch moved under an index that was never refreshed. The reproduction disproved the first explanation, and the real one is two sessions sharing one working directory.
+> Two commits this session reverted a plan annotation written minutes earlier. Neither edited the file. Two explanations were argued and both were wrong — the real one is a single session that staged an index, pulled, and then committed. It needs no second party, and a `pre-commit` hook can see it.
 
 ## Status
 
@@ -42,7 +42,9 @@ main@{13:43:37}  commit: plot: record PR #734, and restore #726 beside it
 main@{13:53:40}  commit: plot: brief the three slices the tick named no-brief
 ```
 
-**All three are `refs/heads/main` in the session's own checkout.** Something ran a pull and a commit in this working directory between 13:34 and 13:53 — `git worktree list` confirms `main` is checked out in exactly one place, and no Plot script runs `pull --ff-only` (grepped across `skills/`, `scripts/`, `.plot/`). So a second Claude session was running bash in the same directory.
+**All three are `refs/heads/main` in this checkout, and all three are THIS session's.** A second explanation — another Claude session sharing the directory — was checked and is also wrong: enumerating every process whose cwd is the repository found exactly one `claude` (this one), the board's four processes, and nothing else. The eight agents each hold their own `plot-wt-*` worktree.
+
+**The pull and the commit 30 seconds apart at 13:43 were this session's own turn**, recording PR #734. The 13:53 commit then carried index entries staged *before* that pull. **One session, one checkout, and a stale index of its own making.**
 
 **THE BLOBS SHOW THE COMMIT CHANGED NOTHING.** `03303dd0` recorded `7830688e` for `a-changeset-names-its-plan.md` — byte-identical to the blob its own HEAD `f9c8e151` already held. The apparent deletion in `git show --stat` is against parent `a18414d5`, which the concurrent session had advanced the branch to. **The file was never edited by anybody; the branch moved under an unrefreshed index.**
 
@@ -62,7 +64,9 @@ main@{13:53:40}  commit: plot: brief the three slices the tick named no-brief
 
 **Not a `git add -A` ban.** Staging by path did not help and neither would a ban: the committed blob was **identical to the committing session's own HEAD**. No `git add` misbehaved. What differed was the parent the commit landed on.
 
-**Not a defect in git.** Two processes committing to one working directory is outside what an index can protect. Git did the correct thing at every step, including rejecting the push that would have reverted the remote.
+**Not a defect in git.** The index is a snapshot by design; a commit records what was staged. Git did the correct thing at every step, including rejecting the push that would have reverted the remote.
+
+**Not concurrency.** Both wrong explanations invoked a second writer. There is one — and the sequence stage → pull → commit is available to any session working alone.
 
 ## Slices
 
@@ -74,11 +78,13 @@ A pre-commit gate refuses a commit whose `HEAD` has moved since the index was la
 
 **WHAT THE GATE MUST COMPARE IS THE REF, NOT THE FILE.** Record the `HEAD` sha a session last observed; before a commit, refuse when `HEAD` differs and the session did not move it. That is the one fact both incidents share and the only one that separates them from ordinary work.
 
-**IT IS A HOOK IN THE SESSION, NOT IN THE REPOSITORY.** A `pre-commit` hook cannot tell which session advanced the branch — both are `git` in the same directory with the same credentials. The state that distinguishes them belongs to the session, so this is a wrapper around the session's own commits, not a repository-side gate.
+**THE DEFECT IS ONE SESSION'S OWN SEQUENCE**, which makes it reachable by anybody and fixable in one place: stage, then pull, then commit, and the commit carries what was staged against the older tree. Nothing concurrent is required.
 
-**AND THE CHEAPER FIX MAY BE THE RIGHT ONE.** Two Claude sessions sharing one working directory is a configuration, not a law. A second session working in its own worktree — which is what every dispatched agent already does — removes the defect entirely and costs nothing. **This slice should establish that first**, and build the gate only if shared checkouts must stay supported.
+**A `pre-commit` hook CAN see this**, because there is only one writer. Compare the index's recorded HEAD against the current one; refuse when they differ. No session-local state and no second party to identify.
 
-**Done when** the estate has a stated answer to whether two sessions may share a checkout, and — if they may — a commit against a branch the session did not advance is refused with the repair named.
+**THE REPAIR IS ALSO ONE COMMAND** and the message must name it: `git reset && git add <paths>` re-stages against the current HEAD. A gate that reports a mismatch without the repair hands the reader a puzzle at the worst moment.
+
+**Done when** a commit whose index was staged against a superseded HEAD is refused with the repair named, an ordinary commit is unaffected, and the hook adds no measurable time.
 
 ## Notes
 
@@ -97,3 +103,23 @@ This plan first claimed that agents committing from their own worktrees leave a 
 **The forensics were right about the blobs and wrong about the cause.** Every observation held — the exact prior blob, the byte-identical revert — and they were all consistent with a second explanation nobody had looked for, because nobody had checked which checkout the writes came from.
 
 **`git reflog show main` was the answer and it took one command.** Two hours of blob comparison against a branch reflog that names the pull, the commit, and the time.
+
+### The second explanation was wrong too — 2026-09-06
+
+The correction above replaced *agents push and your files read as modified* with *a second Claude session shares this checkout*. **That was also wrong**, and it was checked the way the first should have been: enumerate every process whose cwd is the repository. One `claude` — this session — plus the board's four. The eight agents each hold their own `plot-wt-*` worktree.
+
+**The 13:43 pull and commit were this session's own turn**, recording PR #734, thirty seconds apart. Ten minutes later a commit carried index entries staged before that pull.
+
+**Two explanations, both invoking a second writer, and neither existed.** The reflog named the checkout and the timestamps from the start; what it could not name was *which session*, and both attempts guessed rather than measured. `lsof -a -p <pid> -d cwd` answers that, and it was run only after a user asked for a process to be stopped.
+
+**The defect is smaller and worse than either guess:** available to any session working alone, and reachable by an ordinary sequence.
+
+### The artifact resolver's allow-list is stale — 2026-09-06
+
+Found while clearing #727, and recorded here rather than fixed in passing.
+
+`plot-resolve-artifact.sh:76` hardcodes `ARTIFACT_PATH="skills/plot/scripts/board/board-server.mjs"` and refuses any other conflict set as `not-artifact-only`. **All nine bundles under `skills/plot/scripts/board/` carry `-merge` in `.gitattributes` and come from one deterministic `build.mjs`** — so the script's three stated licences (git keeps the file valid, the rebuild is deterministic, CI's no-diff gate proves it) cover `plot-registryd.mjs` exactly as they cover `board-server.mjs`.
+
+**The refusal was correct behaviour against a stale list**, which is the right way for it to fail. #727 was repaired by the documented manual procedure instead: merge, take a side, `pnpm run build:board`, `pnpm run test:board` green, push.
+
+Its own comment says the constant is paired with a board-side one *"asserted by a test rather than trusted"*, so widening it is three changes and a test — its own slice, not a line edit.
