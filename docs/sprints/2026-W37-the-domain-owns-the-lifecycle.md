@@ -99,7 +99,7 @@ and it holds no plans outside this sprint.
 
 ### Should Have
 
-- [ ] [a-process-is-started-by-its-own-command] Both long-lived processes get a command that owns them, and an agent can be brought into existence — measured 2026-09-05: a dispatch reported `handed over … started=0` and the supervisor ticked `agents=0 queued=456`, so the chain *dispatch queues → registry matches → an agent takes it* had no last link. **Approved 2026-09-05, 5 slices, 4 rounds**, reordered the same day so the agent starter leads: dispatching the rename first queued the plan's own first branch against an estate with no agent to take it
+- [x] [a-process-is-started-by-its-own-command] Both long-lived processes get a command that owns them, and an agent can be brought into existence — measured 2026-09-05: a dispatch reported `handed over … started=0` and the supervisor ticked `agents=0 queued=456`, so the chain *dispatch queues → registry matches → an agent takes it* had no last link. **Approved 2026-09-05, 5 slices, 4 rounds**, reordered the same day so the agent starter leads: dispatching the rename first queued the plan's own first branch against an estate with no agent to take it <!-- status: delivered -->
 
 - [ ] [a-branch-state-is-derived-once] Three domain rules read `BranchState` and none produces one — the eight states are decided in four places across a 4,008-line shell script, and `unknown` versus `open` turns on whether a question was put or went unanswered. **Draft (#702), 2 slices, 2 rounds.** Should rather than Must because the three above give the domain its words and its rules; this gives it an answer it currently has to be told
 
