@@ -361,6 +361,15 @@ const vendoredScripts = [
   // listed by hand and this comment says why.
   'plot-budget.sh',
   'plot-config.sh',
+  // Sourced BY plot-dispatch.sh, plot-fleet-scan.sh and plot-reconcile-scan.sh
+  // as a `$script_dir` sibling — three files already on this list, and the same
+  // shape as `plot-budget.sh` and `plot-pr-merged.sh` above and below. Missing,
+  // the source prints one line to stderr and `default_branch` is then undefined,
+  // so `MAIN` is empty and every `origin/<main>` becomes `origin/` — the scan
+  // reads no branch and the dispatcher refuses every slice. A gate derived from
+  // the server's own spawns cannot see a SOURCED file, so it is listed by hand
+  // and this comment says why.
+  'plot-default-branch.sh',
   'plot-deliver.sh',
   'plot-dispatch.sh',
   'plot-fleet-scan.sh',

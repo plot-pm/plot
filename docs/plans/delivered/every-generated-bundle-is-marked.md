@@ -1,0 +1,1 @@
+../2026-09-05-every-generated-bundle-is-marked.md
