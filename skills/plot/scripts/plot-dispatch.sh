@@ -520,23 +520,70 @@ plugin_registry() { printf '%s/installed_plugins.json' "${PLOT_PLUGIN_ROOT:-${HO
 # `awk` rather than `node` or `jq`: this script shells to neither anywhere else,
 # and a check that fails toward allowing must not acquire a dependency whose
 # absence it would then have to read as "cannot verify" on every machine that
-# lacks it. The registry is machine-written with one field per line, which is
-# what makes a line-oriented read honest here; a file that does not match that
-# shape yields no paths and the caller reads that as cannot-verify.
+# lacks it.
+#
+# IT DOES NOT DEPEND ON THE FILE'S LINE BREAKS. The registry Claude Code writes
+# is pretty-printed, one field per line, and a line-oriented read of it works —
+# but only because of how it happens to be formatted, and this check's wrong
+# answer is silent. Measured 2026-09-07 against a compact registry written by
+# hand: the whole object on two lines, and the reader found no install at all,
+# reported "could not verify" and allowed. Safe, and still wrong about a file
+# that was perfectly readable.
+#
+# So the text is flattened to one token per line FIRST — every `"…"` string and
+# every `[` `]` `{` `}` on its own line — and the scan then walks tokens rather
+# than lines. Formatting stops being an input.
+#
+# The bracket depth is what scopes a key: a plugin's entry runs from the `[`
+# after its key to the `]` that closes it, so an `installPath` is attributed to
+# the key whose array still encloses it. Tracking the key alone would let the
+# LAST `plot@…` key claim every install after it in the file.
 plugin_install_paths() { # → one installPath per line, for keys matching plot@*
   awk '
-    /^[[:space:]]*"[^"]*"[[:space:]]*:[[:space:]]*\[/ {
-      key = $0
-      sub(/^[[:space:]]*"/, "", key); sub(/".*$/, "", key)
-      inplot = (key ~ /^plot@/)
-      next
+    {
+      line = $0
+      while (length(line) > 0) {
+        c = substr(line, 1, 1)
+        if (c == "\"") {
+          # A JSON string, taken whole: scan to the closing quote, honouring
+          # backslash escapes so a quote inside a value does not end it early.
+          v = ""; i = 2
+          while (i <= length(line)) {
+            ch = substr(line, i, 1)
+            if (ch == "\\") { v = v substr(line, i + 1, 1); i += 2; continue }
+            if (ch == "\"") break
+            v = v ch; i++
+          }
+          print "S" v
+          line = substr(line, i + 1)
+        } else if (c == "[" || c == "]" || c == "{" || c == "}") {
+          print "P" c
+          line = substr(line, 2)
+        } else {
+          line = substr(line, 2)
+        }
+      }
     }
-    inplot && /"installPath"[[:space:]]*:/ {
-      v = $0
-      sub(/^.*"installPath"[[:space:]]*:[[:space:]]*"/, "", v); sub(/".*$/, "", v)
-      if (v != "") print v
+  ' "$1" 2>/dev/null | awk '
+    # `pending` is the string most recently seen, which is a KEY when the next
+    # token opens a container. `depth` is where this plugin"s array closes.
+    /^P\[/ {
+      depth++
+      if (pending ~ /^plot@/ && inplot == 0) { inplot = 1; plotdepth = depth }
+      pending = ""; next
     }
-  ' "$1" 2>/dev/null
+    /^P\]/ {
+      if (inplot && depth == plotdepth) inplot = 0
+      depth--; pending = ""; next
+    }
+    /^P/ { pending = ""; next }
+    /^S/ {
+      v = substr($0, 2)
+      if (want) { if (inplot && v != "") print v; want = 0; pending = ""; next }
+      if (v == "installPath") { want = 1; next }
+      pending = v
+    }
+  '
 }
 
 # Can a spawned agent reach `plot-implement`?

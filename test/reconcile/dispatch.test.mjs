@@ -679,6 +679,52 @@ test('dispatch: the check reads the skill directory, never the version', () => {
   f.cleanup();
 });
 
+test('dispatch: the registry is read by its structure, not by its line breaks', () => {
+  // MEASURED 2026-09-07, and it is why this reads tokens rather than lines. The
+  // registry Claude Code writes is pretty-printed, one field per line, and a
+  // line-oriented read of it works — but only because of how it happens to be
+  // formatted. Handed the same object compacted onto two lines, the first
+  // reader found no install at all, reported "could not verify" and allowed.
+  //
+  // Safe, and still wrong about a file that was perfectly readable. A check
+  // whose wrong answer is silent must not depend on whitespace, so this pins
+  // both halves against a compact registry: the skill present must allow with
+  // nothing to say, and the skill absent must still refuse and still name the
+  // install it read.
+  const f = repoForBrief('compact');
+  f.setBriefCommand(`sh -c 'touch ${f.briefRan}' plot-brief`);
+
+  const dir = path.join(f.tmp, 'compact');
+  const install = path.join(dir, 'cache', 'm', 'plot', '1.2.0');
+  fs.mkdirSync(path.join(install, 'skills', 'plot-implement'), { recursive: true });
+  // One line, no indentation — the same object, written the way a hand or a
+  // `JSON.stringify` with no spacing writes it.
+  fs.writeFileSync(path.join(dir, 'installed_plugins.json'), JSON.stringify({
+    version: 2,
+    plugins: { 'plot@m': [{ scope: 'user', installPath: install, version: '1.2.0' }] },
+  }));
+
+  const allowed = f.dispatch(['--offline', 'b'],
+    { timeout: 30_000, env: { PLOT_PLUGIN_ROOT: dir } });
+  assert.doesNotMatch(allowed, /no-implement-skill/,
+    `a compact registry carrying the skill must not be refused:\n${allowed}`);
+  assert.doesNotMatch(allowed, /could not verify/,
+    `a readable registry must be READ, not reported as unverifiable:\n${allowed}`);
+  assert.equal(f.briefCommandRan(), true,
+    'a compact registry carrying the skill must still spawn the brief session');
+
+  // The other half: remove the skill and the same compact file must refuse.
+  fs.rmSync(path.join(install, 'skills', 'plot-implement'), { recursive: true });
+  const refused = f.dispatch(['--offline', 'b'],
+    { timeout: 30_000, env: { PLOT_PLUGIN_ROOT: dir } });
+  assert.match(refused, /no-implement-skill/,
+    `a compact registry missing the skill must refuse:\n${refused}`);
+  assert.ok(refused.includes(install),
+    `it must still name the install it read:\n${refused}`);
+
+  f.cleanup();
+});
+
 test('dispatch: an absent plugin registry allows, and says it could not verify', () => {
   // IT FAILS TOWARD ALLOWING, and this is the arm that says why. Running Plot
   // from a checkout with no plugin install at all is a supported shape — this
