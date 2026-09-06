@@ -21,6 +21,7 @@
 - **Started:** 2026-09-05, Jan Wloka, `feature/every-pr-question-goes-through-the-adapter`
 - **Started:** 2026-09-06, Jan Wloka, `feature/issue-tracking-is-its-own-port`
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-branch-is-a-domain-entity`
+- **Started:** 2026-09-06, Jan Wloka, `bug/the-default-branch-repairs-itself`
 -->
 
 ## Changelog
