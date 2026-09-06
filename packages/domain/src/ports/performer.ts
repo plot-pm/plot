@@ -31,4 +31,33 @@ export interface Performer {
    *   which is a first-class answer and not a failure.
    */
   startFreeAgent(worktree: string): Promise<PortResult<number>>;
+
+  /**
+   * Hands one queued slice to one free agent, by recording it on the agent.
+   *
+   * **THE DECISION WAS ALREADY MADE AND THIS ONLY WRITES IT DOWN.**
+   * `matchQueue` is the assignment lock — one slice to one agent, never the
+   * same slice twice — and it holds by the shape of its pass. This applies what
+   * that pass decided, so it must not re-check, re-order or refuse on anything
+   * the rule already weighed.
+   *
+   * **IT EXISTS BECAUSE A DECIDED HAND-OVER WAS NEVER PERFORMED.** Measured
+   * 2026-09-06: a tick reported `handed=8` while all eight agents stayed
+   * `branch: ""`, because the applier filtered to `worker-start` and skipped
+   * every `agent-assign`. Six were then written by hand, twice in one day. A
+   * count that names a write nobody makes is worse than no count.
+   *
+   * **IT REFUSES AN AGENT THAT ALREADY HOLDS A BRANCH.** Between the tick's
+   * reading and this write an agent may have been given work by anything else
+   * — another tick, a dispatch, an operator — and overwriting would strand that
+   * slice with no record it was ever assigned. The refusal is a reading, not a
+   * judgement: `branch !== ''` on the manifest as it stands now.
+   *
+   * @param session - the agent's session id, naming its manifest.
+   * @param branch - the branch it is handed.
+   * @param slug - that branch's plan slug, so the agent's scope travels with it.
+   * @returns whether the assignment was recorded — `false` where the agent had
+   *   since taken other work, never a throw.
+   */
+  assignSlice(session: string, branch: string, slug: string): Promise<PortResult<boolean>>;
 }
