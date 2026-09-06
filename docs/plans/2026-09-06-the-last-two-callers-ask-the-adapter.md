@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** infra
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 3
 - **Started:** 2026-09-06, Jan Wloka, `infra/the-project-api-is-named`
+- **Delivered:** 2026-09-07
 
 ## Changelog
 
