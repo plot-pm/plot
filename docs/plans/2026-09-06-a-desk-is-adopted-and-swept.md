@@ -47,7 +47,7 @@
 
 ## Slices
 
-### Adoption says where desks live (Branch: feature/adoption-proposes-a-worktree-root)
+### Adoption says where desks live (Branch: feature/adoption-proposes-a-worktree-root, PR: #729)
 
 `plot-init` proposes `Worktree root: .worktrees` and writes the matching `.gitignore` line.
 
