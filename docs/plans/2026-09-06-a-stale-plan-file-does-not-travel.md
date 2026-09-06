@@ -1,6 +1,6 @@
 # A stale plan file does not travel
 
-> Two commits this session reverted a plan annotation an agent had written minutes earlier. Both were `git add` over a working tree the fleet had moved under, both restored the exact prior blob, and no gate saw either. The estate takes six plan-file commits in twenty minutes and every one of them is a chance to do it again.
+> Two commits this session reverted a plan annotation written minutes earlier. Neither edited the file: a second Claude session ran `git pull` and `git commit` in the same checkout, and the branch moved under an index that was never refreshed. The reproduction disproved the first explanation, and the real one is two sessions sharing one working directory.
 
 ## Status
 
@@ -32,9 +32,21 @@ a18414d5  13:43  plot: record PR #734, and restore #726 beside it    repairs it 
 
 **The second incident, at 13:53, had the same signature and was caught before the push:** three plan files staged in a commit about briefs, each reverting to the blob at `f9c8e151` — my HEAD from 13:34, while agents had pushed `#732`, `#733`, `#734` and `#735` to `origin/main` between 13:35 and 13:52.
 
-**THE MECHANISM IS ORDINARY AND THAT IS THE PROBLEM.** A session holds a checkout. Agents commit to `origin/main` from their own worktrees. The session's tree is never touched, so `git status` reports the plan files as *modified* — they differ from the session's HEAD — and `git add` stages a revert nobody typed.
+**THE FIRST EXPLANATION WAS WRONG AND THE REPRODUCTION DISPROVED IT.** The claim was that agents committing from their own worktrees leave a session's files reading as *modified*. Built in a sandbox — a bare remote, a session clone, an agent clone recording a PR — **it does not happen.** `git status` reports nothing, `git add -A` stages only the session's own file, and a push that would revert is rejected. Git compares the working tree to the local HEAD, and a remote commit moves neither.
 
-**THE RATE IS MEASURED.** `origin/main` took six commits to `docs/plans/` in twenty minutes on 2026-09-06, all from agents recording PRs and starts. A session that reads a plan, works for thirty minutes, and stages anything has been overtaken.
+**WHAT ACTUALLY HAPPENED IS IN THE BRANCH REFLOG, AND IT IS ONE CHECKOUT.**
+
+```
+main@{13:43:07}  pull --ff-only -q origin main: Fast-forward
+main@{13:43:37}  commit: plot: record PR #734, and restore #726 beside it
+main@{13:53:40}  commit: plot: brief the three slices the tick named no-brief
+```
+
+**All three are `refs/heads/main` in the session's own checkout.** Something ran a pull and a commit in this working directory between 13:34 and 13:53 — `git worktree list` confirms `main` is checked out in exactly one place, and no Plot script runs `pull --ff-only` (grepped across `skills/`, `scripts/`, `.plot/`). So a second Claude session was running bash in the same directory.
+
+**THE BLOBS SHOW THE COMMIT CHANGED NOTHING.** `03303dd0` recorded `7830688e` for `a-changeset-names-its-plan.md` — byte-identical to the blob its own HEAD `f9c8e151` already held. The apparent deletion in `git show --stat` is against parent `a18414d5`, which the concurrent session had advanced the branch to. **The file was never edited by anybody; the branch moved under an unrefreshed index.**
+
+**THE RATE IS WHAT MAKES IT REACHABLE.** `origin/main` took six commits to `docs/plans/` in twenty minutes on 2026-09-06. That rate is not itself the defect — a busy remote is harmless to a session that never pulls — but it sets how far a shared checkout drifts between one session's commands and the other's.
 
 **NOTHING SEES IT.** `plot-reconcile-scan.sh` is deliberately blind here, and says why at `:759`: *"Deliberately NOT keyed on the plan's own `prs` field … The missing annotation and the missing delivery share a cause, so an annotation-dependent check is blind to exactly the plans it exists to catch."* That reasoning is right for its question and leaves this one unasked.
 
@@ -48,31 +60,25 @@ a18414d5  13:43  plot: record PR #734, and restore #726 beside it    repairs it 
 
 **Not a plan-file lock.** Agents must keep recording their PRs; that is the estate working.
 
-**Not a `git add -A` ban.** The second incident staged `packages/ skills/ .changeset/` by path and the plan files came anyway — they were already in the index from an earlier `git add -A` in the same session. A narrower path does not help once the index holds the stale entry.
+**Not a `git add -A` ban.** Staging by path did not help and neither would a ban: the committed blob was **identical to the committing session's own HEAD**. No `git add` misbehaved. What differed was the parent the commit landed on.
+
+**Not a defect in git.** Two processes committing to one working directory is outside what an index can protect. Git did the correct thing at every step, including rejecting the push that would have reverted the remote.
 
 ## Slices
 
-### A commit does not revert what it did not edit (Branch: bug/a-stale-plan-file-does-not-travel)
+### A commit refuses a checkout that moved under it (Branch: bug/a-stale-plan-file-does-not-travel)
 
-A pre-commit gate refuses a commit whose staged content reverts `origin/<main>` for a file the session did not modify.
+A pre-commit gate refuses a commit whose `HEAD` has moved since the index was last refreshed against it.
 
-**THE TEST IS THREE-WAY AND IT IS THE WHOLE RULE.** For each staged file, compare the staged blob against `origin/<main>` and against the session's HEAD:
+**THE THREE-WAY BLOB TEST WAS DRAFTED FIRST AND IT WOULD NOT HAVE CAUGHT THIS.** It compared staged content against `origin/<main>` and against `HEAD`, refusing *staged same as HEAD, differs from origin*. But the committed blob `7830688e` **was** its session's HEAD, and `git show --stat` only showed a deletion because the branch had been advanced to `a18414d5` underneath. A rule about content cannot see a defect about parentage.
 
-| staged vs HEAD | staged vs origin | verdict |
-|---|---|---|
-| same | differs | **refuse** — a stale copy travelling with an unrelated commit |
-| differs | differs | allow — a real edit, whoever else has touched the file |
-| same | same | allow — nothing to say |
+**WHAT THE GATE MUST COMPARE IS THE REF, NOT THE FILE.** Record the `HEAD` sha a session last observed; before a commit, refuse when `HEAD` differs and the session did not move it. That is the one fact both incidents share and the only one that separates them from ordinary work.
 
-**The refused case is precisely both incidents**: the file was not edited in this session and the staged content is behind the remote.
+**IT IS A HOOK IN THE SESSION, NOT IN THE REPOSITORY.** A `pre-commit` hook cannot tell which session advanced the branch — both are `git` in the same directory with the same credentials. The state that distinguishes them belongs to the session, so this is a wrapper around the session's own commits, not a repository-side gate.
 
-**IT NEEDS A FETCH AND THAT IS THE COST.** The gate reads `origin/<main>`, so it is only as good as the last fetch. A stale ref makes it silent, never wrong — it can miss a revert, and it can never refuse a legitimate edit. **Failing toward allowing** is the right direction here: this gate sits in front of every commit in the repository, and one that blocks work on a slow network would be turned off within a day.
+**AND THE CHEAPER FIX MAY BE THE RIGHT ONE.** Two Claude sessions sharing one working directory is a configuration, not a law. A second session working in its own worktree — which is what every dispatched agent already does — removes the defect entirely and costs nothing. **This slice should establish that first**, and build the gate only if shared checkouts must stay supported.
 
-**WHAT THE MESSAGE MUST SAY IS THE FIX, NOT THE FAULT.** `git checkout origin/main -- <file>` and re-stage. A gate that reports *"staged content is behind origin"* and stops has handed the reader a puzzle at the moment they are least able to solve it.
-
-**IT IS A GATE AND NOT A RULE, BY THIS REPO'S OWN TEST.** *Can you answer "did I complete this?" without doing the work?* — "check whether the fleet moved under you" is answerable **yes** by anyone who did not check, and two commits this session prove it.
-
-**Done when** a commit staging a stale plan file is refused with the repair named, a commit editing the same file is allowed however far the remote has moved, an unfetched or absent `origin/<main>` allows and says it could not verify, and the hook adds no measurable time to a commit of ordinary size.
+**Done when** the estate has a stated answer to whether two sessions may share a checkout, and — if they may — a commit against a branch the session did not advance is refused with the repair named.
 
 ## Notes
 
@@ -81,3 +87,13 @@ A pre-commit gate refuses a commit whose staged content reverts `origin/<main>` 
 `plot-reconcile-scan.sh` runs on demand over the whole estate and answers *what is drifting now*. This defect is a property of **one commit at the moment it is made**, and by the time a scan runs the annotation is gone with nothing to compare against — the scan would have to know what `origin/main` said before the commit, which is exactly what the commit destroyed.
 
 **The reconcile scan is also the wrong latency.** Both incidents were repaired within four hours *because a person read a diff*. A finding that appears in a scan somebody runs weekly is a finding about work already merged.
+
+### The first explanation was wrong, and the reproduction is why — 2026-09-06
+
+This plan first claimed that agents committing from their own worktrees leave a session's plan files reading as *modified*, so `git add` stages a revert. It was argued from blob forensics and it was wrong.
+
+**A sandbox settled it in four commands** — a bare remote, a session clone, an agent clone recording `PR: #726`, then `git status` in the session. Nothing modified, nothing staged, and a push that would revert rejected outright. Git compares the working tree to the local HEAD, and a commit on a remote moves neither.
+
+**The forensics were right about the blobs and wrong about the cause.** Every observation held — the exact prior blob, the byte-identical revert — and they were all consistent with a second explanation nobody had looked for, because nobody had checked which checkout the writes came from.
+
+**`git reflog show main` was the answer and it took one command.** Two hours of blob comparison against a branch reflog that names the pull, the commit, and the time.
