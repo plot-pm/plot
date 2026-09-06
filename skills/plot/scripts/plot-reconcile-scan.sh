@@ -4,8 +4,10 @@
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
 # Output: thirteen-section text report on stdout (each finding carries its exact
-#         remediating command as copy-paste text — nothing is executed),
-#         terminated by a machine-countable summary line:
+#         remediating command as copy-paste text — nothing is executed). A
+#         `== blocking sections end ==` line separates the findings that stop a
+#         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
+#         it. The report is terminated by a machine-countable summary line:
 #             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
@@ -97,9 +99,9 @@
 #                                 NEVER GATES — a stale round is a hint about a
 #                                 badge, not a reason to stop a delivery — so
 #                                 it carries `rounds_drift=` and stays out of
-#                                 `attention`. Placed LAST so sections 1-12
-#                                 keep their numbers, and with them
-#                                 /plot-deliver's `== 7.` gate marker.
+#                                 `attention`. Placed after the
+#                                 `== blocking sections end ==` marker, which
+#                                 is what /plot-deliver's gate reads to.
 #
 # Configuration is read via plot-config.sh from the adopting project's
 # `## Plot Config` (Plan directory, Active index, Delivered index, Branch
@@ -1074,6 +1076,35 @@ if [ -n "$unrel_out" ]; then printf '%b' "$unrel_out"; else echo "  (none)"; fi
 echo
 
 # ---------------------------------------------------------------------------
+# THE BLOCKING/NON-BLOCKING BOUNDARY, NAMED RATHER THAN COUNTED.
+#
+# Everything above this line is a finding that stops a delivery; everything
+# below it is a shape for somebody to fix. /plot-deliver's delivery-landed gate
+# reads to this marker and greps what came before it.
+#
+# IT REPLACES A LINE NUMBER. The gate was `sed -n '/^== 7./q;p'`, whose MEANING
+# was *stop before the first non-blocking section* and whose EXPRESSION was the
+# number 7. The two agreed by maintenance: this scan has been renumbered twice,
+# and each time somebody had to notice that a section inserted below 7 would
+# silently shrink the delivery gate. Three comment blocks in this file and two
+# tests existed to make sure they did.
+#
+# A MARKER LINE RATHER THAN A FOOTER KEY OR A LIST OF TITLES, and the choice is
+# about what an added section costs. The footer counts findings, and the gate
+# needs to know WHICH PLAN — a count cannot answer that. A list of section
+# titles in /plot-deliver puts the boundary in the file that does not own it:
+# every new blocking section would need a second edit, and a renamed heading
+# would shrink the gate with nothing failing. This line sits where the boundary
+# IS, in the one file that decides section order, so adding a section is a
+# question of which side of it the section goes — which is the decision the
+# author is already making.
+#
+# MOVING IT IS THE WHOLE EDIT. A new blocking section goes above this line, a
+# new advisory one below, and no number anywhere needs to change.
+echo "== blocking sections end =="
+echo
+
+# ---------------------------------------------------------------------------
 # 7. Uncut slices
 #
 # A wave holds exactly one branch (MANIFESTO.md): a `### ` heading carrying MORE
@@ -1091,15 +1122,10 @@ echo
 # `index_drift=`, and stays out of `attention`.
 #
 # PLACEMENT: it is actionable (someone runs /plot-reslice) where index drift is
-# pure convenience, so it sits BEFORE index drift — this is section 7. The
-# prose-wave-name section (8) later joined it, and index drift moved to 9.
-# Sections 1-6 keep their numbers, so /plot-deliver's gate marker
-# (`sed -n '/^== 7./q;p'`) still stops before the first non-blocking section:
-# what used to be section 7 (index drift, non-blocking) is now this section
-# (uncut slices, non-blocking), and the blocking set stays 1-6. The marker
-# text is therefore unchanged BY DESIGN — its meaning ("stop before the
-# non-blocking sections") is preserved because every non-blocking section sits
-# at 7 or later.
+# pure convenience, so it sits BEFORE index drift. What puts it outside the
+# delivery gate is the `== blocking sections end ==` marker above, not its
+# number — this section has been 7 since index drift moved to 9 and then 10,
+# and the gate did not have to be told about either move.
 #
 # The COUNT is branch LINES under the heading, taken from plot-plan-meta.sh's
 # `waves[]` — never a second parser. A backticked branch name in a plan's prose
@@ -1163,12 +1189,9 @@ echo
 # counter (`prose_wave_names=`), exactly as uncut slices and index drift do.
 #
 # PLACEMENT: it is actionable (someone renames the heading) like the unsliced
-# section, so it sits with it, after the blocking set (1-6) and before index
-# drift. Index drift moves to section 9. /plot-deliver's gate marker
-# (`sed -n '/^== 7./q;p'`) still stops before the first non-blocking section —
-# what changes is that TWO non-blocking sections (7 unsliced, 8 prose names) now
-# sit before index drift (9) instead of one; the blocking set stays 1-6 and the
-# marker text is unchanged BY DESIGN.
+# section, so it sits with it — below the `== blocking sections end ==` marker
+# and before index drift. Nothing had to be told its number when index drift
+# moved past it.
 #
 # The THRESHOLD is the parser's judgement, applied ONCE in plot-plan-meta.sh
 # (LONG_WAVE_NAME_MAX): this reads the `long_wave_names` field it emits and never
@@ -1454,10 +1477,9 @@ echo
 # counter (`double_claims=`), exactly as uncut slices, prose names, sprint
 # drift and index drift do.
 #
-# PLACEMENT: last, so the section numbers 1-11 keep their meanings. Every
-# consumer that reads a number reads an existing one — /plot-deliver's gate
-# marker is `sed -n '/^== 7./q;p'`, which stops before the first non-blocking
-# section, and that stays true only while nothing is inserted below 7.
+# PLACEMENT: below the `== blocking sections end ==` marker, which is what puts
+# it outside /plot-deliver's gate. Its own number is free to change: no consumer
+# reads one.
 #
 # THE CLAIM SET IS THE PARSER'S, never a second one. Branch and wave both come
 # from plot-plan-meta.sh's `waves[]` — the same source sections 7 and 8 read.
@@ -1589,9 +1611,8 @@ echo
 # stop a delivery. It carries its own footer counter (`rounds_drift=`) and
 # stays OUT of `attention=`, exactly as uncut slices, prose slice names,
 # sprint drift, stale tallies, index drift and double claims each do. And it
-# sits LAST, after section 12: /plot-deliver's gate marker is
-# `sed -n '/^== 7./q;p'`, which stops before the first non-blocking section,
-# and that stays true only while nothing is inserted below 7.
+# sits below the `== blocking sections end ==` marker, which is what keeps it
+# out of /plot-deliver's gate — its number is not what does that.
 echo "== 13. Stale interrogation rounds (a Draft plan amended since its last round) =="
 rounds_out=""
 if [ -n "$plan_json" ]; then

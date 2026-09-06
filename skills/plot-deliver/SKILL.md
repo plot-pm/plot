@@ -303,7 +303,7 @@ automatically if branch protection refuses the push.
 
 ### 7b. Delivery-Landed Gate
 
-Delivery is a multi-step write (flip phase, write the `Delivered:` record, commit, push) — the biggest drift source in practice is a delivery that half-lands. The index move is no longer one of the steps that can half-land it: it is best-effort, and section 9 (index drift) of the scan reports its absence as convenience rather than drift. This step is a **gate, not a rule**: the objective, checkable condition is *the reconcile scan's own output shows no drift for the plan you just delivered*. You cannot answer "did the delivery land?" without running the scan and reading its result — so run it, and **show the real output**. Do not declare delivery complete (do not proceed to the Summary) on a self-asserted claim; proceed only on the pasted evidence below.
+Delivery is a multi-step write (flip phase, write the `Delivered:` record, commit, push) — the biggest drift source in practice is a delivery that half-lands. The index move is no longer one of the steps that can half-land it: it is best-effort, and the scan's index-drift section reports its absence as convenience rather than drift. This step is a **gate, not a rule**: the objective, checkable condition is *the reconcile scan's own output shows no drift for the plan you just delivered*. You cannot answer "did the delivery land?" without running the scan and reading its result — so run it, and **show the real output**. Do not declare delivery complete (do not proceed to the Summary) on a self-asserted claim; proceed only on the pasted evidence below.
 
 Run the scan and capture both its `summary:` footer and the targeted grep:
 
@@ -312,10 +312,12 @@ Run the scan and capture both its `summary:` footer and the targeted grep:
 tail -1 /tmp/plot-deliver-gate.txt   # the summary: footer — paste this as the gate artifact
 ```
 
-Grep the **findings that block**, not every mention of the plan. Sections 1, 2 and 5 are defects; sections 7 (uncut slices), 8 (prose slice names) and 9 (the convenience index) are non-blocking, and a delivered plan that never had a symlink appears in 9 by design. The marker stops at section 7, so all three non-blocking sections are excluded — an uncut slice or a prose slice name is a shape to fix, not a half-landed delivery:
+Grep the **findings that block**, not every mention of the plan. The scan emits a `== blocking sections end ==` line between the two kinds: above it are the defects that stop a delivery, below it the shapes somebody fixes — uncut slices, prose slice names, sprint drift, stale tallies, the convenience index, double claims, stale rounds. A delivered plan that never had a symlink appears below the line by design, and so does an uncut slice: neither is a half-landed delivery.
+
+**Read to the marker, not to a section number.** The gate used to stop at `== 7.`, which meant *the first non-blocking section* and said *seven*; the scan has been renumbered twice, and each time somebody had to notice that a section inserted below 7 would silently shrink this gate. The marker moves with the boundary because it IS the boundary:
 
 ```bash
-sed -n '/^== 7\./q;p' /tmp/plot-deliver-gate.txt | grep "YYYY-MM-DD-<slug>.md"
+sed -n '/^== blocking sections end ==/q;p' /tmp/plot-deliver-gate.txt | grep "YYYY-MM-DD-<slug>.md"
 ```
 
 Read the **grep's exit result**, which is the gate condition (the scan fetches first, so it sees the delivery push):
@@ -328,10 +330,10 @@ Read the **grep's exit result**, which is the gate condition (the scan fetches f
   ../plot/scripts/plot-estate-changed.sh /tmp/plot-deliver-estate.txt \
     && ../plot/scripts/plot-reconcile-scan.sh 2>/dev/null | tee /tmp/plot-deliver-gate.txt \
     || echo "estate unchanged — the previous scan's result stands"
-  sed -n '/^== 7\./q;p' /tmp/plot-deliver-gate.txt | grep "YYYY-MM-DD-<slug>.md"
+  sed -n '/^== blocking sections end ==/q;p' /tmp/plot-deliver-gate.txt | grep "YYYY-MM-DD-<slug>.md"
   ```
 
-  **This changes how often the gate asks, never what it decides.** The grep, the section-7 marker and both exit conditions are exactly as above; only a scan whose inputs are byte-for-byte unchanged is skipped, and the held output is re-grepped rather than assumed clean.
+  **This changes how often the gate asks, never what it decides.** The grep, the boundary marker and both exit conditions are exactly as above; only a scan whose inputs are byte-for-byte unchanged is skipped, and the held output is re-grepped rather than assumed clean.
 
   **It is a measurement, not a timer.** The guard hashes what the scan reads — every remote ref's SHA and every plan file's content — so the gate's own fix is always seen: a phase flip changes plan bytes, and the push that follows moves a ref. Nothing expires; an estate that changed produces a second scan every time.
 
@@ -342,9 +344,9 @@ Read the **grep's exit result**, which is the gate condition (the scan fetches f
 
 Two expected non-failures (neither trips the gate — the grep does not match branch lines):
 
-- The plan may appear in **section 9 (index drift)** — no symlink in either index. Since the phase grouping is derived from plan content this blocks nothing, which is why the gate grep stops at section 7 (excluding 7, 8 and 9). Do not treat it as a half-landed delivery and do not create the symlink to silence it.
-- The plan may appear in **section 7 (uncut slices)** — a wave carrying more than one branch. That is a shape `/plot-reslice` can repair, not a delivery fault; it is non-blocking and the gate grep already excludes it. Do not treat it as a half-landed delivery.
-- The plan may appear in **section 8 (prose slice names)** — a wave heading written as a sentence rather than a label. That is a shape to fix by renaming the heading in the plan, not a delivery fault; it is non-blocking and the gate grep already excludes it. Do not treat it as a half-landed delivery.
+- The plan may appear in the **index-drift section** — no symlink in either index. Since the phase grouping is derived from plan content this blocks nothing, which is why that section sits below the boundary marker the gate grep stops at. Do not treat it as a half-landed delivery and do not create the symlink to silence it.
+- The plan may appear in the **uncut-slices section** — a wave carrying more than one branch. That is a shape `/plot-reslice` can repair, not a delivery fault; it is non-blocking and the gate grep already excludes it. Do not treat it as a half-landed delivery.
+- The plan may appear in the **prose-slice-names section** — a wave heading written as a sentence rather than a label. That is a shape to fix by renaming the heading in the plan, not a delivery fault; it is non-blocking and the gate grep already excludes it. Do not treat it as a half-landed delivery.
 - The just-merged **impl branches** may now show in section 3 as deletion candidates — that is normal post-delivery housekeeping, not a failed delivery. Mention it in the summary as optional cleanup (the printed `git push origin --delete <branch>` commands), don't act unasked.
 - If the scan is genuinely unavailable (older plot install, or it errors — e.g. `jq` missing, which the scan now reports on stderr and exits non-zero), you cannot clear the gate by asserting success. Skip the step **explicitly**, and say so in the Summary in place of the gate evidence: `Delivery-landed gate: SKIPPED — scan unavailable (<reason>)`. The delivery itself is unaffected, but the reader must see the check did not run.
 

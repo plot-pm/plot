@@ -1919,13 +1919,17 @@ test('scan: a double claim leaves attention= unchanged — the section does NOT 
   assert.match(footer, /\battention=0\b/);
 });
 
-test('scan: section 12 stays below the blocking set, leaving /plot-deliver\'s `== 7.` gate marker intact', () => {
-  // The gate marker is `sed -n '/^== 7./q;p'` — a hardcoded number meaning "the
-  // first non-blocking section". Inserting a section below 7 would silently
-  // shrink the delivery gate, so every new one goes after the last. This pins
-  // that placement; section 13 (stale rounds) now sits after it.
-  assert.match(dcReport, /^== 12\. Double-claimed branches/m);
-  assert.match(dcReport, /^== 7\. Uncut slices/m, 'section 7 must still be uncut slices');
+test('scan: a double claim sits below the blocking-sections marker', () => {
+  // WHAT KEEPS IT OUT OF THE DELIVERY GATE IS THE MARKER, NOT ITS NUMBER. This
+  // used to assert that section 12 was double claims and section 7 was uncut
+  // slices, because the gate read `== 7.` and a section inserted below it would
+  // silently shrink the gate. The gate now reads to the marker, so what is
+  // worth pinning is which SIDE of it this section falls on.
+  assert.ok(
+    dcReport.indexOf('== blocking sections end ==') <
+      dcReport.indexOf('== 12. Double-claimed branches'),
+    'the double-claim section must sit below the boundary marker',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -2098,14 +2102,217 @@ test('scan: a stale round leaves attention= unchanged — the section does NOT g
   assert.doesNotMatch(srSections['5'], /stale-round/);
 });
 
-test('scan: section 13 sits last, leaving /plot-deliver\'s `== 7.` gate marker intact', () => {
-  // The gate marker is `sed -n '/^== 7./q;p'` — a hardcoded number meaning "the
-  // first non-blocking section". Inserting this section below 7 would silently
-  // shrink the delivery gate, so it goes last. This pins that placement, and
-  // that sections 1-12 kept their numbers.
-  const nums = srReport.split('\n')
-    .map((l) => /^== (\d+)\. /.exec(l)).filter(Boolean).map((m) => Number(m[1]));
-  assert.equal(Math.max(...nums), 13, 'the stale-round section must be the last one');
-  assert.match(srReport, /^== 7\. Uncut slices/m, 'section 7 must still be uncut slices');
-  assert.match(srReport, /^== 12\. Double-claimed branches/m, 'section 12 must keep its number');
+test('scan: a stale round sits below the blocking-sections marker', () => {
+  // Same rule as the double-claim section above, and the same reason this test
+  // no longer names a number: the gate reads to the marker, so the placement
+  // that matters is which side of it this section falls on.
+  assert.ok(
+    srReport.indexOf('== blocking sections end ==') <
+      srReport.indexOf('== 13. Stale interrogation rounds'),
+    'the stale-round section must sit below the boundary marker',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The delivery gate stops at a name, not a line number.
+//
+// /plot-deliver's delivery-landed gate reads the scan to a boundary and greps
+// what came before it. The boundary's MEANING is *the last section that stops a
+// delivery*; its EXPRESSION was the number 7, and the two agreed by maintenance
+// — this scan has been renumbered twice, and each time somebody had to notice.
+//
+// So the property under test is the one the old `sed` lacked: INSERTING A
+// SECTION BELOW THE OLD MARKER MUST NOT CHANGE WHAT THE GATE BLOCKS ON. The
+// tests run the skill's own command, verbatim, over a real report — and then
+// over the same report renumbered — and assert the two answers are identical.
+// ---------------------------------------------------------------------------
+
+/** The marker line the scan emits between the blocking and advisory sections. */
+const BOUNDARY = '== blocking sections end ==';
+
+/**
+ * /plot-deliver's gate, run exactly as the skill writes it.
+ *
+ * The command is `sed` and `grep` through a shell, not a JavaScript
+ * reimplementation: a reimplementation would pass while the shipped line
+ * failed, which is the whole risk a gate test exists to cover.
+ */
+function runGate(reportText, slug) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gate-'));
+  const file = path.join(dir, 'gate.txt');
+  fs.writeFileSync(file, reportText);
+  const res = execFileSync(
+    'bash',
+    ['-c', `sed -n '/^== ${BOUNDARY.slice(3)}/q;p' "$1" | grep -F "$2" || true`, '_', file, slug],
+    { encoding: 'utf8' },
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+  return res;
+}
+
+/**
+ * Adds a blocking section and renumbers everything after it — the edit the old
+ * gate could not survive.
+ *
+ * IT GOES INSIDE THE BLOCKING SET, at 6, which is what makes this the real
+ * defect rather than a rearrangement. Every advisory section shifts up by one,
+ * so the first non-blocking section becomes 8 while the literal `== 7.` the old
+ * gate stopped at now names a BLOCKING section — the gate silently stopped one
+ * section short of the boundary it was written to find. The marker moves with
+ * the boundary; the number does not.
+ */
+function withBlockingSectionAdded(reportText) {
+  const out = [];
+  let inserted = false;
+  for (const line of reportText.split('\n')) {
+    const m = /^== (\d+)\. (.*)$/.exec(line);
+    if (m) {
+      const n = Number(m[1]);
+      if (n >= 6) {
+        if (!inserted) {
+          out.push('== 6. A blocking section somebody added later ==');
+          out.push('  plans/2026-01-05-inserted.md — a finding that must gate');
+          out.push('');
+          inserted = true;
+        }
+        out.push(`== ${n + 1}. ${m[2]}`);
+        continue;
+      }
+    }
+    out.push(line);
+  }
+  assert.ok(inserted, 'the fixture must have a section at 6 or later to renumber');
+  return out.join('\n');
+}
+
+test('gate: the scan emits the boundary marker exactly once', () => {
+  // ONCE, because `sed … q` stops at the first match: a second marker would be
+  // unreachable and a reader would not know which one gates.
+  const hits = report.split('\n').filter((l) => l === BOUNDARY);
+  assert.equal(hits.length, 1, 'exactly one boundary marker');
+});
+
+test('gate: the blocking sections sit above the marker and the advisory ones below', () => {
+  // The blocking set is 1-6 — the sections that populate the footer counters
+  // /plot-deliver and the /plot hygiene line read. This asserts the marker is
+  // where CLAUDE.md says the boundary is, rather than merely present.
+  const lines = report.split('\n');
+  const boundaryAt = lines.indexOf(BOUNDARY);
+  assert.ok(boundaryAt > 0, 'the marker must be in the report');
+  for (const line of lines) {
+    const m = /^== (\d+)\. /.exec(line);
+    if (!m) continue;
+    const above = lines.indexOf(line) < boundaryAt;
+    assert.equal(
+      above,
+      Number(m[1]) <= 6,
+      `section ${m[1]} is on the wrong side of the boundary`,
+    );
+  }
+});
+
+test('gate: it blocks on a finding in a blocking section', () => {
+  // The gate must still REFUSE what it refuses today. `vanished` is the main
+  // fixture's dangling index link, planted in section 5 — the section CLAUDE.md
+  // names as the one that gates.
+  const out = runGate(report, 'vanished');
+  assert.match(out, /vanished/, 'a section-5 finding must reach the gate');
+});
+
+test('gate: it permits a plan named only by the convenience index', () => {
+  // AND STILL PERMITS WHAT IT PERMITS. `omega` appears only in index drift —
+  // a plan with no symlink, which since the phase grouping became derived is a
+  // browsing gap rather than a half-landed delivery. It is below the marker,
+  // and a gate that reached it would refuse a delivery that landed.
+  assert.match(report, /2026-01-05-omega\.md/, 'the fixture must name omega somewhere');
+  assert.equal(runGate(report, 'omega'), '', 'an index-drift-only plan must not gate');
+});
+
+test('gate: it permits a finding that sits only below the marker', () => {
+  // And still PERMIT what it permits. A plan named only under an advisory
+  // section clears the gate — this is the half a marker placed too late breaks.
+  const advisoryOnly = [
+    '== 1. Phase<->symlink drift ==',
+    '  (none)',
+    '',
+    BOUNDARY,
+    '',
+    '== 7. Uncut slices ==',
+    '  plans/2026-01-01-quiet.md — one slice, three branches',
+    '',
+    'summary: attention=0',
+  ].join('\n');
+  assert.equal(runGate(advisoryOnly, 'quiet'), '', 'an advisory-only finding must not gate');
+});
+
+test('gate: adding a section does not change what it gates on', () => {
+  // THE TEST THE PLAN NAMES, and the property the `== 7.` sed lacked.
+  //
+  // Both halves are asserted, because only one of them fails loudly. A gate that
+  // stops SHORT hides a half-landed delivery; a gate that reads too FAR blocks a
+  // delivery on a shape nobody had to fix.
+  const renumbered = withBlockingSectionAdded(report);
+  assert.match(renumbered, /^== 6\. A blocking section somebody added later/m);
+  assert.match(renumbered, /^== 8\. Uncut slices/m, 'the advisory sections must have shifted');
+
+  // `vanished` still gates and `omega` still does not — the two answers the
+  // delivery gate gives today, unchanged by the renumbering.
+  for (const slug of ['vanished', 'omega']) {
+    assert.equal(
+      runGate(renumbered, slug),
+      runGate(report, slug),
+      `a renumbering must not change what the gate blocks on (${slug})`,
+    );
+  }
+  // And the ADDED blocking section gates, because it went above the marker.
+  assert.match(runGate(renumbered, 'inserted'), /inserted/);
+});
+
+test('gate: the old positional marker would have been fooled by that same edit', () => {
+  // THE DEFECT, DEMONSTRATED RATHER THAN ASSERTED. Without this the test above
+  // could pass against a gate that never had the bug; this proves the fixture
+  // reproduces the failure the marker prevents.
+  //
+  // The old gate stopped at the literal `== 7.`. After the insertion the first
+  // non-blocking section is 8, so 7 names a BLOCKING section — and the old gate
+  // stops one section short of its own boundary, reading less of the report than
+  // it was written to read.
+  const renumbered = withBlockingSectionAdded(report);
+  const oldGate = (text) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gate-old-'));
+    const file = path.join(dir, 'gate.txt');
+    fs.writeFileSync(file, text);
+    const res = execFileSync(
+      'bash',
+      ['-c', `sed -n '/^== 7\\./q;p' "$1" | grep -c . || true`, '_', file],
+      { encoding: 'utf8' },
+    );
+    fs.rmSync(dir, { recursive: true, force: true });
+    return Number(res.trim());
+  };
+  const sectionsRead = (text) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-gate-cnt-'));
+    const file = path.join(dir, 'gate.txt');
+    fs.writeFileSync(file, text);
+    const res = execFileSync(
+      'bash',
+      ['-c', `sed -n '/^== 7\\./q;p' "$1" | grep -cE '^== [0-9]+\\. ' || true`, '_', file],
+      { encoding: 'utf8' },
+    );
+    fs.rmSync(dir, { recursive: true, force: true });
+    return Number(res.trim());
+  };
+  assert.equal(sectionsRead(report), 6, 'the old marker read the six blocking sections');
+  assert.equal(
+    sectionsRead(renumbered),
+    6,
+    'and reads six after the insertion too — but now there are SEVEN blocking sections',
+  );
+  // The new marker reads all seven. That difference is the defect.
+  const newlyRead = renumbered
+    .slice(0, renumbered.indexOf(BOUNDARY))
+    .split('\n')
+    .filter((l) => /^== \d+\. /.test(l)).length;
+  assert.equal(newlyRead, 7, 'the marker follows the boundary the number lost');
+  assert.ok(oldGate(renumbered) > 0, 'the fixture is non-trivial');
 });
