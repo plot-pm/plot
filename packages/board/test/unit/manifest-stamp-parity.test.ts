@@ -35,9 +35,14 @@ function awkProgram(): string {
   // The program is inside a `sh -c '...'` where every literal single quote is
   // written as the four-byte sequence '"'"'. Undo that escaping to recover the
   // awk source as awk will actually see it.
+  // NO `-v bmon`. The BuildMonitor merged into the slice monitor's loop on
+  // 2026-09-06, so the dispatcher passes two monitor pids rather than three.
+  // This marker is why the change had to be made here too: it is matched
+  // against the live script, so a dispatcher whose awk moved fails loudly
+  // rather than silently extracting the wrong program.
   const marker =
     'awk -v pid="$agent" -v started="$PLOT_STAMP_STARTED" '
-    + '-v wrapper="$$" -v wmon="$wmon" -v amon="$amon" -v bmon="$bmon" ';
+    + '-v wrapper="$$" -v wmon="$wmon" -v amon="$amon" ';
   const at = src.indexOf(marker);
   assert.notEqual(at, -1, 'the dispatcher awk invocation moved — update this extractor');
   const after = src.slice(at + marker.length);
