@@ -328,6 +328,27 @@ describe('pulseDelta — what moved since the last pulse', () => {
       .toEqual(['feature/a', 'feature/b', 'feature/c']);
   });
 
+  it('sorts the dead workers too, not only the merges', () => {
+    // Each list carries its own comparator, so each needs its own case: the
+    // merge sort passing says nothing about this one. The domain's 100%
+    // coverage gate is what noticed — a comparator no test invokes is a line
+    // nothing runs.
+    const running = (name: string) => branch(name, { worker: 'running' });
+    const before = pulse([plan('2026-01-01-a.md', [slice('S', [
+      running('feature/c'), running('feature/a'), running('feature/b'),
+    ])])]);
+    const after = pulse([plan('2026-01-01-a.md', [slice('S', [
+      branch('feature/c', { worker: 'failed' }),
+      branch('feature/a', { worker: 'ended' }),
+      branch('feature/b', { worker: 'finished' }),
+    ])])]);
+    const got = pulseDelta(before, after, 1700);
+    expect(got.workersDied.map((w) => w.branch))
+      .toEqual(['feature/a', 'feature/b', 'feature/c']);
+    // And each carries the state it actually reached, not a shared word.
+    expect(got.workersDied.map((w) => w.state)).toEqual(['ended', 'finished', 'failed']);
+  });
+
   it('performs no I/O — the caller reads, the rule compares', () => {
     // Readings as values, the shape every rule here takes: two readings in, a
     // value out, nothing awaited and no port passed. A rule that reached for a
