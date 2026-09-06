@@ -283,6 +283,16 @@ function repoForBrief(label, { brief, briefCommand, pluginReach = true } = {}) {
   const plugins = pluginRegistry(t, { reach: pluginReach });
   return {
     tmp: t, repo: r, sentinel, worktree: wt, briefRan, plugins,
+    // Set the `Brief command` AFTER construction, for the tests that need it to
+    // touch `briefRan` — the fixture's own sentinel, which `briefCommandRan()`
+    // waits on. The path is not known until the fixture exists, and a second
+    // sentinel of the test's own would need a second waiter that could drift
+    // from this one. `plot-config.sh` reads the working tree, so no push is
+    // needed; the plan and its branches are already on the ref.
+    setBriefCommand: (cmd) => {
+      const md = path.join(r, 'CLAUDE.md');
+      fs.writeFileSync(md, fs.readFileSync(md, 'utf8') + `- **Brief command:** ${cmd}\n`);
+    },
     // Run dispatch against this fixture's registry rather than the machine's.
     dispatch: (args, opts = {}) => execFileSync('bash', [dispatch, ...args], {
       encoding: 'utf8', cwd: r, timeout: 30_000, ...opts,
@@ -568,6 +578,132 @@ git push -q origin main || exit 1
 
   f.cleanup();
   fs.rmSync(t, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// Whether the agent the Brief command spawns can reach `plot-implement` at all
+// ---------------------------------------------------------------------------
+//
+// `Brief command` asks a headless agent for `/plot-implement <slug>`, and
+// `plot-implement` is a SKILL. A skill the running agent does not have resolves
+// to nothing — measured twice, 2026-09-02 and 2026-09-04, as a 33-byte log
+// reading `Unknown command: /plot-implement`, four days apart, neither read.
+//
+// The prompt's wording was never the defect. Plot was installed as a plugin at
+// 1.2.0 against this repository's 2.13.0, and the installed `skills/` carried
+// eight of twenty — the board's *"Run /plot-implement `<slug>` and follow it."*
+// would have failed identically. So the deliverable is a REFUSAL, not a
+// rewording: Plot cannot install its own plugin, but it can decline to spawn a
+// session that will fail, and name what it read.
+
+test('dispatch: it refuses to spawn a brief the agent cannot reach the skill from', () => {
+  // THE REFUSAL, AND IT ARRIVES BEFORE THE SPAWN. Failing late is what produced
+  // two empty logs and a session writing nine briefs by hand without asking why
+  // the arm was silent. A refusal printed by the dispatch run is read by
+  // whoever ran it; a 33-byte log is not.
+  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'plot-noskill-'));
+  const ran = path.join(t, 'brief-ran');
+  const f = repoForBrief('noskill', {
+    briefCommand: `sh -c 'touch ${ran}' plot-brief`,
+    pluginReach: false,
+  });
+  const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
+
+  // NOTHING WAS SPAWNED. This is the assertion the whole slice rests on: a
+  // command that ran and failed in its first millisecond would still leave the
+  // sentinel, so its ABSENCE is what separates "refused before" from "failed
+  // after". The command is detached, so give it the same window the other brief
+  // tests give a real one before concluding it never started.
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline && !fs.existsSync(ran)) execFileSync('sleep', ['0.1']);
+  assert.equal(fs.existsSync(ran), false,
+    'the Brief command must not be spawned when the agent cannot reach the skill');
+
+  // ITS OWN WORD, never an overload of `no-brief-command`. There the key is
+  // absent and nothing was asked to write the brief; here the key is SET and
+  // the skill it names is unreachable. One word for two states is a word an
+  // operator cannot act on.
+  assert.match(out, /no-implement-skill/,
+    `the refusal must name itself:\n${out}`);
+  assert.doesNotMatch(out, /no-brief-command/,
+    `a set key with an unreachable skill is not a missing key:\n${out}`);
+
+  // IT NAMES THE INSTALL IT READ. A refusal that says only "unreachable" sends
+  // the operator looking for the file this run already opened.
+  assert.ok(out.includes(f.plugins.root),
+    `must name the registry it read:\n${out}`);
+  assert.ok(out.includes(f.plugins.install),
+    `must name the install it found, not merely that one was missing:\n${out}`);
+
+  // AND IT NAMES A REPAIR AN OPERATOR CAN PERFORM. Plot cannot install its own
+  // plugin — updating an install is an action on a machine — so the message's
+  // job ends at saying which action.
+  assert.match(out, /plot-implement/,
+    `must name the skill that is missing:\n${out}`);
+  assert.match(out, /update|reinstall|\/plugin/i,
+    `must name the operator action, since the script cannot perform it:\n${out}`);
+
+  // The gate's own refusal is untouched: no desk, no claim, nothing counted.
+  assert.match(out, /not handed over/, `the brief gate still refuses:\n${out}`);
+  assert.equal(f.workerStarted(), false, 'no brief still means no worker');
+  const footer = out.split('\n').find((l) => l.startsWith('summary: ')) ?? '';
+  assert.match(footer, /brief_asked=0/,
+    `nothing was asked, so the footer counts zero:\n${footer}`);
+
+  f.cleanup();
+  fs.rmSync(t, { recursive: true, force: true });
+});
+
+test('dispatch: the check reads the skill directory, never the version', () => {
+  // A VERSION COMPARISON WOULD REFUSE A WORKING INSTALL. The registry here
+  // records 1.2.0 against a repository at 2.13.0 — four months and eleven minor
+  // versions stale — and its `skills/` carries `plot-implement`. That install
+  // works, and demanding an update for it is a refusal nobody can act on
+  // usefully: the operator updates, nothing changes, and the gate has cost them
+  // an afternoon.
+  //
+  // What breaks a brief session is one missing directory. So that is the whole
+  // question, and this test is what keeps a version check from creeping back in.
+  // `briefRan` is the fixture's own sentinel, which `briefCommandRan()` waits on.
+  const f = repoForBrief('lagging', { pluginReach: true });
+  f.setBriefCommand(`sh -c 'touch ${f.briefRan}' plot-brief`);
+  const out = f.dispatch(['--offline', 'b'], { timeout: 30_000 });
+
+  assert.doesNotMatch(out, /no-implement-skill/,
+    `an install carrying the skill must not be refused for its version:\n${out}`);
+  assert.equal(f.briefCommandRan(), true,
+    'a lagging install that carries the skill must still spawn the brief session');
+  const footer = out.split('\n').find((l) => l.startsWith('summary: ')) ?? '';
+  assert.match(footer, /brief_asked=1/, `the ask must be counted:\n${footer}`);
+
+  f.cleanup();
+});
+
+test('dispatch: an absent plugin registry allows, and says it could not verify', () => {
+  // IT FAILS TOWARD ALLOWING, and this is the arm that says why. Running Plot
+  // from a checkout with no plugin install at all is a supported shape — this
+  // repository is one — so a registry that cannot be read says NOTHING about
+  // whether the skill is there. Refusing on it would break dispatch for
+  // everyone who never installed the plugin, which is a larger population than
+  // the one this gate protects.
+  //
+  // SAYING SO IS HALF THE ARM. A check that silently skips reads, in the log,
+  // exactly like a check that passed — and the difference matters the next time
+  // a brief session produces 33 bytes.
+  const f = repoForBrief('noregistry');
+  f.setBriefCommand(`sh -c 'touch ${f.briefRan}' plot-brief`);
+  const absent = path.join(f.tmp, 'no-plugins-here');
+  const out = f.dispatch(['--offline', 'b'],
+    { timeout: 30_000, env: { PLOT_PLUGIN_ROOT: absent } });
+
+  assert.doesNotMatch(out, /no-implement-skill/,
+    `an unreadable registry is not a refusal:\n${out}`);
+  assert.match(out, /could not verify/,
+    `it must say the check could not be made, or a skip reads as a pass:\n${out}`);
+  assert.equal(f.briefCommandRan(), true,
+    'a repository with no plugin install must still get its brief session');
+
+  f.cleanup();
 });
 
 test('dispatch: a brief older than its plan is reported, never refused', () => {
