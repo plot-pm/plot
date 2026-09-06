@@ -356,7 +356,7 @@ supervisor reports `gone` and `idle` for every agent it supervises,
 `monitors-end.test.mjs` still passes — a monitor must still end with its subject
 — and a wedged agent is still reported, one tick later at worst.
 
-### Saying so where a user looks (Branch: docs/adoption-names-the-processes)
+### Saying so where a user looks (Branch: docs/adoption-names-the-processes, PR: #749)
 
 `/plot-init` and `/plot-board-setup` name both runtime commands in their closing summary, and the root README's skills table carries all three.
 
