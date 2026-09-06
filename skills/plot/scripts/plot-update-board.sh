@@ -3,6 +3,54 @@
 # Usage: plot-update-board.sh <pr-url> <status> <owner> <project-number>
 # Adds the PR to the board (idempotent) and sets its Status field.
 # Designed for small-model consumption: exit 0 on success or graceful skip, exit 1 on usage error.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS SCRIPT CALLS `gh` ITSELF, AND WHAT WOULD CHANGE THAT
+# ---------------------------------------------------------------------------
+#
+# `plot-host.sh` is the ONE place that talks to a git host CLI, gated by
+# `scripts/check-host-cli-callers.sh`. This script is exempted there BY NAME,
+# and this is the reason the gate's entry points at.
+#
+# IT IS THE TRACKER PORT'S WRITE ARM, NOT THE HOST PORT'S. Settled when issue
+# tracking got its own port: `Tracker` is a `## Plot Config` key declared
+# INDEPENDENTLY of `Git host`, so a repository whose code lives with one vendor
+# and whose tickets live with another has two foreign services with two
+# accounts and two windows. `adapters/tracker/tracker-github.ts:62` resolves
+# this script and `:72` is the only thing that runs it — no other caller
+# exists. So the question is not *should this route to the adapter*, it is
+# *which port owns it*, and the answer is `tracker`, which is the port it is
+# already behind.
+#
+# ROUTING IT INTO `plot-host.sh` WOULD RE-MERGE WHAT THAT SPLIT SEPARATED.
+# `plot-host.sh issue-status` is the tracker port's OTHER connector — Jira —
+# and it exits 4 for any other scheme, deliberately: `plot-host.sh:2754` says
+# so in its own words, *"this vendor's projects surface has a script of its own
+# … and the two write through different APIs under different credentials."*
+# Two connectors, two credential sets, one interface above them. Moving this
+# script's four calls under the Jira arm would put both vendors' tokens in one
+# place, which is the shape the port was split to refuse.
+#
+# AND IT IS A THIRD API FAMILY BESIDES. Its four calls are `gh project view`,
+# `item-add`, `field-list` and `item-edit` — the GitHub Projects v2 API.
+# `plot-host.sh` answers `pr-state`, `pr-list`, `pr-merge`, `pr-create`,
+# `pr-body`, `issue-list`, `issue-view` and `issue-status`, and nothing at all
+# about projects. Projects is neither the git host's PR API nor the tracker's
+# issue API, and it has no Bitbucket equivalent — so an adapter whose whole
+# point is that both vendors can answer would gain a surface only one of them
+# has.
+#
+# WHAT WOULD CHANGE THIS, and it is one thing rather than a mood: a SECOND
+# vendor's project board needing the same four operations. Two implementations
+# of one question is what every routing argument in this repo turns on, and
+# today there is one — GitHub's, reached by GitHub's connector. When a second
+# arrives, the abstraction belongs on the `tracker` port beside `statusWrite`,
+# NOT on `plot-host.sh`: it is a tracker capability with two connectors, the
+# same shape `issue-status` already has. Delete the gate's exemption then.
+#
+# WHAT WOULD NOT CHANGE IT: this script growing more `gh project` calls, or a
+# second Plot caller inside this repository. Neither adds a vendor, and the
+# exemption is about which service is being asked, not about how often.
 
 set -euo pipefail
 
