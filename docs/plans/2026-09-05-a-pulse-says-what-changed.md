@@ -93,7 +93,7 @@ Verified 2026-09-05: that plan is **Released**. The condition is met and this is
 
 **THE VERSION AND THE EXPIRY ARE THE BOARD'S AND STAY THE BOARD'S.** `BRIDGE_VERSION` and `BRIDGE_MAX_AGE_MS` live in `pulse-bridge.ts` and the scan must produce a file that satisfies both, or the board reads its own format back as a mismatch and renders nothing.
 
-**Done when** a scan writes the bridge on success and not on failure, the board reads a scan-written pulse without change, and a repository with no board accumulates history across pulses.
+**Done when** a scan writes the bridge on success and not on failure, the board reads a scan-written pulse without change, and a repository with no board accumulates history across pulses. — PR #730
 
 ### The delta is a domain rule (Branch: feature/a-pulse-says-what-changed)
 
