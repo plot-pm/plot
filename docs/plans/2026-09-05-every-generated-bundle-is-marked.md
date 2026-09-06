@@ -64,7 +64,7 @@ The refusal is correct under its own definition — `ARTIFACT_PATH` is one strin
 
 ## Slices
 
-### Marking every bundle (Branch: bug/every-generated-bundle-is-marked)
+### Marking every bundle (Branch: bug/every-generated-bundle-is-marked, PR: #724)
 
 `.gitattributes` lists all eight `build.mjs` emits, with the existing comment block extended to say the list is the build's output rather than one file — and why it is now eight.
 
