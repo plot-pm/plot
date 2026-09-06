@@ -6,7 +6,15 @@ The slice's first half is implemented, tested and pushed: the AgentMonitor and
 BuildMonitor are one loop over two subjects (`plot-agent-monitor.sh`), the
 wrapper starts one monitor instead of two, `buildMonitorPid` is no longer
 written, and the vendor list gained the two sourced siblings it was missing.
-That takes a dispatched agent from four resident processes to three.
+
+**A dispatched agent now runs four processes where it ran five** — wrapper,
+agent, WorkerMonitor, slice monitor — so fleet control is `1 + 3N` against the
+`1 + 4N` it was. The design's `1 + 2N` needs the WorkerMonitor gone, which is
+the question below.
+
+Measured after the merge: the monitor is alive while its subject lives, gone
+4 s after it dies, and leaves no children. 72 of 72 monitor tests pass, 89 of
+89 dispatch tests pass, and the shell/TS manifest byte-parity holds.
 
 ## The conflict
 
