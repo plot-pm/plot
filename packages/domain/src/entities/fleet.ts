@@ -70,6 +70,7 @@ export type BranchState = z.infer<typeof BranchStateSchema>;
  * `eligible`   a dispatch would take this: prior slices landed AND the plan is approved
  * `blocked`    an earlier slice has not landed yet
  * `unapproved` the plan is not approved, so nothing here may be dispatched
+ * `empty`      the slice names no branch at all
  *
  * `eligible` asserts BOTH ordering and approval, so a reader may act on it
  * directly. `blocked` and `unapproved` are kept apart because they resolve
@@ -82,13 +83,23 @@ export type BranchState = z.infer<typeof BranchStateSchema>;
  * was overruled — *"the verdict is what the board tracks a slice's progress
  * by … functionally it is the slice's state."* Derived every pulse and stored
  * nowhere is a statement about WHO writes it, not about whether it moves.
+ *
+ * `empty` IS THE MALFORMED ANSWER, and it is a word rather than a silence. A
+ * slice naming no branch counted zero outstanding branches and read `complete`
+ * — finished work that never existed — because the count cannot tell *all
+ * merged* from *none named*. It resolves by editing the plan: giving the
+ * heading a branch, or deleting it. Neither merging nor approving does it, so
+ * it may not share a word with `blocked` or `unapproved`.
  */
 // plot-state: lifecycle slice — unapproved -> blocked -> eligible -> complete,
 //                               per `diagrams/slice-lifecycle.mmd`.
 //                               `transitions/slice.ts` refuses a backward move,
 //                               a skipped ordering gate, and a prerequisite
 //                               nobody asked the host about.
-export const SliceVerdictSchema = z.enum(['complete', 'eligible', 'blocked', 'unapproved']);
+//                               `empty` sits outside that order: it is a
+//                               malformed slice, not a stage one passes
+//                               through, and only a plan edit leaves it.
+export const SliceVerdictSchema = z.enum(['complete', 'eligible', 'blocked', 'unapproved', 'empty']);
 export type SliceVerdict = z.infer<typeof SliceVerdictSchema>;
 
 /**

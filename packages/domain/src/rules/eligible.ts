@@ -19,6 +19,16 @@ export interface SliceReadings {
   outstanding: number;
   /** The governing plan's phase, lowercased as the parser emits it. */
   phase: string;
+  /**
+   * How many branches the slice names at all, deferred ones included.
+   *
+   * REQUIRED, and not defaulted, because `outstanding` alone cannot tell a
+   * slice whose branches all merged from a slice that names none: both count
+   * zero, and the second is not finished work. A caller with no answer to give
+   * would be handed the permissive one by a default, which is the defect this
+   * field exists to close.
+   */
+  branches: number;
 }
 
 /**
@@ -64,6 +74,12 @@ const FINISHED_PHASES: readonly string[] = ['delivered', 'released'];
  * that is a statement about work that already landed rather than an invitation
  * to start any. Only the word a reader ACTS on is withheld.
  *
+ * `complete` NOW REQUIRES A BRANCH TO HAVE MERGED. A slice naming no branch and
+ * a slice whose branches all merged both count `outstanding: 0`, and this test
+ * gave them one word — so a `## Slices` heading carrying only prose asserted
+ * finished work that never existed, above every other test and beyond
+ * correction. They are separate facts and they now have separate words.
+ *
  * NOT `blocked` for an unapproved plan, deliberately. That word means *an
  * earlier slice has not landed* — an ordering fact that resolves by merging
  * work. This resolves by a person approving the plan, and `blocked by <slice> —
@@ -77,12 +93,17 @@ export const sliceVerdict = (
   readings: SliceReadings,
   priorComplete: boolean,
 ): SliceVerdict => {
-  if (readings.outstanding === 0) return 'complete';
+  if (readings.branches > 0 && readings.outstanding === 0) return 'complete';
   // A FINISHED PLAN'S SLICE IS COMPLETE, whatever its branches now say. The
   // check sits above the approval test because `unapproved` is a statement
   // about the FUTURE — somebody must approve this — and a delivered plan has no
   // future to ask about.
   if (FINISHED_PHASES.includes(readings.phase)) return 'complete';
+  // A SLICE THAT NAMES NO BRANCH HAS NOTHING TO SAY ABOUT WORK. It is tested
+  // AFTER the finished phases because a released plan's heading is history
+  // nobody can act on, and BEFORE the approval test because approving a plan
+  // does not give a prose heading a branch.
+  if (readings.branches === 0) return 'empty';
   if (readings.phase !== DISPATCHABLE_PHASE) return 'unapproved';
   return priorComplete ? 'eligible' : 'blocked';
 };
@@ -98,6 +119,10 @@ export const sliceVerdict = (
  * `complete` is what advances the chain. Anything else stops it, including
  * `unapproved`: a plan nobody approved has landed nothing, so a later slice of
  * it is not ordered behind finished work.
+ *
+ * `empty` stops it for the same reason and it is the stricter half of the fix:
+ * a plan whose first heading names no branch cannot report its second slice
+ * startable on the strength of the first, because the first landed nothing.
  *
  * @param slices The plan's slices, in the order the plan names them.
  * @returns One verdict per slice, in the same order.

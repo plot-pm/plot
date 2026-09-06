@@ -47,7 +47,13 @@ import { pathToFileURL } from 'node:url';
  * `jq` per plan — a second process to avoid a second format.
  */
 
-/** One slice's readings, with the states of the branches it holds. */
+/**
+ * One slice's readings, with the states of the branches it holds.
+ *
+ * `branches` is derived from `states` rather than read off the wire: the states
+ * ARE the branches, one entry each, so a third field on the line could only
+ * disagree with the second.
+ */
 export interface SliceLine extends SliceReadings {
   /** The branches' measured states, in the order the caller will render them. */
   states: string[];
@@ -60,7 +66,10 @@ export interface SliceLine extends SliceReadings {
  * become `0` and read `complete` — the verdict that says work has landed — so a
  * malformed line refuses the whole batch rather than inventing the most
  * permissive answer for it. A slice with no branches is spelled by an empty
- * third field and is legitimate; a MISSING third field is not.
+ * third field and parses; a MISSING third field does not. What the rule then
+ * MAKES of a branchless slice is `empty` rather than `complete` — parsing it is
+ * how it reaches the rule that refuses it, not a judgement that it is well
+ * formed.
  *
  * @param text the stdin document, one slice per line
  * @returns the slices in order
@@ -79,7 +88,8 @@ export const slicesFrom = (text: string): SliceLine[] =>
           `line ${i + 1}: expected '<count>\\t<phase>\\t<states>', got '${line}'`,
         );
       }
-      return { outstanding, phase, states: states === '' ? [] : states.split('|') };
+      const parsed = states === '' ? [] : states.split('|');
+      return { outstanding, phase, states: parsed, branches: parsed.length };
     });
 
 /**

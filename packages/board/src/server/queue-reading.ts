@@ -91,6 +91,11 @@ export const queueOfPlan = (
         (line) => !line.deferred && !claimed.has(line.branch),
       ).length,
       phase: plan.phase,
+      // EVERY branch the slice names, deferred ones included — the count that
+      // separates *all settled* from *none named*. Unfiltered on purpose: a
+      // slice whose branches were all deferred still names work, and calling
+      // it `empty` would report a decision as a malformed plan.
+      branches: slice.branches.length,
     })),
   );
 
