@@ -10,7 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 8
+- **Rounds:** 9
 
 ## Changelog
 
@@ -72,9 +72,13 @@ Auto-dispatch reaches `/api/implement` for a branch it would otherwise skip, and
 
 **TWO OFF SWITCHES, STOPPING DIFFERENT THINGS.** The auto-dispatch toggle stops the asking live, because the asking is part of that loop. `Implement command: none` stops it for the project — the config already reads `none` as *we do this by hand*, and the board must honour that answer rather than invent a second way to say it.
 
-**THE ROW GAINS A THIRD STATE.** `rows.tsx:2056` renders `needs a brief` in the `waitingOn: 'you'` amber and says why: *"A missing brief is a person's errand and nothing in git will clear it."* Once the loop asks, something does. Amber stays until a brief **exists** — the ask can fail and has — and a quieter state says *asked, waiting*.
+**THE ROW MOVES BETWEEN TWO STATES THAT ALREADY EXIST.** `rows.tsx:2056` renders `needs a brief` in the `waitingOn: 'you'` amber and says why: *"A missing brief is a person's errand and nothing in git will clear it."* Once the loop asks, something else is. **`WaitingOnSchema` already admits `'time'`** — waiting on the machine, rendered slate by `waitingTone` — so the row moves `you → time` while a session is writing, and no value is invented. **A reader scanning for their own errands must not see a row a machine is already handling.**
 
-**Done when** the asking is off by default and a project can turn it on, auto-dispatch asks at most once per plan per pass, the ask reaches `/api/implement` rather than spawning its own, it draws on the agent cap, its mark retires only on a non-empty brief on `origin/main`, a session past its bound is reported, a plan whose asks keep failing is recorded in its plan file, the row distinguishes *asked, waiting* from *needs a brief*, and either off switch stops it.
+**IT ANNOUNCES, BECAUSE IT CHANGES WITH NO CLICK.** The badge is a `role="gridcell"` of static text; a state that moves on its own would move silently for a screen-reader user, and this is the first row state on the board that changes without anybody acting. `StatusPanel:192` already uses `aria-live="polite"` and that is the pattern — announced when the reader is idle, because it is the reader's own errand that moved.
+
+**AND THE MARK SURVIVES A RESTART.** It is an in-memory `Set` today, the same shape `auto-deliver.ts` carries. A restart mid-ask forgets it, the next pulse asks again while the first session is still running, and that is round 2's collision arriving by a different route. `.plot/state/` already holds `fleet-controls.json` and `last-pulse.json`, so a durable mark has a home and a precedent.
+
+**Done when** the asking is off by default and a project can turn it on, auto-dispatch asks at most once per plan per pass, the ask reaches `/api/implement` rather than spawning its own, it draws on the agent cap, its mark retires only on a non-empty brief on `origin/main`, a session past its bound is reported, a plan whose asks keep failing is recorded in its plan file, the row moves from `waitingOn: 'you'` to `'time'` while a session is writing and announces the change politely, the mark survives a board restart so a restart does not re-ask mid-session, and either off switch stops it.
 
 ## Notes
 
@@ -114,3 +118,13 @@ Setting it stopped the refusal immediately — verified against the live board, 
 
 - **Off by default.** The first unattended write to `main` should not arrive unannounced, and `--start-agents` is the precedent — opt-in, and a run without it changes nothing on the machine. The cost is that an estate which never opts in keeps today's silence.
 - **A full fleet correctly blocks the ask.** 6 agents against a cap of 5 means no ask could fire, which is the design: a brief is worth writing only if an agent can then take the slice.
+
+### Round 9 — 2026-09-06
+
+**Both row states this plan needs already exist.** `WaitingOnSchema` admits `'you' | 'click' | 'time'`, and `waitingTone` renders `'time'` in slate — *waiting on the machine*. So *asked, waiting* is `you → time`, not a fourth value. **A reader scanning for their own errands must not see a row a machine is already handling**, which settles the colour question against keeping amber: the ask can fail, but a failure is what the bound and the plan-file record are for, not what a colour should carry for hours.
+
+**The badge does not announce, and this is the first row state that changes with no click.** It is a `role="gridcell"` of static text. Every other change on this board follows something a person did or an agent pushed; this one moves while nobody is looking. `StatusPanel:192` already uses `aria-live="polite"`, and that is the pattern — the reader's own errand moved, and one sentence when they are idle is the right cost.
+
+**The mark must survive a restart, and that is a change from the estate's shape rather than a copy of it.** `auto-deliver.ts` holds the identical in-memory `Set`. A restart mid-ask forgets it and the next pulse asks again while the first session runs — **round 2's collision, arriving by a different route**. `.plot/state/` already holds `fleet-controls.json` and `last-pulse.json`, so durability has a home and a precedent.
+
+**Interrogation ends here.** Nine rounds; the remaining questions are about the estate rather than this plan.
