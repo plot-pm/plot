@@ -79,7 +79,7 @@ The refusal is correct under its own definition — `ARTIFACT_PATH` is one strin
 
 **Done when** a rebase conflicting in any built bundle writes zero conflict markers into it, and adding a ninth output to `build.mjs` without marking it fails CI.
 
-### One definition of the artifact set (Branch: bug/the-repair-knows-every-bundle)
+### One definition of the artifact set (Branch: bug/the-repair-knows-every-bundle, PR: #738)
 
 `ARTIFACT_PATH` becomes a set, in both languages that hold it.
 
