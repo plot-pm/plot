@@ -1924,3 +1924,145 @@ test('plan-meta: a `waits:` syntax example in prose is not a declaration', () =>
   assert.equal(byName['feature/real'].waits_on, 'bug/actual',
     'and a real annotation on the next line is unaffected');
 });
+
+// `builds:` — what a slice creates, and the field slice 2 will search for.
+//
+// Five plans in one week proposed something the estate already had —
+// `normalizeVersion` (10 callers), `check-host-cli-callers.sh`, reconcile scan
+// section 7, `readingLoss`, `computeStatusDrift` — plus a sixth that spent two
+// interrogation rounds on a gate #706 had already moved. Every one was found by
+// a grep and none by a round. A slice that names its deliverable is what makes
+// that grep possible before the plan is written rather than after.
+//
+// AN ANNOTATION RATHER THAN A `Builds:` FIELD LINE, because annotations already
+// work in BOTH slice dialects from one block of code. The tests below assert
+// exactly that: the same spelling, read identically from a list item and from a
+// `### ` heading.
+
+test('plan-meta: `builds:` reports the deliverable, and is absent otherwise', () => {
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/helper\` <!-- builds: normalizeVersion, a shared helper --> — extracts the version reader.
+- \`feature/prose\` — a docs change that builds nothing nameable.
+`);
+  const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
+  assert.equal(byName['feature/helper'].builds, 'normalizeVersion, a shared helper',
+    'the annotation names one deliverable, and that deliverable is reported');
+  // ABSENT, NOT EMPTY — the rule `waits_on` already follows. A `builds: ""`
+  // would read as "builds something called nothing" rather than "declares no
+  // deliverable", and the field must never nag: a docs plan, a rejection or a
+  // measurement builds nothing nameable.
+  assert.ok(!('builds' in byName['feature/prose']),
+    'a slice with no annotation carries no builds key at all');
+});
+
+test('plan-meta: `builds:` reads identically in the heading dialect', () => {
+  // THE DETAIL THE SLICE HAD TO GET RIGHT. The parser chooses a dialect per
+  // section from `(Branch:` in the first heading, and the TEMPLATE writes the
+  // list dialect — so a spelling that only worked in headings would be absent
+  // from every plan created from the template, and one that only worked in
+  // lists would be absent from every plan written in the newer shape.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Slices
+
+### Extract the helper (Branch: feature/helper, PR: #12) <!-- builds: normalizeVersion, a shared helper -->
+
+Prose describing the slice, which is never scanned for meta.
+
+### Write the guide (Branch: docs/guide)
+
+Prose only.
+`);
+  const byName = Object.fromEntries(meta.waves.flatMap((w) => w.branches).map((b) => [b.branch, b]));
+  assert.equal(byName['feature/helper'].builds, 'normalizeVersion, a shared helper',
+    'the heading dialect reads the same annotation from the heading line');
+  assert.ok(!('builds' in byName['docs/guide']),
+    'and absence is absence in this dialect too');
+});
+
+test('plan-meta: `builds:` keeps the whole value, not just its first word', () => {
+  // IT RUNS TO THE CLOSING MARKER, unlike `waits:` which stops at the first
+  // space. A prerequisite is a branch NAME and trailing prose would corrupt it;
+  // a deliverable is a name plus enough words to search for, and cutting at the
+  // space would drop the half that identifies it.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/scan\` <!-- builds: reconcile scan section 15, a sprint index check --> — the sweep.
+`);
+  assert.equal(meta.waves[0].branches[0].builds,
+    'reconcile scan section 15, a sprint index check',
+    'the value survives whole, spaces and commas included');
+});
+
+test('plan-meta: `builds:` and the other annotations do not clobber each other', () => {
+  // Every annotation is read off the whole line before the branch match runs,
+  // and each uses a greedy `sub()`. A shared line is where a sloppy pattern for
+  // one eats another — which is why `waits:` and `deferred:` already have this
+  // test, and why `builds:` joins it rather than getting a weaker one.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/all\` <!-- builds: normalizeVersion --> <!-- waits: bug/prereq --> <!-- deferred: superseded 2026-09-01 --> — everything at once.
+- \`feature/reordered\` <!-- deferred: not now --> <!-- builds: computeStatusDrift --> <!-- waits: bug/other --> — a different order.
+`);
+  const byName = Object.fromEntries(meta.waves[0].branches.map((b) => [b.branch, b]));
+  assert.equal(byName['feature/all'].builds, 'normalizeVersion',
+    'builds survives two annotations after it');
+  assert.equal(byName['feature/all'].waits_on, 'bug/prereq', 'and waits still binds');
+  assert.equal(byName['feature/all'].deferred_reason, 'superseded 2026-09-01',
+    'and the deferral reason is intact');
+  assert.equal(byName['feature/reordered'].builds, 'computeStatusDrift',
+    'order does not matter');
+  assert.equal(byName['feature/reordered'].deferred_reason, 'not now',
+    'and the annotations before and after it are untouched');
+});
+
+test('plan-meta: a plan carrying no `builds:` parses exactly as before', () => {
+  // THE GUARANTEE THE SLICE OWES THE ESTATE: 222 plan files carry no such
+  // annotation, and none of them may change shape. Asserted on the keys rather
+  // than by comparing two parsers, so this keeps holding after the old one is
+  // gone.
+  const meta = parseSource(`# Plan
+
+## Status
+
+- **Phase:** Approved
+- **Type:** feature
+
+## Branches
+
+- \`feature/one\` — ordinary.
+- \`feature/two\` <!-- deferred: not needed --> — shelved.
+`);
+  for (const b of meta.waves[0].branches) {
+    assert.ok(!('builds' in b), `${b.branch} must carry no builds key`);
+    assert.deepEqual(Object.keys(b).sort(), ['branch', 'claimed', 'deferred', 'deferred_reason'],
+      `${b.branch} keeps exactly the keys it had before this field existed`);
+  }
+});
