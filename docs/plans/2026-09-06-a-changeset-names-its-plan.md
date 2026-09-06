@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 2
+- **Started:** 2026-09-06, Jan Wloka, `feature/a-changeset-carries-a-plan`
 
 ## Changelog
 
