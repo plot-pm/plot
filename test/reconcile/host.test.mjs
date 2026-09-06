@@ -289,6 +289,22 @@ test('host: a lookup miss still exits 0 with state NONE', () => {
   });
 });
 
+// AN ABSENT CLI IS A TRANSPORT FAILURE WEARING A MISS'S WORDS. The shell says
+// `bash: gh: command not found` when the binary is gone, and `is_lookup_miss`
+// matched that on its bare `not found` alternative — so `pr-merged` answered
+// `not-merged` where `plot-pr-merged.sh` answered `unaskable` about the same
+// branch. Measured 2026-09-06 with `gh` off PATH.
+//
+// The DIRECTION is why it matters: `not-merged` reads to `rules/landed.ts` as
+// `none` — the host spoke and said nothing merged — so `mayRemove` may permit a
+// removal, where `unaskable` refuses. `plot-release-refs.sh` deletes remote refs
+// on that answer and a deleted ref is not re-creatable.
+test('host: an absent CLI is not a lookup miss', () => {
+  const stubs = makeStubs({ ghFail: 'bash: gh: command not found' });
+  const res = runAllowFail(['pr-merged', 'feature/nope'], { env: { PLOT_HOST: 'github' }, stubs });
+  assert.equal(res.stdout.trim(), 'unknown', 'an absent binary cannot answer not-merged');
+});
+
 // Bitbucket runs the same rule through the same helper — one place decides, so
 // the two backends cannot drift into disagreeing about what silence means.
 test('host: bitbucket separates the two the same way', () => {

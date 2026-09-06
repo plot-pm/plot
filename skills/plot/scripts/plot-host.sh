@@ -586,7 +586,23 @@ jenkins_build_map() {
 # `LC_ALL=C` on the match: the CLI localises its messages, and a matcher that
 # only works in English would silently reclassify every miss as an outage for
 # anyone else.
+#
+# A MISSING CLI IS NOT A MISS, AND THE BARE `not found` ALTERNATIVE COULD NOT
+# TELL THEM APART. Measured 2026-09-06 with `gh` off `PATH`: the shell says
+# `bash: gh: command not found`, which matched — so `pr-merged` answered
+# `not-merged` where `plot-pr-merged.sh` answered `unaskable` about the same
+# branch. `not-merged` reads to `rules/landed.ts` as `none` (the host spoke and
+# said nothing merged), so `mayRemove` may permit a removal; `unaskable`
+# refuses. `plot-release-refs.sh` deletes remote refs on that answer and a
+# deleted ref is not re-creatable, so the two answers differ in the one
+# direction this estate has said it will not fail in.
+#
+# The bare alternative stays — it is what recognises a Bitbucket or Jira miss,
+# whose wording is neither `no pull requests found` nor `could not find`. What
+# it excludes is the shell's own phrasing for an absent binary, which is a
+# transport failure wearing a miss's words.
 is_lookup_miss() {
+  case "$1" in *'command not found'*) return 1 ;; esac
   LC_ALL=C grep -qiE 'no (pull request|pullrequest)s? (found|match)|could not find.*pull request|not found' <<<"$1"
 }
 

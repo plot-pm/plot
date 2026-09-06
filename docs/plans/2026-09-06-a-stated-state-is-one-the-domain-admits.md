@@ -61,7 +61,7 @@ docs/sprints/2026-W36-a-half-landed-workflow…    Phase: Planned
 
 ## Slices
 
-### The parse refuses an unadmitted state (Branch: bug/a-stated-state-parses, PR: #726)
+### The parse refuses an unadmitted state (Branch: bug/a-stated-state-parses)
 
 `parseSprintFile` and `parseStoryContent` refuse a value their schema does not admit, as `plot-plan-meta.sh` already does for a plan phase.
 
