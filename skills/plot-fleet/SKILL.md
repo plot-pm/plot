@@ -82,8 +82,10 @@ estate is free, and it proves the daemon runs before a unit is installed. A
 completed tick prints its counts:
 
 ```
-plot-registryd tick agents=3 left=3 reap=0 correct=0 person=0 defer=0 handed=0 queued=457 idle=0 cost=19760ms
+plot-registryd tick agents=3 left=3 reap=0 correct=0 person=0 defer=0 handed=0 held=477 idle=4 already-merged=11 merge-unknown=0 no-brief=3 not-claimable=463 no-free-agent=0 cost=24959ms
 ```
+
+`held=` counts the slices the pass **refused**, and the five keys after it say why — every hold every time, so a `no-brief=0` is a measurement rather than a missing key. Measured 2026-09-06 on this estate: `not-claimable=463` of 477 held, which is what a `handed=0` alone could never say. `--once` also names the branches under each hold; the looping daemon prints the counts and stops there.
 
 A tick that could not complete prints `incomplete` with a reason and exits 1.
 Read the reason before installing: a unit that reloads a daemon which cannot

@@ -1,6 +1,7 @@
 import { supervise, type SuperviseDetail } from '@plot-pm/domain/workflows/supervise';
 import { assign, type AssignDetail, type FleetCap } from '@plot-pm/domain/workflows/assign';
 import type { Decision } from '@plot-pm/domain/workflows/decision';
+import { holdCounts, QUEUE_HOLDS } from '@plot-pm/domain/rules/queue';
 
 import { readTick, type SupervisorWorld } from '../supervisor.js';
 import { readQueue, type QueueWorld } from '../queue-reading.js';
@@ -299,15 +300,27 @@ export const tickLine = (report: TickReport): string => {
   ];
 
   // THE QUEUE'S FIELDS ARE OMITTED WHEN NOBODY ASKED, rather than printed as
-  // zeros. `queued=0 handed=0` on a tick that never read the plans says the
+  // zeros. `held=0 handed=0` on a tick that never read the plans says the
   // estate has nothing waiting, which is a claim this tick did not measure.
   if (report.handOver !== null) {
     const queue = report.handOver.detail;
     fields.push(
       `handed=${queue.assignments.length}`,
-      `queued=${queue.held.length}`,
+      // `held=`, NOT `queued=`. It counts slices that were REFUSED, each with
+      // a reason; a reader of `queued=480` concludes 480 slices are waiting
+      // their turn, when it means 480 nothing would take. That misreading cost
+      // an afternoon on 2026-09-06, and every slice dispatched that day was
+      // assigned by hand because of it.
+      `held=${queue.held.length}`,
       `idle=${queue.idle.length}`,
     );
+    // THE HOLDS ARE COUNTED ON THE SUMMARY LINE, because this line is what a
+    // person reads on a running daemon and what the log carries. All six keys
+    // print every time a queue was read, so a zero is a measurement — the
+    // difference between *nothing was ready* and *something is wrong*, which
+    // `handed=0` alone could never say.
+    const counts = holdCounts(queue.held);
+    for (const hold of QUEUE_HOLDS) fields.push(`${hold}=${counts[hold]}`);
     // `started=` IS OMITTED WHEN NOBODY ASKED TO SCALE, the same rule the three
     // fields above follow: `started=0` on a tick that never read a cap claims
     // the fleet was already the size it should be, which is a claim this tick

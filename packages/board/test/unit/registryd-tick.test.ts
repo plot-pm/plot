@@ -836,3 +836,73 @@ describe('a tick starts agents when queued > running', () => {
     expect(second.handOver?.writes).toEqual(first.handOver?.writes);
   });
 });
+
+describe('a tick says which hold refused each slice', () => {
+  /**
+   * THE MEASUREMENT THIS EXISTS FOR — 2026-09-06. The supervisor reported
+   * `handed=0 queued=480 idle=8` against four briefed slices and eight free
+   * agents, and the line gave no way to tell *nothing was ready* from
+   * *something is wrong*. The reason was computed by `whyNotReady`, carried
+   * per branch by `matchQueue`, and discarded when the tick counted the
+   * entries. Nothing needed computing; only printing.
+   */
+  const queueWorld = (over: Partial<QueueWorld> = {}): QueueWorld => ({
+    plans: async () => [
+      {
+        file: 'docs/plans/2026-09-05-a-plan.md',
+        phase: 'approved',
+        slices: [{ branches: [{ branch: 'feature/waiting', deferred: false }] }],
+      } as never,
+    ],
+    claimedBranches: async () => new Set<string>(),
+    briefPresent: async () => true,
+    sliceHasMerged: async () => false,
+    queuedHasLanded: async () => 'not-landed',
+    workerAlive: async () => true,
+    blocked: async () => false,
+    ...over,
+  });
+
+  it('counts the hold that fired and reports the others as zero', async () => {
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ briefPresent: async () => false }),
+      now: () => 0,
+    });
+
+    const line = tickLine(report);
+    expect(line).toContain('no-brief=1');
+    // THE ZEROES ARE THE POINT. Without them a reader cannot tell a hold that
+    // did not fire from one this build does not have.
+    expect(line).toContain('not-claimable=0');
+    expect(line).toContain('already-merged=0');
+    expect(line).toContain('merge-unknown=0');
+    expect(line).toContain('no-free-agent=0');
+  });
+
+  it('calls the count `held`, because the slices were refused and not queued', async () => {
+    // `queued=480` READS AS *480 WAITING THEIR TURN* and means *480 nothing
+    // would take*. That misreading cost an hour of 2026-09-06 and the whole
+    // afternoon's hand-assignment behind it.
+    const report = await tick({
+      registry: async () => [],
+      world: world(),
+      queue: queueWorld({ briefPresent: async () => false }),
+      now: () => 0,
+    });
+
+    expect(tickLine(report)).toContain('held=1');
+    expect(tickLine(report)).not.toContain('queued=');
+  });
+
+  it('prints no hold counts on a tick that never read a queue', async () => {
+    // THE SAME RULE `handed=` ALREADY FOLLOWS. `no-brief=0` on a tick that read
+    // no plans claims the estate has nothing missing a brief, which that tick
+    // did not measure.
+    const report = await tick({ registry: async () => [], world: world(), now: () => 0 });
+    const line = tickLine(report);
+    expect(line).not.toContain('held=');
+    expect(line).not.toContain('no-brief=');
+  });
+});
