@@ -359,6 +359,33 @@ lacking a transition it cannot have, and the fix would be a rule that lies.
   merged and was then reaped still clears**, the deadlock that plan was
   corrected to avoid, now enforced rather than remembered.
 
+### The six the ratchet found
+
+- `feature/six-lifecycles-declare-their-rules` — `transitions/` for the six
+  entities `check-state-declarations.sh` names, in the order a wrong answer
+  costs most.
+
+**THE GATE FOUND THEM THE DAY IT SHIPPED.** #720 merged 2026-09-06 and its first run reported:
+
+```
+entities/sprint.ts:9    declares lifecycle 'sprint',  no transitions/sprint.ts
+entities/pr.ts:9        declares lifecycle 'pr',      no transitions/pr.ts
+entities/fleet.ts:54    declares lifecycle 'branch',  no transitions/branch.ts
+entities/fleet.ts:102   declares lifecycle 'worker',  no transitions/worker.ts
+entities/release.ts:13  declares lifecycle 'release', no transitions/release.ts
+entities/build.ts:14    declares lifecycle 'build',   no transitions/build.ts
+```
+
+**That is this plan's own stated prediction, met.** The ratchet slice said *"the 35 declarations are themselves the review that finds the next lifecycle nobody had noticed."* It found six.
+
+**THE GATE READS `clean` OVER ALL SIX, BY DESIGN.** It ratchets against the count on the day it shipped, so the six sit under a green check — *"its job is to stop 38, not to reach 0 … the target stays debt."* Naming them here converts the debt into work rather than leaving it in a passing gate's output.
+
+**ORDER BY WHAT A WRONG ANSWER COSTS, and the six are not equal.** `branch` and `worker` are read by the fleet on every dispatch and every reap — a wrong transition there strands an agent or removes a desk. `sprint` and `release` are read at a release gate, where a wrong answer ships or blocks. `pr` and `build` are readings the host owns, where Plot's own transition matters least.
+
+**EACH IS A SLICE'S WORTH OF WORK AND THIS IS ONE SLICE.** Sizing it that way is a judgement the implementer makes with the six in front of them; splitting it six ways before anyone has written the first is the ceremony this repo already refuses elsewhere.
+
+**Done when** each of the six either has a `transitions/<entity>.ts` with a refusal per illegal transition, or a stated reason it does not transition — and the ratchet's count is lowered to match.
+
 ## Notes
 
 Written 2026-09-04. Counts measured on `main` that day: 23 entities, 1
@@ -441,3 +468,9 @@ half can be satisfied alone.
 Both were reachable only by reading the code the plan proposed to change. The
 first would have surfaced in slice two, after slice one had set a precedent that
 did not fit.
+
+### The ratchet named its own successors — 2026-09-06
+
+This plan shipped four transitions rules and a gate. The gate's first run named six more lifecycles, which is the outcome its slice predicted in the sentence quoted above.
+
+**The plan grows rather than spawning a second.** It already owns the four landed rules, the ratchet and the target stated as debt; a separate plan for the six would leave the debt's owner and the debt's payer in different files.

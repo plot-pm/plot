@@ -189,7 +189,14 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
   **Asserted: a story status maps to exactly one phase**, the same property
   already asserted for plan states, and asserted the same way. → #721
 
-  **AMENDED AGAIN 2026-09-06: THE SLICE TAKES ALL THREE HAND-COPIED LISTS.**
+  **AMENDED AGAIN 2026-09-06, AND THE AMENDMENT ARRIVED TOO LATE — IT IS THE
+  NEXT SLICE'S WORK.** #721 shipped `BOARD_PHASES` alone, which is what its
+  brief asked for; the amendment below was written while the agent was already
+  finishing. Recording that rather than re-opening a merged slice: a finished
+  branch is not a moving target, and the other two lists get their own slice
+  with the gate that stops a fifth.
+
+  **THE OTHER TWO HAND-COPIED LISTS.**
   Reading the eight open drafts against the domain found `BOARD_PHASES`'s
   duplication three more times, under three names:
 
