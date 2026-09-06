@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 9
+- **Delivered:** 2026-09-06
 
 ## Changelog
 
