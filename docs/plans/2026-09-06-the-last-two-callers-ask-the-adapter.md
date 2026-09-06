@@ -10,6 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -51,13 +52,17 @@ plot-reconcile-scan.sh  3 → 1   the remaining line is advice TEXT, not a call
 
 `plot-pr-merged.sh` calls `plot-host.sh pr-merged` instead of `gh`.
 
-**THE FAILURE DIRECTION IS THE WHOLE RISK.** `pr_merged` returns *not merged* when the host cannot be asked, so every caller keeps what it was about to remove — *"silence is never permission"*. The adapter answers `unknown` as a payload rather than a failure, deliberately, because *"a host that cannot be asked must not answer `not-merged`"*.
+**THE GATE MOVES INTO THE ADAPTER; IT DOES NOT CALL IT FROM OUTSIDE.** One route to the host, and the gate is part of it — not a shell wrapper spawning `plot-host.sh` per branch on top of the `gh` call it already makes.
 
-**Those two are opposite by design and must stay so.** The adapter reports what it knows; the shell gate converts *unknown* into *keep*. Routing must not collapse them into one answer — the adapter's three become the gate's two, and the mapping is the slice's central assertion.
+**THAT IS WHAT MAKES THE ROUTING FREE RATHER THAN COSTLY.** `plot-pr-merged.sh` is **sourced, not run**: four scripts define `pr_merged` in their own shell and call it per branch. A version that shelled out to `plot-host.sh` would add one process per call on a path the fleet scan walks across 48 branches — and `DESIGN-machine.md` measures spawn cost as the headroom signal. Moving the logic in means the caller reaches the host once, as it does today.
+
+**THE FAILURE DIRECTION IS THE WHOLE RISK, AND IT IS A MAPPING RATHER THAN A CHOICE.** `pr_merged` returns *not merged* when the host cannot be asked, so every caller keeps what it was about to remove — *"silence is never permission"*. The adapter answers `unknown` as a payload rather than a failure, deliberately, because *"a host that cannot be asked must not answer `not-merged`"*.
+
+**Those two are opposite by design and both survive.** The adapter keeps reporting three answers to anyone who asks it directly; the gate keeps converting *unknown* into *keep*. What changes is that the conversion lives beside the question instead of in a second implementation of it — `pr-merged` gains the gate's reading as a named answer, and the three-to-two mapping is asserted where it is performed.
 
 **`pr_open` TRAVELS WITH IT.** It vetoes a deletion, so it can only ever keep a ref — safe **only because `pr_merged` already refused on the same silence**. Both move or neither does.
 
-**Done when** `plot-pr-merged.sh` names `gh` zero times, `pr_merged` still answers *not merged* on an unreachable host, `pr_open` still only keeps, and both are asserted by a test.
+**Done when** the merge gate lives in `plot-host.sh`, `plot-pr-merged.sh` names `gh` zero times, the four sourcing callers keep their signatures, no caller gains a process per branch, `pr_merged` still answers *not merged* on an unreachable host, `pr_open` still only keeps, and all of it is asserted by a test.
 
 ### The board updater is routed or exempted (Branch: infra/the-project-api-is-named)
 

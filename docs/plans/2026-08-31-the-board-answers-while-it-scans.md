@@ -46,18 +46,20 @@ than one with no headline: it is the sentence a reader carries away.
 
 ## Status
 
-- **Phase:** Draft
+- **Phase:** Rejected
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
-<!-- WITHDRAWN 2026-08-31, Jan Wloka, in-session. The phase stays Draft because
-     Plot has four phases and none of them is "withdrawn" — inventing a fifth
-     would make this file unreadable to plot-plan-meta.sh and to every consumer
-     that switches on a phase, which is a worse outcome than a Draft nobody
-     starts. Its only branch is annotated `deferred:`, so the fleet will not
-     offer it and /plot-deliver will not demand it. See the notice above. -->
+- **Rejected:** 2026-08-31, Jan Wloka, in-session
+<!-- WITHDRAWN 2026-08-31, Jan Wloka, in-session. It stayed Draft until
+     2026-09-06 on the reasoning that "Plot has four phases and none of them is
+     withdrawn", so inventing a fifth would break every consumer switching on a
+     phase. That reasoning is obsolete: `plot-plan-meta.sh:338` accepts
+     `rejected` and `superseded` alongside the four, and two other plans already
+     carry Rejected. A withdrawn plan left in Draft sits in the approval queue
+     forever, which is what this correction fixes. -->
 <!-- Transition records — written by the workflow commands, not by hand:
 - **Approved:** <date>, <who>, <channel>
 - **Started:** <date>, <who>, <branch>   (one line per started branch)

@@ -10,6 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -47,6 +48,10 @@
 **IT IS A PROPOSAL, LIKE EVERY OTHER FIELD ADOPTION WRITES.** `plot-detect-repo.sh`'s output is *"a proposal a human confirms"*, and this joins it. A repo that already has a worktree convention keeps it.
 
 **THE `.gitignore` LINE IS THE HALF THAT CANNOT BE SKIPPED.** A configured root with no ignore rule turns every dispatched desk into untracked files in `git status`, and the operator's next `git add -A` stages a whole checkout. This repo's own comment at `.gitignore:20` is the wording to copy.
+
+**AND ADOPTION WRITES IT, WHICH IS A FILE `plot-init` HAS NEVER TOUCHED.** Measured 2026-09-06: the skill names `.gitignore` **zero times** — it writes config, a plan skeleton and templates, and nothing else. So this is not one more line in a file adoption already owns; it is a new write surface, and worth saying plainly.
+
+**It is written on confirmation, like everything else adoption creates.** A directory and a plan skeleton are larger commitments than one ignore line, and both are written today. Printing the line for a human to paste is how a repository ends up with desks as untracked files — which is the defect, not the fix.
 
 **AND THE DESK'S OWN IGNORE IS SEPARATE.** `.git/info/exclude` protects a desk cut from an older branch, because a rule in branch content is invisible there. Adoption writes the repo's line; the desk's is `plot-dispatch.sh`'s, and this slice does not move it.
 

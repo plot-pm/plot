@@ -10,6 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -45,6 +46,8 @@ This repeats a defect fixed the day before: `2026-W35-the-board-tells-the-truth-
 `plot-reconcile-scan.sh` reports a sprint whose `Phase:` disagrees with `docs/sprints/active/`.
 
 **TWO RECORDS OF ONE FACT, AND THE SCAN ALREADY REPORTS THIS SHAPE FOR PLANS.** Section 7 counts `index_drift` — a plan whose phase and symlink disagree — and gates nothing on it, because a missing link is a browsing gap while a dangling one is a broken pointer. A sprint's index is the same shape and needs the same treatment.
+
+**A NEW SECTION, NOT AN EXTENSION OF `sprint_drift`.** The scan mentions sprints 68 times already and counts `sprint_drift` — but that counts **plans** whose `Sprint:` disagrees with the sprint file. This is a fact about the **sprint file itself**, which nothing currently reads. Different subject, different count, and folding them would give a reader one number answering two questions.
 
 **IT HAS HAPPENED TWICE IN FOUR DAYS, IN BOTH DIRECTIONS.** `Active` without a link, and a link without `Active`. Neither was caught by anything; both were found by a person reading the directory.
 
