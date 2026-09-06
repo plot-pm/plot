@@ -2773,24 +2773,34 @@ test('host: a GraphQL-only op spends no budget read to be routed', () => {
 // refuses. Routing the lookup as it stands would therefore convert a KEEP into
 // a REMOVE on `plot-release-refs.sh`, whose deletions are not re-creatable.
 //
-// Measured 2026-09-06, on this repo, with `gh` off PATH:
-//   plot-host.sh pr-merged <branch>   → not-merged   (exit 0)
-//   _plot_merged_lookup <branch>      → unaskable
+// AN ABSENT CLI IS NOT A LOOKUP MISS, AND THIS TEST WAS INVERTED THE DAY IT
+// STOPPED BEING TRUE.
 //
-// So this test pins CURRENT behaviour rather than desired behaviour, and it is
-// the evidence behind the exemption `check-host-cli-callers.sh` still carries
-// for `plot-pr-merged.sh`. It fails the day `pr-merged` learns to tell an
-// absent CLI from an empty result — which is exactly when the exemption should
-// be deleted and the lookups routed.
-test('host: pr-merged reports an ABSENT cli as not-merged, not unknown', () => {
+// It read `not-merged` and pinned CURRENT behaviour, with its own note saying
+// it *"fails the day `pr-merged` learns to tell an absent CLI from an empty
+// result — which is exactly when the exemption should be deleted and the
+// lookups routed."* That landed on 2026-09-06: `is_lookup_miss` now excludes
+// the shell's own `command not found`, which it had been matching on its bare
+// `not found` alternative.
+//
+// Measured before and after, with `gh` off PATH:
+//
+//   before   plot-host.sh pr-merged → not-merged   _plot_merged_lookup → unaskable
+//   after    plot-host.sh pr-merged → unknown      _plot_merged_lookup → unaskable
+//
+// The direction was why it mattered: `not-merged` reads to `rules/landed.ts` as
+// `none` — the host spoke and said nothing merged — so `mayRemove` may permit a
+// removal where `unaskable` refuses, and `plot-release-refs.sh` deletes remote
+// refs on that answer.
+test('host: an absent CLI answers unknown, never not-merged', () => {
   // `command not found` is what a shell says about a missing binary, and it is
   // the stderr a real absent `gh` produces.
   const stubs = makeStubs({ ghFail: 'bash: gh: command not found' });
   const out = run(['pr-merged', 'some-branch'], { env: { PLOT_HOST: 'github' }, stubs });
   assert.equal(
     out.trim(),
-    'not-merged',
-    'pinning the known gap: an absent CLI is indistinguishable from an empty result here',
+    'unknown',
+    'a host that cannot be asked must not answer not-merged',
   );
 });
 
