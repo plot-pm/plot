@@ -279,6 +279,22 @@ fs.chmodSync(shippedLanded, 0o755);
 // derives this from the server sources and fails on any difference.
 const vendoredScripts = [
   'plot-agent-monitor.sh',
+  // Sourced BY plot-agent-monitor.sh as a `$script_dir` sibling since the two
+  // slice monitors merged on 2026-09-06 — the desk and the run are watched by
+  // one loop now, and the run's half lives here. Missing, the merged monitor
+  // does not crash: it reports that no build subject is attached and watches the
+  // desk alone, which is the silent half-blindness the vendoring exists to
+  // prevent. A gate derived from the server's own spawns cannot see a SOURCED
+  // file, so it is listed by hand, exactly as `plot-budget.sh` below is.
+  'plot-build-monitor.sh',
+  // Sourced BY all three monitors as a `$script_dir` sibling — it is "the ONE
+  // answer to is this monitor's subject still there?", and it is what ends a
+  // monitor with its agent. It was on NO list, measured 2026-09-06, so the npm
+  // layout has shipped without it: `plot_monitor_wait` is then undefined and the
+  // `while` driving every monitor's loop fails on the first call, so a monitor
+  // starts, takes one pass and exits — leaving a worker that reads as monitored
+  // and is watched by nothing after its first second.
+  'plot-monitor-subject.sh',
   'plot-approve.sh',
   // Sourced BY plot-host.sh as a `$here` sibling — the same shape as
   // `plot-transcript-quiet.sh` below, and the same failure. Missing, the source
