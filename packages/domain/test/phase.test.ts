@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BOARD_PHASES, planStatus, rowPhase, toBoardPhase, type PlanReadings } from '../src/rules/phase.js';
+import { BOARD_PHASES, planStatus, rowPhase, storyPhase, toBoardPhase, type PlanReadings } from '../src/rules/phase.js';
 
 /**
  * The phase rules, moved from the board's view layer.
@@ -116,5 +116,30 @@ describe('planStatus — what a reader acts on', () => {
     // The switch returns before either is consulted, and asserting it stops a
     // future edit from making a released plan deliverable again.
     expect(planStatus(readings({ phase: 'released', landed: 'merged' }))).toBe('released');
+  });
+});
+
+describe('storyPhase — the phase a story status belongs to', () => {
+  it('maps every status the story format states', () => {
+    // Discovery produces an approved story, so a story being written is in it
+    // and a `ready` story is what Design starts from.
+    expect(storyPhase('draft')).toBe('Discovery');
+    expect(storyPhase('ready')).toBe('Design');
+    expect(storyPhase('active')).toBe('Development');
+    expect(storyPhase('in-review')).toBe('Testing');
+    expect(storyPhase('done')).toBe('Released');
+  });
+
+  it('holds a paused story in Development rather than sending it back', () => {
+    // Pausing stops work; it does not undo it.
+    expect(storyPhase('paused')).toBe('Development');
+  });
+
+  it('answers a phase for every status, with no null arm', () => {
+    // Unlike `toBoardPhase`, which takes a string: a status is a value of a
+    // closed enum, so there is no unrecognised case to answer null for.
+    for (const status of ['draft', 'ready', 'active', 'in-review', 'paused', 'done'] as const) {
+      expect(BOARD_PHASES).toContain(storyPhase(status));
+    }
   });
 });
