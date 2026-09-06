@@ -12,6 +12,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 1
 - **Started:** 2026-09-06, Jan Wloka, `bug/every-generated-bundle-is-marked`
+- **Started:** 2026-09-06, Jan Wloka, `bug/the-repair-knows-every-bundle`
 
 ## Changelog
 
