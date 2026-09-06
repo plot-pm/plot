@@ -115,11 +115,20 @@ describe('a duration and an end arrive together', () => {
     expect(isDecision(move('in_progress', 'success'))).toBe(true);
   });
 
-  it('refuses on an unmet precondition', () => {
+  it('refuses on an unmet precondition, quoting what the source said', () => {
     const result = observeBuildState(buildWith(), {
       to: 'in_progress',
       preconditions: [{ name: 'host-asked', met: false, detail: 'gh exited 1' }],
     });
     expect(isRefusal(result) && result.reason).toBe('precondition-unmet');
+    expect(isRefusal(result) && result.detail).toContain('gh exited 1');
+  });
+
+  it('names an unmet reading that said nothing', () => {
+    const result = observeBuildState(buildWith(), {
+      to: 'in_progress',
+      preconditions: [{ name: 'host-asked', met: false }],
+    });
+    expect(isRefusal(result) && result.detail).toBe("the reading 'host-asked' is not met");
   });
 });

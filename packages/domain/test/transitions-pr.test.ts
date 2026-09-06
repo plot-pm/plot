@@ -121,11 +121,20 @@ describe('it refuses what the lifecycle does not admit', () => {
     expect(isRefusal(result) && result.reason).toBe('state-terminal');
   });
 
-  it('refuses on an unmet precondition', () => {
+  it('refuses on an unmet precondition, quoting what the source said', () => {
     const result = observePrState(prWith(merged), {
       to: 'MERGED',
       preconditions: [{ name: 'host-asked', met: false, detail: 'gh exited 1' }],
     });
     expect(isRefusal(result) && result.reason).toBe('precondition-unmet');
+    expect(isRefusal(result) && result.detail).toContain('gh exited 1');
+  });
+
+  it('names an unmet reading that said nothing', () => {
+    const result = observePrState(prWith(merged), {
+      to: 'MERGED',
+      preconditions: [{ name: 'host-asked', met: false }],
+    });
+    expect(isRefusal(result) && result.detail).toBe("the reading 'host-asked' is not met");
   });
 });

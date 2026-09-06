@@ -134,12 +134,28 @@ describe('a sprint ends when somebody says it ended', () => {
     expect(isRefusal(setSprintState(late, { to: 'Closed' }))).toBe(true);
   });
 
-  it('refuses on an unmet precondition', () => {
+  it('refuses on an unmet precondition, quoting what the source said', () => {
     const result = setSprintState(sprintWith(), {
       to: 'Committed',
       preconditions: [{ name: 'file-writable', met: false, detail: 'read-only' }],
     });
     expect(isRefusal(result) && result.reason).toBe('precondition-unmet');
+    expect(isRefusal(result) && result.detail).toContain('read-only');
+  });
+
+  it('names an unmet reading that said nothing', () => {
+    const result = setSprintState(sprintWith(), {
+      to: 'Committed',
+      preconditions: [{ name: 'file-writable', met: false }],
+    });
+    expect(isRefusal(result) && result.detail).toBe("the reading 'file-writable' is not met");
+  });
+
+  it('records no date on a move that is not a close, whatever the caller passed', () => {
+    // `actualEnd` is the close's own field: a date offered on any other move is
+    // dropped rather than written somewhere it does not belong.
+    const result = setSprintState(sprintWith(), { to: 'Committed', on: '2026-09-14' });
+    expect(isDecision(result) && result.actualEnd).toBeNull();
   });
 });
 

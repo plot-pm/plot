@@ -114,11 +114,20 @@ describe('the channel is a classification, not a stage', () => {
     expect(isRefusal(result) && result.reason).toBe('channel-mismatch');
   });
 
-  it('refuses on an unmet precondition', () => {
+  it('refuses on an unmet precondition, quoting what the source said', () => {
     const result = observeReleaseState(releaseWith(), {
       to: 'shipped',
       preconditions: [{ name: 'tags-listed', met: false, detail: 'git exited 128' }],
     });
     expect(isRefusal(result) && result.reason).toBe('precondition-unmet');
+    expect(isRefusal(result) && result.detail).toContain('git exited 128');
+  });
+
+  it('names an unmet reading that said nothing', () => {
+    const result = observeReleaseState(releaseWith(), {
+      to: 'shipped',
+      preconditions: [{ name: 'tags-listed', met: false }],
+    });
+    expect(isRefusal(result) && result.detail).toBe("the reading 'tags-listed' is not met");
   });
 });

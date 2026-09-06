@@ -66,7 +66,6 @@ export interface Precondition {
 export type RefusalReason =
   | 'state-unrecognised'
   | 'state-terminal'
-  | 'state-unreachable'
   | 'state-unchanged'
   | 'merged-reported-closed'
   | 'merge-record-missing'
@@ -210,7 +209,7 @@ export const prStateObservable = (pr: Pr, to: string): boolean =>
  * @param input - the state the host now reports, plus any readings.
  * @returns a decision carrying the move, or a refusal naming the gate that
  *   fired: `state-unrecognised`, `state-unchanged`, `state-terminal`,
- *   `state-unreachable`, `merged-reported-closed`, `merge-record-missing`,
+ *   `merged-reported-closed`, `merge-record-missing`,
  *   `draft-cannot-merge` or `precondition-unmet`.
  */
 export const observePrState = (pr: Pr, input: ObservePrInput): TransitionResult => {
@@ -264,13 +263,12 @@ export const observePrState = (pr: Pr, input: ObservePrInput): TransitionResult 
     );
   }
 
-  if (!NEXT[pr.state].includes(to)) {
-    return refuse(
-      id,
-      'state-unreachable',
-      `pull request ${id} cannot go '${pr.state}' -> '${to}' — from '${pr.state}' it may become ${NEXT[pr.state].join(' or ')}.`,
-    );
-  }
+  // NO `state-unreachable` GUARD, because there is no state it could refuse.
+  // `OPEN` is the only state anything leaves and `NEXT.OPEN` holds both other
+  // states, so every destination reaching here is legal once `state-unchanged`
+  // and `state-terminal` have run. A guard that cannot fire is dead code the
+  // coverage gate is right to notice; the three states are what make it dead,
+  // and a fourth would bring it back.
 
   const blocked = unmet(id, input.preconditions ?? []);
   if (blocked) return blocked;

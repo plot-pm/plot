@@ -253,8 +253,9 @@ export const setSprintState = (sprint: Sprint, input: SetSprintStateInput): Tran
     }
   }
 
+  const closeDate = (input.on ?? '').trim();
   if (to === 'Closed') {
-    const on = (input.on ?? '').trim();
+    const on = closeDate;
     if (on === '') {
       return refuse(
         sprint.slug,
@@ -274,11 +275,16 @@ export const setSprintState = (sprint: Sprint, input: SetSprintStateInput): Tran
   const blocked = unmet(sprint.slug, input.preconditions ?? []);
   if (blocked) return blocked;
 
+  // `input.on` is READ ONCE, above, and reused. Re-deriving it here would
+  // repeat the `?? ''` fallback in a place it can never fire — reaching this
+  // line on a close means the date gate passed, which required a non-empty
+  // string — and a fallback that cannot fire is a branch claiming a case the
+  // gate above already refused.
   return {
     outcome: 'decided',
     slug: sprint.slug,
     state: to,
-    actualEnd: to === 'Closed' ? (input.on ?? '').trim() : null,
+    actualEnd: to === 'Closed' ? closeDate : null,
   };
 };
 

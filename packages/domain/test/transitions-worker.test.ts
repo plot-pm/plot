@@ -120,11 +120,20 @@ describe('it refuses a reading no source could have produced', () => {
     }
   });
 
-  it('refuses on an unmet precondition', () => {
+  it('refuses on an unmet precondition, quoting what the source said', () => {
     const result = readWorkerState(
       { branch: BRANCH, state: 'running', source: 'worker', exitCode: null, worktreeHere: true },
       [{ name: 'ps-read', met: false, detail: 'ps exited 1' }],
     );
     expect(isRefusal(result) && result.reason).toBe('precondition-unmet');
+    expect(isRefusal(result) && result.detail).toContain('ps exited 1');
+  });
+
+  it('names an unmet reading that said nothing', () => {
+    const result = readWorkerState(
+      { branch: BRANCH, state: 'running', source: 'worker', exitCode: null, worktreeHere: true },
+      [{ name: 'ps-read', met: false }],
+    );
+    expect(isRefusal(result) && result.detail).toBe("the reading 'ps-read' is not met");
   });
 });
