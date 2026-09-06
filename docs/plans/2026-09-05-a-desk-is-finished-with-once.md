@@ -10,6 +10,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -45,9 +46,35 @@ PR — because `changeset-release/main` is merged repeatedly and Changesets reus
 the branch, so a live release PR sits on a ref whose older PR merged — and
 `plot-reap.sh` does not.
 
-**Each difference is deliberate and reasoned in its own script.** That is
-exactly the state that decays: two correct answers to one question, with no
-single place saying why they differ, and nothing failing when the next edit
+**THE DIFFERENCES ARE DEFECTS, NOT DESIGN — SETTLED 2026-09-06.** The first
+draft called each one *"deliberate and reasoned in its own script"*. Checked
+against both scripts that day, and each is a blind spot rather than a choice:
+
+```
+plot-release-refs.sh   'pid' | 'running'   → 0 live references
+plot-reap.sh           'pr_open'           → 0 live references
+```
+
+**So a ref can be deleted while a worker is live on its branch**, and **a
+worktree can be reaped while an open PR stands on it.** Neither script refuses
+what the other refuses, and neither omission was argued for anywhere — they are
+what two independently-grown implementations look like.
+
+**The rule therefore answers ONE question and the divergence closes.** A desk
+that is not finished with is not finished with, whichever verb is about to act
+on it. `mayReap` and `mayDeleteRef` may differ in what they permit — a deleted
+ref is not re-creatable and a checkout is — but they may not differ in what they
+have *looked at*.
+
+**`rules/landed.ts` is the shape.** `landed`, `openPr` and `mayRemove` are three
+functions over one `PrReadings`, and `mayRemove` permits a removal in exactly
+one of nine combinations. The two verbs here read one `DeskReadings` and each
+states its own permission over it; the readings are shared, the verdicts are
+not.
+
+**The old framing is kept because it explains how this arose.** Two correct-
+looking answers to one question, with no single place saying why they differ,
+and nothing failing when the next edit
 makes one of them wrong.
 
 ### What it costs
@@ -122,3 +149,16 @@ zero domain calls, which would have made this plan about two scripts. It reads
 `rules/reapable.ts` through an inline `node` block instead, and says so in its
 header — so the plan is about one script, and the other is the worked example it
 should copy.
+
+### Round 1 — 2026-09-06
+
+**It leads `a-desk-is-adopted-and-swept`'s second slice.** That plan adds
+`prunable` as a sixth reading to `plot-reap.sh` and routes it through
+`ports/trees.ts`. Both edit the reaper's decision path, and adding a reading to
+one script while the other holds a divergent copy means writing it twice or
+widening the gap. **Unify first; the new reading then lands in one place.**
+
+**And the divergences were reclassified.** The plan argued them as deliberate;
+they are blind spots, measured above. That changes what the rule must do — one
+question, one set of readings — rather than preserving two half-answers behind a
+shared interface.
