@@ -38,15 +38,32 @@
 # own package.json files, so adding a package cannot leave this check stale.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+# The repository to read, defaulting to this script's own. An explicit root is
+# what makes the two outcomes testable — a changeset that links a plan and one
+# that does not — against fabricated `.changeset` directories rather than
+# against whatever this estate happens to hold today. Same argument, and the
+# same optional shape, as `check-bundle-attributes.sh:46`.
+#
+# THE RULE IS STILL IMPORTED FROM HERE, not from the root being read. A fixture
+# carries changesets, not a copy of `packages/domain`, and a check that read its
+# validation from the tree under test could be handed a rule that agrees with
+# it about everything.
+domain_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${1:-$domain_root}" || exit 2
 
 # The workspace's real package names: the root, plus every packages/* that has
 # a package.json. Mirrors `pnpm-workspace.yaml` ("." and "packages/*").
+# `|| true` on the membership test, because it is the LAST command in the loop
+# and `set -e` reads a failed test as a failed subshell. A repository with no
+# `packages/` directory leaves the glob unexpanded, the test returns 1, and the
+# assignment aborts the whole script before it prints anything — exit 1, empty
+# stdout, empty stderr. Invisible here, where `packages/` always exists;
+# reproduced the moment a root argument pointed the check at a tree without one.
 valid=$(
   {
     node -pe "require('./package.json').name"
     for d in packages/*/; do
-      [ -f "$d/package.json" ] && node -pe "require('./$d/package.json').name"
+      [ -f "$d/package.json" ] && node -pe "require('./$d/package.json').name" || true
     done
   } | sort -u
 )
@@ -59,9 +76,17 @@ valid=$(
 # An apostrophe in the JS would close a single-quoted -e string, and this
 # script's messages contain them; `<<'EOF'` also stops the shell expanding
 # the `${...}` template literals before node ever sees them.
-VALID_PACKAGES="$valid" node --input-type=module - <<'NODE_EOF'
+VALID_PACKAGES="$valid" DOMAIN_ROOT="$domain_root" node --input-type=module - <<'NODE_EOF'
 import { readFileSync, readdirSync } from "node:fs";
-import { checkChangeset, parseChangeset } from "./packages/domain/src/rules/changeset.ts";
+import { pathToFileURL } from "node:url";
+
+// Imported by absolute path from the SCRIPT's repository, never from the root
+// being read. `node --input-type=module` has no file of its own, so a bare
+// relative specifier resolves against the CWD — which is the fixture under
+// test, where no domain package exists.
+const { checkChangeset, parseChangeset } = await import(
+  pathToFileURL(`${process.env.DOMAIN_ROOT}/packages/domain/src/rules/changeset.ts`).href
+);
 
 const valid = process.env.VALID_PACKAGES.split("\n").filter(Boolean);
 
