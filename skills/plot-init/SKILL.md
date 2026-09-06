@@ -164,7 +164,7 @@ the project's, and a rewritten one is not out of date.
 
 > **Unattended (`PLOT_UNATTENDED=1`):** the write is mechanical and needs no
 > answer, so it happens. An existing file is reported and not touched.
-> `PLOT-UNASKED: Update the existing .plot/worker-prompt.sh from the template? — skipped — reported as <stale|present>; the file is untouched`
+> `PLOT-UNASKED: Update the existing .plot/worker-prompt.sh from the template? — refused — the wording is the project's to keep; reported as <stale|present> and the file is untouched`
 
 Sprints and stories are **not** created by default. They are optional lenses;
 create them when asked.
