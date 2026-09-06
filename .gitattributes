@@ -45,6 +45,7 @@
 # Marking it would assert a rebuild that does not exist.
 skills/plot/scripts/board/board-server.mjs -merge
 skills/plot/scripts/board/plot-ask.mjs -merge
+skills/plot/scripts/board/plot-delta.mjs -merge
 skills/plot/scripts/board/plot-landed.mjs -merge
 skills/plot/scripts/board/plot-movable.mjs -merge
 skills/plot/scripts/board/plot-prompt.mjs -merge
