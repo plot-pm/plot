@@ -10,6 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -28,7 +29,7 @@
 |---|---|
 | `plot-dispatch.sh` | **asks the `Brief command`**, names the log, says to dispatch again once it lands |
 | board auto-dispatch | filters the branch out (`auto-dispatch.ts:449`, `:494`), logs a skip |
-| board *Start work* | the branch is not offered |
+| board *Start work* | **asks** — it posts to `/api/dispatch`, which spawns that same script |
 
 **The asking arm is built, configured and proven.** `plot-dispatch.sh:492` spawns it detached with `PLOT_PLAN_SLUG` and `PLOT_BRIEF_BRANCH`; `Brief command` is set in this repo's `## Plot Config`. The board reaches none of it.
 
@@ -46,29 +47,27 @@
 
 **Not a fourth implementation.** The arm exists in the shell. The board should reach it, not re-derive it.
 
+**Not a change to `Start work`.** Round 1 measured it: `isReadyToStart` tests `phase === 'Development' && started === false` and never consults the brief, so the button is already offered for an unbriefed slice, and `/api/dispatch` spawns `plot-dispatch.sh`, which already asks. The slice proposing to add that was deleted rather than kept as a no-op.
+
 ## Slices
 
-### The board asks for the brief it is missing (Branch: feature/the-board-asks-for-a-brief)
+### Auto-dispatch asks for the brief it is missing (Branch: feature/the-board-asks-for-a-brief)
 
 Auto-dispatch invokes the `Brief command` for a branch it would otherwise skip, and reports what it started.
 
-**IT ASKS AT MOST ONCE PER BRANCH, NOT ONCE PER PULSE.** The board pulses every 5 s and the command is a `claude -p` session of unknown length. An unguarded ask spawns a session every pulse for every unbriefed branch — with nine branches that is a fork bomb with a friendly name. **Reuse the in-flight mark**, which already exists for dispatches the pulse cannot yet see, and retire it on the same evidence.
+**IT IS THE ONE PATH THAT GOES QUIET.** Round 1 checked all three, and two of them were already right: `plot-dispatch.sh` asks, and `/api/dispatch` — which *Start work* posts to — spawns that same script, so the button already asks too. Only `auto-dispatch.ts:449` filters the branch out and logs a skip.
+
+**IT ASKS AT MOST ONCE PER BRANCH, NOT ONCE PER PULSE.** The board pulses every 5 s and the command is a `claude -p` session of unknown length. An unguarded ask spawns a session every pulse for every unbriefed branch — with nine branches that is a fork bomb with a friendly name.
+
+**THE IN-FLIGHT MARK CANNOT BE REUSED, AND ROUND 1 KILLED THAT PLAN.** `pruneInFlight` retires a mark when the pulse shows the branch claimed, merged, gone from every plan, or held by a live registry entry. **A brief lands as a file on `origin/main` and produces none of those** — `isStartable(b.state)` still answers true, so `stillPending` keeps the mark and the branch is charged against `parallelAgents` forever. Reusing it would leak the budget one slot per brief.
+
+**SO THE ASK NEEDS ITS OWN MARK, RETIRED ON ITS OWN EVIDENCE:** the brief appearing on `origin/main`, which `findMissingBriefs` already reads every pulse. That reading is the retirement condition, and it is the only one that matches what the ask actually produces.
 
 **IT IS BOUNDED BY THE SAME CAP AS A DISPATCH.** A brief-writing session costs what an agent costs. `parallelAgents` is the fleet's budget and asking must draw on it, or the cap stops meaning anything.
 
-**IT REPORTS THE START, NEVER THE OUTCOME**, and names the log — the property `plot-dispatch.sh:500` had to learn by measurement.
+**IT REPORTS THE START, NEVER THE OUTCOME**, and names the log — the property `plot-dispatch.sh:500` had to learn by measurement: a `Brief command` that answered `Unknown command: /plot-implement` in 33 bytes still counted as asked.
 
-**Done when** auto-dispatch asks for a missing brief at most once per branch, the ask is bounded by the agent cap, the board names the log, and a branch whose brief never arrives is not asked again on the next pulse.
-
-### Start work says what it will do first (Branch: feature/start-work-offers-the-brief)
-
-The *Start work* button is offered for a slice with no brief, and says that it will write one first.
-
-**TODAY THE BUTTON IS SIMPLY ABSENT**, which reads as *this cannot be started* when the truth is *this needs one step first*. `PlanCard.tsx:28` records that this button has vanished from startable plans once before.
-
-**THE LABEL MUST NOT LIE.** A button that says *Start work* and writes a brief has done something other than what it said. It says what it will do — the wording is the deliverable, and it is a person's judgement, not a mechanical one.
-
-**Done when** a slice with no brief offers an action whose label says a brief will be written first, the action asks the `Brief command`, and no slice starts a worker without a brief on `origin/main`.
+**Done when** auto-dispatch asks for a missing brief at most once per branch, the ask draws on the agent cap, its mark retires when the brief appears on `origin/main` and not before, the board names the log, and a branch whose brief never arrives is not asked again on the next pulse.
 
 ## Notes
 
@@ -77,3 +76,15 @@ The *Start work* button is offered for a slice with no brief, and says that it w
 `a-refused-dispatch-asks-for-a-brief` is Released and it is this plan one door earlier: a dispatch that refused for a missing brief was a dead end, and the fix was to offer the step rather than report the wall. The board grew its own dispatch path afterwards and did not inherit the offer.
 
 **That is the shape to expect wherever a second door appears** — and the argument for reaching the shell's arm rather than writing a third one.
+
+### Round 1 — 2026-09-06
+
+**Two of the three doors were already right, and the plan claimed all three were wrong.** Checking each against the code cut the plan in half and corrected the half that survived.
+
+**`Start work` already asks.** `isReadyToStart` (`PlanCard.tsx:38`) tests `phase === 'Development' && started === false` and never reads the brief, so the button is offered for an unbriefed slice; `/api/dispatch` spawns `plot-dispatch.sh`, which asks the `Brief command` at `:492`. The slice proposing to add this was **deleted** — a slice whose Done-when the estate already satisfies is the seventh duplicate deliverable this week, and `a-plan-greps-for-its-own-deliverable` exists because of the first six.
+
+**The surviving slice had a defect that would have leaked the budget.** It said to reuse the in-flight mark and *"retire it on the same evidence"*. `pruneInFlight` retires on claimed, merged, gone, or a live registry entry — **a brief on `origin/main` is none of those**, `isStartable` keeps answering true, and the mark would never drop. Every brief asked for would have cost a permanent slot against `parallelAgents`, silently shrinking the fleet.
+
+**The retirement condition the ask actually needs is a reading the board already takes**: `findMissingBriefs` runs every pulse and answers exactly *did the brief appear*.
+
+**What the round did not change:** the gate itself. No slice starts without a brief, and that was never in question.
