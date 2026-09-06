@@ -15,6 +15,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `infra/a-delivery-gate-stops-by-name`
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-sprint-phase-meets-its-index`
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-sprint-names-a-shipped-release`
+- **Started:** 2026-09-07, Jan Wloka, `feature/a-sprint-shows-its-dates`
 
 ## Changelog
 
