@@ -103,9 +103,17 @@ test('state gate: accepts a classification', () => {
 });
 
 test('state gate: a lifecycle without its rule counts against the debt', () => {
-  // Marker alone would let a lifecycle be declared and never written. One is
-  // within the ceiling the estate carries, so it is REPORTED rather than
-  // refused — the debt is counted, and the report is what a reader acts on.
+  // Marker alone would let a lifecycle be declared and never written, so the
+  // debt is counted and the missing rule is NAMED — the report is what a reader
+  // acts on.
+  //
+  // IT NOW REFUSES, AND THAT IS THE RATCHET ARRIVING. `LIFECYCLE_DEBT` shipped
+  // at 6, the six the gate found the day it merged, and reached 0 on 2026-09-06
+  // when each got its `transitions/*.ts`. This case asserted `status: 0` on
+  // *"one owed rule is inside the ceiling"*, which was true of every ceiling
+  // above zero and is the assertion the floor was lowered to break. The
+  // reporting half is unchanged; what a reader gains is that the report is now
+  // also a stop.
   const dir = treeWith([
     "import { z } from 'zod';",
     '',
@@ -116,7 +124,7 @@ test('state gate: a lifecycle without its rule counts against the debt', () => {
   ].join('\n'));
 
   const got = run(dir);
-  assert.equal(got.status, 0, `one owed rule is inside the ceiling:\n${got.stdout}`);
+  assert.equal(got.status, 1, `an owed rule is over a floor of zero:\n${got.stdout}`);
   assert.match(got.stdout, /lifecycles awaiting a rule: 1/,
     `and must be reported rather than hidden:\n${got.stdout}`);
   assert.match(got.stdout, /no transitions\/demo\.ts/,
