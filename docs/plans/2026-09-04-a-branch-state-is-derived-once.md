@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 3
 - **Approved:** 2026-09-06, Jan Wloka, plan-PR #702 merged
+- **Started:** 2026-09-06, Jan Wloka, `feature/a-branch-state-is-one-rule`
 
 ## Changelog
 
