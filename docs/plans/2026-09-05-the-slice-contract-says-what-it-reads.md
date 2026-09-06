@@ -84,7 +84,9 @@ active plans         0   of either shape
 
 **A dated number invites the same decay one cycle later.** A spec that says *how to find out* cannot go stale: the reader runs it and gets today's answer.
 
-**Done when** neither doc carries a slice count, both name the command, and nothing in either contradicts the other.
+**Done when** neither doc carries a slice count, both name the command, and nothing in either contradicts the other. — PR #742
+
+**Found while implementing:** `uncut_slices=` and `prose_slice_names=` are not interchangeable. The second counts over-long slice *names*, a different population from slices with no *branch* — 22 empty against 26 long names, 14 in both, measured 2026-09-07 — and no counter answers "empty slice" alone. The slice spec gives the parser query for that half rather than citing a counter that answers a neighbouring question.
 
 ## Notes
 
