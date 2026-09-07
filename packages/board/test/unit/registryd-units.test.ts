@@ -123,9 +123,20 @@ describe('both units run the daemon at background priority', () => {
    * A tick is 3.5 s against a 60 s interval — 6% duty — on the machine that
    * also hosts the workers it supervises. The supervisor must never be what
    * makes a worker slow.
+   *
+   * **PRIORITY IS ASSERTED; EVICTION ELIGIBILITY IS REFUSED.** This test pinned
+   * `ProcessType: Background`, which buys both — and the daemon was removed by
+   * launchd repeatedly on 2026-09-07 while `node --watch board-server.mjs` ran
+   * beside it for 2d 12h. `Adaptive` keeps the job schedulable and `Nice`
+   * carries the politeness the comment above asks for, so the two concerns are
+   * split rather than traded.
    */
-  it('launchd marks it Background', () => {
-    expect(read(PLIST)).toMatch(/<key>ProcessType<\/key>\s*<string>Background<\/string>/);
+  it('launchd nices it without the throughput class', () => {
+    const plist = read(PLIST);
+    expect(plist).toMatch(/<key>ProcessType<\/key>\s*<string>Adaptive<\/string>/);
+    expect(plist).toMatch(/<key>Nice<\/key>/);
+    // The regression this replaces: `Background` is what made it evictable.
+    expect(plist).not.toMatch(/<string>Background<\/string>/);
   });
 
   it('systemd nices it and idles its IO', () => {

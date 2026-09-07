@@ -291,7 +291,7 @@ test('the filled systemd unit is well-formed', () => {
   for (const section of ['[Unit]', '[Service]', '[Install]']) {
     assert.ok(filled.includes(section), `the unit has no ${section} section`);
   }
-  assert.match(filled, /^ExecStart=\/tmp\/node \/tmp\/registryd\.mjs$/m);
+  assert.match(filled, /^ExecStart=\/tmp\/node \/tmp\/registryd\.mjs --start-agents$/m);
   assert.match(filled, /^Restart=always$/m);
   assert.match(filled, /^WantedBy=default\.target$/m);
   // Every non-comment, non-blank, non-section line is `Key=Value`.
@@ -300,4 +300,57 @@ test('the filled systemd unit is well-formed', () => {
     if (!t || t.startsWith('#') || t.startsWith('[')) continue;
     assert.match(t, /^[A-Za-z][A-Za-z0-9]*=/, `not a systemd directive: ${t}`);
   }
+});
+
+// THE TEMPLATE IS THE SUBJECT HERE, NOT THE PARSER. `argsFrom` has parsed
+// `--start-agents` correctly since the flag existed — that is not where this
+// broke. What went unread for the life of the feature is the unit file: both
+// shipped templates named `__NODE__ __REGISTRYD__` and nothing else, so every
+// installation that followed `/plot-fleet --start` got a supervisor that
+// computed every hand-over and performed none. Measured 2026-09-07: `handed=2`
+// for three consecutive ticks against two free agents whose manifests read
+// `branch: ""` and had been quiet 3,067 seconds.
+//
+// BOTH UNITS, because a fleet that assigns on macOS and not on Linux is a
+// defect reproducing on half the installations.
+
+test('both units start the daemon with --start-agents', () => {
+  const plist = fs.readFileSync(path.join(units, 'com.plot-pm.registryd.plist'), 'utf8');
+  const service = fs.readFileSync(path.join(units, 'plot-registryd.service'), 'utf8');
+
+  // The plist names it as its own `ProgramArguments` entry — a flag appended to
+  // the `__REGISTRYD__` string would reach the daemon as part of a path.
+  assert.match(plist, /<string>--start-agents<\/string>/,
+    'the launchd unit does not pass --start-agents, so its supervisor hands nothing over');
+  assert.match(service, /^ExecStart=.* --start-agents$/m,
+    'the systemd unit does not pass --start-agents, so its supervisor hands nothing over');
+});
+
+test('the launchd unit does not declare ProcessType: Background', () => {
+  const plist = fs.readFileSync(path.join(units, 'com.plot-pm.registryd.plist'), 'utf8');
+
+  // `Background` is the class macOS deprioritises AND evicts first. Measured
+  // 2026-09-07: six evictions in one session, every one under load, caught at
+  // load 43.68 — `runs = 1`, `never exited`, `registryd.err` 0 bytes each time.
+  // `node --watch board-server.mjs` survived all six on the same machine under
+  // the same load, and this key is the only difference between them.
+  assert.doesNotMatch(plist, /<key>ProcessType<\/key>\s*<string>Background<\/string>/,
+    'ProcessType: Background makes the supervisor evictable at exactly the load a working fleet produces');
+
+  // The politeness the removed class carried is kept, by a key that is priority
+  // alone: the daemon still must never be what makes a worker slow.
+  assert.match(plist, /<key>Nice<\/key>\s*<integer>-?\d+<\/integer>/,
+    'the launchd unit dropped Background without keeping any scheduling politeness');
+});
+
+test('the systemd unit keeps its Nice, which is priority without eviction', () => {
+  const service = fs.readFileSync(path.join(units, 'plot-registryd.service'), 'utf8');
+
+  // NOTHING TO FIX HERE, and that is the argument rather than an exception.
+  // `Nice` and `IOSchedulingClass` evict nothing, so the Linux supervisor was
+  // never taken; the two platforms disagreed only in the field that matters.
+  assert.match(service, /^Nice=-?\d+$/m,
+    'the systemd unit lost its scheduling politeness');
+  assert.match(service, /^IOSchedulingClass=idle$/m,
+    'the systemd unit lost its IO politeness');
 });
