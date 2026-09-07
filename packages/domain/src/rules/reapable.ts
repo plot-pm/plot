@@ -1,4 +1,5 @@
 import type { ReapRefusal } from '../entities/worktree.js';
+import type { AheadReading } from './movable.js';
 
 /**
  * What the host was able to say about whether a branch's work landed.
@@ -325,6 +326,21 @@ export interface FinishedWithReadings extends RefReadings {
    * takes readings as values.
    */
   tree: TreePresence;
+  /**
+   * How many commits the branch holds that its upstream does not, or `unknown`
+   * when the branch has no upstream to be counted against.
+   *
+   * The third condition `plot-worker-loop.sh:desk_is_resettable` measures, and
+   * the one this rule could not express before. A reap asks the host whether a
+   * PR merged; a desk reset asks only whether this machine holds the only copy
+   * — the branch may be days from a PR and still have nothing on the floor.
+   *
+   * `unknown` does not hold the desk, matching {@link AheadReading} in
+   * `rules/movable.ts`: a branch with no upstream cannot be asked whether its
+   * commits were pushed, and a failure to observe is not evidence of something
+   * to see.
+   */
+  ahead: AheadReading;
 }
 
 /**
@@ -351,6 +367,17 @@ export interface FinishedWith {
   uncommittedChanges: ConditionReading;
   /** The desk carries a `PLOT-BLOCKED*` marker. */
   blockedMarker: ConditionReading;
+  /**
+   * The desk holds commits its upstream does not.
+   *
+   * A DESK reading rather than a host one, and that is why it is not
+   * {@link FinishedWith.noMergedPr} under another name. A merged PR says the
+   * work reached the default branch; this says only that a copy exists
+   * somewhere other than this machine. A branch pushed an hour ago with no PR
+   * at all answers `false` here and `true` there, and the two callers that
+   * read it want opposite things.
+   */
+  unpushedCommits: ConditionReading;
   /**
    * Git lists a worktree for this desk whose directory is gone.
    *
@@ -414,8 +441,81 @@ export const finishedWith = (readings: FinishedWithReadings): FinishedWith => {
     liveWorker: ofTree(readings.workerPid !== null && readings.workerPid !== ''),
     uncommittedChanges: ofTree(readings.dirtyPath !== ''),
     blockedMarker: ofTree(readings.blockedMarker),
+    // TWO WAYS TO BE UNASKABLE, and both answer `unknown`. With no tree there
+    // is no branch to count from; with a tree but no upstream the count has no
+    // second side. Neither holds the desk — `rules/movable.ts` reached the same
+    // conclusion from the other end, where counting against the default branch
+    // marked every clean branch stalled in a remote-less repo.
+    unpushedCommits:
+      readings.ahead === 'unknown' ? 'unknown' : ofTree(readings.ahead > 0),
     // A REPORT, not a refusal, and the one condition a vanished tree can still
     // answer: git said so, and git needed no directory to say it.
     vanished: treeHasVanished(readings.tree) ? 'true' : 'false',
   };
 };
+
+/**
+ * Why an agent's own desk may not be taken over for its next slice.
+ *
+ * A THIRD CALLER OF {@link finishedWith}, and it reads the smallest set. The
+ * reaper removes a checkout, the ref-deleter deletes a ref, and this one
+ * *keeps* the checkout and puts a different branch in it — so it asks only what
+ * the DESK holds, and nothing about where the branch stands with the host.
+ *
+ * `noMergedPr`, `openPr`, `checkedOut` and `onDefaultBranch` are answered by
+ * `finishedWith` and deliberately not consulted here. A branch whose PR is open
+ * but whose work is fully pushed has left nothing behind; a branch checked out
+ * *here* is the desk this agent is standing in, so the condition is true of
+ * every desk this question is ever asked about. Borrowing the reaper's set
+ * would make the reset depend on a fact about somewhere else.
+ *
+ * `givenUp` is not read either: the annotation says a person abandoned the
+ * slice, which is a reason the branch will not come back and not a reason its
+ * desk holds work.
+ */
+export type ResetRefusal = 'blocked-marker' | 'uncommitted-changes' | 'unpushed-commits';
+
+/**
+ * Every reason this desk may not be reset, in the order they are tested.
+ *
+ * The order is the argument. A marker is first because it is the only one
+ * naming a person who owes an answer, and an operator reading `.plot-worker.log`
+ * acts on it differently from the other two — they commit or push, this one they
+ * answer. Uncommitted work is second and unpushed commits third, ordered by
+ * where the work exists: one place versus one machine.
+ *
+ * `unknown` DOES NOT REFUSE, and that is this caller's own decision rather than
+ * the rule's. It matches what the loop does today and what a reset costs: the
+ * reset checks out a base and a branch with plain `git checkout`, so a file the
+ * conditions missed makes git REFUSE rather than overwrite. A guard that
+ * refused on silence would strand every desk whose claim push never happened,
+ * and those are the desks whose only commits are the claim commit.
+ *
+ * @param conditions What {@link finishedWith} answered about the desk.
+ * @returns The refusals that apply, most urgent first; empty means resettable.
+ */
+export const resetRefusals = (conditions: FinishedWith): ResetRefusal[] => {
+  const refusals: ResetRefusal[] = [];
+  if (conditions.blockedMarker === 'true') refusals.push('blocked-marker');
+  if (conditions.uncommittedChanges === 'true') refusals.push('uncommitted-changes');
+  if (conditions.unpushedCommits === 'true') refusals.push('unpushed-commits');
+  return refusals;
+};
+
+/**
+ * The one refusal the loop logs, since it logs one line per desk.
+ *
+ * @param conditions What {@link finishedWith} answered about the desk.
+ * @returns The most urgent refusal, or `null` when the desk may be taken over.
+ */
+export const firstResetRefusal = (conditions: FinishedWith): ResetRefusal | null =>
+  resetRefusals(conditions)[0] ?? null;
+
+/**
+ * Whether an agent's desk may be taken over for its next slice.
+ *
+ * @param conditions What {@link finishedWith} answered about the desk.
+ * @returns True when nothing holds the desk.
+ */
+export const deskIsResettable = (conditions: FinishedWith): boolean =>
+  resetRefusals(conditions).length === 0;
