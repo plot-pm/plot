@@ -3,18 +3,18 @@
 # Usage: plot-reconcile-scan.sh [--no-fetch] [--no-pr] [--offline]
 #   --no-fetch  skip `git fetch`   --no-pr  skip git-host pr list
 #   --offline   both (no network)  — used by the ambient /plot hygiene line
-# Output: sixteen-section text report on stdout (each finding carries its exact
+# Output: seventeen-section text report on stdout (each finding carries its exact
 #         remediating command as copy-paste text — nothing is executed). A
 #         `== blocking sections end ==` line separates the findings that stop a
 #         delivery from the shapes somebody fixes; /plot-deliver's gate reads to
 #         it. The report is terminated by a machine-countable summary line:
-#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 pr_source=gh main=main
+#             summary: drift=0 merged_not_delivered=0 stale=0 claims=0 attention=0 concurrent=0 unreleased_delivered=0 unsliced_waves=0 prose_wave_names=0 sprint_drift=0 stale_tally=0 index_drift=0 double_claims=0 rounds_drift=0 sprint_index_drift=0 sprint_shipped=0 stated_waits=0 unclaimed_work=0 pr_source=gh main=main
 #         Consumers that only need counts (the /plot dispatcher's hygiene
 #         line, /plot-reconcile's Automation Output) read that one line.
 # Designed for small-model consumption: mechanical enumeration, no judgment.
 #
 # Reads the repo's plan files, symlink indexes, and git/git-host ref state and
-# emits a sixteen-section report. This is the COMPUTATIONAL half of the
+# emits a seventeen-section report. This is the COMPUTATIONAL half of the
 # reconciliation loop: mechanical, reproducible enumeration. The INFERENTIAL
 # half — deciding which drift to fix, which branch is truly stale, whether a
 # plan is ready to deliver — is the human's, guided by the /plot-reconcile
@@ -156,6 +156,34 @@
 #                                 REPORTS AND NEVER GATES — the annotation
 #                                 names a branch no shell can guess — so it
 #                                 carries `stated_waits=` and stays out of
+#                                 `attention`.
+#  17. Unclaimed work           — a remote branch carrying FILE CHANGES that no
+#                                 plan names and no open PR carries. THE
+#                                 READING IS FILE CHANGES, NOT COMMITS:
+#                                 measured 2026-09-07, seven of twelve such
+#                                 branches held only a claim commit and a
+#                                 `PLOT-BLOCKED` marker, and those the reaper
+#                                 and section 3 already handle. The reading is
+#                                 `git diff --name-only main...branch` with
+#                                 `PLOT-BLOCKED*` excluded; zero changed files
+#                                 is not a finding.
+#                                 IT NEVER CLAIMS THE WORK IS UNFINISHED. All
+#                                 twelve measured were landed or superseded —
+#                                 one of them by a four-line comment quoting
+#                                 the branch's own diagnostic output, with the
+#                                 instrument deleted. A diagnostic branch is
+#                                 exactly where a token search fails: its
+#                                 success condition is its own deletion. So the
+#                                 finding reports what is measurable — no plan
+#                                 names this, no PR carries it — and leaves
+#                                 *is it owed?* to the reader.
+#                                 IT NAMES THE THREE ANSWERS: open a PR, write
+#                                 the plan that claims it, or delete the ref. A
+#                                 finding saying only *this exists* leaves the
+#                                 reader where the board already left them.
+#                                 REPORTS AND NEVER GATES — unclaimed work is a
+#                                 legibility gap, not a broken pointer — so it
+#                                 carries `unclaimed_work=` and stays out of
 #                                 `attention`.
 #
 # Configuration is read via plot-config.sh from the adopting project's
@@ -638,7 +666,7 @@ symlinked_from() { # $1=index_dir $2=dated_basename
 
 n_drift=0; n_mnd=0; n_stale=0; n_att=0; n_conc=0; n_claims=0; n_unrel=0
 n_unsliced=0; n_prose=0; n_sprint_drift=0; n_stale_tally=0; n_idx=0; n_double=0
-n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0; n_stated=0
+n_rounds_drift=0; n_sprint_idx=0; n_sprint_ship=0; n_stated=0; n_unclaimed=0
 
 # ---------------------------------------------------------------------------
 # 1. Phase <-> symlink drift  (plot-managed plans only)
@@ -2007,6 +2035,127 @@ fi
 if [ -n "$stated_out" ]; then printf '%b' "$stated_out"; else echo "  (none — every live slice claiming a wait carries the annotation)"; fi
 echo
 
+# ---------------------------------------------------------------------------
+# 17. Unclaimed work
+#
+# A remote branch carrying FILE CHANGES that no plan names and no open PR
+# carries. The gap is that the estate has no record such a branch exists: it is
+# not a slice that stalled, it is work outside the plan estate entirely.
+#
+# MEASURED 2026-09-07 over every remote ref. Of 25 non-`main` branches, twelve
+# were unmerged with no PR — and the board saw three of them. Its `abandoned`
+# row fires on *has this branch commits?*, which a claim commit answers, and
+# the three it showed were the three holding nothing. The five carrying real
+# changes were not among them.
+#
+# THE READING IS FILE CHANGES, NOT COMMITS, and that is the whole difference.
+# Seven of the twelve carry only a claim commit and a `PLOT-BLOCKED` marker;
+# those are already reapable and section 3 already reports them as claims.
+# Reporting them here is noise on top of a finding that already exists. So the
+# reading is `git diff --name-only $MAIN...branch` with `PLOT-BLOCKED*`
+# excluded, and a branch with zero changed files after that exclusion is not
+# unclaimed work.
+#
+# IT NEVER CLAIMS THE BRANCH IS UNFINISHED, and the correction that settled
+# this is worth stating. The plan's first audit read `bug/a-hung-cleanup-says-
+# which-half` as unrecovered: it searched main for the branch's own tokens
+# (`_stage`, `PLOT_LOOP_TRACE`), found neither, and concluded the work was
+# lost. It had landed — as a fix plus a comment quoting the branch's own stage
+# marker by its letter, with the instrument deleted. A DIAGNOSTIC BRANCH IS
+# EXACTLY WHERE A TOKEN SEARCH FAILS: its success condition is its own
+# deletion. All twelve turned out to be landed or superseded, so a finding
+# worded as *lost work* would have been wrong twelve times.
+#
+# What this reports is therefore only what it can measure — no plan names this
+# branch, no PR carries it — and *is it owed?* stays the reader's. That is the
+# same posture every advisory section here has, and here it is load-bearing
+# rather than polite.
+#
+# IT NAMES WHAT A PERSON CAN DO, and there are exactly three answers: open a
+# PR, write the plan that claims it, or delete the ref. A finding that says
+# only *this exists* leaves the reader where the board already left them.
+#
+# THE CLAIM SET IS THE PARSER'S, never a second grep — the rule section 12
+# states and for its reason: two in three backticked branch names in a plan are
+# citations rather than claims, so a grep would read a dependency mentioned in
+# prose as a claim and silence a genuine finding. EVERY phase counts as a
+# claimant, unlike sections 13 and 16: a Delivered plan naming a branch has
+# recorded that the work exists, which is the only question asked here.
+#
+# NOT MERGED, AND THE HOST DECIDES — `branch_merged` asks `plot-pr-merged.sh`'s
+# question first and falls back to ancestry. Squash-merge leaves a merged branch
+# ahead of main forever, so ancestry alone would report ten branches here whose
+# work is on main (measured 2026-09-04, ten of ten disagreed).
+#
+# CONTAINMENT IS ASKED, not just the PR head. A branch below the top of a stack
+# is work in flight; calling it unclaimed is section 3's loudest false answer
+# and it would be this section's too.
+#
+# SUPPRESSED WHEN PR STATE IS UNKNOWN, exactly as section 3 is. "No open PR
+# carries it" cannot be evaluated without the open-PR list, and a row printed
+# from unverified input is a confident claim nobody measured. The count stays 0
+# and the reason is stated.
+#
+# REPORTS AND NEVER GATES. Unclaimed work is a legibility gap, not a broken
+# pointer, and an advisory finding that can stop a delivery is a gate nobody
+# agreed to. It carries its own footer counter (`unclaimed_work=`), stays OUT
+# of `attention=`, and sits below the `== blocking sections end ==` marker,
+# which is what keeps it out of /plot-deliver's gate.
+echo "== 17. Unclaimed work (a branch with changes no plan names — a person decides) =="
+unclaimed_out=""
+if [ "$section3_suppressed" = 1 ]; then
+  # The same refusal section 3 makes, for the same reason: without the open-PR
+  # list the predicate cannot be evaluated, and `unclaimed_work=0` from an
+  # unevaluated section is a number nobody measured.
+  echo "  (not evaluated — PR state unknown: $PR_ERROR)"
+  echo "  Whether a branch is carried by an open PR cannot be decided without the"
+  echo "  open-PR list. Re-run once the git host answers."
+else
+  # Every branch any plan lists, from the parser's `waves[]` — one jq pass over
+  # the output already captured. Phase-less files are skipped (a decision log
+  # naming a branch is not a claimant), every other phase counts.
+  claimed_branches=""
+  if [ -n "$plan_json" ]; then
+    claimed_branches=$(printf '%s\n' "$plan_json" \
+      | jq -r 'select(.phase != "NONE") | .waves[]?.branches[]?.branch' 2>/dev/null | sort -u)
+  fi
+
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    case "$b" in
+      "$MAIN"|release/*) continue ;;   # protected set, as section 3 has it
+    esac
+
+    # A plan names it → the estate has its record. Nothing to report.
+    if [ -n "$claimed_branches" ] && printf '%s\n' "$claimed_branches" | grep -qx "$b"; then
+      continue
+    fi
+    # An open PR carries it — as its head, or below it on a stack.
+    if [ "$pr_reliable" = 1 ] && printf '%s\n' "$open_prs" | grep -qx "$b"; then continue; fi
+    if contained_in_open_pr "$b" >/dev/null; then continue; fi
+    # Landed. The host answers first; ancestry is the fallback.
+    if branch_merged "$b"; then continue; fi
+
+    # THE READING. `PLOT-BLOCKED*` is a worker's question to a person, not
+    # work — a branch holding only one is section 3's claim, already reported.
+    n_files=$(git diff --name-only "origin/$MAIN...origin/$b" </dev/null 2>/dev/null \
+      | grep -cv '^PLOT-BLOCKED' || true)
+    [ "${n_files:-0}" -gt 0 ] 2>/dev/null || continue
+
+    last_commit=$(git log -1 --format=%cs "origin/$b" </dev/null 2>/dev/null)
+    unclaimed_out+="  origin/$b — $n_files changed file(s), last commit ${last_commit:-unknown}; no plan names it, no open PR carries it\n"
+    unclaimed_out+="    inspect: git diff --stat origin/$MAIN...origin/$b\n"
+    # THE THREE ANSWERS, and the verb is `decide:` because a shell cannot pick
+    # between them: whether the work is owed is a reading of the diff against
+    # main, and the twelve measured here were all landed or superseded.
+    unclaimed_out+="    decide: open a PR for it, write the plan that claims it, or delete the ref (git push origin --delete $b)\n"
+    n_unclaimed=$((n_unclaimed + 1))
+  done <<< "$all_branches"
+
+  if [ -n "$unclaimed_out" ]; then printf '%b' "$unclaimed_out"; else echo "  (none — every branch with changes is named by a plan or carried by a PR)"; fi
+fi
+echo
+
 echo "Sweep complete. This report is advisory — nothing was changed."
-echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated pr_source=$PR_SOURCE main=$MAIN"
+echo "summary: drift=$n_drift merged_not_delivered=$n_mnd stale=$n_stale claims=$n_claims attention=$n_att concurrent=$n_conc unreleased_delivered=$n_unrel uncut_slices=$n_unsliced prose_slice_names=$n_prose sprint_drift=$n_sprint_drift stale_tally=$n_stale_tally index_drift=$n_idx double_claims=$n_double rounds_drift=$n_rounds_drift sprint_index_drift=$n_sprint_idx sprint_shipped=$n_sprint_ship stated_waits=$n_stated unclaimed_work=$n_unclaimed pr_source=$PR_SOURCE main=$MAIN"
 exit 0
