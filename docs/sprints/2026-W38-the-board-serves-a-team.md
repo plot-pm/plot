@@ -62,7 +62,7 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 ### Should Have
 
-- [ ] [the-board-says-what-it-could-not-ask] A capability the board cannot reach renders as *not asked*, never as an empty result. The supervisor badge shipped in 2.14.0 is the shape: three states, `unknown` first-class, and the prominence rule keyed on consequence <!-- pr: #785, status: approved, branch: bug/the-board-says-what-it-could-not-ask>
+- [x] [the-board-says-what-it-could-not-ask] A capability the board cannot reach renders as *not asked*, never as an empty result. The supervisor badge shipped in 2.14.0 is the shape: three states, `unknown` first-class, and the prominence rule keyed on consequence <!-- pr: #785, status: delivered, branch: bug/the-board-says-what-it-could-not-ask>
 
 - [ ] [a-dispatch-stop-finds-the-desk] `plot-dispatch.sh:1171` rebuilds the desk path from the branch name, so `--stop` refuses every agent `--start` creates. A teammate whose first fleet stop refuses will reach for `kill`, which is the guess the one stop rule exists to prevent. Plan filed 2026-09-07
 
