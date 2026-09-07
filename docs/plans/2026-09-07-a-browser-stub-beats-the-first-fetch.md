@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #762 merged
+- **Started:** 2026-09-07, Jan Wloka, `bug/a-browser-stub-beats-the-first-fetch`
 
 ## Changelog
 
