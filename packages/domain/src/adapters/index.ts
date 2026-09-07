@@ -47,6 +47,20 @@ export { slotsFixture, type SlotsFixture } from './slots/slots-fixture.js';
 export { refsGit } from './refs/refs-git.js';
 export { refsFixture, type RefsFixture } from './refs/refs-fixture.js';
 
+export {
+  agentsFs,
+  parseManifest,
+  firstMarkerLine,
+  QUESTION_MAX,
+  type AgentsFsOptions,
+} from './agents/agents-fs.js';
+export {
+  agentsFixture,
+  agentManifest,
+  agentDesk,
+  type AgentsFixture,
+} from './agents/agents-fixture.js';
+
 export { treesGit } from './trees/trees-git.js';
 export { treesFixture, type TreesFixture } from './trees/trees-fixture.js';
 
