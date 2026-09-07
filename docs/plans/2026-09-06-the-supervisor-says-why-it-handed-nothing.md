@@ -60,7 +60,7 @@ registryd.ts:308     `queued=${queue.held.length}`   ← the reasons stop here
 
 ## Slices
 
-### The tick names its holds (Branch: feature/a-tick-says-what-it-refused)
+### The tick names its holds (Branch: feature/a-tick-says-what-it-refused) <!-- moved: landed on main as f9c8e151 before this plan was written -->
 
 The supervisor's summary carries a count per hold, and `--once` lists the slices behind each.
 

@@ -71,7 +71,7 @@ outstanding: slice.branches.filter(
 
 ## Slices
 
-### A merged branch is not outstanding (Branch: bug/a-merged-slice-has-no-ref-to-count)
+### A merged branch is not outstanding (Branch: bug/a-merged-slice-has-no-ref-to-count) <!-- moved: landed on main as 88361492 before this plan was written -->
 
 `outstanding` counts a branch as done when the host says it merged, not only when a ref exists.
 
