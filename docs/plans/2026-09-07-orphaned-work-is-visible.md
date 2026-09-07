@@ -93,3 +93,30 @@ Each branch was compared against `main` rather than assumed abandoned. **Three h
 **Two engineers solved one flake independently and neither knew.** That is the cost this plan is about, priced: not the lost work, but the duplicated work.
 
 **`a-hung-cleanup-says-which-half` is the one to recover.** It adds `_stage` markers through the worker loop's cleanup block, guarded by `PLOT_LOOP_TRACE` so an ordinary dispatch is unchanged, because *"the hang is somewhere in this block and the process table cannot say where — every snapshot shows the same three processes."* Main still has all 14 `_kill_tree`/`wait` sites and no way to tell which one hangs. It conflicts with main and needs a rebase, not a merge.
+
+### All twelve, worked through — 2026-09-07
+
+The first pass checked five. **All twelve were then compared against `main`, and the result changes the plan's claim.**
+
+| branch | files | verdict |
+|---|---|---|
+| `feature/the-scan-asks-for-the-state` | 11 | **live** — dispatched today |
+| `plot-corpus-pin` | 13 | merges and deliveries only, no unique commit |
+| `bug/an-idle-reading-does-not-end-a-worker` | 0 | zero commits |
+| `infra/the-estate-speaks-waves` | 87 | **superseded** — the estate went to `## Slices`, 223 files, zero `## Waves` |
+| `infra/the-components-leave-the-shell` | 12 | **superseded** — `agent-rows/` already holds the split |
+| `infra/a-wedged-run-says-what-it-held` | 5 | **landed** — the TAP reporter is in `ci.yml` |
+| `idea/the-pr-list-join-is-silently` | 2 | **landed** — the plan is on main |
+| `bug/main-typechecks-without-dead-tfidf` | 2 | **landed** |
+| `bug/the-monitor-samples-a-pushed-desk` | 6 | **superseded**, better |
+| `bug/the-claimable-guard-counts-what-remains` | 1 | **superseded** |
+| `bug/the-corpus-reads-a-head-it-may-not-own` | 2 | **superseded** |
+| **`bug/a-hung-cleanup-says-which-half`** | 3 | **UNRECOVERED** |
+
+**ELEVEN OF TWELVE ARE ALREADY ON MAIN OR SUPERSEDED BY SOMETHING BETTER. ONE IS NOT.**
+
+**That inverts what the count suggested.** Twelve unmerged refs with no PR reads as twelve pieces of lost work; it is one, plus eleven refs nobody swept because no rule sweeps an unmerged branch.
+
+**So the finding is sharper than the plan first stated.** The cost is not lost work — it is that **the estate cannot tell a superseded branch from an unfinished one**, and a person must read every diff to find out. Eleven of these were safe to delete for weeks and nothing said so; the twelfth would have been deleted with them by any sweep keyed on age.
+
+**And the reaper is right to refuse all twelve.** `finishedWith` asks *did the host merge a PR for this?* — the answer is no for every one, including the eleven whose content is on main by another route. **A rule that deleted on content-equivalence rather than on a merged PR would have been correct eleven times and destroyed the twelfth.**
