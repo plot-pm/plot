@@ -371,23 +371,37 @@ controller  →  domain  →  port  ←  adapter  →  script / git / process
   nothing left the machine.
 
   **It stays on the adapter side of the port, with one exception that is not
-  yet fixed.** `Host` names six questions and no transport, no account, no
-  bucket. **But `ports/host.ts:6` declares `HostBackend = 'github' |
-  'bitbucket'`** — a closed list of vendors, in the domain — and
-  `host-shell.ts:110` throws on anything else. So adding GitLab is **not** an
-  adapter-only change today; it needs that type widened. Treat the adapter-only
-  property as the target, not the current state. See
-  [`one-account-has-one-budget`](docs/plans/2026-09-01-one-account-has-one-budget.md).
+  yet fixed — and the exception has moved.** `Host` names six questions and no
+  transport, no account, no bucket, and **`ports/host.ts:16` now declares
+  `HostBackend = string`**: the port is open. The closed list survives one layer
+  down, at `host-shell.ts:30` — `const DRIVES = ['github', 'bitbucket']`, which
+  `:275` throws on. So adding GitLab is **not** an adapter-only change today,
+  but what blocks it is an adapter's own list rather than a type in the domain.
+  Treat the adapter-only property as the target, not the current state. See
+  [`the-build-pipeline-is-its-own-connector`](docs/plans/2026-09-07-the-build-pipeline-is-its-own-connector.md),
+  whose second slice removes it.
 - **No domain-specific code or behaviour lives outside the domain.**
 
-**Half of this is enforced.** The purity gate holds the inner boundary: outside
+**Both boundaries are now gated, and the outer one is a ratchet with room left.**
+The purity gate holds the inner boundary: outside
 `packages/domain/src/adapters/`, the domain may import `zod` and nothing else —
-measured 0 violations. The outer boundary is not enforced: `packages/board/src`
-holds **65** `spawn`/`execFile` lines across 23 files, and CI has zero path
-references to it.
+measured 0 violations (`ci.yml:186`). The outer boundary is held by *One place
+reaches a process* (`ci.yml:259`), which counts direct `spawn`/`execFile` sites
+outside `adapters/` and fails when the number **grows**: measured 2026-09-07,
+**19 sites against `allowed=28`, target 0**.
 
-`the-sprint-proves-its-own-goal` adds that gate as a ratchet; `production-calls`
-does the migration it counts.
+**No shell script is reached outside an adapter.** Of those 19, **zero** call a
+`plot-*.sh`. What remains is `git` (in `idea.ts` and `continue.ts`), a
+caller-supplied command (`registry.ts`, `fleet.ts`), and the `sh -c` starts for a
+project's configured command in the eight action endpoints. Different tools
+through different contracts, and the gate's own comment names them as the next
+slice's scope.
+
+> This paragraph read *"the outer boundary is not enforced: `packages/board/src`
+> holds **65** `spawn`/`execFile` lines across 23 files, and CI has zero path
+> references to it"* until 2026-09-07, when both halves were measured false.
+> `the-sprint-proves-its-own-goal` added the ratchet and `production-calls` did
+> the migration it counts — and nothing came back to say so.
 
 **Every rendered state is a domain property.** Settled 2026-08-30, and it is the
 testability half of the rule above:
