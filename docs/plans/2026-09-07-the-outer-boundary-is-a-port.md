@@ -13,7 +13,7 @@
 
 ## Changelog
 
-- Every external dependency — an executable, a stored artefact, a service — is reached through a port named for the domain concept it holds, and a gate names the ones that are not.
+- Every external dependency is reached through a port named for the domain concept it holds and shaped as the DDD pattern it is — repository, service, factory or aggregate — and a gate names the ones that are not.
 
 ## Motivation
 
@@ -53,6 +53,25 @@ Seven files do this: `auto-deliver.ts` (three scripts), `registry.ts` (two), `di
 
 **EACH ARTEFACT IS A CONCEPT, AND MOST ARE NAMED ALREADY.** What is missing is not a file API — it is that `Agent`, `Ending` and `Pulse` have no way to be *stored and retrieved*, so every caller reconstructs the path. **A concept whose persistence nobody owns is spelled by everybody.**
 
+## The four shapes exist and none is named
+
+**Measured 2026-09-07: `Repository`, `Factory` and `Aggregate` appear zero times in `packages/domain/src`.** The four hits for "Repository" are `isRepository` — *is this a git checkout* — a different word entirely.
+
+**But the shapes are all there, under port names that hide which is which:**
+
+| DDD pattern | what it is here | example |
+|---|---|---|
+| **Repository** | reads and writes a whole entity by identity | `plan-store`: `readPlan`, `readPlans`, `listPlans` — no caller composes a path |
+| **Service** | reaches a remote system with an account and a budget | `host`, `tracker` — the connector kind CLAUDE.md already separates |
+| **Factory** | constructs an entity that did not exist | `host.prCreate`, `trees.add` — both make a thing and return it |
+| **Aggregate** | an entity that owns others and is loaded whole | `Plan` owns `Slice[]` (`entities/plan.ts:215`); a slice is never fetched alone |
+
+**SO THIS PLAN IS NOT INTRODUCING FOUR PATTERNS — IT IS NAMING FOUR THAT THE ESTATE ALREADY USES.** `plan-store` behaves as a repository and is called a store; `host` and `tracker` behave as services and are called ports; `Plan`/`Slice` is an aggregate and is called an entity with a field.
+
+**AND THE MIXING IS WHERE THE COHESION IS LOST.** `scripts` carries `planMeta`, `config`, `host`, `start` and `stream` — a repository read, a settings read, a service call and a process launch, in one interface. **A caller holding `scripts` can reach anything**, which is why 132 filesystem calls and 7 script names could accumulate behind a boundary that looked gated.
+
+**THE PATTERN A DEPENDENCY GETS IS DECIDED BY WHAT IT IS, NOT BY WHERE IT LIVES.** A stored artefact gets a repository. A remote system gets a service. Something that only ever constructs gets a factory. An entity loaded whole with its children gets an aggregate root, and its repository returns that root.
+
 ## What this is not
 
 **Not a rewrite of the board.** 132 fs sites do not move in one slice, and a plan that says they do is a wish. The gate lands first and the migration is a ratchet, exactly as the spawn count was.
@@ -75,7 +94,7 @@ A gate refuses a `plot-*.sh` literal outside `packages/domain/src/adapters/`.
 
 **Done when** a gate counts `plot-*.sh` literals outside `adapters/`, fails when the count grows, starts at the measured seven, and its error names the port that already answers each script.
 
-### Each stored concept gets a port, starting with one (Branch: feature/a-stored-concept-has-a-port) <!-- waits: infra/a-script-is-named-in-an-adapter -->
+### The agent gets a repository (Branch: feature/the-agent-gets-a-repository) <!-- waits: infra/a-script-is-named-in-an-adapter -->
 
 The artefacts the board reads become ports named for **the concept**, not for the file.
 
@@ -89,7 +108,11 @@ The artefacts the board reads become ports named for **the concept**, not for th
 
 **THE PATH IS THE LEAK AND THE ADAPTER IS WHERE IT LIVES.** After this slice exactly one file knows that an agent's question is a file called `PLOT-BLOCKED.md` in a desk.
 
-**Done when** one stored concept has a port named for it, its adapter is the only place its path appears, the entity exists for what the port returns, one caller is migrated, and a ratchet counts the artefacts still spelled outside `adapters/`.
+**IT IS A REPOSITORY, AND CALLING IT ONE IS PART OF THE SLICE.** `plan-store` is the working example and is named for its storage rather than its pattern. **An `AgentRepository` returns whole `Agent`s by identity** — its question, its manifest, its process record — and nothing else composes a path.
+
+**WHETHER `Agent` IS AN AGGREGATE ROOT IS A REAL QUESTION AND THIS SLICE ANSWERS IT.** An agent has a desk, a worker, a question and an ending. If those are loaded and written together they are one aggregate and the repository returns the root; if the board legitimately reads a marker without the manifest, they are not. **Decide by measuring the callers, not by preference**, and say which in the PR.
+
+**Done when** an `AgentRepository` returns whole agents by identity, its adapter is the only place an agent's paths appear, the aggregate boundary is stated with the callers that justify it, one caller is migrated, and a ratchet counts the artefacts still spelled outside `adapters/`.
 
 ## Notes
 
@@ -118,3 +141,13 @@ Three generic ports would satisfy the letter of the layering rule: a `Files`, a 
 **So the test for each new port is the same one those pass:** can a caller use it without knowing where the thing lives? A `Files` port fails that by construction; a port named for `Agent` cannot.
 
 **And it is cohesive in the direction that matters.** Once an agent's question, its manifest, its process record and its ending are one concept's port, a rule can ask *what does this agent owe* without four callers each knowing a different filename — which is the same argument `an-agent-state-has-one-deriver` makes about its eight states, arriving from the storage side.
+
+### Why the patterns are named rather than introduced — 2026-09-07
+
+`Repository`, `Factory` and `Aggregate` appear **zero times** in `packages/domain/src`. All three shapes are in use.
+
+**That is not a naming preference — it is why the boundary leaked.** `scripts` carries `planMeta` (a repository read), `config` (a settings read), `host` (a service call) and `start` (a process launch) in one interface. A caller holding it can reach anything, so nothing about a call site says which kind of dependency it crossed. **132 filesystem calls and 7 script names accumulated behind a boundary that looked gated**, and the gate that watched it was counting syscalls.
+
+**Naming the pattern makes the wrong thing visible at the call site.** A controller holding an `AgentRepository` can read agents and nothing else. One holding `scripts` can do anything, and did.
+
+**The vocabulary is standard on purpose.** A teammate arriving from another DDD codebase reads `repository` and knows what it promises. This sprint's goal is a first unattended run by somebody who has not read this repository — and the same argument applies to the code they will be reading a week later.
