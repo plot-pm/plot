@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #785 merged
+- **Started:** 2026-09-07, Jan Wloka, `bug/the-board-says-what-it-could-not-ask`
 
 ## Changelog
 
