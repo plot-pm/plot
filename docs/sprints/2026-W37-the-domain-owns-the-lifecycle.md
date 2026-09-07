@@ -106,7 +106,7 @@ and it holds no plans outside this sprint.
 ### Could Have
 
 - [x] [every-generated-bundle-is-marked] Every bundle `build.mjs` emits is marked `-merge`, and the repair path recognises the set rather than one file — measured 2026-09-05: `board-server.mjs` took 0 conflict markers through a rebase while the two unmarked bundles took 8, and `plot-resolve-artifact.sh` then refused the branch as *not artifact-only*, declining the exact case it exists for. **Draft, 2 slices, 4 rounds** <!-- status: delivered -->
-- [ ] [the-board-answers-while-it-scans] The board keeps serving while it scans — it stops for seconds at a time at zero CPU. **Draft**
+- [x] [the-board-answers-while-it-scans] The board keeps serving while it scans — it stops for seconds at a time at zero CPU. **WITHDRAWN 2026-08-31, Jan Wloka, in-session** — the plan carries `State: Rejected` and a `Rejected:` record. Ticked because the sprint's question is *is this item still owed*, and a withdrawn item is not; `plot-sprint-release.sh` knows three states and none of them is *withdrawn*, so it reads this as `disputed` rather than `open`. That is the honest reading of a box the shell cannot resolve, and it is visible rather than silent.
 
 - [x] [the-scripts-say-slice] The reconcile scan says slice where it means slice — section 7 read *"Unsliced waves (a wave holds one branch)"*, a Slice described in Wave's vocabulary by its own parenthetical. Footer keys renamed with the skill documenting them. **#703, no plan — a rename small enough to be its own PR. Merged 2026-09-05 (`c02d8807`); section 7 now reads *"Uncut slices (a slice holds one branch)"*.**
 
@@ -135,3 +135,11 @@ twice, naming `SprintState` and `PrState` as non-lifecycles when both transition
 **So the asymmetry the script documents has a third case it cannot reach.** A checked box over an undelivered plan is `disputed`; an unchecked box over a delivered one is `done`, because `/plot-deliver` moves the plan and nobody re-ticks. But an unchecked box over a merged **PR** with no plan reads `open`, and stays `open` until a person reads the source — which is what happened here, on a question about something else.
 
 **The item was right to have no plan.** A one-PR rename does not earn a plan file, and the sprint line says so. What it costs is the automatic close, and that cost should be paid at the merge: an item whose only record is a PR number needs its box ticked by whoever merges it, because no later sweep will.
+
+**A WITHDRAWN ITEM HAS NO READING, AND BOTH ANSWERS ARE WRONG.** `plot-sprint-release.sh` prints one of three words — `done`, `open`, `disputed` — and derives them from a checkbox and a plan's `delivered` flag. It never reads `State:`, so a plan carrying `Rejected` is indistinguishable from one still being written.
+
+That leaves no honest box. **Unticked**, the item reads `open` and blocks the sprint forever over work somebody decided not to do — the same trap `the-board-answers-while-it-scans` was in for six days as a Draft, and for the same reason its own note gives: *"a withdrawn plan left in Draft sits in the approval queue forever."* **Ticked**, it reads `disputed`, which at least says *these two records disagree, come and look* — and a person looking finds the `Rejected:` line and the reason.
+
+**So it is ticked, and this note is why.** The fix is not a fourth word in the sprint file; it is `plot-sprint-release.sh` learning that `plot-plan-meta.sh:338` already accepts `rejected` and `superseded` beside the four phases. Until it does, a withdrawal is legible to a reader and not to the shell.
+
+**`the-scripts-say-slice` reads `disputed` for a different reason**, and the two must not be conflated: that item ships as PR #703 with no plan file at all, so the shell has nothing to resolve its box against. One item has a plan the shell will not read; the other has no plan to read. Both surface as one word.
