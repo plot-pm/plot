@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #769 merged
 - **Started:** 2026-09-07, Jan Wloka, `bug/the-installed-supervisor-hands-work-over`
+- **Delivered:** 2026-09-07
 
 ## Changelog
 

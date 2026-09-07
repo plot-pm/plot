@@ -1,0 +1,1 @@
+../2026-09-07-the-installed-supervisor-hands-work-over.md
