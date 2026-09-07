@@ -1,0 +1,1 @@
+../2026-09-07-a-shell-script-asks-the-domain.md
