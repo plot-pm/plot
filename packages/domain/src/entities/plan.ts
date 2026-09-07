@@ -7,7 +7,7 @@
  * and ownership is the argument.
  *
  * The two disagree constantly, and the estate measures it. Counted 2026-09-07
- * through `plot-plan-meta.sh` over 225 plan files: **21 branch lines across 14
+ * through `plot-plan-meta.sh` over 226 plan files: **21 branch lines across 14
  * plans carry a `deferred:` or `moved:` annotation** — 27 and 5 respectively as
  * raw comments, which the parser reads as one answer. Every one states
  * something about a branch that no ref can tell you. A deferred Slice is a
@@ -34,7 +34,7 @@
  *     where `UNKNOWN` became the string `'unknown'` — a value `PlanState` does
  *     not admit and the cast hid.
  *
- *   - {@link sliceIntent} — what the PLAN says about a branch, as against what
+ *   - {@link SliceIntent} — what the PLAN says about a branch, as against what
  *     git says. The one reading no ref can supply.
  *
  * A SLICE'S VERDICT IS NOT HERE. `rules/eligible.ts` decides it and
