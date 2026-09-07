@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #787 merged
+- **Started:** 2026-09-07, Jan Wloka, `infra/a-script-is-named-in-an-adapter`
 
 ## Changelog
 
