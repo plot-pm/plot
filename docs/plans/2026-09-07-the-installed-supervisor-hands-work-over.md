@@ -151,6 +151,14 @@ What was burning the machine that time was a **leaked test fixture**. `test/reco
 
 **What the record actually shows** is a job removed with `runs = 1`, `last exit code = (never exited)`, 0 bytes of stderr, no launchd log line, at loads from 4.30 to 43.68, living 320 s to 70 min. The trigger is unidentified.
 
+**A THIRD WATCH, AND WHAT IT COULD AND COULD NOT SEE — 2026-09-07.** The job was reloaded and left strictly alone: no dispatch, no `--once`, no restart. It reported `up` for **30 consecutive samples over 10 minutes**, through loads from 3.07 to 30.70 — surviving a load seven times higher than the 4.30 that killed the previous incarnation.
+
+**But the pid changed inside that window** — 5292 at the start, 67932 at the end, both reading `runs = 1`. So the job DID go and come back, and a `launchctl list` poll every 20 s could not see the gap. **The watch proves the job is available on a 20 s cadence; it does not prove one process survived.**
+
+**Two things are nonetheless established.** Load does not explain it in either direction: an incarnation died at 4.30 and another was serving at 30.70. And whatever happens, launchd brings the job back on its own — `runs = 1` on a new pid means a fresh start, not a `KeepAlive` restart of the old one.
+
+**The honest state of the question:** something removes and re-establishes this job, leaving `runs = 1`, `never exited`, zero stderr and no launchd log line, on no schedule this session could pin down. The next measurement is not another poll — it is `launchctl print`'s pid sampled continuously, so the gap is measured rather than inferred from a list that answers a different question.
+
 **THIS DOES NOT EXCUSE THE DAEMON.** A supervisor that is evicted under exactly the load a working fleet produces is a supervisor that leaves when it is most needed. But the trigger is now named, and the two follow-ups are separable: an orphaned-scan reaper, and whether `ProcessType: Background` is the right class for a job that must outlive a busy fleet.
 
 **Why it is recorded here rather than fixed.** This plan is about a supervisor that hands nothing over. A supervisor that hands work over and then disappears is a second defect, and it needs a measurement this session did not get: what the system log says at the moment of the bootout. `log show --predicate 'process == "launchd"'` returned nothing for the window, which is itself a finding — the eviction leaves no trace either.
