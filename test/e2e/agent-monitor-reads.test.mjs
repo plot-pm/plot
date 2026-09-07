@@ -24,7 +24,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { makeSandbox, sh, stubHost, SCRIPTS, staffDesk } from './helpers.mjs';
+import { makeSandbox, sh, stubHost, SCRIPTS } from './helpers.mjs';
 
 const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n';
 
@@ -72,52 +72,17 @@ function dispatchOne(name, { workerCommand, stub, monitorInterval = '1' } = {}) 
     `# Sandbox\n\n## Plot Config\n\n${PLAN_CONFIG}- **Worker command:** ${workerCommand}\n`,
   );
   dispatchablePlan(sb.work);
-  // THE DESK IS LAID BY THE FIXTURE, not by the fan-out. Dispatch hands a slice
-  // to the registry and cuts nothing; what these tests are about is the worker
-  // and its monitors once a desk exists, so the fixture provides one and every
-  // assertion below stands unchanged.
-  const { worktree: wt } = staffDesk(sb.work, 'feature/watched-desk', {
+  execFileSync('bash', [path.join(SCRIPTS, 'plot-dispatch.sh'), '--offline', '--max', '1', 'agent-monitor'], {
+    cwd: sb.work,
+    encoding: 'utf8',
     env: {
+      ...process.env,
       PLOT_MONITOR_INTERVAL: monitorInterval,
       ...(stub ? { PATH: `${stub.dir}:${process.env.PATH}` } : {}),
     },
   });
-  return {
-    sb,
-    worktree: wt,
-    findingsFile: path.join(wt, '.plot-worker.monitor.agent.jsonl'),
-    /**
-     * The host calls THIS MONITOR made, told apart from its neighbours' by
-     * CONTENT.
-     *
-     * A test that asserts "the monitor asked the host" cannot read the whole
-     * log: the BuildMonitor shares this stub and this PATH, and it spends two
-     * `gh run list` calls per desk — so an assertion over every call passes on
-     * an AgentMonitor that never ran.
-     *
-     * POSITION CANNOT SEPARATE THEM. A high-water mark taken when the fixture
-     * returns looks right and is a race: the monitor is a detached grandchild
-     * whose first `monitor_pass` runs before any sleep, so its call can land
-     * before the mark and be discarded. Measured — that form failed CI with an
-     * empty list while the monitor had demonstrably asked, because its one call
-     * sat below the mark.
-     *
-     * `pr view` IS THE DISCRIMINATOR, and the whole PR question in this fixture.
-     * The AgentMonitor's PR port asks `plot-host.sh pr-state <branch>`, which
-     * reaches `gh pr view`; nothing else here asks about a PR at all. Measured
-     * 2026-09-05 over a full run, the log holds exactly three calls: two
-     * `gh run list` from the BuildMonitor and one `gh pr view` from this one.
-     *
-     * IT WAS THE FIELD LIST `mergedAt,number` UNTIL 2026-09-05, when the port
-     * stopped calling `gh` directly. That string named the monitor's own
-     * private query, so routing it — which changed no behaviour the monitor
-     * has — emptied this filter and failed both tests below on
-     * `the monitor never asked the host`.
-     */
-    monitorCalls: () => (stub
-      ? stub.calls().filter((c) => c.includes('pr view'))
-      : []),
-  };
+  const wt = path.join(path.dirname(sb.work), 'plot-wt-feature-watched-desk');
+  return { sb, worktree: wt, findingsFile: path.join(wt, '.plot-worker.monitor.agent.jsonl') };
 }
 
 /** Poll until a predicate over the published findings holds, or time runs out. */
@@ -138,20 +103,10 @@ function waitFor(file, predicate, ms = 30_000) {
 }
 
 /** A `gh` that reports no PR for any branch — the shape `owes a review` needs. */
-// THE STUB ANSWERS `pr view` AS WELL AS `pr list`, because the monitor's PR
-// port asks through `plot-host.sh` and `pr-state <branch>` reaches `gh pr view`.
-// It answered `pr list` alone until 2026-09-05, when routing made `pr view` the
-// call actually made — and a stub that models the wrong subcommand returns `{}`
-// for the real one, which is not "no PR" but a payload nothing can read.
-//
-// `gh pr view` ON A BRANCH WITH NO PR RETURNS NULL FIELDS ON EXIT 0, not an
-// error: `{"number":null,"state":null,…}`. That is a real answer and the stub
-// reproduces it, because the port's whole contract is telling that apart from a
-// host it could not ask.
-const NO_PR = 'if (argv.includes("pr") && argv.includes("list")) process.stdout.write("[]");\nelse if (argv.includes("pr") && argv.includes("view")) process.stdout.write(JSON.stringify({ number: null, state: null, isDraft: null, url: null }));\nelse process.stdout.write("{}");';
+const NO_PR = 'if (argv.includes("pr") && argv.includes("list")) process.stdout.write("[]");\nelse process.stdout.write("{}");';
 
 /** A `gh` that reports one merged PR — the shape that must silence the finding. */
-const HAS_PR = 'if (argv.includes("pr") && argv.includes("list")) process.stdout.write(JSON.stringify([{ number: 7, mergedAt: "2026-08-31T00:00:00Z" }]));\nelse if (argv.includes("pr") && argv.includes("view")) process.stdout.write(JSON.stringify({ number: 7, state: "MERGED", isDraft: false, url: "https://example.invalid/7", mergeCommit: { oid: "abc123" } }));\nelse process.stdout.write("{}");';
+const HAS_PR = 'if (argv.includes("pr") && argv.includes("list")) process.stdout.write(JSON.stringify([{ number: 7, mergedAt: "2026-08-31T00:00:00Z" }]));\nelse process.stdout.write("{}");';
 
 test('a real dispatched agent that commits and opens nothing is reported owes a review', () => {
   // THE FINDING THIS PLAN WAS WRITTEN FOR, on the real path. The worker command
@@ -179,24 +134,8 @@ test('a real dispatched agent that commits and opens nothing is reported owes a 
   // reintroduces the very collapse the two-monitor split exists to prevent, so
   // the interval is shortened only as far as the logic tolerates.
   //
-  // THE INTERVAL CANNOT CLOSE THAT RACE, AND 3s ONLY MADE IT RARE. Measured on
-  // CI 2026-09-02: the monitor published `holds unlanded work` naming
-  // `done.txt`, and nothing followed it. `plot-agent-monitor.sh:490` runs its
-  // first `monitor_pass` BEFORE any sleep, and `plot-dispatch.sh` starts the
-  // monitor inside the wrapper immediately before the agent — so the first
-  // sample races the worker's first command whatever the interval is set to.
-  //
-  // A `sleep` AFTER THE PUSH IS NOT THE FIX, AND #640 MEASURED WHY. Holding
-  // this agent alive for twelve seconds kept the desk in the state under test
-  // — and broke the CONTROL below, which opens by stating that its desk is
-  // *identical to the test above, same commit, same clean tree, same exit, and
-  // only the host's answer differs*. A fixture change here is a change to that
-  // premise: main went red on the merge commit and green again on the revert.
-  //
-  // So the two desks stay identical, and the remaining flake is left standing
-  // rather than papered over asymmetrically. It is rare, it is CI-only, and
-  // this file already records three diagnoses of its neighbour that measurement
-  // refuted — a fourth guess costs more than the re-run does.
+  // The debt itself is patient — "a finding one interval late is as good as one
+  // on time" — so nothing is lost by letting the worker finish first.
   const stub = stubHost(NO_PR);
   const run = dispatchOne('agent-owes-review', {
     stub,
@@ -226,25 +165,15 @@ test('a real dispatched agent that commits and opens nothing is reported owes a 
     // whose `gh` lookup never resolved — it would answer `unaskable`, publish
     // nothing, and the assertion above would have caught it; but the reverse
     // (a finding published without asking) is what this pins down.
-    // THE MONITOR'S CALLS, not the BuildMonitor's — separated by the
-    // subcommand rather than by position; see `dispatchOne`.
-    const asked = run.monitorCalls().filter((c) => c.startsWith('gh pr view'));
+    const asked = stub.calls().filter((c) => c.startsWith('gh pr list'));
     assert.ok(asked.length > 0,
-      `the monitor published owes a review without asking the host: ${JSON.stringify(run.monitorCalls())}`);
+      `the monitor published owes a review without asking the host: ${JSON.stringify(stub.calls())}`);
     assert.ok(asked.some((c) => c.includes('feature/watched-desk')),
       'the host was asked about the wrong branch');
-    // NOT THE `state` WORD ALONE, which is the property this line has always
-    // pinned: a merged PR reports CLOSED and squash-merge leaves a branch ahead
-    // of main forever, so a lookup reading `state` by itself answers wrong
-    // about every squash-merged branch.
-    //
-    // IT WAS `mergedAt` UNTIL 2026-09-05. The port now asks `plot-host.sh
-    // pr-state`, which reaches `gh pr view` and reads `mergeCommit` — a
-    // positive statement about the merge from the same payload, and one that
-    // additionally says WHICH commit carries it. The property is unchanged and
-    // the field naming it is not.
-    assert.ok(asked.some((c) => c.includes('mergeCommit')),
-      'the PR question reads the state word alone, which is wrong about every squash-merged branch');
+    // `mergedAt`, never `state`: a merged PR reports CLOSED, and squash-merge
+    // leaves a branch ahead of main forever.
+    assert.ok(asked.some((c) => c.includes('mergedAt')),
+      'the PR question does not read mergedAt');
 
     // PUBLISHED ONCE, not once per pass. The monitor keeps looping after the
     // finding holds; a debt republished every interval would leave a subscriber
@@ -270,7 +199,7 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
   const run = dispatchOne('agent-has-pr', {
     stub,
     monitorInterval: '3',
-    workerCommand: "sh -c 'mkdir -p .changeset && echo work > done.txt && printf -- '\\''---\\n\"plot\": patch\\n---\\n\\nA real description of a real change.\\n'\\'' > .changeset/thing.md && git add -A && git commit -qm work && git push -q -u origin HEAD'",
+    workerCommand: "sh -c 'mkdir -p .changeset && echo work > done.txt && printf -- '\\''---\\n\"plot\": patch\\n---\\n\\nA real description of a real change.\\n'\\'' > .changeset/thing.md && git add -A && git commit -qm work && git push -q -u origin HEAD && sleep 20'",
   });
   try {
     // WAIT FOR THE POLL, DO NOT GUESS AT IT. The two assertions below want
@@ -287,20 +216,35 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
     // markdown, and passed on the commits between them.
     //
     // Polling for the event is strictly stronger than the sleep it replaces:
-    // the positive becomes deterministic rather than probable, and the negative
-    // gets AT LEAST the old five seconds, usually more — the loop only stops
-    // once a poll has actually happened.
+    // the negative gets AT LEAST the old five seconds, usually more, and the
+    // positive stops being a guess at a duration.
     //
-    // AND IT POLLS THE MONITOR'S CALLS, NOT THE WHOLE LOG, which is what the
-    // 2026-09-01 CI failure was really about. `plot-dispatch.sh:715` spends its
-    // own calls on the same stub, so `stub.calls()` is already non-empty when
-    // this loop starts: the poll returned on its first iteration, the assertion
-    // below passed on somebody else's call, and the monitor was never measured
-    // at all. `run.monitorCalls()` selects this monitor's calls by their
-    // subcommand, so the loop now waits for the event it names.
+    // BUT THE POLL ALONE CANNOT MAKE THE POSITIVE DETERMINISTIC, and measured on
+    // CI 2026-09-01 it did not: the assertion failed after burning all 30 s,
+    // on three PRs at once.
+    //
+    // THE HOST IS ASKED LAST. `sample_finding` returns at the `blocked`,
+    // `dirty` and `unpushed` arms before it ever reaches `gh pr list`
+    // (`plot-agent-monitor.sh:391-413`), so the only pass that asks the host is
+    // one that runs on an already-clean, already-pushed desk.
+    //
+    // A worker that exits AT the push leaves exactly one such pass: the
+    // deliberate final `monitor_pass` after the wait loop
+    // (`plot-agent-monitor.sh:503`), which exists precisely to catch an agent
+    // that committed everything and opened nothing. One pass is enough for the
+    // assertion and not enough for the clock — on a loaded runner that single
+    // pass and the poll's 30 s deadline are not ordered, and the poll cannot
+    // widen a window that has already closed.
+    //
+    // `sleep 20` after the push is what orders them. It holds the agent alive,
+    // and therefore the monitor's LOOP, through several 3 s intervals with the
+    // desk already in the state under test — turning one racing pass into many.
+    // The sleep is not a guess at how long a sample takes: the poll below still
+    // decides when to stop, and it stops on the first sample rather than at the
+    // end of the sleep.
     const deadline = Date.now() + 30_000;
     while (Date.now() < deadline
-      && !run.monitorCalls().some((c) => c.startsWith('gh pr view'))) {
+      && !stub.calls().some((c) => c.startsWith('gh pr list'))) {
       execFileSync('sleep', ['0.25']);
     }
     const records = fs.existsSync(run.findingsFile)
@@ -314,8 +258,8 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
     // the same empty file — which is precisely the ambiguity the Attaching
     // slice's `nothing measured yet` no-op existed to remove, and which this
     // slice removed the no-op from.
-    assert.ok(run.monitorCalls().some((c) => c.startsWith('gh pr view')),
-      `the monitor never asked the host, so this silence proves nothing — it may never have sampled at all: ${JSON.stringify(run.monitorCalls())}`);
+    assert.ok(stub.calls().some((c) => c.startsWith('gh pr list')),
+      `the monitor never asked the host, so this silence proves nothing — it may never have sampled a clean, pushed desk before its agent exited: ${JSON.stringify(stub.calls())}`);
   } finally {
     run.sb.cleanup();
   }
