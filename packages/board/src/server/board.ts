@@ -32,6 +32,10 @@ import {
   timeboxLabel,
   timeboxStanding,
   planStatus as decidePlanStatus,
+  ChecksSchema,
+  MergeabilitySchema,
+  type Checks,
+  type Mergeability,
   type Host,
   type PlanStore,
   type Refs,
@@ -198,6 +202,35 @@ export const hostFor = (opts: BuildBoardOptions): Host =>
  * the root must be resolved the same way for `path.relative` to come out
  * repo-relative (and for the /plan allowlist basenames to match card.path).
  */
+/**
+ * Narrows the PR cache's `checks` string to one of the five states.
+ *
+ * THE UNRECOGNISED VALUE BECOMES `unknown`, NEVER AN ANSWER. `PrRecord.checks`
+ * is typed `string` because it comes off `plot-host.sh`'s wire, and a word this
+ * board does not recognise is a word it could not interpret — which is what
+ * `unknown` means. Reading it as `none` would claim the host reported an empty
+ * rollup, and reading it as `green` would claim a build passed.
+ *
+ * `undefined` lands here the same way and for the same reason: no PR map yet,
+ * a number the host does not know, or a record predating the field.
+ */
+const asChecks = (value: string | undefined): Checks => {
+  const parsed = ChecksSchema.safeParse(value);
+  return parsed.success ? parsed.data : 'unknown';
+};
+
+/**
+ * Narrows the PR cache's `mergeable` string the same way, for the same reason.
+ *
+ * The reading DISAMBIGUATES `checks` — an empty rollup on a conflicting branch
+ * is a symptom rather than a fact — so a wrong answer here silently mislabels
+ * the other field. `unknown` is the only safe default: absent is not clean.
+ */
+const asMergeability = (value: string | undefined): Mergeability => {
+  const parsed = MergeabilitySchema.safeParse(value);
+  return parsed.success ? parsed.data : 'unknown';
+};
+
 function resolvedRepoRoot(opts: BuildBoardOptions): string {
   try {
     return fs.realpathSync(opts.repoRoot);
@@ -1847,10 +1880,24 @@ export async function buildBoard(opts: BuildBoardOptions): Promise<Board> {
       type: meta.type || 'unknown',
       phase,
       path: relPath,
-      prs: meta.prs.map((number): CardPr => ({
-        number,
-        url: prLinks?.get(number)?.url ?? '',
-      })),
+      // THE READING WAS ALWAYS HERE AND WAS ALWAYS DROPPED. `prsByNumber` hands
+      // back a whole `PrRecord` — `checks` and `mergeable` among them — and
+      // this map took `url` and discarded the rest, so the board computed a
+      // build state at four layers and lost it at the wire.
+      //
+      // BOTH DEFAULT TO `unknown`, NEVER TO AN ANSWER. No PR map yet, a number
+      // the host does not know, or a record from a server too old to carry the
+      // fields: each is *the board did not find out*, which is a different fact
+      // from `none` and must not be rendered as one. That is the whole plan.
+      prs: meta.prs.map((number): CardPr => {
+        const record = prLinks?.get(number);
+        return {
+          number,
+          url: record?.url ?? '',
+          checks: asChecks(record?.checks),
+          mergeable: asMergeability(record?.mergeable),
+        };
+      }),
       // Read from the record this card's OWN column measures recency by. Always
       // present (possibly "") rather than conditionally attached like the fields
       // below: "" is a real answer here — this plan records no date for its
