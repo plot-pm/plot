@@ -50,12 +50,14 @@ import {
   refreshIntervalMs,
   refusalKind,
   slotVerdict,
+  supervisorVerdict,
   timeboxLabel,
   timeboxStanding,
   waitExhausted,
   type LimitBasis,
   type LimitReading,
   type Reaction,
+  type SupervisorRun,
 } from '@plot-pm/domain';
 // THE ONE ADAPTER THIS FILE CONSTRUCTS FOR ITSELF, and the reason it is here
 // rather than behind `BuildBoardOptions`: the cap is shared state on the
@@ -68,6 +70,7 @@ import { readBridge, writeBridge } from './pulse-bridge.js';
 import { readFleetSettings } from './fleet-settings.js';
 import { maybeAutoDispatch } from './auto-dispatch.js';
 import { readMachine } from './machine-reading.js';
+import { readSupervisor } from './supervisor-reading.js';
 import { maybeAutoDeliver } from './auto-deliver.js';
 import { readAgentRegistryWithInfo, bashCleanliness } from './registry.js';
 import type { RegistryInfo } from './registry.js';
@@ -537,6 +540,19 @@ export interface CacheEntry {
    * says the fleet is not empty, just identity-less.
    */
   registry: RegistryInfo | undefined;
+  /**
+   * What the last run of `plot-fleetctl.sh --status` left behind.
+   *
+   * THE RUN, NOT THE VERDICT. Asking costs 0.46–1.42 s measured on this
+   * machine, so it happens once per refresh beside the registry read; the agent
+   * count the prominence rule needs is re-derived on the render clock, and
+   * `supervisorVerdict` is applied there. Storing a verdict would pin the count
+   * to whenever the script was last asked.
+   *
+   * `undefined` until the first refresh, and that is NOT `unknown`: nothing has
+   * been asked yet, so the header renders nothing rather than *could not ask*.
+   */
+  supervisor: SupervisorRun | undefined;
   /**
    * Branches AUTO-DISPATCH has started this session whose claim/manifest the
    * next pulse cannot yet see.
@@ -2630,6 +2646,20 @@ async function refresh(opts: BuildBoardOptions, entry: CacheEntry): Promise<void
     });
     entry.agents = registryResult.entries;
     entry.registry = registryResult.info;
+    // WHETHER ANYTHING SUPERVISES THOSE AGENTS, asked immediately after the
+    // registry names them. Measured 2026-09-07: six workers ran 23-25 hours
+    // against an 8-hour bound while nothing was loaded to reap them, and the
+    // board rendered six rows indistinguishable from six healthy ones.
+    //
+    // Here rather than on the render clock because the ask costs 0.46-1.42 s —
+    // `plot-fleetctl.sh --status` walks every desk — and `refresh` is off the
+    // request path. It is bounded, and a call that exceeds the bound reads as
+    // `unknown` rather than `down`: silence must never become an alarm.
+    //
+    // The RUN is stored and the verdict derived at render, where the live agent
+    // count is. That count is the second half of the prominence rule, and it
+    // moves faster than this reading does.
+    entry.supervisor = await readSupervisor(opts);
     // Default mode, WITH the fetch: the refresh is off the request path, so a
     // second of work is free — and the fetch is what lets the board see
     // branches a remote worker pushed. `--stream` is the only flag added.
@@ -2928,6 +2958,10 @@ export function freshCacheEntry(): CacheEntry {
     // `unsupported` before the first lookup, never `answered`: a board that
     // has not asked must not render an empty inbox as a clear one.
     issues: [], issueAnswer: 'unsupported', issueError: null, agents: [], registry: undefined,
+    // Undefined until the first refresh asks, which is NOT `unknown`: nothing
+    // has been asked yet, so the header renders nothing rather than reporting a
+    // reading that was never attempted.
+    supervisor: undefined,
     // Empty at construction — nothing was dispatched before this process began,
     // and a restart re-derives liveness from git rather than trusting a set.
     autoInFlight: new Set(),
@@ -6818,6 +6852,12 @@ export async function buildFleet(
       // the ages and versions above follow.
       entry.unmerged)
     : [];
+  // HOW MANY AGENTS ARE RUNNING — one derivation, read twice. The stepper's
+  // "N working" label and the supervisor badge's prominence both need it, and
+  // two filters over the same list are two things that drift the first time a
+  // state is added. A registry entry whose session has ended (`stalled`,
+  // `finished`, `unknown`) is not a worker and is not counted.
+  const liveAgents = entry.agents.filter((a) => isLiveState(a.state)).length;
   return {
     generatedAt: new Date().toISOString(),
     ageSeconds,
@@ -6911,6 +6951,19 @@ export async function buildFleet(
     // 12 synthesized` knows the drop menu is absent because the board is reading
     // an empty directory, not because nothing is broken.
     registry: entry.registry,
+    // WHETHER ANYTHING SUPERVISES THE FLEET, rendered on the WORKING header
+    // beside the registry annotation. The verdict is derived HERE rather than
+    // stored, because it combines the run — asked once per refresh — with the
+    // live agent count, which this same render already computes for
+    // `fleetControls.working`. One count, read twice, so the badge and the
+    // stepper's label cannot disagree about how many agents are running.
+    //
+    // Omitted entirely before the first refresh: `undefined` means nothing was
+    // asked, which the client renders as nothing. That is a different fact from
+    // `unknown`, which means the board asked and got no answer.
+    supervisor: entry.supervisor
+      ? supervisorVerdict({ ...entry.supervisor, agentsRunning: liveAgents })
+      : undefined,
     issueError: entry.issueError,
     // The two fleet controls, read fresh from `.plot/state/` on this render
     // clock — NOT off the cached pulse — so a write through /api/fleet-controls
@@ -6931,7 +6984,7 @@ export async function buildFleet(
     // fact, not an unreachable host.
     fleetControls: {
       ...settings,
-      working: entry.agents.filter((a) => isLiveState(a.state)).length,
+      working: liveAgents,
     },
     // The Active sprints, each with release and four `status` counts, aggregated
     // on THIS render clock from the same cached pulse the rows came from — so a

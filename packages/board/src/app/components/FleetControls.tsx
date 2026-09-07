@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ACTION_TIMEOUT_MS } from '../lib/bounded-fetch.js';
-import type { Fleet, RegistryInfo } from '../../contract/schema.js';
+import type { Fleet, RegistryInfo, Supervisor } from '../../contract/schema.js';
 
 /**
  * THE TWO SECTION-HEADER CONTROLS: a switch on NOT STARTED, a stepper on
@@ -132,7 +132,7 @@ export function AutoDispatchSwitch({ value }: { value: boolean }) {
  * expected interaction — a reader who lands on it with Tab can change it without
  * reaching for the two buttons.
  */
-export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry }: { value: number; working?: number; hiddenByFilter?: number; registry?: RegistryInfo }) {
+export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry, supervisor }: { value: number; working?: number; hiddenByFilter?: number; registry?: RegistryInfo; supervisor?: Supervisor }) {
   const [count, setCount] = useState(value);
   const [busy, setBusy] = useState(false);
   const writing = useRef(false);
@@ -273,6 +273,40 @@ export function ParallelAgentsStepper({ value, working, hiddenByFilter, registry
           title={`Registry: ${registry.directory}\n${registry.manifestCount} manifest(s) read, ${registry.synthesizedCount} synthesized from worktrees`}
         >
           · {registry.manifestCount} manifest{registry.manifestCount !== 1 ? 's' : ''}{registry.synthesizedCount > 0 && `, ${registry.synthesizedCount} synthesized`}
+        </span>
+      )}
+      {/*
+        WHETHER ANYTHING SUPERVISES THESE AGENTS — the fact the board did not
+        carry when six spent workers ran 23-25 hours against an 8-hour bound on
+        2026-09-07 and rendered as six healthy rows.
+
+        A statement about WORKING's contents, which is why it is here: the
+        supervisor is what reaps those agents' desks when they finish, marks the
+        spent ones and frees them. NOT on the master agent's row, which is one
+        agent where the missing fact is about the fleet; NOT in `StatusPanel`,
+        which reports on the board's own reading, while the measured failure was
+        that the board was open with the eye on the agents.
+
+        NOTHING IS DECIDED HERE. `shown`, `label`, `detail` and `prominence` all
+        arrive from `supervisorVerdict` in the domain, asserted in
+        `packages/domain/test/supervisor-reading.test.ts` with no browser. This
+        maps `prominence` to two class strings and renders the words it was
+        given — the `registry` annotation's shape above, reused rather than
+        reinvented.
+
+        `warn` is amber, matching its neighbours. `note` — the `unknown` state —
+        is deliberately NOT amber: a board that could not ask must render
+        neither an alarm nor an all-clear.
+      */}
+      {supervisor?.shown && (
+        <span
+          data-fleet-supervisor
+          data-fleet-supervisor-state={supervisor.state}
+          data-fleet-supervisor-prominence={supervisor.prominence}
+          className={`ml-1.5 ${supervisor.prominence === 'warn' ? 'text-amber-600 dark:text-amber-500' : 'text-slate-400 dark:text-slate-500'}`}
+          title={supervisor.detail}
+        >
+          · {supervisor.label}
         </span>
       )}
     </span>

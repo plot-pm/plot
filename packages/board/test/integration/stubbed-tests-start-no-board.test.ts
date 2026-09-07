@@ -365,7 +365,14 @@ describe('a browser test that stubs its own state starts no board', () => {
  * state through the catalogue and starts no board, so it satisfies the rule
  * this gate exists to hold rather than merely being admitted past it.
  */
-const EXPECTED_FILES = 45;
+/**
+ * 45 → 46 ON 2026-09-07: `supervisor-badge.browser.test.ts`, one file for the
+ * three supervisor states the board did not carry at all.
+ *
+ * It stubs `/api/fleet` at the network boundary and starts no board, so it
+ * satisfies this gate's rule rather than being admitted past it.
+ */
+const EXPECTED_FILES = 46;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -410,7 +417,19 @@ const EXPECTED_FILES = 45;
  * cannot be asserted without a browser is a domain property that has not been
  * extracted yet."*
  */
-const EXPECTED_TESTS = 470;
+/**
+ * 470 → 475 ON 2026-09-07. Five tests, one file: the supervisor badge is silent
+ * when a supervisor is loaded, silent again when the server sent no field at
+ * all, amber on the WORKING header when nothing supervises live agents, quiet
+ * when nothing supervises and nothing runs, and visible-but-not-amber for
+ * `unknown`.
+ *
+ * The deciding is unit-tested in
+ * `packages/domain/test/supervisor-reading.test.ts` with no browser. These five
+ * assert only that the badge shows what the rule decided — the split the
+ * Layering Rule draws.
+ */
+const EXPECTED_TESTS = 475;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.

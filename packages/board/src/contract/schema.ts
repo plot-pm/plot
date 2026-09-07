@@ -3240,6 +3240,45 @@ export const RegistryInfoSchema = z.object({
 export type RegistryInfo = z.infer<typeof RegistryInfoSchema>;
 
 /**
+ * Whether anything supervises the fleet, as the WORKING header renders it.
+ *
+ * THE VERDICT AND NOT THE READING. The state, its prominence and its two
+ * sentences are decided by `supervisorVerdict` in the domain and travel here
+ * whole, so the client picks no word and no colour of its own — the rule
+ * `CLAUDE.md` states as *every rendered state is a domain property*.
+ *
+ * The bug this exists for, measured 2026-09-07: `plot-fleetctl.sh --status`
+ * reported `supervisor=down` while six workers ran 23–25 hours against an
+ * 8-hour bound, all six spent, and the board showed six rows that looked
+ * exactly like six healthy ones — it carried no supervisor field at all.
+ *
+ * `unknown` IS NOT OPTIONAL and is not a spelling of `down`. A board that could
+ * not ask must render neither: `down` is an alarm nobody can act on, and `up`
+ * is the failure being removed.
+ */
+export const SupervisorSchema = z.object({
+  /**
+   * `up` when `--status` exits 0, `down` when it exits 1, `unknown` for every
+   * other outcome — another code, no code, a call that could not be made, or a
+   * run that stopped before its own summary line.
+   */
+  state: z.enum(['up', 'down', 'unknown']),
+  /**
+   * How loudly to say it, combining the state with the agent count. `down` with
+   * no agents is `quiet` — nothing is being neglected; `down` with agents
+   * running is `warn`, because every one of them is unreapable.
+   */
+  prominence: z.enum(['quiet', 'note', 'warn']),
+  /** Whether there is anything worth saying; false for a loaded supervisor. */
+  shown: z.boolean(),
+  /** The badge's label. */
+  label: z.string(),
+  /** The sentence its title attribute carries. */
+  detail: z.string(),
+});
+export type Supervisor = z.infer<typeof SupervisorSchema>;
+
+/**
  * The fleet controls a payload is READ AS when it carries none.
  *
  * Exported, and read by the client rather than only defaulted by Zod. The
@@ -3607,6 +3646,17 @@ export const FleetShape = z.object({
    * rather than as zeroes. The server emits this field unconditionally.
    */
   registry: RegistryInfoSchema.optional(),
+  /**
+   * Whether anything supervises the fleet — the WORKING header's second
+   * annotation, beside the registry's.
+   *
+   * Optional so a client talking to an older server still validates, and the
+   * ABSENT case renders as nothing rather than as `unknown`. The distinction is
+   * worth the extra state: a server that predates this field was never asked
+   * the question, while `unknown` is a server that asked and got no answer. The
+   * server emits this field unconditionally.
+   */
+  supervisor: SupervisorSchema.optional(),
   /**
    * Whether the tracker could be asked. Defaults to `unsupported`, which is the
    * only safe default: an older server sends no issues and no answer, and
