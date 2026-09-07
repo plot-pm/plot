@@ -649,7 +649,13 @@ test('worker-state: a running worker whose child works reads apart from one whos
 
   // A shell with a BUSY grandchild — the child's clock advances across the
   // sample. Spawned detached so we hold its pid and reap it afterwards.
-  const busy = spawn('sh', ['-c', 'sh -c "while :; do :; done"'], { stdio: 'ignore' });
+  //
+  // `detached: true` PUTS THE GRANDCHILD IN OUR PROCESS GROUP, and the reaper
+  // below signals the GROUP. Measured 2026-09-07: `busy.kill()` alone kills the
+  // child `sh` and leaves the grandchild spinning — one escaped this suite and
+  // burned a full core for 22h58m, orphaned at ppid 1, contributing to a load
+  // average of 36.7 that evicted the launchd supervisor.
+  const busy = spawn('sh', ['-c', 'sh -c "while :; do :; done"'], { stdio: 'ignore', detached: true });
   // A shell with an IDLE child — it sleeps, so its clock is frozen.
   const idle = spawn('sh', ['-c', 'sleep 30'], { stdio: 'ignore' });
   try {
@@ -662,6 +668,12 @@ test('worker-state: a running worker whose child works reads apart from one whos
     assert.notEqual(activity(busy.pid), activity(idle.pid),
       'the cue MUST fire differently for a working child than for an idle one');
   } finally {
+    // THE GROUP, NOT THE PID. A negative pid signals the whole process group,
+    // which is the grandchild's too — see the note on `detached` above. Wrapped
+    // because a group that has already exited throws ESRCH, and a cleanup that
+    // throws would mask the assertion that brought us here.
+    try { process.kill(-busy.pid, 'SIGKILL'); } catch { /* already gone */ }
+    try { process.kill(-idle.pid, 'SIGKILL'); } catch { /* already gone */ }
     busy.kill('SIGKILL');
     idle.kill('SIGKILL');
   }
