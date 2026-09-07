@@ -3066,10 +3066,18 @@ EOF
 # what the host said about it — are appended by the caller, because reading the
 # second costs a host round trip and the scan spends it only where it could
 # change the answer. The rule reports which states those are; see the caller.
+#
+# THE DEFAULT BRANCH'S TIP IS READ ONCE PER RUN, not once per branch. It does
+# not move while the scan runs — every fact below is derived from the ref batch
+# taken at the start — and `remote_ref_oid` forks an `awk`, so asking per branch
+# would put one process per branch back on the 5 s pulse path. That is the
+# per-branch tail this script has repeatedly been thinned to remove.
+MAIN_TIP=$(remote_ref_oid "$MAIN")
+[ -n "$MAIN_TIP" ] || MAIN_TIP="-"
+
 branch_readings() { # $1=branch $2=deferred → eight tab-separated readings
-  local br="$1" _bs_deferred="$2" _bs_subject=false _bs_ahead=0 _bs_real=0 _bs_tip _bs_main
-  _bs_main=$(remote_ref_oid "$MAIN")
-  [ -n "$_bs_main" ] || _bs_main="-"
+  local br="$1" _bs_deferred="$2" _bs_subject=false _bs_ahead=0 _bs_real=0 _bs_tip
+  local _bs_main="$MAIN_TIP"
   # THE REF CHECK STAYS IN FRONT. DO NOT HOIST THE MERGE LOOKUP ABOVE IT.
   #
   # A branch name can be reused: merge `bug/flaky`, delete it, then recreate it
