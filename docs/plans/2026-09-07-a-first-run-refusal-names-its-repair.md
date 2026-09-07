@@ -51,7 +51,7 @@
 
 ## Slices
 
-### Every first-run refusal names a repair or a decision (Branch: bug/a-first-run-refusal-names-its-repair)
+### Every first-run refusal names a repair or a decision (Branch: bug/a-first-run-refusal-names-its-repair, PR: #803)
 
 One rule, applied to every refusal on the path from `/plot-init` to `/plot-deliver`.
 
