@@ -159,6 +159,19 @@ What was burning the machine that time was a **leaked test fixture**. `test/reco
 
 **The honest state of the question:** something removes and re-establishes this job, leaving `runs = 1`, `never exited`, zero stderr and no launchd log line, on no schedule this session could pin down. The next measurement is not another poll — it is `launchctl print`'s pid sampled continuously, so the gap is measured rather than inferred from a list that answers a different question.
 
+**THE PID SAMPLER CAUGHT THE TRANSITION, AND CORRECTED THE PREVIOUS NOTE — 2026-09-07.** Sampling `launchctl print`'s pid every 4 s, logging only on change:
+
+```
+13:28:59 pid=67932   load=4.32
+13:29:47 pid=ABSENT  load=8.94
+```
+
+**It never came back.** The sampler ran another ~19 minutes and recorded no third transition, so the note above is wrong where it says launchd re-establishes the job on its own: **it does not self-heal.** Every return this session was a hand `bootstrap`. The two `runs = 1` pids looked like a self-restart only because a 20 s poll had a gap wide enough to hide a manual reload.
+
+**Pid 67932 lived 48 seconds.** With the earlier two that gives 17m22s at load 43.68, ~5m at 4.30, and 48s at 8.94 — **no relationship between lifetime and load in either direction**, on a plist untouched since 10:16.
+
+**What is left after three watches.** The job is removed, not crashed (`runs = 1`, `never exited`, 0 bytes of stderr, no launchd log line). It does not come back by itself. Its lifetime is unpredictable across two orders of magnitude. Load is excluded. `--once`, `--start`, `AbandonProcessGroup` and memory pressure are excluded. **The trigger remains unidentified, and this plan states that rather than offering a sixth guess.**
+
 **THIS DOES NOT EXCUSE THE DAEMON.** A supervisor that is evicted under exactly the load a working fleet produces is a supervisor that leaves when it is most needed. But the trigger is now named, and the two follow-ups are separable: an orphaned-scan reaper, and whether `ProcessType: Background` is the right class for a job that must outlive a busy fleet.
 
 **Why it is recorded here rather than fixed.** This plan is about a supervisor that hands nothing over. A supervisor that hands work over and then disappears is a second defect, and it needs a measurement this session did not get: what the system log says at the moment of the bootout. `log show --predicate 'process == "launchd"'` returned nothing for the window, which is itself a finding — the eviction leaves no trace either.
