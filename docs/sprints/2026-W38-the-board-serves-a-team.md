@@ -99,6 +99,19 @@ The goal is one walkthrough — *a teammate on Bitbucket, Jenkins and Jira runs 
 
 **THE TWO-WEEK WINDOW MAKES THIS A CHOICE, NOT A WORRY.** 18 slices in 14 days is not the problem; **18 slices where 10 serve a different goal** is. A sprint that ships all ten and six of the eight has a better-factored domain and **no teammate has run anything**.
 
+### What was checked for gaps and found covered — 2026-09-07
+
+The goal path was walked step by step after the fourth condition was found missing. **Nothing else is absent**, and the checks are recorded so the next reader does not repeat them:
+
+| checked | result |
+|---|---|
+| **the lifecycle's host ops on Bitbucket** | `pr-state` (3 `bb` calls), `pr-ready` (2), `pr-create`, `pr-merge`, `pr-merged` (1 each) — **every op `/plot-approve` and `/plot-deliver` need has a Bitbucket branch** |
+| **the board's PR links** | `branchUrlBase(origin)` derives from the remote; no vendor is hardcoded |
+| **credential reporting** | `plot-board-probe.sh` answers per CLI — measured here: `gh` ok, `bb` ok, `jen` `{installed: false, auth: "unknown"}`. **An absent CLI reads as *cannot verify*, never as failed** |
+| **the skills' own stack awareness** | thin by design — `plot-approve` and `plot-implement` name Bitbucket zero times because they delegate to `plot-host.sh`, which is where the branch belongs |
+
+**The one thing the walk confirmed rather than found:** `plot-host.sh` never probes for `jen`, because `runs` reaches `gh` alone. That is [`the-build-pipeline-is-its-own-connector`](../plans/2026-09-07-the-build-pipeline-is-its-own-connector.md), already the sprint's second Must.
+
 ### What would make the goal reachable
 
 **Cut the cohesion work to its root and defer the rest.** `a-shell-script-asks-the-domain` is worth keeping — it is one slice, it settles a contract three plans need, and it stops the next sprint re-deriving it. **The chain below it does not need to run in this window.**
