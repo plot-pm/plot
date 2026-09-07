@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 2
+- **Approved:** 2026-09-07, Jan Wloka, plan-PR #791 merged
 
 ## Changelog
 
