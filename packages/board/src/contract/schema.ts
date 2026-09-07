@@ -1889,33 +1889,39 @@ export type StuckState = z.infer<typeof StuckStateSchema>;
  * the same branch conflicted in `board-server.mjs` and was repaired
  * automatically: same class of conflict, opposite outcome, one filename apart.
  *
- * THE SOURCE IS `build.mjs`'S OWN `shippedX = path.join(…)` DECLARATIONS, which
- * `scripts/check-bundle-attributes.sh` and `plot-resolve-artifact.sh` both
- * derive from directly. This list cannot derive at import time — the board is a
- * bundle that must not read the repository to be loaded — so it is checked
- * against that derivation by `test/reconcile/resolveartifact.test.mjs` rather
- * than trusted. The test asserts SET EQUALITY across all three, so a bundle
- * added to the build and nowhere else fails rather than silently going
- * unrepairable.
+ * **DERIVED SINCE 2026-09-07, AND THIS IS NO LONGER A LIST.** It is re-exported
+ * from `bundles.generated.ts`, which `build.mjs` writes from its own
+ * `shippedX = path.join(…)` declarations. Adding a bundle to the build and
+ * rebuilding is now the whole change; this file needs no edit.
  *
- * `plot-monitor.mjs` IS DELIBERATELY ABSENT. It is committed and documented, and
- * no `outfile` names it — nothing rebuilds it. The deterministic rebuild is the
- * whole licence, so a file that has none cannot be here.
+ * That is the defect it removes. Typed out here, the list drifted three times in
+ * one evening — 9, then 10, then 11 entries against a build emitting one more
+ * each time — and every drift surfaced as an UNRELATED branch's CI failing on a
+ * bundle it never touched. A bundle added in one PR must not be able to fail
+ * another branch's CI.
+ *
+ * **THE THIRD READER, NOT A FOURTH DEFINITION.**
+ * `scripts/check-bundle-attributes.sh` and `plot-resolve-artifact.sh`'s
+ * `bundle_set()` already derived from those same declarations; the generator
+ * uses their regex. The shell and the TypeScript still cannot import each
+ * other, so `test/reconcile/resolveartifact.test.mjs` asserts SET EQUALITY
+ * across all three — what `plot-resolve-artifact.sh:75` calls being *"asserted
+ * by a test rather than trusted."*
+ *
+ * **THE RE-EXPORT IS DELIBERATE.** Four TypeScript modules import this name
+ * from the contract, and how the value is obtained is not their business.
+ * Repointing them at the generated path would spread a generated filename
+ * across four files — a list again, wearing a hat — and would break the one
+ * property the contract exists for: `isBoardArtifact` below and its callers
+ * read ONE name from ONE place.
+ *
+ * `plot-monitor.mjs` IS DELIBERATELY ABSENT, and now by construction rather
+ * than by omission. It is committed and documented, and no `outfile` names it —
+ * nothing rebuilds it. The deterministic rebuild is the whole licence, so a file
+ * with none cannot be here, and the derivation cannot see it.
  */
-export const BOARD_ARTIFACT_PATHS: readonly string[] = [
-  'skills/plot/scripts/board/board-server.mjs',
-  'skills/plot/scripts/board/plot-ask.mjs',
-  'skills/plot/scripts/board/plot-branch-state.mjs',
-  'skills/plot/scripts/board/plot-delta.mjs',
-  'skills/plot/scripts/board/plot-landed.mjs',
-  'skills/plot/scripts/board/plot-movable.mjs',
-  'skills/plot/scripts/board/plot-prompt.mjs',
-  'skills/plot/scripts/board/plot-registryd.mjs',
-  'skills/plot/scripts/board/plot-standing.mjs',
-  'skills/plot/scripts/board/plot-task.mjs',
-  'skills/plot/scripts/board/plot-transition.mjs',
-  'skills/plot/scripts/board/plot-verdicts.mjs',
-];
+export { BOARD_ARTIFACT_PATHS } from './bundles.generated.js';
+import { BOARD_ARTIFACT_PATHS } from './bundles.generated.js';
 
 /**
  * Is this path one of the build artifacts whose conflicts resolve mechanically?

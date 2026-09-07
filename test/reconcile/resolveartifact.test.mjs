@@ -521,9 +521,15 @@ test('finds a worktree it did not create, whose name matches no convention', () 
 // green throughout the window in which PR #727's repair was refused.
 //
 // `build.mjs` IS THE SOURCE and the other two are checked against it. The
-// script derives from it at run time and the contract lists it by hand — a list
-// is unavoidable there, because the board is a bundle that must not read the
-// repository to load — so this test is what makes the hand-written one true.
+// script derives from it at run time; the contract derives from it at BUILD
+// time, into `bundles.generated.ts`, because the board is a bundle that must
+// not read the repository to load.
+//
+// WHAT THIS TEST ASSERTS CHANGED ON 2026-09-07, and the change is the point. It
+// used to assert that SOMEBODY HAD REMEMBERED to update a hand-written list —
+// an assertion that is only ever red after the damage. It now asserts that THE
+// DERIVATION RAN: all three readers derive from one source, and what could still
+// go wrong is a stale generated file, which is what set equality now catches.
 test('build.mjs, the script and the board contract name the same bundle set', () => {
   const root = path.join(here, '..', '..');
 
@@ -544,16 +550,58 @@ test('build.mjs, the script and the board contract name the same bundle set', ()
   assert.doesNotMatch(script, /ARTIFACT_PATH=/,
     'a single hardcoded artifact is the defect this replaced');
 
-  // 3. THE CONTRACT's hand-written list must equal the derived set exactly.
-  //    Equality in BOTH directions: a missing entry makes a licensed repair be
-  //    refused, and an extra one claims a rebuild that does not exist.
+  // 3. THE CONTRACT DERIVES rather than lists, and what it derived must equal
+  //    the source exactly. Equality in BOTH directions: a missing entry makes a
+  //    licensed repair be refused, and an extra one claims a rebuild that does
+  //    not exist.
+  //
+  //    The contract itself must carry NO list — that is the property this slice
+  //    added, and asserting the generated file alone would pass just as well
+  //    with a hand-written array beside it shadowing the re-export.
   const schema = fs.readFileSync(
     path.join(root, 'packages', 'board', 'src', 'contract', 'schema.ts'), 'utf8');
-  const declared = schema.match(/BOARD_ARTIFACT_PATHS: readonly string\[\] = \[([^\]]*)\]/);
-  assert.ok(declared, 'BOARD_ARTIFACT_PATHS is not declared in the shape this test reads');
+  assert.doesNotMatch(schema, /BOARD_ARTIFACT_PATHS: readonly string\[\] = \[/,
+    'the contract must derive the bundle set, never list it — that list drifted three times in one evening');
+  assert.match(schema, /from '\.\/bundles\.generated\.js'/,
+    'the contract must obtain the bundle set from the generated module');
+
+  //    The generated module is what the contract re-exports, and it is
+  //    COMMITTED: CI typechecks before it builds, so an ignored file would fail
+  //    `tsc --noEmit` on a fresh clone. Committed, it can go stale — and a stale
+  //    one is exactly what this comparison catches.
+  const generated = fs.readFileSync(
+    path.join(root, 'packages', 'board', 'src', 'contract', 'bundles.generated.ts'), 'utf8');
+  const declared = generated.match(/BOARD_ARTIFACT_PATHS: readonly string\[\] = \[([^\]]*)\]/);
+  assert.ok(declared, 'bundles.generated.ts is not declared in the shape this test reads');
   const listed = [...declared[1].matchAll(/'([^']+)'/g)].map((m) => m[1]).sort();
   assert.deepEqual(listed, emitted,
-    'the board contract and build.mjs disagree about which bundles exist');
+    'bundles.generated.ts is stale — run `pnpm build:board` and commit the result');
+
+  //    AND THE BUILD IS WHAT WRITES IT. Without this, a hand-edited generated
+  //    file passes every assertion above for exactly as long as nobody adds a
+  //    bundle — which is the original defect, moved one file across.
+  assert.match(build, /bundles\.generated\.ts/,
+    'build.mjs must write the generated module, or nothing keeps it fresh');
+
+  // 5. EVERY DERIVED ENTRY IS A REAL FILE. The derivation reads `build.mjs` as
+  //    TEXT, so any complete declaration written in a COMMENT is matched by it
+  //    and lands in the set as a bundle nothing emits — and the pattern spans
+  //    newlines, so a wrapped comment matches too.
+  //
+  //    Measured 2026-09-07 while adding the generator: two comments explaining
+  //    the derivation put `<path>` and an ellipsis into the set, and
+  //    `plot-resolve-artifact.sh` read both as bundles it might repair. The
+  //    prose now describes the shape in pieces; this is what keeps it that way,
+  //    because the next author explaining the derivation will reach for an
+  //    example.
+  //
+  //    Existence is the assertion rather than a shape match: a path that is not
+  //    on disk is not a bundle, whatever it looks like.
+  for (const bundle of emitted) {
+    assert.ok(fs.existsSync(path.join(root, bundle)),
+      `the derivation produced ${JSON.stringify(bundle)}, which is not a file — `
+      + 'a complete declaration written in a comment is matched by the derivation');
+  }
 
   // 4. AND `.gitattributes` MARKS EVERY ONE — property 1, without which nothing
   //    here is licensed at all. `check-bundle-attributes.sh` is the gate; this
