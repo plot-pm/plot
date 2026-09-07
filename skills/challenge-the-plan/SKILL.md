@@ -6,7 +6,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: "1.3.1"
+  version: "1.3.2"
   source: "Adopted from quatico-solutions/agent-skills"
 compatibility: Designed for Claude Code and Cursor.
 ---

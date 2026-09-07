@@ -9,7 +9,7 @@ license: MIT
 metadata:
   author: eins78
   repo: https://github.com/plot-pm/plot
-  version: 0.2.1
+  version: 0.3.0
 compatibility: >-
   Designed for Claude Code and Cursor. Requires git; python3 improves
   detection. Works in an empty repo and in one with existing planning
