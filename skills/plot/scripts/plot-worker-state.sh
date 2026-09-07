@@ -754,3 +754,97 @@ plot_worker_state() { # $1=worktree $2=pr-fact → "state\tpid\tcode"
   # mistake in the other direction.
   printf 'ended\t%s\t' "$pid"
 }
+
+# ---------------------------------------------------------------------------
+# THE SAME READINGS, HANDED OUT RATHER THAN DECIDED
+# ---------------------------------------------------------------------------
+#
+# `plot_worker_state` above gathers six facts and turns them into a word. So
+# does `rules/agent-state.ts`, and `docs/shell-and-domain.md` says why both
+# exist: this function is sourced inside per-branch loops and by the agent's own
+# loop, where a `node` hop is 39 ms every caller pays on every pass, while the
+# board and the supervisor are already in node and pay nothing.
+#
+# WHAT THE PAIR NEEDS IS THE READINGS, NOT THE WORD. A caller handed `finished`
+# can only compare two strings; a caller handed the six facts can ask the domain
+# rule and compare its answer to this file's. That is what the corpus test does,
+# and it is why this function exists at all.
+#
+# ONE GATHERING, TWO CONSUMERS. Every fact below is read the way
+# `plot_worker_state` reads it — the manifest first and the worktree file as the
+# fallback, `plot_pid_is_current` for staleness, the same `PLOT-BLOCKED*` glob
+# and the same dirty filter. A second gathering that drifted would make the
+# corpus test compare this file against itself and pass while production broke.
+#
+# Prints one TAB-separated line, six fields:
+#
+#   worktree_here  pid_recorded  liveness  exit  blocked  dirty  unpushed
+#
+# `liveness` is `live`, `stale` or `dead`; `exit` is the code as read, empty for
+# an unreadable record and the literal `-` for an absent one, because an empty
+# field cannot say which of the two it is and the rule answers them alike only
+# because it was told they differ. The PR fact is NOT here: it comes from the
+# caller, exactly as it does for `plot_worker_state`.
+plot_worker_readings() { # $1=worktree → "here\tpid\tliveness\texit\tblocked\tdirty\tunpushed"
+  local wt="$1" pid="" started_at="" manifest_data="" manifest=""
+  local here=1 pid_recorded=0 liveness=dead exit_field='-' blocked=0 dirty=0 ahead=""
+
+  # NO WORKTREE IS ANSWERED FIRST, and it is a question about the worktree LIST
+  # rather than about anything inside one — the same split `worker_of` makes in
+  # `plot-fleet-scan.sh`, where `elsewhere` is decided before this file is
+  # reached. A caller iterating worktrees it found never sees this arm.
+  if [ -z "$wt" ] || [ ! -d "$wt" ]; then
+    printf '0\t0\tdead\t-\t0\t0\t'
+    return
+  fi
+
+  # THE MANIFEST IS PRIMARY, as above: it carries `pid` and `startedAt`
+  # together, and `startedAt` is what tells a reused pid from the real worker.
+  if manifest=$(plot_manifest_for_worktree "$wt" 2>/dev/null) && [ -n "$manifest" ]; then
+    if manifest_data=$(plot_read_manifest_pid "$manifest") && [ -n "$manifest_data" ]; then
+      pid=$(printf '%s' "$manifest_data" | cut -f1)
+      started_at=$(printf '%s' "$manifest_data" | cut -f2)
+    fi
+  fi
+  if [ -z "$pid" ] && [ -f "$wt/.plot-worker.pid" ]; then
+    pid=$(cat "$wt/.plot-worker.pid" 2>/dev/null | tr -d ' \n')
+  fi
+
+  # A pid of 0 and any non-numeric junk are NOT pids. `kill -0 0` signals the
+  # whole process group and succeeds, so a zero read as live reports `running`
+  # forever — rejected here exactly as `plot_worker_state` rejects it.
+  case "$pid" in
+    ''|0|*[!0-9]*) pid_recorded=0 ;;
+    *)             pid_recorded=1 ;;
+  esac
+
+  if [ "$pid_recorded" = 1 ]; then
+    if kill -0 "$pid" 2>/dev/null; then
+      # A recorded start time closes the pid-reuse window. Without one the old
+      # behaviour applies and `kill -0` alone decides, which keeps an
+      # uncheckable pid honest rather than pessimistic.
+      if [ -n "$started_at" ] && ! plot_pid_is_current "$pid" "$started_at"; then
+        liveness=stale
+      else
+        liveness=live
+      fi
+    fi
+  fi
+
+  # THE EXIT RECORD, distinguishing absent from unreadable. `plot_worker_state`
+  # reaches `ended` for both, but by different routes, and a reading that
+  # collapsed them would hide which one a desk is in from anybody comparing.
+  if [ -f "$wt/.plot-worker.exit" ]; then
+    exit_field=$(cat "$wt/.plot-worker.exit" 2>/dev/null | tr -d ' \n')
+  fi
+
+  plot_worker_blocked "$wt" && blocked=1 || blocked=0
+  [ -n "$(plot_worker_dirty "$wt")" ] && dirty=1 || dirty=0
+  # UNPUSHED IS A REF QUESTION asked THROUGH the worktree, and an unreadable
+  # count stays EMPTY — `null` is not `false`, and a branch with no upstream
+  # cannot be asked at all.
+  ahead=$(git -C "$wt" rev-list --count '@{upstream}..HEAD' 2>/dev/null) || ahead=""
+
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+    "$here" "$pid_recorded" "$liveness" "$exit_field" "$blocked" "$dirty" "$ahead"
+}

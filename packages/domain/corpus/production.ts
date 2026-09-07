@@ -468,3 +468,75 @@ export const readSprintRelease = (estate: Estate, slug: string): SprintRow | nul
     could: tier('could'),
   };
 };
+
+/**
+ * One desk, as `plot-worker-state.sh` reads and then classifies it.
+ *
+ * BOTH HALVES FROM THE SAME SIDE. `readings` is the line
+ * `plot_worker_readings` printed; `state` is what `plot_worker_state` answered
+ * over the same desk in the same pass. A comparison that parsed the desk here
+ * to build the domain's input would compare the rule against this file rather
+ * than against the shell.
+ */
+export interface DeskRow {
+  /** The worktree's path. */
+  worktree: string;
+  /** The desk's basename, for a report a person can find. */
+  name: string;
+  /** The tab-separated readings line, verbatim. */
+  readings: string;
+  /** What `plot_worker_state` answered. */
+  state: string;
+}
+
+/**
+ * Reads every desk on this machine, both ways, in ONE bash process.
+ *
+ * ONE PASS, AND THAT IS THE WHOLE OF WHY THIS IS ONE FUNCTION. A desk is live
+ * state: a worker exits, a marker lands, a file is committed. Asking for the
+ * readings in one process and the states in another compares two moments and
+ * reports the difference as a disagreement — the flake that would teach a
+ * reader to distrust the test. Both are printed from one `plot_worker_state.sh`
+ * sourcing, per desk, before the loop moves on.
+ *
+ * The PR fact is empty on BOTH sides, which is the registry's own contract:
+ * *a caller that cannot know says nothing, and a branch with work on the floor
+ * then reads `stalled`*. A host call here would be one `gh` per desk.
+ *
+ * @param estate - the repository to read.
+ * @returns one row per worktree git lists, the main checkout included.
+ */
+export const readDesks = (estate: Estate): DeskRow[] => {
+  const program = [
+    '. "$1"; shift',
+    'git worktree list --porcelain | awk \'/^worktree /{print $2}\' | while read -r wt; do',
+    '  printf \'%s\\t%s\\t%s\\n\' "$wt" "$(plot_worker_state "$wt" "" | cut -f1)" "$(plot_worker_readings "$wt")"',
+    'done',
+  ].join('\n');
+  const out = execFileSync(
+    'bash',
+    ['-c', program, 'bash', scriptIn(estate, 'plot-worker-state.sh')],
+    {
+      cwd: estate.root,
+      encoding: 'utf8',
+      maxBuffer: MAX_BUFFER,
+      timeout: TIMEOUT_MS,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    },
+  );
+  return out
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line) => {
+      const [worktree, state, ...readings] = line.split('\t');
+      return {
+        worktree: worktree ?? '',
+        name: (worktree ?? '').replace(/^.*\//, ''),
+        // The readings are themselves tab-separated, so they are rejoined
+        // rather than re-split — the seven fields are the entry point's to
+        // parse, not this reader's.
+        readings: readings.join('\t'),
+        state: state ?? '',
+      };
+    });
+};

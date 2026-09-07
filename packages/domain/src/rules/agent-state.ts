@@ -1,5 +1,4 @@
 import type { AgentState } from '../entities/agent.js';
-import { STATE_SOURCE, type StateSource } from '../transitions/agent.js';
 import { taskState, type TaskReadings } from './task.js';
 
 /**
@@ -124,17 +123,21 @@ export const agentState = (readings: AgentStateReadings): AgentState => {
   return readings.task.hasPr ? taskState(readings.task) : 'failed';
 };
 
-/**
- * Which component's reading produced a state, as the deriver reached it.
+/*
+ * WHERE `agentStateSource` IS NOT.
  *
- * **`STATE_SOURCE` IS THE SPECIFICATION AND THIS IS THE CHECK.**
- * `transitions/agent.ts` maps every state to whether the process or the desk
- * answers it, transcribed from `DESIGN-agent.md:366`. A deriver that
- * contradicts it is wrong by the domain's own record — so this reads the map
- * rather than restating it, and the two cannot disagree because there is only
- * one table.
+ * `STATE_SOURCE` in `transitions/agent.ts` maps every state to whether the
+ * process or the desk answers it, and this deriver must not contradict it —
+ * but a re-export here would only rename the one table, and it would cost the
+ * bundle its size. `transitions/agent.ts` VALUE-imports `AgentStateSchema`,
+ * which imports `zod`: measured 2026-09-07, importing it here built
+ * `plot-agent-state.mjs` at 320.8 KB against 6.7 KB without, and startup went
+ * from 39 ms to 130–190 ms. `plot-task.mjs` records the same trap and avoids
+ * it the same way — the subpath export exists so a rule can be imported
+ * without the entities' validators.
  *
- * @param state - the state {@link agentState} answered.
- * @returns which component read it.
+ * SO THE AGREEMENT IS ASSERTED RATHER THAN RE-EXPORTED. `test/agent-state.test.ts`
+ * reads `STATE_SOURCE` directly and checks that every state this rule can
+ * answer is one the specification sources, which is the claim the done-when
+ * asks for — and a test carries no bytes into the bundle.
  */
-export const agentStateSource = (state: AgentState): StateSource => STATE_SOURCE[state];

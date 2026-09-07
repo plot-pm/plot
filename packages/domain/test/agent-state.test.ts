@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { AgentStateSchema } from '../src/entities/agent.js';
-import {
-  agentState,
-  agentStateSource,
-  type AgentStateReadings,
-} from '../src/rules/agent-state.js';
+import { AgentStateSchema, type AgentState } from '../src/entities/agent.js';
+import { agentState, type AgentStateReadings } from '../src/rules/agent-state.js';
 import { STATE_SOURCE } from '../src/transitions/agent.js';
 import type { TaskReadings } from '../src/rules/task.js';
 
@@ -169,34 +165,69 @@ describe('agentState', () => {
   });
 });
 
-describe('agentStateSource', () => {
-  it('reads the transitions table rather than restating it', () => {
-    // `STATE_SOURCE` IS THE SPECIFICATION. There is one table, so the deriver
-    // and the specification cannot disagree — this pins that there is one.
-    for (const state of AgentStateSchema.options) {
-      expect(agentStateSource(state)).toBe(STATE_SOURCE[state]);
+describe('the deriver and STATE_SOURCE cannot disagree', () => {
+  /**
+   * Every state the deriver can actually answer, over the readings that reach
+   * it — not the enum. A state the rule cannot produce is not one it claims a
+   * source for.
+   */
+  const answerable: AgentState[] = [
+    agentState(desk({ worktreeHere: false })),
+    agentState(desk()),
+    agentState(desk({ pidRecorded: true, liveness: 'live' })),
+    agentState(desk({ pidRecorded: true, liveness: 'stale' })),
+    agentState(desk({ pidRecorded: true, exit: '0' })),
+    agentState(desk({ pidRecorded: true, exit: '0', task: task({ blocked: true }) })),
+    agentState(desk({ pidRecorded: true, exit: '0', task: task({ dirty: true }) })),
+    agentState(desk({ pidRecorded: true, exit: '9' })),
+  ];
+
+  it('answers only states the specification sources', () => {
+    // `STATE_SOURCE` IS THE SPECIFICATION — `transitions/agent.ts:43`,
+    // transcribed from `DESIGN-agent.md:366`. A deriver answering a state it
+    // does not map would be wrong by the domain's own record.
+    for (const state of answerable) {
+      expect(STATE_SOURCE[state]).toBeDefined();
     }
   });
 
-  it('sources the desk states to the desk', () => {
+  it('reaches every state the specification sources', () => {
+    // AND IN THE OTHER DIRECTION, which is the half that catches a state the
+    // deriver dropped: the specification names eight, so the deriver answers
+    // eight. One implementation answering seven is how the two would drift
+    // while every per-state assertion above still passed.
+    expect([...new Set(answerable)].sort()).toEqual([...AgentStateSchema.options].sort());
+  });
+
+  it('derives the desk states only from desk readings', () => {
     // CLAUDE.md: `waiting` and `stalled` are Agent facts read from the desk,
-    // and the two kinds sharing one enum is not a licence to move one.
-    expect(agentStateSource('waiting')).toBe('desk');
-    expect(agentStateSource('stalled')).toBe('desk');
+    // and the two kinds sharing one enum *"is not a licence to add a workflow
+    // state to the process side"*. Both are reached here by changing a desk
+    // reading with the process readings held fixed.
+    const exited = { pidRecorded: true, exit: '0' };
+    expect(STATE_SOURCE[agentState(desk({ ...exited, task: task({ blocked: true }) }))]).toBe(
+      'desk',
+    );
+    expect(STATE_SOURCE[agentState(desk({ ...exited, task: task({ dirty: true }) }))]).toBe(
+      'desk',
+    );
   });
 
-  it('sources the process states to the worker and elsewhere to the machine', () => {
-    for (const state of ['running', 'failed', 'ended', 'none', 'finished'] as const) {
-      expect(agentStateSource(state)).toBe('worker');
-    }
-    expect(agentStateSource('elsewhere')).toBe('machine');
+  it('derives elsewhere from the machine question alone', () => {
+    // `elsewhere` is a Machine answer — the worktree LIST, asked before there
+    // is a worktree to look inside.
+    expect(STATE_SOURCE[agentState(desk({ worktreeHere: false }))]).toBe('machine');
   });
 
-  it('names the source of every state the deriver can answer', () => {
-    // The pair the done-when asks for: a deriver that answers a state the
-    // specification does not source would be wrong by the domain's own record.
-    for (const state of AgentStateSchema.options) {
-      expect(['worker', 'desk', 'machine']).toContain(agentStateSource(state));
+  it('derives the process states from process readings', () => {
+    for (const readings of [
+      desk(),
+      desk({ pidRecorded: true, liveness: 'live' }),
+      desk({ pidRecorded: true, liveness: 'stale' }),
+      desk({ pidRecorded: true, exit: '0' }),
+      desk({ pidRecorded: true, exit: '9' }),
+    ]) {
+      expect(STATE_SOURCE[agentState(readings)]).toBe('worker');
     }
   });
 });

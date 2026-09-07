@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+var s=e=>e.hasPr?"finished":e.blocked?"waiting":e.dirty||e.unpushed===!0?"stalled":"finished";var g=e=>e!==null&&e!==""&&/^\d+$/.test(e),d=e=>e.worktreeHere?e.pidRecorded?e.liveness==="live"?"running":e.liveness==="stale"||!g(e.exit)?"ended":e.exit==="0"?s(e.task):e.task.hasPr?s(e.task):"failed":"none":"elsewhere";import{realpathSync as f}from"node:fs";import{pathToFileURL as h}from"node:url";var k=e=>{let t=e.split("	");if(t.length!==7)throw new Error(`expected 7 tab-separated fields, got ${t.length} in '${e}'`);let[r,l,i,a,p,u,o]=t,n=Number(o),c=o!==""&&Number.isInteger(n)&&n>=0?n>0:null;return{worktreeHere:r==="1",pidRecorded:l==="1",liveness:i==="live"?"live":i==="stale"?"stale":"dead",exit:a==="-"?null:a,task:{hasPr:!1,blocked:p==="1",dirty:u==="1",unpushed:c}}},m=e=>e.replace(/\n$/,"").split(`
+`).map(r=>d(k(r))).join(`
+`)+`
+`,x=(e,t=r=>process.stdout.write(r))=>{try{return t(m(e)),0}catch(r){return process.stderr.write(`plot-agent-state: ${r.message}
+`),2}};if(process.argv[1]&&import.meta.url===h(f(process.argv[1])).href){let e=[];for await(let t of process.stdin)e.push(t);process.exit(x(Buffer.concat(e).toString("utf8")))}export{m as answer,k as readingsFrom,x as run};
