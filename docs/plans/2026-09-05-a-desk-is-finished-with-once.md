@@ -145,7 +145,7 @@ and its blast radius is bounded by the plan file.
   differ named rather than absent. **Asserted: an open PR keeps a ref and does
   not keep a checkout**, and **asserted: a live worker pid keeps a checkout and
   says nothing about a ref** — the two differences that are currently only
-  visible by reading both scripts.
+  visible by reading both scripts. (#754)
 
   **NEITHER SCRIPT GAINS THE OTHER'S GUARDS.** The rule states every condition;
   each caller declares which it asks and why. Round 2 settled this: the defect
