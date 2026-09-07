@@ -45,7 +45,7 @@
 
 ## Slices
 
-### The scan reports a merged ref (Branch: bug/a-merged-ref-is-reported-too)
+### The scan reports a merged ref (Branch: bug/a-merged-ref-is-reported-too, PR: #804)
 
 A new advisory section names a remote branch whose PR merged and whose ref still exists.
 
