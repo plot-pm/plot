@@ -93,14 +93,26 @@ export type {
  * The workflow keeps the plain name because it is what `/plot-approve` means
  * to a caller. An alias in the other direction is what this repo already has
  * one of, and one is enough.
+ *
+ * `reject` and `supersede` keep their plain names, and the rule is the same
+ * one: `scripts/count-domain-aliases.sh` counts a rename whose original name is
+ * exported from exactly one module, and both are. Nothing collides with either,
+ * so a `…Transition` suffix on them would buy no clarity and would be residue —
+ * the three above are suffixed because two live functions genuinely collide.
+ * There are no rejection or supersession workflows to collide with, because
+ * this slice deliberately makes neither verb reachable from a script.
  */
 export {
   approve as approveTransition,
   deliver as deliverTransition,
   release as releaseTransition,
+  reject,
+  supersede,
   approvable,
   deliverable,
   releasable,
+  rejectable,
+  supersedable,
   isDecision,
   isRefusal,
 } from './transitions/plan.js';
@@ -116,6 +128,8 @@ export type {
   ApproveInput as ApproveTransitionInput,
   DeliverInput as DeliverTransitionInput,
   ReleaseInput as ReleaseTransitionInput,
+  RejectInput,
+  SupersedeInput,
 } from './transitions/plan.js';
 
 /**

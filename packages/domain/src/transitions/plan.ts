@@ -52,6 +52,19 @@ export interface TransitionPlan {
   deliveredRecord: string;
   /** The `Released:` line as written, or `''`. */
   releasedRecord: string;
+  /**
+   * The `Rejected:` line as written, or `''`.
+   *
+   * Optional where the three above are required, because the callers that
+   * construct a `TransitionPlan` today were written before these two states had
+   * a transition, and none of them can supply the field. An absent field reads
+   * as `''` — the same spelling those three use for *no record written yet* —
+   * so a caller that never heard of rejection is treated as one whose plan
+   * carries no rejection, which is what it is.
+   */
+  rejectedRecord?: string;
+  /** The `Superseded:` line as written, or `''`. Optional for the reason above. */
+  supersededRecord?: string;
 }
 
 /**
@@ -78,6 +91,8 @@ export type RefusalReason =
   | 'review-human'
   | 'review-unrecognised'
   | 'version-missing'
+  | 'reason-missing'
+  | 'successor-missing'
   | 'precondition-unmet';
 
 /**
@@ -107,9 +122,12 @@ export interface Decision {
   /** The plan to write to. */
   readonly slug: string;
   /** The state to write. The field is named `phase` because the wire key is. */
-  readonly phase: Extract<PlanState, 'approved' | 'delivered' | 'released'>;
+  readonly phase: Extract<
+    PlanState,
+    'approved' | 'delivered' | 'released' | 'rejected' | 'superseded'
+  >;
   /** The `## Status` field the record belongs on. */
-  readonly field: 'Approved' | 'Delivered' | 'Released';
+  readonly field: 'Approved' | 'Delivered' | 'Released' | 'Rejected' | 'Superseded';
   /** The record's value, without its `- **Field:** ` prefix. */
   readonly record: string;
   /** Whether the plan already carries this state and record, leaving nothing to write. */
@@ -427,5 +445,226 @@ export const release = (plan: TransitionPlan, input: ReleaseInput): TransitionRe
     field: 'Released',
     record: written === '' ? `${input.on}, ${version}` : written,
     alreadyRecorded: plan.phase === 'released' && written !== '',
+  };
+};
+
+/**
+ * The two states a plan ends in without shipping.
+ *
+ * They are separated from the three above because they answer a different
+ * question. `approve`, `deliver` and `release` move a plan ALONG the lifecycle;
+ * these two take it OUT of it, and the estate already reads them as one group:
+ * `plot-reconcile-scan.sh:730` files both under the delivered index, and the
+ * board drops both from its cards.
+ *
+ * **They are two verbs and not one with a flag.** `rejected` is a verdict —
+ * somebody decided this will not be built, and the fact worth keeping is why.
+ * `superseded` is a relation — another plan replaced this one, and the record
+ * is worth nothing without naming which. A shared verb would have to make the
+ * reason optional and the successor optional, and then neither is required.
+ */
+
+/**
+ * Whether a plan is in a state that can leave the lifecycle, as a refusal.
+ *
+ * Shared by both verbs because both draw the line in the same place, and for
+ * the same reason: work that shipped cannot be un-shipped by an edit to a
+ * phase field. Where they differ is the state each treats as its own idempotent
+ * case, which is why that state is the caller's parameter rather than a branch
+ * here.
+ *
+ * @param plan - the plan to test.
+ * @param idempotent - the state this verb writes, which it accepts as already
+ *   written.
+ * @param verb - the verb naming itself in the refusal.
+ * @returns a refusal naming the gate that fired, or null when the state passes.
+ */
+const notLeavable = (
+  plan: TransitionPlan,
+  idempotent: Extract<PlanState, 'rejected' | 'superseded'>,
+  verb: 'rejected' | 'superseded',
+): Refusal | null => {
+  switch (plan.phase) {
+    case 'draft':
+    case 'design':
+    case 'approved':
+      return null;
+    case 'delivered':
+    case 'released':
+      return refuse(
+        plan.slug,
+        'state-terminal',
+        `plan '${plan.slug}' is already ${plan.phase} — landed work cannot be ${verb}. Its record stands; write a new plan for what should change.`,
+      );
+    case 'none':
+      return refuse(
+        plan.slug,
+        'state-unreadable',
+        `cannot read the state of '${plan.slug}' — refusing rather than guessing.`,
+      );
+    case 'rejected':
+    case 'superseded':
+      return plan.phase === idempotent
+        ? null
+        : refuse(
+            plan.slug,
+            'state-wrong',
+            `plan '${plan.slug}' is already ${plan.phase} — it left the lifecycle once and cannot leave it a second way.`,
+          );
+    default:
+      return refuse(
+        plan.slug,
+        'state-wrong',
+        `plan '${plan.slug}' is in state '${plan.phase}' — only a Draft, Design or Approved plan can be ${verb}.`,
+      );
+  }
+};
+
+/** What `reject` needs beyond the plan. */
+export interface RejectInput {
+  /** The date to record, ISO-8601. */
+  on: string;
+  /** The name to record as the person who decided. */
+  who: string;
+  /**
+   * Why the plan will not be built.
+   *
+   * Required, and the field this verb exists for. Three of the six plans
+   * carrying these states by hand record a date, a person and a channel and no
+   * reason at all — which leaves a file saying somebody said no, and nothing an
+   * author can act on.
+   */
+  why: string;
+  /** Readings an adapter measured. */
+  preconditions?: readonly Precondition[];
+}
+
+/**
+ * Whether a plan is in a state where Reject should be offered.
+ *
+ * Callable alone; {@link reject} re-checks regardless. Tested with placeholder
+ * values, so it answers about the state rather than the input.
+ *
+ * @param plan - the plan to test.
+ * @returns true when the mechanical gates would pass.
+ */
+export const rejectable = (plan: TransitionPlan): boolean =>
+  !isRefusal(reject(plan, { on: '', who: '', why: 'placeholder' }));
+
+/**
+ * Decides the write that rejecting a plan calls for.
+ *
+ * A rejection is a verdict: somebody decided the plan will not be built. The
+ * record carries the date, the person and the reason, because a plan rejected
+ * without a reason is a file nobody can act on.
+ *
+ * `rejected` is not refused: it is the idempotent case, where a state written
+ * without its record is still repairable.
+ *
+ * @param plan - the plan to reject.
+ * @param input - the date, decider and reason to record, plus any readings.
+ * @returns a decision carrying `rejected` and its record, or a refusal naming
+ *   the gate that fired: `state-terminal`, `state-unreadable`, `state-wrong`,
+ *   `reason-missing` or `precondition-unmet`.
+ */
+export const reject = (plan: TransitionPlan, input: RejectInput): TransitionResult => {
+  const blockedByState = notLeavable(plan, 'rejected', 'rejected');
+  if (blockedByState) return blockedByState;
+
+  const written = (plan.rejectedRecord ?? '').trim();
+  const why = input.why.trim();
+  // Asked only where a record would be written: a plan already carrying one is
+  // being repaired, and its reason was recorded when it was rejected.
+  if (written === '' && why === '') {
+    return refuse(
+      plan.slug,
+      'reason-missing',
+      `plan '${plan.slug}' cannot be rejected without a reason — a verdict nobody can act on is not one.`,
+    );
+  }
+
+  const blocked = unmet(plan.slug, input.preconditions ?? []);
+  if (blocked) return blocked;
+
+  return {
+    outcome: 'decided',
+    slug: plan.slug,
+    phase: 'rejected',
+    field: 'Rejected',
+    record: written === '' ? `${input.on}, ${input.who}, ${why}` : written,
+    alreadyRecorded: plan.phase === 'rejected' && written !== '',
+  };
+};
+
+/** What `supersede` needs beyond the plan. */
+export interface SupersedeInput {
+  /** The date to record, ISO-8601. */
+  on: string;
+  /**
+   * The slug of the plan that replaces this one.
+   *
+   * Required, and the fact this verb exists for. It is what `moved:` already
+   * carries at branch level, and a supersession that names no successor leaves
+   * a reader with a plan that stopped and no way to find where the work went.
+   */
+  by: string;
+  /** Readings an adapter measured. */
+  preconditions?: readonly Precondition[];
+}
+
+/**
+ * Whether a plan is in a state where Supersede should be offered.
+ *
+ * Callable alone; {@link supersede} re-checks regardless. Tested with a
+ * placeholder successor, so it answers about the state rather than the input.
+ *
+ * @param plan - the plan to test.
+ * @returns true when the mechanical gates would pass.
+ */
+export const supersedable = (plan: TransitionPlan): boolean =>
+  !isRefusal(supersede(plan, { on: '', by: 'placeholder' }));
+
+/**
+ * Decides the write that superseding a plan calls for.
+ *
+ * A supersession is a relation, not a verdict: another plan replaced this one,
+ * and the record names which. The successor is not checked to exist — that is a
+ * reading an adapter supplies, because resolving a slug needs a plan store the
+ * domain cannot reach.
+ *
+ * `superseded` is not refused: it is the idempotent case.
+ *
+ * @param plan - the plan to supersede.
+ * @param input - the date and the replacing plan's slug, plus any readings.
+ * @returns a decision carrying `superseded` and its record, or a refusal naming
+ *   the gate that fired: `state-terminal`, `state-unreadable`, `state-wrong`,
+ *   `successor-missing` or `precondition-unmet`.
+ */
+export const supersede = (plan: TransitionPlan, input: SupersedeInput): TransitionResult => {
+  const blockedByState = notLeavable(plan, 'superseded', 'superseded');
+  if (blockedByState) return blockedByState;
+
+  const written = (plan.supersededRecord ?? '').trim();
+  const by = input.by.trim();
+  // Asked only where a record would be written, as `release` asks for its
+  // version: a plan already carrying one recorded its successor at the time.
+  if (written === '' && by === '') {
+    return refuse(
+      plan.slug,
+      'successor-missing',
+      `plan '${plan.slug}' cannot be superseded without naming the plan that replaces it — a supersession with no successor loses the work.`,
+    );
+  }
+
+  const blocked = unmet(plan.slug, input.preconditions ?? []);
+  if (blocked) return blocked;
+
+  return {
+    outcome: 'decided',
+    slug: plan.slug,
+    phase: 'superseded',
+    field: 'Superseded',
+    record: written === '' ? `${input.on}, by \`${by}\`` : written,
+    alreadyRecorded: plan.phase === 'superseded' && written !== '',
   };
 };
