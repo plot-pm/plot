@@ -143,6 +143,33 @@ const countFrom = (word: string, line: number, name: string): number => {
  * @throws when any non-empty line is not {@link FIELDS} tab-separated fields
  */
 export const readingsFrom = (text: string): BranchReadings[] =>
+  parsedFrom(text).map((entry) => entry.readings);
+
+/**
+ * One parsed line: the readings, and the prerequisite the plan named.
+ *
+ * The name is kept BESIDE the readings rather than inside them, because the
+ * rule's `waits` is `null` for two different lines — a plan naming no
+ * prerequisite, and a plan naming one whose state has not been read. Only the
+ * second is worth a host round trip, and the flag {@link answer} reports must
+ * tell them apart.
+ */
+interface ParsedLine {
+  /** What the rule takes. */
+  readings: BranchReadings;
+  /** The prerequisite the plan named, or `''` where it named none. */
+  waitsBranch: string;
+}
+
+/**
+ * Parse one branch per line, keeping the prerequisite's name beside the
+ * readings.
+ *
+ * @param text the stdin document, one branch per line
+ * @returns the parsed lines, in order
+ * @throws when any non-empty line is not {@link FIELDS} tab-separated fields
+ */
+const parsedFrom = (text: string): ParsedLine[] =>
   text
     .split('\n')
     .filter((line) => line !== '')
@@ -158,7 +185,7 @@ export const readingsFrom = (text: string): BranchReadings[] =>
       ] = fields as [
         string, string, string, string, string, string, string, string, string, string,
       ];
-      return {
+      const readings: BranchReadings = {
         deferredByPlan: deferred === 'true',
         refTip: refTip === '-' ? null : refTip,
         mainTip: mainTip === '-' ? null : mainTip,
@@ -172,26 +199,33 @@ export const readingsFrom = (text: string): BranchReadings[] =>
             ? null
             : { branch: waitsBranch, pr: prFrom(waitsPr) },
       };
+      return { readings, waitsBranch: waitsBranch === '-' ? '' : waitsBranch };
     });
 
 /**
  * Decide every branch of one plan.
  *
- * The second column says whether a prerequisite would replace the state just
- * given — the rule's own `REPLACEABLE_BY_PREREQUISITE`, reported rather than
- * re-derived by the caller. It is `1` only where the plan names a prerequisite
- * whose reading has not arrived yet, so a branch that already carries its
- * prerequisite's state is never asked about twice.
+ * The second column says whether reading a prerequisite would change the state
+ * just given — the rule's own `REPLACEABLE_BY_PREREQUISITE`, reported rather
+ * than re-derived by the caller. All three conditions must hold: the plan NAMES
+ * a prerequisite, its reading has NOT arrived, and the state is one the
+ * prerequisite may replace. So a branch with no prerequisite is never asked
+ * about, and one that already carries its prerequisite's state is never asked
+ * about twice.
  *
  * @param text the stdin document, one branch per line
  * @returns one `state<TAB>needsPrerequisite` line per branch, newline-terminated
  */
 export const answer = (text: string): string =>
-  readingsFrom(text)
-    .map((readings) => {
+  parsedFrom(text)
+    .map(({ readings, waitsBranch }) => {
       const state = branchState(readings);
       const needs =
-        readings.waits === null && REPLACEABLE_BY_PREREQUISITE.includes(state) ? '1' : '0';
+        waitsBranch !== ''
+        && readings.waits === null
+        && REPLACEABLE_BY_PREREQUISITE.includes(state)
+          ? '1'
+          : '0';
       return `${state}\t${needs}\n`;
     })
     .join('');
