@@ -139,6 +139,15 @@ anybody is watching.
 means the unit is removed and the run refuses, and on macOS `plutil -lint` must
 also pass before `launchctl bootstrap` is called.
 
+**AN INSTALLED UNIT DOES NOT UPDATE ITSELF.** The same property that bakes
+`$NODE` in permanently bakes in everything else the template said on the day it
+was filled — a fleet installed before 2026-09-07 runs a supervisor that computes
+every hand-over and performs none, because its unit omits `--start-agents`.
+Pulling the fix changes the template and nothing on the machine. **Run `--stop`
+then `--start` to re-fill it**; that is the whole upgrade path, and there is no
+other. The symptom to recognise is a tick reporting `handed=N` while the agents
+it named keep an empty `branch:` and go on being quiet.
+
 ### 5. Stop the fleet
 
 ```bash
