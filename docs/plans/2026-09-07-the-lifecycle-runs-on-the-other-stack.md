@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #783 merged
+- **Started:** 2026-09-07, Jan Wloka, `infra/the-lifecycle-runs-on-the-other-stack`
 
 ## Changelog
 
