@@ -247,3 +247,123 @@ export const refDeletionProblems = (readings: RefReadings): RefProblem[] => {
  */
 export const firstRefRefusal = (readings: RefReadings): RefProblem | null =>
   refDeletionProblems(readings)[0] ?? null;
+
+/**
+ * One condition's answer: it holds, it does not, or it could not be asked.
+ *
+ * `unknown` is a reading and not an error. Measured 2026-09-06: **22 of 32
+ * remote branches have no worktree, 69%** — and four of the reaper's five
+ * conditions need that tree, leaving only the merge state answerable without
+ * one. A boolean would invent an answer on two branches in three, for the
+ * operation no `git worktree add` can undo.
+ */
+export type ConditionReading = 'true' | 'false' | 'unknown';
+
+/**
+ * Which conditions a tree can answer at all.
+ *
+ * `present` means a worktree was found and read; `absent` means none exists, so
+ * the four tree-sourced conditions answer `unknown`. The distinction is the
+ * reading — *nothing was there* is not *nothing was looked at*, and both differ
+ * from *looked and found nothing*.
+ */
+export type TreePresence = 'present' | 'absent';
+
+/**
+ * What was measured of ONE desk, for the question both verbs ask of it.
+ *
+ * Extends {@link RefReadings} rather than restating it, and adds the one thing
+ * neither previous shape recorded: whether there was a tree to read. Without
+ * that field an empty `dirtyPath` means both *clean* and *unmeasured*, and the
+ * two callers need to tell them apart — the reaper because an unmeasured tree
+ * is nothing to reap, the ref-deleter because it is no evidence against
+ * deletion.
+ *
+ * Named for the rule rather than for the desk: `DeskReadings` is the
+ * supervisor's, in `rules/gates.ts`, and answers what an agent owes. This
+ * answers what still holds a checkout or a ref, and one name over both would
+ * make the two questions look like one.
+ */
+export interface FinishedWithReadings extends RefReadings {
+  /** Whether a worktree was found for the branch and read. */
+  tree: TreePresence;
+}
+
+/**
+ * Every condition that can hold a desk, each answered `true`, `false` or
+ * `unknown`.
+ *
+ * The names are the conditions rather than the refusals: this states what is
+ * the case, and each caller decides which answers refuse it.
+ */
+export interface FinishedWith {
+  /** The plan recorded the branch as `deferred:` or `moved:`. */
+  givenUp: ConditionReading;
+  /** No PR for the branch merged, or the host could not be asked. */
+  noMergedPr: ConditionReading;
+  /** The host reports an OPEN PR on the branch, whatever else merged. */
+  openPr: ConditionReading;
+  /** Some worktree on this machine has the branch checked out. */
+  checkedOut: ConditionReading;
+  /** The branch is the repository's default branch. */
+  onDefaultBranch: ConditionReading;
+  /** A worker process is alive in the desk. */
+  liveWorker: ConditionReading;
+  /** The desk holds uncommitted changes. */
+  uncommittedChanges: ConditionReading;
+  /** The desk carries a `PLOT-BLOCKED*` marker. */
+  blockedMarker: ConditionReading;
+}
+
+/**
+ * Every condition both verbs apply to a desk, stated once.
+ *
+ * ONE RULE, AND THE CALLERS STAY DIFFERENT. `plot-reap.sh` removes a checkout
+ * and `plot-release-refs.sh` deletes a remote ref; a removed checkout comes
+ * back with `git worktree add` and a deleted ref does not. So the two verbs
+ * read one answer and each keeps its own licence and its own scope — the reaper
+ * slug-blind, the ref-deleter bounded by one plan file. This states the
+ * conditions; it permits nothing and enumerates nothing.
+ *
+ * WHERE THE TWO LEGITIMATELY DIFFER, THIS NAMES IT RATHER THAN OMITTING IT. An
+ * open PR keeps a ref and says nothing about a checkout — `changeset-release/
+ * main` is merged repeatedly and Changesets reuses the branch, so a live
+ * release PR sits on a ref whose own older PR merged. A live worker pid keeps a
+ * checkout and says nothing about a ref. Until this rule existed each of those
+ * was an ABSENCE in one of two shell scripts, visible only by reading both.
+ *
+ * `unknown` IS AN ANSWER. The four tree-sourced conditions cannot be asked of a
+ * branch with no worktree, which is 69% of this estate. They answer `unknown`
+ * rather than `false`, and the caller decides what that is worth: the reaper
+ * has nothing to reap, the ref-deleter has no evidence against deletion. This
+ * refuses on none of them — refusing on silence is the estate's rule for an
+ * unreachable HOST, and applying it here would disable the ref-deleter on the
+ * majority of the estate.
+ *
+ * @param readings What was measured of the desk.
+ * @returns One answer per condition; nothing is judged.
+ */
+export const finishedWith = (readings: FinishedWithReadings): FinishedWith => {
+  // The four the tree answers. With no tree they are unasked, not false.
+  const ofTree = (held: boolean): ConditionReading =>
+    readings.tree === 'absent' ? 'unknown' : held ? 'true' : 'false';
+
+  return {
+    givenUp: readings.givenUp ? 'true' : 'false',
+    // `unreachable` and `not-merged` agree here for the reason they agree in
+    // `reapProblems`: the question is whether work landed, and a host that
+    // could not be asked has not said it did. That is a HOST reading, not a
+    // tree one — it stays two-valued because the caller's answer is the same
+    // either way, and both callers already refuse on it.
+    noMergedPr: readings.merge === 'merged' ? 'false' : 'true',
+    openPr: readings.openPr ? 'true' : 'false',
+    // Whether a branch is checked out is answered by walking every worktree, so
+    // the absence of THIS desk's tree is itself the answer: nothing holds it.
+    checkedOut: readings.checkedOut ? 'true' : 'false',
+    onDefaultBranch:
+      readings.isMain || readings.branch === readings.defaultBranch ? 'true' : 'false',
+    liveWorker: ofTree(readings.workerPid !== null && readings.workerPid !== ''),
+    uncommittedChanges: ofTree(readings.dirtyPath !== ''),
+    blockedMarker: ofTree(readings.blockedMarker),
+  };
+};
