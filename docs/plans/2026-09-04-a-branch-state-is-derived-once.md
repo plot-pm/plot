@@ -6,6 +6,7 @@
 
 - **State:** Delivered
 - **Type:** feature
+- **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches

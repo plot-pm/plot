@@ -6,6 +6,7 @@
 
 - **State:** Delivered
 - **Type:** feature
+- **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
