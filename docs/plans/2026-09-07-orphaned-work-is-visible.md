@@ -139,3 +139,13 @@ The first pass checked five. **All twelve were then compared against `main`, and
 **What actually found it** was reading the code the branch touched and noticing main's comment cites the branch's own output. That is not a search a rule can run.
 
 **So the plan's argument gets stronger and its example gets weaker.** No sweep keyed on content-equivalence, token overlap, or age would have kept this branch — but none needed to, because nothing on it was owed. The estate's real gap is unchanged: **twelve refs, all finished, none marked so, and one careful reader per branch was the only way to learn it.**
+
+### The eight were cleared, and one verdict was wrong — 2026-09-07
+
+The scan's own section 17 named eight unclaimed branches, and each was re-verified against main rather than trusted from the morning's audit. **Seven were confirmed superseded and their remote refs deleted**; each was first archived to a local `archive/<slug>` branch, so the reflog survives a decision that the remote cannot undo.
+
+**The eighth was not superseded, and the audit had said it was.** `bug/the-monitor-samples-a-pushed-desk` was recorded as *"superseded, better — main polls `run.monitorCalls()` where the branch polled the whole log."* **`monitorCalls` exists nowhere on main.** The claim was invented, and re-reading the diff found a real fix that has never landed: `sample_finding` returns at the `blocked`, `dirty` and `unpushed` arms before reaching `gh pr list`, so the only pass that asks the host is one taken while the desk is clean and pushed — and main still spawns a worker that exits the instant it pushes. Recovered as #779.
+
+**WHAT SEPARATED THE SEVEN FROM THE EIGHTH IS THE CHECK, NOT THE CARE.** Both audits were done attentively. The first asserted what main contained; the second ran `grep` against main for each branch's specific claim. Seven assertions held and one did not, and nothing about the wrong one looked different from the outside.
+
+**That is the argument for section 17 stated more sharply than the plan first put it.** A finding that says *no plan names this* costs a reader one `grep` per branch. A verdict that says *superseded* costs them nothing and can be wrong — which is why this section reports the fact and never the judgement.
