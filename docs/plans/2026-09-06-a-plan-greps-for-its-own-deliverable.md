@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 1
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-plan-names-its-deliverable`
+- **Started:** 2026-09-07, Jan Wloka, `feature/the-idea-searches-the-estate`
 
 ## Changelog
 
