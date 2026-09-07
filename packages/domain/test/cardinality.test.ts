@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   branchHasLanded, sprintMembers, plansSpanned, isFree, reapRefusals, sameVersion,
+  branchesWanted, slicesDeferred,
   type Pr, type Agent, type Worktree, type Sprint, type SprintItem, type Story, type Issue,
+  type Plan, type Slice,
 } from '../src/index.js';
 
 /**
@@ -17,6 +19,12 @@ import {
  * code will eventually contradict.
  */
 
+/** A plan carrying no slices, so each test states only the relation it is about. */
+const PLAN: Plan = {
+  id: 'a', file: 'docs/plans/2026-09-04-a.md', title: 'A', state: 'approved',
+  review: 'pr', story: '', sprint: '', slices: [],
+};
+
 const pr = (number: number, mergedAt: string | null): Pr => ({
   number, repo: '', head: 'feature/x', state: mergedAt === null ? 'OPEN' : 'CLOSED',
   mergedAt, mergeCommit: mergedAt === null ? '' : 'abc', draft: false,
@@ -24,17 +32,21 @@ const pr = (number: number, mergedAt: string | null): Pr => ({
 });
 
 describe('Story 1 ── * Plan — a story spans plans; a plan has ≤1 story', () => {
-  it('carries the story on the plan side as an optional single value', () => {
-    // The `≤1` half is what makes it nullable rather than a collection: a plan
+  it('carries the story on the plan side as a single value', () => {
+    // The `≤1` half is what makes it one field rather than a collection: a plan
     // belongs to one story or to none, never to two.
+    //
+    // STATED ON THE `Plan` TYPE NOW. This arity was demonstrated with a local
+    // variable until the entity existed, because there was no plan-shaped thing
+    // to hold the field — which is exactly the gap `entities/plan.ts` closes.
     const story: Story = {
       slug: 's', title: 'S', status: 'active', path: 'p',
       created: '2026-08-28', updated: '2026-08-28', author: 'jwloka', archived: null,
     };
-    const planStory: string | null = story.slug;
-    const orphanPlan: string | null = null;
-    expect(planStory).toBe('s');
-    expect(orphanPlan).toBeNull();
+    const member: Plan = { ...PLAN, story: story.slug };
+    const orphan: Plan = { ...PLAN, story: '' };
+    expect(member.story).toBe('s');
+    expect(orphan.story).toBe('');
   });
 });
 
@@ -144,6 +156,22 @@ describe('Slice 1 ── 1 Branch, and a Wave spans plans', () => {
       { plan: 'a', name: 'One', branch: 'feature/x' },
       { plan: 'b', name: 'Two', branch: 'feature/y' },
     ])).toEqual(['a', 'b']);
+  });
+
+  it('keeps the 1─1 from collapsing, because a plan writes one side and git the other', () => {
+    // THE ARGUMENT, NOT THE ARITY. `Slice` and `Branch` are 1:1, so the arity
+    // alone would justify one type. What keeps them apart is ownership: the
+    // plan wrote `intent` and `intentReason`, and no ref can answer either.
+    //
+    // The deferred slice below names a branch that was never created. Its
+    // meaning survives that — which is the case proving neither derives from
+    // the other, measured over the estate as 21 annotated branch lines.
+    const given_up: Slice = {
+      plan: 'a', name: 'One', branch: 'feature/never-created', order: 0,
+      intent: 'deferred', intentReason: 'folded into the slice that superseded it',
+    };
+    expect(slicesDeferred({ ...PLAN, slices: [given_up] })).toEqual([given_up]);
+    expect(branchesWanted({ ...PLAN, slices: [given_up] })).toEqual([]);
   });
 });
 
