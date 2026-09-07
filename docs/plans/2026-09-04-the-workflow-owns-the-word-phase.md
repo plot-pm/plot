@@ -236,7 +236,7 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
   board drops such plans from its cards — and **four plan files carry them
   today, written by hand**: three `Superseded`
   (`a-wave-is-a-thing-not-a-label`, `the-plan-actions-read-a-field-that-is-always-null`,
-  `the-row-is-legible`) and one `Rejected` (`the-board-suite-fits-its-budget`).
+  `the-row-is-legible`) and one `Rejected` (`the-board-suite-fits-its-budget`). → #757
 
   A state a person has to write by hand, into a file the whole estate reads, is
   the shape this story exists to remove. Every other state has a transition
