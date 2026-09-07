@@ -55,22 +55,11 @@ Seven files do this: `auto-deliver.ts` (three scripts), `registry.ts` (two), `di
 
 ## The four shapes exist and none is named
 
-**Measured 2026-09-07: `Repository`, `Factory` and `Aggregate` appear zero times in `packages/domain/src`.** The four hits for "Repository" are `isRepository` — *is this a git checkout* — a different word entirely.
+**Settled in [DESIGN-tactics.md](../stories/the-master-agent-holds-the-fleet/DESIGN-tactics.md), written with this plan.** `Repository`, `Factory` and `Aggregate` appear **zero times** in `packages/domain/src`, and all four shapes are in use: `plan-store` is a repository, `host` and `tracker` are services, `prCreate` and `trees.add` are factories, `Plan` owns `Slice[]` as an aggregate.
 
-**But the shapes are all there, under port names that hide which is which:**
+**The design names them; this plan adopts them.** What matters here is the consequence the design records: **`scripts` mixes all four** — `planMeta` (a repository read), `config` (settings), `host` (a service call), `start` (a process launch) — so a caller holding it can reach anything, and nothing at a call site says which boundary was crossed.
 
-| DDD pattern | what it is here | example |
-|---|---|---|
-| **Repository** | reads and writes a whole entity by identity | `plan-store`: `readPlan`, `readPlans`, `listPlans` — no caller composes a path |
-| **Service** | reaches a remote system with an account and a budget | `host`, `tracker` — the connector kind CLAUDE.md already separates |
-| **Factory** | constructs an entity that did not exist | `host.prCreate`, `trees.add` — both make a thing and return it |
-| **Aggregate** | an entity that owns others and is loaded whole | `Plan` owns `Slice[]` (`entities/plan.ts:215`); a slice is never fetched alone |
-
-**SO THIS PLAN IS NOT INTRODUCING FOUR PATTERNS — IT IS NAMING FOUR THAT THE ESTATE ALREADY USES.** `plan-store` behaves as a repository and is called a store; `host` and `tracker` behave as services and are called ports; `Plan`/`Slice` is an aggregate and is called an entity with a field.
-
-**AND THE MIXING IS WHERE THE COHESION IS LOST.** `scripts` carries `planMeta`, `config`, `host`, `start` and `stream` — a repository read, a settings read, a service call and a process launch, in one interface. **A caller holding `scripts` can reach anything**, which is why 132 filesystem calls and 7 script names could accumulate behind a boundary that looked gated.
-
-**THE PATTERN A DEPENDENCY GETS IS DECIDED BY WHAT IT IS, NOT BY WHERE IT LIVES.** A stored artefact gets a repository. A remote system gets a service. Something that only ever constructs gets a factory. An entity loaded whole with its children gets an aggregate root, and its repository returns that root.
+**That is how the counts above accumulated behind a gate that reads healthy.**
 
 ## What this is not
 
@@ -144,10 +133,8 @@ Three generic ports would satisfy the letter of the layering rule: a `Files`, a 
 
 ### Why the patterns are named rather than introduced — 2026-09-07
 
-`Repository`, `Factory` and `Aggregate` appear **zero times** in `packages/domain/src`. All three shapes are in use.
+The argument lives in [DESIGN-tactics.md](../stories/the-master-agent-holds-the-fleet/DESIGN-tactics.md) and is not repeated here. The part this plan depends on is its test for a port:
 
-**That is not a naming preference — it is why the boundary leaked.** `scripts` carries `planMeta` (a repository read), `config` (a settings read), `host` (a service call) and `start` (a process launch) in one interface. A caller holding it can reach anything, so nothing about a call site says which kind of dependency it crossed. **132 filesystem calls and 7 script names accumulated behind a boundary that looked gated**, and the gate that watched it was counting syscalls.
+> **Can a caller use it without knowing where the thing lives?**
 
-**Naming the pattern makes the wrong thing visible at the call site.** A controller holding an `AgentRepository` can read agents and nothing else. One holding `scripts` can do anything, and did.
-
-**The vocabulary is standard on purpose.** A teammate arriving from another DDD codebase reads `repository` and knows what it promises. This sprint's goal is a first unattended run by somebody who has not read this repository — and the same argument applies to the code they will be reading a week later.
+`plan-store` passes — nothing outside it composes a plan's path. **A `Files` port with `read(path)` fails by construction**, which is why this plan proposes a repository for a concept rather than a wrapper for an API.

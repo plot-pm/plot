@@ -441,7 +441,7 @@ was given** rather than scanning for it.
 
 ### What a domain object is
 
-Settled 2026-08-28, and it applies to every entity below.
+Settled 2026-08-28, and it applies to every entity below. **What sits between one and the world it came from is [DESIGN-tactics.md](DESIGN-tactics.md)** — repository, service, factory, aggregate — settled 2026-09-07.
 
 **A domain object is what a persisted source becomes in memory — and once the
 file is read, it is the sole source of truth for that entity.** Views, actions,
