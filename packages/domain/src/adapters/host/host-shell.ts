@@ -18,17 +18,6 @@ import type {
 import { asJson, asJsonLines, asText, runProcess, resultOf, type ScriptRun } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
-/**
- * The backends this adapter can drive, which is what `plot-host.sh` implements.
- *
- * The list lives here because this is the layer that could do something about a
- * backend it cannot drive: adding one means teaching the script its CLI, and
- * this array is the record of which have been taught. The domain holds no such
- * list — {@link HostBackend} is any string — so a new host is an edit to this
- * file and the script beside it.
- */
-const DRIVES: readonly string[] = ['github', 'bitbucket'];
-
 /** One PR as `plot-host.sh` reports it, before it is read as the entity. */
 interface RawPr {
   number?: number;
@@ -264,36 +253,32 @@ export const hostShell = (context: ShellContext): Host => {
   let lastRead: readonly LimitReading[] = [];
 
   return {
+    // THIS ADAPTER JUDGES NO VENDOR. It asks, and it passes on the word the
+    // script printed — `HostBackend` is any string, and there is no list here
+    // to check it against.
+    //
+    // DRIVABILITY IS THE SCRIPT'S FACT, NOT A COPY OF IT. `plot-host.sh` either
+    // has an arm for a backend or it does not; it exits 4 for one it has no arm
+    // for and NAMES the word it was told on stderr. A list here would be a
+    // second record of that, and the two would drift in the direction that
+    // matters: this file would refuse a host the script had already been
+    // taught. Adding a third host is an edit to the script and to nothing in
+    // `packages/domain`.
+    //
+    // SO THE REFUSAL DID NOT DISAPPEAR — IT MOVED, AND IT STILL NAMES THE HOST.
+    // `unaskable` is the right answer (no wait fixes an untaught host) but it
+    // carries no sentence, and the name is the whole of what a person needs.
+    // `record` clears the refusal on exit 4 deliberately — a Bitbucket repo
+    // with no tracker is answering, not refusing — so this op sets it after,
+    // rather than teaching `record` a distinction only this op can draw.
     backend: async (): Promise<PortResult<HostBackend>> => {
-      // The word the script reported, kept so the refusal below can name it.
-      // `resultOf` maps a throw to `failed` and discards the message, which is
-      // right for every parse failure and loses the only fact this one has.
-      let reported = '';
-      const answer = await ask(['backend'], (stdout) => {
-        const value = asText(stdout);
-        reported = value;
-        if (!DRIVES.includes(value)) {
-          throw new Error(`plot-host: cannot drive ${value}`);
-        }
-        return value;
-      });
-      // THE ONE REFUSAL THIS ADAPTER MAKES ON ITS OWN JUDGEMENT, so it is the
-      // one `record` cannot see. Every other refusal on this port is the
-      // script's, read off an exit code; this one happens on exit 0 — the
-      // script answered, and the adapter is what says the answer names a host
-      // it was never taught. `record` clears `refusal` on a zero exit, exactly
-      // right for the calls it was written for and wrong for this one.
-      //
-      // IT MUST NAME THE HOST. Removing `HostBackend`'s union moved the refusal
-      // from the type to this layer, and a refusal that says only `failed` is a
-      // worse answer than the type gave: a compiler error named the vendor. The
-      // sentence is where the name survives, and `lastRefusal` is the only
-      // place a caller can read one.
-      if (!answer.ok && refusal === null) {
-        refusal = {
-          kind: 'failed',
-          said: `plot-host: cannot drive ${reported} — this adapter drives ${DRIVES.join(', ')}`,
-        };
+      const run = await runProcess('bash', [host, 'backend'], inRepo);
+      const answer = record(run, asText);
+      if (run.code === 4) {
+        // Falls back to the code because a script that refused without a word
+        // still refused. `failed` is the honest kind of the three: `throttled`
+        // and `secondary` both promise a wait that would fix it.
+        refusal = { kind: 'failed', said: run.stderr.trim() || 'plot-host.sh exited 4' };
       }
       return answer;
     },
