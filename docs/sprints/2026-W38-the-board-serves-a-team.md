@@ -54,6 +54,8 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 - [ ] [the-build-pipeline-is-its-own-connector] Git host, tracker and build pipeline become three domain concepts with three ports, each reached by a connector per vendor. Measured 2026-09-07: `tracker` already has that shape with four connectors; `host` is **one shell branching on vendor inside itself**, so two accounts share one refusal path and one budget; `build` has no port at all and `runs()` reaches `gh` alone. **4 slices after round 1**, which cut the entity slice (no rule would have read it) and the host split (81 working `bb` calls restructured for a budget separation this sprint's goal does not need). Plan filed 2026-09-07
 
+- [ ] [the-lifecycle-runs-on-the-other-stack] One e2e test drives `/plot-init` → `/plot-deliver` unattended on a Bitbucket + Jenkins + Jira sandbox. **`unattended` is the one condition of the four with no plan** — not because it is unimplemented but because it is implemented eight times over and never exercised as a path: every skill handles `PLOT_UNATTENDED`, and `lifecycle.test.mjs` names Jira only in a config string with zero `bb`, `jen` or `PLOT_TRACKER` calls. **It must fail on arrival**, and its failing assertions name the plan that turns each green. Plan filed 2026-09-07
+
 - [ ] [a-first-run-refusal-names-its-repair] Every refusal reachable in a first unattended run names the command that fixes it. The bar is `plot-fleetctl.sh`'s node refusal, which says `nvm use` rather than *wrong version*. Walk `/plot-init` → `/plot-deliver` on a Bitbucket/Jenkins/Jira checkout with no credentials and fix every message that only states a cause
 
 ### Should Have
@@ -88,7 +90,7 @@ The goal is one walkthrough — *a teammate on Bitbucket, Jenkins and Jira runs 
 
 | | plans | slices |
 |---|---|---|
-| **goal-facing** — adoption, the CI port, first-run refusals, board askability | 4 | **8** |
+| **goal-facing** — adoption, the CI port, first-run refusals, board askability, the unattended walkthrough | 5 | **9** |
 | **domain cohesion** — the seam, the deriver, the repository, the scorer, the loop | 9 | **10** |
 
 **The cohesion work is real and it is not this goal.** It arrived on 2026-09-07 in one afternoon of measuring the estate — `scoreItem` uncalled, the agent state derived in bash, seven files naming a script, three plans inventing one corpus test. **Every one is a defect worth fixing and none of them is what a teammate on Bitbucket meets.**
@@ -101,7 +103,7 @@ The goal is one walkthrough — *a teammate on Bitbucket, Jenkins and Jira runs 
 
 **Cut the cohesion work to its root and defer the rest.** `a-shell-script-asks-the-domain` is worth keeping — it is one slice, it settles a contract three plans need, and it stops the next sprint re-deriving it. **The chain below it does not need to run in this window.**
 
-That leaves **9 slices**: the eight goal-facing, plus the seam. Two weeks, mostly independent, with the walkthrough as the measure.
+That leaves **10 slices**: the nine goal-facing, plus the seam. Two weeks, mostly independent, with the walkthrough as the measure.
 
 **The deferred work loses nothing.** Nine plans, all interrogated, all with measurements at a line — they are ready whenever a sprint takes the domain as its goal, which the last one did and the next one could.
 
