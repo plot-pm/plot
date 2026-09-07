@@ -16,6 +16,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `feature/the-workflow-has-phases`
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-phase-names-its-work`
 - **Started:** 2026-09-07, Jan Wloka, `feature/a-plan-can-be-rejected`
+- **Started:** 2026-09-07, Jan Wloka, `infra/a-plan-file-says-state`
 
 ## Changelog
 
