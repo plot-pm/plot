@@ -138,11 +138,15 @@ export const planStateIsReadable = (state: PlanState): boolean => state !== 'non
  * apart here would be a second answer to a question `plot-plan-meta.sh` already
  * settles, and it reports `deferred: true` for either annotation.
  */
-// plot-state: classification — what the plan STATES about a branch, as against
-//                              what git measures. Not a lifecycle: it does not
-//                              move on its own, and only an edit to the plan
-//                              changes it. The branch's own states are
-//                              `entities/fleet.ts`'s BranchStateSchema.
+// A UNION RATHER THAN A `z.enum`, so `check-state-declarations.sh` does not see
+// it and does not need to: nothing parses this off a wire. It is DERIVED from
+// the boolean `deferred` the parser already reports, produced and consumed in
+// the same process, so a schema would validate what TypeScript guarantees.
+// `DeltaOutcome` in `rules/pulse.ts` is the same shape for the same reason.
+//
+// It is a classification and not a lifecycle in any case: it does not move on
+// its own, and only an edit to the plan changes it. The branch's own states are
+// `entities/fleet.ts`'s `BranchStateSchema`, which IS declared.
 export type SliceIntent = 'active' | 'deferred';
 
 /**
