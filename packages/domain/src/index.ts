@@ -34,6 +34,7 @@ export * from './entities/subscription.js';
 export * from './entities/pulse.js';
 export * from './entities/channel-message.js';
 export * from './entities/workflow.js';
+export * from './entities/plan.js';
 export * from './rules/deliverable.js';
 export * from './rules/reapable.js';
 export * from './rules/channel.js';
