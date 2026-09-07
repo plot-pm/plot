@@ -179,7 +179,7 @@ which is measured rather than classified. The ratchet decides which of the
   claim ref and the plan annotation, and pipes them to the rule through a bundle
   at the call site that already does this twice. `branch_state()`'s git
   archaeology stays; the `if` at `:3411` goes. **Asserted: each of the eight states is produced from readings the test
-  supplies**, one case per state, in the rule's own unit tests.
+  supplies**, one case per state, in the rule's own unit tests. — PR #768
 
   **The whole-estate differential was dropped, and the reason matters.** An
   earlier draft asserted the scan's `--json` was byte-identical before and
