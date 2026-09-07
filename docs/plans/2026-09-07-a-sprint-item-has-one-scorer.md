@@ -10,7 +10,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 1
+- **Rounds:** 2
 
 ## Changelog
 
@@ -43,13 +43,15 @@
 
 ## Slices
 
-### One scorer, called by both (Branch: bug/a-sprint-item-has-one-scorer)
+### One scorer, called by both (Branch: bug/a-sprint-item-has-one-scorer) <!-- waits: infra/a-shell-script-asks-the-domain -->
 
 `scoreItem` becomes the only implementation, and `plot-sprint-release.sh` calls it.
 
 **IT ABSORBS THE SHELL'S THREE-VALUED READING.** `planIsDelivered: boolean` becomes a reading that can say *no plan named*. The shell's `none` arm is behaviour the domain currently cannot express, and it is right — an item with no plan has only its checkbox, which `plot-sprint-release.sh:70` already states as a deliberate limit.
 
-**THE SHELL REACHES IT THE WAY THE ESTATE ALREADY DOES.** `plot-ask.mjs` is the precedent and the seam: a built bundle, `node` and no running board, reached from a skill by one call. Do not invent a second mechanism, and do not make the script depend on a live board.
+**THE SEAM IS NOT THIS PLAN'S TO CHOOSE.** [`a-shell-script-asks-the-domain`](2026-09-07-a-shell-script-asks-the-domain.md) states when a shell script calls the domain and where the call goes; this slice waits on it and uses what it says. **An earlier draft named `plot-ask.mjs` here** — written before `node` startup was measured at 39 ms, and before two sibling plans reached a different answer for scripts that run per pass.
+
+**`plot-sprint-release.sh` IS THE AFFORDABLE CASE**, whichever way the contract lands: it runs once per operator command, like `plot-approve.sh`, which already pays a hop through `plot-transition.mjs`.
 
 **A TEST COMPARES THE TWO ANSWERS ACROSS THE LIVE ESTATE.** The corpus tier exists for exactly this — `packages/domain/corpus/` compares adapters against production over the real repository. Every sprint item on the estate, scored both ways, asserted equal. That is what makes a fourth state a one-line change rather than a four-site hunt.
 
@@ -74,3 +76,9 @@ This lands **before** `a-withdrawn-item-is-not-open`, or that plan pays for the 
 **The plan said `scoreItem` had no production caller. It has one.** `openPromises` at `transitions/sprint.ts:305` calls it, correctly, and documents why. What the plan got right is the conclusion and not the evidence: `openPromises` is itself reached only by a re-export in `index.ts`, so the chain is two hops long and still ends nowhere.
 
 **That is a harder defect than the one first written.** A dead function is visible to anyone who greps it. A live function with a correct caller that nothing invokes looks wired from one level up — which is how it survived long enough for `item_state` to drift from it.
+
+### Round 2 — 2026-09-07, challenging the sprint as a set
+
+**Two plans in one sprint gave different answers to *how does bash call the domain*.** This one said `plot-ask.mjs`; `an-agent-state-has-one-deriver` measured `node` at 39 ms and concluded a per-pass hop is unaffordable. Both were right about their own script and neither knew the other existed.
+
+**And three plans each proposed the same corpus test.** That mechanism is now [`a-shell-script-asks-the-domain`](2026-09-07-a-shell-script-asks-the-domain.md), and this slice is its first comparison — smallest rule, smallest shell function, plan already written.

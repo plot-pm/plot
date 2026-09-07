@@ -44,7 +44,7 @@
 
 ## Slices
 
-### A test asserts the two answers agree (Branch: feature/an-agent-state-has-one-deriver)
+### A test asserts the two answers agree (Branch: feature/an-agent-state-has-one-deriver) <!-- waits: infra/a-shell-script-asks-the-domain -->
 
 The domain derives the eight states from readings, and a corpus test proves it answers what the shell answers on every desk.
 

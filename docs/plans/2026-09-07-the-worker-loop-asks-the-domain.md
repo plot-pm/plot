@@ -52,7 +52,7 @@ desk_is_resettable() {
 
 ## Slices
 
-### The loop asks whether the desk is finished with (Branch: bug/the-worker-loop-asks-the-domain)
+### The loop asks whether the desk is finished with (Branch: bug/the-worker-loop-asks-the-domain) <!-- waits: infra/a-shell-script-asks-the-domain -->
 
 `desk_is_resettable` asks `finishedWith` instead of deciding.
 

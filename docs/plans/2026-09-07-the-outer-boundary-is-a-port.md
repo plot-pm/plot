@@ -83,7 +83,7 @@ A gate refuses a `plot-*.sh` literal outside `packages/domain/src/adapters/`.
 
 **Done when** a gate counts `plot-*.sh` literals outside `adapters/`, fails when the count grows, starts at the measured seven, and its error names the port that already answers each script.
 
-### The agent gets a repository (Branch: feature/the-agent-gets-a-repository) <!-- waits: infra/a-script-is-named-in-an-adapter -->
+### The agent gets a repository (Branch: feature/the-agent-gets-a-repository) <!-- waits: feature/an-agent-state-has-one-deriver -->
 
 The artefacts the board reads become ports named for **the concept**, not for the file.
 
