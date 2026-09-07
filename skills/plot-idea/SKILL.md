@@ -49,7 +49,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 |-------|-----------|-------|
 | 1. Parse Input | Small | String parsing |
 | 2. Read Ceremony Bounds | Small | plot-config.sh reads, hard gates are mechanical |
-| 3. Pre-flight Checks | Small (hard gate), Mid (soft warning) | Slug collision is mechanical, and reads the plan directory rather than the index so a missing symlink cannot bypass the gate; title similarity needs mid-tier |
+| 3. Pre-flight Checks | Small (hard gate), Mid (soft warning + deliverable search) | Slug collision is mechanical, and reads the plan directory rather than the index so a missing symlink cannot bypass the gate; title similarity needs mid-tier. The deliverable search is a script call at Small, but naming the artifact and judging whether a candidate is the same thing is Mid |
 | 4. Answer the Ceremony Questions | Mid | Weight assessment + recommendation; smaller models ask instead of recommending |
 | 5-8. Create the Plan through Board Status | Small | Git/host commands, template resolution, file ops; the plan file is staged before the best-effort index link |
 | 9. Summary | Small | Template formatting |
@@ -147,7 +147,51 @@ available) and — once per repo, not per plan — suggest declaring them:
     - **Unattended (`PLOT_UNATTENDED=1`):** proceed — it is a warning by construction, not a gate — but name the overlapping plans in the output.
       `PLOT-UNASKED: Is this intentionally separate from <slug>? — default — proceeded; the overlap is listed above`
 
-> **Smaller models:** Skip the title similarity check. Enforce the hard gate (identical slug) only. Ask the user: "Could not check for similar plan titles. Please verify manually that this doesn't overlap with existing plans."
+- **Deliverable search:**
+  - Ask what each slice of this plan will **build** — the artifact it creates,
+    named: a function, a script, a scan section, an endpoint. Then search the
+    estate for it:
+
+    ```bash
+    ../plot/scripts/plot-deliverable-search.sh "<the deliverable, as named>"
+    ```
+
+  - **Report what it found; refuse nothing.** Name the file and line, and ask
+    the user whether this is a duplicate or a deliberate replacement. A plan may
+    legitimately propose replacing something that exists — the author decides,
+    exactly as they do for the title-similarity warning above.
+  - Empty output means the estate has nothing by that name. Say so in one line
+    and move on.
+  - **Unattended (`PLOT_UNATTENDED=1`):** run the search and proceed — it is a
+    report by construction, not a gate — but put the candidates in the output.
+    `PLOT-UNASKED: Is <deliverable> a duplicate of the candidates above? — default — proceeded; the candidates are listed`
+  - A plan that builds nothing nameable — a docs plan, a rejection, a
+    measurement — declares nothing and is not asked twice.
+
+> **Why the search runs HERE, before the plan is written.** Measured over one
+> week on the Plot repo: five plans proposed something the estate already had —
+> `normalizeVersion` (10 callers), `check-host-cli-callers.sh`, reconcile scan
+> section 7, `readingLoss`, `computeStatusDrift` — plus a sixth that spent two
+> interrogation rounds on a gate that had already moved. **Every one was found
+> by a grep and none by a round.** Reading a plan again produces better prose
+> about the same assumption; searching the estate produces the answer.
+>
+> The cost of a duplicated deliverable is paid in the WRITING — the plan's
+> prose, its rounds, its brief — so the check belongs before that work rather
+> than at approval, where two of the five were caught only because somebody
+> happened to grep.
+>
+> This is the same act as *Duplicate detection* above against a different
+> corpus: that one searches the plan directory for a colliding slug, this one
+> searches the code for a colliding artifact.
+>
+> **What the search does NOT do is infer.** Nothing reads the plan's prose for
+> deliverables: a plan citing `readingLoss` to say *"unlike `readingLoss`"* is
+> not duplicating it. The author names the artifact, and the answer is recorded
+> in the plan as a `<!-- builds: ... -->` annotation on the slice's branch line
+> in step 5, where the next reader can see what this plan claimed to build.
+
+> **Smaller models:** Skip the title similarity check. Enforce the hard gate (identical slug) only. Ask the user: "Could not check for similar plan titles. Please verify manually that this doesn't overlap with existing plans." Still run the deliverable search — it is a script call whose output is read, not judged.
 
 ### 4. Answer the Ceremony Questions
 
@@ -221,6 +265,23 @@ It is a **dedicated field, not a mention**: plans cite `#NNN` constantly for PRs
 and for history, so a body scan could not tell a signal from a citation. Only
 this field counts. Leave it out when the plan answers no issue — the field is
 optional, and an empty one is not a claim.
+
+**Record what each slice builds** — the deliverable named in step 3 — as a
+`builds:` annotation on that slice's branch line in `## Slices`:
+
+    - `feature/<slug>` — <description> <!-- builds: normalizeVersion, a shared version helper -->
+
+**It belongs to the slice, never to the plan.** A plan builds several things and
+each slice builds one; a plan-level list is searched as a whole and reported
+against the wrong slice. The annotation must sit on the SAME line as the
+backticked branch name — a wrapped continuation line is not read.
+
+**Optional, like `Sprint:` and `Story:`.** A plan that builds nothing nameable —
+a docs plan, a rejection, a measurement — writes nothing here and is not nagged.
+
+The annotation is what makes the next plan's step-3 search possible: it is the
+record of what this plan claimed to build, and `plot-plan-meta.sh` reports it as
+`slices[].builds`.
 
 Ask the user what **Type** to use, presenting this reference:
 

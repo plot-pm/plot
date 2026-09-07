@@ -24,6 +24,29 @@ Originated as part of the Plot workflow in a private project across 5 Claude Cod
 
 See [plot/README.md](../plot/README.md) for the full development history and [plot/changelog.md](../plot/changelog.md) for commit-level details.
 
+## Deliverable search
+
+Step 3 searches the estate for what each slice declares it will build, through
+[`plot-deliverable-search.sh`](../plot/scripts/plot-deliverable-search.sh), and
+records the answer as the slice's `builds:` annotation in step 5.
+
+**Measured over one week on the Plot repo:** five plans proposed something the
+estate already had — `normalizeVersion` (10 callers),
+`check-host-cli-callers.sh`, reconcile scan section 7, `readingLoss`,
+`computeStatusDrift` — plus a sixth that spent two interrogation rounds on a
+gate that had already moved. Every one was found by a grep and none by a round.
+
+**It reports and refuses nothing.** A plan may legitimately propose replacing
+something that exists, so the output names the file and line and the author
+decides — the same posture as the title-similarity warning beside it.
+
+**The search runs at creation rather than at approval** because the cost of a
+duplicated deliverable is paid in the writing: the plan's prose, its rounds, its
+brief. Two of the five were caught at approval only because somebody happened to
+grep.
+
+Contract tests: `test/reconcile/deliverable-search.test.mjs`.
+
 ## Known Gaps
 
 - Input parsing is heuristic-based (slug extraction, title splitting) — unusual formats may need manual correction.

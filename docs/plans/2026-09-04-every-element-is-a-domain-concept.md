@@ -320,7 +320,7 @@ them together is what makes the type earn its existence.
   when its Branch does not exist** — the case that proves neither is derivable
   from the other.
 
-  That disagreement is what the board renders.
+  That disagreement is what the board renders. — PR #758
 
 ## Notes
 

@@ -64,7 +64,7 @@
 
 **Done when** `/plot-init` proposes `Worktree root` with its default, writes the `.gitignore` line on confirmation, and changes nothing in a repo that declines.
 
-### A vanished desk is not a desk (Branch: bug/the-reaper-reads-prunable)
+### A vanished desk is not a desk (Branch: bug/the-reaper-reads-prunable, PR: #759)
 
 `plot-reap.sh` reads git's `prunable` and reports a tree whose directory is gone.
 
