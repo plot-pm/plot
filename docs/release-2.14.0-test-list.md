@@ -137,7 +137,11 @@ while :; do launchctl print gui/$(id -u)/com.plot-pm.registryd 2>/dev/null | awk
 
 One pid for an hour is evidence. A gap is the defect returning under a new key.
 
-**Do not describe this as fixed in the release notes.** It is mitigated on one measurement.
+**MEASURED AFTER THE CHANGE, 2026-09-07: `Adaptive` DID NOT HOLD.** Loaded at 15:08, last tick 15:48, gone by 16:09 — **~40 minutes**, against `Background` incarnations of 48 s, ~5 min and 17 min. Longer, and still removed: `runs = 1`, 0 bytes of stderr, no launchd line, and it did not come back.
+
+**So the key is not the cause either.** Six explanations have now been tested and disproved — load in both directions, memory pressure, `AbandonProcessGroup`, `--once`, `--start` racing, and `ProcessType` itself.
+
+**Do not describe this as fixed in the release notes.** The honest sentence is that the daemon is removed by something unidentified, does not restart itself, and must be reloaded by hand — and that `/plot-fleet --status` is how an operator finds out. The board's supervisor badge, shipped in this release, is what makes that visible without asking.
 
 ---
 
@@ -148,4 +152,4 @@ One pid for an hour is evidence. A gap is the defect returning under a new key.
 - [ ] `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board`, `pnpm run typecheck` green
 - [ ] Sprint items: 6 `done`, 2 `disputed` — both bookkeeping, neither outstanding work
 - [ ] `./scripts/check-changeset-packages.sh` passes over all 73
-- [ ] Supervisor watched for one hour without a pid change
+- [ ] Supervisor watched for one hour — expect a gap; record the lifetime, do not claim a fix
