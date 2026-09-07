@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #784 merged
+- **Started:** 2026-09-07, Jan Wloka, `bug/a-first-run-refusal-names-its-repair`
 
 ## Changelog
 
