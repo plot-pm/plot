@@ -1,6 +1,7 @@
 import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed, type PortResult } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
+import type { TreePresence } from '../../rules/reapable.js';
 import { asLines, asText, runProcess, runScript, runScriptSync } from '../run-script.js';
 import { scriptPath, type ShellContext } from '../scripts.js';
 
@@ -75,6 +76,23 @@ export const treesGit = (context: ShellContext): Trees => {
       const all = await list();
       if (!all.ok) return all as PortResult<Worktree | null>;
       return answered(all.value.find((tree) => tree.branch === branch) ?? null);
+    },
+
+    // ONE LISTING, NO SECOND GIT CALL. `prunable` is already parsed out of the
+    // porcelain by `worktreesOf`; this reads the tree git named and reports
+    // what git said about it. A `stat` on the path would answer the same
+    // question worse — git knows about an entry whose directory went away, and
+    // a filesystem check would have to guess the path to look at.
+    //
+    // An unreadable listing carries its failure rather than reporting `absent`:
+    // *git could not be asked* is not *there is no worktree*, and a caller that
+    // conflated them would report a stale entry as tidy.
+    presence: async (branch) => {
+      const all = await list();
+      if (!all.ok) return all as PortResult<TreePresence>;
+      const tree = all.value.find((each) => each.branch === branch);
+      if (tree === undefined) return answered<TreePresence>('absent');
+      return answered<TreePresence>(tree.prunable ? 'vanished' : 'present');
     },
 
     // `git -C <path>` rather than `cwd`, so an unreadable checkout is reported

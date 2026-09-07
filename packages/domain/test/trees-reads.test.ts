@@ -220,6 +220,22 @@ describe('treesFixture: the same port with no machine behind it', () => {
     expect(answer.value[0]!.clean).toBe(false);
   });
 
+  it('derives the three presences from the same field git reports', async () => {
+    // THE FIXTURE MUST TRIGGER `vanished` WITHOUT A DIRECTORY TO DELETE, or the
+    // reading is only reachable on a machine with a broken worktree — and the
+    // rule that consumes it could not be tested against the case it exists for.
+    const port = treesFixture({
+      worktrees: [
+        { path: '/repo', branch: 'main' },
+        { path: '/repo-wt', branch: 'feature/here' },
+        { path: '/repo-gone', branch: 'feature/gone', prunable: true },
+      ],
+    });
+    expect(await port.presence('feature/here')).toEqual({ ok: true, value: 'present' });
+    expect(await port.presence('feature/gone')).toEqual({ ok: true, value: 'vanished' });
+    expect(await port.presence('feature/never')).toEqual({ ok: true, value: 'absent' });
+  });
+
   it('answers a stated branch, and fails for a path it was not told about', async () => {
     // `''` already means DETACHED, so an unknown path cannot answer it: a
     // fixture that conflated the two could not stand in for git on the one
@@ -285,6 +301,39 @@ describe('treesGit: adding, pruning, and the synchronous reads', () => {
     const at = path.join(repo, '..', `${path.basename(repo)}-nostart`);
     expect((await trees().add(at, 'refs/heads/no-such-branch')).ok).toBe(false);
     expect(fs.existsSync(at)).toBe(false);
+  });
+
+  it('reads a vanished checkout as vanished, against real git', async () => {
+    // THE READING THE REAPER'S FIVE REFUSALS CANNOT TAKE. Each of them measures
+    // something inside a directory — a pid file, a marker, the porcelain
+    // status, the checked-out branch — and here there is no directory. Git
+    // still lists the entry, which is the whole point: `prunable` is git's own
+    // answer and needs no `stat` of a path a caller would have to guess.
+    //
+    // Asserted against real git rather than a fixture because the field's
+    // POSITION in the porcelain record is what can break: git emits `prunable`
+    // after `branch`, and a parser flushing on the branch line never sees it.
+    const at = path.join(repo, '..', `${path.basename(repo)}-vanished`);
+    const head = git(repo, ['rev-parse', 'HEAD']).trim();
+    git(repo, ['worktree', 'add', '--quiet', at, '-b', 'vanished-desk', head]);
+    try {
+      expect(await trees().presence('vanished-desk')).toEqual({ ok: true, value: 'present' });
+
+      fs.rmSync(at, { recursive: true, force: true });
+      expect(await trees().presence('vanished-desk')).toEqual({ ok: true, value: 'vanished' });
+    } finally {
+      git(repo, ['worktree', 'prune']);
+    }
+  });
+
+  it('reads a branch git lists no worktree for as absent', async () => {
+    // ABSENT IS NOT VANISHED, and the two must not collapse: no desk was ever
+    // made here, so there is no stale entry and nothing for `git worktree
+    // prune` to tidy. An operator acts on them differently.
+    expect(await trees().presence('no-such-branch-anywhere')).toEqual({
+      ok: true,
+      value: 'absent',
+    });
   });
 
   it('prunes the record of a checkout whose directory is gone', async () => {

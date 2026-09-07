@@ -13,6 +13,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #705 merged
 - **Started:** 2026-09-07, Jan Wloka, `feature/finished-with-is-one-rule`
+- **Started:** 2026-09-07, Jan Wloka, `feature/the-ref-deleter-asks-the-rule`
 
 ## Changelog
 

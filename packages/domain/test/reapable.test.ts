@@ -6,6 +6,8 @@ import {
   refDeletionProblems,
   firstRefRefusal,
   finishedWith,
+  treeIsThere,
+  treeHasVanished,
   type TreeReadings,
   type RefReadings,
   type FinishedWithReadings,
@@ -324,7 +326,12 @@ describe('finishedWith — one rule, and each caller decides', () => {
     // The whole point: eight conditions in one place. `plot-reap.sh` applies
     // five and `plot-release-refs.sh` applies its own set, and until this rule
     // existed the difference was visible only by reading both scripts.
-    expect(Object.keys(finishedWith(desk())).sort()).toEqual([
+    //
+    // `vanished` is deliberately NOT among them and is asserted separately
+    // below: the eight say something holds the desk, and it says there is no
+    // desk to hold.
+    const { vanished: _report, ...conditions } = finishedWith(desk());
+    expect(Object.keys(conditions).sort()).toEqual([
       'blockedMarker',
       'checkedOut',
       'givenUp',
@@ -346,6 +353,7 @@ describe('finishedWith — one rule, and each caller decides', () => {
       liveWorker: 'false',
       uncommittedChanges: 'false',
       blockedMarker: 'false',
+      vanished: 'false',
     });
   });
 
@@ -453,6 +461,69 @@ describe('finishedWith — one rule, and each caller decides', () => {
     });
   });
 
+  describe('a vanished tree — git lists a desk whose directory is gone', () => {
+    // Measured 2026-09-06: 3 of 20 worktrees on this estate were prunable, and
+    // the reaper's five refusals could see none of them, since every one
+    // measures something *in* a tree that is not there.
+    const vanished = desk({ tree: 'vanished' });
+
+    it('reports it, and it is not one of the conditions', () => {
+      // A REPORT, NOT A REFUSAL. The eight conditions say something holds the
+      // desk; this says there is no desk to hold, and `git worktree prune` is
+      // the repair rather than a person going to look.
+      expect(finishedWith(vanished).vanished).toBe('true');
+      expect(finishedWith(desk()).vanished).toBe('false');
+      expect(finishedWith(desk({ tree: 'absent' })).vanished).toBe('false');
+    });
+
+    it('makes the four tree-sourced conditions unknown, like an absent tree', () => {
+      // The prior question is answered first: there is no directory, so the
+      // readings that would come from one cannot be taken. Same answer as
+      // `absent` for the same reason — nothing to measure.
+      const got = finishedWith(vanished);
+      expect(got.liveWorker).toBe('unknown');
+      expect(got.uncommittedChanges).toBe('unknown');
+      expect(got.blockedMarker).toBe('unknown');
+    });
+
+    it('still answers the conditions no tree is needed for', () => {
+      const got = finishedWith(
+        desk({ tree: 'vanished', givenUp: true, merge: 'not-merged' }),
+      );
+      expect(got.givenUp).toBe('true');
+      expect(got.noMergedPr).toBe('true');
+      expect(got.onDefaultBranch).toBe('false');
+    });
+
+    it('reads a stale reading from the tree as unknown rather than as true', () => {
+      // THE CASE THAT WOULD LIE. A caller carrying last pass's pid into a
+      // vanished tree must not be told a worker is alive in a directory that
+      // does not exist — the reading is unavailable, not affirmative.
+      const stale = desk({ tree: 'vanished', workerPid: '4242', dirtyPath: 'a.ts' });
+      expect(finishedWith(stale).liveWorker).toBe('unknown');
+      expect(finishedWith(stale).uncommittedChanges).toBe('unknown');
+    });
+
+    it('answers the three presences distinctly', () => {
+      // `absent` means no desk was ever made; `vanished` means git lists one
+      // that is gone; `present` means there is a directory to read. Only the
+      // middle one has a repair, which is why it is its own word.
+      expect(treeIsThere('present')).toBe(true);
+      expect(treeIsThere('absent')).toBe(false);
+      expect(treeIsThere('vanished')).toBe(false);
+      expect(treeHasVanished('vanished')).toBe(true);
+      expect(treeHasVanished('absent')).toBe(false);
+      expect(treeHasVanished('present')).toBe(false);
+    });
+
+    it('leaves the five refusals untouched — the reaper still decides them', () => {
+      // `prunable` joins the rule as a reading; it removes nothing. A tree that
+      // is present and unlanded refuses exactly as it did.
+      expect(refusalsOf(landed({ merge: 'not-merged' }))).toContain('no-merged-pr');
+      expect(refusalsOf(landed({ workerPid: '1' }))).toContain('live-worker');
+    });
+  });
+
   it('changes neither script, because it decides nothing', () => {
     // The defect is that the difference between the two scripts is INVISIBLE,
     // not that it is wrong. A rule that permitted or refused would widen a
@@ -461,7 +532,11 @@ describe('finishedWith — one rule, and each caller decides', () => {
       givenUp: true, merge: 'not-merged', openPr: true, checkedOut: true,
       branch: 'main', workerPid: '7', dirtyPath: 'a', blockedMarker: true,
     });
-    expect(Object.values(finishedWith(every)).every((v) => v === 'true')).toBe(true);
+    // Every CONDITION holds; `vanished` is false because this desk's tree is
+    // present — which is what makes the eight answerable in the first place.
+    const { vanished: report, ...conditions } = finishedWith(every);
+    expect(Object.values(conditions).every((v) => v === 'true')).toBe(true);
+    expect(report).toBe('false');
     // And the two existing verdicts are untouched by its existence.
     expect(refusalsOf(every)).toEqual([
       'live-worker', 'blocked-marker', 'uncommitted-changes',

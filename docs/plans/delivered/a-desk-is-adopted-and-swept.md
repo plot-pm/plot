@@ -1,0 +1,1 @@
+../2026-09-06-a-desk-is-adopted-and-swept.md
