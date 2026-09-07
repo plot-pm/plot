@@ -45,9 +45,10 @@ import { pathToFileURL } from 'node:url';
  *
  * So the answer carries it: `1` where a prerequisite would replace this state
  * and `0` where it would not. The shell reads the prerequisite for the flagged
- * branches only, and asks again with those readings filled in. On an estate
- * with no live `waits:` annotation — measured 2026-09-07, this one — the second
- * call never happens.
+ * branches only, and asks again with those readings filled in. The bound is the
+ * FLAGGED branches rather than the annotated ones — a `waits:` branch already
+ * reading `wip`, `claimed`, `merged` or `deferred` costs nothing — and a plan
+ * with no flagged branch pays no second call at all.
  */
 
 /**
@@ -69,14 +70,19 @@ import { pathToFileURL } from 'node:url';
  * | `commitsAhead` | a non-negative integer |
  * | `realCommitsAhead` | a non-negative integer |
  * | `waitsBranch` | the prerequisite, or `-` where the plan names none |
- * | `waitsPr` | the prerequisite's PR word, or `-` where it was not read |
+ * | `waitsPr` | the prerequisite's PR word, `-` where the host could not answer, or `?` where it was not asked |
  *
- * **`-` IN `waitsPr` MEANS NOT YET READ, and it is not a reading.** A branch
- * that names a prerequisite whose state the shell has not fetched carries
- * `waits: null` into the rule, so the branch's own readings stand — which is
- * exactly what the flagged answer then asks the shell to correct. The scan's
- * unreadable-host marker reaches the rule as `unreadable` through the `pr`
- * column, which IS a reading and means something different.
+ * **`?` IS NOT A READING AND `-` IS.** They were one marker until the first CI
+ * run of this bundle, and collapsing them is a defect with a direction: the
+ * scan's `host_pr_state` answers `-` for an unreachable host, which the rule
+ * reads as `unreadable` and makes `waiting` — *silence is not evidence, in
+ * either direction*. An unauthenticated checkout answers `-` for EVERY
+ * prerequisite, so a `-` that meant *not asked* reported every waiting branch
+ * as `open` and would hand it to `--next`. Measured 2026-09-07 in CI, which
+ * runs the corpus with no token: one branch, `adapter=waiting production=open`.
+ *
+ * So `?` alone means the shell has not put the question, and only `?` makes
+ * `waits` null and raises the flag that asks it to.
  */
 const FIELDS = 10;
 
@@ -195,7 +201,7 @@ const parsedFrom = (text: string): ParsedLine[] =>
         commitsAhead: countFrom(ahead, i + 1, 'commitsAhead'),
         realCommitsAhead: countFrom(real, i + 1, 'realCommitsAhead'),
         waits:
-          waitsBranch === '-' || waitsPr === '-'
+          waitsBranch === '-' || waitsPr === '?'
             ? null
             : { branch: waitsBranch, pr: prFrom(waitsPr) },
       };

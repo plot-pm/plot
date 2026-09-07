@@ -3512,7 +3512,12 @@ for plan in "${plans[@]}"; do
   # It now ends in eight tab-separated readings, and the two the plan states —
   # the prerequisite's name and what the host said about it — are appended here.
   #
-  # THE PREREQUISITE'S PR STATE IS NOT READ YET, and `-` says so. Reading it
+  # THE PREREQUISITE'S PR STATE IS NOT READ YET, and `?` says so. `-` is taken:
+  # `host_pr_state` answers it for a host that could not be reached, and the
+  # rule reads that as `unreadable` and answers `waiting`, because silence is
+  # not evidence in either direction. The two were one marker until CI ran the
+  # corpus with no token, where every prerequisite answers `-` and every waiting
+  # branch read `open`. Reading it
   # costs a host round trip (`waits_pr_state` passes `--ask`, because a delivered
   # prerequisite's ref is gone and only its PR outlives it), and the scan spends
   # that only where the answer could change the branch's state. Which states
@@ -3525,7 +3530,7 @@ for plan in "${plans[@]}"; do
     # "-" is the absent marker the shim writes, for the tab-collapse reason
     # above. Normalized here so everything downstream tests emptiness.
     [ "$waits" = "-" ] && waits=""
-    readings+="$(branch_readings "$br" "$deferred")	${waits:--}	-"$'\n'
+    readings+="$(branch_readings "$br" "$deferred")	${waits:--}	?"$'\n'
     order+="$idx	$br	$deferred	$why	${waits:--}	$wname	$claim"$'\n'
   done <<< "$wave_lines"
 
@@ -3562,9 +3567,9 @@ for plan in "${plans[@]}"; do
   # `branch-state.ts` with a test per case; this loop only spends the calls it
   # is told to.
   #
-  # SO THE SECOND ASK IS PAID ONLY WHEN SOMETHING IS FLAGGED. Measured
-  # 2026-09-07, no plan on Draft or Approved carries a `waits:` annotation, so
-  # on this estate it never runs at all.
+  # SO THE SECOND ASK IS PAID ONLY WHEN SOMETHING IS FLAGGED, and the bound is
+  # the flagged branches rather than the annotated ones: a `waits:` branch that
+  # already reads `wip`, `claimed`, `merged` or `deferred` costs nothing.
   refill=""
   needs_refill=0
   answer_i=0
