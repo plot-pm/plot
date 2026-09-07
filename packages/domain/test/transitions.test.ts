@@ -6,8 +6,12 @@ import {
   deliverable,
   isDecision,
   isRefusal,
+  reject,
+  rejectable,
   releasable,
   release,
+  supersedable,
+  supersede,
   type TransitionPlan,
 } from '../src/transitions/plan.js';
 
@@ -419,5 +423,360 @@ describe('a decision is assertable as a value', () => {
     });
     expect([isDecision(decision), isRefusal(decision)]).toEqual([true, false]);
     expect([isDecision(refusal), isRefusal(refusal)]).toEqual([false, true]);
+  });
+});
+
+describe('reject', () => {
+  it('returns a decision carrying the state and its record together', () => {
+    const result = reject(planWith(), {
+      on: '2026-09-07',
+      who: 'Jan Wloka',
+      why: 'the defect it fixes was disproved',
+    });
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.phase).toBe('rejected');
+    expect(result.field).toBe('Rejected');
+    expect(result.record).toBe('2026-09-07, Jan Wloka, the defect it fixes was disproved');
+  });
+
+  it('rejects a design plan', () => {
+    const result = reject(planWith({ phase: 'design' }), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+    });
+    expect(isDecision(result)).toBe(true);
+  });
+
+  it('rejects an approved plan — approval is not delivery', () => {
+    const result = reject(planWith({ phase: 'approved' }), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+    });
+    expect(isDecision(result)).toBe(true);
+  });
+
+  it('treats an already-rejected plan with no record as the repairable case', () => {
+    const result = reject(planWith({ phase: 'rejected' }), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+    });
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.alreadyRecorded).toBe(false);
+  });
+
+  it('reports nothing to do when the state is rejected and the record is written', () => {
+    const result = reject(
+      planWith({ phase: 'rejected', rejectedRecord: '2026-08-31, Jan Wloka, in-session' }),
+      { on: '2026-09-07', who: 'Jan', why: 'withdrawn' },
+    );
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.alreadyRecorded).toBe(true);
+    expect(result.record).toBe('2026-08-31, Jan Wloka, in-session');
+  });
+
+  it('keeps the written record when repairing a plan whose reason was never supplied', () => {
+    const result = reject(planWith({ phase: 'rejected', rejectedRecord: '2026-08-31, Jan, why' }), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: '   ',
+    });
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.record).toBe('2026-08-31, Jan, why');
+  });
+
+  // --- one test per refusal, named for it ---------------------------------
+
+  it('refuses state-terminal: a delivered plan cannot be un-shipped by a verdict', () => {
+    const result = reject(planWith({ phase: 'delivered' }), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-terminal');
+    expect(result.detail).toContain('delivered');
+    expect(result.detail).toContain('landed work');
+  });
+
+  it('refuses state-terminal: a released plan cannot be rejected', () => {
+    const result = reject(planWith({ phase: 'released' }), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-terminal');
+  });
+
+  it('refuses state-unreadable rather than guessing an empty state', () => {
+    const result = reject(planWith({ phase: 'none' }), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-unreadable');
+  });
+
+  it('refuses state-wrong: a superseded plan already left the lifecycle', () => {
+    const result = reject(planWith({ phase: 'superseded' }), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-wrong');
+    expect(result.detail).toContain('superseded');
+  });
+
+  it('refuses state-wrong for a state outside the union', () => {
+    const result = reject(planWith({ phase: 'abandoned' as never }), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-wrong');
+    expect(result.detail).toContain('abandoned');
+  });
+
+  it('refuses reason-missing rather than recording a verdict nobody can act on', () => {
+    const result = reject(planWith(), { on: '2026-09-07', who: 'Jan', why: '   ' });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('reason-missing');
+  });
+
+  it('refuses precondition-unmet when a supplied reading refuses', () => {
+    const result = reject(planWith(), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+      preconditions: [{ name: 'no branch has landed', met: false, detail: '1 branch merged' }],
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('precondition-unmet');
+    expect(result.detail).toContain('1 branch merged');
+  });
+
+  it('proceeds when every supplied reading is met', () => {
+    const result = reject(planWith(), {
+      on: '2026-09-07',
+      who: 'Jan',
+      why: 'withdrawn',
+      preconditions: [{ name: 'no branch has landed', met: true }],
+    });
+    expect(isDecision(result)).toBe(true);
+  });
+
+  it('reads a plan carrying no rejection field as one carrying no rejection', () => {
+    const { rejectedRecord: _unused, ...without } = planWith({ rejectedRecord: '' });
+    const result = reject(without, { on: '2026-09-07', who: 'Jan', why: 'withdrawn' });
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.record).toBe('2026-09-07, Jan, withdrawn');
+  });
+});
+
+describe('supersede', () => {
+  it('returns a decision carrying the state and its record together', () => {
+    const result = supersede(planWith(), {
+      on: '2026-09-07',
+      by: 'the-wave-is-a-thing-the-board-can-hold',
+    });
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.phase).toBe('superseded');
+    expect(result.field).toBe('Superseded');
+    expect(result.record).toBe('2026-09-07, by `the-wave-is-a-thing-the-board-can-hold`');
+  });
+
+  it('supersedes a design plan', () => {
+    const result = supersede(planWith({ phase: 'design' }), { on: '2026-09-07', by: 'a-successor' });
+    expect(isDecision(result)).toBe(true);
+  });
+
+  it('supersedes an approved plan', () => {
+    const result = supersede(planWith({ phase: 'approved' }), {
+      on: '2026-09-07',
+      by: 'a-successor',
+    });
+    expect(isDecision(result)).toBe(true);
+  });
+
+  it('treats an already-superseded plan with no record as the repairable case', () => {
+    const result = supersede(planWith({ phase: 'superseded' }), {
+      on: '2026-09-07',
+      by: 'a-successor',
+    });
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.alreadyRecorded).toBe(false);
+  });
+
+  it('reports nothing to do when the state is superseded and the record is written', () => {
+    const result = supersede(
+      planWith({
+        phase: 'superseded',
+        supersededRecord: '2026-08-23, by `the-wave-is-a-thing-the-board-can-hold`',
+      }),
+      { on: '2026-09-07', by: 'a-successor' },
+    );
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.alreadyRecorded).toBe(true);
+    expect(result.record).toBe('2026-08-23, by `the-wave-is-a-thing-the-board-can-hold`');
+  });
+
+  it('keeps the written record when repairing a plan whose successor was never supplied', () => {
+    const result = supersede(
+      planWith({ phase: 'superseded', supersededRecord: '2026-08-22 — see the notes' }),
+      { on: '2026-09-07', by: '  ' },
+    );
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.record).toBe('2026-08-22 — see the notes');
+  });
+
+  // --- one test per refusal, named for it ---------------------------------
+
+  it('refuses state-terminal: a delivered plan cannot be superseded', () => {
+    const result = supersede(planWith({ phase: 'delivered' }), {
+      on: '2026-09-07',
+      by: 'a-successor',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-terminal');
+    expect(result.detail).toContain('landed work');
+  });
+
+  it('refuses state-terminal: a released plan cannot be superseded', () => {
+    const result = supersede(planWith({ phase: 'released' }), {
+      on: '2026-09-07',
+      by: 'a-successor',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-terminal');
+  });
+
+  it('refuses state-unreadable rather than guessing an empty state', () => {
+    const result = supersede(planWith({ phase: 'none' }), { on: '2026-09-07', by: 'a-successor' });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-unreadable');
+  });
+
+  it('refuses state-wrong: a rejected plan already left the lifecycle', () => {
+    const result = supersede(planWith({ phase: 'rejected' }), {
+      on: '2026-09-07',
+      by: 'a-successor',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-wrong');
+    expect(result.detail).toContain('rejected');
+  });
+
+  it('refuses state-wrong for a state outside the union', () => {
+    const result = supersede(planWith({ phase: 'abandoned' as never }), {
+      on: '2026-09-07',
+      by: 'a-successor',
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('state-wrong');
+    expect(result.detail).toContain('superseded');
+  });
+
+  it('refuses successor-missing rather than losing where the work went', () => {
+    const result = supersede(planWith(), { on: '2026-09-07', by: '  ' });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('successor-missing');
+  });
+
+  it('refuses precondition-unmet when a supplied reading refuses', () => {
+    const result = supersede(planWith(), {
+      on: '2026-09-07',
+      by: 'a-successor',
+      preconditions: [{ name: 'the successor exists', met: false, detail: 'no such plan file' }],
+    });
+    expect(isRefusal(result)).toBe(true);
+    if (!isRefusal(result)) return;
+    expect(result.reason).toBe('precondition-unmet');
+    expect(result.detail).toContain('no such plan file');
+  });
+
+  it('proceeds when every supplied reading is met', () => {
+    const result = supersede(planWith(), {
+      on: '2026-09-07',
+      by: 'a-successor',
+      preconditions: [{ name: 'the successor exists', met: true }],
+    });
+    expect(isDecision(result)).toBe(true);
+  });
+
+  it('reads a plan carrying no supersession field as one carrying no supersession', () => {
+    const { supersededRecord: _unused, ...without } = planWith({ supersededRecord: '' });
+    const result = supersede(without, { on: '2026-09-07', by: 'a-successor' });
+    expect(isDecision(result)).toBe(true);
+    if (!isDecision(result)) return;
+    expect(result.record).toBe('2026-09-07, by `a-successor`');
+  });
+});
+
+describe('the two exits are not one verb', () => {
+  it('rejectable reports whether the board should offer Reject', () => {
+    expect(rejectable(planWith())).toBe(true);
+    expect(rejectable(planWith({ phase: 'approved' }))).toBe(true);
+    expect(rejectable(planWith({ phase: 'delivered' }))).toBe(false);
+    expect(rejectable(planWith({ phase: 'superseded' }))).toBe(false);
+  });
+
+  it('supersedable reports whether the board should offer Supersede', () => {
+    expect(supersedable(planWith())).toBe(true);
+    expect(supersedable(planWith({ phase: 'released' }))).toBe(false);
+    expect(supersedable(planWith({ phase: 'rejected' }))).toBe(false);
+  });
+
+  it('rejectable answers about the state, not about a reason nobody supplied', () => {
+    expect(rejectable(planWith())).toBe(true);
+    expect(isRefusal(reject(planWith(), { on: '', who: '', why: '' }))).toBe(true);
+  });
+
+  it('supersedable answers about the state, not about a successor nobody supplied', () => {
+    expect(supersedable(planWith())).toBe(true);
+    expect(isRefusal(supersede(planWith(), { on: '', by: '' }))).toBe(true);
+  });
+
+  it('a rejection carries why and a supersession carries which — neither carries both', () => {
+    const rejected = reject(planWith(), { on: '2026-09-07', who: 'Jan', why: 'disproved' });
+    const superseded = supersede(planWith(), { on: '2026-09-07', by: 'a-successor' });
+    if (!isDecision(rejected) || !isDecision(superseded)) throw new Error('expected decisions');
+    expect(rejected.record).toContain('disproved');
+    expect(rejected.record).not.toContain('by `');
+    expect(superseded.record).toContain('by `a-successor`');
+  });
+
+  it('neither verb accepts what the other has already written', () => {
+    expect(isRefusal(reject(planWith({ phase: 'superseded' }), { on: '', who: '', why: 'x' }))).toBe(
+      true,
+    );
+    expect(isRefusal(supersede(planWith({ phase: 'rejected' }), { on: '', by: 'x' }))).toBe(true);
   });
 });
