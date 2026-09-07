@@ -43,7 +43,7 @@
 
 ## Slices
 
-### The board reads the supervisor (Branch: feature/the-board-says-whether-anything-supervises)
+### The board reads the supervisor (Branch: feature/the-board-says-whether-anything-supervises, PR: #770)
 
 `/api/board` carries a supervisor reading, and the board renders it where a person watching agents will see it.
 
