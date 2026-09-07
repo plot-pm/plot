@@ -46,7 +46,7 @@
 
 ## Slices
 
-### The sprint reader knows a withdrawn plan (Branch: bug/a-withdrawn-item-is-not-open)
+### The sprint reader knows a withdrawn plan (Branch: bug/a-withdrawn-item-is-not-open) <!-- waits: bug/a-sprint-item-has-one-scorer -->
 
 `item_state` learns a fourth answer for a plan whose `State:` is terminal-but-not-delivered.
 
@@ -59,6 +59,8 @@
 **THE CHECKBOX STOPS MATTERING FOR THESE.** Ticked or unticked, a withdrawn plan is withdrawn; the estate outranks the box here exactly as it does for `delivered`. Say so where the existing asymmetry is argued, so the next reader finds one rule and not two.
 
 **`/plot-sprint close` AND THE RELEASE GATE MUST AGREE.** The existing comment records why: if the release gate were the lenient one, two commands would disagree about one line, *"and that is the wrong way round."* Whatever `close` does with a withdrawn item, the release gate does the same.
+
+**IT WAITS FOR THE SINGLE SCORER, AND THE ANNOTATION SAYS SO.** [`a-sprint-item-has-one-scorer`](2026-09-07-a-sprint-item-has-one-scorer.md) found that `scoreItem` has no production caller and the live rule is 12 lines of bash — so against today's shape this is FOUR edits with nothing to catch a missed one. After that plan lands it is one function and one enum, with a corpus test that fails if the shell disagrees.
 
 **IT IS A CONTRACT CHANGE, AND THREE CONSUMERS ARE PINNED TO THREE STATES.** Round 1 found them: `entities/sprint.ts:37` declares `ItemStatusSchema = z.enum(['done', 'open', 'disputed'])`; `workflows/release.ts:172` branches on `disputed` to word its message; `/plot-release` step 3 refuses on `open` or `disputed`. **Widen the enum rather than working around it** — a Zod enum fails loudly on a value it does not know, which is the direction that finds the fourth consumer if there is one. The board's `app/` renders none of these, so the UI is not a consumer.
 
