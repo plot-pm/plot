@@ -11,6 +11,7 @@
 - **Review:** pr
 - **Impl:** own branches
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #766 merged
+- **Started:** 2026-09-07, Jan Wloka, `bug/the-bundle-set-is-derived-once`
 
 ## Changelog
 
