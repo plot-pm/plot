@@ -1,3 +1,4 @@
+import { CHECKS_UNASKABLE_NOTE } from '@plot-pm/domain';
 import type { PlanSource } from '../../contract/schema.js';
 
 /**
@@ -26,6 +27,7 @@ import type { PlanSource } from '../../contract/schema.js';
 export function PlanSourceLine({
   planSource,
   ageSeconds,
+  checksUnaskable = false,
 }: {
   /**
    * Where the plans came from — or UNDEFINED, from a server that predates the
@@ -47,6 +49,22 @@ export function PlanSourceLine({
    * as 0, which would claim a freshness nothing measured. `readRef`'s own rule.
    */
   ageSeconds: number | null;
+  /**
+   * Whether the host could not report checks for ANY pull request on this
+   * board — `checksUnaskable` over every card's PRs, decided in the domain.
+   *
+   * ONE UNREACHABLE SERVICE IS NOT SEVENTY-TWO FINDINGS. A per-PR `checks not
+   * asked` beside every number means *this pull request*; on a Jenkins team,
+   * where the board reaches `gh` alone, it is true of every one of them and
+   * says nothing but *this stack*. So it is said HERE, once, beside the other
+   * facts about what this board could reach — and the per-PR notes remain,
+   * because a reader must still be able to see which rows the claim covers.
+   *
+   * Optional at runtime for the same reason `planSource` is: the client casts
+   * the payload rather than parsing it, so a component must survive its
+   * absence.
+   */
+  checksUnaskable?: boolean;
 }) {
   // A ref that could not be resolved is the one case with no provenance to
   // state, and it must NOT be answered by quietly falling back to the checkout
@@ -99,6 +117,16 @@ export function PlanSourceLine({
       {planSource.behind !== null && planSource.behind > 0 && (
         <span className="text-amber-700 dark:text-amber-500" data-checkout-behind={planSource.behind}>
           {' · '}checkout {planSource.behind} behind
+        </span>
+      )}
+      {/* THE CONNECTOR, SAID ONCE. Not amber: a host that carries no check
+          rollup is a legitimate stack rather than a fault in this run, the
+          same reason a repo with no remote is reported and not scolded. The
+          sentence is the domain's, so what this board claims about its own
+          reach is asserted in a unit test rather than written here. */}
+      {checksUnaskable && (
+        <span data-checks-unaskable title={CHECKS_UNASKABLE_NOTE}>
+          {' · '}checks not asked
         </span>
       )}
     </p>

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { Board, Card, Phase, StoryCard } from '../../contract/schema.js';
 import { PHASE_LEADERSHIP } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
+import { checksUnaskableOn } from '../lib/plan.js';
 import { PlanCard } from './PlanCard.js';
 import { PlanSourceLine } from './PlanSourceLine.js';
 
@@ -302,7 +303,11 @@ export function BoardView({
         provenance line at the top would be read as a warning before the reader
         has seen anything to be warned about. Same placement rule as the Agents
         tab's view-status footer. */}
-    <PlanSourceLine planSource={board.planSource} ageSeconds={planAgeSeconds} />
+    <PlanSourceLine
+        planSource={board.planSource}
+        ageSeconds={planAgeSeconds}
+        checksUnaskable={checksUnaskableOn(board)}
+      />
     </>
   );
 }

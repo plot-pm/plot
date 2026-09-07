@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { Board, Card, StoryCard } from '../../contract/schema.js';
 import { BOARD_PHASES, PHASE_LEADERSHIP } from '../../contract/schema.js';
 import { NO_STORY, passesFilter, passesSprintFilter, sprintMembershipLookup } from '../lib/filters.js';
-import { storyHref } from '../lib/plan.js';
+import { checksUnaskableOn, storyHref } from '../lib/plan.js';
 import { PlanCard } from './PlanCard.js';
 import { PlanSourceLine } from './PlanSourceLine.js';
 
@@ -246,7 +246,11 @@ export function Swimlanes({
       </div>
       {/* The same provenance line the column view carries, for the same cards.
           See `PlanSourceLine`. */}
-      <PlanSourceLine planSource={board.planSource} ageSeconds={planAgeSeconds} />
+      <PlanSourceLine
+        planSource={board.planSource}
+        ageSeconds={planAgeSeconds}
+        checksUnaskable={checksUnaskableOn(board)}
+      />
     </div>
   );
 }
