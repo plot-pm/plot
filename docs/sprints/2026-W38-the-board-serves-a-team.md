@@ -76,7 +76,7 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 - [ ] [a-sprint-item-has-one-scorer] `scoreItem` is exported, tested and documented in the domain, and **nothing calls it** — the live rule is 12 lines of bash that already disagree with it about an item with no plan. This is the previous sprint's own goal unmet in one place, and it is here rather than in its Notes because a team reads sprint status more often than one person does. Plan filed 2026-09-07 <!-- pr: #791, status: approved, branch: bug/a-sprint-item-has-one-scorer -->
 
-- [ ] [a-withdrawn-item-is-not-open] <!-- pr: #792, waits: a-sprint-item-has-one-scorer , status: approved , branch: bug/a-withdrawn-item-is-not-open --> A sprint item whose plan was withdrawn reports as withdrawn rather than blocking a release forever. **It waits for the single scorer**: against today's split it is four edits with no gate, because the bash and the TypeScript cannot import each other. Plan filed 2026-09-07
+- [ ] [a-withdrawn-item-is-not-open] <!-- pr: #792, waits: a-sprint-item-has-one-scorer , status: approved , branch: bug/a-withdrawn-item-is-not-open> A sprint item whose plan was withdrawn reports as withdrawn rather than blocking a release forever. **It waits for the single scorer**: against today's split it is four edits with no gate, because the bash and the TypeScript cannot import each other. Plan filed 2026-09-07
 
 ### Could Have
 
