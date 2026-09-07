@@ -1,0 +1,1 @@
+../2026-09-06-the-brief-command-invokes-a-skill.md
