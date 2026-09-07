@@ -11,7 +11,7 @@ Four conditions, all of which must hold: **named**, **owned**, **enforced**, **r
 | suite | files | result |
 |---|---|---|
 | `@plot-pm/domain` | 93 | **2124 pass, 1 fail** — see §0 |
-| `test/reconcile` | 69 | run before cutting |
+| `test/reconcile` | 69 | **1393 pass, 0 fail** |
 | board vitest | 157 | run before cutting |
 | `packages/domain/corpus` | 4 | adapters vs production, live estate |
 | `test/e2e` | 11 | CI's gate, not a local run |
