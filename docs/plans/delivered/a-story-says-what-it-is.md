@@ -1,0 +1,1 @@
+../2026-09-06-a-story-says-what-it-is.md
