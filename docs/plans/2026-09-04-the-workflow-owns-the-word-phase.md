@@ -315,7 +315,8 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
   person types.
 
   Last, because it is mechanical and the concept has to be right before 196
-  files are rewritten to match it.
+  files are rewritten to match it. The estate grew while the plan waited: 226
+  plan files and 9 sprint files were renamed, not 196 and 9. → #776
 
 ## Notes
 
