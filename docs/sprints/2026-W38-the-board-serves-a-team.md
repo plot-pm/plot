@@ -58,7 +58,7 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 - [ ] [the-lifecycle-runs-on-the-other-stack] One e2e test drives `/plot-init` → `/plot-deliver` unattended on a Bitbucket + Jenkins + Jira sandbox. **`unattended` is the one condition of the four with no plan** — not because it is unimplemented but because it is implemented eight times over and never exercised as a path: every skill handles `PLOT_UNATTENDED`, and `lifecycle.test.mjs` names Jira only in a config string with zero `bb`, `jen` or `PLOT_TRACKER` calls. **It must fail on arrival**, and its failing assertions name the plan that turns each green. Plan filed 2026-09-07 <!-- pr: #783, status: approved, branch: infra/the-lifecycle-runs-on-the-other-stack>
 
-- [ ] [a-first-run-refusal-names-its-repair] Every refusal reachable in a first unattended run names the command that fixes it. The bar is `plot-fleetctl.sh`'s node refusal, which says `nvm use` rather than *wrong version*. Walk `/plot-init` → `/plot-deliver` on a Bitbucket/Jenkins/Jira checkout with no credentials and fix every message that only states a cause <!-- pr: #784, status: approved, branch: bug/a-first-run-refusal-names-its-repair>
+- [x] [a-first-run-refusal-names-its-repair] Every refusal reachable in a first unattended run names the command that fixes it. The bar is `plot-fleetctl.sh`'s node refusal, which says `nvm use` rather than *wrong version*. Walk `/plot-init` → `/plot-deliver` on a Bitbucket/Jenkins/Jira checkout with no credentials and fix every message that only states a cause <!-- pr: #784, status: delivered, branch: bug/a-first-run-refusal-names-its-repair>
 
 ### Should Have
 
