@@ -43,7 +43,7 @@
 
 ## Slices
 
-### The contract is written and one comparison proves it (Branch: infra/a-shell-script-asks-the-domain)
+### The contract is written and one comparison proves it (Branch: infra/a-shell-script-asks-the-domain, PR: #805)
 
 A stated contract for shell-to-domain, plus the first corpus comparison built to it.
 
