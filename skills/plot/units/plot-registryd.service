@@ -38,7 +38,13 @@ Environment=PLOT_REPO_ROOT=__REPO_ROOT__
 # git, gh and node must be findable: systemd gives a unit a minimal PATH.
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin
 
-ExecStart=__NODE__ __REGISTRYD__
+# `--start-agents` IS WHAT MAKES THIS A SUPERVISOR. The flag defaults off so that
+# `/plot-fleet --once` can run against a live estate for free — a tick without it
+# decides every hand-over and performs none. The long-running unit is the one
+# place where that is nobody's intent. Measured 2026-09-07: three consecutive
+# ticks reported `handed=2` while both free agents' manifests read `branch: ""`
+# and had been quiet 3,067 seconds.
+ExecStart=__NODE__ __REGISTRYD__ --start-agents
 
 # RESTART ALWAYS, and the reason is the same one the plist gives: every
 # recoverable failure is now a tick that reports and continues, so a process
@@ -60,6 +66,12 @@ SyslogIdentifier=plot-registryd
 # BACKGROUND PRIORITY. The daemon is idle 94% of a 60 s interval and shares a
 # machine with the workers it supervises; it must never be what makes a worker
 # slow.
+#
+# THESE TWO DIRECTIVES ARE PRIORITY ALONE AND EVICT NOTHING, which is why this
+# file is unchanged where the plist is not. launchd's `ProcessType: Background`
+# bought priority and eviction eligibility together, and it evicted the daemon
+# six times in one session under load on 2026-09-07; the plist now splits the
+# two. systemd has nothing to split.
 Nice=10
 IOSchedulingClass=idle
 

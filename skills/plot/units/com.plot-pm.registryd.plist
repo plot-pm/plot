@@ -19,10 +19,17 @@
        second checkout needs a second file with a second label — see the README.
        Two daemons sharing one label is launchd loading whichever was last. -->
 
+  <!-- `--start-agents` IS WHAT MAKES THIS A SUPERVISOR. The flag defaults off so
+       that `/plot-fleet --once` can run against a live estate for free — a tick
+       without it decides every hand-over and performs none. The long-running
+       unit is the one place where that is nobody's intent. Measured 2026-09-07:
+       three consecutive ticks reported `handed=2` while both free agents'
+       manifests read `branch: ""` and had been quiet 3,067 seconds. -->
   <key>ProgramArguments</key>
   <array>
     <string>__NODE__</string>
     <string>__REGISTRYD__</string>
+    <string>--start-agents</string>
   </array>
 
   <!-- THE DAEMON READS THE REPOSITORY IT IS STARTED IN. `registryd-main.ts`
@@ -66,10 +73,30 @@
   <key>StandardErrorPath</key>
   <string>__REPO_ROOT__/.plot/logs/registryd.err</string>
 
-  <!-- BACKGROUND PRIORITY. The daemon is idle 94% of a 60 s interval and shares
-       a machine with the workers it supervises; it must never be what makes a
-       worker slow. -->
+  <!-- PRIORITY AND EVICTION ELIGIBILITY ARE TWO THINGS, and `Background` bought
+       both. The daemon is idle 94% of a 60 s interval and shares a machine with
+       the workers it supervises, so it must never be what makes a worker slow —
+       that reasoning is right, and it argues for scheduling priority alone.
+
+       Measured 2026-09-07: the job was evicted SIX times in one session, every
+       time under load — caught at load 43.68 by a 15 s watcher, never below 13.
+       `runs = 1`, `last exit code = (never exited)`, `registryd.err` 0 bytes
+       each time: removed by the system, not crashed. `node --watch
+       board-server.mjs` ran 2 days 12 hours unbroken through all six on the
+       same machine under the same load, and the only difference between the two
+       processes is this key. A supervisor removed at exactly the load a working
+       fleet produces is absent when it is most needed.
+
+       THE SYSTEMD UNIT NEEDS NO SUCH CHANGE, and that is the argument rather
+       than an inconsistency: `Nice=10` and `IOSchedulingClass=idle` are
+       priority alone and evict nothing. The two platforms disagreed only in the
+       field that matters.
+
+       `Adaptive` keeps the job schedulable without the throughput class's
+       eviction; `Nice` carries the politeness the reasoning above asks for. -->
   <key>ProcessType</key>
-  <string>Background</string>
+  <string>Adaptive</string>
+  <key>Nice</key>
+  <integer>10</integer>
 </dict>
 </plist>
