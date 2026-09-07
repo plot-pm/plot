@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** bug
 - **Story:** plot-gates
 - **Review:** in-session

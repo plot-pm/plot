@@ -136,7 +136,7 @@ Sorted by where their truth lives:
 
 | # | Entity | Source of truth | Domain | State today |
 |---|--------|-----------------|--------|-------------|
-| 1 | Plan | the file's `Phase:` | git | solid |
+| 1 | Plan | the file's `State:` | git | solid |
 | 2 | Slice | plan's `## Branches`/`## Waves` sections + branch states | git | solid |
 | 3 | Branch | `origin/<branch>` ref | git | solid |
 | 4 | PR | host API | foreign | rich, conflated with Branch |
@@ -451,7 +451,7 @@ never the parser's JSON.
 Three consequences that decide field membership:
 
 **1. A field the source states plainly belongs on the object.** A plan's file
-says `Phase: Approved`; the Plan object carries it. A story's front matter says
+says `State: Approved`; the Plan object carries it. A story's front matter says
 `status: active`; the Story object carries it. A consumer that had to reopen the
 file for either would mean the object was not the source of truth after all.
 

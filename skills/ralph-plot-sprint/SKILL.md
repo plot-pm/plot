@@ -364,6 +364,6 @@ Only failures whose cause is not obvious from their governing step.
 
 | Mistake | Effect | Prevention |
 |---------|--------|------------|
-| Running against a sprint in `Phase: Draft` | No items to work on; loop exhausts iterations | Check `Phase:` field in Step 0; output BLOCKED if not started |
+| Running against a sprint in `State: Draft` | No items to work on; loop exhausts iterations | Check `State:` field in Step 0; output BLOCKED if not started |
 | Working in a stale worktree | New sprint items/merged PRs invisible to agent | ralph-sprint.sh now refreshes worktrees before the loop; if running manually, `git worktree remove` first |
 | Review findings lost in subagent return text | Findings never posted to GitHub; next iteration sees "no comments" | Every subagent MUST post findings via `gh api` directly — never rely on return text |

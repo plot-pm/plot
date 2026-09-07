@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** feature
 - **Sprint:**
 - **Story:** plot-board

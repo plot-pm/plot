@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Story:** the-board-is-blank-where-it-matters

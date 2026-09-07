@@ -10,7 +10,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Sprint:**

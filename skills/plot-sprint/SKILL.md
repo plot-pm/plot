@@ -276,7 +276,7 @@ A sprint may name the version it is working toward:
 ```markdown
 ## Status
 
-- **Phase:** Active
+- **State:** Active
 - **Start:** 2026-08-18
 - **End:** 2026-08-22
 - **Release:** 2.5.2
@@ -384,7 +384,7 @@ Update phase **on the PR branch**, push, mark ready, merge:
 # If not, check it out worktree-safe: git checkout -b sprint/<slug> origin/sprint/<slug>
 
 # Bump phase in the sprint file
-# **Phase:** Planning → **Phase:** Committed
+# **State:** Planning → **State:** Committed
 git add docs/sprints/*-<slug>.md
 git commit -m "sprint: commit <slug>"
 git push
@@ -401,7 +401,7 @@ The merge itself is the "scope locked" transition. No follow-up commit on main n
 
 ```bash
 # Bump phase in the sprint file
-# **Phase:** Planning → **Phase:** Committed
+# **State:** Planning → **State:** Committed
 git add docs/sprints/*-<slug>.md
 git commit -m "sprint: commit <slug>"
 git push
@@ -437,7 +437,7 @@ ln -s ../${WEEK_PREFIX}-<slug>.md docs/sprints/active/<slug>.md
 
 #### 3. Update Phase
 
-Change `**Phase:** Committed` → `**Phase:** Active`
+Change `**State:** Committed` → `**State:** Active`
 
 #### 4. Commit
 
@@ -625,7 +625,7 @@ Fill the `## Retrospective` section using the template from `skills/plot/templat
 
 #### 4. Update Phase and Remove Symlink
 
-Change `**Phase:** Active` → `**Phase:** Closed`
+Change `**State:** Active` → `**State:** Closed`
 
 ```bash
 git rm docs/sprints/active/<slug>.md

@@ -10,7 +10,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-board-tells-the-truth-in-every-section
 - **Story:** plot-board

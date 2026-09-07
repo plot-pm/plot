@@ -538,7 +538,7 @@ Print a clear summary:
 ## Plot Status
 
 ### Active Plans
-- `<slug>` — Phase: <phase> | Plan PR: #<n> (<state>) | Impl PRs: <count> merged / <count> total
+- `<slug>` — State: <state> | Plan PR: #<n> (<pr-state>) | Impl PRs: <count> merged / <count> total
 
 ### Active Sprints
 - `<slug>` — "<goal>" | <N> days remaining | Must: <n>/<m> | Should: <n>/<m> | Could: <n>/<m>

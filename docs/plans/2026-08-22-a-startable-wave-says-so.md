@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** bug
 - **Sprint:** working-shows-the-agent
 - **Story:** plot-board

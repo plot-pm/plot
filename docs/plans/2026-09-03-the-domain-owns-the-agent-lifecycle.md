@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** feature
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr

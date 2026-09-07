@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** infra
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** <!-- optional, tracker issue(s) this plan answers -->

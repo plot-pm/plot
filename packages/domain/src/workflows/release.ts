@@ -38,7 +38,7 @@ export interface ReleaseSprintItem {
   status: ItemStatus;
 }
 
-/** A plan at `Phase: Delivered`, and the tag its work landed in. Step 5b. */
+/** A plan at `State: Delivered`, and the tag its work landed in. Step 5b. */
 export interface ReleasePlanReading {
   /** The plan's slug. */
   slug: string;
@@ -69,7 +69,7 @@ export interface ReleaseReadings {
   sprintItems: readonly ReleaseSprintItem[];
   /** The sprint files that would carry an override note, by sprint slug. */
   sprintFiles: Readonly<Record<string, string>>;
-  /** The plans at `Phase: Delivered` this release would mark. */
+  /** The plans at `State: Delivered` this release would mark. */
   deliveredPlans: readonly ReleasePlanReading[];
   /**
    * The version to cut, as the caller gave it, or `''`.

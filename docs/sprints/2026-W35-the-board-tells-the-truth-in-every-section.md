@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Closed
+- **State:** Closed
 - **Start:** 2026-08-23
 - **End:** 2026-09-02
 - **Release:** 2.9.0

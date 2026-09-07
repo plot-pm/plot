@@ -1,7 +1,7 @@
 # Worker notes — an-eligible-wave-starts-itself (wave: Served)
 
 Design decisions settled while implementing wave 3 of
-`approval-hands-the-work-to-agents`. Not a plan file (no `Phase:` field) — a
+`approval-hands-the-work-to-agents`. Not a plan file (no `State:` field) — a
 decision log, the same kind `docs/plans/` already holds.
 
 ## What this wave does

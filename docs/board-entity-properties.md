@@ -35,7 +35,7 @@ section is one of them.
 |---|---|---|
 | `plan` | slug | plan filename |
 | `planFile` | `YYYY-MM-DD-<slug>.md` | plan directory |
-| `phase` | `Discovery` · `Development` · `Endgame` · `Released` · `null` | `Phase:` + transition records |
+| `phase` | `Discovery` · `Development` · `Endgame` · `Released` · `null` | `State:` + transition records |
 | `brief` | path or `""` | `.plot/briefs/` |
 | `version` | release version | `git tag --contains` |
 

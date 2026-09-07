@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Delivered:** 2026-08-26
 - **Released:** 2026-08-26, 2.9.0
 - **Type:** feature

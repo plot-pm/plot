@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Draft
+- **State:** Draft
 - **Type:** feature | bug | docs | infra
 - **Story:** <!-- optional, story slug (docs/stories/<slug>/) — the durable intent this plan serves -->
 - **Sprint:** <!-- optional, filled when plan is added to a sprint — a time-boxed selection of planned work -->

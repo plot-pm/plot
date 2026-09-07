@@ -189,7 +189,7 @@ PR that is draft, closed, or absent. Do not work around a refusal.
 
 **It is idempotent, and re-running it is the repair.** Step 2 merges the
 PR — the one irreversible write — so an interruption after it can leave
-the PR merged while the plan still reads `Phase: Draft`. Every step
+the PR merged while the plan still reads `State: Draft`. Every step
 tests the source it would have written, so a second run completes
 whatever the first left undone and changes nothing that was already
 done. If a run dies halfway, **run it again**.
@@ -214,7 +214,7 @@ did all of this** — repeating it by hand is how the two paths drift.
 The record lives in the plan file — the file is the truth in every flow;
 a merge commit merely coincides with it in the `pr` flow.
 
-1. Change `**Phase:** Draft` → `**Phase:** Approved`
+1. Change `**State:** Draft` → `**State:** Approved`
 2. Set the `Review:`/`Impl:` Status fields if they're missing (ask the
    two ceremony questions — see `/plot-idea` step 4 — rather than
    guessing; pre-Plot-2 plans land here)

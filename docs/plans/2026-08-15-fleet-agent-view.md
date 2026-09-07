@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Delivered:** 2026-08-15
 - **Released:** 2026-08-15, v2.2.0
 - **Type:** feature

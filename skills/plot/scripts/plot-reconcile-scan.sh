@@ -1740,11 +1740,13 @@ if [ -d "$SPRINT_DIR" ]; then
   for sf in "$SPRINT_DIR"/[0-9]*.md; do
     [ -f "$sf" ] || continue
     sf_base=$(basename "$sf")
-    # `- **Phase:** Active` — the sprint template's own shape. First match
-    # only: the word appears again in prose further down several files here.
-    sphase=$(grep -m1 -E '^[[:space:]]*-[[:space:]]*\*\*Phase:\*\*' "$sf" 2>/dev/null \
-      | sed -E 's/.*\*\*Phase:\*\*[[:space:]]*//; s/[[:space:]]*$//')
-    [ -n "$sphase" ] || continue    # no phase → not a sprint this can ask about
+    # `- **State:** Active` — the sprint template's own shape. Reads `Phase:`
+    # too: the field was renamed 2026-09-07 and the dual read is permanent.
+    # First match only: the word appears again in prose further down several
+    # files here.
+    sphase=$(grep -m1 -E '^[[:space:]]*-[[:space:]]*\*\*(State|Phase):\*\*' "$sf" 2>/dev/null \
+      | sed -E 's/.*\*\*(State|Phase):\*\*[[:space:]]*//; s/[[:space:]]*$//')
+    [ -n "$sphase" ] || continue    # no state → not a sprint this can ask about
 
     # Is this file the target of a link in the index? Resolved by READING each
     # link, never by matching filenames: the link is named for the slug and the

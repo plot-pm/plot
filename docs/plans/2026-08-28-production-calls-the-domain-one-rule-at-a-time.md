@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-domain-is-one-implementation
 - **Delivered:** 2026-09-02

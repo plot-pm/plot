@@ -204,7 +204,11 @@ emit_sprint() { # $1=file → one JSON object
   base=$(basename "$f" .md)
   # `2026-W34-the-board-tells-the-truth` → `the-board-tells-the-truth`
   slug=$(printf '%s' "$base" | sed -E 's/^[0-9]{4}-W?[0-9]{2}(-[0-9]{2})?-//')
-  phase=$(status_line "$f" "Phase")
+  # `State:` is the field a sprint file carries; `Phase:` is what it was called
+  # before 2026-09-07, and both are read for good. The JSON key stays `phase`:
+  # it is the wire, and renaming it would break every reader for no gain.
+  phase=$(status_line "$f" "State")
+  [ -n "$phase" ] || phase=$(status_line "$f" "Phase")
   release=$(status_line "$f" "Release")
   # A placeholder is not a declared target. `<version>`/`X.Y.Z` read as absent
   # so a template-shaped sprint behaves exactly like one with no field at all.

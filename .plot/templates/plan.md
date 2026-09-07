@@ -10,7 +10,7 @@
 
 ## Status
 
-- **Phase:** Draft
+- **State:** Draft
 - **Type:** feature | bug | docs | infra
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Issue:** <!-- optional, tracker issue(s) this plan answers (`#228`, or `#226, #228`) — the board removes an issue from its inbox once a plan names it here -->

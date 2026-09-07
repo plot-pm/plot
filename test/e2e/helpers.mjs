@@ -141,11 +141,34 @@ export function instantiatePlan(work, { date, slug, title, fields = {}, link = t
   return rel;
 }
 
+/**
+ * Flips the `## Status` state field from one value to another.
+ *
+ * Reads `State:` and the `Phase:` the field was called before 2026-09-07, so a
+ * sandbox built from either template shape transitions.
+ *
+ * THROWS when it matches nothing. The literal replace this grew from was
+ * silent: the template moved to `State:` and every flow kept building a plan,
+ * committing it and reading it back as Draft, so the first thing that reported
+ * the drift was an `approved`/`draft` assertion three steps downstream.
+ *
+ * @param text - the plan file's contents.
+ * @param from - the state the file is expected to carry.
+ * @param to - the state to write.
+ * @returns the new contents.
+ */
+export const flipState = (text, from, to) => {
+  const line = new RegExp(`- \\*\\*(State|Phase):\\*\\* ${from}\\b`);
+  const found = text.match(line);
+  if (!found) throw new Error(`helpers: no '- **State:** ${from}' line to flip to ${to}`);
+  return text.replace(line, `- **${found[1]}:** ${to}`);
+};
+
 /** The documented approve record edit (skill plot-approve step 4, mechanized). */
 export function recordApproval(work, rel, { who = 'alice', channel = 'in-session', date = '2026-07-31' } = {}) {
   const f = path.join(work, rel);
   let t = fs.readFileSync(f, 'utf8');
-  t = t.replace('- **Phase:** Draft', '- **Phase:** Approved');
+  t = flipState(t, 'Draft', 'Approved');
   t = t.replace(/- \*\*Type:\*\* [^\n]*/, (m) => `${m}\n- **Approved:** ${date}, ${who}, ${channel}`);
   fs.writeFileSync(f, t);
 }
@@ -167,7 +190,7 @@ export function recordStarted(work, rel, { who = 'alice', branch, date = '2026-0
 export function recordDelivered(work, rel, { date = '2026-07-31' } = {}) {
   const f = path.join(work, rel);
   let t = fs.readFileSync(f, 'utf8');
-  t = t.replace('- **Phase:** Approved', '- **Phase:** Delivered');
+  t = flipState(t, 'Approved', 'Delivered');
   t = t.replace(/- \*\*Type:\*\* [^\n]*/, (m) => `${m}\n- **Delivered:** ${date}`);
   fs.writeFileSync(f, t);
 }

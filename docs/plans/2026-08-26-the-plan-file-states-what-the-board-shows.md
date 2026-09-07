@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** infra
 - **Sprint:** <!-- not a member; the sprint closed 2026-08-26 -->
 - **Issue:** <!-- optional -->

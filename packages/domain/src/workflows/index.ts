@@ -2,7 +2,7 @@
  * The lifecycle workflows, each expressed as `readings -> Decision | Refusal`.
  *
  * Every one of them DECIDES AND PERFORMS NOTHING. A `Decision` says *merge
- * PR #42, set Phase: Approved, write this record* and does nothing, which is
+ * PR #42, set State: Approved, write this record* and does nothing, which is
  * what makes each testable end to end with no host and no repository — and it
  * is why a production caller repointed at one of these is pointed at something
  * that has already answered the same question about the same estate.

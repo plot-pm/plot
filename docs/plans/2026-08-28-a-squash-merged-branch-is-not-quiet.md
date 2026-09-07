@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** bug
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->

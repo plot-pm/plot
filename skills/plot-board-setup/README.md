@@ -67,8 +67,8 @@ guesses — except where a prefix was actually found, which is a real signal.
 
 ## Why the gate asserts cards, not HTTP 200
 
-Measured 2026-08-18: a plan file written with a bare `**Phase:** Draft` line
-instead of the list item `- **Phase:** Draft` parses as `format: "none"`. The
+Measured 2026-08-18: a plan file written with a bare `**State:** Draft` line
+instead of the list item `- **State:** Draft` parses as `format: "none"`. The
 board then boots, serves valid JSON, and renders **zero cards**. At the browser
 this is indistinguishable from a broken board, and a port-responds check passes
 it cleanly.

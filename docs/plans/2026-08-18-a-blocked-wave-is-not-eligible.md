@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Sprint:** the-board-tells-the-truth

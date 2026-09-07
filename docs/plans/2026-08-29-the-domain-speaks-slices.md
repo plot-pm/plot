@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** infra
 - **Sprint:** the-board-shows-the-strategic-layer
 - **Issue:** <!-- optional -->

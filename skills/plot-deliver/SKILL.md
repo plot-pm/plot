@@ -73,7 +73,7 @@ If `$ARGUMENTS` is empty or missing:
 
 > **Unattended (`PLOT_UNATTENDED=1`):** stop unless `$ARGUMENTS` named the slug.
 > `PLOT-UNASKED: Which plan should be delivered? — stopped — <n> candidates; none delivered`
-- If none exist, explain: "No plans with `Phase: Approved` found in
+- If none exist, explain: "No plans with `State: Approved` found in
   `docs/plans/`."
 
 Extract `slug` from `$ARGUMENTS` (trimmed, lowercase, hyphens only).
@@ -270,7 +270,7 @@ index symlink, sprint annotation, push) and is idempotent:
 The script:
 - Refuses if the plan is not `Approved` or if any non-deferred branch is unmerged
   (the gate step 4 already verified, so this is a safety check)
-- Flips `Phase: Approved` → `Delivered` and fills the `Delivered:` record
+- Flips `State: Approved` → `Delivered` and fills the `Delivered:` record
 - Moves the `active/` → `delivered/` symlink (best effort, cannot fail the delivery)
 - Updates the sprint annotation (checks the box, sets `status: delivered`)
 - Pushes via `plot-push-main.sh`, with micro-PR fallback for branch protection
@@ -295,7 +295,7 @@ automatically if branch protection refuses the push.
 > **The `Delivered:` record is load-bearing, not provenance.**
 > `plot-fleet-scan.sh` shows delivered plans for a rolling window and reads
 > that window from `delivered_raw` — the record itself. Measured 2026-08-20
-> while writing e2e flow e: a plan flipped to `Phase: Delivered` with no
+> while writing e2e flow e: a plan flipped to `State: Delivered` with no
 > record was filtered out of the terminal group entirely, so the scan reported
 > **zero** plans for it. A phase flip without the record trades a missing
 > symlink for a missing field — the same invisibility one level in. Write both,
@@ -371,7 +371,7 @@ mechanical details follow.
 Print:
 - Delivered: `<slug>`
 - Plan file: `docs/plans/YYYY-MM-DD-<slug>.md` (unchanged location)
-- Transition: `Phase: Delivered` + `Delivered:` record on main (this is the
+- Transition: `State: Delivered` + `Delivered:` record on main (this is the
   delivery — report the index move, if it happened, as a separate convenience
   line, and say so plainly if it was skipped)
 - All implementation PRs: merged

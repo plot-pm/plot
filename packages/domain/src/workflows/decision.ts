@@ -43,7 +43,7 @@ export type Write =
   | CommitWrite
   | PushWrite;
 
-/** Sets a plan's `**Phase:**` field, inside its `## Status` section only. */
+/** Sets a plan's `**State:**` field, inside its `## Status` section only. */
 export interface PlanPhaseWrite {
   readonly kind: 'plan-phase';
   /** The plan file the write lands in, relative to the repository root. */
@@ -355,7 +355,7 @@ export interface PushWrite {
 /**
  * A workflow that decided to proceed, and everything it would write.
  *
- * INERT. It says *merge PR #42, set Phase: Approved, write this record* and
+ * INERT. It says *merge PR #42, set State: Approved, write this record* and
  * does nothing — which is what makes every workflow testable end to end with
  * no host and no repository.
  *

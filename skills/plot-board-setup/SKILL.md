@@ -345,7 +345,7 @@ Report which files came back `"format":"none"` or `"phase":"NONE"`, and why:
 
 > 3 of 7 plans parsed as `format: none`:
 > `docs/plans/foo.md`, `docs/plans/bar.md`, `docs/plans/baz.md`
-> — expected `- **Phase:** Draft` as a list item under `## Status`.
+> — expected `- **State:** Draft` as a list item under `## Status`.
 
 **Report only. Never rewrite the user's plans** — adoption is additive, and an
 unrequested edit to a plan is exactly the kind of write Plot does not do.

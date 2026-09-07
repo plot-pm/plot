@@ -156,7 +156,7 @@ describe('the action moves a Draft into Design, and says so', () => {
 describe('the prompt records a phase the parser reads as Design', () => {
   it('a plan built from the prompt is read back as phase design', () => {
     // THE KEY TEST — "Commission design creates a plan in phase Design", and it
-    // is a PARSE, not a string match. The prompt asks for `- **Phase:** Design`;
+    // is a PARSE, not a string match. The prompt asks for `- **State:** Design`;
     // that line is lifted into a real plan file with a `## Spec` section and
     // handed to the real parser, so this fails if the field syntax drifts to
     // anything `plot-plan-meta.sh` does not normalise to `design`.
@@ -169,7 +169,7 @@ describe('the prompt records a phase the parser reads as Design', () => {
     const plan = path.join(dir, 'docs/plans/2026-08-20-commissioned.md');
     fs.writeFileSync(plan, [
       '# Commissioned', '', '## Status', '',
-      '- **Phase:** Design',
+      '- **State:** Design',
       '- **Type:** feature',
       '', '## Spec', '', '_To be filled in during Design._',
       '', '## Changelog', '', '- a plan commissioned into design', '',
@@ -183,7 +183,7 @@ describe('the prompt records a phase the parser reads as Design', () => {
 
     // And the prompt actually asks for that exact field, so the plan above is
     // built the way the prompt instructs rather than the way this test wishes.
-    assert.match(prompt, /- \*\*Phase:\*\* Design/);
+    assert.match(prompt, /- \*\*State:\*\* Design/);
   });
 
   it('asks for an empty spec section and leaves the distinction to the plan', () => {

@@ -138,10 +138,10 @@ function resolvePlanBySlug(opts: BuildBoardOptions, slug: string): string | null
  * Three instructions ride with it, and each answers a property this route rests
  * on:
  *
- * 1. **Design, recorded where the parser reads it.** `- **Phase:** Design` in
+ * 1. **Design, recorded where the parser reads it.** `- **State:** Design` in
  *    the `## Status` block is the exact field `plot-plan-meta.sh` normalises to
  *    `design` (a phase of its own since #259, not a synonym for anything). A
- *    plan that said "Design" in prose but kept `Phase: Draft` would read back as
+ *    plan that said "Design" in prose but kept `State: Draft` would read back as
  *    Draft, and the whole point of the row — that it MOVED — would be a lie.
  *
  * 2. **An empty spec section, and the distinction LEFT TO THE PLAN.** The prompt
@@ -170,10 +170,10 @@ export function composeCommissionPrompt(input: { slug: string; planFile: string 
   parts.push(
     '## What this plan must do',
     '',
-    // The load-bearing instruction. `- **Phase:** Design` is the field the
+    // The load-bearing instruction. `- **State:** Design` is the field the
     // parser reads; see the header.
     "1. Record the phase as **Design** in the plan's `## Status` block, exactly",
-    '   as `- **Phase:** Design`. That is the field the board reads to know the',
+    '   as `- **State:** Design`. That is the field the board reads to know the',
     '   plan has moved; any other wording leaves it reading as Draft.',
     '2. Add an **empty spec section** — a heading and a placeholder saying the',
     '   spec is to be filled in during Design. Do NOT draft the spec now, and do',

@@ -96,7 +96,7 @@ Present: "Rejecting `<slug>`: M/N branches were built. K branches remain unbuilt
 
 Update the plan file (the resolved symlink target, e.g., `docs/plans/YYYY-MM-DD-<slug>.md`):
 
-- Change `**Phase:** Delivered` → `**Phase:** Approved`
+- Change `**State:** Delivered` → `**State:** Approved`
 - If a `**Delivered:** YYYY-MM-DD` line exists, replace it with: `**Rejected:** YYYY-MM-DD (<reason>)`
 - If no Delivered line exists, add `**Rejected:** YYYY-MM-DD (<reason>)` to the Status section
 - Preserve all other content — branches, design, approvals, everything stays intact
