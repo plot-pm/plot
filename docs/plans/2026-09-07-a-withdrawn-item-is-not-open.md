@@ -10,6 +10,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -39,7 +40,7 @@
 
 **Not a fifth phase.** `plot-plan-meta.sh:338` already accepts `rejected` and `superseded` beside the four. This is a consumer catching up with a vocabulary that exists.
 
-**Not a change to the three existing states.** `done`, `open` and `disputed` keep their meanings and their asymmetry — the long comment above `item_state` argues that asymmetry carefully and it stands.
+**Not a rename of the three existing states.** `done`, `open` and `disputed` keep their meanings and their asymmetry — the long comment above `item_state` argues that asymmetry carefully and it stands.
 
 **Not a release-gate loosening.** A withdrawn Must Have must still be *visible* to a release cutter. What changes is that it reports as a decision rather than as unstarted work.
 
@@ -59,7 +60,13 @@
 
 **`/plot-sprint close` AND THE RELEASE GATE MUST AGREE.** The existing comment records why: if the release gate were the lenient one, two commands would disagree about one line, *"and that is the wrong way round."* Whatever `close` does with a withdrawn item, the release gate does the same.
 
-**Done when** a sprint item whose plan is `Rejected` or `Superseded` reports as withdrawn rather than `open` or `disputed`, a withdrawn Must Have does not block a release, the checkbox does not change that answer, `/plot-sprint close` and the release gate agree, and the two items measured here read correctly.
+**IT IS A CONTRACT CHANGE, AND THREE CONSUMERS ARE PINNED TO THREE STATES.** Round 1 found them: `entities/sprint.ts:37` declares `ItemStatusSchema = z.enum(['done', 'open', 'disputed'])`; `workflows/release.ts:172` branches on `disputed` to word its message; `/plot-release` step 3 refuses on `open` or `disputed`. **Widen the enum rather than working around it** — a Zod enum fails loudly on a value it does not know, which is the direction that finds the fourth consumer if there is one. The board's `app/` renders none of these, so the UI is not a consumer.
+
+**THE RELEASE REPORTS A WITHDRAWN ITEM AND DOES NOT BLOCK ON IT.** Naming it is the point: a cutter reading the release output sees that something was dropped from this sprint and by whom. Filtering it out silently would lose that, and blocking would keep the defect under a new name.
+
+**AND THE SECOND RECORD GOES.** `/plot-sprint`'s contract documents a `<!-- status: ... -->` annotation per sprint line, written by `/plot-approve`, `/plot-deliver` and `/plot-reject`, whose documented values already include `rejected`. Measured 2026-09-07: **35 lines across four sprints carry one, `plot-sprint-release.sh` reads it nowhere, and ZERO say `rejected`** — so the writer never writes the value and the reader never reads the field. **Delete the annotation from the contract and from the lines that carry it.** The plan file is the source of truth: it carries `State:` and a dated `Rejected:` record, and the estate-outranks-the-checkbox rule this script already argues points the same way. A cache nobody refreshes and nobody reads is a second answer waiting to contradict the first.
+
+**Done when** a sprint item whose plan is `Rejected` or `Superseded` reports as withdrawn rather than `open` or `disputed`, `ItemStatusSchema` admits the fourth value and `release.ts` handles it, `/plot-release` names a withdrawn item and does not block on it, the checkbox does not change that answer, `/plot-sprint close` and the release gate agree, the `status:` annotation is gone from the contract and from the 35 lines carrying it, and the two items measured here read correctly.
 
 ## Notes
 
@@ -70,3 +77,9 @@
 A withdrawn item is not a disagreement. The box and the plan agree completely — the work is not going to happen. Filing it under `disputed` sends a reader to look for a conflict that is not there, and it dilutes a word that currently means something precise.
 
 **Two items reading `disputed` for opposite reasons is the measurement**: one has a plan the shell will not read, the other has no plan at all. A state that covers both covers neither.
+
+### Round 1 — 2026-09-07
+
+**The plan said "a fourth answer" and did not say what that costs.** Three consumers are pinned to the three states — a Zod enum in the domain, a workflow that branches on `disputed`, and a skill that refuses on it. Widening the enum was chosen over the two alternatives (filtering the item out before the tiers; making it `done` with a reason) because a withdrawal is a fact worth reporting, and `done` risks a release cutter reading *shipped*.
+
+**And the round found a second record of the same fact, which the plan had not seen.** `/plot-sprint`'s documented `<!-- status: ... -->` annotation already admits `rejected`. It is dead in both directions: 35 lines carry the annotation, none carries that value, and the release script reads the field nowhere. That is not a smaller version of this defect — it is the same defect a second time, and leaving it would mean fixing one of two answers to one question.
