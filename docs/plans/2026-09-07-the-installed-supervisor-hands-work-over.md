@@ -65,7 +65,15 @@ Both shipped units start the daemon with `--start-agents`, and something proves 
 
 **AN INSTALLED UNIT DOES NOT UPDATE ITSELF.** The plist is filled once and baked, the same property that makes the wrong `node` permanent. So this slice must say how an existing installation gets the fix — `/plot-fleet --stop` then `--start` re-fills it — and `/plot-fleet`'s docs should carry that sentence, because an operator whose fleet has this defect will read the skill rather than the plan.
 
-**Done when** both shipped units start the daemon with `--start-agents`, a test asserts each template carries it, a dispatched slice reaches a free agent's manifest without a hand write, and `/plot-fleet` says how an already-installed unit picks the change up.
+**AND THE SAME SLICE FIXES `ProcessType`, BECAUSE IT IS THE SAME TWO FILES.** Measured 2026-09-07: the launchd job was evicted **six times** in one session, every time under load — caught directly at load 43.68, and never below 13. `runs = 1`, `last exit code = (never exited)`, `registryd.err` 0 bytes each time: removed by the system, not crashed.
+
+**THE BOARD IS THE CONTROL AND IT NEVER DIED.** `node --watch board-server.mjs` ran **2 days 12 hours unbroken** through all six, on the same machine under the same load. Two long-lived Node processes in one repo; only the one declaring `ProcessType: Background` is taken. That declaration is the only difference between them.
+
+**THE EXISTING COMMENT IS RIGHT AND ITS CONCLUSION IS NOT.** Both units say *"The daemon is idle 94% of a 60 s interval and shares a machine with the workers it supervises; it must never be what makes a worker slow."* That reasoning still holds — **but it argues for scheduling priority, not for eviction eligibility**, and `ProcessType: Background` buys both. A supervisor that is removed at exactly the load a working fleet produces is not being polite; it is absent when it is needed.
+
+**SO THE TWO CONCERNS ARE SPLIT RATHER THAN TRADED.** On launchd, `ProcessType: Adaptive` keeps the job schedulable without the throughput class's eviction, and `Nice` can carry the politeness the comment asks for. **On systemd there is nothing to fix**: `Nice=10` and `IOSchedulingClass=idle` are priority alone and evict nothing — which is itself the argument, since the two platforms disagreed only in the field that matters.
+
+**Done when** both shipped units start the daemon with `--start-agents`, a test asserts each template carries it, the launchd unit no longer declares `ProcessType: Background` while keeping its scheduling politeness, the systemd unit is unchanged in that respect and the plist says why, a dispatched slice reaches a free agent's manifest without a hand write, and `/plot-fleet` says how an already-installed unit picks the change up.
 
 ## Notes
 
