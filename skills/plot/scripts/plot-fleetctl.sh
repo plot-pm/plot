@@ -334,8 +334,13 @@ if [ "$mode" = "start" ]; then
   # THE FILL IS VERIFIED, not assumed. A placeholder that survived would install
   # a unit that fails at load with a path nobody typed — the failure the two
   # hand-run checks on 2026-09-05 were there to catch.
-  left=$(grep -c '__[A-Z_]*__' "$target" 2>/dev/null || echo 0)
-  if [ "$left" != "0" ]; then
+  # `grep -c` PRINTS ITS COUNT AND STILL EXITS 1 ON NO MATCH, so a `|| echo 0`
+  # appends a SECOND zero and `left` becomes "0\n0" — never equal to "0", so a
+  # correctly filled unit was deleted and refused. Measured 2026-09-07: this
+  # refused every `--start` on a template with nothing left to fill.
+  left=$(grep -c '__[A-Z_]*__' "$target" 2>/dev/null)
+  case "$left" in (''|*[!0-9]*) left=0 ;; esac
+  if [ "$left" -ne 0 ]; then
     echo "plot-fleetctl: $left placeholder(s) survived the fill in $target" >&2
     grep -n '__[A-Z_]*__' "$target" >&2
     rm -f "$target"
