@@ -78,14 +78,21 @@
        the workers it supervises, so it must never be what makes a worker slow —
        that reasoning is right, and it argues for scheduling priority alone.
 
-       Measured 2026-09-07: the job was evicted SIX times in one session, every
-       time under load — caught at load 43.68 by a 15 s watcher, never below 13.
-       `runs = 1`, `last exit code = (never exited)`, `registryd.err` 0 bytes
-       each time: removed by the system, not crashed. `node --watch
-       board-server.mjs` ran 2 days 12 hours unbroken through all six on the
-       same machine under the same load, and the only difference between the two
-       processes is this key. A supervisor removed at exactly the load a working
-       fleet produces is absent when it is most needed.
+       Measured 2026-09-07: the job was removed SIX times in one session.
+       `runs = 1`, `last exit code = (never exited)`, `registryd.err` 0 bytes and
+       no launchd log line each time — removed by the system, not crashed, and
+       it never came back on its own. Lifetimes ran 48 s to 17 min.
+
+       WHAT TRIGGERS IT IS NOT KNOWN, and load is not it: one incarnation died
+       at load 4.30 and another served at 30.70. Five explanations were tested
+       and disproved — load, memory pressure, `AbandonProcessGroup` (with a
+       control unit), `--once`, and `--start` racing a loaded job.
+
+       THE EVIDENCE FOR THIS KEY IS THE COMPARISON, NOT THE TRIGGER. `node
+       --watch board-server.mjs` ran 2 days 12 hours unbroken beside it on the
+       same machine: two long-lived Node processes in one repo, and only the one
+       declaring `Background` is taken. That is the whole argument, and it does
+       not depend on knowing when.
 
        THE SYSTEMD UNIT NEEDS NO SUCH CHANGE, and that is the argument rather
        than an inconsistency: `Nice=10` and `IOSchedulingClass=idle` are
