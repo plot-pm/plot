@@ -112,13 +112,25 @@ The goal path was walked step by step after the fourth condition was found missi
 
 **The one thing the walk confirmed rather than found:** `plot-host.sh` never probes for `jen`, because `runs` reaches `gh` alone. That is [`the-build-pipeline-is-its-own-connector`](../plans/2026-09-07-the-build-pipeline-is-its-own-connector.md), already the sprint's second Must.
 
-### What would make the goal reachable
+### The decision: all nineteen — 2026-09-07
 
-**Cut the cohesion work to its root and defer the rest.** `a-shell-script-asks-the-domain` is worth keeping — it is one slice, it settles a contract three plans need, and it stops the next sprint re-deriving it. **The chain below it does not need to run in this window.**
+**The cut was offered and declined.** The sprint carries **19 slices in 14 days**, goal-facing and cohesion together, and the reason to record that as a decision rather than an oversight is that the measurement above stands: **ten of the nineteen do not serve this goal.**
 
-That leaves **10 slices**: the nine goal-facing, plus the seam. Two weeks, mostly independent, with the walkthrough as the measure.
+**What makes it workable is the shape rather than the count.** Measured before the sprint opens:
 
-**The deferred work loses nothing.** Nine plans, all interrogated, all with measurements at a line — they are ready whenever a sprint takes the domain as its goal, which the last one did and the next one could.
+| | |
+|---|---|
+| slices | **19** |
+| **unblocked on day one** | **12** |
+| deepest chain | **3** — `a-shell-script-asks-the-domain` → the deriver → the repository, and the same root → the scorer → the withdrawn item |
+
+**Twelve independent starts against a fleet that ran five agents at once this week** is a different proposition from nineteen sequential ones. The chains are short and both descend from one root, so the seam landing early unblocks four.
+
+**THE RISK IS NAMED AND IT IS NOT CAPACITY.** It is that the goal is a walkthrough and the cohesion work is not. A sprint that ships all ten cohesion slices and six of the nine goal-facing ones has **a better-factored domain and no teammate who has run anything** — and the tiers do not prevent that, because eight of the nineteen sit under Should.
+
+**SO THE ORDER IS THE MITIGATION.** `the-lifecycle-runs-on-the-other-stack` is written to **fail on arrival** and to name which plan turns each assertion green. **Land it first and it becomes the sprint's progress meter**, not its finish line — the one artefact that says, on any day, how much of the goal is actually reachable.
+
+**If the window closes with cohesion done and the walkthrough still red, the sprint missed its goal and will be able to say so precisely.** That is the whole reason for taking the measurement now rather than at the end.
 
 ## Notes
 
