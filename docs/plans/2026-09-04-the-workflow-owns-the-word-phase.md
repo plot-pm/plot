@@ -261,7 +261,7 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
 
 ### Renaming the field every plan carries
 
-- `infra/a-plan-file-says-state` — the migration. `- **Phase:**` becomes
+- `infra/a-plan-file-says-state` <!-- waits: feature/the-scan-asks-for-the-state --> — the migration. `- **Phase:**` becomes
   `- **State:**` in **196 plan files** and **9 sprint and story files**; the
   template, the 11 skills that name the field, and the three shell writers
   follow. The parser gains `([Pp]hase|[Ss]tate)` at both read sites
@@ -290,6 +290,10 @@ It began as a slice there and reached 63 lines against siblings of 5–8, becaus
   what it did to it. That is a decision about a second entity and it is stated
   here rather than left to a pattern match. **Asserted: `plot-sprint-release.sh`
   reads a renamed sprint unchanged.**
+
+  **IT GOES LAST, AND AFTER IT THE SECOND RENAME.** Decided 2026-09-07: the estate carries two renames and they run in sequence, after the rest of the work lands. This one is `Phase:` → `State:` across 196 plan files; the second is the six stale `Wave.plan` / `Wave.section` comments in the board (`AgentList.tsx:90`, `marks.tsx:399`, `sections.ts:263-272,527-530`), naming a payload type that is now `Slice`.
+
+  **They are sequenced rather than parallel because both are estate-wide textual edits**, and a branch rewriting 196 files collides with anything touching the same files. The `waits:` annotation carries the first half of that decision to the fleet; the second rename is small enough to be its own PR, the judgement `the-scripts-say-slice` already made for a rename of this size.
 
   **The dual read is permanent, not scaffolding.** A plan file is a document
   someone may have written a year ago or copied from another project. Plot
