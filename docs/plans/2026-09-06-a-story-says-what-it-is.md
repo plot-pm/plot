@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 3
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-story-status-meets-its-plans`
+- **Delivered:** 2026-09-07
 
 ## Changelog
 
