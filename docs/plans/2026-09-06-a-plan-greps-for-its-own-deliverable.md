@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-plan-names-its-deliverable`
 - **Started:** 2026-09-07, Jan Wloka, `feature/the-idea-searches-the-estate`
+- **Delivered:** 2026-09-07
 
 ## Changelog
 
