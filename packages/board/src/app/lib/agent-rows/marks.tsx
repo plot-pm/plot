@@ -396,7 +396,7 @@ export function BlockedByMark({
   plan: string;
   wave: string;
   /**
-   * The SECTION the blocking slice sits in — the payload's own `Wave.section`,
+   * The SECTION the blocking slice sits in — the payload's own `Slice.section`,
    * resolved by the slice row before it renders this. Null where the payload
    * carries no slice to answer (a pre-#349 server casts `waves` and never fills
    * it), in which case the blocker is assumed to be in an open section and the
