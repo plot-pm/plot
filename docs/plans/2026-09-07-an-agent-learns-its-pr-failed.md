@@ -9,6 +9,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -59,3 +60,13 @@
 ### Why the agent and not the board — 2026-09-07
 
 The board could show a red PR, and a person would still have to route it to the agent that wrote it. **The agent is already holding the branch, already has the desk, and is already idle.** The shortest path from *CI said no* to *someone who can fix it* is the monitor that is already asking.
+
+### Round 1 — 2026-09-07
+
+**The premise was verified at the line rather than re-argued, after three plans in this session claimed something missing that the estate already had.**
+
+`sample_finding` emits **four** findings and none is about CI: `owes an answer` (a `PLOT-BLOCKED` marker), `holds unlanded work` (twice — uncommitted, and unpushed commits), `owes a review` (commits, clean tree, no PR), `owes a gate` (a PR with no changeset). It then returns.
+
+**The `owes a gate` arm is the sharpest evidence for this plan.** It exists to say *"it would land red on the changeset gate"* — the monitor already reasons about CI outcomes, predictively, on the same pass that reaches the host. **It predicts a red landing and never asks whether one happened.**
+
+**No slice changed.** The plan stands as written.

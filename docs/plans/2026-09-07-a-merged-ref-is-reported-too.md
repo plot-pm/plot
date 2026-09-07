@@ -9,6 +9,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -62,3 +63,11 @@ A new advisory section names a remote branch whose PR merged and whose ref still
 ### The nine were cleared by hand — 2026-09-07
 
 Each was verified against main by grepping for its own claim, archived to a local `archive/<slug>`, then deleted. **That is the work this section makes visible rather than accidental**: they were found because somebody listed every remote branch, not because anything reported them.
+
+### Round 1 — 2026-09-07
+
+**Verified at the line.** `plot-reconcile-scan.sh:2139` is the predicate: `if branch_merged "$b"; then continue; fi`. Section 17 does not merely fail to report a merged ref — **it skips one explicitly**, by a guard whose own comment says the host decides and ancestry is the fallback.
+
+**Section 2 is not this finding.** *"Merged-but-not-delivered"* reports **plans** whose branches landed and whose phase did not follow. A ref surviving its own merged PR is a different subject with a different action, and no section holds it.
+
+**No slice changed.** The plan stands as written.
