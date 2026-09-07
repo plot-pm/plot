@@ -62,6 +62,8 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 - [ ] [a-dispatch-stop-finds-the-desk] `plot-dispatch.sh:1171` rebuilds the desk path from the branch name, so `--stop` refuses every agent `--start` creates. A teammate whose first fleet stop refuses will reach for `kill`, which is the guess the one stop rule exists to prevent. Plan filed 2026-09-07
 
+- [ ] [an-agent-state-has-one-deriver] The domain declares the eight agent states, validates transitions between them and **derives none** — `plot-worker-state.sh` decides all eight, and `observeAgentState` is reached only by a re-export. The state-declaration gate reads clean because it asks whether an enum declares its kind, not whether anything derives one. **The lifecycle the fleet reads most, and the third instance of this shape found in one session.** Plan filed 2026-09-07
+
 - [ ] [a-sprint-item-has-one-scorer] `scoreItem` is exported, tested and documented in the domain, and **nothing calls it** — the live rule is 12 lines of bash that already disagree with it about an item with no plan. This is the previous sprint's own goal unmet in one place, and it is here rather than in its Notes because a team reads sprint status more often than one person does. Plan filed 2026-09-07
 
 - [ ] [a-withdrawn-item-is-not-open] <!-- waits: a-sprint-item-has-one-scorer --> A sprint item whose plan was withdrawn reports as withdrawn rather than blocking a release forever. **It waits for the single scorer**: against today's split it is four edits with no gate, because the bash and the TypeScript cannot import each other. Plan filed 2026-09-07
