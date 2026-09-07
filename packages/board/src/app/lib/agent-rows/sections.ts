@@ -260,7 +260,7 @@ export function sliceGroupsFor(
   // server-derived slice, not a per-section computation — `the-sections-ask-the-wave`.
   //
   // The slice carries the ONE answer to *which section does this slice belong in*
-  // (`Wave.section`, derived once in `deriveSlices` from completeness). The four
+  // (`Slice.section`, derived once in `deriveSlices` from completeness). The four
   // grouping sections used to re-derive that answer from a row's `state`, and
   // three of them spelled the identical predicate `r.state !== 'merged'` while
   // DONE spelled its inverse. That IS the derivation this plan removes: a slice
@@ -268,8 +268,8 @@ export function sliceGroupsFor(
   // slice with one stray merged branch (`Inverted`), placed the row by its own
   // state and disagreed with the slice.
   //
-  //   DONE   claims a slice the server placed in DONE  — `Wave.section === 'done'`.
-  //   others claim a slice the server placed elsewhere — `Wave.section !== 'done'`.
+  //   DONE   claims a slice the server placed in DONE  — `Slice.section === 'done'`.
+  //   others claim a slice the server placed elsewhere — `Slice.section !== 'done'`.
   //
   // The REAL DISTINCTION that survives is done-vs-not-done, and it is the slice's
   // to answer. QUIET's *stalled* and WAITING ON YOU's *reviewable* are per-BRANCH

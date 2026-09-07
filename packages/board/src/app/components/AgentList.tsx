@@ -87,7 +87,7 @@ export type { AgentListProps };
  * row already says.
  *
  * Looks up by the plan's DISPLAY name (the basename with date stripped),
- * matching what `deriveSlices` writes into `Wave.plan`.
+ * matching what `deriveSlices` writes into `Slice.plan`.
  */
 export function soleSliceFor(planName: string, slices: Slice[] | undefined): Slice | null {
   if (!slices) return null;
