@@ -80,6 +80,31 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 - [ ] [a-merged-ref-is-reported-too] The scan reports a remote ref whose PR merged. Nine accumulated unseen on this estate; a team generates them faster. Plan filed 2026-09-07
 
+## Can this sprint reach its goal?
+
+**Measured 2026-09-07, before the sprint opens. The honest answer is: not as scoped.**
+
+The goal is one walkthrough — *a teammate on Bitbucket, Jenkins and Jira runs Plot unattended from adoption to a delivered plan*. **Four plans serve it. Nine do not mention the stack at all.**
+
+| | plans | slices |
+|---|---|---|
+| **goal-facing** — adoption, the CI port, first-run refusals, board askability | 4 | **8** |
+| **domain cohesion** — the seam, the deriver, the repository, the scorer, the loop | 9 | **10** |
+
+**The cohesion work is real and it is not this goal.** It arrived on 2026-09-07 in one afternoon of measuring the estate — `scoreItem` uncalled, the agent state derived in bash, seven files naming a script, three plans inventing one corpus test. **Every one is a defect worth fixing and none of them is what a teammate on Bitbucket meets.**
+
+**AND IT CARRIES THE ONLY DEEP CHAIN.** `a-shell-script-asks-the-domain` → `an-agent-state-has-one-deriver` → `the-outer-boundary-is-a-port` is three sequential slices, none of which can start before the one above it lands. The goal-facing eight are almost all independent.
+
+**THE TWO-WEEK WINDOW MAKES THIS A CHOICE, NOT A WORRY.** 18 slices in 14 days is not the problem; **18 slices where 10 serve a different goal** is. A sprint that ships all ten and six of the eight has a better-factored domain and **no teammate has run anything**.
+
+### What would make the goal reachable
+
+**Cut the cohesion work to its root and defer the rest.** `a-shell-script-asks-the-domain` is worth keeping — it is one slice, it settles a contract three plans need, and it stops the next sprint re-deriving it. **The chain below it does not need to run in this window.**
+
+That leaves **9 slices**: the eight goal-facing, plus the seam. Two weeks, mostly independent, with the walkthrough as the measure.
+
+**The deferred work loses nothing.** Nine plans, all interrogated, all with measurements at a line — they are ready whenever a sprint takes the domain as its goal, which the last one did and the next one could.
+
 ## Notes
 
 ### Why the goal is a walkthrough and not a feature list — 2026-09-07
