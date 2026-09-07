@@ -368,3 +368,103 @@ export const readMainBranch = (estate: Estate): string => {
   return 'main';
 };
 
+
+/**
+ * One MoSCoW item, as `plot-sprint-release.sh` reports it.
+ *
+ * BOTH THE READINGS AND THE VERDICT. `checked`, `slug` and `delivered` are what
+ * `item_state` was given; `state` is what it answered. A rule comparison needs
+ * both halves from the same side, or it compares the domain against readings it
+ * assembled itself.
+ */
+export interface SprintItemRow {
+  /** The `[slug]` plan reference, or `''` when the line names no plan. */
+  slug: string;
+  /** The item's own wording, annotation stripped. */
+  text: string;
+  /** Whether the sprint file's checkbox is ticked. */
+  checked: boolean;
+  /**
+   * Whether the plan it names is in the Delivered index.
+   *
+   * `'none'` where the line names no plan, so nothing was looked up — a THIRD
+   * reading the domain has no way to express today.
+   */
+  delivered: boolean | 'none';
+  /** What `item_state` answered. */
+  state: string;
+}
+
+/** One sprint's items, tier by tier, as the script reports them. */
+export interface SprintRow {
+  /** The sprint's slug — the filename without its week prefix. */
+  sprint: string;
+  /** The sprint file's path, relative to the root. */
+  file: string;
+  /** The Must Have items. */
+  must: SprintItemRow[];
+  /** The Should Have items. */
+  should: SprintItemRow[];
+  /** The Could Have items. */
+  could: SprintItemRow[];
+}
+
+/**
+ * Lists the sprint files, the way `plot-sprint-release.sh` resolves one.
+ *
+ * EVERY sprint, not the active one. `--- no argument` gives the single active
+ * sprint, which on this estate is one file of ten; a corpus of one sprint's
+ * items exercises whichever states that sprint happens to hold, and the two
+ * `disputed` items live in a closed one.
+ *
+ * @param estate - the repository to read.
+ * @returns the slugs, in `LC_ALL=C` filename order.
+ */
+export const listSprintSlugs = (estate: Estate): string[] => {
+  const dir = execFileSync(
+    'bash',
+    [scriptIn(estate, 'plot-config.sh'), 'get', 'Sprint directory', 'docs/sprints/'],
+    { cwd: estate.root, encoding: 'utf8', maxBuffer: MAX_BUFFER },
+  ).trim().replace(/\/$/, '');
+  return execFileSync(
+    'bash',
+    ['-c', `find ${JSON.stringify(dir)} -maxdepth 1 -name '*.md' -type f | LC_ALL=C sort`],
+    { cwd: estate.root, encoding: 'utf8', maxBuffer: MAX_BUFFER },
+  )
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    // `2026-W38-the-board-serves-a-team.md` → `the-board-serves-a-team`, the
+    // script's own derivation, because that is the name it takes as an argument.
+    .map((path) => path.replace(/^.*\//, '').replace(/\.md$/, '').replace(/^\d{4}-W?\d{2}(-\d{2})?-/, ''));
+};
+
+/**
+ * Reads one sprint through `plot-sprint-release.sh`, which is the shell's own
+ * scoring.
+ *
+ * @param estate - the repository to read.
+ * @param slug - the sprint's slug.
+ * @returns the sprint's rows, or null when the script named no sprint file.
+ */
+export const readSprintRelease = (estate: Estate, slug: string): SprintRow | null => {
+  const raw = JSON.parse(
+    execFileSync('bash', [scriptIn(estate, 'plot-sprint-release.sh'), slug], {
+      cwd: estate.root,
+      encoding: 'utf8',
+      maxBuffer: MAX_BUFFER,
+      timeout: TIMEOUT_MS,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }),
+  ) as Record<string, unknown>;
+  if (typeof raw.file !== 'string' || raw.file === '') return null;
+  const tier = (key: string): SprintItemRow[] =>
+    Array.isArray(raw[key]) ? (raw[key] as SprintItemRow[]) : [];
+  return {
+    sprint: String(raw.sprint ?? ''),
+    file: raw.file,
+    must: tier('must'),
+    should: tier('should'),
+    could: tier('could'),
+  };
+};

@@ -429,6 +429,18 @@ port or awaits anything. That keeps the core synchronous and testable without
 mocks; the cost is that the caller decides what to read. It is a deliberate
 variant of ports-and-adapters, not a deviation from the rule above.
 
+## A Shell Script Asks The Domain
+
+**The other direction, and it has its own contract:** [docs/shell-and-domain.md](docs/shell-and-domain.md). The layering rule above says a script is reached only from an adapter; this says how a **bash** script reaches a **rule**.
+
+**Settled 2026-09-07, and the cost rule is a measurement.** `node -e ''` starts in 34 ms and a shipped bundle under `skills/plot/scripts/board/` answers in 39 ms. A script that runs **once per operator command** calls the domain — `plot-approve.sh` already does. A script that runs **once per agent per pass** duplicates the rule, and a corpus comparison holds the pair; `plot-worker-loop.sh` is that case.
+
+**Duplication is allowed and undeclared duplication is not.** `plot-pr-merged.sh` is sourced by four scripts while `rules/reapable.ts` and `rules/queue.ts` answer the same question in TypeScript, deliberately. What makes it safe is not that one side is authoritative — it is that a test says they agree.
+
+**A duplicated rule joins the corpus tier** at `packages/domain/corpus/`, and a disagreement names both answers and the subject: `the-scripts-say-slice :: state :: rule="withdrawn" shell="open"`. `corpus/sprint-score.corpus.test.ts` is the first — `scoreItem` against `plot-sprint-release.sh`'s `item_state`. **On a disagreement the branch stops**; adjusting either side to make the comparison pass is the one move forbidden.
+
+**No gate enforces this**, and it is a rule for the reason the domain's arrow-function rule is one: which of two implementations is right is judgement, and a grep cannot tell a declared duplicate from a forgotten one. What is gated is the pair once declared — the corpus test fails when they drift.
+
 ## Gates Over Rules
 
 **For important agent behaviors, always implement gates, not rules.** ([Reference](https://blog.fsck.com/2026/04/07/rules-and-gates/))
