@@ -60,8 +60,6 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 - [ ] [the-board-says-what-it-could-not-ask] A capability the board cannot reach renders as *not asked*, never as an empty result. The supervisor badge shipped in 2.14.0 is the shape: three states, `unknown` first-class, and the prominence rule keyed on consequence
 
-- [ ] [one-account-has-one-budget] `HostBackend` is `string` at `ports/host.ts:16` but `host-shell.ts` throws on an unknown vendor, so a third host is not an adapter-only change today. A team on Bitbucket with Jenkins has **two remote services, two accounts, two rate windows** — the connector kind already says the budget belongs to each
-
 - [ ] [a-dispatch-stop-finds-the-desk] `plot-dispatch.sh:1171` rebuilds the desk path from the branch name, so `--stop` refuses every agent `--start` creates. A teammate whose first fleet stop refuses will reach for `kill`, which is the guess the one stop rule exists to prevent. Plan filed 2026-09-07
 
 - [ ] [a-sprint-item-has-one-scorer] `scoreItem` is exported, tested and documented in the domain, and **nothing calls it** — the live rule is 12 lines of bash that already disagree with it about an item with no plan. This is the previous sprint's own goal unmet in one place, and it is here rather than in its Notes because a team reads sprint status more often than one person does. Plan filed 2026-09-07
@@ -95,5 +93,7 @@ So the Must Haves are written to be **falsified by one walkthrough**: adopt on a
 `a-sprint-item-has-one-scorer` is a Should: two implementations of one rule that already disagree is a teammate reading two answers and having to know which one Plot means. It brings `a-withdrawn-item-is-not-open` with it, gated by a `waits:` annotation, because against today's split that plan is four edits with no gate.
 
 **The supervisor's unexplained removal is deliberately not an item.** Six explanations have been tested and disproved, so nothing here could be written as a done-when — and a sprint item whose completion cannot be stated is a wish. What ships instead is 2.14.0's supervisor badge, which makes the absence visible while the cause is unknown; if a seventh explanation is found in this window it earns its own plan.
+
+**`one-account-has-one-budget` was listed here and has been removed.** Its plan is `Released` — it settled shared budget arithmetic across boards on 2026-09-01. What this sprint actually needs from that area is the `DRIVES` vendor list at `host-shell.ts:30`, and that is a slice of `three-services-three-ports`. **An item pointing at a released plan claims work that already shipped.**
 
 **The load-flaky domain test is not an item either**, for the opposite reason: the release list already tells a cutter to run the suite twice, which is the whole fix until it fails twice at the same assertion.
