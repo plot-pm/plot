@@ -7,12 +7,13 @@
  * and ownership is the argument.
  *
  * The two disagree constantly, and the estate measures it. Counted 2026-09-07
- * through `plot-plan-meta.sh` over 225 plan files: **21 branch lines carry a
- * `deferred:` or `moved:` annotation**, and `moved:`/`split-from:` appear 26
- * times in the prose besides. Every one states something about a branch that no
- * ref can tell you. A deferred Slice is a plan's decision about work it will not
- * do; the branch it names may not exist, may exist unmerged, or may have merged
- * under another plan. That is why neither derives from the other.
+ * through `plot-plan-meta.sh` over 225 plan files: **21 branch lines across 14
+ * plans carry a `deferred:` or `moved:` annotation** — 27 and 5 respectively as
+ * raw comments, which the parser reads as one answer. Every one states
+ * something about a branch that no ref can tell you. A deferred Slice is a
+ * plan's decision about work it will not do; the branch it names may not exist,
+ * may exist unmerged, or may have merged under another plan. That is why
+ * neither derives from the other.
  *
  * WHAT THIS FILE IS FOR, and it is not a wrapper. `entities/fleet.ts` already
  * carries the READING shapes — `PlanSchema` and `PlanSliceSchema` are what
