@@ -104,6 +104,26 @@ That is the same shape as the defect `the-supervisor-says-why-it-handed-nothing`
 
 **What that leaves is unexplained.** The job is booted out by something outside Plot, leaving no trace in launchd's log, in `registryd.err`, or in its own exit code. The next step is a watcher that catches the transition rather than finding it afterwards — running as of this note.
 
+**CAUGHT IN THE ACT — 2026-09-07, and the answer is machine load.** A watcher sampling every 15 s recorded the transition:
+
+```
+11:37:58 up pid=43333 etime=17:22
+11:38:13 *** GONE ***
+11:38:13 err bytes: 0
+11:38:13 load: 43.68 25.28 20.26
+```
+
+**Load average 43.68 on a machine whose fleet normally sits near 10.** The daemon is `ProcessType: Background`, which is exactly the class macOS deprioritises and evicts first, and every earlier reading fits: no crash, no stderr, `runs = 1`, `never exited` — a job removed by the system, not by itself.
+
+**What produced the load was measured rather than guessed.** At the moment of death: **22 concurrent `plot-fleet-scan` processes** and **10 `node --test` runs**. Two distinct sources:
+
+- **Orphaned scans.** Twelve carried `ppid 1` — reparented to launchd, their worker long gone, still running. Four ignored `SIGTERM` and needed `SIGKILL`. They belonged to `free-2725507d`, a worktree with **no live worker and no manifest**.
+- **Legitimate agent work.** Five dispatched slices each running the repo gates; `pnpm test` alone is several `node --test` processes.
+
+**The scan is 18.3 s against the board's 5 s pulse**, so a stream that outlives its consumer stacks — and nothing reaps one whose parent died.
+
+**THIS DOES NOT EXCUSE THE DAEMON.** A supervisor that is evicted under exactly the load a working fleet produces is a supervisor that leaves when it is most needed. But the trigger is now named, and the two follow-ups are separable: an orphaned-scan reaper, and whether `ProcessType: Background` is the right class for a job that must outlive a busy fleet.
+
 **Why it is recorded here rather than fixed.** This plan is about a supervisor that hands nothing over. A supervisor that hands work over and then disappears is a second defect, and it needs a measurement this session did not get: what the system log says at the moment of the bootout. `log show --predicate 'process == "launchd"'` returned nothing for the window, which is itself a finding — the eviction leaves no trace either.
 
 **What it costs, meanwhile.** The fleet stops being supervised and nothing says so — which is exactly what [`the-board-says-whether-anything-supervises`](2026-09-07-the-board-says-whether-anything-supervises.md) makes visible. That plan was written from the FIRST occurrence of this, before it was known to recur. **It is now the more urgent of the two**: an operator cannot act on a supervisor that leaves without a word until the board tells them it left.
