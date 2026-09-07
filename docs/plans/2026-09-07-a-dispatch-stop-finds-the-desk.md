@@ -9,6 +9,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -26,6 +27,14 @@ wt="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
 **The path is derived, and the derivation is wrong for every agent `--start` creates.** A free agent's desk is `free-<hash>` — cut detached, named before it holds a branch — so the name encodes nothing about what it later takes.
 
 **Measured 2026-09-07**, stopping the fleet to re-fill the unit: `/plot-fleet --stop` reported two agents *"refused by plot-dispatch --stop"*, and running the named command by hand answered *"no worktree for 'feature/the-ref-deleter-asks-the-rule'"*. Both desks existed. Both were stopped by pid instead — **which is the guess the one stop rule exists to prevent.**
+
+**AND `--restart` IN THE SAME SCRIPT ALREADY DOES IT RIGHT.** `plot-dispatch.sh:1221`:
+
+```sh
+restart_wt=$(git worktree list --porcelain … | awk -v want="refs/heads/$restart_branch" …
+```
+
+**Two verbs, one script, one question, two answers.** `--restart` asks git which worktree holds the branch; `--stop` fifty lines earlier builds a path from the name. The correct implementation is not merely available — it is in the same file, and this slice can copy it rather than write it.
 
 **THE DISPATCH SIDE ALREADY KNOWS.** `plot-dispatch.sh`'s own header states the rule for the shared-file check: the worktree is *"found by asking git which one holds the branch, never by rebuilding the path from the branch name: hand-made worktrees are the population with no claim ref, and they rarely follow dispatch's naming."* **The stop path does the thing the same script forbids twenty lines of prose earlier.**
 
@@ -56,3 +65,11 @@ wt="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
 ### Why this was invisible — 2026-09-07
 
 Every dispatch test builds a desk at the derived path, so the suite agrees with the bug. `--stop` was exercised for the whole life of `--start [N]` without once being given a free agent's desk — the only kind `--start` makes.
+
+### Round 1 — 2026-09-07
+
+**The round found the fix already written, fifty lines away.** `--restart` resolves its desk with `git worktree list --porcelain` and an awk on `refs/heads/<branch>`; `--stop` derives a path. The slice's work is to make the second verb ask the question the first already asks.
+
+**That makes the defect worse than the plan first put it.** A missing lookup is an omission. A lookup present in one verb and absent in its counterpart is two implementations of one question inside one file — the same shape as `scoreItem` against `item_state`, and this sprint now carries both.
+
+**No slice changed.** The fallback and the refusal wording stand as written; only the evidence is stronger.
