@@ -122,6 +122,12 @@ That is the same shape as the defect `the-supervisor-says-why-it-handed-nothing`
 
 **The scan is 18.3 s against the board's 5 s pulse**, so a stream that outlives its consumer stacks — and nothing reaps one whose parent died.
 
+**A FIFTH EVICTION REFINED IT, AND FOUND A SEPARATE LEAK.** The fifth happened at load 36.71 with **zero orphaned scans** — so the scans were a contributor, not the cause. The load alone evicts it.
+
+What was burning the machine that time was a **leaked test fixture**. `test/reconcile/workerstate.test.mjs:652` spawns `sh -c 'sh -c "while :; do :; done"'` — its own comment says *"a shell with a BUSY grandchild"* — and its cleanup called `busy.kill()`, which signals the **child**. The grandchild survived every run, orphaned to `ppid 1`.
+
+**One escapee had been spinning a full core for 22 hours 58 minutes.** Killing it alone took the load average from 36.7 to 24.4. Fixed by spawning `detached` and signalling the process group; the test now passes and leaks nothing, measured 0 before and 0 after.
+
 **THIS DOES NOT EXCUSE THE DAEMON.** A supervisor that is evicted under exactly the load a working fleet produces is a supervisor that leaves when it is most needed. But the trigger is now named, and the two follow-ups are separable: an orphaned-scan reaper, and whether `ProcessType: Background` is the right class for a job that must outlive a busy fleet.
 
 **Why it is recorded here rather than fixed.** This plan is about a supervisor that hands nothing over. A supervisor that hands work over and then disappears is a second defect, and it needs a measurement this session did not get: what the system log says at the moment of the bootout. `log show --predicate 'process == "launchd"'` returned nothing for the window, which is itself a finding — the eviction leaves no trace either.
