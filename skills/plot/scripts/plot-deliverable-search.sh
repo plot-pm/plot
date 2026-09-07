@@ -53,6 +53,13 @@
 # since been refactored away while `Drift` still names two files. A rule name
 # also searches its bare noun.
 #
+# THE MATCH IS CASE-INSENSITIVE, because the estate's case is not the author's
+# to guess either. A scan section is `Uncut slices` and an author proposes *an
+# uncut-slices finding*; a rule is `storyDrift` and a plan proposes
+# `computeStatusDrift`. Case is one more spelling of the same vocabulary gap the
+# expansion exists to cross, and a case-sensitive search would reintroduce it
+# after the bare nouns had just removed it.
+#
 # NO TERM IS DROPPED FOR BEING SHORT, and that is a correction rather than an
 # omission. A `length >= 3` filter was written here first, to keep `a`, `of` and
 # `is` out of the report — and it silently deleted `gh`, the two characters that
@@ -89,6 +96,14 @@ phrase="$*"
 # whole report was 339 KB. The file and line number are the answer; the rest of
 # a minified line is not.
 NOISE_FLOOR="${PLOT_DELIVERABLE_NOISE_FLOOR:-6}"
+# A BARE NOUN GETS A TIGHTER FLOOR THAN THE AUTHOR'S OWN TOKEN, because it is a
+# broader match by construction: a substring, matched without regard to case.
+# `Bridge` split out of an invented `quokkaTelemetryBridge` names five files
+# here through the word `bridge`, and reporting them would break the Done-when's
+# silence for a deliverable nothing in the estate has. The author's token is the
+# name they meant and keeps the wider floor; a noun they never wrote must earn
+# its place by being rare.
+NOUN_FLOOR="${PLOT_DELIVERABLE_NOUN_FLOOR:-3}"
 MAX_PER_TERM="${PLOT_DELIVERABLE_MAX:-8}"
 MAX_LINE="${PLOT_DELIVERABLE_MAX_LINE:-200}"
 
@@ -102,11 +117,16 @@ code_globs="$(bash "$config" get "Deliverable corpora" "packages/*/src skills/pl
 corpora=()
 for g in $code_globs; do
   for d in $g; do
-    [ -d "$d" ] && corpora+=("$d")
+    if [ -d "$d" ]; then corpora+=("$d"); fi
   done
 done
 
-scan="$here/plot-reconcile-scan.sh"
+# THE SCAN IS FOUND IN THE REPOSITORY BEING SEARCHED, never beside this script.
+# `$here` is where Plot is installed, which under a plugin or a shared checkout
+# is a different tree from the estate the author is planning against — and a
+# search that reported Plot's own scan sections to somebody else's repository
+# would be naming findings that cannot collide with anything they write.
+scan="$repo_root/skills/plot/scripts/plot-reconcile-scan.sh"
 
 # --- what is generated, and therefore not a place anything was duplicated ----
 #
@@ -122,10 +142,18 @@ scan="$here/plot-reconcile-scan.sh"
 # without anyone remembering this script exists. A repo with no `.gitattributes`
 # excludes nothing, the honest answer for a repo that declared no generated
 # files.
-excludes=()
+# THIS SCRIPT EXCLUDES ITSELF, and that is not tidiness. Its header names all
+# five measured duplications — `normalizeVersion`, `check-host-cli-callers.sh`,
+# `readingLoss`, `computeStatusDrift`, reconcile scan section 7 — because that
+# is the evidence the design rests on. It also lives in `skills/plot/scripts`,
+# one of the corpora it searches. So without this line every future plan
+# proposing any of those five is told the estate already has it, citing THIS
+# COMMENT as the finding: a check firing on its own prose, which is exactly the
+# failure the four-corpus scoping exists to prevent.
+excludes=(":(exclude)skills/plot/scripts/plot-deliverable-search.sh")
 if [ -f .gitattributes ]; then
   while IFS= read -r path; do
-    [ -n "$path" ] && excludes+=(":(exclude)$path")
+    if [ -n "$path" ]; then excludes+=(":(exclude)$path"); fi
   done < <(awk '$2 == "-merge" { print $1 }' .gitattributes)
 fi
 
@@ -134,17 +162,39 @@ fi
 # Tokens first, then each token's bare nouns. Order is preserved and duplicates
 # are dropped case-insensitively, so the term the author actually wrote is
 # reported first and a noun equal to its token is not searched twice.
+# Each line is `<whole-word?>\t<term>`. A token the author WROTE is searched as
+# a whole word; a bare noun split out of one is searched as a SUBSTRING.
+#
+# THE DIFFERENCE IS THE POINT, measured on the fifth miss. `computeStatusDrift`
+# was proposed and the estate's copy has since been refactored, so the exact
+# name matches nothing — but `storyDrift` is still there, and `git grep -w
+# Drift` does NOT match inside `storyDrift`, because git counts it one word.
+# A bare noun exists precisely to reach a name the author did not guess, and a
+# whole-word bare noun can only reach a name that already stands alone.
+#
+# The author's own token keeps `-w`, because that is the name they meant and a
+# substring search on it would report every word containing it.
 expand() {
   printf '%s\n' "$1" \
   | sed 's/[^A-Za-z0-9_.-]\{1,\}/\n/g' \
   | while IFS= read -r tok; do
       [ -n "$tok" ] || continue
-      printf '%s\n' "$tok"
+      printf 'w\t%s\n' "$tok"
       printf '%s\n' "$tok" \
-      | sed -e 's/\([a-z0-9]\)\([A-Z]\)/\1\n\2/g' -e 's/[-_.]/\n/g'
+      | sed -e 's/\([a-z0-9]\)\([A-Z]\)/\1\n\2/g' -e 's/[-_.]/\n/g' \
+      | while IFS= read -r noun; do
+          # `if`, never an `&&` chain. Under `set -e` a trailing `&&` that does
+          # not fire makes the loop exit non-zero, which fails the enclosing
+          # command substitution and kills the script — measured, and it took
+          # the whole report with it for any phrase whose LAST word has no
+          # separate bare noun (`... a shared version helper`).
+          if [ -n "$noun" ] && [ "$noun" != "$tok" ]; then
+            printf 's\t%s\n' "$noun"
+          fi
+        done
     done \
-  | sed 's/^[^A-Za-z0-9]*//; s/[^A-Za-z0-9]*$//' \
-  | awk 'length($0) > 0 && !seen[tolower($0)]++'
+  | sed 's/[^A-Za-z0-9]*$//' \
+  | awk -F'\t' 'length($2) > 0 && !seen[tolower($2)]++'
 }
 
 terms="$(expand "$phrase")"
@@ -161,13 +211,22 @@ found_any=0
 # One pass per corpus per term. The FILE COUNT gates; the lines are the report.
 report_corpus() {
   corpus_label="$1"; shift
+  kind="$1"; shift
   term="$1"; shift
 
-  files="$(git grep -Ilw --no-color -- "$term" -- "$@" "${excludes[@]+"${excludes[@]}"}" 2>/dev/null || true)"
+  # `w` = the author's own token, matched whole. `s` = a bare noun split out of
+  # it, matched as a substring so it can reach a name the author did not guess.
+  wordflag=(-i)
+  if [ "$kind" = "w" ]; then wordflag=(-i -w); fi
+
+  files="$(git grep -Il "${wordflag[@]+"${wordflag[@]}"}" --no-color -- "$term" -- "$@" "${excludes[@]+"${excludes[@]}"}" 2>/dev/null || true)"
   [ -n "$files" ] || return 0
 
+  floor="$NOISE_FLOOR"
+  if [ "$kind" = "s" ]; then floor="$NOUN_FLOOR"; fi
+
   n_files="$(printf '%s\n' "$files" | grep -c . || true)"
-  if [ "$n_files" -gt "$NOISE_FLOOR" ]; then
+  if [ "$n_files" -gt "$floor" ]; then
     # SKIPPED, AND SAID SO ONCE AT THE END rather than here. Measured on
     # `a grep gate for gh callers`: six terms over four corpora produced 30
     # skip lines above the two that were the answer, and the answer is what the
@@ -179,7 +238,7 @@ report_corpus() {
     return 0
   fi
 
-  hits="$(git grep -Inw --no-color -- "$term" -- "$@" "${excludes[@]+"${excludes[@]}"}" 2>/dev/null || true)"
+  hits="$(git grep -In "${wordflag[@]+"${wordflag[@]}"}" --no-color -- "$term" -- "$@" "${excludes[@]+"${excludes[@]}"}" 2>/dev/null || true)"
   [ -n "$hits" ] || return 0
   n_hits="$(printf '%s\n' "$hits" | grep -c . || true)"
 
@@ -191,11 +250,11 @@ report_corpus() {
   fi
 }
 
-while IFS= read -r term; do
+while IFS=$'\t' read -r kind term; do
   [ -n "$term" ] || continue
 
   for c in "${corpora[@]+"${corpora[@]}"}"; do
-    report_corpus "$c" "$term" "$c"
+    report_corpus "$c" "$kind" "$term" "$c"
   done
 
   # THE SCAN'S SECTION HEADINGS ARE THE FOURTH CORPUS, and they are LINES in one
@@ -218,7 +277,9 @@ while IFS= read -r term; do
   # corpus's own unit.
   if [ -f "$scan" ]; then
     scan_all="$(grep -c '^echo "== ' "$scan" 2>/dev/null || echo 0)"
-    scan_hits="$(grep -nw -- "$term" "$scan" 2>/dev/null | grep '^[0-9]*:echo "== ' || true)"
+    scan_wordflag=(-i)
+    if [ "$kind" = "w" ]; then scan_wordflag=(-i -w); fi
+    scan_hits="$(grep -n "${scan_wordflag[@]+"${scan_wordflag[@]}"}" -- "$term" "$scan" 2>/dev/null | grep '^[0-9]*:echo "== ' || true)"
     if [ -n "$scan_hits" ]; then
       n="$(printf '%s\n' "$scan_hits" | grep -c . || true)"
       if [ "$scan_all" -gt 0 ] && [ $((n * 4)) -gt "$scan_all" ]; then
