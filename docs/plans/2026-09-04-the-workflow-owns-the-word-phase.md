@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-domain-knows-what-plot-knows
@@ -17,6 +17,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-phase-names-its-work`
 - **Started:** 2026-09-07, Jan Wloka, `feature/a-plan-can-be-rejected`
 - **Started:** 2026-09-07, Jan Wloka, `infra/a-plan-file-says-state`
+- **Delivered:** 2026-09-07
 
 ## Changelog
 
