@@ -41,6 +41,26 @@ Note the asymmetry with the exit code: 0 and 1 are answers; **anything else, or 
 
 The agent count is already on the board. **The combination is the rule**, and it is what makes the state actionable rather than decorative.
 
+## Where it renders — the WORKING section header
+
+**On the WORKING section header, beside `ParallelAgentsStepper`.** `FleetControls.tsx:6-13` states the board's placement rule and it decides this:
+
+> *"Each renders on the section it is ABOUT. NOT STARTED holds work nobody has taken, so is the queue being served? goes there. WORKING holds the running agents, so how many may run at once? is a statement about that section's contents."*
+
+The supervisor is a statement about WORKING's contents — it is what reaps those agents' desks when they finish, marks the spent ones, and frees them.
+
+**FOLLOW THE `registry` ANNOTATION ALREADY THERE.** `FleetControls.tsx:269` renders `· 3 manifests, 1 synthesized` inside the stepper, under this condition:
+
+```js
+registry && (registry.manifestCount === 0 || registry.synthesizedCount > 0)
+```
+
+It renders **only when something is worth saying**, and goes amber (`text-amber-600 dark:text-amber-500`) when the news is bad. That is this plan's prominence rule already implemented once — reuse the shape rather than inventing a second one, and give it a `data-fleet-*` attribute like its neighbours so a browser test can find it.
+
+**NOT on the master agent's branch row.** That row is one agent; the missing fact is about the FLEET. A row that said *unsupervised* would repeat one fact once per agent, and would still be silent when the agent count is zero — which is the quiet case the plan wants kept quiet.
+
+**NOT in `StatusPanel`.** That is the view-status line at the foot (`AgentList.tsx:686` — *"the view-status line stays at the foot"*), and it reports on the board's own reading. The measured failure was that the board was open while the eye was on the agents; the fact has to be where the agents are.
+
 ## Layering — this is where the slice will go wrong if it goes wrong
 
 ```
