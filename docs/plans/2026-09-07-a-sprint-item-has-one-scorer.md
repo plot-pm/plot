@@ -10,6 +10,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -20,7 +21,9 @@
 
 ## Motivation
 
-**`scoreItem` has no production caller.** `packages/domain/src/entities/sprint.ts:92` exports it, `test/sprint.test.ts` exercises it, and a search of `packages/` finds nothing else. The rule is written, tested, documented — and dead.
+**`scoreItem` reaches no production caller, and it takes two hops to see it.** `entities/sprint.ts:92` exports it; `transitions/sprint.ts:305` calls it correctly inside `openPromises`, whose own doc says *"the scoring is `scoreItem`'s rather than a second reading of the checkbox"*. **And `openPromises` is called by exactly one thing: a re-export at `index.ts:358`.** Five tests exercise it; nothing runs it.
+
+**Round 1 corrected this plan's own opening sentence**, which said `scoreItem` had no caller at all. It has one, the caller is right, and the chain still ends in a re-export — which is worse than the simpler story, because a correct rule with a correct caller reads as wired to anyone who greps one level.
 
 **The live rule is `item_state`**, 12 lines of bash at `plot-sprint-release.sh:73`, and it is what `/plot-release` step 0 actually runs.
 
@@ -65,3 +68,9 @@ The tempting read is that `scoreItem` is dead code and the fix is `rm`. That inv
 ### The order matters — 2026-09-07
 
 This lands **before** `a-withdrawn-item-is-not-open`, or that plan pays for the split: four edits with no gate, in a codebase where the two halves cannot import each other. After this, the same change is one function and one enum, and the corpus test fails if the shell disagrees.
+
+### Round 1 — 2026-09-07
+
+**The plan said `scoreItem` had no production caller. It has one.** `openPromises` at `transitions/sprint.ts:305` calls it, correctly, and documents why. What the plan got right is the conclusion and not the evidence: `openPromises` is itself reached only by a re-export in `index.ts`, so the chain is two hops long and still ends nowhere.
+
+**That is a harder defect than the one first written.** A dead function is visible to anyone who greps it. A live function with a correct caller that nothing invokes looks wired from one level up — which is how it survived long enough for `item_state` to drift from it.

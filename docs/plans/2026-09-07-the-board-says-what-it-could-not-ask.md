@@ -10,6 +10,7 @@
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -19,7 +20,17 @@
 
 **The domain already has the word.** `entities/pr.ts:32` — `ChecksSchema = z.enum(['green', 'pending', 'failing', 'none', 'unknown'])`. Five states, and `unknown` is one of them.
 
-**The board does not carry it.** Measured 2026-09-07 against the live `/api/fleet`: the keys present across every row's `pr` object are **`number`, `url`, `draft`, `state`, `states`**. No `checks`. **72 of 72 rows carry no build field.**
+**And so does the board's server — the gap is one contract field.** Round 1 measured the chain end to end and this plan's opening was wrong about most of it:
+
+| layer | state |
+|---|---|
+| `ChecksSchema` | five states including `unknown` |
+| `plot-host.sh pr-list --rich` | branches on **backend × rich × Jenkins** already |
+| `fleet.ts:345` | defines `checks` with all five states |
+| `schema.ts:257` | states the rule: *"Bitbucket's `checks:"unknown"` renders as unavailable rather than green"* |
+| **`CardPrSchema`** | **`number`, `url` … and no `checks`** |
+
+**The concept, the states, the Jenkins branch and the rendering rule all exist. The contract drops the field**, so 229 cards and 58 fleet rows carry none of it.
 
 **SO THE DISTINCTION EXISTS IN THE DOMAIN AND DIES BEFORE THE SCREEN.** `none` means *this PR has no CI*; `unknown` means *we could not find out*. On a GitHub repo the difference is academic. **On a Jenkins team where `runs()` reaches `gh` alone, every PR is `unknown` and the board shows what looks like a fleet with no CI at all.**
 
@@ -41,7 +52,11 @@
 
 The fleet payload carries `checks` per PR, and the board renders `unknown` as *not asked*.
 
+**ONE FIELD ON `CardPrSchema`, AND THE REST IS WIRING.** The reading is fetched, the states exist, the rule is written. Do not re-derive any of it — carry `checks` through the contract and fill it from what `fleet.ts` already holds.
+
 **THE FIVE STATES TRAVEL, NOT A BOOLEAN.** `green`, `pending`, `failing`, `none`, `unknown` — collapsing to *ok / not ok* recreates the defect one layer up.
+
+**`mergeable` DISAMBIGUATES `checks` AND MUST TRAVEL WITH IT.** `fleet.ts:349` records why: GitHub starts no workflow for a PR that does not merge cleanly, so a conflicting PR reports `checks: 'none'` — indistinguishable from a bot PR waiting for approval. Carrying one without the other ships a known ambiguity.
 
 **`none` AND `unknown` MUST NOT RENDER THE SAME.** That is the whole plan. A PR with no CI configured is a fact; a PR whose CI could not be reached is a question.
 
@@ -58,3 +73,11 @@ The fleet payload carries `checks` per PR, and the board renders `unknown` as *n
 A teammate can adopt, plan, dispatch and deliver without ever reading a check state. **They cannot do any of it if adoption defaults their tracker silently or a refusal names no repair**, which is what the three Musts fix.
 
 But this is the first thing they will *misread*. A board showing no CI on a team that runs CI every hour is not a missing feature — it is the board being wrong in a way that costs trust before anyone thinks to check.
+
+### Round 1 — 2026-09-07
+
+**This plan opened by claiming the board had no checks concept. It was wrong on four of five layers.** The domain's enum, the script's Jenkins branch, the server's field and the documented rendering rule were all already there — including a sentence in `schema.ts` stating exactly the behaviour this plan proposed to introduce.
+
+**What survived is one line of a schema.** `CardPrSchema` carries `number` and `url` and not `checks`, so everything upstream is computed and dropped at the wire.
+
+**The round is the argument for the sprint's own goal.** A capability that exists at four layers and dies at the fifth is invisible to a reader who greps for the concept and finds it — which is what I did when writing the plan, and what a teammate would do when wondering why their board shows no CI.
