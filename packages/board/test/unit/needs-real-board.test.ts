@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
   declaredReason,
   drivesAPage,
+  endpointsIntercepted,
   entitlementsHeld,
   judge,
   startsABoard,
@@ -335,7 +336,45 @@ await page.route('**/api/implement', (route) => route.fulfill({ json: {} }));
    * assertions are the join: the shapes above are invented, and a shape nothing
    * matches is a predicate tuned to a fiction.
    */
-  describe('the arms have a population in the real suite', () => {
+  describe('an endpoint is intercepted in either of the two forms', () => {
+  /**
+   * **TWO FORMS, BECAUSE THE SUITE HAS TWO.** `page.route(...)` installs a route
+   * on an ALREADY-NAVIGATED page; `cat.open({ route: { '**\/api/x': … } })` hands
+   * the catalogue a map it installs BEFORE the first navigation — the form a
+   * test must use when the stub has to beat the app's own first fetch.
+   *
+   * Reading only the first was a blindness rather than a rule. Measured
+   * 2026-09-07: `fleet-settings.browser.test.ts` moved its two routes into
+   * `cat.open` to fix a race, intercepted exactly as much as before, and this
+   * gate reported it as a file whose write reaches a script.
+   */
+  it('reads page.route', () => {
+    expect([...endpointsIntercepted(`await page.route('**/api/dispatch', r => r.fulfill());`)])
+      .toEqual(['dispatch']);
+  });
+
+  it('reads the cat.open route map', () => {
+    const src = `const page = await cat.open('x', { route: { '**/api/fleet-controls': (r) => r.fulfill() } });`;
+    expect([...endpointsIntercepted(src)]).toEqual(['fleet-controls']);
+  });
+
+  /**
+   * THE KEY FORM IS MATCHED, NOT THE CALL. Both spellings put the endpoint in a
+   * string literal beside `/api/`, so a gate tracking which FUNCTION received it
+   * would have to be taught every future wrapper. This asserts the property that
+   * makes the next wrapper free.
+   */
+  it('does not care which call receives the map', () => {
+    const src = `const opts = { route: { '**/api/approve': stub } }; await somethingElse(opts);`;
+    expect([...endpointsIntercepted(src)]).toEqual(['approve']);
+  });
+
+  it('finds nothing where nothing is routed', () => {
+    expect([...endpointsIntercepted(`await page.goto('/api/dispatch');`)]).toEqual([]);
+  });
+});
+
+describe('the arms have a population in the real suite', () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const INTEGRATION = path.resolve(here, '../integration');
     const sourceOf = (f: string) => fs.readFileSync(path.join(INTEGRATION, f), 'utf8');
