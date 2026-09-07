@@ -50,7 +50,7 @@
 
 ## Slices
 
-### A row carries its checks, including unknown (Branch: bug/the-board-says-what-it-could-not-ask)
+### A row carries its checks, including unknown (Branch: bug/the-board-says-what-it-could-not-ask, PR: #807)
 
 The fleet payload carries `checks` per PR, and the board renders `unknown` as *not asked*.
 
