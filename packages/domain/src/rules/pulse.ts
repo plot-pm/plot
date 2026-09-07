@@ -1,18 +1,27 @@
 import type { FleetReading } from '../entities/fleet.js';
+import { planIdOf } from '../entities/plan.js';
 
 /**
  * A plan's slug, from the dated filename the estate stores it under.
  *
- * ONE DEFINITION, because two derivations of one identity drift: `deriveWaves`
- * and `doubleClaimedBranches` each carried this regex, and a plan named
- * differently by the two would have produced a collision report nobody could
- * match to a wave.
+ * THE PLAN ENTITY OWNS THIS NOW — see {@link planIdOf}. Kept as a name because
+ * this module's four call sites and the board's importers read it, and moved to
+ * a delegation because it was one of FOUR derivations of one identity that
+ * disagreed.
  *
- * @param file - the plan's filename, dated or not.
- * @returns the slug, with the date prefix and `.md` suffix removed.
+ * IT WAS THE WRONG ONE. This function stripped only a leading date, and
+ * `plot-plan-meta.sh` reports `file` as a repository-relative PATH — so
+ * `docs/plans/2026-09-04-x.md` answered `docs/plans/2026-09-04-x` here while the
+ * board's three copies answered `x`. The slug reaches a rendered row
+ * (`deriveSlices`) and a collision report that names plans
+ * ({@link doubleClaimedBranches}), so the two spellings were user-visible.
+ *
+ * Every test of it passed a bare filename, which is why nothing caught it.
+ *
+ * @param file - the plan's path or filename, dated or not.
+ * @returns the slug, with any directory, date prefix and `.md` suffix removed.
  */
-export const planSlugOf = (file: string): string =>
-  file.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/\.md$/, '');
+export const planSlugOf = (file: string): string => planIdOf(file);
 
 /** One slice of one plan, as the reading describes it and a reader acts on it. */
 export interface SliceReading {
