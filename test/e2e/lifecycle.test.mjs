@@ -7,7 +7,7 @@ import path from 'node:path';
 import {
   makeSandbox, stubHost, runScript, planMeta,
   instantiatePlan, recordApproval, recordStarted, annotatePr, runGate, sh,
-  recordDelivered,
+  recordDelivered, flipState,
 } from './helpers.mjs';
 
 // ── Flow a: pr + own branches, CLASSIC config (pre-Plot-2 compat) ────────────
@@ -62,7 +62,7 @@ test('flow a: classic pr flow — template roundtrip, approve record, gate flip,
     // deliver mechanics: symlink moves active → delivered; phase flips
     sh(sb.work, 'git mv docs/plans/active/flow-a.md docs/plans/delivered/flow-a.md');
     const f = path.join(sb.work, rel);
-    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('- **Phase:** Approved', '- **Phase:** Delivered'));
+    fs.writeFileSync(f, flipState(fs.readFileSync(f, 'utf8'), 'Approved', 'Delivered'));
     sh(sb.work, 'git add -A && git commit -qm "plot: deliver"');
     meta = planMeta(sb.work, rel, stub);
     assert.equal(meta.phase, 'delivered');
