@@ -92,6 +92,18 @@ That is the same shape as the defect `the-supervisor-says-why-it-handed-nothing`
 
 **The one correlation.** The last tick before the third disappearance reported `started=2` — the tick that spawned two agents. The agents survived it and are parented to `sh` (51457, 51587), so they are detached rather than children of the daemon. Whether starting agents is the trigger or a coincidence of timing is **not established**, and this note deliberately stops there.
 
+**FOUR HYPOTHESES TESTED, ALL FOUR DISPROVED — 2026-09-07.**
+
+**Memory pressure / jetsam.** Ruled out by measurement: 52% system-wide memory free, and `log show` for `jetsam` and `memorystatus` over the window returns **nothing**.
+
+**`AbandonProcessGroup`.** The plist does not set it, so it defaults false, and the daemon's agents are started with `nohup ... &` and no `setsid` — `plot-dispatch.sh:687` says why: *"`setsid` is not used — it does not exist on macOS."* A child in the job's process group exiting looked like it could take the job with it. **Tested with a control unit**: same `ProcessType`, `KeepAlive` and no `AbandonProcessGroup`, spawning a `nohup sleep 8 &` and then logging every 2 s. It logged **8 lines past its child's exit and stayed loaded.** The mechanism does not fire.
+
+**`/plot-fleet --once`.** It is `exec node "$registryd" --once` (`plot-fleetctl.sh:256`) — a plain process that never calls `launchctl`. `bootout` appears once in the whole codebase, at `:480`, reached only by `--stop`.
+
+**`/plot-fleet --start` racing a loaded job.** It refuses on a label already loaded (`:297`) before writing anything, so it cannot have rewritten the plist under a running daemon.
+
+**What that leaves is unexplained.** The job is booted out by something outside Plot, leaving no trace in launchd's log, in `registryd.err`, or in its own exit code. The next step is a watcher that catches the transition rather than finding it afterwards — running as of this note.
+
 **Why it is recorded here rather than fixed.** This plan is about a supervisor that hands nothing over. A supervisor that hands work over and then disappears is a second defect, and it needs a measurement this session did not get: what the system log says at the moment of the bootout. `log show --predicate 'process == "launchd"'` returned nothing for the window, which is itself a finding — the eviction leaves no trace either.
 
 **What it costs, meanwhile.** The fleet stops being supervised and nothing says so — which is exactly what [`the-board-says-whether-anything-supervises`](2026-09-07-the-board-says-whether-anything-supervises.md) makes visible. That plan was written from the FIRST occurrence of this, before it was known to recur. **It is now the more urgent of the two**: an operator cannot act on a supervisor that leaves without a word until the board tells them it left.
