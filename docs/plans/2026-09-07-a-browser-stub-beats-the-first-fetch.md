@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **Phase:** Delivered
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #762 merged
 - **Started:** 2026-09-07, Jan Wloka, `bug/a-browser-stub-beats-the-first-fetch`
+- **Delivered:** 2026-09-07
 
 ## Changelog
 
