@@ -22,6 +22,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `feature/issue-tracking-is-its-own-port`
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-branch-is-a-domain-entity`
 - **Started:** 2026-09-06, Jan Wloka, `bug/the-default-branch-repairs-itself`
+- **Started:** 2026-09-07, Jan Wloka, `feature/a-plan-is-a-domain-entity`
 -->
 
 ## Changelog

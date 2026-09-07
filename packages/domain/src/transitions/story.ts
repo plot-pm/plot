@@ -404,3 +404,76 @@ export const derivedStanding = (
   if (phases.some((p) => p === 'approved')) return 'active';
   return declared;
 };
+
+/**
+ * How far along a status sits, for comparing a written status against a
+ * derived one. Higher is further along; `null` means the question does not
+ * apply.
+ *
+ * `draft`, `ready` and `active` are the three a story passes through before
+ * its plans can outrun it, so they rank. `archived`, `done` and `active` are
+ * the only values {@link derivedStanding} ever produces beyond the declared
+ * status it hands back, so those carry the ranks the derived side is compared
+ * at.
+ *
+ * `in-review` and `paused` rank `null` DELIBERATELY. Both describe what the
+ * humans are doing rather than how far the work got — a paused story with
+ * approved plans is a person's decision to stop, and a story in review is one
+ * whose plans have necessarily already been worked. Neither is behind its
+ * plans; each is beside them. The four-value list this replaces gave the same
+ * answer by accident, through `indexOf` returning `-1`, and could not say it
+ * was meant.
+ */
+const STANDING_RANK: Readonly<Record<StoryStanding, number | null>> = {
+  draft: 0,
+  ready: 1,
+  active: 2,
+  'in-review': null,
+  paused: null,
+  done: 3,
+  archived: 4,
+};
+
+/**
+ * What a story's plans prove about it, keyed by the standing they prove.
+ *
+ * The three keys are every value {@link derivedStanding} produces beyond the
+ * declared status it hands back — and a declared status is caught by the
+ * equality test before this is read. So the map is TOTAL over what can reach
+ * it, and its lookup needs no fallback.
+ */
+const BEHIND: Readonly<Record<'active' | 'done' | 'archived', string>> = {
+  active: 'Has approved plans',
+  done: 'All plans delivered',
+  archived: 'All plans released',
+};
+
+/** Whether a standing is one the plans can prove, and so one {@link BEHIND} answers. */
+const isProven = (s: StoryStanding): s is 'active' | 'done' | 'archived' =>
+  s === 'active' || s === 'done' || s === 'archived';
+
+/**
+ * Why a story's written status disagrees with what its plans prove.
+ *
+ * Reports in ONE direction: a story behind its plans is one nobody updated,
+ * which is mechanical drift. A story ahead of its plans finished early, which
+ * is a person's word about knowledge no mechanism can observe — `entities/story.ts`
+ * settles that the six written statuses are theirs.
+ *
+ * @param declared - the status the story's frontmatter carries.
+ * @param derived - the standing its plans support, from {@link derivedStanding}.
+ * @returns what the plans prove, as a phrase; null where the two agree, where
+ *   either status does not rank, or where the declared status is not behind.
+ */
+export const statusDrift = (declared: string, derived: StoryStanding): string | null => {
+  if (declared === derived) return null;
+  if (!isProven(derived)) return null;
+  // `declared` is a string off a file a person edits, so a status the domain
+  // does not admit reaches here and ranks nowhere. That is S2's finding, not
+  // this one's.
+  const declaredRank = STANDING_RANK[declared as StoryStanding] ?? null;
+  if (declaredRank === null) return null;
+  // Every proven standing ranks, so the derived side needs no such test.
+  const derivedRank = STANDING_RANK[derived] as number;
+  return derivedRank > declaredRank ? BEHIND[derived] : null;
+};
