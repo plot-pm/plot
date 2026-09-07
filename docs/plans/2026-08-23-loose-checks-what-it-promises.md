@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-board-serves-an-enterprise-stack
 - **Issue:** <!-- optional -->

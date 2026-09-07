@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** feature
 - **Story:** plot-board
 - **Delivered:** 2026-08-15

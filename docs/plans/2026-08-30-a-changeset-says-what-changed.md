@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-domain-is-one-implementation
 - **Issue:** <!-- optional -->

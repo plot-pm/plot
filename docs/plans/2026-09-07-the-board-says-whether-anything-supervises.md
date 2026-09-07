@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **State:** Delivered
 - **Type:** feature
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr

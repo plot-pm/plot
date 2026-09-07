@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** infra
 - **Story:** plot-planning-model
 - **Review:** pr

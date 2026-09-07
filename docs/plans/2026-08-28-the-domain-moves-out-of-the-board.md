@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-board-shows-the-strategic-layer
 - **Issue:** <!-- optional -->

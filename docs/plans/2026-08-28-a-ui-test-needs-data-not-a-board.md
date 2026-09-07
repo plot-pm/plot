@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** infra
 - **Sprint:** <!-- optional -->
 - **Issue:** <!-- optional -->

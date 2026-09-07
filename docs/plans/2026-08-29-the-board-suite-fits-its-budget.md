@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Rejected
+- **State:** Rejected
 - **Type:** infra
 - **Sprint:** the-domain-is-one-implementation
 - **Issue:** <!-- optional -->

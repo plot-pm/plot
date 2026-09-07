@@ -338,8 +338,11 @@ real_plan_path() { # $1 = plan file as found
 rel=$(cd "$repo_root" && real_plan_path "$plan_file") || rel=""
 [ -n "$rel" ] || die "$plan_file is outside the repository root"
 
-# Flip `**Phase:** Draft` OR `**Phase:** Design` → `Approved` in the `## Status`
-# section only. Both are the pre-Approved phases this script advances from.
+# Flip `**State:** Draft` OR `**State:** Design` → `Approved` in the `## Status`
+# section only. Both are the pre-Approved states this script advances from.
+#
+# Reads `State:` and `Phase:` alike: it changes the VALUE on whichever line
+# carries it, so a plan written before the 2026-09-07 rename still approves.
 #
 # Scoped to that section because a plan that QUOTES a status block in its prose
 # (this repo has several, documenting the format) would otherwise have its
@@ -353,7 +356,7 @@ flip_phase() { # $1=in $2=out  → 0 if it changed the file, 1 if there was noth
   awk '
     BEGIN { section = ""; done = 0 }
     /^## / { section = ($0 ~ /^## Status/) ? "status" : ""; print; next }
-    section == "status" && !done && tolower($0) ~ /^[ \t]*[-*]?[ \t]*\**phase[:*]/ {
+    section == "status" && !done && tolower($0) ~ /^[ \t]*[-*]?[ \t]*\**(state|phase)[:*]/ {
       if (tolower($0) ~ /draft/) {
         sub(/[Dd]raft/, "Approved")
         done = 1

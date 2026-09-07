@@ -92,20 +92,31 @@ export const withRecord = (
   return { text: next.join('\n'), wrote: true };
 };
 
-/** Matches a `**Phase:**` line, in any of the emphases a plan file uses. */
-const PHASE_LINE = /^[ \t]*[-*]?[ \t]*\**[Pp]hase[:*]/;
+/**
+ * Matches a `**State:**` line, in any of the emphases a plan file uses.
+ *
+ * `Phase:` matches too. That is the name the field carried until 2026-09-07,
+ * and the dual read is permanent rather than scaffolding: a plan file may have
+ * been written a year ago or copied from another project, and a Plot that
+ * refused to read the old spelling would be worse at its own job than the one
+ * that confused two words.
+ */
+const STATE_LINE = /^[ \t]*[-*]?[ \t]*\**([Ss]tate|[Pp]hase)[:*]/;
 
 /**
- * Sets a plan's phase, inside its `## Status` section only.
+ * Sets a plan's state, inside its `## Status` section only.
  *
  * Scoped to that section because a plan that QUOTES a status block in its prose
  * — this repository has several, documenting the format — would otherwise have
  * its illustration rewritten too, silently corrupting the very files that
  * specify the format.
  *
+ * Changes the VALUE and never the field name, so a file spelling the field
+ * `Phase:` keeps that spelling and gets the new value.
+ *
  * @param text - the plan file's contents.
- * @param phase - the phase to write, capitalised as the file spells it.
- * @returns the new contents, and whether a phase line was found to change.
+ * @param phase - the state to write, capitalised as the file spells it.
+ * @returns the new contents, and whether a state line was found to change.
  */
 export const withPhase = (text: string, phase: string): { text: string; wrote: boolean } => {
   const lines = text.split('\n');
@@ -116,9 +127,9 @@ export const withPhase = (text: string, phase: string): { text: string; wrote: b
       inStatus = STATUS_HEADING.test(line);
       continue;
     }
-    if (!inStatus || !PHASE_LINE.test(line)) continue;
+    if (!inStatus || !STATE_LINE.test(line)) continue;
     const next = [...lines];
-    next[i] = line.replace(/(\*\*[Pp]hase:\*\*[ \t]*)\S+/, `$1${phase}`);
+    next[i] = line.replace(/(\*\*([Ss]tate|[Pp]hase):\*\*[ \t]*)\S+/, `$1${phase}`);
     if (next[i] === line) return { text, wrote: false };
     return { text: next.join('\n'), wrote: true };
   }

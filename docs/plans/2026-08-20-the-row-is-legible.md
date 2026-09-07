@@ -10,7 +10,7 @@
 
 ## Status
 
-- **Phase:** Superseded
+- **State:** Superseded
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Approved
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet

@@ -11,7 +11,7 @@
 
 ## Status
 
-- **Phase:** Superseded
+- **State:** Superseded
 - **Type:** feature
 - **Story:** plot-board
 - **Review:** in-session

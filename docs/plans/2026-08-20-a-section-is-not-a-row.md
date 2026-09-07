@@ -10,7 +10,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** bug
 - **Story:** plot-board
 - **Review:** in-session

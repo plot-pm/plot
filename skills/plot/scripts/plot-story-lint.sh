@@ -85,7 +85,8 @@ homes=$(
 # that mattered. That one was VOCABULARY — six statuses declared twice and a
 # seventh derived against a `string` type. This awk names no phase and no
 # status: it passes whatever word the plan carries through to the domain, which
-# holds the only list. A plan with no `**Phase:**` is not a plan (the rule
+# holds the only list. A plan with no `**State:**` (or the `**Phase:**` the
+# field was called before 2026-09-07) is not a plan (the rule
 # `plot-reconcile-scan.sh` applies) and contributes nothing.
 #
 # It flushes on the NEXT file's first line rather than in `ENDFILE`: that is a
@@ -99,7 +100,7 @@ if [ -d "$PLAN_DIR" ]; then
     function flush() { if (story != "" && phase != "") print story, phase; story=""; phase="" }
     FNR==1 { flush() }
     /^- \*\*Story:\*\*/ { s=$0; sub(/^[^:]*:\*\*[ \t]*/, "", s); gsub(/[ \t]+$/, "", s); story=s }
-    /^- \*\*Phase:\*\*/ { s=$0; sub(/^[^:]*:\*\*[ \t]*/, "", s); gsub(/[ \t]+$/, "", s); phase=tolower(s) }
+    /^- \*\*(State|Phase):\*\*/ { s=$0; sub(/^[^:]*:\*\*[ \t]*/, "", s); gsub(/[ \t]+$/, "", s); phase=tolower(s) }
     END { flush() }
   ' "$PLAN_DIR"/*.md 2>/dev/null)
 fi

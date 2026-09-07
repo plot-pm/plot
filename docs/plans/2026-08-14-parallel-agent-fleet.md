@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** feature
 - **Sprint:** <!-- optional, filled when plan is added to a sprint -->
 - **Story:** plot-board

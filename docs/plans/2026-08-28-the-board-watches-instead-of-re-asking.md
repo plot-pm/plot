@@ -2,7 +2,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** feature
 - **Sprint:** a-half-landed-workflow-says-so
 - **Issue:** <!-- optional -->

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Delivered
+- **State:** Delivered
 - **Type:** feature
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr

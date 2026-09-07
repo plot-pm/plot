@@ -226,7 +226,9 @@ rel=$(cd "$repo_root" && real_plan_path "$plan_file") || rel=""
 # The filename, for symlink creation.
 plan_basename=$(basename "$rel")
 
-# Flip `**Phase:** Approved` → `Delivered` in the `## Status` section only.
+# Flip `**State:** Approved` → `Delivered` in the `## Status` section only.
+# Reads `State:` and `Phase:` alike: it changes the VALUE on whichever line
+# carries it, so a plan written before the 2026-09-07 rename still delivers.
 #
 # READS ONE FILE AND WRITES ANOTHER, rather than editing in place. It edited in
 # place until 2026-09-02, which is what let the phase land without its record —
@@ -235,7 +237,7 @@ flip_phase() { # $1=in $2=out  → 0 if it changed the file, 1 if nothing to fli
   awk '
     BEGIN { section = ""; done = 0 }
     /^## / { section = ($0 ~ /^## Status/) ? "status" : ""; print; next }
-    section == "status" && !done && tolower($0) ~ /^[ \t]*[-*]?[ \t]*\**phase[:*]/ {
+    section == "status" && !done && tolower($0) ~ /^[ \t]*[-*]?[ \t]*\**(state|phase)[:*]/ {
       if (tolower($0) ~ /approved/) {
         sub(/[Aa]pproved/, "Delivered")
         done = 1

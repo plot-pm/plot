@@ -7,7 +7,7 @@
 
 ## Status
 
-- **Phase:** Closed
+- **State:** Closed
 - **Start:** 2026-08-29
 - **End:** 2026-09-12
 - **Release:** 2.13.0 — **released 2026-09-05**, `@plot-pm/board@0.11.0` on npm. The hold below was lifted once production called the domain; see *No release until the domain is real*

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **Phase:** Planning
+- **State:** Planning
 - **Start:** YYYY-MM-DD
 - **End:** YYYY-MM-DD
 <!-- Optional. The version this sprint is working toward, named before it is

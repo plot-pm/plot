@@ -20,9 +20,17 @@
 # Two plan formats are recognized:
 #
 #   canonical    the plan template's `## Status` body section:
-#                    - **Phase:** Approved
+#                    - **State:** Approved
 #                    - **Type:** feature
-#                (bullet, bold, and plain `Phase: ...` variants all accepted)
+#                (bullet, bold, and plain `State: ...` variants all accepted)
+#
+#                `State:` is the field Plot writes. `Phase:` is the name it
+#                carried until 2026-09-07 and is read as the alternate, the
+#                same way front matter reads `status:` over `phase:` below.
+#                THE DUAL READ IS PERMANENT, NOT SCAFFOLDING: a plan file may
+#                have been written a year ago or copied from another project,
+#                and a Plot that refused to read `Phase:` would be worse at its
+#                own job than the one that confused two words.
 #
 #   frontmatter  YAML front matter at the top of the file:
 #                    ---
@@ -88,7 +96,8 @@
 #                  which is a queue. (`ready-for-review`/`in-review` DO
 #                  normalize onto `approved` — those are synonyms; this is not.)
 #   phase_alt_raw  secondary value when the file carries two (front matter
-#                  status: AND phase:), else ""
+#                  status: AND phase:, or a `## Status` body carrying both
+#                  State: AND Phase:), else ""
 #   phase_alt      normalized phase_alt_raw (NONE when absent)
 #   type           normalized plan type (feature|bug|docs|infra or "")
 #   title          plan title: front matter `title:` wins, else the first H1
@@ -395,7 +404,7 @@ function reset_state() {
   fm_review = ""; fm_impl = ""; fm_approved = ""; fm_started = ""; fm_released = ""
   fm_delivered = ""; fm_design = ""
   fm_rounds = ""
-  canon_phase = ""; canon_type = ""
+  canon_state = ""; canon_phase = ""; canon_type = ""
   canon_sprint = ""; canon_story = ""; canon_assignee = ""
   canon_review = ""; canon_impl = ""; canon_approved = ""; canon_released = ""
   canon_delivered = ""; canon_design = ""
@@ -425,8 +434,14 @@ function emit_record(   fmt, praw, palt_raw, traw, title, sprint, story, assigne
     praw = (fm_status != "") ? fm_status : fm_phase
     palt_raw = (fm_status != "" && fm_phase != "") ? fm_phase : ""
     traw = fm_type
-  } else if (canon_phase != "") {
-    fmt = "canonical"; praw = canon_phase; palt_raw = ""; traw = canon_type
+  } else if (canon_state != "" || canon_phase != "") {
+    # `State:` is primary and `Phase:` the alternate, exactly as front matter
+    # reads `status:` over `phase:`. A file carrying both reports the
+    # disagreement rather than hiding it.
+    fmt = "canonical"
+    praw = (canon_state != "") ? canon_state : canon_phase
+    palt_raw = (canon_state != "" && canon_phase != "") ? canon_phase : ""
+    traw = canon_type
   } else {
     fmt = "none"; praw = ""; palt_raw = ""; traw = ""
   }
@@ -766,7 +781,8 @@ in_comment {
 }
 section == "status" {
   lower = tolower($0)
-  if (lower ~ /^[ \t]*[-*]?[ \t]*\**phase[:*]/ && canon_phase == "") canon_phase = val_after_colon($0)
+  if (lower ~ /^[ \t]*[-*]?[ \t]*\**state[:*]/ && canon_state == "") canon_state = val_after_colon($0)
+  else if (lower ~ /^[ \t]*[-*]?[ \t]*\**phase[:*]/ && canon_phase == "") canon_phase = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**type[:*]/ && canon_type == "") canon_type = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**sprint[:*]/ && canon_sprint == "") canon_sprint = val_after_colon($0)
   else if (lower ~ /^[ \t]*[-*]?[ \t]*\**story[:*]/ && canon_story == "") canon_story = val_after_colon($0)

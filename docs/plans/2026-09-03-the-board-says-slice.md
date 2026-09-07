@@ -5,7 +5,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** infra
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr

@@ -8,7 +8,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** infra
 - **Story:** plot-board
 - **Review:** in-session

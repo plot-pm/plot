@@ -46,7 +46,7 @@ than one with no headline: it is the sentence a reader carries away.
 
 ## Status
 
-- **Phase:** Rejected
+- **State:** Rejected
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet

@@ -6,7 +6,7 @@
 
 ## Status
 
-- **Phase:** Released
+- **State:** Released
 - **Type:** feature
 - **Sprint:** working-shows-the-agent
 - **Story:** plot-planning-model
