@@ -1,7 +1,7 @@
 /**
  * THE BUNDLES `build.mjs` EMITS — GENERATED, NEVER EDITED BY HAND.
  *
- * Written by `packages/board/build.mjs` from its own `shippedX = path.join(…)`
+ * Written by `packages/board/build.mjs` from its own shipped-bundle
  * declarations, which are what an author writes when adding a bundle. Edit the
  * build; run `pnpm build:board`; this file follows.
  *
@@ -40,7 +40,6 @@
  * the correct resolution.
  */
 export const BOARD_ARTIFACT_PATHS: readonly string[] = [
-  '<path>',
   'skills/plot/scripts/board/board-server.mjs',
   'skills/plot/scripts/board/plot-ask.mjs',
   'skills/plot/scripts/board/plot-branch-state.mjs',

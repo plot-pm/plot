@@ -25,7 +25,7 @@ if (!fs.existsSync(clientHtml)) {
 const BUNDLES_HEADER = `/**
  * THE BUNDLES \`build.mjs\` EMITS — GENERATED, NEVER EDITED BY HAND.
  *
- * Written by \`packages/board/build.mjs\` from its own \`shippedX = path.join(…)\`
+ * Written by \`packages/board/build.mjs\` from its own shipped-bundle
  * declarations, which are what an author writes when adding a bundle. Edit the
  * build; run \`pnpm build:board\`; this file follows.
  *
@@ -71,8 +71,8 @@ export const BOARD_ARTIFACT_PATHS: readonly string[] = [
 // FIRST, before any esbuild call, because the contract it feeds is bundled INTO
 // every artifact below. Generating afterwards would ship the previous run's set.
 //
-// The declarations below are the source: `const shippedX = path.join(here,
-// '../../<path>')` is what an author writes when adding a bundle, and three
+// The declarations below are the source — each binds a `shipped<Name>` const to
+// a `path.join` of `here` and a repo-relative path — and that is what an author
 // readers now derive from it rather than restating it — this generator,
 // `scripts/check-bundle-attributes.sh`, and `plot-resolve-artifact.sh`'s
 // `bundle_set()`. The contract used to be a fourth DEFINITION, typed out by
@@ -97,7 +97,13 @@ const generatedBundles = path.join(here, 'src/contract/bundles.generated.ts');
   ].sort();
   if (emitted.length === 0) {
     console.error('No shipped bundles found in build.mjs — the derivation is blind.');
-    console.error("It reads declarations shaped `const shippedX = path.join(here, '../../<path>');`");
+    // The shape is described in PIECES rather than spelled out. A complete
+    // A complete declaration written anywhere in this file — including in a
+    // comment ABOUT the derivation — is matched BY the derivation and lands
+    // in the set as a bundle nothing emits. The pattern spans newlines, so a
+    // wrapped comment matches too. Measured while writing this: two such
+    // comments put `<path>` and an ellipsis into the derived set.
+    console.error("It reads `const shipped<Name>` bound to a `path.join` of here and a repo-relative path.");
     console.error('Finding none means the build changed shape. Fix the derivation, not this file.');
     process.exit(1);
   }
