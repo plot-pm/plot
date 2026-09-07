@@ -66,7 +66,7 @@ done
 die() { echo "plot-deliver: $*" >&2; exit 1; }
 
 [ -n "$slug" ] || die "need a plan slug (usage: plot-deliver.sh [--dry-run] <slug>)"
-git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
+git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository — run this from inside the checkout, or 'git init' one here"
 
 cfg() { bash "$script_dir/plot-config.sh" get "$1" "$2"; }
 
@@ -86,10 +86,13 @@ plan_file=""
 for cand in "$PLAN_DIR"*"$slug".md "$ACTIVE_DIR$slug.md" "$DELIVERED_DIR$slug.md"; do
   [ -e "$cand" ] && { plan_file="$cand"; break; }
 done
-[ -n "$plan_file" ] || die "no plan found for '$slug' — looked in $PLAN_DIR, $ACTIVE_DIR, $DELIVERED_DIR"
+[ -n "$plan_file" ] || die "no plan found for '$slug' — looked in $PLAN_DIR, $ACTIVE_DIR, $DELIVERED_DIR.
+  Check the slug: ls $PLAN_DIR | grep -i '$slug'"
 
 meta=$(bash "$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || meta=""
-[ -n "$meta" ] || die "cannot parse '$plan_file' — refusing rather than guessing"
+[ -n "$meta" ] || die "cannot parse '$plan_file' — refusing rather than guessing.
+  See what the parser reads: $script_dir/plot-plan-meta.sh $plan_file
+  A plan needs a '## Status' section with a 'State:' field."
 
 jfield() { printf '%s' "$meta" | jq -r "$1" 2>/dev/null; }
 
@@ -106,13 +109,16 @@ delivered_raw=$(jfield '.delivered_raw')
 case "$phase" in
   approved|delivered) ;;
   released)
-    die "plan '$slug' is already released — nothing to deliver." ;;
+    die "plan '$slug' is already released — nothing to deliver.
+  Nothing to do here; the work shipped." ;;
   draft|design)
-    die "plan '$slug' is still '$phase' — approve it first." ;;
+    die "plan '$slug' is still '$phase' — approve it first: /plot-approve $slug" ;;
   NONE|"")
-    die "cannot read the phase of '$slug' ($plan_file) — refusing rather than guessing." ;;
+    die "cannot read the phase of '$slug' ($plan_file) — refusing rather than guessing.
+  Its '## Status' section needs a line reading '- **State:** Approved'." ;;
   *)
-    die "plan '$slug' is in phase '$phase' — only an Approved plan can be delivered." ;;
+    die "plan '$slug' is in phase '$phase' — only an Approved plan can be delivered.
+  If that phase is wrong, correct the 'State:' line in $plan_file and push it." ;;
 esac
 
 # ---------------------------------------------------------------------------
@@ -157,7 +163,8 @@ fi
 
 verdict=$(PLOT_REPO_ROOT="$repo_root" PLOT_SCRIPTS_DIR="$script_dir" \
   node "$ask_mjs" deliverable "$slug" "$plan_file" 2>/dev/null) || verdict=""
-[ -n "$verdict" ] || die "cannot determine deliverability of '$slug' — refusing rather than guessing."
+[ -n "$verdict" ] || die "cannot determine deliverability of '$slug' — refusing rather than guessing.
+  See what it said: PLOT_REPO_ROOT=$repo_root PLOT_SCRIPTS_DIR=$script_dir node $ask_mjs deliverable $slug $plan_file"
 
 vfield() { printf '%s' "$verdict" | jq -r "$1" 2>/dev/null; }
 
@@ -221,7 +228,8 @@ real_plan_path() { # $1 = plan file as found
 }
 
 rel=$(cd "$repo_root" && real_plan_path "$plan_file") || rel=""
-[ -n "$rel" ] || die "$plan_file is outside the repository root"
+[ -n "$rel" ] || die "$plan_file is outside the repository root ($repo_root).
+  Move the plan under $PLAN_DIR inside this checkout and re-run."
 
 # The filename, for symlink creation.
 plan_basename=$(basename "$rel")
@@ -517,7 +525,10 @@ bookbr="plot/deliver-$slug"
 tmpwt="$wt_root/.plot-deliver-$slug.$$"
 # -B: a leftover branch from an earlier failed run must not block this one.
 git worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null \
-  || die "could not prepare a booking worktree at $tmpwt"
+  || die "could not prepare a booking worktree at $tmpwt.
+  Most often origin/$MAIN is not fetched, or '$bookbr' is checked out in
+  another worktree. Check both: git fetch origin $MAIN && git worktree list
+  Nothing has been written locally; the plan is untouched."
 
 cleanup() {
   git worktree remove --force "$tmpwt" >/dev/null 2>&1 || true
@@ -544,7 +555,9 @@ if git -C "$tmpwt" diff --cached --quiet 2>/dev/null; then
 else
   if ! git -C "$tmpwt" -c "user.name=$who" commit -q -m "plot: deliver $slug"; then
     cleanup
-    die "could not commit the delivery"
+    die "could not commit the delivery.
+  See what git refused: git -C $tmpwt status
+  Nothing was pushed; re-run this — it is idempotent."
   fi
 
   push_out=$(bash "$script_dir/plot-push-main.sh" "$bookbr" "$MAIN" 2>&1)

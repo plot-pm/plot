@@ -116,7 +116,7 @@ done
 die() { echo "plot-approve: $*" >&2; exit 1; }
 
 [ -n "$slug" ] || die "need a plan slug (usage: plot-approve.sh [--dry-run] <slug>)"
-git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository"
+git rev-parse --git-dir >/dev/null 2>&1 || die "not a git repository — run this from inside the checkout, or 'git init' one here"
 
 cfg() { bash "$script_dir/plot-config.sh" get "$1" "$2"; }
 
@@ -135,10 +135,14 @@ plan_file=""
 for cand in "$ACTIVE_DIR$slug.md" "$PLAN_DIR"*"$slug".md; do
   [ -e "$cand" ] && { plan_file="$cand"; break; }
 done
-[ -n "$plan_file" ] || die "no plan found for '$slug' — looked in $ACTIVE_DIR and $PLAN_DIR"
+[ -n "$plan_file" ] || die "no plan found for '$slug' — looked in $ACTIVE_DIR and $PLAN_DIR.
+  Check the slug: ls $PLAN_DIR | grep -i '$slug'
+  Or create the plan first: /plot-idea"
 
 meta=$(bash "$script_dir/plot-plan-meta.sh" "$plan_file" 2>/dev/null) || meta=""
-[ -n "$meta" ] || die "cannot parse '$plan_file' — refusing rather than guessing"
+[ -n "$meta" ] || die "cannot parse '$plan_file' — refusing rather than guessing.
+  See what the parser reads: $script_dir/plot-plan-meta.sh $plan_file
+  A plan needs a '## Status' section with a 'State:' field."
 
 jfield() { printf '%s' "$meta" | jq -r "$1" 2>/dev/null; }
 
@@ -163,11 +167,14 @@ plan_branches=$(jfield '.branches[]?')
 case "$phase" in
   draft|design|approved) ;;
   delivered|released)
-    die "plan '$slug' is already $phase — nothing to approve." ;;
+    die "plan '$slug' is already $phase — nothing to approve.
+  Nothing to do here. To take the work further: /plot-release" ;;
   NONE|"")
-    die "cannot read the phase of '$slug' ($plan_file) — refusing rather than guessing." ;;
+    die "cannot read the phase of '$slug' ($plan_file) — refusing rather than guessing.
+  Its '## Status' section needs a line reading '- **State:** Draft'." ;;
   *)
-    die "plan '$slug' is in phase '$phase' — only a Draft or Design plan can be approved." ;;
+    die "plan '$slug' is in phase '$phase' — only a Draft or Design plan can be approved.
+  If that phase is wrong, correct the 'State:' line in $plan_file and push it." ;;
 esac
 
 # --- refusal 2: the review channel ------------------------------------------
@@ -225,9 +232,12 @@ case "$pr_state" in
   MERGED) ;;
   OPEN) ;;
   CLOSED)
-    die "the plan PR for '$slug' (#$pr_number) is closed. Reopen it or create a new one." ;;
+    die "the plan PR for '$slug' (#$pr_number) is closed.
+  Reopen it on the host, or push '$pr_branch' again and open a new one." ;;
   NONE|*)
-    die "no PR found for branch '$pr_branch'. Run /plot-idea first, or push the branch." ;;
+    die "no PR found for branch '$pr_branch'.
+  Push the branch: git push -u origin $pr_branch
+  Then open its PR — or run /plot-idea, which does both." ;;
 esac
 
 echo "step: plan $plan_file — phase=$phase review=${review} impl=${impl} pr=#$pr_number($pr_state)"
@@ -336,7 +346,8 @@ real_plan_path() { # $1 = plan file as found
 }
 
 rel=$(cd "$repo_root" && real_plan_path "$plan_file") || rel=""
-[ -n "$rel" ] || die "$plan_file is outside the repository root"
+[ -n "$rel" ] || die "$plan_file is outside the repository root ($repo_root).
+  Move the plan under $PLAN_DIR inside this checkout and re-run."
 
 # Flip `**State:** Draft` OR `**State:** Design` → `Approved` in the `## Status`
 # section only. Both are the pre-Approved states this script advances from.
@@ -659,7 +670,9 @@ if [ "$same_branch" = 1 ]; then
     push_report="nothing-to-commit"
     echo "step: nothing to commit — the approval was already recorded"
   else
-    git -C "$repo_root" commit -q -m "plot: approve $slug" || die "could not commit the approval"
+    git -C "$repo_root" commit -q -m "plot: approve $slug" || die "could not commit the approval.
+  The PR is already merged; the local record is what is missing. See what git
+  refused: git -C $repo_root status. Then re-run this — it is idempotent."
     push_report="local"
     echo "step: recorded on $(git -C "$repo_root" branch --show-current) — push it with the implementation"
   fi
@@ -675,7 +688,10 @@ else
   # -B: a leftover branch from an earlier failed run must not block this one.
   # It is disposable by construction — created here, pushed, deleted.
   git worktree add -q -B "$bookbr" "$tmpwt" "origin/$MAIN" 2>/dev/null \
-    || die "could not prepare a booking worktree at $tmpwt"
+    || die "could not prepare a booking worktree at $tmpwt.
+  Most often origin/$MAIN is not fetched, or '$bookbr' is checked out in
+  another worktree. Check both: git fetch origin $MAIN && git worktree list
+  Nothing has been written locally; the plan is untouched."
 
   cleanup() {
     git worktree remove --force "$tmpwt" >/dev/null 2>&1 || true
