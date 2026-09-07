@@ -1089,8 +1089,16 @@ terminal_learn() { # $1=branch $2=state
 # branch that is live — in flight, claimed, or with work on the floor — never
 # arrives here and therefore cannot be cached however the cache is filled. The
 # invariant is structural rather than a check that could be forgotten.
+#
+# SETS `_merged_by_host_state` TO THE WORD IT DECIDED ON, and that is what the
+# readings carry. The boolean is still the answer to this function's own
+# question; the word is what `branch_readings` reports, because the rule needs
+# to tell `CLOSED` from `NONE` from `-` and a yes/no cannot. Set before every
+# return, so a caller reading it never sees the previous branch's answer.
+_merged_by_host_state='-'
 merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
   local st
+  _merged_by_host_state='-'
   # Git has already been consulted to get here (no ref) and `terminal_cached`
   # asks it again about the plan and the tip. Only the round trip is skipped.
   if st=$(terminal_cached "$1"); then
@@ -1103,11 +1111,13 @@ merged_by_host() { # $1=branch → 0 when the host reports its PR MERGED
     # It is re-derived, not merely echoed: reaching here means git was asked
     # again this pass and still agrees — no ref, same plan, same tip.
     terminal_learn "$1" "$st"
+    _merged_by_host_state="$st"
     [ "$st" = "MERGED" ]
     return
   fi
   st=$(host_pr_state "$1" --ask)
   terminal_learn "$1" "$st"
+  _merged_by_host_state="$st"
   [ "$st" = "MERGED" ]
 }
 
@@ -1159,33 +1169,19 @@ reached_review() { # $1=branch → 0 when an open or merged PR exists
 # the branch it was cut from, which is why `plot-pr-merged.sh` reads PRs and not
 # refs, and why this reads the same source.
 #
-# THREE ANSWERS, and the third is the one that must not be collapsed into the
-# second:
+# WHAT THE HOST SAID, AND NOT WHAT IT MEANS. This function answered
+# `waiting` / `blocked` / `""` until the derivation moved: the three answers and
+# the reason `NONE` is the only one that means `blocked` are `waitVerdict` in
+# `packages/domain/src/rules/branch-state.ts`, with a test per case. What stays
+# here is the READING and the cost argument above it, which is a fact about
+# this script's host budget rather than about what a wait means.
 #
-#   | host says        | answer    | meaning                                  |
-#   |------------------|-----------|------------------------------------------|
-#   | MERGED           | ""        | cleared — the annotation stops mattering |
-#   | OPEN or CLOSED   | waiting   | a wait with an end                       |
-#   | NONE             | blocked   | no PR ever existed: a typo               |
-#   | `-` (unreachable)| waiting   | silence is not evidence, in EITHER       |
-#   |                  |           | direction: not permission to start, and  |
-#   |                  |           | not proof of a typo                      |
-#
-# A CLOSED, UNMERGED PR IS `waiting` RATHER THAN `blocked`: the host has seen
-# the branch, so nothing is misspelled — somebody withdrew the work, and that
-# resolves by reopening it, not by editing the plan.
-waits_state() { # $1=prerequisite branch → "waiting" | "blocked" | ""
-  local st
-  # `--ask` because the prerequisite is precisely the branch the repo-wide list
-  # may legitimately omit: its plan may be delivered and its ref gone. The
-  # bound is the same one PR #216 set — ABSENT branches, not all branches — and
-  # the cache above keeps it at one call per run.
-  st=$(host_pr_state "$1" --ask)
-  case "$st" in
-    MERGED) printf '' ;;
-    NONE)   printf 'blocked' ;;
-    *)      printf 'waiting' ;;
-  esac
+# `--ask` because the prerequisite is precisely the branch the repo-wide list
+# may legitimately omit: its plan may be delivered and its ref gone. The bound
+# is the same one PR #216 set — ABSENT branches, not all branches — and the
+# cache above keeps it at one call per run.
+waits_pr_state() { # $1=prerequisite branch → OPEN|MERGED|CLOSED|NONE|-
+  host_pr_state "$1" --ask
 }
 
 # Modification time of a path, in epoch seconds, following symlinks — or "" when
@@ -3049,8 +3045,39 @@ EOF
   echo "$total $n"
 }
 
-branch_state() {
-  local br="$1"
+# WHAT WAS READ OF ONE BRANCH — ten tab-separated fields, and no decision.
+#
+# `branch_state()` UNTIL THIS SLICE, and every line of git archaeology below is
+# its own, unchanged. What went is the `if` chain that merged these readings
+# into a state word: that lives in `@plot-pm/domain`'s `branchState`, which the
+# caller asks once per plan through `plot-branch-state.mjs`. The script gathers;
+# the rule decides.
+#
+# THE REF CHECK STAYS IN FRONT, and it still does its job here. It is no longer
+# a `return`, so the ordering is preserved a different way: `mergeSubjectFound`
+# is READ ONLY where there is no ref, and reported `false` otherwise. See the
+# comment on that reading below — it is the same argument the returns carried.
+#
+# `-` IS THE ABSENT MARKER, per the field-order rule the caller documents: a
+# run of tabs collapses into one separator under `read`, so no field is ever
+# empty. Nothing here is optional, so nothing can shift.
+#
+# EIGHT FIELDS, NOT TEN. The two the plan states — the prerequisite's name and
+# what the host said about it — are appended by the caller, because reading the
+# second costs a host round trip and the scan spends it only where it could
+# change the answer. The rule reports which states those are; see the caller.
+#
+# THE DEFAULT BRANCH'S TIP IS READ ONCE PER RUN, not once per branch. It does
+# not move while the scan runs — every fact below is derived from the ref batch
+# taken at the start — and `remote_ref_oid` forks an `awk`, so asking per branch
+# would put one process per branch back on the 5 s pulse path. That is the
+# per-branch tail this script has repeatedly been thinned to remove.
+MAIN_TIP=$(remote_ref_oid "$MAIN")
+[ -n "$MAIN_TIP" ] || MAIN_TIP="-"
+
+branch_readings() { # $1=branch $2=deferred → eight tab-separated readings
+  local br="$1" _bs_deferred="$2" _bs_subject=false _bs_ahead=0 _bs_real=0 _bs_tip
+  local _bs_main="$MAIN_TIP"
   # THE REF CHECK STAYS IN FRONT. DO NOT HOIST THE MERGE LOOKUP ABOVE IT.
   #
   # A branch name can be reused: merge `bug/flaky`, delete it, then recreate it
@@ -3061,9 +3088,16 @@ branch_state() {
   #
   # The merge lookup is safe only BY PLACEMENT — it lives in the no-ref arm,
   # and a recreated branch has a ref, so it never reaches the lookup and takes
-  # the ancestry path below instead. Moving the lookup to the top reads like a
-  # cheap early answer and would silently report in-flight work as `merged`,
-  # opening the next wave on it. A test in fleet.test.mjs pins this ordering.
+  # the ancestry path below instead. Moving the lookup out of this `if` reads
+  # like a cheap early answer and would silently report in-flight work as
+  # `merged`, opening the next wave on it. A test in fleet.test.mjs pins this
+  # ordering, and `branch-state.test.ts` pins what the rule makes of it.
+  #
+  # THE PLACEMENT IS NOW A READING RATHER THAN A RETURN, and it holds the same
+  # way: a branch WITH a ref reports `mergeSubjectFound=false` whatever main
+  # says about its name, so the stale subject never reaches the rule at all.
+  # The rule's own comment says it may not be consulted before the ref check;
+  # this is the half of that contract the caller owes.
   if ! remote_ref_exists "$br"; then
     # No ref carries two meanings and this used to answer `open` for both: a
     # branch never started, and a branch merged with its ref deleted at merge.
@@ -3073,15 +3107,34 @@ branch_state() {
     # `merged` is already the state that settles a wave, so the arithmetic does
     # not change and no new state enters the vocabulary. Where no evidence
     # exists — squash merges, a hand-rewritten subject, a branch genuinely
-    # never started — today's `open` stands. The fix may only move a branch
-    # from `open` to `merged`, and only on positive evidence.
-    merged_by_subject "$br" && { echo "merged"; return; }
+    # never started — today's `open` stands. The evidence may only move a branch
+    # from `open` to `merged`, and only when it is positive.
+    merged_by_subject "$br" && _bs_subject=true
     # No merge commit names it — which is the ordinary case under a squash
     # merge, not an exotic one. The local walk is now out of evidence, so the
     # host is asked. It may only ever move this branch from `open` to `merged`:
-    # a miss, a CLOSED PR, or a host that cannot answer all fall through to the
-    # `open` below, exactly as before this call existed.
-    merged_by_host "$br" && { echo "merged"; return; }
+    # a miss, a CLOSED PR, or a host that cannot answer all leave the reading
+    # as it was, exactly as before this call existed.
+    #
+    # ASKED ONLY HERE, and that bound is the whole of PR #216: this arm is
+    # reached only for a branch with NO REF, so the per-branch host cost is
+    # bounded by ABSENT branches rather than by all of them. Hoisting the call
+    # out of this `if` to "gather uniformly" would put 22 round trips back into
+    # every scan on this repo. The reading is `-` for every branch that has a
+    # ref, and the rule never reaches its PR arm for one that does.
+    #
+    # THE TERMINAL CACHE WRAPS IT, and stays here rather than moving inward.
+    # The cache is about how OFTEN a question is asked; the rule is about what
+    # the answer MEANS. `merged_by_host` consults it, so a terminal branch is
+    # asked once and its answer is reused across pulses — 26 of 54 branches on
+    # this estate, measured 2026-08-19.
+    #
+    # THE WORD, NOT THE BOOLEAN. `merged_by_host` answers its own yes/no and
+    # leaves the state word it decided on in `_merged_by_host_state`, which is
+    # what travels: the rule tells `CLOSED` from `NONE` from `-`, and a boolean
+    # cannot. `|| true` because a not-merged answer is an ordinary reading and
+    # `set -e` must not read it as a failure.
+    merged_by_host "$br" || true
     # `open` IS A CLAIM ABOUT A PR: that one was looked for and none was found.
     # With no ref, the host is the only remaining source, so when it could not
     # be asked that claim was never earned — and the branch measured on
@@ -3109,11 +3162,14 @@ branch_state() {
     # `secondary` GATES LIKE THE OTHER TWO, and its faster recovery is no reason
     # to exempt it: the question was PUT and went unanswered, so this scan has
     # no more evidence than a throttled one does. What the two limits differ in
-    # is what to DO about it, which is the note below and not this branch.
-    case "$HOST_VERDICT" in
-      throttled|secondary|failed) echo "unknown"; return ;;
-    esac
-    echo "open"; return
+    # is what to DO about it, which is the note above and not this reading.
+    #
+    # THE THREE WORDS TRAVEL AS THEMSELVES. `HOST_VERDICT` is reported rather
+    # than collapsed into a boolean, so the rule keeps `unasked` apart from
+    # `failed` — the distinction the whole readings shape exists for.
+    printf '%s\t-\t%s\t%s\t%s\t%s\t0\t0' \
+      "$_bs_deferred" "$_bs_main" "$_bs_subject" "$HOST_VERDICT" "$_merged_by_host_state"
+    return
   fi
   # A CLAIM is a branch whose only commits beyond main are claim commits —
   # empty markers a dispatcher pushed to take the work. They must be real
@@ -3125,63 +3181,58 @@ branch_state() {
   # already computing and discarding, at one extra spawn per branch.
   local _bs_counts
   _bs_counts=$(real_commits_beyond_main "$br")
-  ahead=${_bs_counts%% *}
-  real=${_bs_counts##* }
-  if [ "${ahead:-0}" -gt 0 ]; then
-    [ "${real:-0}" = "0" ] && { echo "claimed"; return; }
-    # Real work that main does not yet contain: `wip`, and ONLY `wip`.
-    #
-    # This arm once asked `merge-base --is-ancestor origin/$br origin/$MAIN`
-    # here — "has the work already landed?" — and returned `merged` when it did.
-    # That question was already answered by the `ahead` count above it and could
-    # never fire: `ahead > 0` means `$br` carries at least one commit unreachable
-    # from `$MAIN`, and a branch with such a commit CANNOT be an ancestor of
-    # `$MAIN`, so `--is-ancestor` was false on every branch that reached it. It
-    # was one git spawn per `wip` branch spent to re-derive a fact already in
-    # hand — the per-branch tail this plan set out to thin — and its `merged`
-    # was dead code that changed no verdict.
-    #
-    # The landed-work case is not lost; it is answered ONE LEVEL UP. A branch
-    # whose commits are all in `$MAIN` counts `ahead = 0` and falls through to
-    # the `merged` below, and a merge that deleted the ref never reaches here at
-    # all (the no-ref arm returns first). If a future change makes `ahead`
-    # something other than "commits `$MAIN` lacks", THIS is the invariant that
-    # would break — the ancestry must move back, not be missed.
-    #
-    # A RESURRECTED REF BREAKS THE PREMISE ABOVE, and the join already knows.
-    # The reasoning "a merge that deleted the ref never reaches here" holds only
-    # while the ref STAYS deleted. `delete_branch_on_merge` is on, so the host
-    # removes it — and a worktree that still holds the branch can push it back
-    # afterwards, which a fleet does routinely. The ref then exists again while
-    # the work is on `$MAIN` under a DIFFERENT commit, because a squash merge
-    # rewrites it: `ahead > 0` (the pre-squash commits are unreachable from
-    # `$MAIN`), `real > 0` (they are real work), and this arm calls finished
-    # work `wip`.
-    #
-    # Measured 2026-08-23: `bug/done-holds-finished-plans-only`, PR #356 merged,
-    # read `wip` for three hours. Its wave reported "3 merged, the rest not yet"
-    # over four merged branches and never completed, so the plan sat in
-    # Development with nothing left to do.
-    #
-    # `wip` is the WORST of the wrong answers, which is why this earns a check
-    # rather than a note: it means *an agent is working here*, so a leftover
-    # worktree reads as an occupied desk and the row asks a reader to wait for
-    # something that finished.
-    #
-    # FREE, and that is what licenses it HERE. The state comes from the cache
-    # `prefill_pr_states` already filled from ONE repo-wide `pr-list`, so this
-    # adds no host call — asking per branch on this arm would put 22 calls back
-    # into every scan on this repo and undo the change that removed them. Where
-    # the list did not arrive the cache is empty, `host_pr_state` answers `-`,
-    # and the local walk decides exactly as it does today.
-    #
-    # ONLY `MERGED` MAY OVERRIDE the walk, and only toward `merged`. `OPEN`
-    # means a PR exists for work still in flight — which is what `wip` already
-    # says — and `CLOSED` or `NONE` are not evidence that anything landed.
-    if [ "$(host_pr_state "$br")" = MERGED ]; then echo "merged"; return; fi
-    echo "wip"; return
-  fi
-  # Nothing of its own. NOT a claim: that shape is indistinguishable from
+  _bs_ahead=${_bs_counts%% *}
+  _bs_real=${_bs_counts##* }
+  # Real work that main does not yet contain is `wip`, and ONLY `wip` — the
+  # rule says so; this reading is what lets it.
+  #
+  # This arm once asked `merge-base --is-ancestor origin/$br origin/$MAIN`
+  # here — "has the work already landed?" — and returned `merged` when it did.
+  # That question was already answered by the `ahead` count above it and could
+  # never fire: `ahead > 0` means `$br` carries at least one commit unreachable
+  # from `$MAIN`, and a branch with such a commit CANNOT be an ancestor of
+  # `$MAIN`, so `--is-ancestor` was false on every branch that reached it. It
+  # was one git spawn per `wip` branch spent to re-derive a fact already in
+  # hand — the per-branch tail this plan set out to thin — and its `merged`
+  # was dead code that changed no verdict.
+  #
+  # The landed-work case is not lost; it is answered by the TIP COMPARISON. A
+  # branch whose commits are all in `$MAIN` counts `ahead = 0`, and a merge that
+  # deleted the ref takes the no-ref arm above. If a future change makes `ahead`
+  # something other than "commits `$MAIN` lacks", THAT is the invariant that
+  # would break — the ancestry must move back, not be missed.
+  #
+  # A RESURRECTED REF BREAKS THE PREMISE ABOVE, and the host is what closes it.
+  # The reasoning "a merge that deleted the ref never reaches here" holds only
+  # while the ref STAYS deleted. `delete_branch_on_merge` is on, so the host
+  # removes it — and a worktree that still holds the branch can push it back
+  # afterwards, which a fleet does routinely. The ref then exists again while
+  # the work is on `$MAIN` under a DIFFERENT commit, because a squash merge
+  # rewrites it: `ahead > 0`, `real > 0`, and the walk alone would call finished
+  # work `wip`.
+  #
+  # Measured 2026-08-23: `bug/done-holds-finished-plans-only`, PR #356 merged,
+  # read `wip` for three hours. Its wave reported "3 merged, the rest not yet"
+  # over four merged branches and never completed, so the plan sat in
+  # Development with nothing left to do.
+  #
+  # `wip` is the WORST of the wrong answers, which is why this earns a reading
+  # rather than a note: it means *an agent is working here*, so a leftover
+  # worktree reads as an occupied desk and the row asks a reader to wait for
+  # something that finished.
+  #
+  # FREE, and that is what licenses reading it for EVERY branch with a ref. The
+  # state comes from the cache `prefill_pr_states` already filled from ONE
+  # repo-wide `pr-list`, so this adds no host call — no `--ask` here, which is
+  # what keeps the 22 round trips out. Where the list did not arrive the cache
+  # is empty, `host_pr_state` answers `-`, and the local walk decides exactly as
+  # it does today.
+  #
+  # ONLY `MERGED` MAY OVERRIDE the walk, and only toward `merged` — the rule's
+  # business, not this function's. `OPEN` means a PR exists for work still in
+  # flight, and `CLOSED` or `NONE` are not evidence that anything landed.
+  #
+  # Nothing of its own is NOT a claim: that shape is indistinguishable from
   # merged work, which is exactly why claims carry a commit.
   #
   # ZERO AHEAD CARRIES TWO SHAPES, and only one of them is landed work:
@@ -3192,7 +3243,7 @@ branch_state() {
   #   | reset to main  | is an ancestor → merged | holds nothing |
   #
   # A branch pointing AT the default branch is trivially an ancestor of it, so
-  # every ancestry test passes — right for the case this arm was built for (a
+  # every ancestry test passes — right for the case that arm was built for (a
   # squash merge leaves the branch behind, and its work IS on main), and wrong
   # for a branch that was reset, where the same shape means it holds NOTHING.
   #
@@ -3204,33 +3255,41 @@ branch_state() {
   # this error does not stall the fleet — it advances it onto a seam nobody
   # wrote, which is the worse direction.
   #
-  # THE DISCRIMINATOR IS THE OTHER DIRECTION. A branch with zero commits ahead
+  # THE DISCRIMINATOR IS THE OTHER DIRECTION, and it is why BOTH TIPS are
+  # reported rather than a verdict about them. A branch with zero commits ahead
   # is either equal to the default branch or a strict ancestor of it, so
   # "behind = 0" and "tip = main tip" are the same predicate. Compared as OIDs
   # because BOTH ARE ALREADY IN HAND from the ref batch — a `rev-list --count`
   # would re-derive it at one spawn per branch, the per-branch tail this scan
   # has repeatedly been thinned to remove.
   #
-  # OFFLINE, AND DELIBERATELY SO. No host call is added here:
+  # OFFLINE, AND DELIBERATELY SO. No `--ask` is added here:
   # `a-throttled-host-says-so` measured `plot-pr-merged.sh` answering *not
   # merged* for three genuinely merged branches while throttled, and this
   # reading must not inherit that failure mode.
   #
   # The squash path is untouched and must stay so — its mirror defect (a
   # squash-merged branch reading `open`) is a separate plan, and a fix for one
-  # can break the other. A squash-merged branch is BEHIND main and reaches the
-  # `merged` below; a squash-merged branch whose ref was pushed back counts
-  # `ahead > 0` and never arrives here at all.
-  local _bs_tip _bs_main
+  # can break the other. A squash-merged branch is BEHIND main and its tips
+  # differ; a squash-merged branch whose ref was pushed back counts `ahead > 0`.
   _bs_tip=$(remote_ref_oid "$br")
-  _bs_main=$(remote_ref_oid "$MAIN")
-  if [ -n "$_bs_tip" ] && [ "$_bs_tip" = "$_bs_main" ]; then
-    # It points AT the default branch: no work of its own, and none of its own
-    # landed. `open` is what this scan already says for work not yet done, so
-    # no new state enters the vocabulary and the wave arithmetic is unchanged.
-    echo "open"; return
-  fi
-  echo "merged"
+  [ -n "$_bs_tip" ] || _bs_tip="-"
+  printf '%s\t%s\t%s\tfalse\t%s\t%s\t%s\t%s' \
+    "$_bs_deferred" "$_bs_tip" "$_bs_main" "$HOST_VERDICT" "$(host_pr_state "$br")" \
+    "${_bs_ahead:-0}" "${_bs_real:-0}"
+}
+
+# THE RULE, ASKED ONCE PER PLAN. `branchState` lives in `@plot-pm/domain` and
+# this is how the scan reaches it: readings in, one `state<TAB>needs` line per
+# branch out, in the order they were given.
+#
+# A MISSING OR SILENT ARTIFACT REFUSES, exactly as the verdicts call does.
+# There is no shell fallback: a second implementation kept "just in case" is
+# the duplication this adoption removes, and it would be the copy nobody tests.
+# `plot-deliver.sh` fails the same way for the same reason.
+ask_branch_states() { # stdin=readings → one `state<TAB>needs` line per branch
+  node "$script_dir/board/plot-branch-state.mjs" 2>/dev/null \
+    || { echo "error: cannot read branch states — run 'pnpm build:board'." >&2; exit 2; }
 }
 
 # Prose is suppressed by BOTH alternate output modes. --json accumulates the
@@ -3447,35 +3506,111 @@ for plan in "${plans[@]}"; do
   # between `why` and the wave name, which moved the wave name to field 7: the
   # `awk` that reads it below was updated with this line and the two must move
   # together.
-  states=""
+  # PASS 1a: THE READINGS. Every branch of this plan, gathered and not judged.
+  #
+  # `branch_readings` is the git archaeology that used to end in an `if` chain.
+  # It now ends in eight tab-separated readings, and the two the plan states —
+  # the prerequisite's name and what the host said about it — are appended here.
+  #
+  # THE PREREQUISITE'S PR STATE IS NOT READ YET, and `?` says so. `-` is taken:
+  # `host_pr_state` answers it for a host that could not be reached, and the
+  # rule reads that as `unreadable` and answers `waiting`, because silence is
+  # not evidence in either direction. The two were one marker until CI ran the
+  # corpus with no token, where every prerequisite answers `-` and every waiting
+  # branch read `open`. Reading it
+  # costs a host round trip (`waits_pr_state` passes `--ask`, because a delivered
+  # prerequisite's ref is gone and only its PR outlives it), and the scan spends
+  # that only where the answer could change the branch's state. Which states
+  # those are IS the precedence, so the rule reports it rather than this loop
+  # deciding it — see pass 1c.
+  readings=""
+  order=""
   while IFS=$'\t' read -r idx br deferred why waits wname claim; do
     [ -n "$br" ] || continue
     # "-" is the absent marker the shim writes, for the tab-collapse reason
     # above. Normalized here so everything downstream tests emptiness.
     [ "$waits" = "-" ] && waits=""
-    if [ "$deferred" = "true" ]; then st="deferred"; else st=$(branch_state "$br"); fi
-    # THE PREREQUISITE, AFTER THE BRANCH'S OWN STATE AND ONLY OVER TWO OF ITS
-    # WORDS. `deferred` outranks it — somebody gave the branch up, which is a
-    # decision, while waiting is a measurement — and so does any state that
-    # means work exists: `wip`, `claimed` and `merged` all say the branch was
-    # started, and overriding `merged` would stop its wave settling FOREVER,
-    # which is the blocked-on-success failure this feature is built to avoid.
-    #
-    # So the override lands exactly where the defect was: a branch that reads
-    # as unstarted, which is the population `--next` hands out.
-    if [ -n "$waits" ]; then
-      case "$st" in
-        open|unknown)
-          waits_st=$(waits_state "$waits")
-          [ -n "$waits_st" ] && st="$waits_st" ;;
-      esac
-    fi
-    # "-" GOES BACK IN, for the reason it was there in the first place: this
-    # record is re-read by two more `read` loops below, and an EMPTY middle
-    # column collapses its tab into its neighbour's and shifts every later
-    # field left. `$claim` is the only field allowed to be last and optional.
-    states+="$idx	$br	$st	$deferred	$why	${waits:--}	$wname	$claim"$'\n'
+    readings+="$(branch_readings "$br" "$deferred")	${waits:--}	?"$'\n'
+    order+="$idx	$br	$deferred	$why	${waits:--}	$wname	$claim"$'\n'
   done <<< "$wave_lines"
+
+  # PASS 1b: THE DECISION, and it is not made here.
+  #
+  # `branchState` lives in `@plot-pm/domain` and this script asks it. The eight
+  # words and the precedence that merges them — a plan's `deferred:` over
+  # everything git says, the ref check before the merge lookup, a prerequisite
+  # over `open` and `unknown` and nothing else — are one implementation now,
+  # with a test per case, shared with every component that has to agree about
+  # what a branch is.
+  #
+  # ONE CALL PER PLAN, not per branch, for the reason pass 2b gives: the board
+  # polls this scan every five seconds against ~40 plans, and a process per
+  # branch is the per-branch tail this script has repeatedly been thinned to
+  # remove.
+  #
+  # A MISSING OR SILENT ARTIFACT REFUSES, exactly as the verdicts call does.
+  # There is no shell fallback: a second implementation kept "just in case" is
+  # the duplication this adoption removes, and it would be the copy nobody
+  # tests.
+  branch_answers=$(printf '%s' "$readings" | ask_branch_states)
+  [ "$(printf '%s\n' "$branch_answers" | grep -c .)" = "$(printf '%s' "$readings" | grep -c .)" ] \
+    || { echo "error: branch states did not answer for every branch of $plan_base." >&2; exit 2; }
+
+  # PASS 1c: THE PREREQUISITES THE RULE ASKED FOR, and only those.
+  #
+  # The second column of each answer is the rule's own
+  # `REPLACEABLE_BY_PREREQUISITE` — `1` where this branch names a prerequisite
+  # whose state has not been read and where reading it could change the answer.
+  # `deferred` outranks it, and so does any state meaning work exists: `wip`,
+  # `claimed` and `merged` all say the branch was started, and overriding
+  # `merged` would stop its wave settling FOREVER. That reasoning now sits in
+  # `branch-state.ts` with a test per case; this loop only spends the calls it
+  # is told to.
+  #
+  # SO THE SECOND ASK IS PAID ONLY WHEN SOMETHING IS FLAGGED, and the bound is
+  # the flagged branches rather than the annotated ones: a `waits:` branch that
+  # already reads `wip`, `claimed`, `merged` or `deferred` costs nothing.
+  refill=""
+  needs_refill=0
+  answer_i=0
+  while IFS= read -r rd_line; do
+    [ -n "$rd_line" ] || continue
+    answer_i=$((answer_i + 1))
+    IFS=$'\t' read -r _st needs \
+      <<< "$(printf '%s\n' "$branch_answers" | sed -n "${answer_i}p")"
+    waits_br=$(printf '%s' "$rd_line" | cut -f9)
+    if [ "$needs" = "1" ] && [ "$waits_br" != "-" ]; then
+      needs_refill=1
+      # `--ask` because the prerequisite is precisely the branch the repo-wide
+      # list may legitimately omit: its plan may be delivered and its ref gone.
+      # `host_pr_state`'s run cache keeps this at one call per prerequisite per
+      # run, never one per pass.
+      refill+="$(printf '%s' "$rd_line" | cut -f1-9)	$(waits_pr_state "$waits_br")"$'\n'
+    else
+      refill+="$rd_line"$'\n'
+    fi
+  done <<< "$readings"
+
+  if [ "$needs_refill" = 1 ]; then
+    branch_answers=$(printf '%s' "$refill" | ask_branch_states)
+    [ "$(printf '%s\n' "$branch_answers" | grep -c .)" = "$(printf '%s' "$refill" | grep -c .)" ] \
+      || { echo "error: branch states did not answer for every branch of $plan_base." >&2; exit 2; }
+  fi
+
+  # PASS 1d: the record every loop below reads, with the decided state in it.
+  #
+  # "-" GOES BACK IN, for the reason it was there in the first place: this
+  # record is re-read by two more `read` loops below, and an EMPTY middle
+  # column collapses its tab into its neighbour's and shifts every later
+  # field left. `$claim` is the only field allowed to be last and optional.
+  states=""
+  answer_i=0
+  while IFS=$'\t' read -r idx br deferred why waits wname claim; do
+    [ -n "$br" ] || continue
+    answer_i=$((answer_i + 1))
+    st=$(printf '%s\n' "$branch_answers" | sed -n "${answer_i}p" | cut -f1)
+    states+="$idx	$br	$st	$deferred	$why	$waits	$wname	$claim"$'\n'
+  done <<< "$order"
 
   # Pass 2a: what each wave HOLDS — how many of its non-deferred branches have
   # not settled. A reading, and the whole of what this script contributes to the

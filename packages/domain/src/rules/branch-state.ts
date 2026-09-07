@@ -145,8 +145,14 @@ const waitVerdict = (pr: PrReading): BranchState | null => {
  *
  * So the override lands exactly where the defect is: a branch that reads as
  * unstarted, which is the population `--next` hands out.
+ *
+ * EXPORTED BECAUSE READING A PREREQUISITE COSTS A HOST ROUND TRIP. The scan
+ * spends one only where the answer could change the state, and that condition
+ * is this list. A caller deciding it for itself would be a second copy of the
+ * precedence in the one place a reader would never look for it, so the rule
+ * says which states it may replace and nobody re-derives it.
  */
-const REPLACEABLE_BY_PREREQUISITE: readonly BranchState[] = ['open', 'unknown'];
+export const REPLACEABLE_BY_PREREQUISITE: readonly BranchState[] = ['open', 'unknown'];
 
 /**
  * The branch's own state, before its plan's prerequisite is considered.
