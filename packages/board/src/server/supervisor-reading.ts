@@ -59,6 +59,11 @@ const SCRIPT = 'plot-fleetctl.sh';
  * what separates a script that finished from one stopped at a bounded wait.
  * `execFile` reports a `SIGTERM` timeout as exit code 1 — the script's own word
  * for *not loaded* — so the code alone cannot tell the two apart.
+ *
+ * A SECOND ORIGIN, MEASURED 2026-09-07: run outside a git repository, `--status`
+ * prints `plot-fleetctl: not a git repository` and exits 1, refusing before the
+ * fleet walk and printing no summary. Reading the code alone would report an
+ * unsupervised fleet from every directory that is not a repository.
  */
 const SUMMARY_PREFIX = 'summary:';
 

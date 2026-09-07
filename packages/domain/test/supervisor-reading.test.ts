@@ -41,11 +41,21 @@ describe('supervisorState — the exit code answers, and only 0 and 1 are answer
     expect(supervisorState(reading({ asked: false, exitCode: null }))).toBe('unknown');
   });
 
-  it('reads a run that never reached its summary line as unknown', () => {
-    // THE TIMEOUT CASE, and the reason `summarised` is a reading of its own.
-    // `execFile` maps a SIGTERM timeout to code 1 — the script's own word for
-    // *not loaded* — so a rule reading the code alone would raise an alarm from
-    // a call that never got an answer.
+  it('reads exit 1 with no summary line as unknown, not as down', () => {
+    // THE READING THAT EARNS ITS KEEP, and it has two measured origins that
+    // arrive at the identical record — which is why one case covers both.
+    //
+    // A TIMEOUT: `execFile` maps a SIGTERM kill to code 1, the script's own word
+    // for *not loaded*, and a killed process leaves partial stdout.
+    //
+    // A REFUSAL: measured 2026-09-07 in a bare temp directory, `--status` prints
+    // `plot-fleetctl: not a git repository` and exits 1. It refuses before the
+    // fleet walk, so no summary line is printed.
+    //
+    // The code alone cannot tell either from a real answer. Without the
+    // corroboration the board would report an unsupervised fleet whenever it
+    // was pointed at a directory that is not a repository — the alarm nobody
+    // can act on.
     expect(supervisorState(reading({ exitCode: 1, summarised: false }))).toBe('unknown');
   });
 
