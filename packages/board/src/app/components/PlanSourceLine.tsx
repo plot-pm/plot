@@ -23,6 +23,14 @@ import type { PlanSource } from '../../contract/schema.js';
  * in it. Same split, and the same reasoning, as the Agents tab's
  * `… · scanned 4s ago · PR data 16s ago` footer — statuses at the top, ages at
  * the foot where the eye lands after the rows.
+ *
+ * IT ALSO CARRIES WHAT THE BOARD COULD NOT ASK — one line, when the host
+ * reports no checks for any pull request. Same kind of fact as the ref: what
+ * this board could reach, said beneath the cards it reached it for. It is a
+ * SEPARATE paragraph rather than a clause on the ref line, because the two are
+ * independent — a board with no `planSource` still knows its host answered
+ * nothing, and coupling them hid the note on exactly the older payload the ref
+ * line is careful about.
  */
 export function PlanSourceLine({
   planSource,
@@ -77,20 +85,47 @@ export function PlanSourceLine({
   // Nothing to report, and NOT an error: a payload with no `planSource` is an
   // older server's, and the honest answer is silence rather than a line
   // claiming a provenance nobody stated.
-  if (!planSource) return null;
+  // THE CONNECTOR NOTE IS INDEPENDENT OF THE PROVENANCE, and rendering it
+  // inside the ref line would couple two facts that have nothing to do with
+  // each other: a board that cannot say where its plans came from can still
+  // know its host reports no checks, and a board with a perfectly resolved ref
+  // can be the Jenkins team this exists for. Measured — the first version put
+  // it inside the resolved-ref paragraph, and it vanished on every payload with
+  // no `planSource`, which is exactly the older server the line above is
+  // careful about.
+  //
+  // Not amber: a host that carries no check rollup is a legitimate stack rather
+  // than a fault in this run, the same reason a repo with no remote is reported
+  // and not scolded. The sentence is the domain's, so what this board claims
+  // about its own reach is asserted in a unit test rather than written here.
+  const checksLine = checksUnaskable ? (
+    <p
+      className="mt-1 px-1 text-xs text-slate-400 dark:text-slate-600"
+      data-checks-unaskable
+      title={CHECKS_UNASKABLE_NOTE}
+    >
+      Checks not asked — the host reports none for any pull request here.
+    </p>
+  ) : null;
+
+  if (!planSource) return checksLine;
   if (!planSource.resolved) {
     return (
-      <p
-        className="mt-3 px-1 text-xs text-amber-700 dark:text-amber-500"
-        data-plan-source="unresolved"
-      >
-        Plans could not be read from{' '}
-        <code className="font-mono">{planSource.ref || 'the default branch'}</code> — this board
-        shows only what is in its own working tree, which nobody else can see.
-      </p>
+      <>
+        <p
+          className="mt-3 px-1 text-xs text-amber-700 dark:text-amber-500"
+          data-plan-source="unresolved"
+        >
+          Plans could not be read from{' '}
+          <code className="font-mono">{planSource.ref || 'the default branch'}</code> — this board
+          shows only what is in its own working tree, which nobody else can see.
+        </p>
+        {checksLine}
+      </>
     );
   }
   return (
+    <>
     <p className="mt-3 px-1 text-xs text-slate-400 dark:text-slate-600" data-plan-source="ref">
       Plans read from <code className="font-mono">{planSource.ref}</code>
       {ageSeconds !== null && ` · ${ageSeconds}s ago`}
@@ -119,16 +154,8 @@ export function PlanSourceLine({
           {' · '}checkout {planSource.behind} behind
         </span>
       )}
-      {/* THE CONNECTOR, SAID ONCE. Not amber: a host that carries no check
-          rollup is a legitimate stack rather than a fault in this run, the
-          same reason a repo with no remote is reported and not scolded. The
-          sentence is the domain's, so what this board claims about its own
-          reach is asserted in a unit test rather than written here. */}
-      {checksUnaskable && (
-        <span data-checks-unaskable title={CHECKS_UNASKABLE_NOTE}>
-          {' · '}checks not asked
-        </span>
-      )}
     </p>
+    {checksLine}
+    </>
   );
 }
