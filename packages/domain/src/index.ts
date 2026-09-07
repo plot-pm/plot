@@ -142,6 +142,7 @@ export {
   storyStatusSettable,
   storyArchivable,
   derivedStanding,
+  statusDrift,
   STORY_LIFECYCLE,
   isDecision as isStoryDecision,
   isRefusal as isStoryRefusal,
