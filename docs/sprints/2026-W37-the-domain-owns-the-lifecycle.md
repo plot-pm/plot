@@ -101,7 +101,7 @@ and it holds no plans outside this sprint.
 
 - [x] [a-process-is-started-by-its-own-command] Both long-lived processes get a command that owns them, and an agent can be brought into existence — measured 2026-09-05: a dispatch reported `handed over … started=0` and the supervisor ticked `agents=0 queued=456`, so the chain *dispatch queues → registry matches → an agent takes it* had no last link. **Approved 2026-09-05, 5 slices, 4 rounds**, reordered the same day so the agent starter leads: dispatching the rename first queued the plan's own first branch against an estate with no agent to take it <!-- status: delivered -->
 
-- [ ] [a-branch-state-is-derived-once] Three domain rules read `BranchState` and none produces one — the eight states are decided in four places across a 4,008-line shell script, and `unknown` versus `open` turns on whether a question was put or went unanswered. **Draft (#702), 2 slices, 2 rounds.** Should rather than Must because the three above give the domain its words and its rules; this gives it an answer it currently has to be told
+- [x] [a-branch-state-is-derived-once] Three domain rules read `BranchState` and none produces one — the eight states are decided in four places across a 4,008-line shell script, and `unknown` versus `open` turns on whether a question was put or went unanswered. **Draft (#702), 2 slices, 2 rounds.** Should rather than Must because the three above give the domain its words and its rules; this gives it an answer it currently has to be told
 
 ### Could Have
 
@@ -109,6 +109,58 @@ and it holds no plans outside this sprint.
 - [x] [the-board-answers-while-it-scans] The board keeps serving while it scans — it stops for seconds at a time at zero CPU. **WITHDRAWN 2026-08-31, Jan Wloka, in-session** — the plan carries `State: Rejected` and a `Rejected:` record. Ticked because the sprint's question is *is this item still owed*, and a withdrawn item is not; `plot-sprint-release.sh` knows three states and none of them is *withdrawn*, so it reads this as `disputed` rather than `open`. That is the honest reading of a box the shell cannot resolve, and it is visible rather than silent.
 
 - [x] [the-scripts-say-slice] The reconcile scan says slice where it means slice — section 7 read *"Unsliced waves (a wave holds one branch)"*, a Slice described in Wave's vocabulary by its own parenthetical. Footer keys renamed with the skill documenting them. **#703, no plan — a rename small enough to be its own PR. Merged 2026-09-05 (`c02d8807`); section 7 now reads *"Uncut slices (a slice holds one branch)"*.**
+
+### Also shipped
+
+**Twenty-three plans were delivered inside this sprint's window and named it in their own `Sprint:` field, and the file did not carry them.** They were written and shipped as the work above uncovered them — a supervisor that handed nothing over, a queue that counted merged slices, a scan that could not see unclaimed work — so they are the sprint's output rather than its plan.
+
+**LISTED SEPARATELY, NOT MERGED INTO THE MoSCoW TIERS.** What was committed to on 2026-09-05 and what emerged afterwards are different claims, and a reader asking *did this sprint deliver what it promised* must be able to see the first without the second. Every one is `Delivered`; none was a Must, a Should or a Could, because none existed when those were chosen.
+
+- [x] [a-merged-slice-leaves-the-queue] A branch whose PR merged is offered to a free agent again. The queue reads *claimed* off the remote ref, and merging deletes the ref — so the one event that finishes a slice is the same event that makes it look unstarted. **Delivered 2026-09-05.**
+
+- [x] [a-changeset-names-its-plan] `/plot-release` cross-checks changesets against plans because nothing links them. Measured 2026-09-06: **0 of 14** changesets on this estate name a plan — worse than the `1 of 42` `DESIGN-release.md` recorded — so every release reconciles by hand what a line in the file would have joined. **Delivered 2026-09-06.**
+
+- [x] [a-dispatch-action-asks-for-its-brief] Nine eligible slices sat unbriefed for hours while eight agents idled. Seven interrogation rounds found that the remedy already shipped — a *Write brief* button, a refusal that names the fix, a route that runs the skill — and that one unset config key made all of it inert. What is still missing is one thing: the unattended loop skips a slice with no brief and asks nobody. **Delivered 2026-09-06.**
+
+- [x] [a-pulse-says-what-changed] The scan re-derives the whole estate every run and prints a full picture. Nothing says what moved since the last one, so a reader compares 47 slices by eye — and the supervisor, which tries, gets it wrong. **Delivered 2026-09-06.**
+
+- [x] [a-second-slice-needs-its-own-session] An agent's first slice succeeds and its second cannot start. The session id is fixed at launch and passed to every prompt, so the runtime refuses the second one — `Session ID … is already in use` — and the loop falls back to waiting for work it has already been handed. **Delivered 2026-09-06.**
+
+- [x] [a-stated-state-is-one-the-domain-admits] Three stories write `status: archived` and one sprint writes `Phase: Planned`. Neither value parses. Both were found by hand, in one session, because nothing checks a written state against the schema that defines it. **Delivered 2026-09-06.**
+
+- [x] [the-slice-contract-says-what-it-reads] Two domain rules disagree about a slice with no branches. `eligible.ts:80` returns `complete` — finished work — and `deliverable.ts:75` skips it. Both shipped, and nothing has caught it because only Released plans carry the shape. **Delivered 2026-09-06.**
+
+- [x] [a-browser-stub-beats-the-first-fetch] `fleet-settings.browser.test.ts` navigates the page, then installs its routes. The page's first `/api/fleet` fetch races that installation, and when it wins the test reads `FLEET_CONTROLS_DEFAULT` instead of its own stub — `parallelAgents: 3` where the test asked for `1`. **Delivered 2026-09-07.**
+
+- [x] [a-desk-is-adopted-and-swept] `plot-init` never proposes `Worktree root`, so an adopting repository dispatches agents into a layout it did not choose and a `.gitignore` it does not have. And the reaper reads five measurements about a desk, none of which is git's own answer that the directory is gone. **Delivered 2026-09-07.**
+
+- [x] [a-desk-is-finished-with-once] `plot-reap.sh` asks the domain whether a worktree may go. `plot-release-refs.sh` answers the same question about the same desk with its own five guards — and it is the one that deletes something no `git worktree add` can bring back. **Delivered 2026-09-07.**
+
+- [x] [a-merged-slice-has-no-ref-to-count] Eight briefed, eligible slices were dispatched and every one was held `not-claimable`. The queue counts a slice's outstanding branches from remote refs, and a merged branch's ref is deleted — so slice 1 reads unfinished forever and every slice behind it reads `blocked`. **Delivered 2026-09-07.**
+
+- [x] [a-plan-greps-for-its-own-deliverable] Five plans this week proposed something the estate already had, and one argued through two interrogation rounds about a gate that had already moved. Every one was caught by grepping; none by reading. `/plot-idea` already detects a duplicate plan and does not detect a duplicate deliverable. **Delivered 2026-09-07.**
+
+- [x] [a-sprint-knows-when-it-ended] A sprint's `Phase:` is written by hand and read by the release gate, and nothing keeps the two honest. Measured 2026-09-06: the one sprint in `active/` said `Planned`, and a displaced sprint still targets a release that shipped a day ago. **Delivered 2026-09-07.**
+
+- [x] [a-stale-plan-file-does-not-travel] Two commits this session reverted a plan annotation written minutes earlier. Neither edited the file. Two explanations were argued and both were wrong — the real one is a single session that staged an index, pulled, and then committed. It needs no second party, and a `pre-commit` hook can see it. **Delivered 2026-09-07.**
+
+- [x] [a-stated-wait-is-a-parsed-wait] A plan said in bold that its slice waits for another plan. The machine could not see it, dispatched the slice as eligible, and a person withheld the brief by hand for a week. `waits:` is a parsed annotation; the prose was not one. **Delivered 2026-09-07.**
+
+- [x] [a-story-says-what-it-is] Three story files carry `status: archived`, a value the domain refuses and `transitions/story.ts` calls derived. A fourth is `draft` while all three of its plans are Approved. The lint reports none of it. **Delivered 2026-09-07.**
+
+- [x] [orphaned-work-is-visible] Twelve branches carry unmerged commits with no PR and no plan naming them. Five hold real file changes — an e2e fix, a typecheck repair, a guard, a corpus fix, six files of monitor work — and nothing on the estate says they exist. The board calls three of them `abandoned` and says nothing about the other nine. **Delivered 2026-09-07.**
+
+- [x] [the-board-says-whether-anything-supervises] The board renders agents and never says whether a supervisor is watching them. Six workers ran 23–25 hours past an 8-hour bound with the supervisor down, all six spent, and the board showed six healthy rows. **Delivered 2026-09-07.**
+
+- [x] [the-brief-command-invokes-a-skill] `Brief command` has run twice and failed twice, identically: 33 bytes reading `Unknown command: /plot-implement`. `plot-implement` is a skill, and the prompt opens with a bare slash command. The board's own runner uses a form that may work, and nobody has compared them. **Delivered 2026-09-07.**
+
+- [x] [the-bundle-set-is-derived-once] The board contract lists the built bundles by hand. It went stale three times in one evening — nine, then ten, then eleven — and each time a merge failed a test nobody was expecting to fail. The shell derives the same set from `build.mjs` and cannot drift. **Delivered 2026-09-07.**
+
+- [x] [the-installed-supervisor-hands-work-over] Both shipped units start `plot-registryd.mjs` with no flags, so the installed supervisor decides every hand-over and performs none. Measured 2026-09-07: `handed=2` for three consecutive ticks while both free agents' manifests carried `branch: ""` and sat quiet for 3,067 seconds. **Delivered 2026-09-07.**
+
+- [x] [the-last-two-callers-ask-the-adapter] `every-pr-question-goes-through-the-adapter` merged as #717 and cleared two of four callers. It left `plot-pr-merged.sh` by instruction and `plot-update-board.sh` unmeasured, and the grep gate it promised did not ship — so nothing stops a third arriving. **Delivered 2026-09-07.**
+
+- [x] [the-supervisor-says-why-it-handed-nothing] `plot-registryd --once` reports `handed=0 queued=480 idle=8` and stops there. Eight free agents, four queued slices with briefs on `origin/main`, and no way to learn which of six holds refused each one. **Delivered 2026-09-07.**
 
 ## Notes
 
