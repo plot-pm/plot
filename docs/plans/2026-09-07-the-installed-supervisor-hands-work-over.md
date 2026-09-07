@@ -54,7 +54,7 @@ if (args.startAgents) await startAgents(report, performer, write, warn);
 
 ## Slices
 
-### The unit passes the flag (Branch: bug/the-installed-supervisor-hands-work-over)
+### The unit passes the flag (Branch: bug/the-installed-supervisor-hands-work-over, PR: #775)
 
 Both shipped units start the daemon with `--start-agents`, and something proves it.
 
