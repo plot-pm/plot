@@ -262,12 +262,44 @@ export type ConditionReading = 'true' | 'false' | 'unknown';
 /**
  * Which conditions a tree can answer at all.
  *
- * `present` means a worktree was found and read; `absent` means none exists, so
- * the four tree-sourced conditions answer `unknown`. The distinction is the
- * reading — *nothing was there* is not *nothing was looked at*, and both differ
- * from *looked and found nothing*.
+ * `present` means a worktree was found and read. `absent` means none exists, so
+ * the four tree-sourced conditions answer `unknown` — the distinction is the
+ * reading, and *nothing was there* is not *nothing was looked at*.
+ *
+ * `vanished` is git's own answer that a listed worktree's directory is gone —
+ * the `prunable` field of `git worktree list --porcelain`. It reads like
+ * `absent` to every condition, because there is equally nothing to measure, and
+ * it is a SEPARATE word because the two say different things to an operator:
+ * `absent` means no desk was ever made, `vanished` means git still lists one
+ * that is not there. Measured 2026-09-06: 3 of 20 worktrees on this estate were
+ * prunable, and the reaper's five refusals could see none of them, since every
+ * one measures something *in* a tree that is not there.
  */
-export type TreePresence = 'present' | 'absent';
+export type TreePresence = 'present' | 'absent' | 'vanished';
+
+/**
+ * Whether a tree can be measured at all.
+ *
+ * The PRIOR question the four tree-sourced conditions depend on. A caller asks
+ * it before reading a refusal, because *nothing to remove* and *do not remove
+ * this* are different sentences and an operator acts on them differently.
+ *
+ * @param tree Whether a worktree was found, and in what state.
+ * @returns True when there is a directory to take a reading from.
+ */
+export const treeIsThere = (tree: TreePresence): boolean => tree === 'present';
+
+/**
+ * Whether git lists a worktree whose directory is gone.
+ *
+ * NOT A REFUSAL. The five refusals say *do not remove this*; this says *there
+ * is nothing to remove and the entry is stale*. A refusal sends an operator to
+ * go and look; this tells them `git worktree prune` will tidy it.
+ *
+ * @param tree Whether a worktree was found, and in what state.
+ * @returns True when the entry is stale and `git worktree prune` is the repair.
+ */
+export const treeHasVanished = (tree: TreePresence): boolean => tree === 'vanished';
 
 /**
  * What was measured of ONE desk, for the question both verbs ask of it.
@@ -285,7 +317,13 @@ export type TreePresence = 'present' | 'absent';
  * make the two questions look like one.
  */
 export interface FinishedWithReadings extends RefReadings {
-  /** Whether a worktree was found for the branch and read. */
+  /**
+   * Whether a worktree was found for the branch, and in what state.
+   *
+   * `vanished` arrives from git's `prunable`, carried by the trees port rather
+   * than measured again here — the adapter reaches the world and the domain
+   * takes readings as values.
+   */
   tree: TreePresence;
 }
 
@@ -313,6 +351,15 @@ export interface FinishedWith {
   uncommittedChanges: ConditionReading;
   /** The desk carries a `PLOT-BLOCKED*` marker. */
   blockedMarker: ConditionReading;
+  /**
+   * Git lists a worktree for this desk whose directory is gone.
+   *
+   * NOT ONE OF THE CONDITIONS ABOVE, and deliberately last. Each of those says
+   * something holds the desk; this says there is no desk to hold. It is the
+   * prior question the four tree-sourced conditions depend on, which is why a
+   * `true` here comes with `unknown` on every one of them.
+   */
+  vanished: ConditionReading;
 }
 
 /**
@@ -344,9 +391,11 @@ export interface FinishedWith {
  * @returns One answer per condition; nothing is judged.
  */
 export const finishedWith = (readings: FinishedWithReadings): FinishedWith => {
-  // The four the tree answers. With no tree they are unasked, not false.
+  // The four the tree answers. With no tree they are unasked, not false — and a
+  // VANISHED tree is unaskable for the same reason an absent one is, since the
+  // directory the reading would come from is not there either way.
   const ofTree = (held: boolean): ConditionReading =>
-    readings.tree === 'absent' ? 'unknown' : held ? 'true' : 'false';
+    treeIsThere(readings.tree) ? (held ? 'true' : 'false') : 'unknown';
 
   return {
     givenUp: readings.givenUp ? 'true' : 'false',
@@ -365,5 +414,8 @@ export const finishedWith = (readings: FinishedWithReadings): FinishedWith => {
     liveWorker: ofTree(readings.workerPid !== null && readings.workerPid !== ''),
     uncommittedChanges: ofTree(readings.dirtyPath !== ''),
     blockedMarker: ofTree(readings.blockedMarker),
+    // A REPORT, not a refusal, and the one condition a vanished tree can still
+    // answer: git said so, and git needed no directory to say it.
+    vanished: treeHasVanished(readings.tree) ? 'true' : 'false',
   };
 };

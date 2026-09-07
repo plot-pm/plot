@@ -1,5 +1,6 @@
 import type { PortResult } from '../port-result.js';
 import type { Worktree } from '../entities/worktree.js';
+import type { TreePresence } from '../rules/reapable.js';
 
 /**
  * Reads the worktrees on this machine — the DERIVED source of truth about desks.
@@ -23,6 +24,29 @@ export interface Trees {
    * @returns the worktree, or null when no worktree on this machine holds it.
    */
   forBranch(branch: string): Promise<PortResult<Worktree | null>>;
+
+  /**
+   * Whether git can still take a reading from a worktree, and in what state.
+   *
+   * THE PRIOR QUESTION. Every other reading here measures something *inside* a
+   * directory — cleanliness, markers, dirty paths, the branch. This asks
+   * whether the directory is there at all, and it is git's own answer rather
+   * than a `stat`: `git worktree list --porcelain` reports `prunable` for an
+   * entry whose directory was deleted without git being told, and the adapter
+   * has parsed that field since before any caller asked for it.
+   *
+   * A caller reads this BEFORE a refusal, because the two say different things.
+   * A refusal means *do not remove this* and sends an operator to look; a
+   * `vanished` answer means *there is nothing to remove and the entry is
+   * stale*, and `git worktree prune` is the repair. Measured 2026-09-06: 3 of
+   * 20 worktrees here were prunable, and no refusal could see one, since each
+   * measures something in a tree that is not there.
+   *
+   * @param branch - the branch whose worktree to ask about.
+   * @returns `present` when a directory is there to read, `vanished` when git
+   *   lists one that is gone, and `absent` when git lists none at all.
+   */
+  presence(branch: string): Promise<PortResult<TreePresence>>;
 
   /**
    * Whether a worktree holds uncommitted changes or unpushed commits.
