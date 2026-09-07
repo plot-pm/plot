@@ -100,10 +100,13 @@ export const deliver = (
   const no = (reason: DeliverRefusal, detail: string) => refuse('deliver', reason, detail);
 
   if (readings.file === '') {
-    return no('plan-not-found', `no plan found for '${slug}'.`);
+    return no('plan-not-found', `no plan found for '${slug}'. Check the slug against the plan directory's filenames.`);
   }
   if (!readings.parsed) {
-    return no('plan-unparseable', `cannot parse '${readings.file}' — refusing rather than guessing.`);
+    return no(
+      'plan-unparseable',
+      `cannot parse '${readings.file}' — refusing rather than guessing. Run plot-plan-meta.sh on it to see what the parser reads; a plan needs a '## Status' section with a 'State:' field.`,
+    );
   }
 
   switch (readings.phase) {
@@ -111,20 +114,23 @@ export const deliver = (
     case 'delivered':
       break;
     case 'released':
-      return no('state-terminal', `plan '${slug}' is already released — nothing to deliver.`);
+      return no('state-terminal', `plan '${slug}' is already released — nothing to deliver. The work shipped.`);
     case 'draft':
     case 'design':
-      return no('state-too-early', `plan '${slug}' is still '${readings.phase}' — approve it first.`);
+      return no(
+        'state-too-early',
+        `plan '${slug}' is still '${readings.phase}' — approve it first: /plot-approve ${slug}`,
+      );
     case 'NONE':
     case '':
       return no(
         'state-unreadable',
-        `cannot read the state of '${slug}' (${readings.file}) — refusing rather than guessing.`,
+        `cannot read the state of '${slug}' (${readings.file}) — refusing rather than guessing. Its '## Status' section needs a line reading '- **State:** Approved'.`,
       );
     default:
       return no(
         'state-wrong',
-        `plan '${slug}' is in state '${readings.phase}' — only an Approved plan can be delivered.`,
+        `plan '${slug}' is in state '${readings.phase}' — only an Approved plan can be delivered. Correct the 'State:' line in ${readings.file} and push it.`,
       );
   }
 
