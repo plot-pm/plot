@@ -71,20 +71,36 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
     await cat?.close();
   });
 
+  /**
+   * THE ROUTE IS INSTALLED BEFORE THE FIRST NAVIGATION, through the
+   * catalogue's own `route` option, and that is not a preference.
+   *
+   * `catalogue/index.ts` states the reason: *"a route added to an open page
+   * cannot catch a poll already in flight: between the test deciding and the
+   * route existing there is a window a fetch can land in."* Calling
+   * `page.route` after `cat.open` leaves that window open, and the payload then
+   * arrives only on a LATER poll — or, under a loaded machine, not within any
+   * bound the test can wait.
+   *
+   * Measured 2026-09-07 on identical source: this file passed five of five
+   * standing alone and failed one or two of five inside the full board suite,
+   * with the badge never appearing rather than appearing late.
+   *
+   * The stepper is then the anchor rather than the badge, because two of the
+   * five cases assert the badge is ABSENT. The stepper renders with the WORKING
+   * header this payload produces, and every claim below is about a span inside
+   * it — so its presence is what says the payload landed.
+   */
   async function open(payload: Fleet): Promise<Page> {
-    const page = await cat.open('an-empty-estate', { tab: 'agents' });
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      route: {
+        '**/api/fleet': (route) =>
+          route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }),
+      },
+    });
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
-    // THE STEPPER IS THE ANCHOR, not the badge. `Waiting on you` renders from
-    // the catalogue scenario and is on screen before the stubbed `/api/fleet`
-    // has been fetched at all — so a bare assertion after it races the poll
-    // that carries this payload. The stepper appears with the WORKING header
-    // this payload produces, and every claim below is about a span INSIDE it.
-    //
-    // Measured: the `unknown` case read 0 badges in a full suite run and 1
-    // standing alone, on identical source.
     await page.locator('[data-fleet-parallel-agents]').waitFor({ timeout: 10_000 });
     return page;
   }
