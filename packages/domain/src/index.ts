@@ -60,6 +60,22 @@ export * from './rules/prompt.js';
 export * from './rules/quiet.js';
 export * from './rules/task.js';
 export * from './rules/landed.js';
+/**
+ * The BranchState producer, beside the three rules that consume it.
+ *
+ * `rules/branch-state.ts` derives the eight states; `transitions/branch.ts`
+ * judges a move between two already derived. The names are disambiguated here
+ * because both files carry the word `branch` and both are right in their own
+ * module: `BranchReadings` is what the derivation takes, `RefReadings` is what
+ * the ref guard takes.
+ */
+export { branchState } from './rules/branch-state.js';
+export type {
+  BranchReadings,
+  HostReach,
+  PrReading,
+  WaitsReading,
+} from './rules/branch-state.js';
 export * from './rules/spend.js';
 export * from './rules/timebox.js';
 /**
