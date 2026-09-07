@@ -1,1 +1,0 @@
-../2026-W37-the-domain-owns-the-lifecycle.md

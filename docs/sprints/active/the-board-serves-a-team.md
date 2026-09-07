@@ -1,0 +1,1 @@
+../2026-W38-the-board-serves-a-team.md

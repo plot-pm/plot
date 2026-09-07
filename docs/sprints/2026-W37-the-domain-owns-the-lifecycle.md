@@ -8,7 +8,8 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
+- **Closed:** 2026-09-07, 2.14.0 released
 - **Start:** 2026-09-05
 - **End:** 2026-09-19
 - **Release:** 2.14.0
@@ -195,3 +196,13 @@ That leaves no honest box. **Unticked**, the item reads `open` and blocks the sp
 **So it is ticked, and this note is why.** The fix is not a fourth word in the sprint file; it is `plot-sprint-release.sh` learning that `plot-plan-meta.sh:338` already accepts `rejected` and `superseded` beside the four phases. Until it does, a withdrawal is legible to a reader and not to the shell.
 
 **`the-scripts-say-slice` reads `disputed` for a different reason**, and the two must not be conflated: that item ships as PR #703 with no plan file at all, so the shell has nothing to resolve its box against. One item has a plan the shell will not read; the other has no plan to read. Both surface as one word.
+
+## Closed — 2026-09-07
+
+**Released as 2.14.0**, tagged and published with 75 changesets.
+
+**Six of eight items `done`; two `disputed`, and neither is outstanding work.** `the-board-answers-while-it-scans` is a plan you withdrew on 2026-08-31 — `plot-sprint-release.sh` has no reading for *withdrawn*, so the honest box is the one that says *come and look*. `the-scripts-say-slice` shipped as PR #703 with no plan file, so the shell had only a checkbox to resolve.
+
+**Both are the same defect seen twice**, and it has a plan: [`a-withdrawn-item-is-not-open`](../plans/2026-09-07-a-withdrawn-item-is-not-open.md), carried into `the-board-serves-a-team`.
+
+**What the sprint's own goal did not reach:** `plot-sprint-release.sh` still reaches the domain zero times while six sibling scripts do — *"no script changes a lifecycle state without asking the domain"*, unmet in one place. [`a-sprint-item-has-one-scorer`](../plans/2026-09-07-a-sprint-item-has-one-scorer.md) closes it, in the next sprint.
