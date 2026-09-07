@@ -13,6 +13,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, in-session
 - **Rounds:** 3
 - **Started:** 2026-09-06, Jan Wloka, `feature/adoption-proposes-a-worktree-root`
+- **Started:** 2026-09-07, Jan Wloka, `bug/the-reaper-reads-prunable`
 
 ## Changelog
 
