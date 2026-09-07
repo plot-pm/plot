@@ -1,5 +1,17 @@
 # @plot-pm/domain
 
+## 0.2.1
+
+### Patch Changes
+
+- [#777](https://github.com/plot-pm/plot/pull/777) [`8ab31fa`](https://github.com/plot-pm/plot/commit/8ab31faa8154566dfb006488c588b9584a3b188d) Thanks [@jwloka](https://github.com/jwloka)! - A worker now records why it ended, not only that it did. `_ended_detail` was set by whichever trap fired and written nowhere — no file, no stdout — so the distinction it drew lived for the length of one stderr line and reached no reader that outlived the process. `.plot-worker.ending.json` gives it a channel: a reason, an actor, the branch held at the time, and the sentence naming the reading. Four reasons, and a bound expiry is no longer the same ending as a context exhaustion; `unreadable` stays apart from `bound` because both are the floor firing and they differ in what could be read while the worker ran, not in what stopped it.
+
+  <!--
+  bumps:
+    skills:
+      plot: patch
+  -->
+
 ## 0.2.0
 
 ### Minor Changes
