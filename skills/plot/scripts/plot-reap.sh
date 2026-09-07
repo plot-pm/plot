@@ -18,6 +18,15 @@
 # whose agent never existed, and 2 dirty desks holding 52 and 1 files that
 # every run refused and nothing ever resolved.
 #
+# AND ONE THING IT ONLY REPORTS: a worktree git lists whose directory is gone.
+# `git worktree list --porcelain` calls it `prunable`, and it is NOT a sixth
+# refusal. A refusal says *do not remove this* and sends an operator to look; a
+# vanished entry says *there is nothing to remove and the entry is stale*, with
+# `git worktree prune` as the repair. It is reported before the refusals are
+# asked, because it is the prior question: four of the five measure something
+# inside a tree that is not there. Measured 2026-09-06 on this estate, 3 of 20
+# worktrees were prunable and this script named none of them.
+#
 # EVERY KIND KEEPS ONE SHAPE: `--dry-run` by default, acting on `--yes`,
 # bounded by `--max N`. The bound is PER KIND, because the kinds are different
 # acts on different populations — a run bounded to five worktrees has not
@@ -317,12 +326,41 @@ manifest_for() {
   return 1
 }
 
-reap=0; kept=0; removed=0; cleared=0
+reap=0; kept=0; removed=0; cleared=0; vanished=0
 printf '%-8s %-52s %s\n' "verdict" "branch" "why"
 
-while IFS=$'\t' read -r wt br; do
+while IFS=$'\t' read -r wt br prunable; do
   [ -n "$wt" ] || continue
   short=${br#refs/heads/}
+  [ "$wt" = "$ROOT" ] && continue
+
+  # 4a. GIT'S OWN ANSWER THAT THE DIRECTORY IS GONE, and it is a REPORT rather
+  #     than a sixth refusal. The five below each say *do not remove this* and
+  #     send an operator to look; this says *there is nothing to remove and the
+  #     entry is stale*, and names the repair. Blurring the two would tell
+  #     somebody to go and inspect a directory that is not there.
+  #
+  #     IT IS ASKED FIRST because it is the PRIOR question. Four of the five
+  #     refusals measure something inside the tree — a pid file, a marker, the
+  #     porcelain status, the checked-out branch — and every one of them is
+  #     unanswerable here. `rules/reapable.ts` says the same thing in the
+  #     domain: a `vanished` tree makes those four conditions `unknown`.
+  #
+  #     AND IT IS ASKED BEFORE THE DISPATCH-TREE FILTER, which would otherwise
+  #     hide exactly this population. That filter accepts a tree by its
+  #     `.plot-worker.pid` file or its legacy `plot-wt-` path — and a vanished
+  #     desk under `Worktree root` has neither, the pid file having gone with
+  #     the directory. Measured 2026-09-06: 3 of 20 worktrees here were
+  #     prunable and the reaper reported none of them.
+  #
+  #     NOTHING IS PRUNED ON THIS PATH. The reading came from the listing the
+  #     loop already makes, no `git` call was added for it, and whether to
+  #     prune stays the operator's decision — the same discipline that makes
+  #     every refusal a measurement rather than an act.
+  if [ "$prunable" = "yes" ]; then
+    printf '%-8s %-52s %s\n' "vanished" "$short" "directory gone — 'git worktree prune' clears the entry"
+    vanished=$((vanished+1)); continue
+  fi
 
   # 5. Only dispatch trees. A hand-made worktree and the main checkout are not
   #    this script's to remove, whatever state they are in.
@@ -346,7 +384,6 @@ while IFS=$'\t' read -r wt br; do
   if [ ! -f "$wt/.plot-worker.pid" ]; then
     case "$wt" in *"/plot-wt-"*) ;; *) continue ;; esac
   fi
-  [ "$wt" = "$ROOT" ] && continue
 
   # THE READINGS. Everything from here to the rule call MEASURES; nothing
   # decides. Each of the four sources that can answer is read once, into a
@@ -514,7 +551,10 @@ NODE_EOF
     fi
   fi
 done < <(git worktree list --porcelain \
-          | awk '/^worktree /{p=$2} /^branch /{print p"\t"$2}')
+          | awk '/^worktree /{ if (br != "") print p"\t"br"\t"pr; p=$2; br=""; pr="no"; next }
+                 /^branch /  { br=$2; next }
+                 /^prunable/ { pr="yes"; next }
+                 END         { if (br != "") print p"\t"br"\t"pr }')
 
 [ "$DRY" -eq 0 ] && git worktree prune 2>/dev/null
 
@@ -900,5 +940,5 @@ fi
 # which is why `plot-release-refs.sh` deletes those, plan-scoped, under its own
 # licence and its own five guards. The asymmetry between the kinds is the whole
 # safety argument and it stays.
-echo "summary: reapable=$reap removed=$removed kept=$kept cleared=$cleared branches=$swept_branches branches_deleted=$deleted_branches branches_kept=$kept_branches claims=$swept_claims claims_deleted=$deleted_claims claims_kept=$kept_claims dirty_trees=$dirty_trees dry_run=$DRY"
+echo "summary: reapable=$reap removed=$removed kept=$kept vanished=$vanished cleared=$cleared branches=$swept_branches branches_deleted=$deleted_branches branches_kept=$kept_branches claims=$swept_claims claims_deleted=$deleted_claims claims_kept=$kept_claims dirty_trees=$dirty_trees dry_run=$DRY"
 exit 0
