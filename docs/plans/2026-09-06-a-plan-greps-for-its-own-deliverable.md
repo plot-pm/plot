@@ -68,7 +68,7 @@ The plan template carries a `Builds:` field naming the artifact each slice creat
 
 **Done when** a slice can name what it builds, the parser reports it, and a plan without one parses exactly as it does today.
 
-### Adoption searches for it (Branch: feature/the-idea-searches-the-estate)
+### Adoption searches for it (Branch: feature/the-idea-searches-the-estate, PR: #755)
 
 `/plot-idea` step 3 searches the estate for each declared deliverable and reports what it finds.
 
