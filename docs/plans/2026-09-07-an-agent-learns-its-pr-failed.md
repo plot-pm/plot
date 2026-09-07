@@ -11,6 +11,7 @@
 - **Impl:** own branches
 - **Rounds:** 1
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #793 merged
+- **Started:** 2026-09-07, Jan Wloka, `feature/an-agent-learns-its-pr-failed`
 
 ## Changelog
 
