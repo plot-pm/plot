@@ -1168,14 +1168,38 @@ if [ "$mode" = "stop" ]; then
     echo "  Refusing to guess — stopping the wrong worker discards its work." >&2
     exit 1
   fi
-  wt="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
-  [ -d "$wt" ] || { echo "plot-dispatch: no worktree for '$stop_branch' at $wt" >&2; exit 1; }
+  # ASK GIT WHICH WORKTREE HOLDS THE BRANCH, then fall back to the dispatch
+  # path. `--restart` below already asks, and this did not: it rebuilt one path
+  # from the branch name and reported that single path as though it were the
+  # only place a desk could be. On 2026-09-07 the desk existed elsewhere — a
+  # worktree made by hand, which is the population that never follows
+  # dispatch's naming — and the refusal sent a reader to `kill`.
+  #
+  # A refusal that is confidently wrong is worse than one that is terse, so the
+  # path-guess survives only as the LAST candidate and the refusal below says
+  # which places were looked in.
+  wt=$(git worktree list --porcelain </dev/null 2>/dev/null | awk -v want="refs/heads/$stop_branch" '
+    /^worktree /  { path = substr($0, 10) }
+    /^branch /    { if (substr($0, 8) == want) { print path; exit } }')
+  wt_guess="$wt_root_early/$wt_prefix_early$(printf '%s' "$stop_branch" | tr '/' '-')"
+  [ -n "$wt" ] && [ -d "$wt" ] || wt="$wt_guess"
+  if [ ! -d "$wt" ]; then
+    echo "plot-dispatch: no worktree holds '$stop_branch' — nothing to stop." >&2
+    echo "  Asked git for every worktree, and looked at $wt_guess." >&2
+    echo "  If a worker is running somewhere this cannot see, that machine is" >&2
+    echo "  where to stop it: /plot-dispatch --status names the desks here." >&2
+    echo "  Nothing was killed." >&2
+    exit 1
+  fi
   st=$(worker_state "$wt" "$stop_branch")
   case "$st" in
     running*)
       pid=${st#running }
       kill "$pid" 2>/dev/null && echo "stopped $stop_branch (pid $pid)" \
-        || { echo "plot-dispatch: could not stop pid $pid" >&2; exit 1; }
+        || { echo "plot-dispatch: could not stop pid $pid — it may have exited between the read and the signal, or belong to another user." >&2
+             echo "  Check it: ps -p $pid -o pid=,stat=,command=" >&2
+             echo "  Nothing else was written; the worktree and the claim stand." >&2
+             exit 1; }
       # The worktree and its claim are left in place: the branch is still taken,
       # and deleting either would be the kind of write this design avoids.
       echo "  worktree kept at $wt — the claim stands until you release it"
