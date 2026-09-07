@@ -108,7 +108,7 @@ and it holds no plans outside this sprint.
 - [x] [every-generated-bundle-is-marked] Every bundle `build.mjs` emits is marked `-merge`, and the repair path recognises the set rather than one file — measured 2026-09-05: `board-server.mjs` took 0 conflict markers through a rebase while the two unmarked bundles took 8, and `plot-resolve-artifact.sh` then refused the branch as *not artifact-only*, declining the exact case it exists for. **Draft, 2 slices, 4 rounds** <!-- status: delivered -->
 - [ ] [the-board-answers-while-it-scans] The board keeps serving while it scans — it stops for seconds at a time at zero CPU. **Draft**
 
-- [ ] [the-scripts-say-slice] The reconcile scan says slice where it means slice — section 7 read *"Unsliced waves (a wave holds one branch)"*, a Slice described in Wave's vocabulary by its own parenthetical. Footer keys renamed with the skill documenting them. **#703, no plan — a rename small enough to be its own PR**
+- [x] [the-scripts-say-slice] The reconcile scan says slice where it means slice — section 7 read *"Unsliced waves (a wave holds one branch)"*, a Slice described in Wave's vocabulary by its own parenthetical. Footer keys renamed with the skill documenting them. **#703, no plan — a rename small enough to be its own PR. Merged 2026-09-05 (`c02d8807`); section 7 now reads *"Uncut slices (a slice holds one branch)"*.**
 
 ## Notes
 
@@ -129,3 +129,9 @@ declare its kind — lifecycle, reading, or classification — and that declarat
 is the review that finds the next lifecycle nobody had noticed. Guessing which
 of the thirty deserve rules is exactly the error this sprint's own plans made
 twice, naming `SprintState` and `PrState` as non-lifecycles when both transition.
+
+**A plan-less item is the one the box has to carry alone — and nothing ticked it.** `the-scripts-say-slice` shipped as **#703 on 2026-09-05** (`c02d8807`), and its box stayed unchecked for two days while `plot-sprint-release.sh` reported it `open`. That report was correct: the script resolves a box against the plan estate, *"the plan estate outranks the checkbox where there is one to read"* — and this item deliberately has no plan, so there was nothing to outrank it with.
+
+**So the asymmetry the script documents has a third case it cannot reach.** A checked box over an undelivered plan is `disputed`; an unchecked box over a delivered one is `done`, because `/plot-deliver` moves the plan and nobody re-ticks. But an unchecked box over a merged **PR** with no plan reads `open`, and stays `open` until a person reads the source — which is what happened here, on a question about something else.
+
+**The item was right to have no plan.** A one-PR rename does not earn a plan file, and the sprint line says so. What it costs is the automatic close, and that cost should be paid at the merge: an item whose only record is a PR number needs its box ticked by whoever merges it, because no later sweep will.
