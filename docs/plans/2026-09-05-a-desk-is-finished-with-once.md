@@ -166,7 +166,13 @@ and its blast radius is bounded by the plan file.
   verdict and acts, the way `plot-reap.sh:46` already describes itself.
   **Asserted: every ref the script kept before is kept after**, run over this
   estate's merged branches — a rule that deletes one more ref than the guards
-  did is wrong in the direction that cannot be undone.
+  did is wrong in the direction that cannot be undone. (#772)
+
+  **Measured over 209 delivered plans, 979 branch verdicts: 0 differences.** The
+  two scripts agree exactly, not merely in the asserted direction. The
+  comparison holds the host constant — a first pass against the live host
+  produced 173 spurious flips, because an unreachable host answers *not merged*
+  and that keeps a ref, so host flakiness moves verdicts on its own.
 
 ## Notes
 
