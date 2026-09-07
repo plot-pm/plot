@@ -8,7 +8,8 @@ on:
 
 jobs:
   # ── The corpus tier: do the adapters feed the domain the same readings
-  #    production reads, against this repository's real estate? ───────────────
+  #    production reads, against this repository's real estate — and does a
+  #    rule answer what its shell duplicate answers? ────────────────────────
   #
   # ITS OWN JOB, PARALLEL TO `validate`, AND THE SEPARATION IS THE POINT.
   #
@@ -30,11 +31,18 @@ jobs:
   # if the failure lands on the change that caused it. Found hours later it is a
   # report, and a report is something someone has to remember to read.
   #
-  # ON A RED CORPUS JOB, DO NOT ADJUST THE ADAPTER TO MATCH. Which side is wrong
+  # TWO PAIRS SINCE 2026-09-07. An adapter comparison asks about readings; a
+  # rule-versus-shell comparison asks about verdicts, because some rules are
+  # implemented twice on purpose — `docs/shell-and-domain.md` says when that is
+  # allowed and requires the pair to be held here. Both fail this job.
+  #
+  # ON A RED CORPUS JOB, DO NOT ADJUST EITHER SIDE TO MATCH. Which side is wrong
   # is judgement: the adapter may be wrong, or this may have found a production
-  # bug that gets its own plan. The failure prints the field, the plan and both
-  # readings so a person can decide. Adjusting the adapter is the permissive
-  # failure — it cements a real production bug behind a passing test.
+  # bug that gets its own plan. The failure prints the field, the subject and
+  # both readings so a person can decide — named after the pair, so a rule
+  # disagreement reads `rule=… shell=…` rather than `adapter=`. Adjusting either
+  # side is the permissive failure — it cements a real production bug behind a
+  # passing test.
   corpus:
     runs-on: ubuntu-latest
     # Generous against the measured 42 s, and still a bound: a wedged fleet scan

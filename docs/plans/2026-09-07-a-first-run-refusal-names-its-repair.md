@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** bug
 - **Sprint:** the-board-serves-a-team
 - **Story:** the-domain-knows-what-plot-knows
@@ -13,6 +13,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #784 merged
 - **Started:** 2026-09-07, Jan Wloka, `bug/a-first-run-refusal-names-its-repair`
+- **Delivered:** 2026-09-08
 
 ## Changelog
 
