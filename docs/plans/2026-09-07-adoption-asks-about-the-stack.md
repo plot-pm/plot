@@ -10,6 +10,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -23,7 +24,9 @@
 
 **THE DEFAULT IS SILENT AND IT IS WRONG FOR THE NEXT USERS.** A repository that declares no tracker gets `trackerNone`, which answers `unaskable` on every operation — correct behaviour for a repository with no tracker, and a lie about a team that has Jira. Nothing tells them: `unaskable` reads the same whether there is no tracker or nobody asked.
 
-**THE SIGNALS ARE IN THE REPOSITORY.** A Jira shop leaves `PROJ-123` in commit subjects and branch names; a Jenkins shop has a `Jenkinsfile`. `plot-detect-repo.sh` already reads commit style and branch prefixes for exactly this kind of inference — the probe's shape is right and two questions are missing from it.
+**AND HALF THE PROBE IS ALREADY BUILT.** `plot-detect-repo.sh:79` scans 80 commit subjects for `[A-Z]{2,10}-[0-9]+` and reports the prefix **only when it recurs** — *"one stray `ABC-1` in a subject line is not a scheme"*. `/plot-init:71` already prints the result: *"no ticket scheme"*. **The Jira signal works and is already shown to the operator; nothing turns it into a `Tracker:` key.**
+
+**WHAT IS GENUINELY ABSENT IS THE CI SYSTEM.** No field, no signal, no proposal — and a `Jenkinsfile` is a fact sitting in the working tree.
 
 ## What this is not
 
@@ -35,22 +38,46 @@
 
 ## Slices
 
-### The probe reads the tracker and the CI system (Branch: feature/adoption-asks-about-the-stack)
+### The probe reads the CI system (Branch: feature/the-probe-reads-the-ci-system)
 
-`plot-detect-repo.sh` emits `tracker` and `ci_system`, and `/plot-init` proposes both.
+`plot-detect-repo.sh` emits `ci_system` beside the ten fields it already reports.
 
-**THE EVIDENCE IS NAMED WITH THE PROPOSAL.** A field saying `jira` teaches nothing; `jira (PROJ-1234 in 38 of 50 commit subjects)` lets a person confirm or reject in one read. The probe already reports `dod_candidates` this way.
+**ONE NEW FIELD, NOT TWO.** `ticket_prefix` is the tracker signal and it works. A second field restating it would be two records of one reading — the defect this estate has now measured four times.
 
-**A `Jenkinsfile` IS THE STRONGEST SIGNAL AND NOT THE ONLY ONE.** `.github/workflows/` means GitHub Actions; both present means a person decides, and the probe must say both were found rather than picking one.
+**A `Jenkinsfile` IS EVIDENCE AND SO IS `.github/workflows/`.** Both present means a person decides, and the field must say **both were found** rather than picking one. `existing_systems` already reports a list this way.
 
-**NO EVIDENCE IS AN ANSWER.** `none` is a legitimate value for both keys and must be proposed as one, not left blank — a blank invites the silent default this plan exists to remove.
+**NO EVIDENCE IS `none`, NOT EMPTY.** A blank invites the silent default this plan exists to remove.
 
-**IT PROBES, IT DOES NOT AUTHENTICATE.** Whether `jen` or a Jira token works is `plot-board-probe.sh`'s question, and it already asks it. This reads files.
+**IT READS FILES AND ASKS NOTHING.** Whether `jen` authenticates is `plot-board-probe.sh`'s question and it already asks it.
 
-**Done when** the probe emits `tracker` and `ci_system` with the evidence behind each, `/plot-init` proposes both alongside `Git host`, `none` is proposed where nothing was found, both signals present is reported as both, and no credential is required to run it.
+**Done when** the probe emits `ci_system` with the evidence behind it, both signals present is reported as both, `none` is a value rather than a blank, and the probe still needs no credential.
+
+### Adoption proposes the tracker and the CI system (Branch: feature/adoption-proposes-the-stack) <!-- waits: feature/the-probe-reads-the-ci-system -->
+
+`/plot-init` turns both readings into `Tracker:` and `CI:` proposals.
+
+**IT PROPOSES WHAT IT MEASURED AND ASKS FOR WHAT IT CANNOT KNOW.** A recurring `PROJ-` prefix says the scheme is Jira; **the base URL is nowhere in git history**, and `tracker-jira.ts` takes one. So `/plot-init` proposes `Tracker: jira` and asks for the URL — the single question it has no way to answer.
+
+**THAT ASK IS THE ONLY ONE ADDED**, and it obeys `/plot-init`'s own rule: *propose, don't interrogate*. Everything else is a proposal a person confirms or rejects.
+
+**THE EVIDENCE TRAVELS WITH THE PROPOSAL.** `jira (PROJ in 38 of 80 subjects)` lets a reader confirm in one read; a bare `jira` teaches nothing. `/plot-init` already prints the ticket scheme this way.
+
+**UNDER `PLOT_UNATTENDED=1` THE ASK BECOMES A REPORT.** An unattended adoption cannot answer, so it proposes `Tracker: jira` with the URL unset and **says the URL is missing** — the shape `/plot-init` already uses for `PLOT-UNASKED`. A half-configured tracker that announces its gap beats one that fails later saying nothing.
+
+**Done when** a recurring ticket prefix yields a `Tracker:` proposal, `ci_system` yields a `CI:` proposal, the evidence is printed with each, the base URL is the one thing asked, and an unattended run reports the gap rather than guessing.
 
 ## Notes
 
 ### Why this is the first Must — 2026-09-07
 
 Every other item in this sprint is reachable only after adoption. A teammate whose `Tracker` is wrong on line one meets `unaskable` at every issue operation for the rest of the run, and has no reason to connect the two.
+
+### Round 1 — 2026-09-07
+
+**The plan said the probe must learn to find Jira. It already had.** `plot-detect-repo.sh:79` has scanned commit subjects for a recurring ticket prefix since before this plan, with a comment stating the rule — *"a prefix only counts when it recurs"* — and `/plot-init:71` prints the answer. **What was missing was never the detection; it was that nothing turns the reading into a key.**
+
+That halves the probe work to one genuinely absent field, `ci_system`, and moves the rest into the skill.
+
+**The round also found the half-known value.** A commit prefix gives `PROJ` and no host — `tracker-jira.ts` needs a base URL that is nowhere in git history. Rather than guessing it from a remote or leaving the tracker unset, adoption **proposes the scheme it measured and asks for the one thing it cannot know**, which is the smallest honest shape and the only question this plan adds.
+
+**And the unattended case forced an answer the attended one hides:** with nobody to ask, the proposal ships with the URL unset and says so. A half-configured tracker that announces its gap is better than `trackerNone` answering `unaskable` for a reason nobody can see.
