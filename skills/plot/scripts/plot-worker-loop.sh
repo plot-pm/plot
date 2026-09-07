@@ -607,10 +607,22 @@ session_flag() { # → --session-id | --resume
 # AND THE DUPLICATION IS DECLARED. `docs/shell-and-domain.md` settles which side
 # of the cost rule this falls on: a script running once per operator command
 # calls the domain, one running once per agent per pass duplicates the rule and
-# a corpus comparison holds the pair. This loop is the second case — a 39 ms
-# bundle hop here is paid by every agent on every pass, forever — so the rule
+# a corpus comparison holds the pair. This loop is the second case, so the rule
 # lives twice and `packages/domain/corpus/desk-reset.corpus.test.ts` asserts the
-# two answer alike over every desk on the estate.
+# two answer alike over a desk in every state a desk can be in.
+#
+# THE COST IS MEASURED, on this machine on 2026-09-08 at load 11, 20 passes per
+# desk:
+#
+#   76 ms   the whole decision, clean desk — all three conditions asked
+#   44 ms   a dirty desk — short-circuits before the `rev-list`
+#    2 ms   a desk with a marker — the first condition answers
+#   94 ms   ONE `node` hop through a shipped bundle, for comparison
+#
+# So the hop ALONE costs more than the decision it would replace, and more than
+# doubles the clean-desk pass. `docs/shell-and-domain.md` measures 34 ms for
+# bare `node -e ''` on an idle machine; a fleet host is not idle, which is the
+# condition every agent actually runs under.
 #
 # ON A DISAGREEMENT THE BRANCH STOPS. Adjusting either side to make that
 # comparison pass is the one move forbidden.

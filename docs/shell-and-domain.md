@@ -68,3 +68,13 @@ the-scripts-say-slice :: state :: shell=open rule=withdrawn
 It is the smallest case on purpose: 12 lines of bash, one function. **Proving the contract on the smallest case is the point.**
 
 It already carries a declared divergence. `item_state` takes a third reading the domain does not have — `delivered: "none"`, meaning the item names no plan — and takes such an item at its checkbox. `scoreItem` has no way to say *no plan named*, so it reads the same item as `disputed`. Five items on this estate are in that case. [`a-sprint-item-has-one-scorer`](plans/2026-09-07-a-sprint-item-has-one-scorer.md) is the plan that closes it; until then the five are named in the test.
+
+## The second comparison, and what a constructed corpus is for
+
+`corpus/desk-reset.corpus.test.ts` compares `resetRefusals` (`rules/reapable.ts`) against `desk_reset_refusal` (`plot-worker-loop.sh`) — the decision an agent makes about its own desk, and the loop is the case this document was written for.
+
+**Its corpus is BUILT rather than read, and the difference is not a shortcut.** A sprint item is checked into the repository, so every runner scores the same 134. A desk is not: it is a worktree on a machine, and what holds it is whatever an agent happened to leave there. Measured 2026-09-08 on this estate — 17 desks answering `resettable`, `uncommitted-changes` and `blocked-marker`, never `unpushed-commits`, with the split moving between runs as agents edited files. **CI's checkout has one worktree and it is clean.** A live corpus there would exercise one answer of four, which is the *comparison that can only pass* this document already refuses.
+
+So each state is built in a real repository with a real origin, and read back through the loop's own `plot_worker_blocked` and `plot_worker_dirty`. **The shell under test is the shipped shell; only the estate it reads is made.** The rule stated in section 3 is unchanged — production supplies the readings and its own verdict, and the domain re-scores the same readings.
+
+**Where a subject cannot be checked in, the corpus builds it.** What must never be built is the READING: assembling `dirtyPath` from a `git status` written in the test would compare the domain against the test's idea of a dirty tree, and `plot_worker_dirty` drops editor leftovers and Plot's own `.plot-worker.*` records for measured reasons.
