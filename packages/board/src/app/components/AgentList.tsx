@@ -1094,7 +1094,7 @@ export function AgentList({
                 <AutoDispatchSwitch value={fleetControlsOf(fleet).autoDispatch} />
               )}
               {key === 'working' && (
-                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} working={fleetControlsOf(fleet).working} hiddenByFilter={workersHiddenByFilter} registry={fleet?.registry} />
+                <ParallelAgentsStepper value={fleetControlsOf(fleet).parallelAgents} working={fleetControlsOf(fleet).working} hiddenByFilter={workersHiddenByFilter} registry={fleet?.registry} supervisor={fleet?.supervisor} />
               )}
             </h2>
             {/* The body goes, the header stays — including its count. Removed
