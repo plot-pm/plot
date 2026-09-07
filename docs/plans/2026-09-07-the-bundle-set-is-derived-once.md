@@ -44,7 +44,7 @@
 
 ## Slices
 
-### The contract derives what build.mjs emits (Branch: bug/the-bundle-set-is-derived-once)
+### The contract derives what build.mjs emits (Branch: bug/the-bundle-set-is-derived-once, PR: #773)
 
 `BOARD_ARTIFACT_PATHS` is computed from the build's own declarations rather than typed out.
 
