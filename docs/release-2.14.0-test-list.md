@@ -20,13 +20,20 @@ A changeset whose claim is *"the rule returns X"* is **not** in this list — a 
 
 ---
 
-## 0 — One test is red on main, and the release cannot be cut over it
+## 0 — One domain test is load-flaky, and the release must not read it as green
 
 ```bash
-cd packages/domain && npx vitest run test/ports-real-state.test.ts
+cd packages/domain && npx vitest run                        # 1 fail
+cd packages/domain && npx vitest run test/ports-real-state.test.ts   # 28 pass
 ```
 
-**`Host reads the git host > answers the merged question with three values` fails.** Measured 2026-09-07 on `main`, not on a branch. Decide before cutting: is it a real regression, a live-estate dependency, or a host-auth artefact? **A release cut over a red domain test contradicts this sprint's own goal.**
+**`Host reads the git host > answers the merged question with three values` fails in the full suite and passes alone.** Measured 2026-09-07 on `main`, both ways.
+
+**It asks the live host.** `hostShell(context).prMerged('branch/that-never-existed-xyz')` reaches GitHub, and the test accepts `merged`, `not-merged`, `unknown` **or** a refusal — so the only way it fails is a shape none of those cover, which is what a rate-limited or throttled host returns under 93 files running at once.
+
+**So it is not a regression, and it is not nothing.** A test that passes alone and fails in its own suite gives a release cutter no signal at all: the next real break here looks identical. **Run the suite twice before cutting.** Two failures at the same assertion is a defect; one is the host.
+
+**Do not cut with this unexplained on a third run.**
 
 ---
 
@@ -136,7 +143,7 @@ One pid for an hour is evidence. A gap is the defect returning under a new key.
 
 ## 7 — Before cutting
 
-- [ ] §0 red test decided
+- [ ] §0 run twice — one failure is the host, two is a defect
 - [ ] Four conditions measured; `plot-sprint-release.sh` hole decided explicitly
 - [ ] `pnpm test`, `pnpm run test:reconcile`, `pnpm run test:board`, `pnpm run typecheck` green
 - [ ] Sprint items: 6 `done`, 2 `disputed` — both bookkeeping, neither outstanding work
