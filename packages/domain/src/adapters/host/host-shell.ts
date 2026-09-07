@@ -1,4 +1,3 @@
-import type { BuildRun } from '../../entities/build.js';
 import {
   correctForRefusal,
   LimitBasisSchema,
@@ -56,14 +55,6 @@ interface RawLimit {
   basis?: string;
 }
 
-/** One run as `plot-host.sh runs` reports it. */
-interface RawRun {
-  workflow?: string;
-  conclusion?: string;
-  startedAt?: string;
-  url?: string;
-}
-
 const PR_STATES: readonly string[] = ['OPEN', 'MERGED', 'CLOSED'];
 const MERGEABILITY: readonly string[] = ['mergeable', 'conflicting', 'unknown'];
 const CHECKS: readonly string[] = ['green', 'pending', 'failing', 'none', 'unknown'];
@@ -98,24 +89,6 @@ const prOf = (raw: RawPr): Pr => ({
   review: oneOf<ReviewVerdict>(raw.review, REVIEWS, ''),
   checks: oneOf<Checks>(raw.checks, CHECKS, 'unknown'),
   failingChecks: raw.failing_checks ?? [],
-  url: raw.url ?? '',
-});
-
-/**
- * Reads one run-history line as the domain's entity.
- *
- * The conclusion is passed THROUGH rather than read against a set — the one
- * mapper here that does not narrow. `BuildRun.conclusion` is documented as
- * verbatim, and `oneOf`'s degrade-to-unknown rule would turn every outcome the
- * host adds next into the same word as the ones it already has.
- *
- * @param raw - the script's JSON object.
- * @returns the run, with every unstated field empty.
- */
-const runOf = (raw: RawRun): BuildRun => ({
-  workflow: raw.workflow ?? '',
-  conclusion: raw.conclusion ?? '',
-  startedAt: raw.startedAt ?? '',
   url: raw.url ?? '',
 });
 
@@ -355,37 +328,16 @@ export const hostShell = (context: ShellContext): Host => {
         (stdout) => asJsonLines<RawPr>(stdout).map(prOf),
       ),
 
-    runs: (branch, limit) =>
-      ask(
-        ['runs', branch, ...(limit === undefined ? [] : ['--limit', String(limit)])],
-        (stdout) => asJsonLines<RawRun>(stdout).map(runOf),
-      ),
-
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => {
-      // TWO CONNECTORS, ASKED SEPARATELY, because they are separate axes. The
-      // git host and CI are chosen independently — this repo is GitHub +
-      // Actions, `ekzweb` is Bitbucket + Jenkins — and GitHub Actions minutes
-      // are a quota distinct from the API's, so "the connector is github" does
-      // not identify the bucket.
+      // THE GIT HOST'S BUCKETS, AND ONLY THOSE. CI used to be asked here in the
+      // same call, on the grounds that the two are separate axes — which is
+      // true, and is why the CI connector now answers for itself. A port that
+      // reported another service's headroom beside its own left a caller
+      // pacing GitHub calls against a Jenkins estimate it never measured.
       const git = await runProcess('bash', [host, 'limit'], inRepo);
-      const gitReadings = record(git, (stdout) =>
-        asJsonLines<RawLimit>(stdout).map(limitOf),
-      );
-      // The git host is the one that must answer. A CI connector that cannot be
-      // asked contributes nothing rather than failing the whole reading: a
-      // Jenkins that is down says nothing about the GitHub budget the caller
-      // came for.
-      if (!gitReadings.ok) return gitReadings;
-      const ci = await runProcess('bash', [host, 'ci-limit'], inRepo);
-      // NOT through `record`. A CI connector that cannot be asked says nothing
-      // about the git host's budget, and letting it overwrite the refusal would
-      // report a Jenkins outage as the reason a GitHub call was throttled.
-      const ciReadings = resultOf(ci, (stdout) =>
-        asJsonLines<RawLimit>(stdout).map(limitOf),
-      );
-      const all = [...gitReadings.value, ...(ciReadings.ok ? ciReadings.value : [])].map(
-        withCorrections,
-      );
+      const readings = record(git, (stdout) => asJsonLines<RawLimit>(stdout).map(limitOf));
+      if (!readings.ok) return readings;
+      const all = readings.value.map(withCorrections);
       lastRead = all;
       return answered(all);
     },

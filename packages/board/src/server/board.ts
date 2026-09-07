@@ -32,13 +32,21 @@ import {
   timeboxLabel,
   timeboxStanding,
   planStatus as decidePlanStatus,
+  type BuildPort,
   type Host,
   type PlanStore,
   type Refs,
   type Scripts,
   type Trees,
 } from '@plot-pm/domain';
-import { hostShell, planStoreShell, refsGit, scriptsShell, treesGit } from '@plot-pm/domain/adapters';
+import {
+  buildShell,
+  hostShell,
+  planStoreShell,
+  refsGit,
+  scriptsShell,
+  treesGit,
+} from '@plot-pm/domain/adapters';
 import { dispatchLogExists } from './dispatch.js';
 import { prsByNumber, pulseFor, pulseCompleteFor } from './fleet.js';
 import { extractTopics } from './topics.js';
@@ -112,6 +120,15 @@ export interface BuildBoardOptions {
    * the same confusion in a new place.
    */
   hostAdapter?: Host;
+  /**
+   * What answers the build questions — the CI connector, or a fixture.
+   *
+   * SEPARATE FROM `hostAdapter` BECAUSE THE SERVICES ARE SEPARATE. `CI` is a
+   * `## Plot Config` key declared independently of `Git host`, so a board
+   * handed a fixture host and a real CI connector is a valid, testable
+   * configuration — and a single field could not express it.
+   */
+  buildAdapter?: BuildPort;
 }
 
 /**
@@ -192,6 +209,24 @@ export const scriptsFor = (opts: BuildBoardOptions): Scripts =>
  */
 export const hostFor = (opts: BuildBoardOptions): Host =>
   opts.hostAdapter ?? hostShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
+
+/**
+ * The CI reader for these options — the caller's, or this repository's.
+ *
+ * A SECOND CONNECTOR, resolved from the `CI` config key rather than from the
+ * git host. A team's builds and its pull requests are two remote services, and
+ * this repository's being GitHub for both is an accident of this repository.
+ *
+ * ASYNC WHERE {@link hostFor} IS NOT, because the connector cannot be chosen
+ * without reading which system the repository declared — and reading that is a
+ * `plot-config.sh` call. A repository that declared none gets `buildNone`,
+ * which answers `unaskable` rather than an empty list.
+ *
+ * @param opts - where to read, and optionally what to read through.
+ * @returns the injected CI reader, or the connector the config names.
+ */
+export const buildPortFor = async (opts: BuildBoardOptions): Promise<BuildPort> =>
+  opts.buildAdapter ?? buildShell({ repoRoot: opts.repoRoot, scriptDir: opts.scriptsDir });
 
 /**
  * Resolve `repoRoot` through symlinks. Plan files are reported as real paths, so

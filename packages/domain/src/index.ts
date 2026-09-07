@@ -447,6 +447,7 @@ export type * from './ports/plan-store.js';
 export type * from './ports/refs.js';
 export type * from './ports/host.js';
 export type * from './ports/tracker.js';
+export type * from './ports/build.js';
 export type * from './ports/budget.js';
 export type * from './ports/slots.js';
 export type * from './ports/processes.js';

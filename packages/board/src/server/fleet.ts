@@ -33,8 +33,8 @@ import {
 } from '../contract/schema.js';
 import { stuckState, summarizeStuck } from './stuck.js';
 import { repairFor, startRepair } from './resolver.js';
-import { workingTreeSprints, planStatusBySlug, readConfigAsync, scriptsFor, treesFor, hostFor, type BuildBoardOptions } from './board.js';
-import type { Host } from '@plot-pm/domain';
+import { workingTreeSprints, planStatusBySlug, readConfigAsync, scriptsFor, treesFor, hostFor, buildPortFor, type BuildBoardOptions } from './board.js';
+import type { BuildPort } from '@plot-pm/domain';
 // The cadence division is a DOMAIN rule, not a board decision: `CLAUDE.md`
 // settles that every rendered or wired state is a domain property, and this one
 // is asserted as arithmetic in `packages/domain/test/cadence.test.ts` rather
@@ -2074,8 +2074,13 @@ export async function refreshRuns(
   opts: BuildBoardOptions,
   entry: CacheEntry,
   prs: Map<string, PrRecord>,
-  host: Host = hostFor(opts),
+  build?: BuildPort,
 ): Promise<void> {
+  // RESOLVED HERE WHERE NOBODY PASSED ONE, and it cannot be a default parameter
+  // because choosing the connector means reading the `CI` key — a call, not a
+  // constant. `refreshPrs` binds one for the whole pass and hands it down; this
+  // path is for a caller with no pass around it.
+  const ci = build ?? (await buildPortFor(opts));
   const runs = new Map<string, StuckRun[]>();
   const candidates = [...prs.entries()].filter(([, pr]) => pr.checks === 'failing');
   // WHAT A READER IS WATCHING, and nothing else. Applied BEFORE the cap, so the
@@ -2102,7 +2107,20 @@ export async function refreshRuns(
   }
   for (const [branch] of failing) {
     try {
-      const answer = await withHostSlot(entry, () => host.runs(branch, RUN_HISTORY_LIMIT));
+      // THE SLOT IS THE GIT HOST'S, AND IT IS TAKEN ONLY WHERE THE ACCOUNT IS
+      // SHARED. `withHostSlot` bounds concurrency against the account
+      // `entry.prAccount` names, which is the git host's — right for GitHub
+      // Actions, whose runs are read through the same token and the same
+      // window, and wrong for any CI system with its own. A Jenkins call held
+      // behind a GitHub slot would wait on a budget it never spends.
+      const shared = ci.system() === 'github-actions';
+      const ask = () => ci.runs(branch, RUN_HISTORY_LIMIT);
+      const answer = shared ? await withHostSlot(entry, ask) : await ask();
+      // `unaskable` IS NOT A FAILURE AND NOT AN EMPTY HISTORY. A repository
+      // with no CI has no runs to lose, so it keeps nothing and shows nothing —
+      // where a fetch that BROKE keeps the last good history below, because a
+      // row losing a line it had a minute ago reads as the branch changing.
+      if (!answer.ok && answer.why === 'unaskable') continue;
       if (!answer.ok) throw new Error('runs unavailable');
       // The adapter parses and normalizes; `BuildRun` and `StuckRun` are the
       // same four fields, so the copy below is a widening from readonly rather
@@ -2362,12 +2380,17 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
   // failure on Bitbucket must be spaced by the same cost as a success. Cached
   // after the first call, so this is one extra local `bash` on the process's
   // first refresh and nothing on any later one.
-  // ONE ADAPTER FOR THE WHOLE REFRESH, bound here and passed down. Both
-  // `resolveBackend` and `refreshRuns` default to `hostFor(opts)`, so leaving
-  // them to their defaults would construct two adapters for one refresh — and
-  // a fixture `Host` handed to only one of them would be obeyed by half the
-  // pass, which is the failure a substitutable port exists to prevent.
+  // ONE ADAPTER PER SERVICE FOR THE WHOLE REFRESH, bound here and passed down.
+  // `resolveBackend` defaults to `hostFor(opts)`, so leaving it to its default
+  // would construct two adapters for one refresh — and a fixture `Host` handed
+  // to only one of them would be obeyed by half the pass, which is the failure
+  // a substitutable port exists to prevent.
   const host = hostFor(opts);
+  // THE CI CONNECTOR IS SEPARATE, and resolved beside the host rather than
+  // from it. A team whose code is on Bitbucket and whose builds run on Jenkins
+  // has two services; asking one for the other's answers is what left that
+  // team's check column ABSENT rather than wrong.
+  const build = await buildPortFor(opts);
   const backend = await resolveBackend(opts, entry, host);
   // Read BEFORE the fetch, so all three exits divide by the same number and a
   // failure is spaced exactly as a success is. Reading it after would also
@@ -2485,7 +2508,7 @@ async function refreshPrs(opts: BuildBoardOptions, entry: CacheEntry): Promise<v
       entry.prs = map;
       entry.prsByNumber = byNumber;
       entry.prsByHead = byHead;
-      await refreshRuns(opts, entry, map, host);
+      await refreshRuns(opts, entry, map, build);
       entry.prAt = Date.now();
       scheduleNextPr(entry, startedAt, null, backend, rate);
       entry.prError = null;
