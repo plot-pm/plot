@@ -270,7 +270,15 @@ test('a real agent whose branch has a PR is reported owing nothing', () => {
   const run = dispatchOne('agent-has-pr', {
     stub,
     monitorInterval: '3',
-    workerCommand: "sh -c 'mkdir -p .changeset && echo work > done.txt && printf -- '\\''---\\n\"plot\": patch\\n---\\n\\nA real description of a real change.\\n'\\'' > .changeset/thing.md && git add -A && git commit -qm work && git push -q -u origin HEAD'",
+    // `sleep 20` AFTER THE PUSH, AND THE MONITOR'S ORDER IS WHY.
+    // `sample_finding` returns at the `blocked`, `dirty` and `unpushed` arms
+    // before it ever reaches `gh pr list` (`plot-agent-monitor.sh:391-413`), so
+    // the only pass that asks the host is one taken while the desk is clean AND
+    // pushed. A worker that exits the instant it pushes gives the monitor no
+    // such pass: the desk is gone before the next poll. Measured on CI
+    // 2026-09-01 — the assertion burned all 30 s and failed, on three PRs at
+    // once. The sleep holds the desk in that state long enough to be sampled.
+    workerCommand: "sh -c 'mkdir -p .changeset && echo work > done.txt && printf -- '\\''---\\n\"plot\": patch\\n---\\n\\nA real description of a real change.\\n'\\'' > .changeset/thing.md && git add -A && git commit -qm work && git push -q -u origin HEAD && sleep 20'",
   });
   try {
     // WAIT FOR THE POLL, DO NOT GUESS AT IT. The two assertions below want
