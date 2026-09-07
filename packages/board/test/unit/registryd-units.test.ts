@@ -118,6 +118,38 @@ describe('both units tell the daemon which estate it supervises', () => {
   });
 });
 
+describe('both units start the daemon with --start-agents', () => {
+  /**
+   * **THE TEMPLATE, NOT THE PARSER.** `argsFrom` has always read
+   * `--start-agents` correctly and `registryd-main.test.ts` asserts it — that is
+   * not where this broke. What went unread for the life of the feature is the
+   * UNIT FILE: both templates named `__NODE__ __REGISTRYD__` and nothing else,
+   * so every installation ran a supervisor that decided every hand-over and
+   * performed none.
+   *
+   * Measured 2026-09-07: `handed=2` for three consecutive ticks while both free
+   * agents' manifests read `branch: ""` and had been quiet 3,067 seconds. The
+   * write behind that count is gated at `registryd-main.ts:719`.
+   */
+  it('launchd passes the flag', () => {
+    expect(read(PLIST)).toMatch(/<string>--start-agents<\/string>/);
+  });
+
+  it('systemd passes the flag', () => {
+    expect(read(SERVICE)).toMatch(/^ExecStart=.*--start-agents\s*$/m);
+  });
+
+  /**
+   * BOTH OR NEITHER. A fleet that assigns on macOS and not on Linux is a defect
+   * that only reproduces on half the installations, which is why this asserts
+   * the pair rather than trusting two independent tests to be written together.
+   */
+  it('neither unit is left behind', () => {
+    const both = [read(PLIST), read(SERVICE)].filter((u) => u.includes('--start-agents'));
+    expect(both).toHaveLength(2);
+  });
+});
+
 describe('both units run the daemon at background priority', () => {
   /**
    * A tick is 3.5 s against a 60 s interval — 6% duty — on the machine that

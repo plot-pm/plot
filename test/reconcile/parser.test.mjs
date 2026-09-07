@@ -2066,3 +2066,47 @@ test('plan-meta: a plan carrying no `builds:` parses exactly as before', () => {
       `${b.branch} keeps exactly the keys it had before this field existed`);
   }
 });
+
+// THE DUAL READ IS PERMANENT, NOT SCAFFOLDING. Plot writes `State:` and reads
+// either, for good: a plan file may have been written a year ago or copied from
+// another project, and a Plot that refused to read `Phase:` would be worse at
+// its own job than the one that confused two words.
+//
+// Measured 2026-09-07, after the migration: 228 plan files carry `State:` and 2
+// carry `Phase:` — and both of those are PROSE inside delivered plans that
+// document the old format. Nothing on the estate exercises the `Phase:` arm any
+// more, which is exactly why it needs a test: the last real caller is gone, so
+// only an assertion keeps the arm alive.
+test('plan-meta: State: and Phase: are one field, and the values agree', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'plot-dual-'));
+  try {
+    const body = (field) => [
+      '# A plan',
+      '',
+      '## Status',
+      '',
+      `- **${field}:** Approved`,
+      '- **Type:** feature',
+      '',
+    ].join('\n');
+
+    const read = (field) => {
+      const f = path.join(dir, `${field}.md`);
+      writeFileSync(f, body(field));
+      return JSON.parse(execFileSync('bash', [parser, f], { encoding: 'utf8' }));
+    };
+
+    const state = read('State');
+    const phase = read('Phase');
+
+    assert.equal(state.phase, 'approved', '`State:` must be read as the plan\'s state');
+    assert.equal(phase.phase, 'approved', '`Phase:` must still be read — the dual read is permanent');
+    // THE NORMALISED VALUE IS THE CONTRACT. `phase_raw` differs by spelling and
+    // callers do not switch on it; `phase` is what every consumer reads, so it
+    // is what must not depend on which word the file used.
+    assert.equal(state.phase, phase.phase, 'the two spellings must produce one answer');
+    assert.equal(state.type, phase.type, 'the rest of the Status block parses the same either way');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
