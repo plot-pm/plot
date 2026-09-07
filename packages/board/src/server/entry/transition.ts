@@ -3,10 +3,10 @@ import {
   deliver,
   release,
   isRefusal,
-  type PlanState,
   type TransitionPlan,
   type TransitionResult,
 } from '@plot-pm/domain/transitions/plan';
+import { planStateOf } from '@plot-pm/domain/entities/plan';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
@@ -96,11 +96,18 @@ export const requestFrom = (text: string): Request => {
     verb,
     plan: {
       slug,
-      // The parser spells an unreadable phase `NONE`, and the shell spells an
-      // absent field `''`. Both mean unmeasured, which the domain calls `none`
-      // — and `none` refuses rather than proceeding, so neither collapses into
-      // a phase that would let the transition through.
-      phase: (phase === '' || phase === 'NONE' ? 'none' : phase.toLowerCase()) as PlanState,
+      // THE PLAN ENTITY ANSWERS THIS — `planStateOf`. It was a cast here, and
+      // the cast is what let `UNKNOWN` become the string `'unknown'`: a value
+      // `PlanState` does not admit, typechecking only because the cast silenced
+      // it, and reaching every `switch` in `transitions/plan.ts` as an unhandled
+      // default. The refusal it produced was right by accident.
+      //
+      // The three absences still collapse to `none` and still refuse rather
+      // than proceeding — the parser's `NONE` for a file stating no phase, its
+      // `UNKNOWN` for one it cannot read, and the shell's `''` for an unset
+      // field. What changes is that a total function decides it, so no phase
+      // reaches a transition as a word the type does not admit.
+      phase: planStateOf(phase),
       review: review === '' || review === 'NONE' ? 'none' : review,
       approvedRecord: approved,
       deliveredRecord: delivered,
