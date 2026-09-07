@@ -81,3 +81,17 @@ Three ticks reported `handed=2`. Every field on that line was true — the slice
 That is the same shape as the defect `the-supervisor-says-why-it-handed-nothing` fixed six days earlier, at the opposite end: there, `handed=0` gave no way to tell *nothing was ready* from *something is wrong*. Here, `handed=2` gives no way to tell *two agents were given work* from *two agents were not*.
 
 **A count of decisions is not a count of writes, and the summary line should not use one word for both.** Fixing the unit is this plan; whether `handed=` should distinguish them is worth asking after, and is not assumed here.
+
+### The supervisor also does not stay loaded — 2026-09-07, unexplained
+
+**Three times in one session** the launchd job vanished: `launchctl list` reported nothing, `launchctl print` answered *"Could not find service in domain for user gui: 501"*, and each time `launchctl bootstrap` brought it straight back and it ran normally.
+
+**Every measurement rules out a crash.** `runs = 1` and `last exit code = (never exited)` on a job that had ticked for minutes; `registryd.err` is **0 bytes** across every incarnation; `KeepAlive` is `true`, `ThrottleInterval` 60, and the job is not in launchd's disabled set. A crashing daemon under `KeepAlive` would restart and raise `runs`, and it never did. **It is being booted out, not dying.**
+
+**Nothing in Plot boots it out.** `launchctl bootout` appears once in the codebase, at `plot-fleetctl.sh:480`, reached only by `--stop`, which was not run. `plot-worker-loop.sh` and `plot-dispatch.sh` name it zero times.
+
+**The one correlation.** The last tick before the third disappearance reported `started=2` — the tick that spawned two agents. The agents survived it and are parented to `sh` (51457, 51587), so they are detached rather than children of the daemon. Whether starting agents is the trigger or a coincidence of timing is **not established**, and this note deliberately stops there.
+
+**Why it is recorded here rather than fixed.** This plan is about a supervisor that hands nothing over. A supervisor that hands work over and then disappears is a second defect, and it needs a measurement this session did not get: what the system log says at the moment of the bootout. `log show --predicate 'process == "launchd"'` returned nothing for the window, which is itself a finding — the eviction leaves no trace either.
+
+**What it costs, meanwhile.** The fleet stops being supervised and nothing says so — which is exactly what [`the-board-says-whether-anything-supervises`](2026-09-07-the-board-says-whether-anything-supervises.md) makes visible. That plan was written from the FIRST occurrence of this, before it was known to recur. **It is now the more urgent of the two**: an operator cannot act on a supervisor that leaves without a word until the board tells them it left.
