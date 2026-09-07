@@ -173,6 +173,12 @@ What was burning the machine that time was a **leaked test fixture**. `test/reco
 
 **What is left after three watches.** The job is removed, not crashed (`runs = 1`, `never exited`, 0 bytes of stderr, no launchd log line). It does not come back by itself. Its lifetime is unpredictable across two orders of magnitude. Load is excluded. `--once`, `--start`, `AbandonProcessGroup` and memory pressure are excluded. **The trigger remains unidentified, and this plan states that rather than offering a sixth guess.**
 
+**AND DISPATCH REPORTS SUCCESS WITH NO SUPERVISOR RUNNING — MEASURED 2026-09-07, 23:22.** `plot-dispatch.sh <slug>` printed `handed over <branch> → the registry` for four slices, three rounds running, while the daemon was not loaded. **`ref=0` and no desk for all four**: nothing was claimed, because the registry is what pushes a claim and there was no registry.
+
+**The verb is honest and the sentence is not.** Dispatch hands a slice to a queue and returns; it neither starts a worker nor pushes a ref, by design (`DESIGN-agent.md:157`). But *"handed over → the registry"* reads as *somebody has it*, and with no daemon the queue is a file nothing reads.
+
+**A caller cannot tell the difference from the output**, which is how an automation loop re-queued the same four slices every three minutes without noticing. **The supervisor is a precondition for dispatch, not merely for progress** — and nothing in dispatch says so.
+
 **THIS DOES NOT EXCUSE THE DAEMON.** A supervisor that is evicted under exactly the load a working fleet produces is a supervisor that leaves when it is most needed. But the trigger is now named, and the two follow-ups are separable: an orphaned-scan reaper, and whether `ProcessType: Background` is the right class for a job that must outlive a busy fleet.
 
 **Why it is recorded here rather than fixed.** This plan is about a supervisor that hands nothing over. A supervisor that hands work over and then disappears is a second defect, and it needs a measurement this session did not get: what the system log says at the moment of the bootout. `log show --predicate 'process == "launchd"'` returned nothing for the window, which is itself a finding — the eviction leaves no trace either.
