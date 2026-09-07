@@ -86,10 +86,53 @@ Each branch was compared against `main` rather than assumed abandoned. **Three h
 | `bug/the-claimable-guard-counts-what-remains` | **superseded** — the `> 20` floor is gone from main |
 | `bug/the-corpus-reads-a-head-it-may-not-own` | **superseded** — main creates the symref rather than tolerating its absence |
 | `bug/main-typechecks-without-dead-tfidf` | **landed** — the TF-IDF helpers it deletes are already gone |
-| `bug/a-hung-cleanup-says-which-half` | **UNRECOVERED** — `PLOT_LOOP_TRACE` exists nowhere on main |
+| `bug/a-hung-cleanup-says-which-half` | **landed** — as a fix and a comment, not as code |
 
 **THE MONITOR BRANCH IS THE INSTRUCTIVE ONE.** Both it and main fixed the same 2026-09-01 CI failure — three PRs failing at once — and **main's fix is the better one**: it polls `run.monitorCalls()`, scoped to this monitor's subcommands, where the branch polled `stub.calls()`, the whole log. The branch also held the agent with `sleep 20`; main needs no sleep because the scoped poll cannot return on somebody else's call.
 
 **Two engineers solved one flake independently and neither knew.** That is the cost this plan is about, priced: not the lost work, but the duplicated work.
 
-**`a-hung-cleanup-says-which-half` is the one to recover.** It adds `_stage` markers through the worker loop's cleanup block, guarded by `PLOT_LOOP_TRACE` so an ordinary dispatch is unchanged, because *"the hang is somewhere in this block and the process table cannot say where — every snapshot shows the same three processes."* Main still has all 14 `_kill_tree`/`wait` sites and no way to tell which one hangs. It conflicts with main and needs a rebase, not a merge.
+**`a-hung-cleanup-says-which-half` read as the one to recover, and the reading was wrong.** It adds `_stage` markers through the worker loop's cleanup block, guarded by `PLOT_LOOP_TRACE`, because *"the hang is somewhere in this block and the process table cannot say where."* A search of main for `_stage` and `PLOT_LOOP_TRACE` returns nothing, which is what produced the verdict — and the correct question was whether the FINDING landed, not the code.
+
+### All twelve, worked through — 2026-09-07
+
+The first pass checked five. **All twelve were then compared against `main`, and the result changes the plan's claim.**
+
+| branch | files | verdict |
+|---|---|---|
+| `feature/the-scan-asks-for-the-state` | 11 | **live** — dispatched today |
+| `plot-corpus-pin` | 13 | merges and deliveries only, no unique commit |
+| `bug/an-idle-reading-does-not-end-a-worker` | 0 | zero commits |
+| `infra/the-estate-speaks-waves` | 87 | **superseded** — the estate went to `## Slices`, 223 files, zero `## Waves` |
+| `infra/the-components-leave-the-shell` | 12 | **superseded** — `agent-rows/` already holds the split |
+| `infra/a-wedged-run-says-what-it-held` | 5 | **landed** — the TAP reporter is in `ci.yml` |
+| `idea/the-pr-list-join-is-silently` | 2 | **landed** — the plan is on main |
+| `bug/main-typechecks-without-dead-tfidf` | 2 | **landed** |
+| `bug/the-monitor-samples-a-pushed-desk` | 6 | **superseded**, better |
+| `bug/the-claimable-guard-counts-what-remains` | 1 | **superseded** |
+| `bug/the-corpus-reads-a-head-it-may-not-own` | 2 | **superseded** |
+| `bug/a-hung-cleanup-says-which-half` | 3 | **landed** — the finding did, and the instrument was removed with it |
+
+**TWELVE OF TWELVE ARE ALREADY ON MAIN OR SUPERSEDED. NOT ONE PIECE OF WORK IS LOST.**
+
+**That inverts what the count suggested.** Twelve unmerged refs with no PR reads as twelve pieces of lost work; it is zero, plus twelve refs nobody swept because no rule sweeps an unmerged branch.
+
+**So the cost is not lost work.** It is that **the estate cannot tell a superseded branch from an unfinished one**, and a person must read every diff to find out. All twelve were safe to delete for weeks and nothing said so.
+
+**And the reaper is right to refuse all twelve anyway.** `finishedWith` asks *did the host merge a PR for this?* — the answer is no for every one, including the twelve whose content reached main by another route. The refusal is correct **because it does not depend on this audit having been done**: a rule that deleted on content-equivalence would have needed a reader as careful as the one below to be safe, and would have run without one.
+
+### The twelfth was recovered by reading main, not by rebasing — 2026-09-07
+
+**The instruction was "recover it". The recovery was already done, three weeks ago, and this plan had recorded the opposite.**
+
+`plot-worker-loop.sh:1332-1335` on main, in a comment where the two `wait` calls used to be:
+
+> *"the `wait` on the WATCHDOG is where the loop hung — measured on CI, not inferred: stage markers around each call stopped at `"B: waiting on watchdog"` and never printed C, D or E (PR #563, run 33393895431)."*
+
+**`B` is this branch's marker, quoted by its letter.** The branch shipped an instrument; the instrument ran on CI, named the hung line, and the fix it pointed at landed — `[ -n "$_watchdog_pid" ] && _kill_tree "$_watchdog_pid"` with no `wait` after it. The instrument was then removed, because a diagnostic that has answered its question is dead weight.
+
+**THE AUDIT ASKED THE WRONG QUESTION, AND IT IS THE QUESTION ANY SWEEP WOULD ASK.** It searched main for the branch's own tokens — `_stage`, `PLOT_LOOP_TRACE` — found neither, and concluded the work was lost. A diagnostic branch is precisely the case where that test fails: **its success condition is its own deletion.** The three superseded branches above were caught because their replacement does the same job in different words; this one had no replacement to find, because what replaced it was a four-line comment and the absence of two lines.
+
+**What actually found it** was reading the code the branch touched and noticing main's comment cites the branch's own output. That is not a search a rule can run.
+
+**So the plan's argument gets stronger and its example gets weaker.** No sweep keyed on content-equivalence, token overlap, or age would have kept this branch — but none needed to, because nothing on it was owed. The estate's real gap is unchanged: **twelve refs, all finished, none marked so, and one careful reader per branch was the only way to learn it.**
