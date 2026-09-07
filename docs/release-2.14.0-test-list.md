@@ -145,7 +145,17 @@ One pid for an hour is evidence. A gap is the defect returning under a new key.
 
 ---
 
-## 7 — Before cutting
+## 7 — Full lifecycle walkthrough (the skills)
+
+The skills have no unit tests; a lifecycle run is their only validation. Follow [fleet-user-test.md](fleet-user-test.md) for dispatch, the fleet pulse and the merge queue, then confirm:
+
+- [ ] A plan written from the template carries `## Slices` **and `- **State:**`**, and `plot-plan-meta.sh` reads both. The template changed in this release.
+- [ ] `/plot-idea` → `/plot-approve` → `/plot-implement` → `/plot-deliver` on one small plan, end to end.
+- [ ] `/plot-fleet --start` on a machine with no unit installed: the daemon comes up **with `--start-agents`**, and a dispatched slice reaches a free agent's manifest with no hand write.
+- [ ] `/plot-dispatch --stop <branch>` on an agent whose desk is `free-<hash>` rather than the derived path. **Measured 2026-09-07: it refuses with *"no worktree for …"* because it rebuilds the path from the branch name.** Its own dispatch-side docs forbid exactly that. Not fixed in this release; confirm it still refuses rather than stopping the wrong desk.
+- [ ] An agent that finds its slice already done writes a `PLOT-BLOCKED` marker and asks, instead of writing duplicate code.
+
+## 8 — Before cutting
 
 - [ ] §0 run twice — one failure is the host, two is a defect
 - [ ] Four conditions measured; `plot-sprint-release.sh` hole decided explicitly
@@ -153,3 +163,10 @@ One pid for an hour is evidence. A gap is the defect returning under a new key.
 - [ ] Sprint items: 6 `done`, 2 `disputed` — both bookkeeping, neither outstanding work
 - [ ] `./scripts/check-changeset-packages.sh` passes over all 73
 - [ ] Supervisor watched for one hour — expect a gap; record the lifetime, do not claim a fix
+
+## What this list deliberately omits
+
+- **Anything a test already decides.** 1393 `test/reconcile` and 2124 domain assertions pass on this candidate; re-checking them by hand would find nothing.
+- **`pnpm run test:e2e`.** CI's gate, not a local one — it dispatches real workers into sandbox repositories. Measured 2026-08-31: two agents running it produced **53 concurrent `node --test` processes** and a board that could not answer a request in 25 seconds.
+- **Re-reading the 228 renamed plan files.** `Phase:` → `State:` was applied by a migration that reuses `withPhase`'s `## Status` scoping, and the parser reads both spellings — now asserted in `test/reconcile/parser.test.mjs`, which matters because **nothing on the estate exercises the `Phase:` arm any more**. What is worth a look instead is §7's first item: a plan written from the template today, parsed end to end.
+- **The 13 stale `PLOT-BLOCKED` markers cleared on 2026-09-07.** They were byte-identical copies of one agent's question, carried into every desk it hopped to, on branches whose PRs had all merged. Cleared by hand; the reaper is right to refuse a marker it cannot date, and no rule change shipped for it.
