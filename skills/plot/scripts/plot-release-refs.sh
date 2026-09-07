@@ -269,6 +269,13 @@ while IFS=$'\t' read -r br deferred; do
 // An ABSOLUTE path derived from this script, never from the cwd: this runs
 // wherever the operator invoked it, and the reconcile suite runs it against
 // sandbox repos in the temp directory.
+//
+// NO APOSTROPHE MAY APPEAR ANYWHERE IN THIS BLOCK. bash 3.2 is /bin/bash on
+// macOS, and it is what the reconcile suite runs this script under when it
+// strips PATH. It parses the body of a quoted heredoc nested inside `$(...)`,
+// so one contraction opens a string that never closes and the whole file fails
+// to parse. The error reads `unexpected EOF` and names a line 30 further down,
+// which points nowhere near the apostrophe.
 const { finishedWith } = await import(process.env.PLOT_RULE);
 
 const held = finishedWith({
@@ -281,13 +288,6 @@ const held = finishedWith({
   // empty because the rule shape asks for them, and the tree reading below is
   // what makes them honest: with no tree they answer `unknown`, and this
   // caller reads none of the three either way.
-  //
-  // NO APOSTROPHE MAY APPEAR ANYWHERE IN THIS BLOCK. bash 3.2 — which is what
-  // /bin/bash is on macOS, and what the reconcile suite runs this script under
-  // when it strips PATH — parses the body of a quoted heredoc nested inside
-  // `$(...)`, so a `it is` written as a contraction opens a string that never
-  // closes and the whole file fails to parse. The error names a line 30 below
-  // the apostrophe and says `unexpected EOF`, which points nowhere useful.
   workerPid: null,
   dirtyPath: "",
   blockedMarker: false,
