@@ -138,6 +138,19 @@ What was burning the machine that time was a **leaked test fixture**. `test/reco
 
 **One escapee had been spinning a full core for 22 hours 58 minutes.** Killing it alone took the load average from 36.7 to 24.4. Fixed by spawning `detached` and signalling the process group; the test now passes and leaks nothing, measured 0 before and 0 after.
 
+**THE LOAD EXPLANATION IS DISPROVED — 2026-09-07.** A second watcher recorded the load average at **every** sample, which gave the hypothesis a way to fail, and it failed:
+
+```
+13:16:43 up   load=4.37
+13:17:03 *** GONE *** load=4.30  (lived 320s)
+```
+
+**Load never exceeded 4.37 across the whole 320-second life.** The first watcher caught a death at 43.68 and that reading was real, but it was one observation, and the other evictions were correlated with load measured *at discovery* rather than at death. One high-load death does not make load the trigger.
+
+**What survives, and what does not.** `ProcessType: Background` remains the only structural difference between this job and the board that has run 2d 12h beside it — that comparison is unchanged. What is now unsupported is *when* it fires: it is not load, and this plan no longer claims it is.
+
+**What the record actually shows** is a job removed with `runs = 1`, `last exit code = (never exited)`, 0 bytes of stderr, no launchd log line, at loads from 4.30 to 43.68, living 320 s to 70 min. The trigger is unidentified.
+
 **THIS DOES NOT EXCUSE THE DAEMON.** A supervisor that is evicted under exactly the load a working fleet produces is a supervisor that leaves when it is most needed. But the trigger is now named, and the two follow-ups are separable: an orphaned-scan reaper, and whether `ProcessType: Background` is the right class for a job that must outlive a busy fleet.
 
 **Why it is recorded here rather than fixed.** This plan is about a supervisor that hands nothing over. A supervisor that hands work over and then disappears is a second defect, and it needs a measurement this session did not get: what the system log says at the moment of the bootout. `log show --predicate 'process == "launchd"'` returned nothing for the window, which is itself a finding — the eviction leaves no trace either.
