@@ -69,7 +69,7 @@ export * from './rules/landed.js';
  * module: `BranchReadings` is what the derivation takes, `RefReadings` is what
  * the ref guard takes.
  */
-export { branchState } from './rules/branch-state.js';
+export { branchState, REPLACEABLE_BY_PREREQUISITE } from './rules/branch-state.js';
 export type {
   BranchReadings,
   HostReach,

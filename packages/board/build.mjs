@@ -318,6 +318,33 @@ await esbuild.build({
 fs.copyFileSync(standingArtifact, shippedStanding);
 fs.chmodSync(shippedStanding, 0o755);
 
+// The eight branch states, reachable from the scan that reads them.
+//
+// AN ELEVENTH artifact, for the reason the third through tenth ones give:
+// plot-ask.mjs answers by RUNNING plot-fleet-scan.sh, so the scan asking it for
+// its own branch states would be an artifact calling the script that called it.
+//
+// ONCE PER PLAN on the 5 s pulse path — the same call site plot-verdicts.mjs
+// already runs from — so the import cost is paid per plan and this entry pulls
+// in one rule and no schema.
+const branchStateArtifact = path.join(here, 'dist/plot-branch-state.mjs');
+const shippedBranchState = path.join(here, '../../skills/plot/scripts/board/plot-branch-state.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/branch-state.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: branchStateArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(branchStateArtifact, shippedBranchState);
+fs.chmodSync(shippedBranchState, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -422,6 +449,7 @@ const registrydKb = (fs.statSync(shippedRegistryd).size / 1024).toFixed(1);
 const landedKb = (fs.statSync(shippedLanded).size / 1024).toFixed(1);
 const deltaKb = (fs.statSync(shippedDelta).size / 1024).toFixed(1);
 const standingKb = (fs.statSync(shippedStanding).size / 1024).toFixed(1);
+const branchStateKb = (fs.statSync(shippedBranchState).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -433,4 +461,5 @@ console.log(`Built plot-registryd.mjs (${registrydKb} KB) → skills/plot/script
 console.log(`Built plot-landed.mjs (${landedKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-delta.mjs (${deltaKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-standing.mjs (${standingKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-branch-state.mjs (${branchStateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
