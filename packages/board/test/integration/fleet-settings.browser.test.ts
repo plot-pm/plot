@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { type Page } from 'playwright';
+import { type Page, type Route } from 'playwright';
 import { expandAgentFolds } from '../helpers.mjs';
 import { openCatalogue, type Catalogue } from '../catalogue/index.js';
 import type { AgentRow, Fleet } from '../../src/contract/schema.js';
@@ -83,17 +83,32 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
    * `/api/fleet-controls` echoing whatever it is POSTed (merged onto `payload`'s
    * controls) — a synchronous route callback, because an async one fails tests
    * that already passed.
+   *
+   * BOTH ROUTES ARE INSTALLED BEFORE THE FIRST NAVIGATION, through the
+   * catalogue's `route` option. Installing them on an already-navigated page
+   * left a window the client's first `/api/fleet` fetch could land in: the real
+   * server answered, the app rendered `FLEET_CONTROLS_DEFAULT`, and
+   * `parallelAgents` read 3 where the test had supplied 1. The window is a race,
+   * so the stub's presence is a precondition here rather than a timing outcome.
    */
-  async function open(payload: Fleet): Promise<{ page: Page; posts: unknown[] }> {
-    const page = await cat.open('an-empty-estate', { tab: 'agents' });
+  async function open(
+    payload: Fleet,
+    extra: Record<string, (route: Route) => unknown> = {},
+  ): Promise<{ page: Page; posts: unknown[] }> {
     const posts: unknown[] = [];
-    await page.route('**/api/fleet', (route) =>
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
-    await page.route('**/api/fleet-controls', (route) => {
-      const patch = JSON.parse(route.request().postData() ?? '{}');
-      posts.push(patch);
-      const merged = { ...payload.fleetControls, ...patch };
-      route.fulfill({ contentType: 'application/json', body: JSON.stringify(merged) });
+    const page = await cat.open('an-empty-estate', {
+      tab: 'agents',
+      route: {
+        '**/api/fleet': (route) =>
+          route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }),
+        '**/api/fleet-controls': (route) => {
+          const patch = JSON.parse(route.request().postData() ?? '{}');
+          posts.push(patch);
+          const merged = { ...payload.fleetControls, ...patch };
+          route.fulfill({ contentType: 'application/json', body: JSON.stringify(merged) });
+        },
+        ...extra,
+      },
     });
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
@@ -176,16 +191,22 @@ describe('the two fleet controls (real browser renders the shipped artifact)', (
     // the dispatching. A switch that is on must reach `/api/fleet-controls` and
     // NEVER `/api/dispatch`, or this wave would be starting agents it was
     // explicitly told not to.
-    const { page } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }));
     const dispatched: unknown[] = [];
-    await page.route('**/api/dispatch', (route) => {
-      dispatched.push(route.request().postData());
-      route.fulfill({ status: 202, contentType: 'application/json', body: '{}' });
+    const { page, posts } = await open(fleet({ autoDispatch: false, parallelAgents: 3 }), {
+      // Routed BEFORE the navigation like the other two, so a dispatch fired at
+      // any point in the page's life is counted — a route added after the click
+      // can only ever prove the calls it was present for.
+      '**/api/dispatch': (route) => {
+        dispatched.push(route.request().postData());
+        route.fulfill({ status: 202, contentType: 'application/json', body: '{}' });
+      },
     });
     try {
       await page.locator('[data-fleet-auto-dispatch]').click();
-      // Give any errant dispatch a beat to fire before asserting it did not.
-      await page.waitForTimeout(200);
+      // WAIT FOR THE EVENT, NOT A DURATION. The click's own POST arriving is
+      // proof the handler ran to completion, so a dispatch it would have made
+      // has already been made. A sleep can only assume that.
+      await expect.poll(() => posts).toContainEqual({ autoDispatch: true });
       expect(dispatched).toHaveLength(0);
     } finally {
       await page.close();

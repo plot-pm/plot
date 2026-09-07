@@ -95,12 +95,31 @@ export const WRITE_ENDPOINTS = [
 export const writesReferenced = (code: string): string[] =>
   WRITE_ENDPOINTS.filter((ep) => new RegExp(`/api/${ep}\\b`).test(code));
 
-/** The endpoints handed to `page.route` — intercepted, so no script runs. */
+/**
+ * The endpoints this source intercepts — so no script runs behind them.
+ *
+ * **TWO FORMS, BECAUSE THE SUITE HAS TWO.** `page.route(...)` installs a route
+ * on an already-navigated page; `cat.open({ route: { '**\/api/x': … } })` hands
+ * the catalogue a map it installs BEFORE the first navigation. The second is
+ * the form a test must use when the stub has to beat the app's own first fetch,
+ * and `agents-tab.browser.test.ts` already used it.
+ *
+ * Reading only the first was a blindness rather than a rule: measured
+ * 2026-09-07, `fleet-settings.browser.test.ts` moved its two routes into
+ * `cat.open` to fix a race, intercepted exactly as much as before, and this
+ * gate reported it as a file whose write reaches a script.
+ *
+ * The key form is matched, not the call, because both spellings put the
+ * endpoint in a string literal beside `/api/` — and a gate that tracked which
+ * function received it would have to be taught every future wrapper.
+ */
 export const endpointsIntercepted = (code: string): ReadonlySet<string> =>
-  new Set(
-    [...code.matchAll(/page\.route\(\s*['"`][^'"`]*\/api\/([a-z-]+)/g)]
+  new Set([
+    ...[...code.matchAll(/page\.route\(\s*['"`][^'"`]*\/api\/([a-z-]+)/g)]
       .map((m) => m[1] as string),
-  );
+    ...[...code.matchAll(/['"`][^'"`]*\/api\/([a-z-]+)[^'"`]*['"`]\s*:/g)]
+      .map((m) => m[1] as string),
+  ]);
 
 /**
  * A `page.route` handler and the few lines that follow it.
