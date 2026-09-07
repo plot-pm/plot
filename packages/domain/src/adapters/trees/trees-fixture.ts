@@ -1,6 +1,7 @@
 import type { Worktree } from '../../entities/worktree.js';
 import { answered, failed } from '../../port-result.js';
 import type { Trees } from '../../ports/trees.js';
+import type { TreePresence } from '../../rules/reapable.js';
 
 /** The desks a fixture `Trees` answers from. */
 export interface TreesFixture {
@@ -94,6 +95,14 @@ export const treesFixture = (fixture: TreesFixture = {}): Trees => {
 
     forBranch: async (branch) =>
       answered(worktrees.find((tree) => tree.branch === branch) ?? null),
+
+    // The same derivation the git adapter makes, from the same field, so a
+    // fixture can trigger `vanished` without a directory to delete.
+    presence: async (branch) => {
+      const tree = worktrees.find((each) => each.branch === branch);
+      if (tree === undefined) return answered<TreePresence>('absent');
+      return answered<TreePresence>(tree.prunable ? 'vanished' : 'present');
+    },
 
     isClean: async (path) => answered(clean.has(path)),
 
