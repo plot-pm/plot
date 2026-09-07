@@ -24,6 +24,10 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 | **legible** | a refusal that names a cause without naming the repair |
 | **unattended** | a path that needs somebody who already knows Plot |
 
+**EVERY ITEM HERE IS A DEVELOPER-EXPERIENCE DEFECT, INCLUDING THE ONES THAT LOOK LIKE PLUMBING.** A rule with two implementations is not an architecture concern until a teammate reads two answers to one question and cannot tell which is Plot's. A `--stop` that refuses is not a lookup bug until somebody reaches for `kill` and loses a desk. A PR that goes red unnoticed is not a monitoring gap until the person who would notice is not the person who dispatched.
+
+**On one machine each of these is an annoyance somebody absorbs. On a team each is a moment where Plot asks to be understood rather than used** — and that is the same failure the goal names, arriving through a different door.
+
 ### The estate is further along than it looks, and the gaps are specific
 
 **Measured 2026-09-07.** `plot-host.sh` carries a Bitbucket branch for **eight of eleven** PR and issue operations: `pr-list` and `issue-list` (8 `bb` calls each), `issue-view` (4), `pr-state` (3), `default-branch` and `pr-ready` (2), `pr-body`, `pr-create`, `pr-merge`, `pr-merged` (1 each). The tracker port already has **four connectors**, `tracker-jira.ts` among them. `plot-board-probe.sh` already checks `gh`, `bb` **and** `jen` auth.
@@ -58,7 +62,11 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 - [ ] [one-account-has-one-budget] `HostBackend` is `string` at `ports/host.ts:16` but `host-shell.ts` throws on an unknown vendor, so a third host is not an adapter-only change today. A team on Bitbucket with Jenkins has **two remote services, two accounts, two rate windows** — the connector kind already says the budget belongs to each
 
-- [ ] [the-fleet-stop-finds-its-desk] `plot-dispatch.sh:1171` rebuilds the desk path from the branch name, so `--stop` refuses every agent `--start` creates. A teammate whose first fleet stop refuses will reach for `kill`, which is the guess the one stop rule exists to prevent. Plan filed 2026-09-07
+- [ ] [a-dispatch-stop-finds-the-desk] `plot-dispatch.sh:1171` rebuilds the desk path from the branch name, so `--stop` refuses every agent `--start` creates. A teammate whose first fleet stop refuses will reach for `kill`, which is the guess the one stop rule exists to prevent. Plan filed 2026-09-07
+
+- [ ] [a-sprint-item-has-one-scorer] `scoreItem` is exported, tested and documented in the domain, and **nothing calls it** — the live rule is 12 lines of bash that already disagree with it about an item with no plan. This is the previous sprint's own goal unmet in one place, and it is here rather than in its Notes because a team reads sprint status more often than one person does. Plan filed 2026-09-07
+
+- [ ] [a-withdrawn-item-is-not-open] <!-- waits: a-sprint-item-has-one-scorer --> A sprint item whose plan was withdrawn reports as withdrawn rather than blocking a release forever. **It waits for the single scorer**: against today's split it is four edits with no gate, because the bash and the TypeScript cannot import each other. Plan filed 2026-09-07
 
 ### Could Have
 
@@ -82,4 +90,10 @@ So the Must Haves are written to be **falsified by one walkthrough**: adopt on a
 - **The supervisor is removed by something unidentified**, does not restart itself, and needs a hand reload. Six explanations tested and disproved. On one machine that is an annoyance; on a team it is a fleet that stops without anyone being told.
 - **One domain test is load-flaky** against the live host. On a team the suite runs more often, from more machines, and a flake nobody can distinguish from a break is a suite people stop trusting.
 
-**None of these is in this sprint's MoSCoW**, deliberately — they are inherited debt with plans already written, and a sprint that absorbs its predecessor's remainder measures nothing about its own goal.
+**Two of these ARE in this sprint's MoSCoW, and the third is not.**
+
+`a-sprint-item-has-one-scorer` is a Should: two implementations of one rule that already disagree is a teammate reading two answers and having to know which one Plot means. It brings `a-withdrawn-item-is-not-open` with it, gated by a `waits:` annotation, because against today's split that plan is four edits with no gate.
+
+**The supervisor's unexplained removal is deliberately not an item.** Six explanations have been tested and disproved, so nothing here could be written as a done-when — and a sprint item whose completion cannot be stated is a wish. What ships instead is 2.14.0's supervisor badge, which makes the absence visible while the cause is unknown; if a seventh explanation is found in this window it earns its own plan.
+
+**The load-flaky domain test is not an item either**, for the opposite reason: the release list already tells a cutter to run the suite twice, which is the whole fix until it fails twice at the same assertion.
