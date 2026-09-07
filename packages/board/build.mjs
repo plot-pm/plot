@@ -18,6 +18,99 @@ if (!fs.existsSync(clientHtml)) {
   process.exit(1);
 }
 
+// The prose the generated module carries, held apart from the loop that fills
+// it so the explanation a reader meets in `bundles.generated.ts` is readable
+// here too. A generated file explaining itself is the only way its reader
+// learns not to edit it.
+const BUNDLES_HEADER = `/**
+ * THE BUNDLES \`build.mjs\` EMITS — GENERATED, NEVER EDITED BY HAND.
+ *
+ * Written by \`packages/board/build.mjs\` from its own \`shippedX = path.join(…)\`
+ * declarations, which are what an author writes when adding a bundle. Edit the
+ * build; run \`pnpm build:board\`; this file follows.
+ *
+ * ## Why this file exists rather than a list in the contract
+ *
+ * The list was typed out in \`contract/schema.ts\` and drifted three times in one
+ * evening — 9, then 10, then 11 entries against a build emitting one more each
+ * time. Every drift surfaced as an UNRELATED branch's CI failing on a bundle it
+ * never touched, which is the failure this removes: a bundle added in one PR
+ * must not be able to fail another branch's CI.
+ *
+ * ## Why generated rather than derived at import time
+ *
+ * The contract is bundled INTO the artifacts it describes, and a bundle must not
+ * read the repository to load. \`src/server/stuck.ts\` and \`src/server/resolver.ts\`
+ * both consume this inside the served bundle, so the value has to be a
+ * compile-time constant. Making the contract \`import('../../build.mjs')\` would
+ * drag esbuild's config into the served bundle, which is the one thing this
+ * change may not do.
+ *
+ * ## Why committed rather than ignored
+ *
+ * \`pnpm run typecheck\` runs \`tsc --noEmit\` with no build, and CI runs it BEFORE
+ * \`build:board\`. An ignored file would fail typecheck on a fresh clone. Being
+ * committed, its freshness is asserted by
+ * \`test/reconcile/resolveartifact.test.mjs\`, which compares this file, the
+ * shell's \`bundle_set\` and \`build.mjs\` as SETS — the same test that used to
+ * assert somebody had remembered, now asserting the derivation ran.
+ *
+ * ## It is a bundle INPUT, not a bundle output
+ *
+ * So it carries no \`-merge\` mark. \`.gitattributes\` marks the twelve \`.mjs\`
+ * artifacts, whose licence is a deterministic rebuild that overwrites whichever
+ * side a merge kept. This is TypeScript source holding one sorted array; a
+ * conflict here is a real conflict about which bundles exist, and reading it is
+ * the correct resolution.
+ */
+export const BOARD_ARTIFACT_PATHS: readonly string[] = [
+`;
+
+// THE BUNDLE SET, DERIVED FROM THIS FILE AND WRITTEN FOR THE CONTRACT TO IMPORT.
+//
+// FIRST, before any esbuild call, because the contract it feeds is bundled INTO
+// every artifact below. Generating afterwards would ship the previous run's set.
+//
+// The declarations below are the source: `const shippedX = path.join(here,
+// '../../<path>')` is what an author writes when adding a bundle, and three
+// readers now derive from it rather than restating it — this generator,
+// `scripts/check-bundle-attributes.sh`, and `plot-resolve-artifact.sh`'s
+// `bundle_set()`. The contract used to be a fourth DEFINITION, typed out by
+// hand, and it drifted three times in one evening: 9, then 10, then 11 entries
+// against a build emitting one more each time. Each drift surfaced as an
+// unrelated branch's CI failing on a bundle it never touched.
+//
+// It reads its own source rather than a list of the `shippedX` bindings. That
+// is deliberate and is what makes the derivation total: a binding this file
+// forgot to append to such a list would be invisible, which is the same defect
+// one level down. The regex is the one the other two readers use, so a build
+// that changes shape breaks all three together rather than silently blinding
+// one — and finding nothing is a hard failure here for that reason.
+const generatedBundles = path.join(here, 'src/contract/bundles.generated.ts');
+{
+  const source = fs.readFileSync(path.join(here, 'build.mjs'), 'utf8');
+  const emitted = [
+    ...new Set(
+      [...source.matchAll(/shipped[A-Za-z]* = path\.join\([^)]*'\.\.\/\.\.\/([^']*)'\)/g)]
+        .map((m) => m[1]),
+    ),
+  ].sort();
+  if (emitted.length === 0) {
+    console.error('No shipped bundles found in build.mjs — the derivation is blind.');
+    console.error("It reads declarations shaped `const shippedX = path.join(here, '../../<path>');`");
+    console.error('Finding none means the build changed shape. Fix the derivation, not this file.');
+    process.exit(1);
+  }
+  const generated = `${BUNDLES_HEADER}${emitted.map((b) => `  '${b}',\n`).join('')}];\n`;
+  // Written only when it would CHANGE. `node --watch` serves the board during
+  // development and restarts on any write under `src/`, so an unconditional
+  // rewrite of a file inside the watched tree makes every build restart the
+  // running board for a byte-identical result.
+  if (!fs.existsSync(generatedBundles) || fs.readFileSync(generatedBundles, 'utf8') !== generated) {
+    fs.writeFileSync(generatedBundles, generated);
+  }
+}
+
 const distArtifact = path.join(here, 'dist/board-server.mjs');
 const shippedArtifact = path.join(here, '../../skills/plot/scripts/board/board-server.mjs');
 
