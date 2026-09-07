@@ -1109,7 +1109,7 @@ export const UNADMITTED_STATE = 'UNKNOWN';
 /**
  * A sprint's stated phase, or `UNKNOWN` where the domain does not admit it.
  *
- * @param stated - the `- **Phase:**` value, trimmed, as the file spells it.
+ * @param stated - the `- **State:**` value, trimmed, as the file spells it.
  * @returns the phase, or {@link UNADMITTED_STATE}.
  */
 const readSprintPhase = (stated: string): string =>
@@ -1158,7 +1158,10 @@ export function parseSprintContent(content: string, name: string): SprintCard | 
   const slug = slugMatch ? slugMatch[1] : path.basename(base, '.md');
   const statusSection = content.match(/## Status\s*\n([\s\S]*?)(?=\n## |$)/);
   const statusBody = statusSection ? statusSection[1] : '';
-  const phaseMatch = statusBody.match(/^- \*\*Phase:\*\* (.+)$/m);
+  // `State:` is the field a sprint file carries; `Phase:` is what it was called
+  // before 2026-09-07, and both are read for good. A file may have been written
+  // a year ago or copied from another project.
+  const phaseMatch = statusBody.match(/^- \*\*(?:State|Phase):\*\* (.+)$/m);
   const stated = phaseMatch ? phaseMatch[1].trim() : '';
   // NO PHASE AT ALL IS NOT A SPRINT FILE, and that answer is unchanged: the
   // walk reads every markdown file under `active/`, so `null` is how a README

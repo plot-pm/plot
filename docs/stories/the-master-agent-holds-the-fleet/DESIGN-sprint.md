@@ -144,7 +144,7 @@ week *is* the prefix), no index precedence — closer to Story's than to Plan's.
 |---|---|---|---|
 | `slug` | string | 4/4 | from the filename |
 | `title` | string | 4/4 | the `# Sprint: …` heading |
-| `state` | `Planning`\|`Committed`\|`Active`\|`Closed` | 4/4 | written `Phase:` in the file — see §4 |
+| `state` | `Planning`\|`Committed`\|`Active`\|`Closed` | 4/4 | written `State:` in the file — see §4 |
 | `start` | date | 4/4 | |
 | `end` | date | 4/4 | **one carries prose — see below** |
 | `release` | version | **4/4** | the gate's key |
@@ -272,11 +272,18 @@ Sprint is also where *state* fits best of the three: a sprint is not **at** a
 stage of the team's process, it **is in** a condition. `Committed` describes the
 sprint, not where the work has reached.
 
-**The field stays named `Phase:`** for the same reason the plan's does — it is
-the established spelling across four files and the board's `SPRINT_PHASES`
-enum, and renaming a parsed field to fix an imprecision costs more than it
-buys. **The word in the file is `Phase:`; the thing it holds is a state; and unlike a
-plan's state, the workflow maps no phase onto it at all.**
+**The field is named `State:`.** This section read *"the field stays named
+`Phase:`"* until 2026-09-07, on the grounds that the established spelling cost
+more to change than the imprecision cost to keep. `the-workflow-owns-the-word-phase`
+reversed that in its second round: a plan arguing that a plan has states, while
+every plan file says `Phase:`, teaches the conflation it exists to remove — and
+the argument holds identically for a sprint, which this section had already
+found is the entity *state* fits best. **The word in the file is `State:`; the
+thing it holds is a state; and unlike a plan's state, the workflow maps no
+phase onto it at all.**
+
+Both spellings are read, permanently. A sprint file written before the rename
+still parses.
 
 Unlike a plan's states — each gated, each written by a spoke command — **a
 sprint's state is a hand-written field that nothing enforces and nothing

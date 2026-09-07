@@ -327,7 +327,7 @@ Always ask — don't infer from the title.
 
 ### 6. Commit the Plan (and link it, best effort)
 
-The **plan file is the plan**. Its `Phase:` field is what makes it visible to
+The **plan file is the plan**. Its `State:` field is what makes it visible to
 every reader, so the commit must not depend on the index write succeeding:
 
 ```bash

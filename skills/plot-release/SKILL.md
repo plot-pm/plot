@@ -396,7 +396,7 @@ If RC tags exist for this version, they remain in git history (don't delete them
 ### 5b. Record the Release in the Plans
 
 The release exists; the plans it shipped do not know it. Until this step, no
-plan in this repo's history had ever reached `Phase: Released` — not once across
+plan in this repo's history had ever reached `State: Released` — not once across
 sixteen versioned releases — because step 4 hands off to the project's release
 process and nothing came back afterwards.
 
@@ -404,7 +404,7 @@ process and nothing came back afterwards.
 claims a version nobody released. Verify with `git tag --list v<version>` before
 writing anything.
 
-For each plan currently at `Phase: Delivered`:
+For each plan currently at `State: Delivered`:
 
 1. **Skip docs/infra plans.** `/plot-deliver` already told their authors they are
    live on merge; marking them Released contradicts a message Plot itself sends.
@@ -426,7 +426,7 @@ For each plan currently at `Phase: Delivered`:
 4. Write, in the plan's `## Status`:
 
    ```
-   - **Phase:** Released
+   - **State:** Released
    - **Released:** <tag date>, <version>
    ```
 

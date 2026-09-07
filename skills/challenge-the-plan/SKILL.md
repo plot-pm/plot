@@ -217,7 +217,7 @@ END-CHALLENGE-THE-PLAN-METADATA -->
    - If it does not → insert `- **Rounds:** N` immediately after `- **Impl:**`
 
    Never a rewrite of the section, never a reflow, never an insert computed from
-   a line number. `## Status` holds `Phase:`, `Type:`, and the `Approved:` /
+   a line number. `## Status` holds `State:`, `Type:`, and the `Approved:` /
    `Started:` / `Delivered:` / `Released:` transition records — facts nothing in
    the repo can reconstruct. A greedy match there destroys history.
 4. The block must stay a multi-line HTML comment with `round` on its own line as

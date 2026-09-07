@@ -198,7 +198,7 @@ rather than `.[0] | keys`: `rounds` is absent from most plans, so one sample row
 hides it entirely.
 
 **Two sentinels a re-run must respect**, both of which cost a wrong answer when
-missed: a file with no `Phase:` is not a plan (`phase == "NONE"`, dropped
+missed: a file with no `State:` is not a plan (`phase == "NONE"`, dropped
 above), and an unset `phase_alt` is the literal string `"NONE"` rather than
 empty — testing it for `""` reports every plan as carrying one.
 
@@ -206,7 +206,7 @@ empty — testing it for `""` reports every plan as carrying one.
 |---|---|---|---|
 | `file` | path | 158 | always present |
 | `format` | `list` \| `frontmatter` | 158 | which spelling this file uses |
-| `state` | state | 155 | written `Phase:`/`status:`; `state_raw` is lossy-mapped, not spelling — see below |
+| `state` | state | 155 | written `State:`/`status:`; `state_raw` is lossy-mapped, not spelling — see below |
 | `state_alt` / `state_alt_raw` | state | **0** | two states in one file — modelled, never seen |
 | `type` | `feature`\|`bug`\|`docs`\|`infra` | 155 | |
 | `title` | string | 157 | |
@@ -748,7 +748,7 @@ stateDiagram-v2
 | what | a stretch of process a team moves through | one value on one artefact |
 | how many at once | many plans share a phase | one plan, one state |
 | named by | Discovery · Design · Development · Testing · Released | draft · design · approved · delivered · released · rejected · superseded |
-| rendered as | **the board's columns** | a plan's `Phase:` field |
+| rendered as | **the board's columns** | a plan's `State:` field |
 
 The agentic workflow — Discovery → Design → Development → Testing → Released —
 is the process the *team* runs. The board's columns render it, which is why
@@ -784,13 +784,19 @@ it. Asking which column it belongs to has no answer, and the board's own
 schema says so: *"plans that never appear on the board (rejected / superseded /
 unknown / legacy plans)."*
 
-**The field is named `Phase:` after the workflow's vocabulary**, applied to the
-plan. It stays named that — it is the format's established spelling, and
-renaming a parsed field would break every plan in every adopting repo — but the
-name is borrowed from the wrong subject, and that borrowing is the whole source
-of the confusion these three drafts worked through.
+**The field is named `State:`.** It was named `Phase:` after the workflow's
+vocabulary, applied to the plan — a name borrowed from the wrong subject, and
+the whole source of the confusion these three drafts worked through. This
+section said it stays named that, on the grounds that renaming a parsed field
+would break every plan in every adopting repo.
 
-**The word in the file is `Phase:`; the thing it holds is a state; and the
+`the-workflow-owns-the-word-phase` renamed it on 2026-09-07 and the objection
+does not survive the dual read: the parser reads `State:` and `Phase:` alike,
+permanently, so no plan in any repo breaks. 226 plan files and 9 sprint files
+were rewritten, and all 229 files in `docs/plans/` parse byte-for-byte
+identically before and after.
+
+**The word in the file is `State:`; the thing it holds is a state; and the
 workflow — not the plan — maps that state onto a phase.**
 
 ### What the estate actually holds
@@ -806,7 +812,7 @@ Measured across 158 files 2026-08-28:
 | `draft` | 3 | |
 | `design` | **0** | declared, never used |
 | `rejected` | **0** | declared, never used |
-| *(no `Phase:`)* | 3 | not plans — decision logs, worker reports |
+| *(no `State:`)* | 3 | not plans — decision logs, worker reports |
 
 **Two states are reachable in the tooling and unreached in the estate.**
 `design` is gated on by `/plot-implement` and parsed as `design_raw`; `rejected`
@@ -872,7 +878,7 @@ with no `Delivered:` makes a plan invisible to the scan's window.
 ### Two states in one file is a modelled condition
 
 `phase_alt` exists because a file can carry both front-matter `status:` and a
-`## Status` `Phase:`. The parser reports both rather than picking — an
+`## Status` `State:`. The parser reports both rather than picking — an
 ambiguity surfaced, not resolved. A plan in that condition has no single state,
 and the parser declines to invent one.
 
@@ -1131,7 +1137,7 @@ deliberately:
 phase flip without the record makes a plan invisible to the scan. Measured
 2026-08-20: zero plans reported for a plan in exactly that state.
 
-**A file with no `Phase:` is not a plan.** `docs/plans/` also holds decision
+**A file with no `State:` is not a plan.** `docs/plans/` also holds decision
 logs and worker reports; three such files exist here, and every consumer applies
 the same rule — *the parser's own answer decides*.
 
@@ -1240,7 +1246,7 @@ Designing forward rather than describing. Two changes, and the first is
 ```markdown
 ## Status
 
-- **Phase:** Draft
+- **State:** Draft
 - **Type:** feature
 - **Sprint:** …   **Issue:** …   **Story:** …
 - **Review:** …   **Impl:** …    **Rounds:** …
@@ -1312,7 +1318,7 @@ written from it.
 match §4's vocabulary. That would be a **third** spelling for one value, and
 worse than either: `status:` is canonical, primary and tested. **The field is
 `status:` and the thing it holds is a state** — the same reconciliation §4
-makes for `Phase:`.
+makes for `State:`.
 
 ### A plan should emit its own slug
 
@@ -1527,7 +1533,7 @@ three plans are in exactly that state.
 5. **Absent contributes nothing** — not `""`, not `0`.
 6. **Transition records are load-bearing**, not provenance — the scan's window
    reads `Delivered:`.
-7. **A file with no `Phase:` is not a plan.**
+7. **A file with no `State:` is not a plan.**
 8. **The index is convenience**; a plan with no symlink is valid.
 9. **Re-running a transition is the repair** — every step tests the source, not
    a progress file.

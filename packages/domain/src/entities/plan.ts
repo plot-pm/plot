@@ -82,7 +82,7 @@ export const planIdOf = (file: string): string => {
  *
  * THE TWO ABSENCES ARE KEPT APART, because they resolve differently and the
  * cast this replaces collapsed one of them. `plot-plan-meta.sh` spells an absent
- * `Phase:` field `NONE` and a phase it does not recognise `UNKNOWN`; the shell
+ * `State:` field `NONE` and a state it does not recognise `UNKNOWN`; the shell
  * spells an unset field `''`. `NONE` and `''` mean *unmeasured* and map to
  * `none`, which every transition refuses on rather than guessing past.
  *

@@ -123,12 +123,12 @@ export type WorkflowName =
  *
  * - `Discovery` performs none of these. It produces an approved story, and no
  *   workflow in this package acts on a story.
- * - `Design` ends at `approve`, which writes `Phase: Approved`.
+ * - `Design` ends at `approve`, which writes `State: Approved`.
  * - `Development` holds `dispatch` and `implement` — both act on an already
  *   Approved plan and write no phase — and ends at `deliver`, which writes
- *   `Phase: Delivered`. That matches the phase's own note that development
+ *   `State: Delivered`. That matches the phase's own note that development
  *   ends at the merge.
- * - `Testing` ends at `release`, which writes `Phase: Released`.
+ * - `Testing` ends at `release`, which writes `State: Released`.
  * - `Released` performs none: it is where work has arrived.
  *
  * A phase performing no workflow gets an empty list, which is a statement that

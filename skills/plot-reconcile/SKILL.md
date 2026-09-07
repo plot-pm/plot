@@ -137,7 +137,7 @@ destroys work in progress. Check `/plot-pulse` and the worker's log
 6. **Delivered but already released** — a `Delivered` plan whose merge commit is already inside a release tag. Candidate `/plot-release`.
 7. **Uncut slices** — a `### ` wave heading carrying more than one branch line. A wave holds one branch; one holding several is a shape `/plot-reslice` can repair. Actionable but non-blocking; see below.
 8. **Prose wave names** — a `### ` wave heading written as a sentence, not a label. A sentence-length name paints over the cells beside it on the board; the fix is to rename the heading in the plan. Actionable but non-blocking; see below.
-9. **Index drift (convenience)** — a plan with no symlink in either index, or a `.md` file in the plan directory carrying no `Phase:` field at all. Nothing depends on either; see below.
+9. **Index drift (convenience)** — a plan with no symlink in either index, or a `.md` file in the plan directory carrying no `State:` field at all. Nothing depends on either; see below.
 
 ### Why an unlinked plan is not a defect (and what still is)
 
@@ -163,7 +163,7 @@ Two things kept their severity, and both stay in section 5:
 - **An unrecognized phase value.** The file *declared* a phase; the parser did
   not recognise it. That is a plan with a bad field.
 
-**A file with no `Phase:` field is not a plan** — the same rule
+**A file with no `State:` field is not a plan** — the same rule
 `plot-fleet-scan.sh` applies, so the two consumers of one directory give one
 answer. `plot-plan-meta.sh` is the format contract; "is this a plan" is its
 call, and a sweep answering differently would be a second implementation free
@@ -171,7 +171,7 @@ to drift. Such a file is still listed in section 9 (`not a plan (decision log /
 note?)`) — a phase-less file in the plan directory is worth a glance — but it
 no longer claims to be a broken plan.
 
-Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understands both the canonical `## Status` body format (`- **Phase:** …`) and YAML front matter (`status:`/`phase:`). Do not re-derive this list by hand; the script is the source of truth for *what the state is*. Your job is *what to do about it*.
+Plan files are parsed by the shared `plot-plan-meta.sh` parser, which understands both the canonical `## Status` body format (`- **State:** …`) and YAML front matter (`status:`/`phase:`). Do not re-derive this list by hand; the script is the source of truth for *what the state is*. Your job is *what to do about it*.
 
 **PR state, bound to origin's git host.** The scan enumerates open-PR branches with the CLI matching the `origin` remote's host — `gh` on GitHub, `bb` on Bitbucket — never a CLI's own idea of the "current repo" (a second remote on another git host must not win). Without a matching CLI it prints `PR state: DEGRADED` and falls back to git merge-state alone; in that mode the stale-branch section may list a branch that still has an open PR, so confirm each before deleting.
 

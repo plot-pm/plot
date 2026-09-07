@@ -140,7 +140,7 @@ a reader *recognises*; the build is what they *open*.
 conclusion**, and a field that must hold `in_progress` is not describing an
 outcome.
 
-That is the same correction this design made for a plan's `Phase:` (Plan §4) —
+That is the same correction this design made for a plan's `State:` (Plan §4) —
 and I made the opposite mistake here one document later, calling a build's
 field a conclusion while arguing a plan's holds a state.
 
