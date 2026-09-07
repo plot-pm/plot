@@ -154,6 +154,7 @@ The skills have no unit tests; a lifecycle run is their only validation. Follow 
 - [ ] `/plot-fleet --start` on a machine with no unit installed: the daemon comes up **with `--start-agents`**, and a dispatched slice reaches a free agent's manifest with no hand write.
 - [ ] `/plot-dispatch --stop <branch>` on an agent whose desk is `free-<hash>` rather than the derived path. **Measured 2026-09-07: it refuses with *"no worktree for …"* because it rebuilds the path from the branch name.** Its own dispatch-side docs forbid exactly that. Not fixed in this release; confirm it still refuses rather than stopping the wrong desk.
 - [ ] An agent that finds its slice already done writes a `PLOT-BLOCKED` marker and asks, instead of writing duplicate code.
+- [ ] **Count the moments somebody had to be asked.** Walk the run as a teammate who has not read this repository, and record every refusal you could not act on. Measured 2026-09-07: **16 of 126 refusals** across the five first-run scripts name the command that fixes them. That count is the next sprint's real measure and this is where it is taken — a protocol nobody runs is `docs/fleet-user-test.md`, written 2026-08-14 with zero results recorded since.
 
 ## 8 — Before cutting
 

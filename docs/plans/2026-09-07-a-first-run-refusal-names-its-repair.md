@@ -10,6 +10,7 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
@@ -42,34 +43,40 @@
 
 **Not a template.** *"Run X"* appended to a cause is worse than the cause alone when X is wrong. Each message names the repair for its own condition or stays as it is.
 
+**NOT A WALKTHROUGH.** The plan first proposed writing one to scope the work. **The estate already has that shape and it did not work**: `docs/fleet-user-test.md` was written 2026-08-14 and has **one commit, zero edits in 24 days, and zero recorded results** — a protocol three release checklists cite and nobody ran. A second one would have been a second unread document, and the rule below needs no run to apply.
+
 **Not a change to what refuses.** Every gate keeps its condition. Only the sentence changes.
 
 ## Slices
 
-### The walkthrough names the reachable refusals (Branch: docs/the-reachable-refusals-are-listed)
+### Every first-run refusal names a repair or a decision (Branch: bug/a-first-run-refusal-names-its-repair)
 
-A Bitbucket/Jenkins/Jira checkout is adopted and driven to a delivered plan, and every refusal met is recorded with its message.
+One rule, applied to every refusal on the path from `/plot-init` to `/plot-deliver`.
 
-**THIS RUNS FIRST AND ITS OUTPUT IS THE SCOPE.** Guessing which of 126 a newcomer hits is the error the measurement above exists to avoid — 13% is a fact about all of them and says nothing about which matter.
+**THE RULE IS TWO WORDS LONG AND NEEDS NO WALKTHROUGH TO APPLY.** A refusal names **the command that fixes its condition**, or **the decision the reader must make**. Nothing else changes: every gate keeps its condition, and only the sentence moves.
 
-**IT IS RUN WITH NO CREDENTIALS FIRST, THEN WITH THEM.** The unauthenticated pass reaches the connector refusals a teammate meets before their tokens are set up, which is the first thing that happens on a new machine.
+**THE SECOND ARM IS NOT AN ESCAPE.** *"A conflict — decide which side to keep"* is a decision named; *"conflict"* is a cause stated. Some conditions genuinely have no single command, and those must still tell a reader what they are choosing between.
 
-**Done when** the reachable refusals are listed with their current wording, the list distinguishes the credential-less pass from the authenticated one, and each entry says whether it names a repair.
+**THE CONNECTOR NAMES ITS OWN CLI.** A refusal saying `gh auth login` is wrong advice on a Bitbucket team. Each connector already knows its vendor and its command, so the text comes from **the connector that failed** — no script branches on the stack, and `plot-host.sh` stays a place that collects and reports. This is the connector contract CLAUDE.md already states, applied to words instead of budgets.
 
-### The reachable refusals name their repair (Branch: bug/a-first-run-refusal-names-its-repair) <!-- waits: docs/the-reachable-refusals-are-listed -->
+**THE `--stop` REFUSAL IS IN SCOPE AND IT IS THE WORST ONE.** *"no worktree for 'feature/x' at …"* names one path and implies it is the only place a desk could be. It is not — the desk exists elsewhere, and on 2026-09-07 that sent a reader to `kill`. **A refusal that is confidently wrong is worse than one that is terse**, and this slice fixes the sentence whether or not `a-dispatch-stop-finds-the-desk` lands first.
 
-Each refusal on that list names the command that fixes its condition.
-
-**IN THE READER'S STACK, NOT OURS.** *"`gh` not authenticated"* is wrong advice on a Bitbucket team. A refusal from a connector names that connector's CLI.
-
-**A REFUSAL THAT CANNOT NAME A REPAIR SAYS SO.** Some conditions have no single fix — a conflict, a plan somebody must decide about. Those name what the reader must decide, which is still more than a cause.
-
-**THE `--stop` REFUSAL IS FIXED HERE OR NOT AT ALL.** It is on the list, it is wrong rather than terse, and `a-dispatch-stop-finds-the-desk` fixes the lookup. **This slice fixes the sentence even if the lookup lands later**, because a wrong refusal is the worst kind.
-
-**Done when** every listed refusal names a repair or names a decision, no message names a CLI the reader's stack does not use, and the walkthrough is repeated with zero moments where a person had to be asked.
+**Done when** every refusal reachable from `/plot-init` to `/plot-deliver` names a repair or a decision, no message names a CLI the configured stack does not use, each connector supplies its own repair text, and the `--stop` refusal no longer asserts a path it did not check.
 
 ## Notes
 
 ### Why the count is the wrong target — 2026-09-07
 
 13% could be raised to 100% by appending advice to 110 messages, and the sprint would be no closer to its goal. **The target is the walkthrough's count of moments somebody had to be asked**, which is zero or not zero, and which no amount of rewording reaches without running it.
+
+### Round 1 — 2026-09-07
+
+**The two-slice shape was cut, and the evidence against it was already on disk.** Slice 1 would have written a walkthrough whose output scoped slice 2. `docs/fleet-user-test.md` is that document, written 24 days earlier: one commit, never edited, no results recorded, cited by three release checklists and run by nobody.
+
+**A plan whose first slice produces a document that must then be acted on has two failure modes and only one of them is visible.** It can be written and not run — which is what happened — and nothing about the artefact says which.
+
+**So the scope comes from the rule instead of from a run.** *Name a repair or name a decision* applies to a refusal without anyone meeting it, and the 16-of-126 measurement already says how much there is.
+
+**The round also placed the stack-aware wording.** A refusal must not say `gh auth login` to a Bitbucket team, and the question was where that knowledge lives. **The connector**: it already knows its vendor and its CLI, so no script branches on the stack and `plot-host.sh` stays a collector. That is the connector contract applied to words rather than budgets.
+
+**The walkthrough is not lost.** It belongs in the release test list, where `fleet-user-test.md` already lives and where a person is already reading a checklist.
