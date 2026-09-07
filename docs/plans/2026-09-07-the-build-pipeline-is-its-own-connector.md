@@ -1,6 +1,6 @@
-# Three services, three ports, two connectors each
+# The build pipeline is its own connector
 
-> A Bitbucket + Jenkins + Jira team has three remote services. Plot has one entity for one of them, one port that branches on vendor inside itself, and no port for CI at all.
+> A Bitbucket + Jenkins + Jira team has three remote services. Two have a port; the build pipeline has none, and `runs()` reaches `gh` alone from inside `host`.
 
 ## Status
 
@@ -10,10 +10,11 @@
 - **Story:** the-domain-knows-what-plot-knows
 - **Review:** pr
 - **Impl:** own branches
+- **Rounds:** 1
 
 ## Changelog
 
-- Git host, tracker and build pipeline are three domain concepts with three ports, each reached by a connector per vendor — so a team whose code, issues and builds live in three places is expressed as three services rather than one.
+- The build pipeline becomes its own connector port with a Jenkins implementation, and the host adapter stops carrying a closed list of vendors — so a team whose code and builds live in different places is asked about each separately.
 
 <!-- Board impact: the board renders check state from `runs()`. A capability
      that cannot be asked must render as *not asked*, never as no checks. -->
@@ -38,7 +39,9 @@
 
 **A vendor branch inside one adapter is not two connectors.** `host-shell.ts` reaches GitHub and Bitbucket through one object, so both vendors share one refusal path, one budget and one `lastRefusal`. The connector contract says each remote service owns those — and a team on Bitbucket whose GitHub token expires should not see a Bitbucket refusal shaped by GitHub's state.
 
-**So the target is symmetric: three ports, each with a GitHub-family connector, a Quatico-stack connector, a `none`, and a fixture.**
+**ROUND 1 CUT THE HOST SPLIT FROM THIS PLAN.** The two-connector shape is right and `host` does not have it — but 81 working `bb` calls and their GitHub siblings would be restructured in a sprint whose goal is *a first unattended run working*. **Nothing in that run depends on separate budgets**; what blocks a third host is the vendor list, which is one slice below. The split earns its own plan when a cross-vendor refusal is actually met.
+
+**So this plan builds the missing port and opens the closed list, and leaves the working path alone.**
 
 **THE PRECEDENT IS THE TRACKER, AND IT IS COMPLETE.** `ports/tracker.ts` declares five operations; `tracker-resolve.ts` picks a connector from a declared scheme; `tracker-none.ts` answers `unaskable` on every operation **including the write**, because a silent success there would report a status that never left the machine. Four connectors, one port, no vendor branch in the domain. **This plan is that shape for builds.**
 
@@ -62,21 +65,19 @@
 
 ## Slices
 
-### The three services are named in the domain (Branch: feature/a-git-host-is-a-domain-concept)
+### `BuildPipeline` names the CI system, not the host (Branch: bug/a-pipeline-address-is-not-the-host)
 
-`GitHost` and `Tracker` join `BuildPipeline` as entities, and `BuildPipeline` stops claiming its URL is on the host.
+`BuildPipeline.url` stops being documented as *"its address on the host"*.
 
-**IDENTITY IS THE VENDOR PLUS THE ADDRESS**, the shape `BuildPipeline` already uses: a natural key, stable across the questions asked of it. `github`/`bitbucket` alone is not an identity — two teams on Bitbucket Cloud are two hosts.
+**ONE LINE, AND IT IS THE MEASURED DEFECT.** `entities/build.ts:32` says the URL is on the host. On this repository that is true by accident — GitHub is both the git host and the CI system. **On a Bitbucket + Jenkins team it is false**: the pipeline's address is on Jenkins and the host is elsewhere. One word doing two jobs, in the entity that would have said so.
 
-**THEY CARRY WHAT A RULE NEEDS AND NOTHING ELSE.** No credentials, no tokens, no transport — those belong to the connector, and an entity holding them would put a secret in a value that gets logged.
+**NO NEW ENTITIES.** Round 1 tested the argument for `GitHost` and `Tracker` entities and it did not survive: I justified them by claiming a rule cannot express *"this service could not be asked"* without a connector. **`ConditionReading` already carries exactly that**, and `reapable`, `landed`, `movable` and `task` use it. **No rule reads a host fact at all today**, so the entities would arrive with no consumer — which is `scoreItem`, filed the same morning: exported, tested, documented, and called by nothing.
 
-**`BuildPipeline.url` IS CORRECTED IN THE SAME SLICE.** *"Its address on the host"* becomes its address on the **CI system**, because on the target stack those are different machines. One line, and it is the sentence that proves the split is real.
+**AN ENTITY ARRIVES WHEN A RULE NEEDS ONE.** The layering rule says the domain defines what it needs, not what it might.
 
-**ASKABILITY BECOMES A PROPERTY OF THE SERVICE.** A rule can then state *this host cannot be reached* as a fact about a `GitHost`, rather than every caller re-deriving it from a `PortResult`'s refusal shape.
+**Done when** `BuildPipeline.url` names the CI system rather than the host, and no entity is added without a rule that reads it.
 
-**Done when** `GitHost`, `Tracker` and `BuildPipeline` are three entities with stated identities, none carries a credential, `BuildPipeline.url` names the CI system rather than the host, and a rule can express *this service could not be asked* without holding a connector.
-
-### The build port exists, with two connectors (Branch: feature/the-build-port-exists) <!-- waits: feature/a-git-host-is-a-domain-concept -->
+### The build port exists, with two connectors (Branch: feature/the-build-port-exists)
 
 `ports/build.ts` declares the operations `host` carries today; `build-actions.ts` and `build-jenkins.ts` implement them, with `build-none.ts` and a fixture beside them.
 
@@ -100,25 +101,15 @@
 
 **Done when** `host-shell.ts` declares no vendor list, an unknown backend refuses with the word the script reported, and a new host backend needs no edit in `packages/domain`.
 
-### The host port gets two connectors (Branch: feature/the-host-port-gets-two-connectors) <!-- waits: bug/the-adapter-stops-judging-vendors -->
-
-`host-github.ts` and `host-bitbucket.ts` replace the vendor branch inside `host-shell.ts`, resolved the way `tracker-resolve.ts` resolves a scheme.
-
-**THE SHELL LAYER STAYS AND STOPS DECIDING.** `tracker-shell.ts` is the model: one place that runs `plot-host.sh`, and connectors above it that own their vendor's shape. The script is not rewritten — 81 `bb` calls and their GitHub siblings already work.
-
-**EACH CONNECTOR OWNS ITS OWN REFUSAL AND ITS OWN BUDGET.** That is the whole reason for the split: today one `lastRefusal` and one limit reading serve two accounts, so a Bitbucket team reads GitHub's exhaustion as their own.
-
-**`hostNone` IS PART OF IT.** A checkout with no git host — a local-only adoption — must get a connector that answers `unaskable`, not a throw.
-
-**Done when** `host-github.ts` and `host-bitbucket.ts` each answer the port, a resolver picks one from the declared `Git host`, each reports its own refusal and limit, `hostNone` answers `unaskable`, and no vendor name appears in `host-shell.ts`.
-
 ### The CI connector is Jenkins (Branch: feature/the-ci-connector-is-jenkins) <!-- waits: feature/the-build-port-exists -->
 
 `build-jenkins.ts` answers the three operations through `jen`.
 
 **IT WAITS FOR THE PORT.** No connector before the seam exists.
 
-**`jen` IS NOT INSTALLED ON THIS MACHINE**, measured 2026-09-07 — so the slice must state how it was tested. A fixture connector proves the shape; only a Jenkins instance proves the connector.
+**`jen` IS NOT INSTALLED ON THIS MACHINE**, measured 2026-09-07 — and the estate already answers how to test that. `tracker-shell.test.ts:78` stubs `plot-host.sh` itself: `[ "$PLOT_TRACKER" = jira ] || exit 1; echo '{"number":"PROJ-1"}'`. **That is how the Jira connector is tested without Jira**, and it tests the right thing: the connector's shape, its refusals, and what it does with an answer.
+
+**WHAT THE STUB CANNOT PROVE IS THE ANSWER'S SHAPE**, and the slice must say so rather than implying coverage it does not have. A fixture asserts *given this output, the connector does X*; only a real instance says the output looks like that. **Name that gap in the PR.**
 
 **JENKINS REPORTS NO RATE LIMIT, AND THAT IS AN ANSWER.** `plot-host.sh:263` already says it answers `predicted`. An absent limit is not a zero limit and not an error.
 
@@ -140,3 +131,13 @@ This plan is narrow because the rest of the chain is already built, and the spri
 - **Bitbucket covers eight of eleven host operations.** `pr-list` and `issue-list` at 8 `bb` calls each, `issue-view` 4, `pr-state` 3, `default-branch` and `pr-ready` 2, `pr-body` / `pr-create` / `pr-merge` / `pr-merged` 1 each.
 
 **The three Bitbucket has no arm for are `runs`, `run-for-sha` and `ci-limit`** — which is this plan. The gap is one axis, not three integrations.
+
+### Round 1 — 2026-09-07
+
+**Two of five slices were cut, and one of them on a false premise I had written myself.**
+
+The `GitHost`/`Tracker` entity slice rested on *"a rule cannot state this service could not be asked without a connector in hand"*. **`ConditionReading` does exactly that**, and four rules already use it. Worse, **no rule reads a host fact at all**, so the entities would have arrived with no consumer — the shape of `scoreItem`, which I filed as a defect the same morning. What survived is the one measured line: `BuildPipeline.url` claims an address on the host, and on the target stack that is false.
+
+The host split was cut for cost, not correctness. Two connectors per port is the finished shape and `tracker` has it; `host` restructuring 81 working `bb` calls buys separate budgets that **this sprint's goal does not need**. The `DRIVES` list is what blocks a third host, and it stays.
+
+**What the round did not change:** the build port. `runs()` on `host` reaching `gh` alone is the gap a Jenkins team hits on day one, and nothing in the estate answers it.
