@@ -77,6 +77,15 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
       route.fulfill({ contentType: 'application/json', body: JSON.stringify(payload) }));
     await page.getByText('Waiting on you').waitFor({ timeout: 10_000 });
     await expandAgentFolds(page);
+    // THE STEPPER IS THE ANCHOR, not the badge. `Waiting on you` renders from
+    // the catalogue scenario and is on screen before the stubbed `/api/fleet`
+    // has been fetched at all — so a bare assertion after it races the poll
+    // that carries this payload. The stepper appears with the WORKING header
+    // this payload produces, and every claim below is about a span INSIDE it.
+    //
+    // Measured: the `unknown` case read 0 badges in a full suite run and 1
+    // standing alone, on identical source.
+    await page.locator('[data-fleet-parallel-agents]').waitFor({ timeout: 10_000 });
     return page;
   }
 
@@ -114,7 +123,7 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
     }));
     try {
       const badge = page.locator('[data-fleet-supervisor]');
-      expect(await badge.count()).toBe(1);
+      await expect.poll(() => badge.count()).toBe(1);
       expect(await badge.textContent()).toContain('unsupervised');
       expect(await badge.getAttribute('title')).toContain('6 agents are running');
       // ON THE SECTION IT IS ABOUT. The supervisor is what reaps WORKING's
@@ -142,7 +151,7 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
     }));
     try {
       const badge = page.locator('[data-fleet-supervisor]');
-      expect(await badge.count()).toBe(1);
+      await expect.poll(() => badge.count()).toBe(1);
       expect(await badge.getAttribute('data-fleet-supervisor-prominence')).toBe('quiet');
       expect(await badge.getAttribute('class')).not.toContain('text-amber-600');
     } finally {
@@ -162,7 +171,7 @@ describe('the supervisor badge (real browser renders the shipped artifact)', () 
     }));
     try {
       const badge = page.locator('[data-fleet-supervisor]');
-      expect(await badge.count()).toBe(1);
+      await expect.poll(() => badge.count()).toBe(1);
       expect(await badge.textContent()).toContain('supervisor unknown');
       // Not the all-clear: it is on screen at all.
       expect(await badge.isVisible()).toBe(true);
