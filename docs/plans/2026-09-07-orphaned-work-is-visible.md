@@ -75,3 +75,21 @@
 It fires on *commits and no PR*, which is true of all twelve. It showed three, and the three it showed were the three with nothing in them.
 
 **The difference is what the row asks.** *Has this branch commits?* is answered by a claim commit. *Does this branch hold work?* needs the diff — and that is the one question nobody was asking.
+
+### The five were worked through — 2026-09-07
+
+Each branch was compared against `main` rather than assumed abandoned. **Three had been superseded and two had not**, and nothing on the estate distinguished them.
+
+| branch | verdict |
+|---|---|
+| `bug/the-monitor-samples-a-pushed-desk` | **superseded** — main fixed the same flake better |
+| `bug/the-claimable-guard-counts-what-remains` | **superseded** — the `> 20` floor is gone from main |
+| `bug/the-corpus-reads-a-head-it-may-not-own` | **superseded** — main creates the symref rather than tolerating its absence |
+| `bug/main-typechecks-without-dead-tfidf` | **landed** — the TF-IDF helpers it deletes are already gone |
+| `bug/a-hung-cleanup-says-which-half` | **UNRECOVERED** — `PLOT_LOOP_TRACE` exists nowhere on main |
+
+**THE MONITOR BRANCH IS THE INSTRUCTIVE ONE.** Both it and main fixed the same 2026-09-01 CI failure — three PRs failing at once — and **main's fix is the better one**: it polls `run.monitorCalls()`, scoped to this monitor's subcommands, where the branch polled `stub.calls()`, the whole log. The branch also held the agent with `sleep 20`; main needs no sleep because the scoped poll cannot return on somebody else's call.
+
+**Two engineers solved one flake independently and neither knew.** That is the cost this plan is about, priced: not the lost work, but the duplicated work.
+
+**`a-hung-cleanup-says-which-half` is the one to recover.** It adds `_stage` markers through the worker loop's cleanup block, guarded by `PLOT_LOOP_TRACE` so an ordinary dispatch is unchanged, because *"the hang is somewhere in this block and the process table cannot say where — every snapshot shows the same three processes."* Main still has all 14 `_kill_tree`/`wait` sites and no way to tell which one hangs. It conflicts with main and needs a rebase, not a merge.
