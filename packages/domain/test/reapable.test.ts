@@ -5,8 +5,10 @@ import {
   firstReapRefusal,
   refDeletionProblems,
   firstRefRefusal,
+  finishedWith,
   type TreeReadings,
   type RefReadings,
+  type FinishedWithReadings,
 } from '../src/rules/reapable.js';
 
 /**
@@ -293,5 +295,181 @@ describe('refDeletionProblems — a ref is not re-creatable', () => {
     // no plan and lists no branch — it answers about the one it was handed.
     expect(refDeletionProblems(deletable())).toEqual([]);
     expect(refDeletionProblems(deletable({ branch: 'feature/other' }))).toEqual([]);
+  });
+});
+
+/**
+ * A merged branch nobody is using, with its worktree read.
+ *
+ * The base case answers `false` to every condition — nothing holds this desk —
+ * so each test below names the ONE reading it changes.
+ */
+const desk = (over: Partial<FinishedWithReadings> = {}): FinishedWithReadings => ({
+  branch: 'feature/one',
+  defaultBranch: 'main',
+  isMain: false,
+  workerPid: null,
+  dirtyPath: '',
+  blockedMarker: false,
+  merge: 'merged',
+  givenUp: false,
+  openPr: false,
+  checkedOut: false,
+  tree: 'present',
+  ...over,
+});
+
+describe('finishedWith — one rule, and each caller decides', () => {
+  it('answers every condition both scripts apply', () => {
+    // The whole point: eight conditions in one place. `plot-reap.sh` applies
+    // five and `plot-release-refs.sh` applies its own set, and until this rule
+    // existed the difference was visible only by reading both scripts.
+    expect(Object.keys(finishedWith(desk())).sort()).toEqual([
+      'blockedMarker',
+      'checkedOut',
+      'givenUp',
+      'liveWorker',
+      'noMergedPr',
+      'onDefaultBranch',
+      'openPr',
+      'uncommittedChanges',
+    ]);
+  });
+
+  it('holds nothing against a merged desk nobody is using', () => {
+    expect(finishedWith(desk())).toEqual({
+      givenUp: 'false',
+      noMergedPr: 'false',
+      openPr: 'false',
+      checkedOut: 'false',
+      onDefaultBranch: 'false',
+      liveWorker: 'false',
+      uncommittedChanges: 'false',
+      blockedMarker: 'false',
+    });
+  });
+
+  describe('each condition answers alone', () => {
+    it('names a branch somebody gave up', () => {
+      expect(finishedWith(desk({ givenUp: true })).givenUp).toBe('true');
+    });
+
+    it('names unlanded work', () => {
+      expect(finishedWith(desk({ merge: 'not-merged' })).noMergedPr).toBe('true');
+    });
+
+    it('reads an unreachable host as unlanded, because silence is not a merge', () => {
+      // The same direction `reapProblems` fails in. This is a HOST reading and
+      // not a tree one, so it stays two-valued: both callers refuse either way.
+      expect(finishedWith(desk({ merge: 'unreachable' })).noMergedPr).toBe('true');
+    });
+
+    it('names an open PR, even where an older PR of the branch merged', () => {
+      // `changeset-release/main` carries both readings at once, which is why
+      // `openPr` is measured rather than derived from `merge`.
+      const both = finishedWith(desk({ merge: 'merged', openPr: true }));
+      expect(both.openPr).toBe('true');
+      expect(both.noMergedPr).toBe('false');
+    });
+
+    it('names a branch a worktree is sitting on', () => {
+      expect(finishedWith(desk({ checkedOut: true })).checkedOut).toBe('true');
+    });
+
+    it('names the default branch, whether by name or by being the main checkout', () => {
+      expect(finishedWith(desk({ branch: 'main' })).onDefaultBranch).toBe('true');
+      expect(finishedWith(desk({ isMain: true })).onDefaultBranch).toBe('true');
+    });
+
+    it('names a live worker', () => {
+      expect(finishedWith(desk({ workerPid: '4242' })).liveWorker).toBe('true');
+    });
+
+    it('names uncommitted work', () => {
+      expect(finishedWith(desk({ dirtyPath: 'src/a.ts' })).uncommittedChanges).toBe('true');
+    });
+
+    it('names a question waiting for a person', () => {
+      expect(finishedWith(desk({ blockedMarker: true })).blockedMarker).toBe('true');
+    });
+  });
+
+  describe('the two differences that were only visible by reading both scripts', () => {
+    it('an open PR keeps a ref and does NOT keep a checkout', () => {
+      // `plot-release-refs.sh` refuses `pr_open`; `plot-reap.sh` has never
+      // asked it. The rule states the condition, and the reaper's own verdict
+      // is unmoved by it — asserted here against `reapProblems` itself.
+      const open = desk({ openPr: true });
+      expect(finishedWith(open).openPr).toBe('true');
+      expect(reapProblems(open)).toEqual([]);
+    });
+
+    it('a live worker pid keeps a checkout and says NOTHING about a ref', () => {
+      // The mirror image. `plot-reap.sh` refuses a live pid; the ref-deleter
+      // never asked one until 2026-09-06. The condition is stated either way,
+      // and reading it is the caller's decision rather than this rule's.
+      const alive = desk({ workerPid: '4242' });
+      expect(finishedWith(alive).liveWorker).toBe('true');
+      expect(refusalsOf(alive)).toContain('live-worker');
+    });
+  });
+
+  describe('a reading that cannot be taken answers unknown', () => {
+    // Measured 2026-09-06: 22 of 32 remote branches have no worktree — 69% —
+    // and four of the reaper's five conditions need one. A boolean would invent
+    // an answer on two branches in three, for the operation that cannot be
+    // undone.
+    const noTree = desk({ tree: 'absent' });
+
+    it('says unknown for the four the tree answers', () => {
+      const got = finishedWith(noTree);
+      expect(got.liveWorker).toBe('unknown');
+      expect(got.uncommittedChanges).toBe('unknown');
+      expect(got.blockedMarker).toBe('unknown');
+    });
+
+    it('still answers the conditions a tree is not needed for', () => {
+      // The majority case must not go dark. The host and the plan answer these
+      // with no checkout in existence.
+      const got = finishedWith(desk({ tree: 'absent', givenUp: true, merge: 'not-merged' }));
+      expect(got.givenUp).toBe('true');
+      expect(got.noMergedPr).toBe('true');
+      expect(got.onDefaultBranch).toBe('false');
+      expect(got.checkedOut).toBe('false');
+    });
+
+    it('refuses nothing, so an unaskable condition disables neither caller', () => {
+      // Refusing on silence is the estate's rule for an unreachable HOST.
+      // Applied here it would block deletion on 69% of branches and make the
+      // ref-deleter useless exactly where it is needed.
+      expect(() => finishedWith(noTree)).not.toThrow();
+      expect(Object.values(finishedWith(noTree))).toContain('unknown');
+    });
+
+    it('distinguishes an unread tree from a tree read and found clean', () => {
+      // `dirtyPath: ''` alone means both, which is why `tree` is a reading.
+      expect(finishedWith(desk({ tree: 'present' })).uncommittedChanges).toBe('false');
+      expect(finishedWith(desk({ tree: 'absent' })).uncommittedChanges).toBe('unknown');
+    });
+  });
+
+  it('changes neither script, because it decides nothing', () => {
+    // The defect is that the difference between the two scripts is INVISIBLE,
+    // not that it is wrong. A rule that permitted or refused would widen a
+    // licence written narrow on purpose, under a refactor's name.
+    const every = desk({
+      givenUp: true, merge: 'not-merged', openPr: true, checkedOut: true,
+      branch: 'main', workerPid: '7', dirtyPath: 'a', blockedMarker: true,
+    });
+    expect(Object.values(finishedWith(every)).every((v) => v === 'true')).toBe(true);
+    // And the two existing verdicts are untouched by its existence.
+    expect(refusalsOf(every)).toEqual([
+      'live-worker', 'blocked-marker', 'uncommitted-changes',
+      'on-default-branch', 'no-merged-pr',
+    ]);
+    expect(refDeletionProblems(every).map((p) => p.refusal)).toEqual([
+      'given-up', 'no-merged-pr', 'open-pr', 'checked-out',
+      'on-default-branch', 'live-worker', 'uncommitted-changes', 'blocked-marker',
+    ]);
   });
 });
