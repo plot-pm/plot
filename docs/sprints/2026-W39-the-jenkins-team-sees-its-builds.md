@@ -61,10 +61,17 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 - [ ] [the-ci-connector-is-jenkins] `build-jenkins.ts` answers the three port operations through `plot-host.sh`. Re-filed: PR #821 merged a marker and no code.
 - [ ] [the-run-ops-ask-the-ci-backend] `runs` and `run-for-sha` branch on `ci_backend()` rather than calling `gh` unconditionally. Without this the connector above has nothing to call.
 - [ ] [a-merged-pr-carried-work] `/plot-deliver` distinguishes a slice whose PR carried work from one whose PR carried a marker. Two slices passed that gate in one sprint and nothing reported it.
-- [ ] [what-the-domain-refuses-does-not-happen] A lifecycle transition goes through the domain, and a refusal ends the action. `setSprintState` names nine refusals and has zero production callers; three of them describe what a master agent did by hand on 2026-09-08.
+- [ ] [the-master-agent-uses-the-controllers] A lifecycle action goes through its controller, and a refusal ends it. Measured 2026-09-08: four of five actions in one session had a controller and none was used — a sprint activated with `sed` while `setSprintState` sat there with nine refusals and zero callers.
+- [ ] [a-sprint-transition-is-performed] `/plot-sprint` start, commit and close call `setSprintState`. The rule is written, tested, exported and dead.
 - [ ] [the-registry-sweeps-what-it-did-not-start] The supervisor reports registered worktrees nobody dispatched. Measured 2026-09-08: twelve hand-made trees in `/private/tmp` made `git worktree list` report 34 where 22 were real, and the fleet scan timed out at 90 s — the board fell back to a stale pulse and showed no PRs.
 
 ### Should Have
+
+- [ ] [a-rejection-is-a-controller-command] `/plot-reject` moves Delivered → Approved through an endpoint. The one backwards move, and it has no rule at all today.
+- [ ] [a-release-is-a-controller-command] `/plot-release` asks a controller for its verdict. The facts are collected; the judgement is still skill prose in front of the one action nobody can undo.
+- [ ] [adoption-is-a-controller-command] `/plot-init` writes its config through an endpoint asking `proposeStack`. The only command that writes into a repository Plot does not own.
+- [ ] [a-pr-is-opened-by-a-controller] A slice's PR is opened by a controller. No skill, no rule, done by hand three times today and fifteen branches went unseen last sprint.
+- [ ] [a-lifecycle-field-has-one-writer] A hook refuses a commit editing a `State:` line outside the scripts that own it. Last, because a gate refusing the only available method stops work.
 
 - [ ] [the-connector-is-read-against-a-real-instance] Run two `jen` subcommands against `jenkins-ci-webbloqs.internal.quatico.dev` and record what they print. The instance answers (HTTP 403 — present, refusing) and the job `quaweb` exists; what is missing is `jen` and a token. Whether a build history and a build's commit sha are askable at all is the open question the connector's shape rests on.
 - [ ] [a-probe-reports-and-the-domain-judges] `proposeStack` in the domain decides what a probe's readings propose. **Runs before the CI slice**, which reports into it. Seven thresholds live inside the two collectors today — `node >= 20`, three commit-style counts, the ticket-prefix floor and the language count — and each is a decision a test cannot reach.
