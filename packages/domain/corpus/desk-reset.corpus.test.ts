@@ -7,9 +7,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   finishedWith,
   firstResetRefusal,
-  type AheadReading,
   type FinishedWithReadings,
 } from '../src/rules/reapable.js';
+// `AheadReading` is declared by `movable.ts`; `reapable.ts` imports it without
+// re-exporting, so it is taken from its home rather than through a module that
+// merely uses it.
+import type { AheadReading } from '../src/rules/movable.js';
 import { compareField, describingAs, type Disagreement, type Sides } from './compare.js';
 import { readDesk, type DeskRow, type Estate } from './production.js';
 
