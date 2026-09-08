@@ -4,8 +4,9 @@
 
 ## Status
 
-- **State:** Planned
+- **State:** Active
 - **Committed:** 2026-09-08
+- **Started:** 2026-09-08
 - **Start:** 2026-09-09
 - **End:** 2026-09-23
 - **Release:** 2.16.0

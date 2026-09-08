@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** bug
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** plot-gates
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 4
+- **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
 
 ## Changelog
 

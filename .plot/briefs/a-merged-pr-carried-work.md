@@ -1,12 +1,10 @@
-## Implementation brief — the-probe-reads-the-ci-system (slice: The adoption probe reports the CI system)
+## Implementation brief — a-merged-pr-carried-work (slice: Delivery reports a slice whose PR carried no work)
 
-- **Plan (canonical):** `docs/plans/2026-09-08-the-probe-reads-the-ci-system.md` on `main`
+- **Plan (canonical):** `docs/plans/2026-09-08-a-merged-pr-carried-work.md` on `main`
 - **Branch:** carries this slice; base `main`
 - **Ends as:** one PR to `main`
 - **Review of the code:** PR
-- **Waits on:** `feature/a-probe-reports-and-the-domain-judges` — do not start before it lands. Both change `plot-detect-repo.sh`, and the word `ci_system` proposes belongs in the domain rather than written here and moved a week later.
-
-**AND READ WHAT YOU WAIT ON.** Its PR is the input to yours.
+- **Waits on:** nothing. Start immediately.
 - **Sprint:** `the-jenkins-team-sees-its-builds`
 
 **READ THE PLAN AND ITS ROUNDS FIRST.** All four plans were interrogated across five to seven rounds, and most changed shape: a field form was reversed, a dependency inverted, a measurement found impossible. The Notes record what was cut and why. A slice re-adding it wastes the round.
@@ -37,9 +35,8 @@ pnpm run test:board
 - **The domain demands 100% branch coverage.** Narrow the type rather than testing dead code.
 - **Arrow functions** in `packages/domain` and in anything newly written.
 - **A test failing differently each run is machine load.** Check `uptime` first.
-- **The collector reports booleans; `proposeStack` derives the word.** An earlier draft put the derivation here and the cross-plan round reversed it.
-- **Search `git ls-files`, not a guessed path list.** Measured: `quaweb-website` keeps its three Jenkinsfiles under `.build/pipelines/*/*/`, none at the four paths reasoned from convention.
-- **Three prose-matching tests are replaced, not joined.** They match regexes against SKILL.md and passed for four days over a feature that did not exist.
+- **The judgement is the domain's.** `rules/branch-state.ts` decides; the adapter measures. A `git diff` in `plot-deliver.sh` is the second implementation this sprint removes elsewhere.
+- **Branch refs are gone after a merge** — measured on both failing slices. Read the merge commit, not `main...branch`.
 
 ## Done when
 

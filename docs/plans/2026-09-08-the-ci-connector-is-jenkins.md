@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** feature
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 5
+- **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
 
 ## Changelog
 

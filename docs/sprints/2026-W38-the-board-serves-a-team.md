@@ -4,12 +4,13 @@
 
 ## Status
 
-- **State:** Active
+- **State:** Closed
 - **Committed:** 2026-09-07
 - **Started:** 2026-09-07
 - **Start:** 2026-09-08
 - **End:** 2026-09-22
 - **Release:** 2.15.0
+- **Closed:** 2026-09-08, all 14 items delivered, released as v2.15.0
 
 ## Sprint Goal
 

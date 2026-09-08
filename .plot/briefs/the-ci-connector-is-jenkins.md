@@ -1,15 +1,15 @@
-## Implementation brief — the-build-pipeline-is-its-own-connector (slice: The CI connector is Jenkins)
+## Implementation brief — the-ci-connector-is-jenkins (slice: build-jenkins.ts answers the three operations)
 
-- **Plan (canonical):** `docs/plans/2026-09-07-the-build-pipeline-is-its-own-connector.md` on `main`
+- **Plan (canonical):** `docs/plans/2026-09-08-the-ci-connector-is-jenkins.md` on `main`
 - **Branch:** carries this slice; base `main`
 - **Ends as:** one PR to `main`
 - **Review of the code:** PR
-- **Waits on:** `feature/the-build-port-exists` — do not start before it lands. The plan says why.
-- **Sprint:** `the-board-serves-a-team`
+- **Waits on:** `bug/the-run-ops-ask-the-ci-backend` — do not start before it lands. Without its `ci_backend` branch the connector has nothing to call.
 
-**READ THE PLAN AND ITS ROUNDS FIRST.** Every plan here was interrogated and most changed; the Notes record what was cut and why. A slice re-adding it wastes the round.
+**AND READ WHAT YOU WAIT ON.** Its PR is the input to yours.
+- **Sprint:** `the-jenkins-team-sees-its-builds`
 
-**AND READ WHAT YOU WAIT ON.** This slice was ordered behind `feature/the-build-port-exists` for a stated reason — a contract it needs, or a shape it should not invent twice. Its PR is the input to yours.
+**READ THE PLAN AND ITS ROUNDS FIRST.** All four plans were interrogated across five to seven rounds, and most changed shape: a field form was reversed, a dependency inverted, a measurement found impossible. The Notes record what was cut and why. A slice re-adding it wastes the round.
 
 ## What this delivers
 
@@ -31,11 +31,15 @@ pnpm run test:board
 ## Traps measured this week
 
 - **The scan reads plans from `origin/main`, never the working tree.** An annotation is invisible to the fleet until pushed.
+- **A merged PR that carries no work still reads as delivered.** Two slices shipped that way last sprint. If your branch ends up carrying only a marker, say so in the PR rather than letting it merge quietly.
 - **`test:board` dirties a fixture** — `tiny-garden/.plot/state/last-pulse.json`. Revert before staging.
 - **On a board bundle conflict, do not read the diff.** Marked `-merge`; take either side, `pnpm build:board`, commit the rebuild.
 - **The domain demands 100% branch coverage.** Narrow the type rather than testing dead code.
 - **Arrow functions** in `packages/domain` and in anything newly written.
 - **A test failing differently each run is machine load.** Check `uptime` first.
+- **Credentials reach `jen` through the environment only, never as a flag.** `curl --user` blanks its value in `ps` (measured); `jen` cannot be checked that way because it is not installed anywhere on this machine.
+- **The REST fallback fires on ABSENCE**, not on an unrecognised answer — that is the `unknown` case the script already degrades to failure-shaped.
+- **Measured live 2026-09-08:** the instance answers, `builds[]` is the history, and `actions[].BuildData.lastBuiltRevision.SHA1` carries the commit. Field shapes are in the plan; get a token from the operator.
 
 ## Done when
 

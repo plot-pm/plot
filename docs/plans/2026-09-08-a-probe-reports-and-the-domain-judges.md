@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** infra
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** setup-asks-what-the-repo-already-knows
 - **Review:** pr
 - **Impl:** own branches
 - **Rounds:** 6
+- **Approved:** 2026-09-08, Jan Wloka, plan-PR #834 merged
 
 ## Changelog
 
