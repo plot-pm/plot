@@ -71,6 +71,25 @@ describe('it refuses what the lifecycle does not admit', () => {
     expect(isRefusal(result) && result.reason).toBe('state-unrecognised');
   });
 
+  it('refuses a sprint whose OWN state the lifecycle does not admit', () => {
+    // THE FILE CAN BE WRONG — `entities/sprint.ts:58`, *"stated in the file, so
+    // it can be wrong"*. `move` types the current state as `SprintState`, which
+    // is exactly the guarantee a parsed file does not carry, so this case was
+    // unreachable from this file until a caller passed one.
+    //
+    // Measured 2026-09-08: a sprint carrying `State: Planned` was started by
+    // hand. Wired to this rule on 2026-09-09 the same input threw `Cannot read
+    // properties of undefined (reading 'length')` — every gate below indexes
+    // `NEXT` by the current state — so the refusal a person acts on arrived as
+    // a stack trace.
+    const result = setSprintState(sprintWith({ state: 'Planned' as SprintState }), {
+      to: 'Active',
+    });
+    expect(isRefusal(result) && result.reason).toBe('state-unrecognised');
+    expect(isRefusal(result) && result.detail).toContain('Planned');
+    expect(isRefusal(result) && result.detail).toContain('Planning, Committed, Active, Closed');
+  });
+
   it('refuses a move to the state it already holds', () => {
     const result = move('Active', 'Active');
     expect(isRefusal(result) && result.reason).toBe('state-unchanged');
