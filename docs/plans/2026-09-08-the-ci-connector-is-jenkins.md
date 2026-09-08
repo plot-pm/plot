@@ -10,7 +10,7 @@
 - **Story:** the-board-is-blank-where-it-matters
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 2
+- **Rounds:** 3
 
 ## Changelog
 
@@ -83,6 +83,8 @@
 
 **Not a rate-limit implementation.** Jenkins reports no limit and `ci-limit` already answers `predicted`. An absent limit is an answer.
 
+**Not the `Jenkins instance` key, though nothing here works without it.** `plot-host.sh:2286` exits 3 when it is missing, so a connector alone leaves a teammate with a refusal naming three repairs they were never told to make. Writing that key is an adoption question — it comes from the same signal as `CI: jenkins` and is proposed in the same breath — so it lives in `the-probe-reads-the-ci-system` rather than here. **This plan is not done in the sprint's terms until that slice lands.**
+
 ## Slices
 
 ### The run ops ask the CI backend (Branch: bug/the-run-ops-ask-the-ci-backend)
@@ -106,6 +108,7 @@ The connector implements `BuildPort` through `plot-host.sh`, and `buildFor` gain
 **WHAT THE STUB CANNOT PROVE IS THE ANSWER'S SHAPE**, and the PR must say so rather than implying coverage it does not have.
 
 **Done when** `build-jenkins.ts` answers `runs`, `runForSha` and `limit`; `limit()` reports `predicted`; `buildFor('jenkins')` returns it; the REST fallback fires when `jen` is absent or reports unreachable and NOT when it answers something unrecognised; an unauthenticated Jenkins refuses rather than returning an empty list; credentials come from `JENKINS_USER`/`JENKINS_TOKEN` and appear in no command line a process table would show; and the PR states what a stub proved and what it could not.
+
 
 ## Notes
 

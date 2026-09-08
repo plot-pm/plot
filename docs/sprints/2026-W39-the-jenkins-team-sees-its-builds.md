@@ -63,7 +63,6 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 
 ### Should
 
-- [ ] [adoption-proposes-the-jenkins-instance] Where the probe proposes `CI: jenkins`, `/plot-init` asks for the instance — the one fact no file in the repository carries — and writes `Jenkins instance` with it.
 - [ ] [the-connector-is-read-against-a-real-instance] Run two `jen` subcommands against `jenkins-ci-webbloqs.internal.quatico.dev` and record what they print. The instance answers (HTTP 403 — present, refusing) and the job `quaweb` exists; what is missing is `jen` and a token. Whether a build history and a build's commit sha are askable at all is the open question the connector's shape rests on.
 - [ ] [a-probe-reports-and-the-domain-judges] `proposeStack` in the domain decides what a probe's readings propose. **Runs before the CI slice**, which reports into it. Seven thresholds live inside the two collectors today — `node >= 20`, three commit-style counts, the ticket-prefix floor and the language count — and each is a decision a test cannot reach.
 - [ ] [two-signals-ask-rather-than-tie-break] `/plot-board-setup`'s stated rule — *one signal proposes, two signals ask* — becomes a domain property rather than a paragraph an agent is asked to follow.
@@ -78,6 +77,12 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 - **GitLab.** `HOST_DRIVES` is an open list and GitLab is named as next, but not here.
 
 ## Notes
+
+### The instance key moved into Must, because the goal fails without it — 2026-09-08
+
+**Reading the four plans as one system found a gap none of them showed alone.** The goal is a path: clone, `/plot-init`, build status on the board. `plot-host.sh:2286` exits 3 without a `Jenkins instance` key, and no Must slice wrote one — so all four could pass and a teammate would still see an empty check column, with a refusal naming three repairs they were never told to make.
+
+**A Should that every Must depends on is a Must.** It sits in `the-probe-reads-the-ci-system`, because it is an adoption question: the instance is proposed from the same signal as `CI: jenkins`, in the same breath, and a slice cannot wait on two branches. The connector plan names it as the thing it is not done without.
 
 ### Why the delivery gate is in Must and not Could — 2026-09-08
 

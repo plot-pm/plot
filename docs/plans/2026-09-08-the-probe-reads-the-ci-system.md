@@ -10,7 +10,7 @@
 - **Story:** setup-asks-what-the-repo-already-knows
 - **Review:** pr
 - **Impl:** own branches
-- **Rounds:** 3
+- **Rounds:** 4
 
 ## Changelog
 
@@ -90,6 +90,24 @@ So `proposeStack` lands first and this slice reports the booleans into it. **The
 **THE PROSE TESTS ARE REPLACED, NOT JOINED.** The three `ci_system` tests in `init-stack.test.mjs` are deleted and rewritten against the probe's output. Keeping them beside behaviour tests would keep a suite that reported a missing feature as covered — and a test whose failure mode is *the documentation was edited* answers a question nobody asked. The tracker tests beside them stay: `ticket_prefix` exists, so those assert against a field that is really emitted.
 
 **Done when** `plot-detect-repo.sh` emits `ci_system` as booleans alone — the word is `proposeStack`'s — for a repository with a root `Jenkinsfile`, one whose only Jenkinsfiles are nested (the `quaweb-website` shape, `.build/pipelines/*/*/Jenkinsfile`), one with `.github/workflows/`, one with both, and one with neither; `proposeStack` answers `both` where both are found rather than either word; the extra paths are stated as an unmeasured assumption in the PR; the three prose-matching `ci_system` tests are gone and their replacements run the script; and each new test fails when the field is removed.
+
+### Adoption writes the instance the connector refuses without (Branch: feature/adoption-proposes-the-jenkins-instance) <!-- waits: feature/the-probe-reads-the-ci-system -->
+
+Where the probe proposes `CI: jenkins`, adoption proposes `Jenkins instance` too — the slug from what the repository shows, the container path asked.
+
+**WITHOUT THIS KEY THE CONNECTOR REFUSES AND THE SPRINT GOAL IS NOT MET.** `plot-host.sh:2286` exits 3 naming three repairs, which is the right behaviour and not the outcome the goal describes: *a teammate clones a repository, runs `/plot-init`, and sees real build status — without being told which keys to set.* Four green slices and a board still blank is the failure this slice exists to prevent, so it sits with the connector rather than beside it.
+
+**THE SLUG IS MEASURABLE AND THE PATH IS NOT**, which is the same split adoption already makes for Jira: *propose what was measured, ask for the single thing there is no way to read*. Measured in `quaweb-website` 2026-09-08 — its README carries `jenkins-ci-webbloqs.internal.quatico.dev`, so the slug is a proposal with its evidence. The container path is not: `quaweb/continuous-build` is a fact about the Jenkins job tree, and reading it would need credentials adoption does not yet have.
+
+**ONE QUESTION WHERE THE SLUG WAS FOUND, TWO WHERE IT WAS NOT.** *"Found `jenkins-ci-webbloqs` in your README. Which job builds this repository?"* — a reader who must supply a whole `<slug>/<job/path>` value is being asked to know the key's format, which the goal rules out.
+
+**AND A REPOSITORY THAT NAMES NO JENKINS IS THE NORMAL CASE, NOT THE EDGE ONE.** `quaweb-website` happens to link its pipeline from the README; nothing requires that, and a `Jenkinsfile` says *Jenkins builds this* without saying *which Jenkins*. So the slug is a proposal only where something was measured, and a question everywhere else — **asking beats guessing**, and the alternative is writing no key and leaving the connector to refuse at the first build lookup, which is the failure this slice exists to prevent.
+
+**THE FALLBACK IS A QUESTION, NEVER A DEFAULT.** There is no plausible instance to invent: an instance slug is site-specific, and a wrong one produces `NOT reachable` — indistinguishable, to a reader, from a Jenkins that is down. `CI: jenkins` with no measurable instance therefore asks for it directly, naming why: *"A `Jenkinsfile` says Jenkins builds this repository. Which instance, and which job?"*
+
+**AN UNANSWERED QUESTION WRITES WHAT IS LEFT.** With a measured slug and no path, `plot-host.sh:566` already treats a bare-host instance as *list at the root scope* — its comment calls that "honest, and the open point's fallback" — so a half-answer degrades to a wrong-but-visible reading. With neither, no key is written and the gap is stated, because a `Jenkins instance` invented to fill the field is the silent misconfiguration `/plot-init` refuses everywhere else. Unattended, the same rule as every other proposal: `PLOT-UNASKED`.
+
+**Done when** adoption proposes `Jenkins instance` wherever it proposes `CI: jenkins`; a measured slug is proposed with its evidence and only the container path is asked; a repository naming no Jenkins is asked for both rather than defaulted; an unanswered path writes the slug alone and an unanswered slug writes no key and says so; and a `quaweb`-shaped fixture produces a config the connector does not refuse.
 
 ## Notes
 
