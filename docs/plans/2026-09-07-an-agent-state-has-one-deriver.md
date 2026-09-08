@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-board-serves-a-team
 - **Story:** the-domain-knows-what-plot-knows
@@ -13,6 +13,7 @@
 - **Rounds:** 2
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #790 merged
 - **Delivered:** 2026-09-08
+- **Released:** 2026-09-08, 2.15.0
 
 ## Changelog
 

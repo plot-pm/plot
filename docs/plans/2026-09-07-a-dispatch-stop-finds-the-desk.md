@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #786 merged
 - **Delivered:** 2026-09-08
+- **Released:** 2026-09-08, 2.15.0
 
 ## Changelog
 

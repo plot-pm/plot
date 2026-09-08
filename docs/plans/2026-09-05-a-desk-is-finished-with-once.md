@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-domain-knows-what-plot-knows
@@ -15,6 +15,7 @@
 - **Started:** 2026-09-07, Jan Wloka, `feature/finished-with-is-one-rule`
 - **Started:** 2026-09-07, Jan Wloka, `feature/the-ref-deleter-asks-the-rule`
 - **Delivered:** 2026-09-07
+- **Released:** 2026-09-08, 2.14.0
 
 ## Changelog
 

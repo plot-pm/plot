@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-domain-knows-what-plot-knows
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-06, Jan Wloka, plan-PR #702 merged
 - **Started:** 2026-09-07, Jan Wloka, `feature/the-scan-asks-for-the-state`
 - **Delivered:** 2026-09-07
+- **Released:** 2026-09-08, 2.14.0
 
 ## Changelog
 
