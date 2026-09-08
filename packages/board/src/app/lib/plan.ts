@@ -1,4 +1,5 @@
-import type { Card, StoryCard } from '../../contract/schema.js';
+import { checksUnaskable } from '@plot-pm/domain';
+import type { Board, Card, StoryCard } from '../../contract/schema.js';
 
 /**
  * The board-server route that renders a plan's file as HTML. `card.path` is
@@ -29,4 +30,31 @@ export function planHref(card: Pick<Card, 'path'>): string {
 export function storyHref(story: Pick<StoryCard, 'slug' | 'path'>): string {
   if (!story.path || !story.slug) return '';
   return `/story/${encodeURIComponent(story.slug)}`;
+}
+
+/**
+ * Whether the host could not report checks for ANY pull request on this board.
+ *
+ * THE RULE IS THE DOMAIN'S; THIS ONLY COLLECTS. `checksUnaskable` decides —
+ * including that an EMPTY set is not a refusal, because a board that has not
+ * fetched yet has no evidence either way and a warning there would be
+ * permanent on a first load. All this does is flatten the columns into the
+ * readings that rule takes.
+ *
+ * It reads every card's PRs rather than a sample: a service-level claim has to
+ * be true of every reading the board holds, and a sample would let one green
+ * PR in a hidden column silence a stack that genuinely cannot answer, or one
+ * unknown PR in the visible set speak for a stack that can.
+ *
+ * @param board - the board payload as it arrived.
+ * @returns true when there are PRs and the host answered `unknown` for all.
+ */
+export function checksUnaskableOn(board: Pick<Board, 'columns'>): boolean {
+  return checksUnaskable(
+    board.columns.flatMap((column) =>
+      column.cards.flatMap((card) =>
+        card.prs.map((pr) => ({ checks: pr.checks, mergeable: pr.mergeable })),
+      ),
+    ),
+  );
 }

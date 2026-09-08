@@ -1,5 +1,4 @@
 import type { PortResult } from '../port-result.js';
-import type { BuildRun } from '../entities/build.js';
 import type { Pr } from '../entities/pr.js';
 import type { LimitReading } from '../entities/limit.js';
 
@@ -100,20 +99,26 @@ export interface PrCreateRequest {
 }
 
 /**
- * Reads the git host — the FOREIGN source of truth about PRs and builds.
+ * Reads the git host — the FOREIGN source of truth about pull requests.
  *
  * Foreign state carries its askability apart from its answer, which is why
- * every operation returns a `PortResult`: a host with no run listing is
- * permanently `unaskable`, while an expired token is a `failed` call that will
- * succeed once somebody logs in.
+ * every operation returns a `PortResult`: a capability this host structurally
+ * lacks is permanently `unaskable`, while an expired token is a `failed` call
+ * that will succeed once somebody logs in.
  *
- * IT IS NOT A TRACKER, and the two issue operations that used to sit here have
- * their own port. Which tracker a repository uses is declared independently of
+ * IT IS NOT A TRACKER, AND IT IS NOT A BUILD PIPELINE. Both used to sit here
+ * and both now have their own port. Which tracker a repository uses is declared independently of
  * its git host, so a repository whose code lives with one vendor and whose
  * tickets live with another was asking two foreign services through one
  * interface — visible in this port's own text, which reported `unaskable`
  * *where the host has no tracker at all*: one interface saying *not my
  * department* about a capability belonging to a different service.
+ *
+ * THE BUILD PIPELINE LEFT FOR THE SAME REASON. `runs` reached `gh` alone from
+ * inside this port's adapter, so a team on Bitbucket and Jenkins had no check
+ * state at all — not a wrong one, an ABSENT one, rendered as *no checks*. `CI`
+ * is a config key declared independently of `Git host`, and the pipeline's
+ * account, window and refusals are not this host's either.
  *
  * THIS PORT IS A CONNECTOR. It reaches a remote service with an account,
  * credentials and a rate limit behind it, where most adapters read git, the
@@ -183,25 +188,6 @@ export interface Host {
    * @returns the PRs, newest first.
    */
   prList(state: string, limit?: number): Promise<PortResult<readonly Pr[]>>;
-
-  /**
-   * Lists one branch's recent CI runs, newest first.
-   *
-   * FACTS, NEVER A VERDICT. Nothing here compares runs or calls one transient;
-   * the history is evidence a reader concludes from. What proved a `403`
-   * transient on 2026-08-17 was the same branch running green two minutes
-   * earlier, and a real failure presents identically in every other respect.
-   *
-   * METERED, so a caller asks only where the question arises — a branch whose
-   * PR already reports failing checks. One request per such branch.
-   *
-   * @param branch - the branch to read the history of.
-   * @param limit - how many runs to ask for; the adapter's own default when
-   *   omitted.
-   * @returns the runs, newest first; an empty list where the host has no run
-   *   listing at all.
-   */
-  runs(branch: string, limit?: number): Promise<PortResult<readonly BuildRun[]>>;
 
   /**
    * What is this connector's limit, and how well does it know it?

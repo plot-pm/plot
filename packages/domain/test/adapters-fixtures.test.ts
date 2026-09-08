@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { refsFixture, planStoreFixture, planRecord, hostFixture } from '../src/adapters/index.js';
+import {
+  refsFixture,
+  planStoreFixture,
+  planRecord,
+  hostFixture,
+  buildFixture,
+  buildNone,
+} from '../src/adapters/index.js';
 import {
   actualLimit,
   isAnswered,
@@ -11,6 +18,7 @@ import {
   type Pr,
   type PrCreateRequest,
   type PrLookup,
+  type ShaRun,
 } from '../src/index.js';
 
 /**
@@ -262,16 +270,6 @@ describe('hostFixture: a connector the domain has never heard of', () => {
           url: 'https://quokka.invalid/pr/7',
         },
       ],
-      runs: {
-        'feature/open': [
-          {
-            workflow: 'forge',
-            conclusion: 'success',
-            startedAt: '2026-09-01T00:00:00Z',
-            url: 'https://quokka.invalid/run/1',
-          },
-        ],
-      },
       limits: [predictedLimit(backend, 'api', 100)],
     });
 
@@ -288,7 +286,6 @@ describe('hostFixture: a connector the domain has never heard of', () => {
     expect(answer<MergedAnswer>(await host.prMerged('feature/landed'))).toBe('merged');
     expect(answer<MergedAnswer>(await host.prMerged('feature/open'))).toBe('not-merged');
     expect(answer<readonly Pr[]>(await host.prList('open')).map((pr) => pr.number)).toEqual([7]);
-    expect(answer<readonly BuildRun[]>(await host.runs('feature/open'))).toHaveLength(1);
   });
 
   it('opens a PR, which is the one write the port allows', async () => {
@@ -310,5 +307,113 @@ describe('hostFixture: a connector the domain has never heard of', () => {
     expect(answer<readonly LimitReading[]>(await host.limit())[0]?.connector).toBe(backend);
     host.observe('throttled');
     expect(answer<readonly LimitReading[]>(await host.limit())[0]?.limit).toBe(50);
+  });
+});
+
+/**
+ * The build fixture, and the connector it stands in for.
+ *
+ * The same substitution the host fixture provides, on the port that used to be
+ * three of the host's operations. Two things every case checks: the value, and
+ * the `PortResult` it arrives in.
+ */
+describe('the build fixture answers as a CI connector', () => {
+  /** A run history for one branch, and two sha-pinned runs for the same one. */
+  const forge = () =>
+    buildFixture({
+      system: 'forge-ci',
+      runs: {
+        'feature/open': [
+          {
+            workflow: 'forge',
+            conclusion: 'success',
+            startedAt: '2026-09-01T00:00:00Z',
+            url: 'https://quokka.invalid/run/1',
+          },
+        ],
+      },
+      shaRuns: {
+        'feature/open': [
+          { sha: 'newest', status: 'in_progress', conclusion: null, url: '', startedAt: '' },
+          { sha: 'older', status: 'completed', conclusion: 'success', url: '', startedAt: '' },
+        ],
+      },
+      limits: [predictedLimit('forge-ci', '', 60)],
+    });
+
+  it('names the system it answers as', () => {
+    expect(forge().system()).toBe('forge-ci');
+  });
+
+  it('answers every read the port defines', async () => {
+    const build = forge();
+    expect(answer<readonly BuildRun[]>(await build.runs('feature/open'))).toHaveLength(1);
+    expect(answer<ShaRun | null>(await build.runForSha('feature/open', 'older'))?.conclusion).toBe(
+      'success',
+    );
+    expect(answer<readonly LimitReading[]>(await build.limit())[0]?.limit).toBe(60);
+    expect(build.lastRefusal()).toBeNull();
+  });
+
+  it('falls back to the newest run and SAYS which sha it found', async () => {
+    // The case a caller must be able to test: a run in flight for a commit the
+    // branch has moved past reads identically to no run at all unless the
+    // answer names its own sha.
+    const found = answer<ShaRun | null>(await forge().runForSha('feature/open', 'absent'));
+    expect(found?.sha).toBe('newest');
+  });
+
+  it('answers null where the branch has no runs at all', async () => {
+    // An ANSWER, and the one a caller polling a fresh push sees on every pass
+    // until CI wakes up. It is not a refusal.
+    const found = await forge().runForSha('feature/untouched', 'anything');
+    expect(found).toEqual({ ok: true, value: null });
+  });
+
+  it('answers an empty history for a branch it holds none for', async () => {
+    // Asked, and holds nothing — which `buildNone` answers differently, and
+    // that difference is the whole reason both exist.
+    expect(answer<readonly BuildRun[]>(await forge().runs('feature/untouched'))).toEqual([]);
+  });
+
+  it('reports the refusal that broke a read, rather than a silence', async () => {
+    const build = buildFixture({ fails: true });
+    expect(await build.runs('feature/open')).toEqual({ ok: false, why: 'failed' });
+    expect(build.lastRefusal()).not.toBeNull();
+  });
+});
+
+/**
+ * A repository that declared no CI.
+ *
+ * NOT A FIXTURE, and asserted here beside one so the difference is legible: an
+ * empty run list and an unaskable CI are different facts, and the board renders
+ * them differently.
+ */
+describe('a repository with no CI answers unaskable everywhere', () => {
+  it('refuses every operation, and names no vendor', async () => {
+    const build = buildNone();
+    expect(build.system()).toBe('');
+    expect(await build.runs('feature/open')).toEqual({ ok: false, why: 'unaskable' });
+    expect(await build.runForSha('feature/open', 'sha')).toEqual({ ok: false, why: 'unaskable' });
+    expect(await build.limit()).toEqual({ ok: false, why: 'unaskable' });
+  });
+
+  it('is not refusing — there is nothing to ask', async () => {
+    // A refusal counsels a wait. A CI system nobody declared will not be there
+    // after one, so reporting a sentence here would send a caller into a
+    // backoff over a standing configuration fact.
+    const build = buildNone();
+    await build.runs('feature/open');
+    expect(build.lastRefusal()).toBeNull();
+  });
+
+  it('is a DIFFERENT answer from a CI holding no run for the branch', async () => {
+    // THE DISCRIMINATING ASSERTION, and the reason `buildNone` is part of this
+    // slice rather than a follow-up.
+    const asked = await buildFixture().runs('feature/open');
+    const cannot = await buildNone().runs('feature/open');
+    expect(asked).toEqual({ ok: true, value: [] });
+    expect(asked).not.toEqual(cannot);
   });
 });

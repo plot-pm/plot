@@ -205,12 +205,14 @@ describe('SliceSummarySchema — plan shape and git occupancy, kept apart', () =
 describe('CardSchema — pull requests', () => {
   const base = { slug: 'x', title: 'X', type: 'feature', path: 'docs/plans/x.md' };
 
-  it('carries each PR as a number plus the host-supplied url', () => {
+  it('carries each PR as a number, the host-supplied url, and what it said about the build', () => {
     const card = CardSchema.parse({
       ...base, phase: 'Testing',
-      prs: [{ number: 113, url: 'https://example.test/pr/113' }],
+      prs: [{ number: 113, url: 'https://example.test/pr/113', checks: 'green', mergeable: 'mergeable' }],
     });
-    expect(card.prs).toEqual([{ number: 113, url: 'https://example.test/pr/113' }]);
+    expect(card.prs).toEqual([
+      { number: 113, url: 'https://example.test/pr/113', checks: 'green', mergeable: 'mergeable' },
+    ]);
   });
 
   it('accepts a PR with no url — the board renders no link rather than guessing', () => {
@@ -219,7 +221,28 @@ describe('CardSchema — pull requests', () => {
     // alone. A URL composed here would be wrong on GitHub Enterprise and on
     // every self-hosted Bitbucket.
     const card = CardSchema.parse({ ...base, phase: 'Development', prs: [{ number: 9 }] });
-    expect(card.prs[0]).toEqual({ number: 9, url: '' });
+    expect(card.prs[0]).toMatchObject({ number: 9, url: '' });
+  });
+
+  it('defaults a PR\'s build to `unknown`, because absent is not clean', () => {
+    // A PAYLOAD PREDATING THE FIELD DID NOT SAY THE PR HAS NO CHECKS. It said
+    // nothing, and `unknown` is what nothing means — the same rule `url: ''`
+    // follows one field along, and the rule the whole `none`-versus-`unknown`
+    // distinction rests on. Defaulting either to an ANSWER would make an older
+    // server's silence indistinguishable from a host that reported an empty
+    // rollup, which is the defect this field exists to remove.
+    const card = CardSchema.parse({ ...base, phase: 'Development', prs: [{ number: 9 }] });
+    expect(card.prs[0]?.checks).toBe('unknown');
+    expect(card.prs[0]?.mergeable).toBe('unknown');
+  });
+
+  it('carries all five check states, not a boolean', () => {
+    // Collapsing to ok / not-ok recreates the defect one layer up: `none` and
+    // `unknown` would land on the same side of it.
+    for (const checks of ['green', 'pending', 'failing', 'none', 'unknown'] as const) {
+      const card = CardSchema.parse({ ...base, phase: 'Development', prs: [{ number: 1, checks }] });
+      expect(card.prs[0]?.checks).toBe(checks);
+    }
   });
 
   it('defaults to no PRs, so a plan that names none is not a degraded card', () => {
