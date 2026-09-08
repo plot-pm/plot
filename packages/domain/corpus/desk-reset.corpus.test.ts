@@ -14,7 +14,7 @@ import {
 // merely uses it.
 import type { AheadReading } from '../src/rules/movable.js';
 import { compareField, describingAs, type Disagreement, type Sides } from './compare.js';
-import { readDesk, type DeskRow, type Estate } from './production.js';
+import { readDesk, type DeskResetRow, type Estate } from './production.js';
 
 /**
  * THE SECOND RULE-VERSUS-SHELL COMPARISON: does `resetRefusals` answer what
@@ -65,7 +65,7 @@ interface Case {
   /** What state this desk was built to be in — the subject of a report. */
   name: string;
   /** The shell's readings and verdict. */
-  row: DeskRow;
+  row: DeskResetRow;
 }
 
 let sandbox = '';
@@ -163,7 +163,7 @@ const buildDesks = (): Case[] => {
  * is why the assertion belongs in a unit test and this one only has to be
  * honest.
  */
-const asReadings = (row: DeskRow): FinishedWithReadings => ({
+const asReadings = (row: DeskResetRow): FinishedWithReadings => ({
   branch: 'feature/one',
   defaultBranch: 'main',
   isMain: false,
@@ -180,7 +180,7 @@ const asReadings = (row: DeskRow): FinishedWithReadings => ({
 });
 
 /** The rule's verdict in the shell's own vocabulary — `''` means resettable. */
-const ruleVerdict = (row: DeskRow): string =>
+const ruleVerdict = (row: DeskResetRow): string =>
   firstResetRefusal(finishedWith(asReadings(row))) ?? '';
 
 beforeAll(() => {

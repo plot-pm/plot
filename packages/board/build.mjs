@@ -305,6 +305,39 @@ await esbuild.build({
 fs.copyFileSync(taskArtifact, shippedTask);
 fs.chmodSync(shippedTask, 0o755);
 
+// The agent state, for the callers already in node.
+//
+// The same reason the seventh gives, and it is NOT on the hot path the seventh
+// is: `docs/shell-and-domain.md` puts a script running once per agent per pass
+// on the duplicating side, and `plot-worker-state.sh` is sourced by the agent's
+// own loop. The shell keeps deciding for its five callers; this artifact is for
+// the registry, which is in node already, and for the corpus test that holds
+// the two answers together.
+//
+// BATCHED — one line per desk, one word per line — because the registry
+// classifies every desk on the machine per pulse.
+const agentStateArtifact = path.join(here, 'dist/plot-agent-state.mjs');
+// ONE LINE, because the bundle-set derivation at the top of this file matches
+// `shipped<Name> = path.join(...)` with `[^)]*` — which does not cross a
+// newline. Wrapped for width, this binding was invisible to it and the artifact
+// shipped outside the set that three readers check.
+const shippedAgentState = path.join(here, '../../skills/plot/scripts/board/plot-agent-state.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/agent-state.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: agentStateArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(agentStateArtifact, shippedAgentState);
+fs.chmodSync(shippedAgentState, 0o755);
+
 // The supervisor: `plot-registryd`, one per repository.
 //
 // AN EIGHTH artifact rather than a flag on the board's, and the reason is
@@ -568,6 +601,7 @@ const movableKb = (fs.statSync(shippedMovable).size / 1024).toFixed(1);
 const transitionKb = (fs.statSync(shippedTransition).size / 1024).toFixed(1);
 const promptKb = (fs.statSync(shippedPrompt).size / 1024).toFixed(1);
 const taskKb = (fs.statSync(shippedTask).size / 1024).toFixed(1);
+const agentStateKb = (fs.statSync(shippedAgentState).size / 1024).toFixed(1);
 const registrydKb = (fs.statSync(shippedRegistryd).size / 1024).toFixed(1);
 const landedKb = (fs.statSync(shippedLanded).size / 1024).toFixed(1);
 const deltaKb = (fs.statSync(shippedDelta).size / 1024).toFixed(1);
@@ -581,6 +615,7 @@ console.log(`Built plot-movable.mjs (${movableKb} KB) → skills/plot/scripts/bo
 console.log(`Built plot-transition.mjs (${transitionKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-prompt.mjs (${promptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-task.mjs (${taskKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-agent-state.mjs (${agentStateKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-registryd.mjs (${registrydKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-landed.mjs (${landedKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-delta.mjs (${deltaKb} KB) → skills/plot/scripts/board/`);
