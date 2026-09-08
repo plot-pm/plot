@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** infra
 - **Sprint:** the-board-serves-a-team
 - **Story:** the-domain-knows-what-plot-knows
@@ -12,6 +12,7 @@
 - **Impl:** own branches
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #783 merged
 - **Started:** 2026-09-07, Jan Wloka, `infra/the-lifecycle-runs-on-the-other-stack`
+- **Delivered:** 2026-09-08
 
 ## Changelog
 
