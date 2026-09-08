@@ -54,7 +54,7 @@
 
 **Done when** the probe emits `ci_system` with the evidence behind it, both signals present is reported as both, `none` is a value rather than a blank, and the probe still needs no credential.
 
-### Adoption proposes the tracker and the CI system (Branch: feature/adoption-proposes-the-stack) <!-- waits: feature/the-probe-reads-the-ci-system -->
+### Adoption proposes the tracker and the CI system (Branch: feature/adoption-proposes-the-stack, PR: #824) <!-- waits: feature/the-probe-reads-the-ci-system -->
 
 `/plot-init` turns both readings into `Tracker:` and `CI:` proposals.
 
