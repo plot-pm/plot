@@ -19,13 +19,25 @@
 #   git_host          github | bitbucket | "" (from origin's URL)
 #   default_branch    from origin/HEAD, else the current branch, else ""
 #   dod_candidates    package.json script names that look like quality gates
-#   ticket_prefix     e.g. QUACDS, inferred from commit subjects; "" if none
-#   commit_style      arlo-colon | arlo-dash | conventional | "" (unknown)
+#   ticket_prefix     the most frequent prefix in the sample, e.g. QUACDS; ""
+#                     if none was seen at all
+#   ticket_prefix_count how many subjects carried it
+#   subjects_read     how many subjects the two counts above were read from
+#   commit_style_counts {"colon":n,"dash":n,"conventional":n} — how many
+#                     subjects match each notation
 #   existing_systems  planning/doc dirs already present (never judged, only listed)
 #   hub_docs          CLAUDE.md and/or AGENTS.md, comma-separated; "" if neither
 #   has_plot_config   true when a hub already carries a `## Plot Config`
 #   has_settings      true when .claude/settings.json exists
-#   language_hint     de | en | "" — a weak signal from existing docs
+#   german_words      how many German words the hub docs' sample carried; 0
+#                     when there was no doc to sample
+#
+# IT REPORTS COUNTS AND NEVER THE ANSWER THEY IMPLY. `commit_style`,
+# `language_hint` and a thresholded `ticket_prefix` were all decisions living
+# here — *two matching subjects make a style*, *three German words make a German
+# repository* — and no test could reach one. They are `proposeStack`'s now, in
+# `packages/domain/src/rules/stack.ts`, reached through
+# `board/plot-propose-stack.mjs`. This file measures; the rule judges.
 set -uo pipefail
 
 j() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
@@ -74,25 +86,28 @@ PY
 fi
 
 # --- ticket scheme ------------------------------------------------------
-# A prefix only counts when it recurs: one stray "ABC-1" in a subject line is
-# not a scheme.
-ticket=$(git log --format=%s -80 2>/dev/null \
+# The most frequent prefix and how often it occurred, both reported raw.
+# Whether one occurrence is a scheme is `proposeTicket`'s decision, and it used
+# to be an `awk '$1 >= 2'` here.
+SUBJECT_SAMPLE=80
+ticket_line=$(git log --format=%s -"$SUBJECT_SAMPLE" 2>/dev/null \
   | grep -oE '\b[A-Z][A-Z0-9]{1,9}-[0-9]+' \
-  | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn \
-  | awk '$1 >= 2 { print $2; exit }')
+  | sed 's/-[0-9]*$//' | sort | uniq -c | sort -rn | head -1)
+ticket=$(printf '%s' "$ticket_line" | awk '{ print $2 }')
+ticket_count=$(printf '%s' "$ticket_line" | awk '{ print $1 + 0 }')
+[ -n "$ticket_count" ] || ticket_count=0
+subjects_read=$(git log --format=%s -"$SUBJECT_SAMPLE" 2>/dev/null | grep -c . || true)
+subjects_read=${subjects_read:-0}
 
 # --- commit style -------------------------------------------------------
 # Reviewer agents check commit subjects, so an adopted agent aligned to the
-# wrong notation flags correct commits as violations.
+# wrong notation flags correct commits as violations. THE THREE COUNTS ARE
+# REPORTED AND THE WINNER IS NOT: which one wins, and whether any clears the
+# bar, is `proposeCommitStyle`'s decision.
 subjects=$(git log --format=%s -30 2>/dev/null | grep -v '^Merge ' || true)
-style=""
 n_colon=$(printf '%s\n' "$subjects" | grep -cE '^[A-Zar]{1,2}:[ ]' || true)
 n_dash=$(printf '%s\n' "$subjects" | grep -cE '^[A-Zar]{1,2} - ' || true)
 n_conv=$(printf '%s\n' "$subjects" | grep -cE '^(feat|fix|chore|docs|refactor|test|style|perf|build|ci)(\([^)]*\))?!?: ' || true)
-if [ "${n_conv:-0}" -ge 2 ] && [ "${n_conv:-0}" -ge "${n_colon:-0}" ]; then style=conventional
-elif [ "${n_colon:-0}" -ge 2 ]; then style=arlo-colon
-elif [ "${n_dash:-0}" -ge 2 ]; then style=arlo-dash
-fi
 
 # --- existing planning systems ------------------------------------------
 # Listed, never judged. Adoption is additive: what is here already stays, and
@@ -115,16 +130,16 @@ done
 has_settings=false
 [ -f .claude/settings.json ] && has_settings=true
 
-# --- language hint ------------------------------------------------------
-# Weak on purpose: it only nudges the template wording, and a wrong guess is
-# cheap to correct.
-lang=""
+# --- language sample ----------------------------------------------------
+# How many German words the hub docs carry, and nothing about what that means.
+# `proposeLanguage` decides, and it reads `hub_docs` too: no doc at all is a
+# reading nobody took, which is not the same answer as English.
+de=0
 if [ -n "$hubs" ]; then
   sample=$(cat CLAUDE.md AGENTS.md 2>/dev/null | head -200)
   # -o so every occurrence counts; grep -c counts matching LINES, which
   # scores a whole German paragraph on one line as 1.
   de=$(printf '%s' "$sample" | grep -oiE '\b(und|nicht|werden|muss|sollte|kann|dieser|diese)\b' | wc -l | tr -d ' ')
-  [ "${de:-0}" -ge 3 ] && lang=de || lang=en
 fi
 
 cat <<JSON
@@ -133,11 +148,13 @@ cat <<JSON
   "default_branch": "$(j "$def_branch")",
   "dod_candidates": $dod,
   "ticket_prefix": "$(j "$ticket")",
-  "commit_style": "$(j "$style")",
+  "ticket_prefix_count": ${ticket_count:-0},
+  "subjects_read": ${subjects_read:-0},
+  "commit_style_counts": {"colon": ${n_colon:-0}, "dash": ${n_dash:-0}, "conventional": ${n_conv:-0}},
   "existing_systems": "$(j "$systems")",
   "hub_docs": "$(j "$hubs")",
   "has_plot_config": $has_cfg,
   "has_settings": $has_settings,
-  "language_hint": "$(j "$lang")"
+  "german_words": ${de:-0}
 }
 JSON

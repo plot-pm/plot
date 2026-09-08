@@ -64,23 +64,34 @@ test('detect: finds Definition-of-Done candidates in package.json scripts', () =
   assert.ok(!d.dod_candidates.includes('unrelated'), 'only recognised gate names');
 });
 
-test('detect: infers the ticket scheme from commit subjects', () => {
+test('detect: counts the ticket prefix it saw, and does not decide it', () => {
+  // THE COUNT IS THE READING AND THE SCHEME IS THE PROPOSAL. This file used
+  // to hold `awk '$1 >= 2'`, so *one occurrence is not a scheme* was a
+  // threshold no test could reach. It is `proposeTicket`'s now — asserted in
+  // packages/domain/test/stack.test.ts — and what is asserted here is that
+  // the probe reports what it measured.
   const r = repoWith({ 'a.txt': 'x' }, {
     commits: ['QUACDS-12 first thing', 'QUACDS-13 second thing', 'no ticket here'],
   });
-  assert.equal(probe(r).ticket_prefix, 'QUACDS');
+  const d = probe(r);
+  assert.equal(d.ticket_prefix, 'QUACDS');
+  assert.equal(d.ticket_prefix_count, 2, 'the count travels with the prefix');
+  assert.equal(d.subjects_read, 3, 'and the sample it was read from');
+
   // A repo without tickets must report absence, not guess.
   const plain = repoWith({ 'a.txt': 'x' }, { commits: ['just a commit'] });
   assert.equal(probe(plain).ticket_prefix, '');
+  assert.equal(probe(plain).ticket_prefix_count, 0);
 
-  // A SINGLE stray key is not a scheme. Without this the detector would
-  // propose a ticket prefix to a repo that has none, and the user would
-  // have to notice and undo it — exactly the kind of confident-but-wrong
-  // proposal that makes people stop trusting the whole probe.
+  // A SINGLE stray key is REPORTED, with its count of one. The probe no
+  // longer suppresses it — suppressing was the decision — and the rule is
+  // what refuses to propose from one occurrence.
   const stray = repoWith({ 'a.txt': 'x' }, {
     commits: ['ONEOFF-1 mentioned once', 'normal commit', 'another normal one'],
   });
-  assert.equal(probe(stray).ticket_prefix, '', 'one occurrence is not a scheme');
+  assert.equal(probe(stray).ticket_prefix, 'ONEOFF');
+  assert.equal(probe(stray).ticket_prefix_count, 1,
+    'one occurrence is reported as one, and the rule decides what that means');
 });
 
 test('detect: lists pre-existing planning systems without judging them', () => {
@@ -111,15 +122,26 @@ test('detect: reports whether Plot Config already exists', () => {
       .has_plot_config, true);
 });
 
-test('detect: reports the commit-subject style so agents can match it', () => {
+test('detect: counts each commit notation and names no winner', () => {
   // Arlo-style notations differ per repo (F: vs F -). An adopted reviewer
-  // agent that checks the wrong one flags correct commits as violations.
+  // agent that checks the wrong one flags correct commits as violations — so
+  // the probe measures how many subjects match each, and `proposeCommitStyle`
+  // decides which wins and whether any clears the bar.
   const colon = repoWith({ 'a.txt': 'x' }, { commits: ['F: fix the thing', 'R: rename it'] });
-  assert.equal(probe(colon).commit_style, 'arlo-colon');
+  assert.equal(probe(colon).commit_style_counts.colon, 2);
+  assert.equal(probe(colon).commit_style_counts.dash, 0);
   const dash = repoWith({ 'a.txt': 'x' }, { commits: ['F - fix the thing', 'R - rename it'] });
-  assert.equal(probe(dash).commit_style, 'arlo-dash');
+  assert.equal(probe(dash).commit_style_counts.dash, 2);
   const conv = repoWith({ 'a.txt': 'x' }, { commits: ['feat: a thing', 'fix: another'] });
-  assert.equal(probe(conv).commit_style, 'conventional');
+  assert.equal(probe(conv).commit_style_counts.conventional, 2);
+});
+
+test('detect: reports no style word at all', () => {
+  // The field left behind is the second answer this removes. A collector that
+  // stops deciding must also stop reporting the decision.
+  const d = probe(repoWith({ 'a.txt': 'x' }, { commits: ['feat: a thing', 'fix: another'] }));
+  assert.ok(!('commit_style' in d), 'commit_style is the rule\'s answer, not the probe\'s');
+  assert.ok(!('language_hint' in d), 'language_hint likewise');
 });
 
 test('detect: is read-only — the probed repo is untouched', () => {
@@ -140,19 +162,23 @@ test('detect: survives a repo with nothing in it', () => {
   assert.equal(d.hub_docs, '');
 });
 
-test('detect: language hint counts word occurrences, not lines', () => {
+test('detect: counts German word occurrences, not lines', () => {
   // `grep -c` counts matching LINES, so a hub doc with several German words
-  // on one line scored 1 and was reported as English. The hint only nudges
-  // template wording, but a detector that is wrong on an obvious case
-  // undermines confidence in the ones that matter.
+  // on one line scored 1 and was reported as English. The count is the
+  // reading; `proposeLanguage` turns it into `de` or `en`, and answers
+  // neither where there was no hub doc to sample at all.
   const de = repoWith({
     'CLAUDE.md': '# Hub\n\nUnd nicht mehr, das sollte werden und muss.\n',
   });
-  assert.equal(probe(de).language_hint, 'de');
+  assert.ok(probe(de).german_words >= 3,
+    `expected several German words, got ${probe(de).german_words}`);
   const en = repoWith({
     'CLAUDE.md': '# Hub\n\nThis project uses the following conventions.\n',
   });
-  assert.equal(probe(en).language_hint, 'en');
+  assert.equal(probe(en).german_words, 0);
+  // No hub doc is not the same reading as an English one.
+  assert.equal(probe(repoWith({ 'x.txt': 'x' })).german_words, 0);
+  assert.equal(probe(repoWith({ 'x.txt': 'x' })).hub_docs, '');
 });
 
 test('detect: a hostname merely containing "github" is not GitHub', () => {
