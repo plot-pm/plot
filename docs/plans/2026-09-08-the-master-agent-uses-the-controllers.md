@@ -4,13 +4,14 @@
 
 ## Status
 
-- **State:** Draft
+- **State:** Approved
 - **Type:** infra
 - **Sprint:** the-jenkins-team-sees-its-builds
 - **Story:** plot-gates
-- **Review:** pr
+- **Review:** in-session
 - **Impl:** own branches
 - **Rounds:** 2
+- **Approved:** 2026-09-09, Jan Wloka, in-session
 
 ## Changelog
 
