@@ -320,6 +320,38 @@ jobs:
           fi
           echo "One place reaches a script: clean."
 
+      # THE SAME BOUNDARY, COUNTED BY NAME RATHER THAN BY CALL — and neither
+      # gate above can see what this one measures.
+      #
+      # *One place reaches a process* counts `spawn`/`execFile` SITES. *One
+      # place reaches a script* refuses a `plot-*.sh` handed straight to one.
+      # Both watch the syscall, and one syscall carries any number of scripts:
+      #
+      #   registry.ts:318   const WORKER_STATE_SCRIPT = 'plot-worker-state.sh';
+      #   registry.ts:855   scriptsShell(...).sourced(WORKER_STATE_SCRIPT, ...)
+      #
+      # That is one `spawn` of `sh`, and one Plot script the board should not
+      # know the name of. Measured 2026-09-07: 19 spawn sites against
+      # `allowed=28` — a ratchet reading healthy — over seven files each naming
+      # a script. So the syscall count can FALL while the crossings rise, and
+      # the measurement that matters is the name.
+      #
+      # A RATCHET AT NINE, NOT A REFUSAL. Seven of the nine are lifecycle
+      # commands no port answers yet, and inventing seven ports to clear a gate
+      # is the gate driving the design. The other two duplicate an adapter that
+      # exists already — `refs-git.ts:135` and `processes-shell.ts:79` reach
+      # these same two scripts behind `refs.pulse` and `processes.workerState`.
+      #
+      # THE ERROR NAMES THE PORT for each script, and says plainly where none
+      # answers rather than inventing a seam the reader cannot reach.
+      #
+      # `check-script-names.sh` holds the argument, and
+      # `test/reconcile/script-name-gate.test.mjs` holds its refusal — including
+      # the allowance test, which fails when the literal sits above the real
+      # count, because a ratchet with slack is a budget.
+      - name: A script is named in an adapter
+        run: ./scripts/check-script-names.sh
+
       # ONE ANSWER TO "DID THIS LAND", AND IT IS THE HOST'S.
       #
       # `plot-pr-merged.sh` reads `mergedAt` — never `state`, never ancestry.

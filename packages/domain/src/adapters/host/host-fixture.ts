@@ -1,4 +1,3 @@
-import type { BuildRun } from '../../entities/build.js';
 import { correctForRefusal, type LimitReading } from '../../entities/limit.js';
 import type { Pr } from '../../entities/pr.js';
 import type {
@@ -20,14 +19,6 @@ export interface HostFixture {
   merged?: readonly string[];
   /** The PRs `prList` reports, and `prState` looks up by number. */
   prs?: readonly Pr[];
-  /**
-   * The run history `runs` reports, by branch.
-   *
-   * A branch with no entry answers `[]` — the host was asked and holds no runs
-   * for it, which is the same answer a real Bitbucket gives. It is never a
-   * refusal: a fixture knows its own estate and has nothing to be throttled by.
-   */
-  runs?: Readonly<Record<string, readonly BuildRun[]>>;
   /**
    * The limit readings `limit` reports, before any correction.
    *
@@ -75,7 +66,6 @@ export interface HostFixture {
 export const hostFixture = (fixture: HostFixture = {}): Host => {
   const merged = new Set(fixture.merged ?? []);
   const prs = fixture.prs ?? [];
-  const runs = fixture.runs ?? {};
   const opened = fixture.opened ?? [];
   // Mutable, because the correction rule is behaviour rather than a value and
   // the fixture must be able to show it. A fixture that always answered the
@@ -110,11 +100,6 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
 
     prList: async (_state, limit): Promise<PortResult<readonly Pr[]>> =>
       answered(limit === undefined ? prs : prs.slice(0, limit)),
-
-    runs: async (branch, limit): Promise<PortResult<readonly BuildRun[]>> => {
-      const history = runs[branch] ?? [];
-      return answered(limit === undefined ? history : history.slice(0, limit));
-    },
 
     limit: async (): Promise<PortResult<readonly LimitReading[]>> => answered(limits),
 
