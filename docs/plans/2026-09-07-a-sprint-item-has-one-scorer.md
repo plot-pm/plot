@@ -45,7 +45,7 @@
 
 ## Slices
 
-### One scorer, called by both (Branch: bug/a-sprint-item-has-one-scorer, PR #827) <!-- waits: infra/a-shell-script-asks-the-domain -->
+### One scorer, called by both (Branch: bug/a-sprint-item-has-one-scorer, PR #825, PR #827) <!-- waits: infra/a-shell-script-asks-the-domain -->
 
 `scoreItem` becomes the only implementation, and `plot-sprint-release.sh` calls it.
 
