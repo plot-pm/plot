@@ -1,10 +1,9 @@
 ---
 title: Setup asks what the repo already knows
 author: jwloka
-status: done
-archived: 2026-09-04
+status: active
 created: 2026-08-26
-updated: 2026-09-04
+updated: 2026-09-08
 ---
 
 # Setup asks what the repo already knows
@@ -68,8 +67,20 @@ three.
 
 ### Phase 2: Plan ⏸️
 
-- ⏸️ One plan: infer from the signals that exist, propose rather than assert,
-  ask only what the probe cannot settle, and write every answer to `## Plot Config`
+- ✅ `Tracker: jira` gained a consumer — the tracker port has two connectors, and a repository declaring none answers `unaskable` rather than succeeding silently
+- ✅ `/plot-init` states the proposal rule in full: one signal proposes, two signals ask, and an absent signal writes no key and says so
+- ⏸️ **The `CI:` half is inert.** `plot-detect-repo.sh` emits no `ci_system`, so the proposal reads a field that does not exist. Re-opened 2026-09-08; `the-probe-reads-the-ci-system` is the plan.
+- ⏸️ **The proposal rule is prose.** *One signal proposes, two signals ask* lives in skill step 2, where an agent can rationalise around it and no test can assert it.
+
+### Why this was re-opened — 2026-09-08
+
+**It was closed on 2026-09-04 with Phase 2 unstarted**, and the tracker half has since shipped. The CI half has not, and it failed in the way this story exists to describe: **the configuration looks done and behaves undone.**
+
+`/plot-init` documents which word each CI signal proposes and what evidence to print. `plot-detect-repo.sh` returns ten fields and none of them is `ci_system`, so the branch is dead code written as prose. The skill's own README records it at `README.md:206`; the slice that was to fix it, PR #811, merged carrying **zero files**.
+
+**That is this story's failure mode aimed at itself.** A user on a Jenkins team runs adoption, is never asked about CI, and concludes their repository has none — the same reasonable-but-wrong inference the objective describes.
+
+**A second open point surfaced while re-reading it.** Seven thresholds decide what the probes report — `node >= 20`, three commit-style counts, the ticket-prefix floor, the German-language count — and each sits inside a collector whose header says it decides nothing. `a-probe-reports-and-the-domain-judges` is the plan; [[plot-gates]] is where the rule-versus-gate argument lives.
 
 ## Open Points
 
