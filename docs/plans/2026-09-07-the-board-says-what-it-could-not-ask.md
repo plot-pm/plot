@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-board-serves-a-team
 - **Story:** the-master-agent-holds-the-fleet
@@ -14,6 +14,7 @@
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #785 merged
 - **Started:** 2026-09-07, Jan Wloka, `bug/the-board-says-what-it-could-not-ask`
 - **Delivered:** 2026-09-08
+- **Released:** 2026-09-08, 2.15.0
 
 ## Changelog
 

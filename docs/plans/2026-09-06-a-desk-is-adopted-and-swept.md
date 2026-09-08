@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -15,6 +15,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `feature/adoption-proposes-a-worktree-root`
 - **Started:** 2026-09-07, Jan Wloka, `bug/the-reaper-reads-prunable`
 - **Delivered:** 2026-09-07
+- **Released:** 2026-09-08, 2.14.0
 
 ## Changelog
 

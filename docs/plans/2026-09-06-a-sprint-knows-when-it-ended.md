@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -17,6 +17,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-sprint-names-a-shipped-release`
 - **Started:** 2026-09-07, Jan Wloka, `feature/a-sprint-shows-its-dates`
 - **Delivered:** 2026-09-07
+- **Released:** 2026-09-08, 2.14.0
 
 ## Changelog
 

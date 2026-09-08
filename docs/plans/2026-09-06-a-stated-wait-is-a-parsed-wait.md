@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -14,6 +14,7 @@
 - **Rounds:** 1
 - **Started:** 2026-09-06, Jan Wloka, `bug/a-stated-wait-is-a-parsed-wait`
 - **Delivered:** 2026-09-07
+- **Released:** 2026-09-08, 2.14.0
 
 ## Changelog
 

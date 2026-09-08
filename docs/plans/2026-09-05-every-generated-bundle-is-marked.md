@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Review:** in-session
@@ -14,6 +14,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `bug/every-generated-bundle-is-marked`
 - **Started:** 2026-09-06, Jan Wloka, `bug/the-repair-knows-every-bundle`
 - **Delivered:** 2026-09-07
+- **Released:** 2026-09-08, 2.14.0
 
 ## Changelog
 

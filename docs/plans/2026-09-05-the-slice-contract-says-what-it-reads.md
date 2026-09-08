@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** bug
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -15,6 +15,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `bug/an-empty-slice-is-not-finished`
 - **Started:** 2026-09-06, Jan Wloka, `docs/a-spec-says-how-to-count`
 - **Delivered:** 2026-09-06
+- **Released:** 2026-09-08, 2.14.0
 
 ## Changelog
 

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Delivered
+- **State:** Released
 - **Type:** feature
 - **Sprint:** the-domain-owns-the-lifecycle
 - **Story:** the-master-agent-holds-the-fleet
@@ -15,6 +15,7 @@
 - **Started:** 2026-09-06, Jan Wloka, `feature/a-changeset-carries-a-plan`
 - **Started:** 2026-09-06, Jan Wloka, `infra/a-changeset-link-is-counted`
 - **Delivered:** 2026-09-06
+- **Released:** 2026-09-08, 2.14.0
 
 ## Changelog
 
