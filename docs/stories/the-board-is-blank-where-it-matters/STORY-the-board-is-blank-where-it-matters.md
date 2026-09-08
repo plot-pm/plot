@@ -1,10 +1,9 @@
 ---
 title: The board is blank where it matters
 author: jwloka
-status: done
-archived: 2026-09-04
+status: active
 created: 2026-08-26
-updated: 2026-09-04
+updated: 2026-09-08
 ---
 
 # The board is blank where it matters
@@ -85,10 +84,18 @@ nothing. This repo's comments read like specification, which is the trap
 
 ### Phase 2: Plans, one per origin ⏸️
 
-- ⏸️ Tickets from Jira — the origin an enterprise team cannot get any other way
+- ✅ Tickets from Jira — `tracker-jira.ts` shipped; `Tracker` is its own port with two connectors
 - ⏸️ Tickets from Bitbucket — smaller; the adapter already has the shape
-- ⏸️ Build status from Jenkins — the trail ends before `plot-host.sh`
+- ⏸️ **Build status from Jenkins** — the trail no longer ends before `plot-host.sh`, and that is the change: `jenkins_build_map()` reads a real instance, but only `pr-list --rich` can see it. The build port answers `buildNone()`, so every other reader is still blank. Re-opened 2026-09-08; `the-ci-connector-is-jenkins` is the plan.
 - ⏸️ The 50-PR cap (#333) — plan drafted on PR #408, unapproved, two open questions
+
+### Why this was re-opened — 2026-09-08
+
+**It was closed on 2026-09-04 with Phase 2 unstarted**, which the phase's own `⏸️` recorded. Phase 1 measured the gaps and opened a sprint; the story was archived as though that were the outcome.
+
+**Its central measurement is now false in a way worth keeping.** The story reads *"`plot-host.sh` contains **zero** references to `jen`"*. Today it holds two `jen` calls, a budget-tracked wrapper, `jenkins_build_map()` with auth wording measured live against `jen 0.2.0`, and a `ci-limit` arm answering `predicted`. The trail no longer ends before `plot-host.sh` — **it ends at the port.**
+
+**And the gap it named is exactly the one that shipped anyway.** 2.15.0 was released for a team on Bitbucket, Jenkins and Jira, and two of its slices merged carrying no work: PR #811 (zero files) and PR #821 (a `PLOT-BLOCKED.md`). A story that had stayed open would have been the place that noticed.
 
 ## Open Points
 

@@ -36,7 +36,7 @@ const proposal = skill.slice(0, skill.indexOf('### 3.'));
 test('init: a recurring ticket prefix proposes Tracker: jira', () => {
   assert.match(proposal, /propose `Tracker: jira`/,
     'a measured prefix must yield a tracker proposal');
-  assert.match(proposal, /When `ticket_prefix` is non-empty/,
+  assert.match(proposal, /When the proposal carries a `ticket\.prefix`/,
     'the proposal must name the signal it reads');
 });
 

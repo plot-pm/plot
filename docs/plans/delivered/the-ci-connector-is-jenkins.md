@@ -1,0 +1,1 @@
+../2026-09-08-the-ci-connector-is-jenkins.md

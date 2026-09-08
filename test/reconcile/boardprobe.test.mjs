@@ -63,12 +63,46 @@ test('probe: emits the documented top-level fields', () => {
   const r = repoWith({ 'a.txt': 'x' }, { config: '- **Plan directory:** docs/plans/\n' });
   const p = probe(r);
   for (const key of [
-    'node', 'node_ok', 'bash', 'git_root', 'cwd_is_root',
+    'node', 'node_floor', 'bash', 'git_root', 'cwd_is_root',
     'artifact', 'artifact_source', 'has_plot_config', 'plan_dir',
     'plan_files', 'git_host', 'gh', 'bb', 'jen', 'ci_signals',
   ]) {
     assert.ok(key in p, `missing field: ${key}`);
   }
+});
+
+test('probe: reads the Node floor from .nvmrc and decides nothing about it', () => {
+  // THE FLOOR IS A READING. `node_ok` hardcoded `>= 20` here, had no reader on
+  // the whole estate, and disagreed with `plot-fleetctl.sh`, which reads the
+  // same `.nvmrc` and refuses a mismatched major. Whether the node found meets
+  // the floor is `proposeNode`'s answer, in packages/domain/test/stack.test.ts.
+  const pinned = repoWith({ '.nvmrc': '24\n' }, { config: '- **Plan directory:** docs/plans/\n' });
+  assert.equal(probe(pinned).node_floor, 24);
+
+  // `v24.2.0` is a valid pin too, and the major is what a comparison needs.
+  const full = repoWith({ '.nvmrc': 'v24.2.0\n' }, { config: '- **Plan directory:** docs/plans/\n' });
+  assert.equal(probe(full).node_floor, 24);
+});
+
+test('probe: reports no floor where the repository pins none', () => {
+  // A repository with no `.nvmrc` has stated no floor, and null is what says
+  // so. `proposeNode` answers *cannot verify* for it rather than inventing a
+  // number — which is exactly what the literal 20 did.
+  const r = repoWith({ 'a.txt': 'x' }, { config: '- **Plan directory:** docs/plans/\n' });
+  assert.equal(probe(r).node_floor, null);
+});
+
+test('probe: reports no floor for a pin that names no number', () => {
+  // `lts/iron` is a valid `.nvmrc`. Resolving the alias would need a table
+  // that goes stale, and reporting a wrong major is worse than reporting none.
+  const r = repoWith({ '.nvmrc': 'lts/iron\n' }, { config: '- **Plan directory:** docs/plans/\n' });
+  assert.equal(probe(r).node_floor, null);
+});
+
+test('probe: reports no verdict about the node it found', () => {
+  // The field left behind is the second answer this removes.
+  const r = repoWith({ '.nvmrc': '24\n' }, { config: '- **Plan directory:** docs/plans/\n' });
+  assert.ok(!('node_ok' in probe(r)), 'node_ok is the rule\'s answer, not the probe\'s');
 });
 
 test('probe: reports has_plot_config false when no hub doc carries the section', () => {

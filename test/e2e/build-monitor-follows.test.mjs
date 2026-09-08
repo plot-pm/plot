@@ -34,7 +34,14 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeSandbox, sh, stubHost, SCRIPTS, staffDesk } from './helpers.mjs';
 
-const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n';
+// THE SANDBOX DECLARES WHICH CI IT STUBS, and it must: `plot-host.sh
+// run-for-sha` dispatches on the `CI` key rather than the git host since
+// 2026-09-08, so a repository that names no CI system exits 4 and the
+// BuildMonitor publishes nothing. This fixture stubs `gh` and asserts below
+// that `gh run list` was really reached — it has always been a GitHub Actions
+// repository, and this line is it saying so.
+const PLAN_CONFIG = '- **Plan directory:** docs/plans/\n- **Active index:** docs/plans/active/\n'
+  + '- **CI:** github-actions\n';
 
 /** An approved single-branch plan on origin, so dispatch has something eligible. */
 function dispatchablePlan(work, { slug = 'build-monitor', date = '2026-08-31' } = {}) {

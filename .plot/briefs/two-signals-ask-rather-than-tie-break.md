@@ -1,10 +1,10 @@
-## Implementation brief — the-probe-reads-the-ci-system (slice: The adoption probe reports the CI system)
+## Implementation brief — two-signals-ask-rather-than-tie-break (slice: Two signals ask rather than tie-break)
 
-- **Plan (canonical):** `docs/plans/2026-09-08-the-probe-reads-the-ci-system.md` on `main`
+- **Plan (canonical):** `docs/plans/2026-09-08-a-probe-reports-and-the-domain-judges.md` on `main`
 - **Branch:** carries this slice; base `main`
 - **Ends as:** one PR to `main`
 - **Review of the code:** PR
-- **Waits on:** `feature/a-probe-reports-and-the-domain-judges` — do not start before it lands. Both change `plot-detect-repo.sh`, and the word `ci_system` proposes belongs in the domain rather than written here and moved a week later.
+- **Waits on:** `feature/a-probe-reports-and-the-domain-judges` — do not start before it lands. It creates the proposal shape this needs.
 
 **AND READ WHAT YOU WAIT ON.** Its PR is the input to yours.
 - **Sprint:** `the-jenkins-team-sees-its-builds`
@@ -37,9 +37,7 @@ pnpm run test:board
 - **The domain demands 100% branch coverage.** Narrow the type rather than testing dead code.
 - **Arrow functions** in `packages/domain` and in anything newly written.
 - **A test failing differently each run is machine load.** Check `uptime` first.
-- **The collector reports booleans; `proposeStack` derives the word.** An earlier draft put the derivation here and the cross-plan round reversed it.
-- **Search `git ls-files`, not a guessed path list.** Measured: `quaweb-website` keeps its three Jenkinsfiles under `.build/pipelines/*/*/`, none at the four paths reasoned from convention.
-- **Three prose-matching tests are replaced, not joined.** They match regexes against SKILL.md and passed for four days over a feature that did not exist.
+- **A proposal and a question are two answers, not one answer with a flag.** A field holding `jenkins` plus `uncertain: true` invites a caller to read the first half.
 
 ## Done when
 
