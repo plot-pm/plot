@@ -126,7 +126,7 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **Done when** `/plot-release` asks an endpoint for its verdict, an open Must refuses with the item named, the operator's approval is still required and still separate, and the skill's prose states the call rather than restating the rule.
 
-### Adoption writes its config through a controller (Branch: feature/adoption-is-a-controller-command) <!-- waits: feature/a-release-is-a-controller-command -->
+### Adoption writes its config through a controller (Branch: feature/adoption-is-a-controller-command, PR: #840) <!-- waits: feature/a-release-is-a-controller-command -->
 
 `/plot-init` writes `## Plot Config` through an endpoint that asks `proposeStack` what the readings propose.
 
