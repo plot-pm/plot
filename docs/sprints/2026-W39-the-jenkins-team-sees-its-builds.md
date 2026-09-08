@@ -61,6 +61,7 @@ Two halves. **Connected** means the Jenkins build state reaches the domain throu
 - [ ] [the-ci-connector-is-jenkins] `build-jenkins.ts` answers the three port operations through `plot-host.sh`. Re-filed: PR #821 merged a marker and no code.
 - [ ] [the-run-ops-ask-the-ci-backend] `runs` and `run-for-sha` branch on `ci_backend()` rather than calling `gh` unconditionally. Without this the connector above has nothing to call.
 - [ ] [a-merged-pr-carried-work] `/plot-deliver` distinguishes a slice whose PR carried work from one whose PR carried a marker. Two slices passed that gate in one sprint and nothing reported it.
+- [ ] [what-the-domain-refuses-does-not-happen] A lifecycle transition goes through the domain, and a refusal ends the action. `setSprintState` names nine refusals and has zero production callers; three of them describe what a master agent did by hand on 2026-09-08.
 - [ ] [the-registry-sweeps-what-it-did-not-start] The supervisor reports registered worktrees nobody dispatched. Measured 2026-09-08: twelve hand-made trees in `/private/tmp` made `git worktree list` report 34 where 22 were real, and the fleet scan timed out at 90 s — the board fell back to a stale pulse and showed no PRs.
 
 ### Should Have

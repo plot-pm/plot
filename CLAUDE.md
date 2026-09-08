@@ -441,6 +441,24 @@ variant of ports-and-adapters, not a deviation from the rule above.
 
 **No gate enforces this**, and it is a rule for the reason the domain's arrow-function rule is one: which of two implementations is right is judgement, and a grep cannot tell a declared duplicate from a forgotten one. What is gated is the pair once declared — the corpus test fails when they drift.
 
+## What The Domain Refuses Does Not Happen
+
+**Settled 2026-09-08, and it binds the master agent first.** A lifecycle transition — a plan's phase, a sprint's state, an agent's state — is performed by asking the domain, never by editing the field. **A refusal is not advice to weigh. It is the end of that action.**
+
+**The rule exists because it was broken by the agent that writes the rules.** Measured 2026-09-08: a sprint file was created by hand instead of from `templates/sprint.md`, its phase set with `sed` to `Planned` — a word the lifecycle does not contain — and activated with `ln -s`. `transitions/sprint.ts:205` refuses all three by name: `state-unrecognised` lists the four states, `commitment-empty` refuses a sprint with no Must, `state-unreachable` refuses the skipped phase. Every one was written, tested and exported. **`setSprintState` has zero production callers**, so none fired, and the board counted 0 of 9 items for an hour.
+
+**So the test is not *did I route through the domain* but *would the domain have allowed it*.** Calling a rule and proceeding past its refusal is the same failure as not calling it.
+
+| you want to | ask |
+|---|---|
+| move a sprint's state | `setSprintState` — nine refusals, each with its sentence |
+| move a plan's phase | `plot-approve.sh` / `plot-deliver.sh`, which own that write |
+| record a decision a rule covers | the rule, and print what it says |
+
+**Where the domain has no rule, this does not apply.** A brief, a changeset, a note in a plan's Notes — none is a lifecycle state, and inventing a transition for one is not the lesson.
+
+**Where the domain has a rule and nothing calls it, that is a defect to file**, not a licence to write the field by hand. [`what-the-domain-refuses-does-not-happen`](docs/plans/2026-09-08-what-the-domain-refuses-does-not-happen.md) is the plan.
+
 ## Gates Over Rules
 
 **For important agent behaviors, always implement gates, not rules.** ([Reference](https://blog.fsck.com/2026/04/07/rules-and-gates/))
