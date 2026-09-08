@@ -27,7 +27,7 @@ function run(cwd, ...args) {
 
 // A sprint repo: plans land in delivered/ or active/, items reference them by
 // slug. `release` omitted → no `Release:` line at all, the pre-existing shape.
-function repo({ release, must = [], should = [], could = [], delivered = [], active = [], activeSprint = true, phase = 'Active', second } = {}) {
+function repo({ release, must = [], should = [], could = [], delivered = [], active = [], withdrawn = [], activeSprint = true, phase = 'Active', second } = {}) {
   const w = fs.mkdtempSync(path.join(tmp, 'r-'));
   git(w, 'init', '-q', '-b', 'main');
   git(w, 'config', 'user.email', 'test@example.invalid');
@@ -42,6 +42,18 @@ function repo({ release, must = [], should = [], could = [], delivered = [], act
   }
   for (const slug of delivered) fs.writeFileSync(path.join(w, 'docs/plans/delivered', `${slug}.md`), '# ' + slug);
   for (const slug of active) fs.writeFileSync(path.join(w, 'docs/plans/active', `${slug}.md`), '# ' + slug);
+  // A withdrawn plan is a REAL plan file in the plan directory, because the
+  // phase is read from `State:` through `plot-plan-meta.sh` rather than from a
+  // directory. `Rejected` and `Superseded` are one reading, so both are
+  // constructible: `['alpha']` gives Rejected, `[['alpha','Superseded']]` the
+  // other.
+  for (const entry of withdrawn) {
+    const [slug, state = 'Rejected'] = Array.isArray(entry) ? entry : [entry];
+    fs.writeFileSync(
+      path.join(w, 'docs/plans', `2026-08-20-${slug}.md`),
+      `# ${slug}\n\n## Status\n\n- **State:** ${state}\n- **Type:** bug\n`,
+    );
+  }
 
   const tier = (name, items) => `### ${name}\n\n` + (items.length ? items.join('\n') + '\n' : '<!-- none -->\n') + '\n';
   const body =
@@ -128,6 +140,49 @@ test('checked with the plan NOT delivered is disputed — the claim the estate d
   assert.equal(r.must[0].state, 'disputed');
   assert.equal(r.must[0].checked, true);
   assert.equal(r.must[0].delivered, false);
+});
+
+// --- A withdrawn plan ------------------------------------------------------
+//
+// `State: Rejected` or `Superseded` means somebody decided the plan will not
+// deliver. Measured 2026-09-07: unticked such an item read `open` and blocked
+// the release forever over work nobody was doing; ticked it read `disputed`,
+// which sends a reader to find a disagreement that is not there.
+
+test('unchecked with the plan Rejected is withdrawn, not open', () => {
+  const w = repo({ must: ['- [ ] [alpha] Do alpha'], withdrawn: ['alpha'] });
+  const r = run(w);
+  assert.equal(r.must[0].state, 'withdrawn');
+  assert.equal(r.must[0].delivered, 'withdrawn');
+});
+
+test('checked with the plan Rejected is withdrawn, not disputed', () => {
+  // The checkbox stops mattering: the box and the plan agree completely, so
+  // there is no dispute to report.
+  const w = repo({ must: ['- [x] [alpha] Do alpha'], withdrawn: ['alpha'] });
+  assert.equal(run(w).must[0].state, 'withdrawn');
+});
+
+test('Superseded reads the same as Rejected — they differ in why, not in whether', () => {
+  const w = repo({ must: ['- [ ] [alpha] Do alpha'], withdrawn: [['alpha', 'Superseded']] });
+  assert.equal(run(w).must[0].state, 'withdrawn');
+});
+
+test('a withdrawn plan outranks the Delivered index, because it is asked first', () => {
+  // A rejected plan is not in delivered/ either, so testing delivery first
+  // would report `false` and lose the decision.
+  const w = repo({ must: ['- [x] [alpha] Do alpha'], withdrawn: ['alpha'], delivered: ['alpha'] });
+  assert.equal(run(w).must[0].state, 'withdrawn');
+});
+
+test('a struck-through reference still names its plan', () => {
+  // `~~[slug]~~` is how this estate marks an item that LEFT the sprint. The
+  // slug regex was anchored at `^\[`, so both such lines read as naming no plan
+  // and were scored on their checkbox alone — one of them over a Rejected plan.
+  const w = repo({ must: ['- [x] ~~[alpha]~~ Do alpha'], withdrawn: ['alpha'] });
+  const r = run(w);
+  assert.equal(r.must[0].slug, 'alpha');
+  assert.equal(r.must[0].state, 'withdrawn');
 });
 
 test('a lightweight task without a slug is taken at its checkbox, and says so', () => {

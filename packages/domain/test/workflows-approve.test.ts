@@ -145,7 +145,7 @@ describe('approve — a decision names every write', () => {
       kind: 'sprint-annotation',
       file: 'docs/sprints/W35-a-sprint.md',
       plan: 'a-plan',
-      status: 'approved',
+      tick: false,
       pr: 42,
       branch: 'feature/one',
     });

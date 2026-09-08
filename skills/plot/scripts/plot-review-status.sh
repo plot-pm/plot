@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Plot helper: Get review status for sprint items
 # Usage: plot-review-status.sh <sprint-slug>
-# Output: JSON array of {slug, pr, branch, status, reviewed_at, review_sha, head_sha, needs_review}
+# Output: JSON array of {slug, pr, branch, reviewed_at, review_sha, head_sha, needs_review}
 # Parses sprint file annotations and compares HEAD SHAs via git ls-remote.
 # Designed for small-model consumption: structured JSON output, no interpretation needed.
 
@@ -16,8 +16,13 @@ if [ -z "$SPRINT_FILE" ]; then
 fi
 
 # Parse plan-backed items with annotations
-# Format: - [ ] [slug] description <!-- pr: #N, status: draft, branch: feature/foo, review_sha: abc123 -->
-# or:     - [x] [slug] description <!-- pr: #N, status: merged -->
+# Format: - [ ] [slug] description <!-- pr: #N, branch: feature/foo, review_sha: abc123 -->
+#
+# `status:` WAS READ HERE and is gone, 2026-09-08. `status = merged` skipped the
+# review, and the arm was unreachable: no writer ever wrote that value —
+# /plot-approve wrote `approved`, /plot-deliver `delivered` — and zero of the 67
+# annotated lines on the estate carried it. `review_sha` answers the same
+# question by measurement, which is why removing the shortcut costs nothing.
 
 RESULT="["
 FIRST=true
@@ -33,7 +38,6 @@ while IFS= read -r line; do
 
   # Parse annotation fields
   PR=$(echo "$ANNOTATION" | grep -oE 'pr: #[0-9]+' | grep -oE '[0-9]+' || echo "")
-  STATUS=$(echo "$ANNOTATION" | grep -oE 'status: [a-z-]+' | sed 's/status: //' || echo "unknown")
   BRANCH=$(echo "$ANNOTATION" | grep -oE 'branch: [^ ,>]+' | sed 's/branch: //' || echo "")
   REVIEWED_AT=$(echo "$ANNOTATION" | grep -oE 'reviewed_at: [^ ,>]+' | sed 's/reviewed_at: //' || echo "")
   REVIEW_SHA=$(echo "$ANNOTATION" | grep -oE 'review_sha: [^ ,>]+' | sed 's/review_sha: //' || echo "")
@@ -42,10 +46,7 @@ while IFS= read -r line; do
   HEAD_SHA=""
   NEEDS_REVIEW=true
 
-  if [ "$STATUS" = "merged" ]; then
-    NEEDS_REVIEW=false
-    HEAD_SHA="n/a"
-  elif [ -n "$BRANCH" ]; then
+  if [ -n "$BRANCH" ]; then
     HEAD_SHA=$(git ls-remote origin "$BRANCH" 2>/dev/null | cut -f1 || echo "")
     if [ -z "$HEAD_SHA" ]; then
       HEAD_SHA="branch-not-found"
@@ -65,12 +66,11 @@ while IFS= read -r line; do
     --arg slug "$ITEM_SLUG" \
     --arg pr "${PR:-none}" \
     --arg branch "$BRANCH" \
-    --arg status "$STATUS" \
     --arg reviewed_at "$REVIEWED_AT" \
     --arg review_sha "$REVIEW_SHA" \
     --arg head_sha "$HEAD_SHA" \
     --argjson needs_review "$NEEDS_REVIEW" \
-    '{slug: $slug, pr: $pr, branch: $branch, status: $status, reviewed_at: $reviewed_at, review_sha: $review_sha, head_sha: $head_sha, needs_review: $needs_review}'
+    '{slug: $slug, pr: $pr, branch: $branch, reviewed_at: $reviewed_at, review_sha: $review_sha, head_sha: $head_sha, needs_review: $needs_review}'
   )"
 done < "$SPRINT_FILE"
 

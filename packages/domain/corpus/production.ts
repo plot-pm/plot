@@ -385,12 +385,14 @@ export interface SprintItemRow {
   /** Whether the sprint file's checkbox is ticked. */
   checked: boolean;
   /**
-   * Whether the plan it names is in the Delivered index.
+   * What the plan estate says about the plan it names.
    *
-   * `'none'` where the line names no plan, so nothing was looked up — a THIRD
-   * reading the domain has no way to express today.
+   * `'none'` where the line names no plan, so nothing was looked up;
+   * `'withdrawn'` where the plan carries `State: Rejected` or `Superseded`.
+   * The shell's own spellings, carried unchanged — translating them here would
+   * compare the domain against this reader.
    */
-  delivered: boolean | 'none';
+  delivered: boolean | 'none' | 'withdrawn';
   /** What `item_state` answered. */
   state: string;
 }

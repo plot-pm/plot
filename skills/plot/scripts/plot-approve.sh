@@ -569,13 +569,20 @@ clear_holds() { # $1=worktree root; reads $plan_branches
 }
 
 # Update the sprint item annotation this plan appears in:
-#     - [ ] [slug] description <!-- pr: #N, status: draft, branch: feature/slug -->
-# /plot-sprint READS these (`pr`, `status`, `branch`) and /plot-approve writes
-# them, so an approval that skips this makes `/plot-sprint status` wrong rather
-# than merely incomplete.
+#     - [ ] [slug] description <!-- pr: #N, branch: feature/slug -->
+# /plot-sprint READS these (`pr`, `branch`) and /plot-approve writes them, so an
+# approval that skips this makes `/plot-sprint status` wrong rather than merely
+# incomplete.
+#
+# `status:` IS GONE, since 2026-09-08. `a-withdrawn-item-is-not-open` measured
+# it dead in both directions — 67 lines carried one, no reader acted on the
+# value, and `plot-sprint-release.sh` read the field nowhere. The plan file
+# carries `State:` and a dated `Approved:` record; a cache nobody refreshes and
+# nobody reads is a second answer waiting to contradict the first. `pr` and
+# `branch` stay: they name things no plan field holds.
 #
 # A plan in NO sprint is a no-op, never an error — that is the common case.
-# Already-done test: the annotation already carries `status: approved`.
+# Already-done test: the annotation already carries this PR and branch.
 update_sprint_annotation() { # $1=worktree root → prints none|updated|already|missing
   local root="$1" f found=""
   [ -n "$sprint" ] || { printf 'none'; return 0; }
@@ -600,18 +607,27 @@ update_sprint_annotation() { # $1=worktree root → prints none|updated|already|
     {
       line = $0
       if (index(line, "<!--") == 0) {
-        line = line " <!-- pr: #" pr ", status: approved" (br != "" ? ", branch: " br : "") " -->"
-      } else {
-        if (line ~ /status:[ \t]*[a-z-]+/) sub(/status:[ \t]*[a-z-]+/, "status: approved", line)
-        else sub(/-->/, ", status: approved -->", line)
-        if (line ~ /pr:[ \t]*#?[0-9a-z]+/) sub(/pr:[ \t]*#?[0-9a-z]+/, "pr: #" pr, line)
-        else sub(/<!--/, "<!-- pr: #" pr ",", line)
-        if (br != "") {
-          if (line ~ /branch:[ \t]*[^,>]+/) sub(/branch:[ \t]*[^,>]*[^,> \t]/, "branch: " br, line)
-          else sub(/-->/, ", branch: " br " -->", line)
-        }
+        print line " <!-- pr: #" pr (br != "" ? ", branch: " br : "") " -->"
+        next
       }
-      print line
+      # THE CLOSING MARKER IS SPLIT OFF BEFORE ANY FIELD IS TOUCHED.
+      # A value pattern that has to avoid `-->` cannot be written safely:
+      # `[^,>]*[^,> \t]` excluded the `>` and still swallowed the `--`, turning
+      # ` -->` into a bare `>` and corrupting the comment — measured 2026-09-08,
+      # `approve: updates the sprint annotation the sprint view reads` failed on
+      # exactly that. Excluding `-` as well is worse: it rewrites `bug/a-b` as
+      # `feature/new-b`, and hyphens are in most branch names here.
+      # With the marker held aside, every field ends at a comma or at
+      # end-of-string, and none can reach it.
+      tail = ""
+      if (match(line, /[ \t]*-->[ \t]*$/)) { tail = substr(line, RSTART); line = substr(line, 1, RSTART - 1) }
+      if (line ~ /pr:[ \t]*#?[0-9a-z]+/) sub(/pr:[ \t]*#?[0-9a-z]+/, "pr: #" pr, line)
+      else sub(/<!--/, "<!-- pr: #" pr ",", line)
+      if (br != "") {
+        if (line ~ /branch:[ \t]*[^,]/) sub(/branch:[ \t]*[^,]*/, "branch: " br, line)
+        else line = line ", branch: " br
+      }
+      print line (tail != "" ? tail : " -->")
     }
   ' "$found")
   if [ "$before" = "$after" ]; then printf 'already'; return 0; fi

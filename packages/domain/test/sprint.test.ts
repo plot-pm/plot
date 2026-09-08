@@ -14,7 +14,7 @@ import {
  */
 
 const item = (over: Partial<SprintItem> = {}): SprintItem => ({
-  tier: 'must', checked: false, plan: 'a-plan', text: 'do the thing', annotation: '', ...over,
+  tier: 'must', checked: false, plan: 'a-plan', text: 'do the thing', ...over,
 });
 
 const sprint: Sprint = {
@@ -25,10 +25,10 @@ const sprint: Sprint = {
 };
 
 describe('the sprint vocabularies are closed sets', () => {
-  it('names four states, four tiers and three item statuses', () => {
+  it('names four states, four tiers and four item statuses', () => {
     expect(SprintStateSchema.options).toEqual(['Planning', 'Committed', 'Active', 'Closed']);
     expect(MoscowTierSchema.options).toEqual(['must', 'should', 'could', 'deferred']);
-    expect(ItemStatusSchema.options).toEqual(['done', 'open', 'disputed']);
+    expect(ItemStatusSchema.options).toEqual(['done', 'open', 'disputed', 'withdrawn']);
   });
 });
 
@@ -86,6 +86,34 @@ describe('an item naming no plan has only its checkbox', () => {
     // `'no-plan-named'` and it reads `disputed`, which is the bug.
     expect(scoreItem(item({ checked: true, plan: '' }), 'no-plan-named')).not.toBe('disputed');
     expect(scoreItem(item({ checked: true, plan: '' }), false)).toBe('disputed');
+  });
+});
+
+describe('a withdrawn plan is not work the sprint is still owed', () => {
+  // Measured 2026-09-07: `the-board-answers-while-it-scans` carries
+  // `State: Rejected`, and its sprint item read `open` — indistinguishable from
+  // work nobody has started, blocking the release forever.
+
+  it('scores an unchecked withdrawn item as withdrawn, not open', () => {
+    expect(scoreItem(item({ checked: false }), 'withdrawn')).toBe('withdrawn');
+  });
+
+  it('scores a checked withdrawn item as withdrawn, not disputed', () => {
+    // Ticking was the workaround: `disputed` was the less wrong of two wrong
+    // answers because it was visible. There is no disagreement here — the box
+    // and the plan agree the work will not happen.
+    expect(scoreItem(item({ checked: true }), 'withdrawn')).toBe('withdrawn');
+  });
+
+  it('is never done, because nothing shipped', () => {
+    expect(scoreItem(item({ checked: true }), 'withdrawn')).not.toBe('done');
+  });
+
+  it('outranks the checkbox in BOTH directions, unlike delivery', () => {
+    // The estate-outranks-the-checkbox rule is asymmetric for delivery and
+    // total here: a decision is not a claim, so no box contradicts it.
+    const both = [true, false].map((checked) => scoreItem(item({ checked }), 'withdrawn'));
+    expect(new Set(both).size).toBe(1);
   });
 });
 

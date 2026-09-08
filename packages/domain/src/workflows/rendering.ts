@@ -158,16 +158,23 @@ export const withoutHold = (
 };
 
 /**
- * Rewrites one sprint item's `<!-- pr:, status:, branch: -->` annotation.
+ * Rewrites one sprint item's `<!-- pr:, branch: -->` annotation, and ticks its
+ * box where asked.
  *
  * `/plot-sprint` READS these keys and the lifecycle commands write them, so a
  * transition that skips this makes `/plot-sprint status` wrong rather than
  * merely incomplete. An item with no annotation gains one; an item with one
  * keeps every key this write does not name.
  *
+ * A `status:` KEY WAS WRITTEN HERE until 2026-09-08 and is now removed, having
+ * been measured dead in both directions. A line that still carries one keeps
+ * it: rewriting somebody's file to delete a field this no longer writes is a
+ * change nobody asked for, and the sweep that removed the estate's copies was
+ * a one-off a person ran.
+ *
  * @param text - the sprint file's contents.
  * @param plan - the plan slug whose item line carries the annotation.
- * @param status - the status to record.
+ * @param tick - whether to tick the item's checkbox.
  * @param pr - the PR number to record, or null to leave any existing one.
  * @param branch - the branch to record, or `''` to leave any existing one.
  * @returns the new contents, and whether the file changed.
@@ -175,17 +182,21 @@ export const withoutHold = (
 export const withSprintAnnotation = (
   text: string,
   plan: string,
-  status: string,
+  tick: boolean,
   pr: number | null,
   branch: string,
 ): { text: string; wrote: boolean } => {
   const marker = `[${plan}]`;
   const lines = text.split('\n').map((line) => {
     if (!line.includes(marker)) return line;
-    let next = status === 'delivered' ? line.replace('[ ]', '[x]') : line;
+    let next = tick ? line.replace('[ ]', '[x]') : line;
+    // NOTHING TO RECORD IS NOT AN EMPTY ANNOTATION. With no PR and no branch,
+    // an item with no comment would gain `<!--  -->`, which reads as machinery
+    // where none ran.
+    if (pr === null && branch === '' && !next.includes('<!--')) return next;
     next = next.includes('<!--')
-      ? annotateExisting(next, status, pr, branch)
-      : `${next} <!--${annotationBody(status, pr, branch)} -->`;
+      ? annotateExisting(next, pr, branch)
+      : `${next} <!--${annotationBody(pr, branch)} -->`;
     return next;
   });
   const joined = lines.join('\n');
@@ -195,15 +206,13 @@ export const withSprintAnnotation = (
 /**
  * Builds the annotation body for an item that carries none.
  *
- * @param status - the status to record.
  * @param pr - the PR number, or null to omit it.
  * @param branch - the branch, or `''` to omit it.
  * @returns the body, each key prefixed by a space and separated by commas.
  */
-const annotationBody = (status: string, pr: number | null, branch: string): string => {
+const annotationBody = (pr: number | null, branch: string): string => {
   const parts: string[] = [];
   if (pr !== null) parts.push(`pr: #${pr}`);
-  parts.push(`status: ${status}`);
   if (branch !== '') parts.push(`branch: ${branch}`);
   return ` ${parts.join(', ')}`;
 };
@@ -212,28 +221,24 @@ const annotationBody = (status: string, pr: number | null, branch: string): stri
  * Rewrites the keys this write names inside an existing annotation.
  *
  * @param line - the item line, which carries an annotation.
- * @param status - the status to record.
  * @param pr - the PR number, or null to leave the existing one.
  * @param branch - the branch, or `''` to leave the existing one.
  * @returns the rewritten line.
  */
-const annotateExisting = (
-  line: string,
-  status: string,
-  pr: number | null,
-  branch: string,
-): string => {
-  let next = /status:[ \t]*[a-z-]+/.test(line)
-    ? line.replace(/status:[ \t]*[a-z-]+/, `status: ${status}`)
-    : line.replace('-->', `, status: ${status} -->`);
+const annotateExisting = (line: string, pr: number | null, branch: string): string => {
+  let next = line;
   if (pr !== null) {
     next = /pr:[ \t]*#?[0-9a-z]+/.test(next)
       ? next.replace(/pr:[ \t]*#?[0-9a-z]+/, `pr: #${pr}`)
       : next.replace('<!--', `<!-- pr: #${pr},`);
   }
   if (branch !== '') {
+    // `[^,> \t]*` AND NOT `[^,>]*`: the greedy form allows a SPACE, so a
+    // `branch:` that is the last key matches `none --` and eats the `--` of the
+    // closing `-->`, leaving `<!-- … branch: X>`. Measured 2026-09-08 against
+    // the same defect in `plot-approve.sh`'s awk.
     next = /branch:[ \t]*[^,>]+/.test(next)
-      ? next.replace(/branch:[ \t]*[^,>]*[^,> \t]/, `branch: ${branch}`)
+      ? next.replace(/branch:[ \t]*[^,> \t]*[^,> \t]/, `branch: ${branch}`)
       : next.replace('-->', `, branch: ${branch} -->`);
   }
   return next;

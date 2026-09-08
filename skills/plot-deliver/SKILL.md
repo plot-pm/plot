@@ -272,7 +272,7 @@ The script:
   (the gate step 4 already verified, so this is a safety check)
 - Flips `State: Approved` → `Delivered` and fills the `Delivered:` record
 - Moves the `active/` → `delivered/` symlink (best effort, cannot fail the delivery)
-- Updates the sprint annotation (checks the box, sets `status: delivered`)
+- Checks the sprint item's box
 - Pushes via `plot-push-main.sh`, with micro-PR fallback for branch protection
 
 Output is one `step:` line per operation, then a `summary:` line:

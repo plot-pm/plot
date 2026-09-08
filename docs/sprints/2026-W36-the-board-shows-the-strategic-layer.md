@@ -33,17 +33,17 @@ at the bottom.
 
 ### Must Have
 
-- [x] [the-board-shows-stories] Stories tab with columns by status, story cards, tag cloud, archived toggle, empty-state redirect — **UI wave in progress** <!-- status: delivered -->
+- [x] [the-board-shows-stories] Stories tab with columns by status, story cards, tag cloud, archived toggle, empty-state redirect — **UI wave in progress**
 
 ### Should Have
 
-- [x] [the-domain-moves-out-of-the-board] Extract domain entities to `@plot-pm/domain` package — foundation for testable rules <!-- status: delivered -->
-- [x] [the-domain-speaks-slices] Domain objects express slice boundaries for fleet orchestration <!-- status: delivered -->
+- [x] [the-domain-moves-out-of-the-board] Extract domain entities to `@plot-pm/domain` package — foundation for testable rules
+- [x] [the-domain-speaks-slices] Domain objects express slice boundaries for fleet orchestration
 
 ### Could Have
 
-- [x] [production-calls-the-domain-one-rule-at-a-time] Production code migrates to domain layer incrementally <!-- status: delivered -->
-- [x] [the-domain-runs-the-workflows-in-a-sandbox] Sandbox testing for domain workflows <!-- status: delivered -->
+- [x] [production-calls-the-domain-one-rule-at-a-time] Production code migrates to domain layer incrementally
+- [x] [the-domain-runs-the-workflows-in-a-sandbox] Sandbox testing for domain workflows
 
 ## Notes
 

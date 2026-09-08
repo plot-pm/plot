@@ -28,13 +28,30 @@ import { pathToFileURL } from 'node:url';
  */
 
 /**
+ * The shell's `delivered` word, as the domain spells it.
+ *
+ * A translation and never a verdict: each word names a reading the shell took,
+ * and the status it implies is `scoreItem`'s to decide.
+ *
+ * @param word the shell's `true`, `false`, `none` or `withdrawn`
+ * @returns the domain's reading
+ */
+const deliveryOf = (word: 'true' | 'false' | 'none' | 'withdrawn'): PlanDelivery => {
+  if (word === 'none') return 'no-plan-named';
+  if (word === 'withdrawn') return 'withdrawn';
+  return word === 'true';
+};
+
+/**
  * Parse one item's readings: `checked<TAB>slug<TAB>delivered`.
  *
- * `delivered` is the shell's own three-valued word — `true`, `false` or `none`
- * — and `none` means the line names no plan, which the domain now expresses as
- * `'no-plan-named'`. Any other word is NOT coerced: a reading the shell did not
- * produce means the two sides disagree about the wire, and guessing which was
- * meant is how a permissive default gets written.
+ * `delivered` is the shell's own four-valued word — `true`, `false`, `none` or
+ * `withdrawn`. `none` means the line names no plan, which the domain expresses
+ * as `'no-plan-named'`; `withdrawn` means the plan is `Rejected` or
+ * `Superseded`, which the domain spells the same way. Any other word is NOT
+ * coerced: a reading the shell did not produce means the two sides disagree
+ * about the wire, and guessing which was meant is how a permissive default
+ * gets written.
  *
  * A malformed line is not skipped. A missing field would silently become the
  * permissive reading, and the permissive direction here reports work as done.
@@ -53,15 +70,22 @@ export const readingFrom = (line: string): { item: SprintItem; delivered: PlanDe
   if (checked !== 'true' && checked !== 'false') {
     throw new Error(`expected checked 'true' or 'false', got '${checked}'`);
   }
-  if (delivered !== 'true' && delivered !== 'false' && delivered !== 'none') {
-    throw new Error(`expected delivered 'true', 'false' or 'none', got '${delivered}'`);
+  if (
+    delivered !== 'true' &&
+    delivered !== 'false' &&
+    delivered !== 'none' &&
+    delivered !== 'withdrawn'
+  ) {
+    throw new Error(
+      `expected delivered 'true', 'false', 'none' or 'withdrawn', got '${delivered}'`,
+    );
   }
   return {
-    // `tier`, `text` and `annotation` do not reach `scoreItem`. They are not
-    // sent over the wire for that reason: a field a rule never reads is a field
-    // two sides can drift on for free.
-    item: { tier: 'must', checked: checked === 'true', plan: slug, text: '', annotation: '' },
-    delivered: delivered === 'none' ? 'no-plan-named' : delivered === 'true',
+    // `tier` and `text` do not reach `scoreItem`. They are not sent over the
+    // wire for that reason: a field a rule never reads is a field two sides can
+    // drift on for free.
+    item: { tier: 'must', checked: checked === 'true', plan: slug, text: '' },
+    delivered: deliveryOf(delivered),
   };
 };
 

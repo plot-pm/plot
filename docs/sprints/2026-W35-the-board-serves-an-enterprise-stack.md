@@ -54,18 +54,18 @@ GitHub team a fact and an enterprise team a blank.
 Stories: [[the-board-is-blank-where-it-matters]] (the first three),
 [[setup-asks-what-the-repo-already-knows]] (the fourth).
 
-- [x] [my-jira-tickets-are-in-the-inbox] My Jira tickets appear in the board's inbox, so I can turn one into a plan without leaving the board <!-- status: delivered -->
+- [x] [my-jira-tickets-are-in-the-inbox] My Jira tickets appear in the board's inbox, so I can turn one into a plan without leaving the board
       `jira` backend, so `Tracker: jira` stops being a key nothing reads. The
       board's ticket inbox is the one section an enterprise team cannot get any
       other way.
-- [x] [i-can-see-whether-my-build-passed] I can see whether my build passed, from the board, without opening Jenkins <!-- status: delivered -->
+- [x] [i-can-see-whether-my-build-passed] I can see whether my build passed, from the board, without opening Jenkins
       path. The probe already finds `jen`, a Jenkinsfile, and the instance —
       `plot-host.sh` has no `jen` reference at all, so the trail ends before the
       board.
-- [x] [my-bitbucket-issues-are-in-the-inbox] My Bitbucket issues appear in the inbox instead of an empty section that reads as *you have no tickets* <!-- status: delivered -->
+- [x] [my-bitbucket-issues-are-in-the-inbox] My Bitbucket issues appear in the inbox instead of an empty section that reads as *you have no tickets*
       on Bitbucket. Exit 4 is honest — *cannot be asked* is not *empty* — but a
       team whose tickets live in Bitbucket sees an empty inbox forever.
-- [x] [setup-tells-me-what-it-found] Setup tells me what it found in my repo and asks only what it could not work out — and never records a key nothing reads <!-- status: delivered -->
+- [x] [setup-tells-me-what-it-found] Setup tells me what it found in my repo and asks only what it could not work out — and never records a key nothing reads
       tracker and CI from real signals and asks only what it cannot settle,
       writing every answer into `## Plot Config`. It currently asks and refuses
       well, but infers less than the repo already reveals.
@@ -74,17 +74,17 @@ Stories: [[the-board-is-blank-where-it-matters]] (the first three),
 
 Story: [[the-board-is-blank-where-it-matters]].
 
-- [x] [the-board-says-how-old-its-plans-are] The board reports how far behind <!-- status: delivered -->
+- [x] [the-board-says-how-old-its-plans-are] The board reports how far behind
       its checkout is. Measured 2026-08-26: the board worktree fell 33 commits
       behind, was pulled, and gained 23 more in one session — rendering
       `Phase: Draft` for plans approved minutes earlier. Its two halves have
       different sources: the scan reads `origin/main`, the plan cards read the
       working tree, and nothing pulls it.
-- [x] [a-dead-fetch-is-not-a-slow-one] The doc viewers bound their fetch. A <!-- status: delivered -->
+- [x] [a-dead-fetch-is-not-a-slow-one] The doc viewers bound their fetch. A
       request killed by the board's own `node --watch` restart neither resolves
       nor rejects, so the panel shows "Loading…" forever while its correct error
       branch never fires.
-- [x] [the-adapter-checks-the-cli-it-got] A `bb` too old for the flags Plot <!-- status: delivered -->
+- [x] [the-adapter-checks-the-cli-it-got] A `bb` too old for the flags Plot
       passes makes every Bitbucket PR read as *no PR*. Measured 2026-08-26:
       homebrew's `bb` 0.6.0 has no `--json` and shadows 1.0.0 on PATH, the
       error goes to `/dev/null`, and `jq` exits 0. Blocks the plan below —
@@ -94,10 +94,10 @@ Story: [[the-board-is-blank-where-it-matters]].
       *no PR* — the fabricated verdict the scan refuses everywhere else. A plan
       exists in **PR #408** — unmerged, so `docs/plans/` on main does not carry
       it yet — with two open questions its interrogation must settle.
-- [x] [an-unreachable-host-is-not-an-answer] A host that cannot be reached must <!-- status: delivered -->
+- [x] [an-unreachable-host-is-not-an-answer] A host that cannot be reached must
       not read as a host with nothing to say. Draft plan on main; the enterprise
       stack multiplies the ways a call can fail.
-- [x] [a-degraded-scan-says-why] `/plot-reconcile` reported `pr_source=degraded` <!-- status: delivered -->
+- [x] [a-degraded-scan-says-why] `/plot-reconcile` reported `pr_source=degraded`
       — *no git-host CLI available* — with `bb` installed, authenticated and
       correct; the call had returned HTTP 429. Twelve branches were listed as
       orphans, **nine of them heads of open PRs**, each with a command inviting
@@ -113,22 +113,22 @@ Story: [[the-board-is-blank-where-it-matters]].
       is untouched at 4999/5000. The board asks the host the same question
       through the exhausted bucket. Directly relevant to the enterprise stack,
       where a 429 already broke every `bb` call on this machine.
-- [x] [a-claimed-branch-is-not-startable] Auto-dispatch spends its budget only on <!-- status: delivered -->
+- [x] [a-claimed-branch-is-not-startable] Auto-dispatch spends its budget only on
       branches a dispatch can claim. **Was filed against W34, which has closed**
       — moved here rather than left orphaned in a finished timebox.
 
 ### Could Have
 
-- [x] [the-header-names-the-branch-it-is-serving] The Master Agent row names the branch the board is serving, instead of rendering blank where a fact belongs <!-- status: delivered -->
+- [x] [the-header-names-the-branch-it-is-serving] The Master Agent row names the branch the board is serving, instead of rendering blank where a fact belongs
 - [ ] [a-folded-row-still-says-what-matters] A folded head carries its tally and says what is live
-- [x] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them <!-- status: delivered -->
-- [x] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains <!-- status: closed not-a-defect, 2026-08-26 -->
+- [x] [the-plan-the-board-holds] The row carries the plan's own records rather than re-deriving them
+- [x] [the-page-is-as-tall-as-the-screen] Every board scrolls by 13px whatever it contains <!-- 2026-08-26 -->
       **No change shipped.** Measured against the running board: the wrapper
       starts at the document origin and overflow is exactly 0 at any viewport
       that holds the content. The 13px was the board's own rows at a viewport
       too short for them.
-- [x] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft <!-- status: delivered -->
-- [x] [the-worktrees-live-in-one-place] Worktrees under a configurable root. <!-- status: delivered -->
+- [x] [loose-checks-what-it-promises] `--loose` verifies green rather than not-draft
+- [x] [the-worktrees-live-in-one-place] Worktrees under a configurable root.
       Interrogated twice, Draft, unrelated to the enterprise stack but ready.
 - [ ] [a-closed-sprint-says-what-it-achieved] Closing reconciles the tally
       against plan phases. Written today after two closed sprints were found

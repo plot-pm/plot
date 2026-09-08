@@ -47,6 +47,66 @@ describe('release — the sprint gate', () => {
     expect(refused(out) && out.detail).toContain('checked in the sprint, but the plan is not delivered');
   });
 
+  it('does NOT refuse a withdrawn Must Have — that is the defect the status fixes', () => {
+    // Measured 2026-09-07: a Must Have whose plan carries `State: Rejected`
+    // read `open` and blocked the release forever over work nobody was doing.
+    const out = release(ready({ sprintItems: [item({ status: 'withdrawn' })] }), on);
+    expect(decided(out)).toBe(true);
+  });
+
+  it('names a withdrawn item rather than filtering it out silently', () => {
+    // NAMING IT IS THE POINT. A cutter sees that something the sprint promised
+    // was dropped; filtering it out would lose that, and blocking would keep
+    // the defect under a new name.
+    const out = release(ready({ sprintItems: [item({ status: 'withdrawn' })] }), on);
+    expect(decided(out) && out.detail.withdrawn).toEqual([
+      '[unfinished-plan] — withdrawn (sprint a-sprint)',
+    ]);
+  });
+
+  it('names a withdrawn item in EVERY tier, not just the Must Haves', () => {
+    // A dropped Could Have is a smaller fact than a dropped Must Have and it is
+    // still a fact the cutter has not been told.
+    const out = release(
+      ready({
+        sprintItems: [
+          item({ status: 'withdrawn', tier: 'should', plan: 'a-should' }),
+          item({ status: 'withdrawn', tier: 'could', plan: 'a-could' }),
+        ],
+      }),
+      on,
+    );
+    expect(decided(out) && out.detail.withdrawn).toHaveLength(2);
+  });
+
+  it('keeps a withdrawn item out of the open Should and Could reports', () => {
+    // It is reported ONCE, as a withdrawal. Counting it as open too would put
+    // one item under two headings saying different things about it.
+    const out = release(
+      ready({
+        sprintItems: [
+          item({ status: 'withdrawn', tier: 'should', plan: 'a-should' }),
+          item({ status: 'withdrawn', tier: 'could', plan: 'a-could' }),
+        ],
+      }),
+      on,
+    );
+    expect(decided(out) && out.detail.openShoulds).toEqual([]);
+    expect(decided(out) && out.detail.openCoulds).toEqual([]);
+  });
+
+  it('still refuses an open Must sitting beside a withdrawn one', () => {
+    // The withdrawal clears itself and nothing else.
+    const out = release(
+      ready({
+        sprintItems: [item({ status: 'withdrawn', plan: 'dropped' }), item()],
+      }),
+      on,
+    );
+    expect(refused(out) && out.reason).toBe('must-haves-open');
+    expect(refused(out) && out.detail).not.toContain('dropped');
+  });
+
   it('names which sprint each item came from — two teams may share one train', () => {
     const out = release(ready({ sprintItems: [item({ sprint: 'team-b' })] }), on);
     expect(refused(out) && out.detail).toContain('sprint team-b');

@@ -39,12 +39,12 @@ is in no diff** — only a gate does.
 
 ### Must Have
 
-- [x] [a-published-board-brings-its-scripts] The published package carries every helper script the server spawns, **and** the fleet scan pulses on an empty estate, **and** a gate boots the packed board against both an empty repo and a populated one — measured: 2 of 11 shipped (`bash exited 127`), and with all 11 staged the board *still* hangs on `fleet scan ended without a terminal pulse line` because a repo with no plans exits before the stream's terminal line <!-- status: delivered -->
+- [x] [a-published-board-brings-its-scripts] The published package carries every helper script the server spawns, **and** the fleet scan pulses on an empty estate, **and** a gate boots the packed board against both an empty repo and a populated one — measured: 2 of 11 shipped (`bash exited 127`), and with all 11 staged the board *still* hangs on `fleet scan ended without a terminal pulse line` because a repo with no plans exits before the stream's terminal line
 
 ### Should Have
 
-- [x] [a-board-that-never-scanned-says-so] A board whose first scan fails says it has never scanned, instead of rendering a screen of `none` under an error line — measured: the warming state EXISTS and is right, but is gated on `!fleet.error`, so any failure skips it <!-- status: delivered -->
-- [x] [a-board-names-the-repo-it-serves] The header names the repository being served — measured: `serverInfo()` carries `port` and `branch` but not the repo, and a stray board on the usual port cost two hours on 2026-08-28 <!-- status: delivered -->
+- [x] [a-board-that-never-scanned-says-so] A board whose first scan fails says it has never scanned, instead of rendering a screen of `none` under an error line — measured: the warming state EXISTS and is right, but is gated on `!fleet.error`, so any failure skips it
+- [x] [a-board-names-the-repo-it-serves] The header names the repository being served — measured: `serverInfo()` carries `port` and `branch` but not the repo, and a stray board on the usual port cost two hours on 2026-08-28
 
 ## Notes
 

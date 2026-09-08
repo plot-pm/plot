@@ -41,7 +41,7 @@ Add a `## Plot Config` section to the adopting project's `CLAUDE.md`:
 
 | Steps | Min. Tier | Notes |
 |-------|-----------|-------|
-| 0. Sprint Gate | Small | The states come from `plot-sprint-release.sh`; applying the rule is mechanical. The Should-Have question needs a person, not a bigger model |
+| 0. Sprint Gate | Small | The four states come from `plot-sprint-release.sh`; applying the rule is mechanical, including reporting `withdrawn` without gating on it. The Should-Have question needs a person, not a bigger model |
 | 1. Determine Version | Mid | Heuristic: plan types → bump suggestion |
 | 2A. RC Path | Small | Git tag, template generation |
 | 2B. Release Notes | Mid | Discovery logic, changelog collection |
@@ -75,9 +75,9 @@ version becomes real.
 ```
 
 The script reports facts and decides nothing: the sprint's declared `Release:`
-target, and every Must/Should/Could item as `done`, `open` or `disputed`. Read
-its JSON and apply the rule below. It never exits non-zero for an unfinished
-item — a script that refused would be making this call itself.
+target, and every Must/Should/Could item as `done`, `open`, `disputed` or
+`withdrawn`. Read its JSON and apply the rule below. It never exits non-zero for
+an unfinished item — a script that refused would be making this call itself.
 
 **No active sprint, or an active sprint with no `Release:` field → the gate
 does not apply.** Say so in one line and go to step 1. This is the majority
@@ -88,6 +88,31 @@ at all.
 **Otherwise, the two tiers get two different treatments**, because they are two
 different promises. A Must Have is the commitment; a Should Have is what the
 sprint hoped to reach.
+
+#### A withdrawn item is reported and never gates
+
+**Do this before reading the tiers**, because a withdrawal is not a degree of
+unfinished and answering the tier question first hides it.
+
+An item reading `withdrawn` names a plan at `State: Rejected` or `Superseded` —
+somebody decided it will not deliver. It does not block, in any tier, and it is
+not `done`: nothing shipped. Name it, whichever tier it sits in:
+
+```
+Withdrawn from this sprint:
+  [the-board-answers-while-it-scans] — Must Have, plan is Rejected
+```
+
+**Naming it is the point.** A cutter reading this sees that something the sprint
+promised was dropped, and can open the plan to find who dropped it and why.
+Filtering it out silently would lose that; blocking on it is the defect the
+status exists to fix — a release held forever over work nobody is doing.
+
+**The checkbox does not change this answer.** Ticked or unticked, a withdrawn
+plan is withdrawn. That is the estate-outranks-the-checkbox rule the script
+already argues, applied in both directions rather than one: for delivery the
+box can lag the estate, and here the estate carries a decision no box
+contradicts.
 
 #### Must Haves refuse
 
@@ -108,6 +133,10 @@ is, not as merely unfinished:
 ```
                 [alpha] — checked in the sprint, but the plan is not delivered
 ```
+
+**`withdrawn` is NOT one of these**, and the two must not be conflated: a
+dispute is two records disagreeing, and a withdrawal is both records saying the
+same thing. It is reported above and it does not reach this gate.
 
 **`--ignore-sprint` is the named escape**, in the tradition of `--allow-local`
 and `--during-release`. A gate with no exit is one people route around by never
@@ -488,6 +517,9 @@ Print:
 - Cross-check result: complete / gaps found
 - Sprint gate: passed / not applicable / **cleared with `--ignore-sprint`**, and
   for the last, the Must Haves that were open and the sprint note written
+- Withdrawn from the sprint: each item whose plan is Rejected or Superseded,
+  with its tier — a promise the sprint dropped is a fact this release made, and
+  the summary is where the cutter reads it
 - Plans marked Released: `<slug>` → `<version>` for each, and every plan **not**
   marked with its reason (docs/infra, or unresolvable)
 - Release-recorded gate: paste the sweep's actual `summary:` footer from step 5b
