@@ -92,7 +92,7 @@ A gate refuses a commit that edits a `State:` line outside the scripts that own 
 
 **Done when** a commit editing a `State:` line outside the owning scripts is refused with the command that would have done it, the owning scripts pass, and a plan or sprint created from a template passes.
 
-### The sprint transitions are reachable from a controller (Branch: feature/a-sprint-transition-is-performed)
+### The sprint transitions are reachable from a controller (Branch: feature/a-sprint-transition-is-performed, PR: #839)
 
 `/plot-sprint`'s start, commit and close call `setSprintState` instead of describing the write.
 
