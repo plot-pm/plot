@@ -670,6 +670,19 @@ test('host: pr-list --rich on bitbucket reports no names rather than inventing t
   assert.deepEqual(out.failing_checks, []);
 });
 
+// --- runs / run-for-sha: dispatched on the CI system ----------------------
+//
+// Both arms gated on `be` — the GIT HOST — until 2026-09-08. `CI` and
+// `Git host` are independent `## Plot Config` keys, so that gate answered a
+// question nobody asked: a Bitbucket team building on Jenkins got silence, and
+// a GitHub team building on Jenkins got GitHub Actions runs for a repository
+// whose CI is not GitHub Actions. These tests pin the dispatch, and pin that a
+// backend with no arm exits 4 rather than printing an empty list.
+//
+// EVERY `runs` TEST NOW DECLARES `PLOT_CI`. That is the change of contract, not
+// test noise: the op reads the CI key, and a repository that declares none is
+// answering a different question from one whose CI holds no runs.
+
 test('host: runs reports a branch OWN recent runs, newest first', () => {
   // The third line of the evidence a failing check is reported with. What
   // proved the 2026-08-17 `403` transient was the history — the same branch had
@@ -681,7 +694,8 @@ test('host: runs reports a branch OWN recent runs, newest first', () => {
       { workflowName: 'CI', conclusion: 'success', status: 'completed', startedAt: '2026-08-17T10:17:00Z', url: 'u1' },
     ]),
   });
-  const out = run(['runs', 'feature/x', '--limit', '2'], { env: { PLOT_HOST: 'github' }, stubs })
+  const out = run(['runs', 'feature/x', '--limit', '2'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs })
     .trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(out.map((r) => r.conclusion), ['failure', 'success']);
   assert.equal(out[0].startedAt, '2026-08-17T10:19:00Z');
@@ -699,16 +713,86 @@ test('host: runs reports an in-flight run by its status, never as a conclusion',
       { workflowName: 'CI', conclusion: null, status: 'in_progress', startedAt: '2026-08-17T10:20:00Z', url: 'u3' },
     ]),
   });
-  const out = JSON.parse(run(['runs', 'feature/x'], { env: { PLOT_HOST: 'github' }, stubs }).trim());
+  const out = JSON.parse(run(['runs', 'feature/x'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs }).trim());
   assert.equal(out.conclusion, 'in_progress');
 });
 
-test('host: runs on bitbucket reports nothing rather than something invented', () => {
-  // bb has no run listing. Empty renders as *unavailable* — never as *this
-  // branch has never failed before*.
+test('host: runs declaring github-actions on a bitbucket remote exits 4, never empty', () => {
+  // THE SECOND CONDITION THE OLD GATE CONFLATED WITH THE FIRST. `gh run list`
+  // reads the runs of the repository its remote names, so a repository that
+  // declared `CI: github-actions` on a Bitbucket remote has named runs nothing
+  // here can reach. That is unaskable — and the old arm printed nothing at
+  // exit 0, which reads as *this branch has never failed before*.
   const stubs = makeStubs({ bbJson: '[]' });
-  assert.equal(run(['runs', 'feature/x'], { env: { PLOT_HOST: 'bitbucket' }, stubs }).trim(), '');
-  assert.equal(argvOf(stubs.bbArgv), null);
+  const res = runAllowFail(['runs', 'feature/x'],
+    { env: { PLOT_HOST: 'bitbucket', PLOT_CI: 'github-actions' }, stubs });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /git host is 'bitbucket'/);
+  assert.equal(argvOf(stubs.ghArgv), null, 'gh is not asked about a repository it cannot see');
+});
+
+test('host: runs on a repository that declared no CI exits 4, not an empty list', () => {
+  // NOT BEING ABLE TO ASK IS NOT AN EMPTY ANSWER. An empty run list means *this
+  // branch has no runs*; a repository with no CI system has nothing that could
+  // hold one. `resultOf` maps exit 4 onto `unaskable`, which is the word the
+  // build port answers with — and `[]` would report *nothing has ever failed
+  // here* about a question nobody asked.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['runs', 'feature/x'], { env: { PLOT_HOST: 'github', PLOT_CI: '' }, stubs });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /declares no CI system/);
+  assert.equal(argvOf(stubs.ghArgv), null, 'the git host is not asked about a CI system nobody declared');
+});
+
+test('host: runs on CI none exits 4 the same way an absent key does', () => {
+  // `none` is a repository saying explicitly what an absent key says by
+  // omission. Both mean there is no build system to ask.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['runs', 'feature/x'], { env: { PLOT_HOST: 'github', PLOT_CI: 'none' }, stubs });
+  assert.equal(res.code, 4);
+  assert.match(res.stderr, /declares no CI system/);
+});
+
+test('host: runs on a CI system with no connector exits 4 and names it', () => {
+  // The line `ci-limit`'s `*)` arm already draws, one step earlier: that one
+  // answers `unknown` for a connector nobody wrote an ESTIMATE for; this one
+  // refuses for a connector that does not exist at all. GitLab is named next
+  // in both places, so the list is open and neither validates it.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['runs', 'feature/x'], { env: { PLOT_HOST: 'github', PLOT_CI: 'gitlab' }, stubs });
+  assert.equal(res.code, 4);
+  assert.match(res.stderr, /no connector for CI system 'gitlab'/);
+  assert.equal(argvOf(stubs.ghArgv), null);
+});
+
+test('host: run-for-sha on a repository that declared no CI exits 4', () => {
+  // The same rule as `runs`, and it matters more here: the BuildMonitor polls
+  // this op, and empty output at exit 0 is its healthy *the run has not been
+  // created yet* signal. A repository with no CI answering that would poll
+  // forever waiting for a build nothing will start.
+  const stubs = makeStubs({ ghJson: '[]' });
+  const res = runAllowFail(['run-for-sha', 'feature/x', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: '' }, stubs });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /declares no CI system/);
+});
+
+test('host: run-for-sha reads github-actions runs when the CI key names it', () => {
+  // The unchanged half: a repository that declares github-actions on a GitHub
+  // remote gets exactly today's answer, through the same `gh` call.
+  const stubs = makeStubs({
+    ghJson: JSON.stringify([
+      { headSha: 'abc123', conclusion: 'failure', status: 'completed', startedAt: '2026-09-08T10:00:00Z', url: 'u1' },
+    ]),
+  });
+  const out = JSON.parse(run(['run-for-sha', 'feature/x', 'abc123'],
+    { env: { PLOT_HOST: 'github', PLOT_CI: 'github-actions' }, stubs }).trim());
+  assert.equal(out.sha, 'abc123');
+  assert.equal(out.conclusion, 'failure');
 });
 
 // --- bb --state vocabulary -------------------------------------------------
@@ -1435,6 +1519,104 @@ test('host: the Jenkins arm rides on the Bitbucket backend too — CI is orthogo
   assert.equal(row.head, 'feature/red', 'the Bitbucket row still normalizes');
   assert.equal(row.checks, 'failing', 'Jenkins fills what bb leaves unknown');
   assert.deepEqual(row.failing_checks, ['webbloqs/continuous-build-multi/feature/red']);
+});
+
+// --- runs / run-for-sha: the Jenkins arms -----------------------------------
+//
+// A Jenkins repository asking for runs reached `gh` or nothing until
+// 2026-09-08 — the connector had nothing to call. These pin what it reaches
+// now, and what it honestly cannot answer yet.
+
+test('host: runs on a Jenkins repository reaches jenkins_build_map, never gh', () => {
+  // Done-when 2. `gh` is not asked at all: a repository whose CI is Jenkins has
+  // no GitHub Actions run to report, and a GitHub answer here would be about a
+  // pipeline that does not build this code.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const out = runJenkins(['runs', 'feature/red'], { repo, hostStubs, jen });
+  const row = JSON.parse(out.trim());
+  assert.equal(row.conclusion, 'failing', "Jenkins red is the map's own word");
+  assert.equal(row.workflow, 'webbloqs/continuous-build-multi/feature/red',
+    'the job is named, because that is what a reader opens');
+  assert.equal(argvOf(hostStubs.ghArgv), null, 'gh is never asked about a Jenkins pipeline');
+  assert.equal(callsOf(jen.callsFile).filter((c) => c.includes('job list')).length, 1,
+    'one call, the same one pr-list --rich makes');
+});
+
+test('host: runs on Jenkins leaves startedAt and url empty rather than inventing them', () => {
+  // ONE STATE REPORTED AS A HISTORY OF ONE, and the empty fields are the honest
+  // shape of it. `jen job list` carries no timestamp and no build URL; a
+  // timestamp this arm made up would read to every caller as a measurement.
+  // Jenkins HAS a history and a URL per build, over its REST API — reading them
+  // is the connector slice's, not this one's.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const row = JSON.parse(runJenkins(['runs', 'feature/green'], { repo, hostStubs, jen }).trim());
+  assert.equal(row.conclusion, 'green');
+  assert.equal(row.startedAt, '');
+  assert.equal(row.url, '');
+});
+
+test('host: runs on Jenkins reports nothing for a branch the job does not build', () => {
+  // A branch Jenkins holds no job for HAS no run, and that is an answer rather
+  // than a refusal — the same distinction `runs` draws everywhere. Exit 0,
+  // empty: the pipeline was asked and it has nothing for this branch.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const res = runJenkinsAllowFail(['runs', 'feature/never-built'], { repo, hostStubs, jen });
+  assert.equal(res.code, 0);
+  assert.equal(res.stdout.trim(), '');
+});
+
+test('host: runs on an unreachable Jenkins exits 4 rather than printing nothing', () => {
+  // UNREACHABLE IS NOT EMPTY EITHER, and this op has no row to carry the word.
+  // `pr-list --rich` can mark its rows `unknown` and keep them; here the exit
+  // code is the only way to say *cannot verify*, and exit 0 with no output
+  // would read as *this branch has never run*.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS, authReachable: false });
+  const res = runJenkinsAllowFail(['runs', 'feature/red'], { repo, hostStubs, jen });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /jenkins unreachable/);
+});
+
+test('host: runs on Jenkins with no instance configured exits 3, naming the three repairs', () => {
+  // EXIT 3, NOT 4, and the difference is which person acts. A `CI: jenkins`
+  // repository CAN be asked about builds — it has simply not said where, and
+  // that is a config error one person fixes. Exit 4 would report it as a
+  // standing absence and nobody would look.
+  const repo = makeJenkinsRepo();
+  writeFileSync(path.join(repo, 'CLAUDE.md'),
+    '## Plot Config\n\n- **Git host:** github\n- **CI:** jenkins\n');
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const res = runJenkinsAllowFail(['runs', 'feature/red'],
+    { repo, hostStubs, jen, extraEnv: { JENKINS_INSTANCE: '' } });
+  assert.equal(res.code, 3);
+  assert.match(res.stderr, /Jenkins instance/);
+  assert.match(res.stderr, /JENKINS_INSTANCE/);
+});
+
+test('host: run-for-sha on Jenkins exits 4 — the map names no commit', () => {
+  // THE ONE ANSWER THAT WOULD COST A MERGE IS THE BRANCH'S CURRENT STATE.
+  // `jenkins_build_map` answers per BRANCH and carries no sha, so there is
+  // nothing here to match against — and this op exists precisely because a run
+  // for a superseded commit reads identically to one for the current commit.
+  // Reporting a branch-scoped state with no sha is the guessing it ends.
+  const repo = makeJenkinsRepo();
+  const hostStubs = makeStubs({ ghJson: '[]' });
+  const jen = makeJenStub({ jobsJson: JEN_JOBS });
+  const res = runJenkinsAllowFail(['run-for-sha', 'feature/red', 'abc123'], { repo, hostStubs, jen });
+  assert.equal(res.code, 4);
+  assert.equal(res.stdout.trim(), '');
+  assert.match(res.stderr, /names no commit/);
+  assert.equal(callsOf(jen.callsFile).filter((c) => c.includes('job list')).length, 0,
+    'a question this transport cannot answer is not asked at all');
 });
 
 // --- Jira issue-list / issue-view: REST, no CLI, pinned to the contract ------
