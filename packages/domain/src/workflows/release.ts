@@ -109,6 +109,15 @@ export interface ReleaseDetail {
   openShoulds: readonly string[];
   /** Open Could Haves, which neither block nor prompt. */
   openCoulds: readonly string[];
+  /**
+   * Items whose plan was withdrawn, in every tier, reported and never gating.
+   *
+   * NAMING THEM IS THE POINT. A cutter reading this sees that something the
+   * sprint promised was dropped and can go and read who dropped it; filtering
+   * them out silently would lose that, and blocking would keep the defect the
+   * status exists to fix under a new name.
+   */
+  withdrawn: readonly string[];
   /** Questions that were not asked because nobody was there. */
   unasked: readonly string[];
 }
@@ -160,8 +169,22 @@ export const release = (
   const unasked: string[] = [];
   const candidate = input.candidate === true;
 
+  // `withdrawn` IS NOT UNFINISHED. Nothing shipped, so it is not `done` either
+  // — but a plan somebody decided against is not work the release is waiting
+  // on, and gating on it blocks a release forever over work nobody is doing.
+  // That is the defect the status was added for, and excluding it here is
+  // where the status earns its keep.
   const unfinished = (tier: MoscowTier) =>
-    readings.sprintItems.filter((i) => i.tier === tier && i.status !== 'done');
+    readings.sprintItems.filter(
+      (i) => i.tier === tier && i.status !== 'done' && i.status !== 'withdrawn',
+    );
+
+  // Every tier, because a withdrawal is worth reporting wherever it sits: a
+  // dropped Could Have is a smaller fact than a dropped Must Have and it is
+  // still a fact the cutter has not been told.
+  const withdrawn = readings.sprintItems
+    .filter((i) => i.status === 'withdrawn')
+    .map((i) => `[${i.plan}] — withdrawn (sprint ${i.sprint})`);
 
   // Step 0 — the sprint gate. Run before anything else, because a release that
   // has been tagged cannot be un-cut and refusing is only cheap while it is
@@ -292,6 +315,7 @@ export const release = (
     notMarked,
     openShoulds: openShoulds.map((i) => i.plan),
     openCoulds: unfinished('could').map((i) => i.plan),
+    withdrawn,
     unasked,
   });
 };

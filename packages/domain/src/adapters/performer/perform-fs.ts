@@ -144,7 +144,7 @@ const applyWrite = (context: PerformContext, write: Write): readonly string[] =>
       const next = withSprintAnnotation(
         readOrEmpty(file),
         write.plan,
-        write.status,
+        write.tick,
         write.pr,
         write.branch,
       );

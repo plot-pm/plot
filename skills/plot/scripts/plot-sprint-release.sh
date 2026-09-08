@@ -5,7 +5,8 @@
 #   than one, that is reported rather than guessed.
 # Output: JSON {sprint, file, phase, release, must:[...], should:[...],
 #               could:[...]} where each item is {slug, text, checked,
-#               delivered, state}.
+#               delivered, state}. `state` is done | open | disputed |
+#               withdrawn.
 #
 # THE FACTS ONLY. Whether an open Must Have refuses a release is /plot-release's
 # rule to apply; this script never decides, never writes, never exits non-zero
@@ -25,6 +26,8 @@ SPRINT_DIR="$(bash "$HERE/plot-config.sh" get "Sprint directory" "docs/sprints/"
 SPRINT_DIR="${SPRINT_DIR%/}"
 DELIVERED_DIR="$(bash "$HERE/plot-config.sh" get "Delivered index" "docs/plans/delivered/")"
 DELIVERED_DIR="${DELIVERED_DIR%/}"
+PLAN_DIR="$(bash "$HERE/plot-config.sh" get "Plan directory" "docs/plans/")"
+PLAN_DIR="${PLAN_DIR%/}"
 
 jesc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g'; }
 
@@ -45,11 +48,12 @@ jesc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g';
 # Input:  one line per item on stdin, `checked<TAB>slug<TAB>delivered`
 #   checked    "true" if the line is `- [x]`, "false" if `- [ ]`
 #   slug       the `[slug]` plan reference, or "" for a lightweight task
-#   delivered  "true"  the plan is in the Delivered index
-#              "false" the plan exists elsewhere (active/, or nowhere)
-#              "none"  no slug to check, so nothing was looked up
-# Output: one of done | open | disputed per line, or NOTHING when the rule
-#         could not be asked — see the refusal below.
+#   delivered  "true"      the plan is in the Delivered index
+#              "false"     the plan exists elsewhere (active/, or nowhere)
+#              "none"      no slug to check, so nothing was looked up
+#              "withdrawn" the plan carries State: Rejected or Superseded
+# Output: one of done | open | disputed | withdrawn per line, or NOTHING when
+#         the rule could not be asked — see the refusal below.
 #
 # THE PLAN ESTATE OUTRANKS THE CHECKBOX wherever there is one to read. A
 # checkbox answers "did I complete this?" without doing the work, which
@@ -79,9 +83,22 @@ jesc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g';
 # someone CLAIMING completion the estate denies; the reverse is the estate
 # knowing something the file has not caught up with.
 #
+# A WITHDRAWN PLAN OUTRANKS THE CHECKBOX IN BOTH DIRECTIONS, and that is the
+# same rule rather than a second one — the estate is the stronger record, and
+# here it carries a DECISION rather than a claim. `State: Rejected` or
+# `State: Superseded` means somebody said this will not deliver, and no box
+# ticked or unticked contradicts that. Measured 2026-09-07: unticked read
+# `open`, which blocks a release forever over work nobody is doing; ticked read
+# `disputed`, which sends a reader to find a disagreement that is not there.
+# So the box stops mattering for these, and the word says withdrawn.
+#
 # A lightweight task (no slug) has only its checkbox, so it is taken at face
 # value. That is a stated limit, not an oversight: `delivered: "none"` keeps
 # the un-checked check visible in the output rather than implying one happened.
+#
+# `rejected` AND `superseded` REACH THE RULE AS ONE WORD. They differ in why,
+# which the plan's own record states; the sprint's question is only whether the
+# item is still owed, and neither is.
 #
 # A RULE THAT CANNOT BE ASKED REFUSES. `docs/shell-and-domain.md`: node missing,
 # the bundle absent or the module throwing leaves this script refusing, not
@@ -91,8 +108,30 @@ score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state p
   node "$HERE/board/plot-sprint-score.mjs"
 }
 
-# Is <slug> in the Delivered index? File or symlink, either is delivery.
-is_delivered() { # $1=slug → true|false
+# What the plan estate says about <slug>.
+#
+# THE WITHDRAWAL IS ASKED FIRST, because it is the stronger reading: a rejected
+# plan is not in the Delivered index either, so testing delivery first would
+# report `false` and lose the decision.
+#
+# `plot-plan-meta.sh` IS THE READER, and this script re-parses nothing. It has
+# accepted `rejected` and `superseded` beside the four phases since before this
+# question was asked; the reading existed and this script did not ask for it.
+#
+# Delivery stays a DIRECTORY test — file or symlink, either is delivery — which
+# is deliberate and not an inconsistency. `/plot-deliver` writes the phase and
+# moves the link, and the link is the cheaper of the two to read; a withdrawal
+# moves nothing, so it has only the phase to be read from.
+plan_delivery() { # $1=slug → true|false|withdrawn
+  local f phase
+  f=$(ls "$PLAN_DIR"/*-"$1".md 2>/dev/null | head -1)
+  if [ -n "$f" ]; then
+    phase=$(bash "$HERE/plot-plan-meta.sh" "$f" 2>/dev/null |
+      sed -n 's/.*"phase":"\([a-z]*\)".*/\1/p' | head -1)
+    case "$phase" in
+      rejected|superseded) printf 'withdrawn'; return 0 ;;
+    esac
+  fi
   [ -e "$DELIVERED_DIR/$1.md" ] && printf 'true' || printf 'false'
 }
 
@@ -197,7 +236,7 @@ emit_tier() { # $1=file $2=heading regex → JSON array
     # Strip the automation annotation — it is machinery, not the item's text.
     text=$(printf '%s' "$text" | sed -E 's/[ ]*<!--.*-->[ ]*$//' | sed -E 's/[ \t]+$//')
     slug=$(printf '%s' "$text" | grep -oE '^\[[a-z0-9][a-z0-9-]*\]' | tr -d '[]' || true)
-    if [ -n "$slug" ]; then delivered=$(is_delivered "$slug"); else delivered=none; fi
+    if [ -n "$slug" ]; then delivered=$(plan_delivery "$slug"); else delivered=none; fi
     checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
@@ -228,7 +267,13 @@ emit_tier() { # $1=file $2=heading regex → JSON array
     first=0
     out="$out{\"slug\":\"$(jesc "${slugs[$i]}")\",\"text\":\"$(jesc "${texts[$i]}")\""
     out="$out,\"checked\":${checkeds[$i]},\"delivered\":"
-    case "${delivereds[$i]}" in none) out="$out\"none\"" ;; *) out="$out${delivereds[$i]}" ;; esac
+    # `true`/`false` are JSON booleans; `none` and `withdrawn` are words, so
+    # they are quoted. The wire keeps the shell's own spelling either way — the
+    # caller reads what was measured, not a status derived from it.
+    case "${delivereds[$i]}" in
+      none|withdrawn) out="$out\"${delivereds[$i]}\"" ;;
+      *) out="$out${delivereds[$i]}" ;;
+    esac
     out="$out,\"state\":\"${states[$i]}\"}"
   done
   printf '%s]' "$out"

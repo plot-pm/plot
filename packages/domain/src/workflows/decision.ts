@@ -87,15 +87,22 @@ export interface HoldClearWrite {
   readonly branch: string;
 }
 
-/** Rewrites a sprint item's `<!-- pr:, status:, branch: -->` annotation. */
+/**
+ * Rewrites a sprint item's `<!-- pr:, branch: -->` annotation, and ticks its box.
+ *
+ * `status:` WAS A THIRD FIELD until 2026-09-08. It was a second record of the
+ * plan's own `State:`, and dead in both directions — 67 lines carried one and
+ * nothing read the field. `pr` and `branch` stay because they name things no
+ * plan field holds.
+ */
 export interface SprintAnnotationWrite {
   readonly kind: 'sprint-annotation';
   /** The sprint file the write lands in, relative to the repository root. */
   readonly file: string;
   /** The plan slug whose item line carries the annotation. */
   readonly plan: string;
-  /** The status to record. */
-  readonly status: string;
+  /** Whether to tick the item's checkbox — delivery does, approval does not. */
+  readonly tick: boolean;
   /** The PR number to record, or null to leave it. */
   readonly pr: number | null;
   /** The branch to record, or `''` to leave it. */

@@ -52,7 +52,7 @@ describe('Story 1 ── * Plan — a story spans plans; a plan has ≤1 story',
 
 describe('Sprint 1 ── * Plan — a sprint has many; a plan has ≤1', () => {
   it('holds many plans, each counted once', () => {
-    const item = (plan: string): SprintItem => ({ tier: 'must', checked: false, plan, text: '', annotation: '' });
+    const item = (plan: string): SprintItem => ({ tier: 'must', checked: false, plan, text: '' });
     const sprint: Sprint = {
       slug: '2026-W35-x', title: 'X', state: 'Active', start: '2026-08-25',
       plannedEnd: '2026-08-31', actualEnd: null, release: 'v2.9.0', goal: '',

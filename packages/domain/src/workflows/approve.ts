@@ -230,7 +230,8 @@ export const approve = (
       kind: 'sprint-annotation',
       file: readings.sprintFile,
       plan: slug,
-      status: 'approved',
+      // Approval does not tick: nothing has been delivered yet.
+      tick: false,
       pr: readings.pr.number,
       branch: readings.branches[0] ?? '',
     });

@@ -54,7 +54,6 @@ const asItem = (row: SprintItemRow, tier: SprintItem['tier']): SprintItem => ({
   checked: row.checked,
   plan: row.slug,
   text: row.text,
-  annotation: '',
 });
 
 /** One item with the sprint it came from, so a disagreement can name both. */
@@ -70,21 +69,25 @@ interface Scored {
 }
 
 /**
- * The shell's reading, as the domain now expresses it.
+ * The shell's reading, as the domain expresses it.
  *
- * `item_state` takes `delivered` three-valued — `true`, `false`, and `'none'`
- * meaning the line names no plan so nothing was looked up. `scoreItem` took a
- * BOOLEAN until 2026-09-08, so `'none'` was inexpressible and a checked item
+ * `item_state` takes `delivered` four-valued — `true`, `false`, `'none'`
+ * meaning the line names no plan so nothing was looked up, and `'withdrawn'`
+ * meaning the plan carries `State: Rejected` or `Superseded`. `scoreItem` took
+ * a BOOLEAN until 2026-09-08, so `'none'` was inexpressible and a checked item
  * with no plan read `disputed` where the shell read `done`. That was this
- * file's declared divergence, and `a-sprint-item-has-one-scorer` closed it:
- * `PlanDelivery` carries the third value and the list below is empty.
+ * file's declared divergence, and `a-sprint-item-has-one-scorer` closed it;
+ * `a-withdrawn-item-is-not-open` added the fourth reading beside it.
  *
- * THE WORD IS TRANSLATED, NOT THE VERDICT. `'none'` is the shell's spelling of
- * the same reading; mapping it to a status here would compare the domain
- * against this test.
+ * THE WORD IS TRANSLATED, NOT THE VERDICT. Each is the shell's spelling of a
+ * reading the domain holds under another name; mapping one to a status here
+ * would compare the domain against this test.
  */
-const delivery = (row: SprintItemRow): PlanDelivery =>
-  row.delivered === 'none' ? 'no-plan-named' : row.delivered;
+const delivery = (row: SprintItemRow): PlanDelivery => {
+  if (row.delivered === 'none') return 'no-plan-named';
+  if (row.delivered === 'withdrawn') return 'withdrawn';
+  return row.delivered;
+};
 
 let sprints: SprintRow[];
 let scored: Scored[];
@@ -126,13 +129,14 @@ describe('scoreItem agrees with plot-sprint-release.sh item_state', () => {
     // words; if the estate only ever produced one, agreement would be an
     // accident of the corpus rather than a property of the pair.
     const states = new Set(scored.map((one) => one.row.state));
-    expect([...states].sort()).toEqual(['disputed', 'done', 'open']);
+    expect([...states].sort()).toEqual(['disputed', 'done', 'open', 'withdrawn']);
     // And both readings `scoreItem` takes must vary, or the rule is being
     // asked one question repeatedly.
     expect(scored.some((one) => one.row.checked)).toBe(true);
     expect(scored.some((one) => !one.row.checked)).toBe(true);
     expect(scored.some((one) => one.row.delivered === true)).toBe(true);
     expect(scored.some((one) => one.row.delivered === false)).toBe(true);
+    expect(scored.some((one) => one.row.delivered === 'withdrawn')).toBe(true);
   });
 
   it('answers what the shell answers, on every item on the estate', () => {
@@ -153,6 +157,20 @@ describe('scoreItem agrees with plot-sprint-release.sh item_state', () => {
     // every disagreeing item, because one item disagreeing and all 134
     // disagreeing are different findings pointing at different bugs.
     expect(found.map(report)).toEqual([]);
+  });
+
+  it('scores a withdrawn plan withdrawn, whatever its checkbox says', () => {
+    // THE CHECKBOX STOPS MATTERING FOR THESE, and a corpus that only held
+    // ticked ones would leave that unproven. Measured 2026-09-08: two items
+    // point at Rejected plans and both are ticked, because ticking was the
+    // workaround this plan removes — so the unticked arm is asserted against a
+    // constructed item rather than claimed from the estate.
+    const withdrawn = scored.filter((one) => one.row.delivered === 'withdrawn');
+    expect(withdrawn.length).toBeGreaterThan(0);
+    expect(withdrawn.every((one) => one.row.state === 'withdrawn')).toBe(true);
+    for (const one of withdrawn) {
+      expect(scoreItem({ ...one.item, checked: !one.item.checked }, 'withdrawn')).toBe('withdrawn');
+    }
   });
 
   it('exercises the reading that used to diverge, so the fix is not vacuous', () => {

@@ -144,7 +144,7 @@ describe('deliver — a decision names every write', () => {
       kind: 'sprint-annotation',
       file: 'docs/sprints/W35-s.md',
       plan: 'a-plan',
-      status: 'delivered',
+      tick: true,
       pr: null,
       branch: '',
     });

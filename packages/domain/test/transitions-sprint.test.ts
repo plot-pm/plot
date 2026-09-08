@@ -14,7 +14,6 @@ const item = (over: Partial<SprintItem> = {}): SprintItem => ({
   checked: false,
   plan: 'a-lifecycle-is-enforced-by-a-test',
   text: 'the six declare their rules',
-  annotation: '',
   ...over,
 });
 

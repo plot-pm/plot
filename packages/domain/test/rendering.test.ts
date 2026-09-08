@@ -180,53 +180,56 @@ describe('a hold is released by exact name, never by pattern', () => {
 describe('a sprint annotation keeps the keys this write does not name', () => {
   it('adds an annotation to an item that carries none', () => {
     const { text, wrote } = withSprintAnnotation(
-      '- [ ] [slug] Do the thing\n', 'slug', 'in-progress', 42, 'feature/x',
+      '- [ ] [slug] Do the thing\n', 'slug', false, 42, 'feature/x',
     );
     expect(wrote).toBe(true);
-    expect(text).toContain('<!-- pr: #42, status: in-progress, branch: feature/x -->');
+    expect(text).toContain('<!-- pr: #42, branch: feature/x -->');
   });
 
-  it('ticks the box on delivered, and only then', () => {
-    const delivered = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', 'delivered', null, '');
+  it('ticks the box when asked, and only then', () => {
+    const delivered = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', true, null, '');
     expect(delivered.text).toContain('- [x]');
-    const started = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', 'in-progress', null, '');
+    const started = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', false, null, '');
     expect(started.text).toContain('- [ ]');
   });
 
-  it('rewrites status while KEEPING a pr this write did not name', () => {
-    // The stated contract: an item keeps every key this write does not name.
-    // Passing null for the PR must not erase the one already recorded.
+  it('writes NO status key, and leaves one already there alone', () => {
+    // `status:` was removed on 2026-09-08 as a second record of the plan's own
+    // `State:`. Rewriting somebody's file to delete a field this no longer
+    // writes is a change nobody asked for, so an existing one survives — and
+    // no new one appears.
     const { text } = withSprintAnnotation(
       '- [ ] [slug] Thing <!-- pr: #7, status: in-progress -->\n',
-      'slug', 'delivered', null, '',
+      'slug', true, null, '',
     );
     expect(text).toContain('pr: #7');
-    expect(text).toContain('status: delivered');
+    expect(text).toContain('status: in-progress');
+    expect(text.match(/status:/g)).toHaveLength(1);
   });
 
-  it('adds a status key to an annotation that lacks one', () => {
-    const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- pr: #7 -->\n', 'slug', 'delivered', null, '',
-    );
-    expect(text).toContain('status: delivered');
-    expect(text).toContain('pr: #7');
+  it('adds NO annotation when there is nothing to record', () => {
+    // A delivery names no PR and no branch. An item with no comment must not
+    // gain `<!--  -->`, which reads as machinery where none ran.
+    const { text } = withSprintAnnotation('- [ ] [slug] Thing\n', 'slug', true, null, '');
+    expect(text).toBe('- [x] [slug] Thing\n');
+    expect(text).not.toContain('<!--');
   });
 
   it('ADDS a pr to an annotation that carries none', () => {
-    // The other arm of the pr branch: an item annotated with only a status
+    // The other arm of the pr branch: an item annotated with only a branch
     // gains the number rather than losing it into an unmatched replace.
     const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- status: in-progress -->\n',
-      'slug', 'delivered', 99, '',
+      '- [ ] [slug] Thing <!-- branch: feature/x -->\n',
+      'slug', true, 99, '',
     );
     expect(text).toContain('pr: #99');
-    expect(text).toContain('status: delivered');
+    expect(text).toContain('branch: feature/x');
   });
 
   it('replaces an existing branch rather than appending a second', () => {
     const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- status: open, branch: feature/old -->\n',
-      'slug', 'in-progress', null, 'feature/new',
+      '- [ ] [slug] Thing <!-- branch: feature/old -->\n',
+      'slug', false, null, 'feature/new',
     );
     expect(text).toContain('branch: feature/new');
     expect(text).not.toContain('feature/old');
@@ -235,7 +238,7 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
 
   it('leaves items for other plans untouched', () => {
     const two = '- [ ] [alpha] A\n- [ ] [beta] B\n';
-    const { text } = withSprintAnnotation(two, 'alpha', 'delivered', null, '');
+    const { text } = withSprintAnnotation(two, 'alpha', true, null, '');
     expect(text).toContain('- [ ] [beta] B');
   });
 
@@ -243,8 +246,8 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
     // The other arm of the same branch: an annotation that already names a PR
     // has that number rewritten, not a duplicate key appended.
     const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- pr: #7, status: open -->\n',
-      'slug', 'delivered', 99, '',
+      '- [ ] [slug] Thing <!-- pr: #7 -->\n',
+      'slug', true, 99, '',
     );
     expect(text).toContain('pr: #99');
     expect(text).not.toContain('#7');
@@ -254,8 +257,8 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
   it('ADDS a branch to an annotation that carries none', () => {
     // And the matching arm for branch: absent means append, not replace.
     const { text } = withSprintAnnotation(
-      '- [ ] [slug] Thing <!-- status: open -->\n',
-      'slug', 'in-progress', null, 'feature/new',
+      '- [ ] [slug] Thing <!-- pr: #7 -->\n',
+      'slug', false, null, 'feature/new',
     );
     expect(text).toContain('branch: feature/new');
     expect(text.match(/branch:/g)).toHaveLength(1);
@@ -263,7 +266,7 @@ describe('a sprint annotation keeps the keys this write does not name', () => {
 
   it('reports false when nothing changed', () => {
     const { text, wrote } = withSprintAnnotation(
-      '- [ ] [other] Thing\n', 'slug', 'delivered', null, '',
+      '- [ ] [other] Thing\n', 'slug', true, null, '',
     );
     expect(wrote).toBe(false);
     expect(text).toBe('- [ ] [other] Thing\n');
@@ -295,7 +298,7 @@ describe('the paths a write touches are derived, never listed', () => {
 
   it.each([
     ['plan-annotation', { kind: 'plan-annotation', file: 'docs/plans/p.md', text: 't' }, ['docs/plans/p.md']],
-    ['sprint-annotation', { kind: 'sprint-annotation', file: 'docs/sprints/s.md', plan: 'p', status: 'x' }, ['docs/sprints/s.md']],
+    ['sprint-annotation', { kind: 'sprint-annotation', file: 'docs/sprints/s.md', plan: 'p', tick: true }, ['docs/sprints/s.md']],
   ])('%s names its file too', (_label, write, expected) => {
     expect([...pathsOf(write as unknown as Write)]).toEqual(expected);
   });

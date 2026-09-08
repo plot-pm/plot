@@ -35,7 +35,7 @@
 #
 # Each step asks THE SOURCE IT WOULD HAVE WRITTEN whether it is already done:
 # the plan file for the phase and the record, the index directories for the
-# symlink, the sprint file for the annotation. Never a progress file of its own.
+# symlink, the sprint file for the tick. Never a progress file of its own.
 #
 # WHAT IT REFUSES, and why refusing beats guessing:
 #   - phase is not `approved` — nothing to deliver. (Already-Delivered is NOT a
@@ -194,7 +194,7 @@ today=$(date +%Y-%m-%d)
 if [ "$dry_run" = 1 ]; then
   echo "step: would flip Phase → Delivered and fill Delivered: $today"
   echo "step: would move active/ → delivered/ symlink"
-  echo "step: would update the sprint annotation${sprint:+ (sprint: $sprint)}"
+  echo "step: would tick the sprint item${sprint:+ (sprint: $sprint)}"
   echo "summary: phase=would record=would index=would sprint=would push=would"
   exit 0
 fi
@@ -420,8 +420,20 @@ write_transition() { # $1=file $2=record $3=recorded(yes|no) → sets phase_repo
   return 0
 }
 
-# Update the sprint item annotation for this plan.
-update_sprint_annotation() { # $1=worktree root → prints none|updated|already|missing
+# Tick this plan's sprint item.
+#
+# THE TICK ONLY, since 2026-09-08. This also wrote a `<!-- status: delivered -->`
+# annotation, and `a-withdrawn-item-is-not-open` measured that record dead in
+# both directions: 67 lines carried one, none carried a value any reader acted
+# on, and `plot-sprint-release.sh` read the field nowhere. The plan file carries
+# `State:` and a dated `Delivered:` record, and the estate-outranks-the-checkbox
+# rule points at those — a cache nobody refreshes and nobody reads is a second
+# answer waiting to contradict the first.
+#
+# The box is NOT the same record. `/plot-sprint close` step 2a exists to tick
+# boxes the estate says are done, and ticking here is what keeps that step's
+# work to the items it genuinely cannot resolve.
+update_sprint_item() { # $1=worktree root → prints none|updated|already|missing
   local root="$1" f found=""
   [ -n "$sprint" ] || { printf 'none'; return 0; }
   local dir="$root/${SPRINT_DIR#/}"
@@ -439,15 +451,8 @@ update_sprint_annotation() { # $1=worktree root → prints none|updated|already|
     index($0, "[" slug "]") == 0 { print; next }
     {
       line = $0
-      # Check the box
+      # Check the box. Nothing else on the line is touched.
       sub(/\[ \]/, "[x]", line)
-      # Update or add status annotation
-      if (index(line, "<!--") == 0) {
-        line = line " <!-- status: delivered -->"
-      } else {
-        if (line ~ /status:[ \t]*[a-z-]+/) sub(/status:[ \t]*[a-z-]+/, "status: delivered", line)
-        else sub(/-->/, ", status: delivered -->", line)
-      }
       print line
     }
   ' "$found")
@@ -510,8 +515,8 @@ apply_local_writes() { # $1=root  → sets phase_report record_report index_repo
   # Step 5 — move the index symlink (best effort).
   index_report=$(move_index_symlink "$root")
 
-  # Step 6 — update the sprint annotation.
-  sprint_report=$(update_sprint_annotation "$root")
+  # Step 6 — tick the sprint item.
+  sprint_report=$(update_sprint_item "$root")
   return 0
 }
 

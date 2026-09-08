@@ -167,7 +167,10 @@ export const deliver = (
       kind: 'sprint-annotation',
       file: readings.sprintFile,
       plan: slug,
-      status: 'delivered',
+      // Delivery ticks the box. That is the record `/plot-sprint close` step 2a
+      // otherwise has to reconcile, and it is not the annotation: the box is a
+      // fact about this sprint's promise, not a copy of the plan's `State:`.
+      tick: true,
       pr: null,
       branch: '',
     });
