@@ -233,8 +233,12 @@ const annotateExisting = (line: string, pr: number | null, branch: string): stri
       : next.replace('<!--', `<!-- pr: #${pr},`);
   }
   if (branch !== '') {
+    // `[^,> \t]*` AND NOT `[^,>]*`: the greedy form allows a SPACE, so a
+    // `branch:` that is the last key matches `none --` and eats the `--` of the
+    // closing `-->`, leaving `<!-- … branch: X>`. Measured 2026-09-08 against
+    // the same defect in `plot-approve.sh`'s awk.
     next = /branch:[ \t]*[^,>]+/.test(next)
-      ? next.replace(/branch:[ \t]*[^,>]*[^,> \t]/, `branch: ${branch}`)
+      ? next.replace(/branch:[ \t]*[^,> \t]*[^,> \t]/, `branch: ${branch}`)
       : next.replace('-->', `, branch: ${branch} -->`);
   }
   return next;
