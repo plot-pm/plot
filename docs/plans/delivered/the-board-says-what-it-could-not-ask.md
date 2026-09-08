@@ -1,0 +1,1 @@
+../2026-09-07-the-board-says-what-it-could-not-ask.md

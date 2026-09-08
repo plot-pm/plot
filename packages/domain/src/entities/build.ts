@@ -5,11 +5,11 @@ import { z } from 'zod';
  *
  * A state rather than a conclusion: a build that has not finished has no
  * conclusion, and a field that must hold `in_progress` is not describing an
- * outcome. The host's own word is kept verbatim; normalizing it is lossy.
+ * outcome. The CI system's own word is kept verbatim; normalizing it is lossy.
  */
 // plot-state: lifecycle build — queued, then running, then one of four ends,
-//                               and the host's word is kept verbatim. NO RULE
-//                               YET: counted as debt by
+//                               and the CI system's word is kept verbatim.
+//                               NO RULE YET: counted as debt by
 //                               scripts/check-state-declarations.sh.
 export const BuildStateSchema = z.enum([
   'queued',
@@ -29,7 +29,14 @@ export type BuildState = z.infer<typeof BuildStateSchema>;
 export interface BuildPipeline {
   /** The workflow's name, e.g. `CI` — the identity, stable across runs. */
   name: string;
-  /** Its address on the host; `''` when unknown. */
+  /**
+   * Its address on the CI system; `''` when unknown.
+   *
+   * The CI system, not the git host. On a repository where GitHub runs the
+   * builds the two are one address and the distinction costs nothing; on a
+   * Bitbucket + Jenkins team the pipeline lives on Jenkins and the host is
+   * somewhere else entirely.
+   */
   url: string;
 }
 
@@ -48,7 +55,7 @@ export interface Build {
   pipeline: string;
   /** The branch or ref it ran against. */
   head: string;
-  /** What it is doing, or how it ended, verbatim from the host. */
+  /** What it is doing, or how it ended, verbatim from the CI system. */
   state: BuildState;
   /** When it started, ISO-8601. */
   startedAt: string;
@@ -85,13 +92,13 @@ export const buildConclusion = (build: Build): boolean | null =>
 export const buildFailed = (build: Build): boolean => buildConclusion(build) === false;
 
 /**
- * One entry in a branch's run history, as the host lists it.
+ * One entry in a branch's run history, as the CI system lists it.
  *
- * A SECOND SHAPE beside {@link Build}, and the difference is what the host
- * answers rather than a preference. `Build` describes one run of one pipeline
- * against one sha and carries a closed {@link BuildState}; a branch's history
- * is asked for as evidence, and its `conclusion` is whatever word the host
- * printed — `success`, `failure`, `cancelled`, `in_progress`,
+ * A SECOND SHAPE beside {@link Build}, and the difference is what the CI
+ * system answers rather than a preference. `Build` describes one run of one
+ * pipeline against one sha and carries a closed {@link BuildState}; a branch's
+ * history is asked for as evidence, and its `conclusion` is whatever word the
+ * CI system printed — `success`, `failure`, `cancelled`, `in_progress`,
  * `action_required`, and whatever GitHub names next.
  *
  * The word stays verbatim. Narrowing it to an enum would map every unrecognised
@@ -104,11 +111,13 @@ export const buildFailed = (build: Build): boolean => buildConclusion(build) ===
  * `plot-host.sh run-for-sha`.
  */
 export interface BuildRun {
-  /** The workflow's name; `''` where the host did not name it. */
+  /** The workflow's name; `''` where the CI system did not name it. */
   workflow: string;
-  /** How it ended, or what it is doing — verbatim from the host. */
+  /** How it ended, or what it is doing — verbatim from the CI system. */
   conclusion: string;
-  /** When it started, ISO-8601 as the host reported it; `''` when absent. */
+  /**
+   * When it started, ISO-8601 as the CI system reported it; `''` when absent.
+   */
   startedAt: string;
   /** The run's address; `''` renders as plain text. */
   url: string;

@@ -4,7 +4,7 @@
 
 ## Status
 
-- **State:** Approved
+- **State:** Delivered
 - **Type:** feature
 - **Story:** the-master-agent-holds-the-fleet
 - **Review:** pr
@@ -12,6 +12,7 @@
 - **Rounds:** 1
 - **Approved:** 2026-09-07, Jan Wloka, plan-PR #793 merged
 - **Started:** 2026-09-07, Jan Wloka, `feature/an-agent-learns-its-pr-failed`
+- **Delivered:** 2026-09-08
 
 ## Changelog
 

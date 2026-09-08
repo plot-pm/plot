@@ -372,7 +372,11 @@ describe('a browser test that stubs its own state starts no board', () => {
  * It stubs `/api/fleet` at the network boundary and starts no board, so it
  * satisfies this gate's rule rather than being admitted past it.
  */
-const EXPECTED_FILES = 46;
+// 46 → 47 on 2026-09-07: `pr-checks-not-asked.browser.test.ts`, five `it(`.
+// A PLAIN ADDITION, not a migration — the one thing a rendered page can settle
+// about a PR's checks is that `none` and `unknown` arrive as different things,
+// and no unit test can make a claim about two rows on a screen.
+const EXPECTED_FILES = 47;
 /**
  * 454 → 457 → 461 ON 2026-09-01, and both raises added tests to the CATALOGUE.
  *
@@ -429,7 +433,7 @@ const EXPECTED_FILES = 46;
  * assert only that the badge shows what the rule decided — the split the
  * Layering Rule draws.
  */
-const EXPECTED_TESTS = 475;
+const EXPECTED_TESTS = 480;
 
 /**
  * THE EXCEPTIONS — five on 2026-09-01, and the number is the whole assertion.
