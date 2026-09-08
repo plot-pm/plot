@@ -89,6 +89,12 @@ export const hostFixture = (fixture: HostFixture = {}): Host => {
     prMerged: async (branch): Promise<PortResult<MergedAnswer>> =>
       answered(merged.has(branch) ? 'merged' : 'not-merged'),
 
+    prMergeCommit: async (branch): Promise<PortResult<string>> =>
+      // The declared PR's own sha, so a fixture states the merge commit in the
+      // one place it states the PR. `''` where the branch has no merged PR,
+      // which is the port's answer for *nothing merged*.
+      answered(prs.find((pr) => pr.head === branch && pr.mergedAt !== null)?.mergeCommit ?? ''),
+
     prCreate: async (request): Promise<PortResult<string>> => {
       opened.push(request);
       // RECORDED BEFORE IT REFUSES. A failed write was still an attempt, and a

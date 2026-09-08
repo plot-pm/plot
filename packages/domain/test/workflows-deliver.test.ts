@@ -7,8 +7,8 @@ const ready = (over: Partial<DeliverReadings> = {}): DeliverReadings => ({
   parsed: true,
   phase: 'approved',
   branches: [
-    { branch: 'feature/one', deferred: false, merged: true },
-    { branch: 'feature/two', deferred: false, merged: true },
+    { branch: 'feature/one', deferred: false, merged: true, carriedWork: true },
+    { branch: 'feature/two', deferred: false, merged: true, carriedWork: true },
   ],
   deliveredRecord: '',
   activeLink: 'docs/plans/active/a-plan.md',
@@ -55,8 +55,8 @@ describe('deliver — the refusals, each without a repository', () => {
     const out = deliver(
       ready({
         branches: [
-          { branch: 'feature/one', deferred: false, merged: true },
-          { branch: 'feature/two', deferred: false, merged: false },
+          { branch: 'feature/one', deferred: false, merged: true, carriedWork: true },
+          { branch: 'feature/two', deferred: false, merged: false, carriedWork: true },
         ],
       }),
       on,
@@ -69,8 +69,8 @@ describe('deliver — the refusals, each without a repository', () => {
     const out = deliver(
       ready({
         branches: [
-          { branch: 'feature/one', deferred: false, merged: false },
-          { branch: 'feature/two', deferred: false, merged: false },
+          { branch: 'feature/one', deferred: false, merged: false, carriedWork: true },
+          { branch: 'feature/two', deferred: false, merged: false, carriedWork: true },
         ],
       }),
       on,
@@ -82,8 +82,8 @@ describe('deliver — the refusals, each without a repository', () => {
     const out = deliver(
       ready({
         branches: [
-          { branch: 'feature/one', deferred: false, merged: true },
-          { branch: 'feature/two', deferred: true, merged: false },
+          { branch: 'feature/one', deferred: false, merged: true, carriedWork: true },
+          { branch: 'feature/two', deferred: true, merged: false, carriedWork: true },
         ],
       }),
       on,
@@ -177,5 +177,91 @@ describe('deliver — a decision names every write', () => {
   it('still moves the link when the phase was already flipped — the half-state it repairs', () => {
     const out = deliver(ready({ phase: 'delivered', deliveredRecord: '2026-08-29' }), on);
     expect(decided(out) && kinds(out.writes)).toEqual(['index-move', 'commit', 'push']);
+  });
+});
+
+/**
+ * A SLICE WHOSE MERGED PR CARRIED NO IMPLEMENTATION.
+ *
+ * Measured 2026-09-08: `the-probe-reads-the-ci-system` merged as PR #811
+ * carrying ZERO files, and `the-ci-connector-is-jenkins` merged as #821
+ * carrying a `PLOT-BLOCKED.md` alone. Both plans read Delivered, because
+ * delivery asked whether each branch's PR merged and never whether it carried
+ * the work. 2.15.0 shipped announcing a Jenkins connector that does not exist.
+ *
+ * THE ASSERTION IS THAT IT REPORTS AND DOES NOT REFUSE. Of the seven empty
+ * merged PRs in that window, only two were this defect — three were claim PRs
+ * whose slice finished under a different PR — so a gate that refused would have
+ * blocked a delivery whose work was complete. `deliverable` must stay true
+ * beside a non-empty finding, and these tests assert exactly that pair.
+ */
+describe('deliver — a merged PR that carried no work', () => {
+  it('names the slice and still delivers — a finding, never a refusal', () => {
+    const out = deliver(
+      ready({
+        branches: [
+          { branch: 'feature/the-probe-reads-the-ci-system', deferred: false, merged: true, carriedWork: false },
+          { branch: 'feature/the-build-port-exists', deferred: false, merged: true, carriedWork: true },
+        ],
+      }),
+      on,
+    );
+    expect(decided(out)).toBe(true);
+    expect(decided(out) && out.detail.emptySlices).toEqual([
+      'feature/the-probe-reads-the-ci-system',
+    ]);
+    // The delivery's own writes are untouched by the finding.
+    expect(decided(out) && kinds(out.writes)).toContain('plan-phase');
+  });
+
+  it('says nothing about a slice that carried work', () => {
+    const out = deliver(ready(), on);
+    expect(decided(out) && out.detail.emptySlices).toEqual([]);
+  });
+
+  it('says nothing about a deferred slice — the plan already gave it up', () => {
+    const out = deliver(
+      ready({
+        branches: [
+          { branch: 'feature/withdrawn', deferred: true, merged: true, carriedWork: false },
+        ],
+      }),
+      on,
+    );
+    expect(decided(out) && out.detail.emptySlices).toEqual([]);
+  });
+
+  it('says nothing where the diff could not be read — `unknown` never reports', () => {
+    const out = deliver(
+      ready({
+        branches: [
+          { branch: 'feature/unreadable', deferred: false, merged: true, carriedWork: 'unknown' },
+        ],
+      }),
+      on,
+    );
+    expect(decided(out) && out.detail.emptySlices).toEqual([]);
+  });
+
+  it('reports both #811 and #821 shapes, and not the third fixture beside them', () => {
+    // The three merge commits the plan names, by what each carried:
+    //   5d7644ec  #811  zero files              → the defect
+    //   dab631d4  #821  PLOT-BLOCKED.md alone   → the defect
+    //   682349a6  #809  one real file           → work
+    const out = deliver(
+      ready({
+        branches: [
+          { branch: 'feature/the-probe-reads-the-ci-system', deferred: false, merged: true, carriedWork: false },
+          { branch: 'feature/the-ci-connector-is-jenkins', deferred: false, merged: true, carriedWork: false },
+          { branch: 'bug/a-pipeline-address-is-not-the-host', deferred: false, merged: true, carriedWork: true },
+        ],
+      }),
+      on,
+    );
+    expect(decided(out)).toBe(true);
+    expect(decided(out) && out.detail.emptySlices).toEqual([
+      'feature/the-probe-reads-the-ci-system',
+      'feature/the-ci-connector-is-jenkins',
+    ]);
   });
 });

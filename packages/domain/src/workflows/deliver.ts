@@ -23,6 +23,15 @@ export interface DeliverBranchReading {
   deferred: boolean;
   /** Whether the host merged its PR. */
   merged: boolean;
+  /**
+   * Whether the merged PR changed anything but a marker or a claim.
+   *
+   * `unknown` where the diff could not be read, and it NEVER reports: a branch
+   * whose merge commit cannot be found is not a branch that carried nothing.
+   * The estate draws that line everywhere — `auth: unknown` reads as *cannot
+   * verify*, never as *authenticated*.
+   */
+  carriedWork: boolean | 'unknown';
 }
 
 /** What `deliver` reads about the plan it would deliver. */
@@ -72,7 +81,37 @@ export interface DeliverDetail {
   deferred: number;
   /** Whether the phase and record were already on the default branch. */
   alreadyRecorded: boolean;
+  /**
+   * Branches whose merged PR carried no implementation.
+   *
+   * A FINDING, NOT A REFUSAL — see {@link emptySlices} for why. Empty on every
+   * delivery that has nothing to report, which is almost all of them.
+   */
+  emptySlices: readonly string[];
 }
+
+/**
+ * The branches whose merged PR changed nothing but a marker or a claim.
+ *
+ * IT REPORTS AND DOES NOT REFUSE, which is the harder call and the right one.
+ * Measured over 60 merged PRs on 2026-09-08, seven carried no work and only two
+ * were this defect: two were lifecycle PRs on no slice branch, and three were
+ * claim PRs whose slice finished under a DIFFERENT PR. A gate that refused
+ * would have blocked a delivery whose work was complete — right about the PR
+ * and wrong about the plan.
+ *
+ * So the finding is a question rather than a verdict, and the caller words it
+ * as one.
+ *
+ * Two exclusions and no others: a `deferred:` branch is silent, because the
+ * plan already said it gave the branch up; and `unknown` is silent, because a
+ * diff that could not be read is not a diff that was empty.
+ *
+ * @param branches - the plan's branches, as the adapters measured them.
+ * @returns the branch names, in the order the plan names them.
+ */
+const emptySlices = (branches: readonly DeliverBranchReading[]): string[] =>
+  branches.filter((b) => !b.deferred && b.merged && b.carriedWork === false).map((b) => b.branch);
 
 /**
  * Decides what delivering a plan would write.
@@ -84,6 +123,11 @@ export interface DeliverDetail {
  *
  * `delivered` is not refused — it is the idempotent case, and the run still
  * has a record to check, an index link to move and an annotation to update.
+ *
+ * IT ALSO REPORTS WHAT IT WILL NOT REFUSE ON. A branch whose PR merged carrying
+ * no implementation is named in `emptySlices` and stops nothing: the delivery
+ * proceeds, and a person is told there is a decision to make. See
+ * {@link emptySlices}.
  *
  * @param readings - what the adapters measured about the plan and its branches.
  * @param input - the date to record.
@@ -187,6 +231,7 @@ export const deliver = (
     merged: readings.branches.length - deferred,
     deferred,
     alreadyRecorded: phaseWritten && recordWritten,
+    emptySlices: emptySlices(readings.branches),
   });
 };
 

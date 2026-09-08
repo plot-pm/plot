@@ -46,6 +46,15 @@
 #                                 deciding whether to REMOVE something and
 #                                 silence is never permission. A call that
 #                                 failed outright still exits 3.
+#   pr-merge-commit <branch>       the merge commit sha of a merged PR for this
+#                                 branch, or EMPTY (exit 0) where none merged.
+#                                 The same query `pr-merged` runs, reading a
+#                                 second field of the one response. A separate
+#                                 subcommand because `pr-merged` prints one word
+#                                 and its callers read one word.
+#                                 EXIT 3 is the question failing, and it is not
+#                                 the same as an empty answer: a diff that could
+#                                 not be read is not a diff that was empty.
 #   pr-create --title T [--body B] [--base BR] [--head BR] [--draft]
 #                                 create a PR, print its URL
 #   pr-merge <number> [--squash] [--delete-branch]
@@ -2220,6 +2229,73 @@ case "$op" in
         else
           echo "plot-host: $err" >&2
           echo "unknown"
+        fi
+      fi
+    fi
+    ;;
+
+  pr-merge-commit)
+    # THE MERGE COMMIT OF A BRANCH'S MERGED PR, and nothing else.
+    #
+    # A SECOND SUBCOMMAND RATHER THAN A FIELD ON `pr-merged`, because that one
+    # prints ONE WORD and eleven callers read it as one — `plot-reap.sh`,
+    # `plot-release-refs.sh` and `plot-dispatch.sh` among them, each deciding
+    # whether to remove something. Widening its output to carry a sha would
+    # rewrite a contract those callers depend on, to serve a question none of
+    # them asks.
+    #
+    # THE QUERY IS `pr-merged`'s, so a caller asking both spends TWO calls where
+    # one would do — and that is a cost this path does not pay: delivery asks
+    # this only for a branch it has already been told merged, and the plan it
+    # serves budgets one host call per branch either way.
+    #
+    # `--state all` and `--limit 100` for `pr-merged`'s own two reasons: a
+    # merged PR reports CLOSED, and the newest PR is not the merge.
+    #
+    # PRINTS NOTHING AND EXITS 0 where no PR merged — an ANSWER, the same shape
+    # `pr-state` gives for a missing PR. Exit 3 is the question failing.
+    ref="${1:?pr-merge-commit needs a branch}"; shift || true
+    repo_args=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --repo) repo_args=(-R "${2:?}"); shift 2 ;;
+        *) die "pr-merge-commit: unknown arg $1" ;;
+      esac
+    done
+    if [ "$be" = "github" ]; then
+      if out="$(gh ${repo_args[@]+"${repo_args[@]}"} pr list --head "$ref" --state all --limit 100 --json mergedAt,mergeCommit 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        # The FIRST merged PR carrying a sha. A branch may hold several merged
+        # PRs; each names its own merge commit, and any of them is a commit that
+        # landed this branch's work.
+        jq -r 'map(select(.mergedAt != null and .mergeCommit != null))
+               | map(.mergeCommit.oid) | first // empty' <<<"$out"
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        # A lookup miss is an answer: no PR, so no merge commit. Anything else
+        # is the question failing, and silence must not read as "carried
+        # nothing" — the caller distinguishes the two by the exit code.
+        if [ -z "$err" ] || is_lookup_miss "$err"; then
+          :
+        else
+          echo "plot-host: $err" >&2
+          exit 3
+        fi
+      fi
+    else
+      bb_require_json
+      # Bitbucket names the merge commit `merge_commit.hash` on a merged PR.
+      if out="$(bb ${repo_args[@]+"${repo_args[@]}"} pr list --state merged --json 2>/tmp/plot-host-err.$$)"; then
+        rm -f "/tmp/plot-host-err.$$"
+        jq -r --arg b "$ref" 'map(select(.source.branch.name==$b))
+               | map(.merge_commit.hash // empty) | first // empty' <<<"$out"
+      else
+        err="$(cat "/tmp/plot-host-err.$$" 2>/dev/null)"; rm -f "/tmp/plot-host-err.$$"
+        if [ -z "$err" ] || is_lookup_miss "$err"; then
+          :
+        else
+          echo "plot-host: $err" >&2
+          exit 3
         fi
       fi
     fi
