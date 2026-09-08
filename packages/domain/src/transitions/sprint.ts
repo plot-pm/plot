@@ -295,6 +295,11 @@ export const setSprintState = (sprint: Sprint, input: SetSprintStateInput): Tran
  * calendar: a Must whose plan has not delivered is an open promise, and the
  * scoring is {@link scoreItem}'s rather than a second reading of the checkbox.
  *
+ * A Must naming NO plan is scored on its checkbox alone, which is what
+ * {@link scoreItem} does with `'no-plan-named'`. Passing `delivered.has('')`
+ * would read such an item as an undelivered plan and hold the sprint open on a
+ * ticked box.
+ *
  * @param sprint - the sprint to judge.
  * @param delivered - which of its plans the estate reports as delivered, by slug.
  * @returns the slugs of the Musts still open; empty means every promise kept.
@@ -302,5 +307,8 @@ export const setSprintState = (sprint: Sprint, input: SetSprintStateInput): Tran
 export const openPromises = (sprint: Sprint, delivered: ReadonlySet<string>): string[] =>
   sprint.items
     .filter(isPromised)
-    .filter((item) => scoreItem(item, delivered.has(item.plan)) !== 'done')
+    .filter(
+      (item) =>
+        scoreItem(item, item.plan === '' ? 'no-plan-named' : delivered.has(item.plan)) !== 'done',
+    )
     .map((item) => item.plan);

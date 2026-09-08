@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { scoreItem, type SprintItem } from '../src/entities/sprint.js';
+import { scoreItem, type PlanDelivery, type SprintItem } from '../src/entities/sprint.js';
 import { compareField, describingAs, type Disagreement, type Sides } from './compare.js';
 import {
   listSprintSlugs,
@@ -70,20 +70,21 @@ interface Scored {
 }
 
 /**
- * The items the domain CANNOT yet score, named rather than skipped.
+ * The shell's reading, as the domain now expresses it.
  *
- * `item_state` takes a third reading `scoreItem` has no parameter for:
- * `delivered: 'none'`, meaning the line names no plan so nothing was looked up.
- * The shell takes such an item at its checkbox — a lightweight task has only
- * one source — while `scoreItem`'s signature forces `planIsDelivered` to a
- * boolean, and a checked item with no plan therefore reads `disputed`.
+ * `item_state` takes `delivered` three-valued — `true`, `false`, and `'none'`
+ * meaning the line names no plan so nothing was looked up. `scoreItem` took a
+ * BOOLEAN until 2026-09-08, so `'none'` was inexpressible and a checked item
+ * with no plan read `disputed` where the shell read `done`. That was this
+ * file's declared divergence, and `a-sprint-item-has-one-scorer` closed it:
+ * `PlanDelivery` carries the third value and the list below is empty.
  *
- * THIS IS THE DRIFT THE PLAN NAMED, and closing it is
- * `a-sprint-item-has-one-scorer`'s job: the domain gains a way to say *no plan
- * named*. Until then the divergence is DECLARED — the set is asserted exactly,
- * so it shrinks when that plan lands and a new one still fails.
+ * THE WORD IS TRANSLATED, NOT THE VERDICT. `'none'` is the shell's spelling of
+ * the same reading; mapping it to a status here would compare the domain
+ * against this test.
  */
-const expressibility = (row: SprintItemRow): boolean => row.delivered !== 'none';
+const delivery = (row: SprintItemRow): PlanDelivery =>
+  row.delivered === 'none' ? 'no-plan-named' : row.delivered;
 
 let sprints: SprintRow[];
 let scored: Scored[];
@@ -134,15 +135,17 @@ describe('scoreItem agrees with plot-sprint-release.sh item_state', () => {
     expect(scored.some((one) => one.row.delivered === false)).toBe(true);
   });
 
-  it('answers what the shell answers, on every item the domain can express', () => {
+  it('answers what the shell answers, on every item on the estate', () => {
+    // NO ITEM IS SKIPPED. This loop carried a `continue` for the plan-less
+    // items until 2026-09-08, because the domain could not score them; the
+    // whole corpus is now compared, which is what the plan's done-when asks.
     const found: Disagreement[] = [];
     for (const one of scored) {
-      if (!expressibility(one.row)) continue;
       compareField(
         found,
         `${one.sprint} :: ${one.subject}`,
         'state',
-        scoreItem(one.item, one.row.delivered === true),
+        scoreItem(one.item, delivery(one.row)),
         one.row.state,
       );
     }
@@ -152,23 +155,22 @@ describe('scoreItem agrees with plot-sprint-release.sh item_state', () => {
     expect(found.map(report)).toEqual([]);
   });
 
-  it('names the items the domain cannot yet express, so the set can only shrink', () => {
-    // DECLARED, NOT SKIPPED. Listing them makes the divergence a decision
-    // somebody wrote down: this fails when the estate grows a NEW plan-less
-    // item, and it fails again — correctly — when `a-sprint-item-has-one-scorer`
-    // teaches the domain to say *no plan named* and the list should empty.
-    const inexpressible = scored.filter((one) => !expressibility(one.row));
-    expect(inexpressible.every((one) => one.row.slug === '')).toBe(true);
-    // And the divergence is real rather than theoretical: each of these is an
-    // item where the two implementations DO answer differently today.
-    const differing = inexpressible.filter(
-      (one) => scoreItem(one.item, false) !== one.row.state,
+  it('exercises the reading that used to diverge, so the fix is not vacuous', () => {
+    // THE DIVERGENCE THIS FILE DECLARED, now asserted empty rather than named.
+    // Emptiness alone would pass on an estate with no plan-less item, so the
+    // corpus is first shown to CONTAIN the case — four items measured
+    // 2026-09-08 — and only then shown to agree.
+    const planless = scored.filter((one) => one.row.delivered === 'none');
+    expect(planless.length).toBeGreaterThan(0);
+    expect(planless.every((one) => one.row.slug === '')).toBe(true);
+    // Both arms of the new reading are reached: a plan-less item is `done` when
+    // ticked and `open` when not, and a corpus of only one would leave half the
+    // branch unexercised.
+    expect(planless.some((one) => one.row.checked)).toBe(true);
+    const disagreeing = planless.filter(
+      (one) => scoreItem(one.item, 'no-plan-named') !== one.row.state,
     );
-    expect(differing.map((one) => `${one.sprint} :: ${one.subject}`)).toEqual(
-      inexpressible
-        .filter((one) => one.row.checked)
-        .map((one) => `${one.sprint} :: ${one.subject}`),
-    );
+    expect(disagreeing.map((one) => `${one.sprint} :: ${one.subject}`)).toEqual([]);
   });
 
   it('reports a disagreement naming the subject and both answers', () => {

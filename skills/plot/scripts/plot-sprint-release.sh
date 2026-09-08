@@ -29,15 +29,27 @@ DELIVERED_DIR="${DELIVERED_DIR%/}"
 jesc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g'; }
 
 # ---------------------------------------------------------------------------
-# item_state — what one Must/Should/Could line counts as.
+# score_items — what each Must/Should/Could line counts as.
 #
-# Inputs:
-#   $1  checked    "true" if the line is `- [x]`, "false" if `- [ ]`
-#   $2  slug       the `[slug]` plan reference, or "" for a lightweight task
-#   $3  delivered  "true"  the plan is in the Delivered index
-#                  "false" the plan exists elsewhere (active/, or nowhere)
-#                  "none"  no slug to check, so nothing was looked up
-# Prints one of: done | open | disputed
+# THE RULE IS THE DOMAIN'S AND THIS SCRIPT HOLDS NO COPY OF IT.
+# `docs/shell-and-domain.md` puts a script that runs once per operator command
+# on the calling side: `node` answers in 39 ms, and this runs when /plot-release
+# asks it rather than once per agent per pass. It was 12 lines of bash until
+# 2026-09-08, and those 12 lines and `scoreItem` had already drifted — the
+# `none` arm below was behaviour the domain could not express.
+#
+# ONE HOP FOR THE WHOLE TIER, not one per item. stdin is one item per line and
+# stdout is its status, in the same order; a hop per item would pay 39 ms 134
+# times for a rule that is three branches.
+#
+# Input:  one line per item on stdin, `checked<TAB>slug<TAB>delivered`
+#   checked    "true" if the line is `- [x]`, "false" if `- [ ]`
+#   slug       the `[slug]` plan reference, or "" for a lightweight task
+#   delivered  "true"  the plan is in the Delivered index
+#              "false" the plan exists elsewhere (active/, or nowhere)
+#              "none"  no slug to check, so nothing was looked up
+# Output: one of done | open | disputed per line, or NOTHING when the rule
+#         could not be asked — see the refusal below.
 #
 # THE PLAN ESTATE OUTRANKS THE CHECKBOX wherever there is one to read. A
 # checkbox answers "did I complete this?" without doing the work, which
@@ -70,17 +82,13 @@ jesc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g';
 # A lightweight task (no slug) has only its checkbox, so it is taken at face
 # value. That is a stated limit, not an oversight: `delivered: "none"` keeps
 # the un-checked check visible in the output rather than implying one happened.
-item_state() {
-  local checked="$1" slug="$2" delivered="$3"
-  if [ "$delivered" = "none" ]; then
-    [ "$checked" = "true" ] && printf 'done' || printf 'open'
-    return 0
-  fi
-  if [ "$checked" = "true" ]; then
-    [ "$delivered" = "true" ] && printf 'done' || printf 'disputed'
-  else
-    [ "$delivered" = "true" ] && printf 'done' || printf 'open'
-  fi
+#
+# A RULE THAT CANNOT BE ASKED REFUSES. `docs/shell-and-domain.md`: node missing,
+# the bundle absent or the module throwing leaves this script refusing, not
+# proceeding. Silence is never permission — and the permissive direction here
+# reports an unfinished Must Have as done to the release gate.
+score_items() { # stdin: one `checked\tslug\tdelivered` per line → one state per line
+  node "$HERE/board/plot-sprint-score.mjs"
 }
 
 # Is <slug> in the Delivered index? File or symlink, either is delivery.
@@ -171,8 +179,14 @@ status_line() { # $1=file $2=field → value or ""
 
 # --- Items per tier. THE VERSION IS NEVER VALIDATED ANYWHERE: the plan is
 # --- explicit that the gate checks Must Haves, never the version string.
+#
+# TWO PASSES, because the rule is asked once for the whole tier. The first
+# gathers every item's readings; the second pairs each with the status the
+# domain returned. The readings are held in arrays rather than re-parsed, so
+# the line the rule scored and the line rendered here are the same line.
 emit_tier() { # $1=file $2=heading regex → JSON array
-  local f="$1" out="[" first=1 line checked slug text delivered state
+  local f="$1" out="[" first=1 line checked slug text delivered i n
+  local -a checkeds=() slugs=() texts=() delivereds=() states=()
   while IFS= read -r line; do
     case "$line" in
       "- [ ] "*) checked=false ;;
@@ -184,18 +198,39 @@ emit_tier() { # $1=file $2=heading regex → JSON array
     text=$(printf '%s' "$text" | sed -E 's/[ ]*<!--.*-->[ ]*$//' | sed -E 's/[ \t]+$//')
     slug=$(printf '%s' "$text" | grep -oE '^\[[a-z0-9][a-z0-9-]*\]' | tr -d '[]' || true)
     if [ -n "$slug" ]; then delivered=$(is_delivered "$slug"); else delivered=none; fi
-    state=$(item_state "$checked" "$slug" "$delivered")
-    [ $first -eq 1 ] || out="$out,"
-    first=0
-    out="$out{\"slug\":\"$(jesc "$slug")\",\"text\":\"$(jesc "$text")\""
-    out="$out,\"checked\":$checked,\"delivered\":"
-    case "$delivered" in none) out="$out\"none\"" ;; *) out="$out$delivered" ;; esac
-    out="$out,\"state\":\"$state\"}"
+    checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered")
   done < <(awk -v want="$2" '
     /^###[ \t]/ { in_t = ($0 ~ want) ? 1 : 0; next }
     /^##[ \t]/  { in_t = 0 }
     in_t
   ' "$f")
+
+  n=${#checkeds[@]}
+  # An empty tier asks nothing. A sprint with no Coulds is normal, and starting
+  # a process to score no items would make the refusal below fire on it.
+  if [ "$n" -gt 0 ]; then
+    while IFS= read -r line; do states+=("$line"); done < <(
+      for ((i = 0; i < n; i++)); do
+        printf '%s\t%s\t%s\n' "${checkeds[$i]}" "${slugs[$i]}" "${delivereds[$i]}"
+      done | score_items
+    )
+    # THE REFUSAL. One status per item or none of them: a short answer means the
+    # rule was asked and could not answer, and rendering the items it did reach
+    # would report a partial sprint as a whole one.
+    if [ "${#states[@]}" -ne "$n" ]; then
+      printf 'plot-sprint-release: could not score items — is board/plot-sprint-score.mjs built?\n' >&2
+      return 1
+    fi
+  fi
+
+  for ((i = 0; i < n; i++)); do
+    [ $first -eq 1 ] || out="$out,"
+    first=0
+    out="$out{\"slug\":\"$(jesc "${slugs[$i]}")\",\"text\":\"$(jesc "${texts[$i]}")\""
+    out="$out,\"checked\":${checkeds[$i]},\"delivered\":"
+    case "${delivereds[$i]}" in none) out="$out\"none\"" ;; *) out="$out${delivereds[$i]}" ;; esac
+    out="$out,\"state\":\"${states[$i]}\"}"
+  done
   printf '%s]' "$out"
 }
 
@@ -215,11 +250,20 @@ emit_sprint() { # $1=file → one JSON object
   case "$release" in
     "<"*">"|"X.Y.Z"|"x.y.z"|"TBD"|"tbd") release="" ;;
   esac
+  # THE THREE TIERS ARE SCORED BEFORE ANYTHING IS PRINTED, so a refusal reaches
+  # the caller as a refusal. Inlined in the `printf` a command substitution
+  # swallows the exit status, and an unaskable rule would print `"must":[]` —
+  # which reads as a sprint that promised nothing, the one direction this script
+  # must never be lenient in.
+  local musts shoulds coulds
+  musts=$(emit_tier "$f" '[Mm]ust')     || return 1
+  shoulds=$(emit_tier "$f" '[Ss]hould') || return 1
+  coulds=$(emit_tier "$f" '[Cc]ould')   || return 1
   printf '{"sprint":"%s","file":"%s","phase":"%s","release":"%s"' \
     "$(jesc "$slug")" "$(jesc "$f")" "$(jesc "$phase")" "$(jesc "$release")"
-  printf ',"must":%s'   "$(emit_tier "$f" '[Mm]ust')"
-  printf ',"should":%s' "$(emit_tier "$f" '[Ss]hould')"
-  printf ',"could":%s'  "$(emit_tier "$f" '[Cc]ould')"
+  printf ',"must":%s'   "$musts"
+  printf ',"should":%s' "$shoulds"
+  printf ',"could":%s'  "$coulds"
   printf '}'
 }
 
@@ -233,7 +277,11 @@ while IFS= read -r f; do
   [ -n "$f" ] && [ -f "$f" ] || continue
   [ $first -eq 1 ] || sprints="$sprints,"
   first=0
-  sprints="$sprints$(emit_sprint "$f")"
+  # The refusal again: this script reports the facts behind a release gate, so
+  # it prints all of them or none. A sprint it could not score is not a sprint
+  # with no items.
+  one_sprint=$(emit_sprint "$f") || exit 1
+  sprints="$sprints$one_sprint"
 done <<<"$FILES"
 
 if [ -z "$sprints" ]; then
