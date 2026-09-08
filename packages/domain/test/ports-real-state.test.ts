@@ -173,6 +173,35 @@ describe('Refs reads this repository’s git state', () => {
     }
   });
 
+  /**
+   * THE THREE MERGE COMMITS THE DEFECT WAS MEASURED ON, read from real git.
+   *
+   * `5d7644ec` is PR #811 — the claim commit alone, zero files. `dab631d4` is
+   * #821 — a `PLOT-BLOCKED.md` and nothing else. `682349a6` is #809, one real
+   * file, and it is here so the two empty verdicts are not the only ones the
+   * reading can produce.
+   *
+   * READ BY SHA, NOT BY BRANCH, which is the property under test: all three
+   * branches lost their refs at merge, so nothing here could be expressed as a
+   * diff against a branch name.
+   *
+   * SKIPPED WHERE THE COMMITS ARE ABSENT. A shallow clone or a fork has none of
+   * them, and a test that failed there would be asserting which checkout it ran
+   * in — the defect the tests above this one were fixed for.
+   */
+  it.each([
+    ['5d7644ec73bd71a6f81c323ee8ddf234ba4b4f7a', [] as string[]],
+    ['dab631d4e988629b957b737e447aeaeccdc0e58c', ['PLOT-BLOCKED.md']],
+    ['682349a6b4877b62526414114a91926250915fa5', ['packages/domain/src/entities/build.ts']],
+  ])('reads what merge commit %s changed', async (sha, expected) => {
+    const refs = refsGit(context);
+    const present = await refs.resolve(sha);
+    if (!isAnswered(present)) return;
+    const files = await refs.commitFiles(sha);
+    expect(files.ok).toBe(true);
+    if (isAnswered(files)) expect([...files.value]).toEqual(expected);
+  });
+
   it('reads a file at a ref rather than from the working tree', async () => {
     // A phase read from the working tree is an approval nobody else can see.
     const refs = refsGit(context);

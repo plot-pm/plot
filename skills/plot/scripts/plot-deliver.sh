@@ -172,6 +172,27 @@ if [ "$(vfield '.deliverable')" != "true" ]; then
   die "$(vfield '.refusal')"
 fi
 
+# THE FINDING — a slice whose merged PR carried no implementation.
+#
+# IT REPORTS AND DOES NOT REFUSE, which is the harder call and the right one.
+# Measured over the last 60 merged PRs on 2026-09-08, seven carried no work and
+# only TWO were this defect: three were claim PRs whose slice finished under a
+# DIFFERENT PR, and a gate refusing on those would have blocked a delivery whose
+# work was complete — right about the PR and wrong about the plan.
+#
+# So it is worded as a QUESTION and names the next move, because a reader told
+# only "this carried nothing" still has the decision to make.
+empty_slices=$(printf '%s' "$verdict" | jq -r '.emptySlices // [] | .[]' 2>/dev/null)
+if [ -n "$empty_slices" ]; then
+  echo "note: this plan's merged PR carried no implementation on:"
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    echo "  - $b"
+  done <<< "$empty_slices"
+  echo "  check whether its work landed under another PR, mark it deferred"
+  echo "  (<!-- deferred: <reason> -->), or re-open it. Delivery continues."
+fi
+
 merged_count=$(vfield '.merged')
 deferred_count=$(vfield '.deferred')
 # Empty rather than `0`, so the suffix below stays absent where the old block
