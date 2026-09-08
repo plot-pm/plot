@@ -93,7 +93,7 @@ So the connector passes credentials to `jen` through the environment only — `J
 
 ## Slices
 
-### The run ops ask the CI backend (Branch: bug/the-run-ops-ask-the-ci-backend)
+### The run ops ask the CI backend (Branch: bug/the-run-ops-ask-the-ci-backend, PR: #837)
 
 `plot-host.sh`'s `runs` and `run-for-sha` branch on `ci_backend()` instead of calling `gh` unconditionally.
 
