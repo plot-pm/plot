@@ -3347,6 +3347,36 @@ function runDetached(args, cwd, env = {}) {
  * a process to reap. `plot-worker-loop.sh`'s own behaviour on an empty branch is
  * `workerloop.test.mjs`'s, where the prompt is the witness.
  */
+/**
+ * Removes a `repoForStart` sandbox, waiting out the workers it launched.
+ *
+ * `--start` LEAVES PROCESSES BEHIND, WHICH IS THE POINT OF THE TESTS BELOW —
+ * they assert on what a detached agent wrote. `rmSync` then races whatever that
+ * agent is still doing inside the tree: measured 2026-09-08 on the release PR
+ * for 2.15.0, `dispatch: a started agent holds NO branch` failed with
+ * `ENOTEMPTY` from its own `finally`, having passed all three of its
+ * assertions. The worker command is `true`, so the window is small — and a
+ * loaded runner is exactly where a small window opens.
+ *
+ * Retrying is the fix rather than a longer sleep: the tree becomes removable
+ * the moment the last worker exits, which is sooner than any interval worth
+ * hardcoding and later than `force: true` alone can wait for.
+ */
+function removeSandbox(root) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    try {
+      fs.rmSync(root, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      if (err.code !== 'ENOTEMPTY' && err.code !== 'EBUSY') throw err;
+      execFileSync('sleep', ['0.25']);
+    }
+  }
+  // A tree still busy after ten seconds is a worker that did not exit, which is
+  // worth failing on rather than leaking quietly.
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
 function repoForStart(label, workerCommand = 'true') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `plot-start-${label}-`));
   const origin = path.join(root, 'origin.git');
@@ -3373,7 +3403,7 @@ test('dispatch: --start defaults to three free agents', () => {
     const desks = fs.readdirSync(path.join(checkout, '.worktrees'));
     assert.equal(desks.length, 3, `three desks, found ${desks.length}`);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeSandbox(root);
   }
 });
 
@@ -3391,7 +3421,7 @@ test('dispatch: a started agent holds NO branch', () => {
     assert.equal(manifest.branch, '', 'the manifest names no branch');
     assert.ok(manifest.worktree, 'and it still names a desk');
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeSandbox(root);
   }
 });
 
@@ -3415,7 +3445,7 @@ test('dispatch: a free desk is DETACHED, never on the default branch', () => {
     assert.match(String(err.status ?? err), /1/,
       'the desk holds no branch — HEAD is detached');
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeSandbox(root);
   }
 });
 
@@ -3454,7 +3484,7 @@ test('dispatch: --start asks for a fleet OF N, so running it twice does not doub
     assert.match(second, /already running/, second);
   } finally {
     reapFixtureWorkers(checkout);
-    fs.rmSync(root, { recursive: true, force: true });
+    removeSandbox(root);
   }
 });
 
@@ -3474,7 +3504,7 @@ test('dispatch: PLOT_START_ONE skips the subtraction, because the count was alre
       'three calls, three agents — none of them subtracted the ones before it');
   } finally {
     reapFixtureWorkers(checkout);
-    fs.rmSync(root, { recursive: true, force: true });
+    removeSandbox(root);
   }
 });
 
@@ -3488,7 +3518,7 @@ test('dispatch: --start --dry-run names the desks and creates none', () => {
     assert.equal(fs.existsSync(path.join(checkout, '.plot', 'agents')), false,
       'and registers no agent');
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeSandbox(root);
   }
 });
 
@@ -3502,7 +3532,7 @@ test('dispatch: with no Worker command --start says so and starts nothing', () =
     assert.match(out, /worker=unconfigured/, out);
     assert.match(out, /summary: agents=0 /, out);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeSandbox(root);
   }
 });
 
@@ -3513,6 +3543,6 @@ test('dispatch: `Worker command: none` is an answer, and --start reports it as o
     assert.match(out, /worker=declined/, out);
     assert.match(out, /summary: agents=0 /, out);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeSandbox(root);
   }
 });
