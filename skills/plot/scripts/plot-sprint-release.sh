@@ -235,7 +235,14 @@ emit_tier() { # $1=file $2=heading regex → JSON array
     text=$(printf '%s' "$line" | sed -E 's/^- \[[ xX]\][ ]*//')
     # Strip the automation annotation — it is machinery, not the item's text.
     text=$(printf '%s' "$text" | sed -E 's/[ ]*<!--.*-->[ ]*$//' | sed -E 's/[ \t]+$//')
-    slug=$(printf '%s' "$text" | grep -oE '^\[[a-z0-9][a-z0-9-]*\]' | tr -d '[]' || true)
+    # THE REFERENCE MAY BE STRUCK THROUGH. `~~[slug]~~` is how this estate marks
+    # an item that LEFT the sprint — measured 2026-09-08, two lines carry one and
+    # both name a real plan: one Delivered, one Rejected. Anchored at `^` the
+    # regex saw neither, so each read as naming no plan and was scored on its
+    # checkbox alone; the Rejected one reported `done` over a plan that shipped
+    # nothing. The optional `~~` is the whole fix — the anchor stays, so a
+    # `[slug]` appearing mid-prose is still not a reference.
+    slug=$(printf '%s' "$text" | grep -oE '^(~~)?\[[a-z0-9][a-z0-9-]*\]' | tr -d '[]~' || true)
     if [ -n "$slug" ]; then delivered=$(plan_delivery "$slug"); else delivered=none; fi
     checkeds+=("$checked"); slugs+=("$slug"); texts+=("$text"); delivereds+=("$delivered")
   done < <(awk -v want="$2" '
