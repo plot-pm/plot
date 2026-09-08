@@ -52,7 +52,7 @@ Two halves, and the second is what makes the first a goal rather than a port. **
 
 ### Must Have
 
-- [ ] [adoption-asks-about-the-stack] `/plot-init` probes for Jira and Jenkins as it already probes for Bitbucket, and proposes `Tracker:` and the CI connector from what it finds. Measured 2026-09-07: `plot-detect-repo.sh` names `bitbucket` 7 times, `jira` and `jenkins` **0**. A teammate in a Jira shop is asked nothing and silently gets `trackerNone` <!-- pr: #781, status: approved, branch: feature/adoption-proposes-the-stack>
+- [x] [adoption-asks-about-the-stack] `/plot-init` probes for Jira and Jenkins as it already probes for Bitbucket, and proposes `Tracker:` and the CI connector from what it finds. Measured 2026-09-07: `plot-detect-repo.sh` names `bitbucket` 7 times, `jira` and `jenkins` **0**. A teammate in a Jira shop is asked nothing and silently gets `trackerNone` <!-- pr: #781, status: delivered, branch: feature/adoption-proposes-the-stack>
 
 - [x] [the-build-pipeline-is-its-own-connector] Git host, tracker and build pipeline become three domain concepts with three ports, each reached by a connector per vendor. Measured 2026-09-07: `tracker` already has that shape with four connectors; `host` is **one shell branching on vendor inside itself**, so two accounts share one refusal path and one budget; `build` has no port at all and `runs()` reaches `gh` alone. **4 slices after round 1**, which cut the entity slice (no rule would have read it) and the host split (81 working `bb` calls restructured for a budget separation this sprint's goal does not need). Plan filed 2026-09-07 <!-- pr: #782, status: delivered, branch: bug/a-pipeline-address-is-not-the-host>
 
