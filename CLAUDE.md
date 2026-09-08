@@ -441,23 +441,28 @@ variant of ports-and-adapters, not a deviation from the rule above.
 
 **No gate enforces this**, and it is a rule for the reason the domain's arrow-function rule is one: which of two implementations is right is judgement, and a grep cannot tell a declared duplicate from a forgotten one. What is gated is the pair once declared — the corpus test fails when they drift.
 
-## What The Domain Refuses Does Not Happen
+## The Master Agent Uses The Controllers
 
-**Settled 2026-09-08, and it binds the master agent first.** A lifecycle transition — a plan's phase, a sprint's state, an agent's state — is performed by asking the domain, never by editing the field. **A refusal is not advice to weigh. It is the end of that action.**
+**Settled 2026-09-08. No shortcuts.** A master agent performs a lifecycle action by calling its controller. Not the script the controller calls, not `sed` over the field the script writes, not `git` where the controller would have used it. **And what the controller refuses does not happen** — a refusal is not advice to weigh, it is the end of that action.
 
-**The rule exists because it was broken by the agent that writes the rules.** Measured 2026-09-08: a sprint file was created by hand instead of from `templates/sprint.md`, its phase set with `sed` to `Planned` — a word the lifecycle does not contain — and activated with `ln -s`. `transitions/sprint.ts:205` refuses all three by name: `state-unrecognised` lists the four states, `commitment-empty` refuses a sprint with no Must, `state-unreachable` refuses the skipped phase. Every one was written, tested and exported. **`setSprintState` has zero production callers**, so none fired, and the board counted 0 of 9 items for an hour.
+**The two halves are one rule.** Routing through a controller and then proceeding past its refusal is the same failure as never calling it: in both cases the decision was made somewhere no rule could reach.
 
-**So the test is not *did I route through the domain* but *would the domain have allowed it*.** Calling a rule and proceeding past its refusal is the same failure as not calling it.
+**Nine actions exist as controller endpoints today** — `dispatch`, `approve`, `deliver`, `idea`, `implement`, `drop`, `reslice`, `commission`, `continue` — reachable without HTTP through `skills/plot/scripts/board/plot-ask.mjs`, which is the seam `a-shell-script-asks-the-domain` built for exactly this.
 
-| you want to | ask |
-|---|---|
-| move a sprint's state | `setSprintState` — nine refusals, each with its sentence |
-| move a plan's phase | `plot-approve.sh` / `plot-deliver.sh`, which own that write |
-| record a decision a rule covers | the rule, and print what it says |
+**Measured 2026-09-08, in one session, by the agent that writes these rules:**
 
-**Where the domain has no rule, this does not apply.** A brief, a changeset, a note in a plan's Notes — none is a lifecycle state, and inventing a transition for one is not the lesson.
+| the action | how it was done | the controller that existed |
+|---|---|---|
+| activate a sprint | `sed` + `ln -s` | `setSprintState` — nine refusals, zero callers |
+| approve four plans | `python re.sub` on `State:` | the `approve` endpoint |
+| dispatch slices | `plot-dispatch.sh` directly | the `dispatch` endpoint |
+| deliver a plan | `plot-deliver.sh` directly | the `deliver` endpoint |
 
-**Where the domain has a rule and nothing calls it, that is a defect to file**, not a licence to write the field by hand. [`what-the-domain-refuses-does-not-happen`](docs/plans/2026-09-08-what-the-domain-refuses-does-not-happen.md) is the plan.
+**Four of five actions had a controller and none was used.** The sprint one cost an hour: `State: Planned` is a word `SprintStateSchema` does not contain, the file was written by hand instead of from `templates/sprint.md` so the board parsed none of its nine items, and `commitment-empty` — the refusal for exactly that — never ran.
+
+**Where no controller exists, the gap is the finding.** Opening a PR has none, and that is worth filing rather than working around silently. **Where a rule exists and nothing calls it, that is a defect to report** — never a licence to write the field by hand.
+
+**This binds the master agent specifically**, because a dispatched worker's changes are reviewed as code and a master agent's hand edits are not. Every mistake above was invisible to review: no diff of a script, no test, no PR.
 
 ## Gates Over Rules
 
