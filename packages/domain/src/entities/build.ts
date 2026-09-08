@@ -122,3 +122,37 @@ export interface BuildRun {
   /** The run's address; `''` renders as plain text. */
   url: string;
 }
+
+/**
+ * The run for ONE commit, as the CI system reports it.
+ *
+ * A THIRD SHAPE beside {@link Build} and {@link BuildRun}, and the difference
+ * is the sha. `BuildRun` is a branch's history and carries no commit at all —
+ * `gh run list --branch` does not report one — so a caller asking *did THIS
+ * commit pass* cannot read the answer off it. This carries the sha the run is
+ * for, which is the whole reason the question is separate.
+ *
+ * THE SHA MAY NOT BE THE ONE ASKED ABOUT. A branch with no run for the given
+ * commit answers with its newest run instead, and this field says which — a
+ * run in flight for a commit the branch has moved past would otherwise report
+ * identically to no run at all. Whether a differing sha means *superseded* is
+ * the caller's rule; this reports what was found.
+ *
+ * `status` AND `conclusion` STAY APART. A build awaiting a human click reports
+ * `action_required`, and one merely running reports a null conclusion; folding
+ * them into one word makes the distinction unrecoverable downstream. Both are
+ * the CI system's own words, kept verbatim for the reason `BuildRun` keeps its
+ * conclusion verbatim.
+ */
+export interface ShaRun {
+  /** The commit this run is for — not necessarily the one asked about. */
+  sha: string;
+  /** What the run is doing, verbatim; `''` where the system did not say. */
+  status: string;
+  /** How it ended, verbatim; null while it is still going. */
+  conclusion: string | null;
+  /** The run's address; `''` renders as plain text. */
+  url: string;
+  /** When it started, ISO-8601 as the system reported it; `''` when absent. */
+  startedAt: string;
+}
