@@ -217,15 +217,17 @@ describe('composeAdoption — the keys', () => {
 });
 
 describe('composeAdoption — the CI key', () => {
-  it('writes one signal as a key, with the file that said so', () => {
-    for (const [ciSystem, value, evidence] of [
-      ['jenkins', 'jenkins', 'a Jenkinsfile'],
-      ['github-actions', 'github-actions', '.github/workflows/'],
-    ] as const) {
-      const result = composeAdoption(input({ readings: readings({ ciSystem }) }));
+  it('writes the system the collector named, whatever it is', () => {
+    // THE RULE KNOWS NO VENDOR, and the third name below is what proves it: no
+    // list here admits it, and it still becomes a key. `ciKey` branched on two
+    // vendor names when it was first written and the *domain names no vendor*
+    // gate refused it — a rule that knows which systems exist needs editing when
+    // the next one arrives.
+    for (const named of ['jenkins', 'github-actions', 'buildkite'] as const) {
+      const result = composeAdoption(input({ readings: readings({ ciSystem: named }) }));
       if (isAdoptionRefusal(result)) throw new Error(result.detail);
-      expect(valueOf(result, 'CI')).toBe(value);
-      expect(result.keys.find((k) => k.key === 'CI')?.evidence).toBe(evidence);
+      expect(valueOf(result, 'CI')).toBe(named);
+      expect(result.keys.find((k) => k.key === 'CI')?.evidence).toBe('evidence in the tree');
       expect(result.gaps).toEqual([]);
     }
   });
@@ -234,7 +236,8 @@ describe('composeAdoption — the CI key', () => {
     const result = composeAdoption(input({ readings: readings({ ciSystem: 'both' }) }));
     if (isAdoptionRefusal(result)) throw new Error(result.detail);
     expect(result.keys.map((k) => k.key)).not.toContain('CI');
-    expect(result.gaps[0]).toContain('both a Jenkinsfile and .github/workflows/');
+    expect(result.gaps[0]).toContain('two CI systems left evidence');
+    expect(result.gaps[0]).toContain('the git host does not decide');
   });
 
   it('separates `none` from a reading nobody took', () => {

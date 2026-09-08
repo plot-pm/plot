@@ -128,6 +128,16 @@ is the config-format contract and was not widened for a note — so the note mov
 to where the parser already ignores it, and every VALUE is exactly what a reader
 gets back.
 
+**The rule names no CI system, and that is a gate rather than a preference.**
+`ciKey` branched on `'jenkins'` and `'github-actions'` when it was first written,
+and CI's *domain names no vendor* step refused it — a rule that knows which
+systems exist needs editing when the third one arrives, which is the property
+`ports/host.ts` opened its `HostBackend` to keep. The rule now recognises exactly
+two words, `both` and `none`, because both are answers ABOUT the reading rather
+than systems; every other word is a system it writes without knowing. Step 2 still
+names `jenkins` and `github-actions` in what it prints, and correctly: the skill
+reads the evidence, and only the domain is held to the gate.
+
 **`entry/stack-readings.ts` exists for a measured reason.** `entry/adopt.ts`
 needs the probe-report reader `entry/propose-stack.ts` already had, and imported
 it from there — after which `plot-adopt.mjs` printed a `StackProposal` and exited

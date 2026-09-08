@@ -245,12 +245,35 @@ const trackerKey = (input: AdoptionInput): { key: ConfigKey; gap: string } => {
 };
 
 /**
+ * The two readings that identify no system, spelled as the collector spells them.
+ *
+ * NOT VENDOR NAMES, AND THAT DISTINCTION IS THE WHOLE REASON THE LIST IS SHORT.
+ * `ciKey` below branched on `'jenkins'` and `'github-actions'` when it was first
+ * written, and the *domain names no vendor* gate refused it — correctly. A rule
+ * that knows which systems exist is a rule that needs editing when the third one
+ * arrives, which is the property `ports/host.ts` opened its `HostBackend` to keep.
+ *
+ * These two are ANSWERS ABOUT THE READING rather than systems: `both` says two
+ * signals disagree, `none` says nothing was found. Neither can be a config value,
+ * so the rule must recognise them — and every other word is a system it passes
+ * through without knowing.
+ */
+const AMBIGUOUS_CI = 'both';
+const NO_CI = 'none';
+
+/**
  * The CI key adoption writes, and the gap it announces.
  *
- * ONE SIGNAL PROPOSES, TWO SIGNALS ASK. `both` never tie-breaks on the git host
- * — a team on GitHub running Jenkins is common, and a silently wrong `CI:`
- * sends every build-status lookup to the wrong system. `none` is a reading and
- * not a key: writing `CI: none` records a choice the repository never made.
+ * ONE SIGNAL PROPOSES, TWO SIGNALS ASK. `both` never tie-breaks — a team on one
+ * vendor's host running another's CI is common, and a silently wrong `CI:` sends
+ * every build-status lookup to the wrong system. `none` is a reading and not a
+ * key: writing `CI: none` records a choice the repository never made.
+ *
+ * ANY OTHER WORD IS A SYSTEM, AND THIS DOES NOT KNOW WHICH. The collector reads
+ * the evidence and names what it found; the rule decides only whether that name
+ * identifies one system, so a third CI system needs no edit here. The EVIDENCE
+ * sentence stays the collector's for the same reason — naming the file that said
+ * so would mean holding a file name per vendor.
  */
 const ciKey = (input: AdoptionInput): { key: ConfigKey | null; gap: string } => {
   const confirmed = input.answers.ci;
@@ -258,25 +281,19 @@ const ciKey = (input: AdoptionInput): { key: ConfigKey | null; gap: string } => 
     return { key: { key: 'CI', value: confirmed, evidence: 'confirmed' }, gap: '' };
   }
   const read = input.readings.ciSystem;
-  if (read === 'jenkins') {
-    return { key: { key: 'CI', value: 'jenkins', evidence: 'a Jenkinsfile' }, gap: '' };
-  }
-  if (read === 'github-actions') {
-    return {
-      key: { key: 'CI', value: 'github-actions', evidence: '.github/workflows/' },
-      gap: '',
-    };
-  }
-  if (read === 'both') {
+  if (read === AMBIGUOUS_CI) {
     return {
       key: null,
-      gap: 'no CI key written — both a Jenkinsfile and .github/workflows/ were found, and the host does not decide which runs the PRs',
+      gap: 'no CI key written — two CI systems left evidence in the tree, and the git host does not decide which runs the PRs',
     };
   }
-  if (read === 'none') {
+  if (read === NO_CI) {
     return { key: null, gap: 'no CI key written — no CI evidence in the tree' };
   }
-  return { key: null, gap: 'no CI key written — the CI system was not read' };
+  if (read === '') {
+    return { key: null, gap: 'no CI key written — the CI system was not read' };
+  }
+  return { key: { key: 'CI', value: read, evidence: 'evidence in the tree' }, gap: '' };
 };
 
 /**
