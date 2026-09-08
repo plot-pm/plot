@@ -553,6 +553,31 @@ await esbuild.build({
 fs.copyFileSync(sprintTransitionArtifact, shippedSprintTransition);
 fs.chmodSync(shippedSprintTransition, 0o755);
 
+// What adoption writes into a repository, for /plot-init.
+//
+// ONCE PER ADOPTION, the same call site plot-propose-stack.mjs answers at, and
+// the CONTROLLER for the one command that writes into a repository Plot does not
+// own. Its own bundle rather than a verb on plot-ask.mjs: an adopting repository
+// has no board, no plans and no fleet to load, and this asks composeAdoption
+// and spawns nothing.
+const adoptArtifact = path.join(here, 'dist/plot-adopt.mjs');
+const shippedAdopt = path.join(here, '../../skills/plot/scripts/board/plot-adopt.mjs');
+
+await esbuild.build({
+  entryPoints: [path.join(here, 'src/server/entry/adopt.ts')],
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node20',
+  outfile: adoptArtifact,
+  minify: true,
+  legalComments: 'none',
+  banner: { js: '#!/usr/bin/env node' },
+});
+
+fs.copyFileSync(adoptArtifact, shippedAdopt);
+fs.chmodSync(shippedAdopt, 0o755);
+
 // Vendor Plot's plan-format helpers so the PUBLISHED npm package is standalone.
 // board-server.mjs shells out (bash) to plot-config.sh + plot-plan-meta.sh,
 // resolved at `resolve(dirname(artifact), '..')`. In the npm layout that is the
@@ -662,6 +687,7 @@ const branchStateKb = (fs.statSync(shippedBranchState).size / 1024).toFixed(1);
 const sprintScoreKb = (fs.statSync(shippedSprintScore).size / 1024).toFixed(1);
 const proposeStackKb = (fs.statSync(shippedProposeStack).size / 1024).toFixed(1);
 const sprintTransitionKb = (fs.statSync(shippedSprintTransition).size / 1024).toFixed(1);
+const adoptKb = (fs.statSync(shippedAdopt).size / 1024).toFixed(1);
 console.log(`Built board-server.mjs (${kb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-ask.mjs (${askKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-verdicts.mjs (${verdictsKb} KB) → skills/plot/scripts/board/`);
@@ -678,4 +704,5 @@ console.log(`Built plot-branch-state.mjs (${branchStateKb} KB) → skills/plot/s
 console.log(`Built plot-sprint-score.mjs (${sprintScoreKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-propose-stack.mjs (${proposeStackKb} KB) → skills/plot/scripts/board/`);
 console.log(`Built plot-sprint-transition.mjs (${sprintTransitionKb} KB) → skills/plot/scripts/board/`);
+console.log(`Built plot-adopt.mjs (${adoptKb} KB) → skills/plot/scripts/board/`);
 console.log(`Vendored ${vendoredScripts.join(', ')} → package root (npm standalone)`);
