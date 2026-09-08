@@ -8,6 +8,7 @@ import {
   type PrRecord, type CacheEntry,
 } from '../../src/server/fleet.js';
 import type { FleetReading } from '../../src/contract/schema.js';
+import { buildActions } from '@plot-pm/domain/adapters';
 
 // The measurement this file exists for, taken on this repo 2026-08-27 after the
 // scan batching (#486) landed: the scan reads 24.2 % CPU — 6.61 s of work inside
@@ -105,9 +106,24 @@ function pulseWith(branch: string, phase: string): FleetReading {
   } as FleetReading;
 }
 
-/** Run `refreshRuns` the way `refreshPrs` does, over one PR map. */
+/**
+ * Run `refreshRuns` the way `refreshPrs` does, over one PR map.
+ *
+ * THE CONNECTOR IS PASSED, and passing it is what keeps the seam real. The runs
+ * question moved off the git host onto the CI port, and `buildActions` still
+ * shells to `plot-host.sh runs` — so the counting script below still counts
+ * host round trips, which is this file's entire subject. Leaving the connector
+ * to be resolved from config would resolve it to `buildNone` in a temp
+ * directory holding no `plot-config.sh`, and every count below would be zero
+ * for a reason that has nothing to do with what is watched.
+ */
 async function pass(scriptsDir: string, entry: CacheEntry, prs: Map<string, PrRecord>) {
-  await refreshRuns({ repoRoot: scriptsDir, scriptsDir }, entry, prs);
+  await refreshRuns(
+    { repoRoot: scriptsDir, scriptsDir },
+    entry,
+    prs,
+    buildActions({ repoRoot: scriptsDir, scriptDir: scriptsDir }),
+  );
 }
 
 describe('the board refreshes what is watched', () => {
